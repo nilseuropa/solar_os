@@ -34,6 +34,7 @@ idf_component_register(
         "jobs/solar_os_log_job.c"
         "jobs/solar_os_ntp_sync_job.c"
         "jobs/solar_os_shell_job.c"
+        "jobs/solar_os_slip_job.c"
         "drivers/cdc_port.c"
         "drivers/adc_port.c"
         "drivers/audio_codec_board.c"

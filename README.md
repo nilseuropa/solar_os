@@ -78,7 +78,7 @@ ssh user@example-host
 
 ## Ports
 
-SolarOS has a byte-stream port layer for serial-style endpoints. Ports can be claimed by exactly one owner at a time, so a CDC shell, UART shell, log stream, serial bridge, or future SLIP/PPP job cannot accidentally write over another consumer.
+SolarOS has a byte-stream port layer for serial-style endpoints. Ports can be claimed by exactly one owner at a time, so a CDC shell, UART shell, log stream, serial bridge, or SLIP/PPP job cannot accidentally write over another consumer.
 
 Current ports:
 
@@ -187,11 +187,13 @@ Jobs run in the background while a foreground app or shell remains active.
 - `log`: Stream SolarOS log entries to a byte-stream port or SD file. Start with `job start log <port> [error|warn|info|debug]` or `job start log file <path> [error|warn|info|debug]`.
 - `ntp-sync`: Sync RTC time from NTP. Start with `job start ntp-sync [once] [interval-sec] [server]`; defaults are `60` and `pool.ntp.org`. With `once`, the job retries at the interval until the first successful sync, then stops itself.
 - `shell`: Start a VT100 shell on a byte-stream port. Start with `job start shell <port>`.
+- `slip`: Start an IPv4 SLIP gateway on a byte-stream port. Start with `job start slip [port] [baud] [local-ip] [peer-ip] [netmask]`; defaults are `uart0`, `115200`, `192.168.7.1`, `192.168.7.2`, and `255.255.255.252`. The peer should use the local IP as its gateway. NAT is enabled on the SLIP-facing interface.
 
 Examples:
 
 ```text
 job start bridge cdc0 uart0
+job start slip uart0 115200
 job start log cdc0
 job start log uart0
 job start log file /sdcard/.shell/log
