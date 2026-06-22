@@ -184,7 +184,7 @@ Networking:
 
 Jobs run in the background while a foreground app or shell remains active.
 
-- `batmon`: Periodically sample battery voltage and estimate trend/time left. Start with `job start batmon [interval-sec]`; default is `60`. Voltage above `battery max_voltage` is external power; voltage on or below `battery max_voltage` is battery power. If three consecutive samples are at or below `battery min_voltage` while on battery, SolarOS requests light sleep.
+- `batmon`: Periodically sample battery voltage and estimate trend/time left. Start with `job start batmon [interval-sec]`; default is `60`. Voltage above `battery max_voltage` or a confirmed charging trend is external power. If three consecutive samples are at or below `battery min_voltage` while on battery, SolarOS requests light sleep.
 - `bridge`: Raw bidirectional byte bridge between two ports. Start with `job start bridge <port-a> <port-b>`, for example `job start bridge cdc0 uart0`.
 - `httpd`: Serve static files from a folder. Start with `job start httpd <folder>`; relative folders resolve under the default SD mount point.
 - `log`: Stream SolarOS log entries to a byte-stream port or SD file. Start with `job start log <port> [error|warn|info|debug]` or `job start log file <path> [error|warn|info|debug]`.

@@ -126,6 +126,13 @@ static bool battery_voltage_external_power(uint16_t mv)
     return mv > battery_config.max_voltage_mv;
 }
 
+static bool battery_monitor_indicates_external_power(void)
+{
+    return monitor_status.running &&
+        monitor_status.sample_count >= 2 &&
+        monitor_status.trend == SOLAR_OS_BATTERY_TREND_CHARGING;
+}
+
 static void battery_monitor_reset_estimate(void)
 {
     monitor_status.sample_count = 0;
@@ -198,6 +205,7 @@ static void battery_monitor_update_estimate(void)
 
     if (slope > BATTERY_TREND_THRESHOLD_MVH) {
         monitor_status.trend = SOLAR_OS_BATTERY_TREND_CHARGING;
+        monitor_status.external_power = true;
         return;
     }
     if (slope < -BATTERY_TREND_THRESHOLD_MVH) {
@@ -245,7 +253,8 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     status->percent = battery_percent_from_voltage(sample.battery_mv);
     status->percent_estimated = true;
     status->adc_calibrated = sample.calibrated;
-    status->external_power = battery_voltage_external_power(sample.battery_mv);
+    status->external_power = battery_voltage_external_power(sample.battery_mv) ||
+        battery_monitor_indicates_external_power();
     return ESP_OK;
 }
 
