@@ -599,6 +599,8 @@ static void chat_handle_gateway_line(const char *line)
         event.type = SOLAR_OS_CHAT_EVENT_MESSAGE;
     } else if (strcmp(type, "joined") == 0) {
         event.type = SOLAR_OS_CHAT_EVENT_JOINED;
+    } else if (strcmp(type, "left") == 0) {
+        event.type = SOLAR_OS_CHAT_EVENT_LEFT;
     } else if (strcmp(type, "channel") == 0) {
         event.type = SOLAR_OS_CHAT_EVENT_CHANNEL;
     } else if (strcmp(type, "presence") == 0) {
@@ -1112,6 +1114,20 @@ esp_err_t solar_os_chat_join(const char *channel)
     return chat_queue_tx_line(line);
 }
 
+esp_err_t solar_os_chat_leave(const char *channel)
+{
+    if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
+    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
+
+    char line[CHAT_TX_LINE_MAX];
+    snprintf(line, sizeof(line), "{\"type\":\"leave\",\"channel\":\"%s\"}\n", channel_esc);
+    return chat_queue_tx_line(line);
+}
+
 esp_err_t solar_os_chat_send(const char *channel, const char *text)
 {
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false) ||
@@ -1206,6 +1222,8 @@ const char *solar_os_chat_event_type_name(solar_os_chat_event_type_t type)
         return "channel";
     case SOLAR_OS_CHAT_EVENT_JOINED:
         return "joined";
+    case SOLAR_OS_CHAT_EVENT_LEFT:
+        return "left";
     case SOLAR_OS_CHAT_EVENT_MESSAGE:
         return "message";
     case SOLAR_OS_CHAT_EVENT_PRESENCE:

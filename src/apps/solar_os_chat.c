@@ -254,6 +254,41 @@ static int chat_add_channel(const char *name, bool select)
     return index;
 }
 
+static void chat_remove_channel(const char *name)
+{
+    const int index = chat_find_channel(name);
+    if (index < 0 || chat_app.channel_count == 0) {
+        return;
+    }
+
+    const uint8_t remove_index = (uint8_t)index;
+    for (uint8_t i = remove_index; i + 1U < chat_app.channel_count; i++) {
+        chat_app.channels[i] = chat_app.channels[i + 1U];
+    }
+    chat_app.channel_count--;
+    if (chat_app.channel_count == 0) {
+        (void)chat_add_channel(CHAT_APP_DEFAULT_CHANNEL, true);
+        return;
+    }
+
+    if (chat_app.current_channel >= chat_app.channel_count) {
+        chat_app.current_channel = chat_app.channel_count - 1U;
+    } else if (chat_app.current_channel > remove_index) {
+        chat_app.current_channel--;
+    } else if (chat_app.current_channel == remove_index) {
+        chat_app.current_channel = remove_index < chat_app.channel_count ?
+            remove_index : chat_app.channel_count - 1U;
+    }
+
+    if (chat_app.selected_channel >= chat_app.channel_count) {
+        chat_app.selected_channel = chat_app.channel_count - 1U;
+    } else if (chat_app.selected_channel > remove_index) {
+        chat_app.selected_channel--;
+    }
+    chat_app.message_scroll = 0;
+    chat_app.redraw = true;
+}
+
 static void chat_append_event(solar_os_chat_event_type_t type,
                               const char *channel,
                               const char *from,
@@ -619,6 +654,13 @@ static void chat_handle_service_event(const solar_os_chat_event_t *event)
         chat_set_status("joined");
         break;
     }
+    case SOLAR_OS_CHAT_EVENT_LEFT: {
+        const char *name = event->channel[0] != '\0' ? event->channel : event->text;
+        chat_append_event(event->type, name, "", "left", true);
+        chat_remove_channel(name);
+        chat_set_status("left");
+        break;
+    }
     case SOLAR_OS_CHAT_EVENT_MESSAGE:
         chat_append_event(event->type, event->channel, event->from, event->text, false);
         break;
@@ -701,6 +743,42 @@ static void chat_connect_with_args(const char *url,
     }
 }
 
+static void chat_show_status(void)
+{
+    solar_os_chat_status_t status;
+    if (solar_os_chat_get_status(&status) != ESP_OK) {
+        chat_append_statusf("chat service unavailable");
+        return;
+    }
+
+    chat_append_statusf("state: %s", solar_os_chat_state_name(status.state));
+    chat_append_statusf("url: %s", status.url[0] != '\0' ? status.url : "(not configured)");
+    chat_append_statusf("identity: %s@%s", status.user, status.device);
+    chat_append_statusf("token: %s", status.token_set ? "set" : "not set");
+    chat_append_statusf("current: #%s", chat_current_channel_name());
+    chat_append_statusf("channels: %u", (unsigned)chat_app.channel_count);
+    chat_append_statusf("rx=%" PRIu32 " tx=%" PRIu32 " drop=%" PRIu32,
+                        status.rx_count,
+                        status.tx_count,
+                        status.dropped_count);
+    chat_append_statusf("cache: RAM session only; no SD cache");
+}
+
+static void chat_leave_channel(const char *name)
+{
+    const char *channel = (name != NULL && name[0] != '\0') ? name : chat_current_channel_name();
+    const esp_err_t err = solar_os_chat_leave(channel);
+    if (err == ESP_OK) {
+        chat_append_statusf("left #%s", channel);
+        chat_remove_channel(channel);
+        chat_set_status("left");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        chat_set_status("not connected");
+    } else {
+        chat_set_status(esp_err_to_name(err));
+    }
+}
+
 static void chat_execute_command(char *line)
 {
     char *argv[5];
@@ -711,6 +789,7 @@ static void chat_execute_command(char *line)
 
     if (strcasecmp(argv[0], "/help") == 0) {
         chat_append_statusf("/join channel");
+        chat_append_statusf("/leave [channel]");
         chat_append_statusf("/connect [url]");
         chat_append_statusf("/disconnect");
         chat_append_statusf("/status");
@@ -726,20 +805,15 @@ static void chat_execute_command(char *line)
         } else {
             chat_set_status("channel list full");
         }
+    } else if (strcasecmp(argv[0], "/leave") == 0 || strcasecmp(argv[0], "/part") == 0) {
+        chat_leave_channel(argc >= 2 ? argv[1] : NULL);
     } else if (strcasecmp(argv[0], "/connect") == 0) {
         chat_connect_with_args(argc >= 2 ? argv[1] : NULL, NULL, NULL, true);
     } else if (strcasecmp(argv[0], "/disconnect") == 0) {
         const esp_err_t err = solar_os_chat_disconnect();
         chat_set_status(err == ESP_OK || err == ESP_ERR_INVALID_STATE ? "disconnected" : esp_err_to_name(err));
     } else if (strcasecmp(argv[0], "/status") == 0) {
-        solar_os_chat_status_t status;
-        if (solar_os_chat_get_status(&status) == ESP_OK) {
-            chat_append_statusf("%s rx=%" PRIu32 " tx=%" PRIu32 " drop=%" PRIu32,
-                                solar_os_chat_state_name(status.state),
-                                status.rx_count,
-                                status.tx_count,
-                                status.dropped_count);
-        }
+        chat_show_status();
     } else if (strcasecmp(argv[0], "/quit") == 0 || strcasecmp(argv[0], "/exit") == 0) {
         chat_app.active = false;
     } else {

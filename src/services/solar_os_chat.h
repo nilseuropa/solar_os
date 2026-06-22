@@ -26,6 +26,7 @@ typedef enum {
     SOLAR_OS_CHAT_EVENT_ERROR,
     SOLAR_OS_CHAT_EVENT_CHANNEL,
     SOLAR_OS_CHAT_EVENT_JOINED,
+    SOLAR_OS_CHAT_EVENT_LEFT,
     SOLAR_OS_CHAT_EVENT_MESSAGE,
     SOLAR_OS_CHAT_EVENT_PRESENCE,
     SOLAR_OS_CHAT_EVENT_RAW,
@@ -70,6 +71,7 @@ esp_err_t solar_os_chat_connect(const char *url,
                                 const char *device);
 esp_err_t solar_os_chat_disconnect(void);
 esp_err_t solar_os_chat_join(const char *channel);
+esp_err_t solar_os_chat_leave(const char *channel);
 esp_err_t solar_os_chat_send(const char *channel, const char *text);
 esp_err_t solar_os_chat_read_event(solar_os_chat_event_t *event, uint32_t timeout_ms);
 esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status);
