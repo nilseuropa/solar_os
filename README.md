@@ -289,7 +289,7 @@ Applications are launched by typing their name at the shell prompt.
 - `aplay`: Play native 16000 Hz stereo 16-bit PCM WAV or MP3 audio from SD card.
 - `clock`: Seven-segment clock, countdown alarm, and stopwatch. Use `clock` for time, `clock -a mm:ss` for a countdown alarm that beeps until quit, and `clock -s` for stopwatch mode.
 - `python`: Interactive MicroPython shell, plus `.py` and `.mpy` script execution from SD card, with a PSRAM heap and a small `solaros` module.
-- `lua`: Interactive Lua shell, plus `.lua` script execution from SD card. Lua allocations prefer PSRAM; `exit()` returns from the REPL to the SolarOS shell.
+- `lua`: Interactive Lua shell, plus `.lua` script execution from SD card, with PSRAM-first allocation and SolarOS service bindings.
 - `ssh`: SSH client with UTF-8 terminal rendering, host key checking, password/key auth, `/.ssh/known_hosts`, and `/.ssh/hosts` lookup.
 - `scp`: Copy files to or from a remote SSH server.
 - `curl`: HTTP/HTTPS GET client with redirect support and optional SD card output.
@@ -312,11 +312,15 @@ The built-in app registry stores each app name, summary, implementation pointer,
 
 `python` starts an interactive MicroPython prompt with `>>>` and `...` continuation prompts. `python <file.py|file.mpy> [args...]` runs a MicroPython script from SD. Script output is drawn in the SolarOS terminal, `sys.argv` contains the script path and following arguments, and `CTRL+ALT+DEL` exits at the prompt or requests `KeyboardInterrupt` while code is running.
 
-The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, and `solaros.apps`.
+The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, `solaros.apps`, `solaros.tui`, and `solaros.gfx`.
 
 See [SolarOS Python API](doc/solar_os_python.md) for the full module reference and examples.
 
-`lua` starts an interactive Lua prompt. `lua <file.lua> [args...]` runs a Lua script from SD, with `arg[0]` set to the script path and following arguments stored from `arg[1]`. The initial embedded Lua library set includes base, coroutine, table, string, math, UTF-8, and debug. Host-facing Lua `io`, `os`, and dynamic package loading are intentionally not opened; SolarOS service bindings should be added as a dedicated `solaros` Lua module later.
+`lua` starts an interactive Lua prompt. `lua <file.lua> [args...]` runs a Lua script from SD, with `arg[0]` set to the script path and following arguments stored from `arg[1]`. The embedded Lua library set includes base, coroutine, table, string, math, UTF-8, and debug. Host-facing Lua `io`, `os`, and dynamic package loading are intentionally not opened. SolarOS preloads a global `solaros` table and also supports `local solaros = require("solaros")` through a minimal built-in shim.
+
+The Lua `solaros` API mirrors the Python service layout for storage, time, hardware services, Wi-Fi, audio, BLE, jobs, app registry, TUI, and graphics. Network-specific Lua modules such as `mqtt`, `net`, and `ssh_keys` are present when the `net` package is compiled.
+
+See [SolarOS Lua API](doc/solar_os_lua.md) for the Lua module reference and examples.
 
 Python example:
 
@@ -327,6 +331,16 @@ solaros.write("SolarOS " + solaros.version() + "\n")
 print(solaros.battery.status())
 print(solaros.storage.usage("/"))
 print(solaros.apps.list())
+```
+
+Lua example:
+
+```lua
+local solaros = require("solaros")
+
+solaros.write("SolarOS " .. solaros.version() .. "\n")
+print(solaros.battery.status().percent)
+print(solaros.storage.usage("/")["free_bytes"])
 ```
 
 ## SD Card Layout
