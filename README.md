@@ -130,6 +130,7 @@ System:
 - `status`
 - `uptime`
 - `sleep`
+- `power [status|profile|idle|sleep]`: inspect power state, select power profile, configure display-shell idle sleep, or enter light sleep.
 - `jobs`
 - `job [status|start|stop]`: control background jobs; job-specific arguments follow the job name.
 - `port [list|status]`: inspect registered byte-stream ports and current owners.
@@ -184,6 +185,15 @@ Hardware and sensors:
 - `ntp [server]`
 - `temperature`
 - `humidity`
+
+Power profiles:
+
+- `power profile performance`: disables idle sleep.
+- `power profile balanced`: disables idle sleep; this is the default.
+- `power profile solar`: enables display-shell idle sleep after 300 seconds.
+- `power profile offline`: enables display-shell idle sleep after 60 seconds.
+
+`power idle [off|seconds]` overrides the profile idle timeout. Idle sleep currently applies only while the foreground app is the display shell, so SSH, editor, web, serial terminal, games, audio, and other foreground apps are not suspended unexpectedly.
 
 Networking:
 

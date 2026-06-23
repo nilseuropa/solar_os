@@ -17,6 +17,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
+#include "esp_sleep.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -38,6 +39,7 @@
 #endif
 #include "solar_os_ota.h"
 #include "solar_os_port.h"
+#include "solar_os_power.h"
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_shell.h"
@@ -1024,6 +1026,186 @@ void solar_os_shell_cmd_sleep(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_shell_io_writeln(term, "sleeping; press KEY to wake");
     solar_os_context_request_sleep(ctx);
+}
+
+static const char *power_wakeup_cause_name(int cause)
+{
+    switch ((esp_sleep_wakeup_cause_t)cause) {
+    case ESP_SLEEP_WAKEUP_EXT0:
+        return "ext0";
+    case ESP_SLEEP_WAKEUP_EXT1:
+        return "ext1";
+    case ESP_SLEEP_WAKEUP_TIMER:
+        return "timer";
+    case ESP_SLEEP_WAKEUP_TOUCHPAD:
+        return "touch";
+    case ESP_SLEEP_WAKEUP_ULP:
+        return "ulp";
+    case ESP_SLEEP_WAKEUP_GPIO:
+        return "gpio";
+    case ESP_SLEEP_WAKEUP_UART:
+        return "uart";
+    case ESP_SLEEP_WAKEUP_WIFI:
+        return "wifi";
+    case ESP_SLEEP_WAKEUP_COCPU:
+        return "coproc";
+    case ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG:
+        return "coproc-trap";
+    case ESP_SLEEP_WAKEUP_BT:
+        return "bt";
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+    default:
+        return "undefined";
+    }
+}
+
+static void power_print_usage(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  power status");
+    solar_os_shell_io_writeln(term, "  power profile [performance|balanced|solar|offline]");
+    solar_os_shell_io_writeln(term, "  power idle [off|seconds]");
+    solar_os_shell_io_writeln(term, "  power sleep");
+}
+
+static void power_print_status(solar_os_shell_io_t *term)
+{
+    solar_os_power_status_t status;
+    char last_sleep[32];
+    char idle_text[32];
+
+    solar_os_power_get_status(&status);
+    solar_os_time_format_uptime(status.last_sleep_duration_ms, last_sleep, sizeof(last_sleep));
+    if (status.idle_sleep_ms == 0) {
+        strlcpy(idle_text, "off", sizeof(idle_text));
+    } else {
+        solar_os_time_format_uptime(status.idle_sleep_ms, idle_text, sizeof(idle_text));
+    }
+
+    solar_os_shell_io_printf(term,
+                             "Profile: %s\n",
+                             solar_os_power_profile_name(status.profile));
+    solar_os_shell_io_printf(term, "Idle sleep: %s\n", idle_text);
+    solar_os_shell_io_printf(term,
+                             "Light sleep count: %" PRIu32 "\n",
+                             status.light_sleep_count);
+    solar_os_shell_io_printf(term, "Last sleep: %s\n", last_sleep);
+    solar_os_shell_io_printf(term,
+                             "Last wake: %s (%d) ext1=0x%016" PRIx64 "\n",
+                             power_wakeup_cause_name(status.last_wakeup_cause),
+                             status.last_wakeup_cause,
+                             status.last_wakeup_ext1);
+}
+
+void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 2) {
+            solar_os_shell_io_writeln(term, "usage: power status");
+            return;
+        }
+        power_print_status(term);
+        return;
+    }
+
+    if (strcmp(argv[1], "profile") == 0) {
+        if (argc == 2) {
+            solar_os_power_status_t status;
+            solar_os_power_get_status(&status);
+            solar_os_shell_io_printf(term,
+                                     "profile: %s\n",
+                                     solar_os_power_profile_name(status.profile));
+            solar_os_shell_io_writeln(term, "values: performance balanced solar offline");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(term,
+                                      "usage: power profile [performance|balanced|solar|offline]");
+            return;
+        }
+
+        solar_os_power_profile_t profile;
+        if (!solar_os_power_parse_profile(argv[2], &profile)) {
+            solar_os_shell_io_printf(term, "power profile: invalid value: %s\n", argv[2]);
+            solar_os_shell_io_writeln(term, "values: performance balanced solar offline");
+            return;
+        }
+
+        const esp_err_t err = solar_os_power_set_profile(profile);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "power profile: %s\n",
+                                     solar_os_power_profile_name(profile));
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "power profile: save failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "idle") == 0) {
+        if (argc == 2) {
+            solar_os_power_status_t status;
+            solar_os_power_get_status(&status);
+            if (status.idle_sleep_ms == 0) {
+                solar_os_shell_io_writeln(term, "idle: off");
+            } else {
+                solar_os_shell_io_printf(term,
+                                         "idle: %" PRIu32 " seconds\n",
+                                         status.idle_sleep_ms / 1000U);
+            }
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(term, "usage: power idle [off|seconds]");
+            return;
+        }
+
+        uint32_t idle_ms = 0;
+        if (strcmp(argv[2], "off") != 0 && strcmp(argv[2], "0") != 0) {
+            size_t seconds = 0;
+            if (!parse_size_arg(argv[2], 1, 86400, &seconds)) {
+                solar_os_shell_io_printf(term, "power idle: invalid seconds: %s\n", argv[2]);
+                return;
+            }
+            idle_ms = (uint32_t)seconds * 1000U;
+        }
+
+        const esp_err_t err = solar_os_power_set_idle_sleep_ms(idle_ms);
+        if (err == ESP_OK) {
+            if (idle_ms == 0) {
+                solar_os_shell_io_writeln(term, "power idle: off");
+            } else {
+                solar_os_shell_io_printf(term,
+                                         "power idle: %" PRIu32 " seconds\n",
+                                         idle_ms / 1000U);
+            }
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "power idle: save failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "sleep") == 0) {
+        if (argc != 2) {
+            solar_os_shell_io_writeln(term, "usage: power sleep");
+            return;
+        }
+        if (solar_os_shell_io_kind(term) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+            solar_os_shell_io_writeln(term, "sleep is only available from the display shell");
+            return;
+        }
+        solar_os_shell_io_writeln(term, "sleeping; press KEY to wake");
+        solar_os_context_request_sleep(ctx);
+        return;
+    }
+
+    power_print_usage(term);
 }
 
 static void setterm_print_usage(solar_os_shell_io_t *term)

@@ -138,6 +138,9 @@ static const char *keyboard_layout_names[] = {
 };
 
 static const char *addr_type_name(esp_ble_addr_type_t addr_type);
+static void set_status(ble_keyboard_state_t next_state, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+static void repeat_clear(void);
 static void schedule_reconnect(uint32_t delay_ms);
 static void repeat_queue_if_due(void);
 
@@ -198,6 +201,18 @@ static void set_preferred_low_latency_conn_params(const uint8_t *bda)
                                                              BLE_KEYBOARD_CONN_TIMEOUT);
     if (ret != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "preferred BLE conn params failed: %s", esp_err_to_name(ret));
+    }
+}
+
+static void clear_runtime_connection_state(const char *reason)
+{
+    connected = false;
+    connected_dev = NULL;
+    memset(previous_keys, 0, sizeof(previous_keys));
+    previous_modifiers = 0;
+    repeat_clear();
+    if (reason != NULL) {
+        set_status(BLE_KEYBOARD_IDLE, "%s", reason);
     }
 }
 
@@ -1773,12 +1788,17 @@ esp_err_t solar_os_ble_keyboard_prepare_sleep(uint32_t timeout_ms)
     }
 
     SOLAR_OS_LOGW(TAG, "sleep: keyboard disconnect timeout");
+    clear_runtime_connection_state("sleep disconnect timeout");
     return ESP_ERR_TIMEOUT;
 }
 
 void solar_os_ble_keyboard_resume(void)
 {
     reconnect_suppressed_for_sleep = false;
+
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        esp_bt_controller_wakeup_request();
+    }
 
     if (!initialized || connected || !remembered_peer_valid()) {
         return;

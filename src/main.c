@@ -37,6 +37,7 @@
 #endif
 #include "solar_os_ota.h"
 #include "solar_os_port.h"
+#include "solar_os_power.h"
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_shell.h"
@@ -75,6 +76,7 @@ static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 
 static void process_app_requests(void);
+static void maybe_enter_idle_sleep(void);
 static void update_status(void);
 
 static uint32_t millis_u32(void)
@@ -296,6 +298,7 @@ static void enter_light_sleep(const char *reason)
         key_pressed = gpio_get_level(WS_RLCD_PIN_KEY) == 0;
         key_long_press_fired = false;
         key_pressed_ms = millis_u32();
+        solar_os_power_note_activity(key_pressed_ms);
         return;
     }
 
@@ -318,6 +321,7 @@ static void enter_light_sleep(const char *reason)
         key_pressed = gpio_get_level(WS_RLCD_PIN_KEY) == 0;
         key_long_press_fired = false;
         key_pressed_ms = millis_u32();
+        solar_os_power_note_activity(key_pressed_ms);
         return;
     }
 
@@ -342,8 +346,11 @@ static void enter_light_sleep(const char *reason)
         SOLAR_OS_LOGW(TAG, "BLE keyboard sleep prepare failed: %s", esp_err_to_name(ble_sleep_err));
     }
 
+    solar_os_power_note_sleep_enter(millis_u32());
     err = esp_light_sleep_start();
 
+    const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+    const uint64_t wake_ext1 = esp_sleep_get_ext1_wakeup_status();
     (void)esp_sleep_disable_ext1_wakeup_io(KEY_WAKE_MASK);
     (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     key_restore_gpio_after_rtc();
@@ -359,11 +366,13 @@ static void enter_light_sleep(const char *reason)
     if (err == ESP_OK) {
         SOLAR_OS_LOGI(TAG,
                       "wake from light sleep: cause=%d ext1=0x%016" PRIx64,
-                      (int)esp_sleep_get_wakeup_cause(),
-                      esp_sleep_get_ext1_wakeup_status());
+                      (int)wake_cause,
+                      wake_ext1);
+        solar_os_power_note_sleep_exit(now_ms, (int)wake_cause, wake_ext1, true);
         solar_os_ble_keyboard_resume();
     } else {
         SOLAR_OS_LOGW(TAG, "light sleep rejected: %s", esp_err_to_name(err));
+        solar_os_power_note_sleep_exit(now_ms, (int)wake_cause, wake_ext1, false);
         solar_os_ble_keyboard_resume();
     }
 
@@ -418,12 +427,14 @@ static void poll_key_button(void)
         key_pressed = true;
         key_long_press_fired = false;
         key_pressed_ms = now_ms;
+        solar_os_power_note_activity(now_ms);
     } else if (!down && key_pressed) {
         const uint32_t press_ms = now_ms - key_pressed_ms;
         const bool short_press = !key_long_press_fired &&
             press_ms >= KEY_SHORT_PRESS_MIN_MS &&
             press_ms < KEY_LONG_PRESS_MS;
         key_pressed = false;
+        solar_os_power_note_activity(now_ms);
         if (short_press) {
             enter_key_light_sleep();
         }
@@ -448,6 +459,7 @@ static void dispatch_keyboard_chars(void)
     size_t count;
 
     while ((count = solar_os_ble_keyboard_read_chars(chars, sizeof(chars))) > 0) {
+        solar_os_power_note_activity(millis_u32());
         for (size_t i = 0; i < count; i++) {
             const solar_os_event_t event = {
                 .type = SOLAR_OS_EVENT_CHAR,
@@ -547,6 +559,12 @@ static void init_peripherals(void)
     if (cdc_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "CDC port unavailable: %s", esp_err_to_name(cdc_err));
     }
+
+    const esp_err_t power_err = solar_os_power_init();
+    if (power_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Power service unavailable: %s", esp_err_to_name(power_err));
+    }
+    solar_os_power_note_activity(millis_u32());
 
     const esp_err_t sd_err = solar_os_storage_init();
     if (sd_err != ESP_OK) {
@@ -754,6 +772,18 @@ static void process_app_requests(void)
     }
 }
 
+static void maybe_enter_idle_sleep(void)
+{
+    if (foreground_app != solar_os_shell_app() || key_pressed || key_ignore_until_released) {
+        return;
+    }
+
+    const uint32_t now_ms = millis_u32();
+    if (solar_os_power_should_idle_sleep(now_ms)) {
+        enter_light_sleep("power idle");
+    }
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(init_nvs());
@@ -801,6 +831,7 @@ void app_main(void)
         update_status();
 
         draw_terminal_if_needed();
+        maybe_enter_idle_sleep();
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }

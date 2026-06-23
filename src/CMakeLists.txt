@@ -90,6 +90,7 @@ set(SOLAR_OS_SRCS
     "services/solar_os_memory.c"
     "services/solar_os_ota.c"
     "services/solar_os_port.c"
+    "services/solar_os_power.c"
     "services/solar_os_pwm.c"
     "services/solar_os_sensors.c"
     "services/solar_os_storage.c"

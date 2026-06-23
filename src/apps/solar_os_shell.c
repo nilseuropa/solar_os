@@ -121,6 +121,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"clear", "clear the screen", solar_os_shell_cmd_clear},
     {"sleep", "enter light sleep", solar_os_shell_cmd_sleep},
+    {"power", "power profile and sleep policy", solar_os_shell_cmd_power},
     {"watch", "repeat a command", cmd_watch},
     {"setterm", "configure terminal settings", solar_os_shell_cmd_setterm},
     {"status", "show system status", solar_os_shell_cmd_status},
@@ -273,6 +274,13 @@ static const char * const pwm_subcommands[] = {
     "off",
 };
 
+static const char * const power_subcommands[] = {
+    "status",
+    "profile",
+    "idle",
+    "sleep",
+};
+
 static const char * const battery_subcommands[] = {
     "status",
     "config",
@@ -324,6 +332,7 @@ static const shell_subcommand_set_t shell_subcommand_sets[] = {
     {"gpio", gpio_subcommands, sizeof(gpio_subcommands) / sizeof(gpio_subcommands[0])},
     {"adc", adc_subcommands, sizeof(adc_subcommands) / sizeof(adc_subcommands[0])},
     {"pwm", pwm_subcommands, sizeof(pwm_subcommands) / sizeof(pwm_subcommands[0])},
+    {"power", power_subcommands, sizeof(power_subcommands) / sizeof(power_subcommands[0])},
     {"battery", battery_subcommands, sizeof(battery_subcommands) / sizeof(battery_subcommands[0])},
     {"audio", audio_subcommands, sizeof(audio_subcommands) / sizeof(audio_subcommands[0])},
 #if SOLAR_OS_PACKAGE_NET
