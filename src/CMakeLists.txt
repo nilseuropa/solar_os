@@ -79,7 +79,7 @@ idf_component_register(
         "services/solar_os_uart.c"
         "services/solar_os_wifi.c"
     INCLUDE_DIRS "." "apps" "drivers" "jobs" "services" "shell" "../include"
-    REQUIRES app_update bt esp-tls esp_adc esp_codec_dev esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_sdmmc esp_driver_spi esp_driver_uart esp_driver_usb_serial_jtag esp_event esp_hid esp_http_client esp_http_server esp_https_ota esp_netif esp_timer esp_wifi fatfs heap lwip mbedtls micropython_embed mqtt nvs_flash sdmmc stb_image u8g2 webp_decoder
+    REQUIRES app_update bt esp-tls esp_adc esp_codec_dev esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_sdmmc esp_driver_spi esp_driver_uart esp_driver_usb_serial_jtag esp_event esp_hid esp_http_client esp_http_server esp_https_ota esp_netif esp_timer esp_wifi fatfs heap lwip mbedtls micropython_embed minimp3 mqtt nvs_flash sdmmc stb_image u8g2 webp_decoder
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE SOLAR_OS_VERSION="${SOLAR_OS_VERSION}")

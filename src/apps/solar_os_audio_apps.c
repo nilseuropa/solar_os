@@ -19,7 +19,7 @@
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
 
-#define AUDIO_APP_TASK_STACK 6144
+#define AUDIO_APP_TASK_STACK 28672
 #define AUDIO_APP_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define AUDIO_APP_EVENT_QUEUE_LEN 8
 #define AUDIO_APP_MESSAGE_MAX 96
@@ -30,6 +30,11 @@ typedef enum {
     AUDIO_APP_MODE_RECORD,
     AUDIO_APP_MODE_PLAY,
 } audio_app_mode_t;
+
+typedef enum {
+    AUDIO_APP_FORMAT_WAV,
+    AUDIO_APP_FORMAT_MP3,
+} audio_app_format_t;
 
 typedef enum {
     AUDIO_APP_EVENT_STATUS,
@@ -48,6 +53,7 @@ typedef struct {
 
 typedef struct {
     audio_app_mode_t mode;
+    audio_app_format_t format;
     QueueHandle_t events;
     TaskHandle_t task;
     volatile bool stop_requested;
@@ -110,9 +116,9 @@ static void audio_app_render_usage(solar_os_context_t *ctx, audio_app_mode_t mod
     if (mode == AUDIO_APP_MODE_RECORD) {
         solar_os_terminal_writeln(term, "usage: arecord [-d seconds] file.wav");
     } else {
-        solar_os_terminal_writeln(term, "usage: aplay [-v volume] file.wav");
+        solar_os_terminal_writeln(term, "usage: aplay [-v volume] file.wav|file.mp3");
     }
-    solar_os_terminal_writeln(term, "format: 16000 Hz stereo 16-bit PCM WAV");
+    solar_os_terminal_writeln(term, "format: 16000 Hz stereo 16-bit PCM WAV, MP3");
     solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
 }
 
@@ -267,6 +273,8 @@ static void audio_app_task(void *arg)
                                         audio_app.duration_ms,
                                         &options,
                                         &info);
+    } else if (audio_app.format == AUDIO_APP_FORMAT_MP3) {
+        err = solar_os_audio_play_mp3(audio_app.path, audio_app.volume, &options, &info);
     } else {
         err = solar_os_audio_play_wav(audio_app.path, audio_app.volume, &options, &info);
     }
@@ -285,14 +293,24 @@ static void audio_app_task(void *arg)
 }
 
 static void audio_app_print_info(solar_os_terminal_t *term,
+                                 audio_app_format_t format,
                                  const solar_os_audio_wav_info_t *info)
 {
-    solar_os_terminal_printf(term,
-                             "%" PRIu32 " Hz, %u ch, %u bit, %" PRIu32 " ms\n",
-                             info->sample_rate,
-                             (unsigned)info->channels,
-                             (unsigned)info->bits_per_sample,
-                             info->duration_ms);
+    if (format == AUDIO_APP_FORMAT_MP3 && info->duration_ms == 0) {
+        solar_os_terminal_printf(term,
+                                 "MP3, %" PRIu32 " Hz, %u ch, %u bit\n",
+                                 info->sample_rate,
+                                 (unsigned)info->channels,
+                                 (unsigned)info->bits_per_sample);
+    } else {
+        solar_os_terminal_printf(term,
+                                 "%s, %" PRIu32 " Hz, %u ch, %u bit, %" PRIu32 " ms\n",
+                                 format == AUDIO_APP_FORMAT_MP3 ? "MP3" : "WAV",
+                                 info->sample_rate,
+                                 (unsigned)info->channels,
+                                 (unsigned)info->bits_per_sample,
+                                 info->duration_ms);
+    }
 }
 
 static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_t mode)
@@ -332,14 +350,32 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         solar_os_terminal_printf(term, "duration: %" PRIu32 " s\n", audio_app.duration_ms / 1000U);
     } else {
         solar_os_audio_wav_info_t source;
-        const esp_err_t info_err = solar_os_audio_get_wav_info(audio_app.path, &source);
-        if (info_err != ESP_OK) {
-            solar_os_terminal_printf(term, "aplay: open failed: %s\n", esp_err_to_name(info_err));
+        const esp_err_t wav_err = solar_os_audio_get_wav_info(audio_app.path, &source);
+        if (wav_err == ESP_OK) {
+            audio_app.format = AUDIO_APP_FORMAT_WAV;
+        } else {
+            const esp_err_t mp3_err = solar_os_audio_get_mp3_info(audio_app.path, &source);
+            if (mp3_err == ESP_OK) {
+                audio_app.format = AUDIO_APP_FORMAT_MP3;
+            } else if (wav_err == ESP_FAIL || mp3_err == ESP_FAIL) {
+                solar_os_terminal_printf(term,
+                                         "aplay: open failed: %s\n",
+                                         esp_err_to_name(mp3_err));
+                solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+                return ESP_OK;
+            } else {
+                solar_os_terminal_writeln(term, "aplay: unsupported audio file");
+                solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
+                return ESP_OK;
+            }
+        }
+        if (source.channels == 0 || source.sample_rate == 0 || source.bits_per_sample == 0) {
+            solar_os_terminal_writeln(term, "aplay: unsupported audio file");
             solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
             return ESP_OK;
         }
         solar_os_terminal_write(term, "source: ");
-        audio_app_print_info(term, &source);
+        audio_app_print_info(term, audio_app.format, &source);
         solar_os_terminal_printf(term, "volume: %u\n", (unsigned)audio_app.volume);
     }
 
@@ -408,7 +444,7 @@ static void audio_app_drain_events(solar_os_context_t *ctx)
                                          event.info.duration_ms);
             } else if (event.err == ESP_ERR_NOT_SUPPORTED) {
                 solar_os_terminal_printf(term,
-                                         "%s: unsupported WAV format\n",
+                                         "%s: unsupported audio format\n",
                                          audio_app_name(audio_app.mode));
             } else {
                 solar_os_terminal_printf(term,
@@ -496,7 +532,7 @@ const solar_os_app_t solar_os_arecord_app = {
 
 const solar_os_app_t solar_os_aplay_app = {
     .name = "aplay",
-    .summary = "play WAV audio",
+    .summary = "play WAV/MP3 audio",
     .start = aplay_start,
     .stop = audio_app_stop,
     .event = audio_app_event,

@@ -69,11 +69,16 @@ esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz, uint32_t duration_ms, 
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms, solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_t *info);
+esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info);
 esp_err_t solar_os_audio_record_wav(const char *path,
                                     uint32_t duration_ms,
                                     const solar_os_audio_wav_options_t *options,
                                     solar_os_audio_wav_info_t *info);
 esp_err_t solar_os_audio_play_wav(const char *path,
+                                  uint8_t volume,
+                                  const solar_os_audio_wav_options_t *options,
+                                  solar_os_audio_wav_info_t *info);
+esp_err_t solar_os_audio_play_mp3(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,
                                   solar_os_audio_wav_info_t *info);
