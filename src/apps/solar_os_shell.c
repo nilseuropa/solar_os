@@ -66,6 +66,7 @@ typedef struct {
     bool complete_jobs;
     bool complete_ports;
     bool complete_streams;
+    bool scalar_streams_only;
     bool complete_path;
     bool dirs_only;
 } shell_completion_rule_t;
@@ -411,11 +412,21 @@ static const char * const rm_options[] = {"-f", "-rf"};
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
 #endif
+#if SOLAR_OS_PACKAGE_UTILS
+static const char * const plot_options[] = {"-f", "--file", "--rate"};
+static const char * const plot_live_options[] = {"--rate"};
+#endif
 
 static const char * const path_ls[] = {"ls"};
 static const char * const path_rm[] = {"rm"};
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const path_view[] = {"view"};
+#endif
+#if SOLAR_OS_PACKAGE_UTILS
+static const char * const path_plot[] = {"plot"};
+static const char * const path_plot_file[] = {"plot", "-f"};
+static const char * const path_plot_long_file[] = {"plot", "--file"};
+static const char * const path_plot_stream[] = {"plot", SHELL_COMPLETION_ANY};
 #endif
 static const char * const path_watch[] = {"watch"};
 static const char * const path_watch_n_interval[] = {"watch", "-n", SHELL_COMPLETION_ANY};
@@ -578,6 +589,13 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_streams = true, \
     }
+#define SHELL_COMPLETION_SCALAR_STREAMS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_streams = true, \
+        .scalar_streams_only = true, \
+    }
 #define SHELL_COMPLETION_PATH(path_array, only_dirs) \
     { \
         .path = path_array, \
@@ -591,6 +609,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
 #if SOLAR_OS_PACKAGE_MEDIA
     SHELL_COMPLETION_OPTIONS(path_view, view_options),
+#endif
+#if SOLAR_OS_PACKAGE_UTILS
+    SHELL_COMPLETION_OPTIONS(path_plot, plot_options),
+    SHELL_COMPLETION_SCALAR_STREAMS(path_plot),
+    SHELL_COMPLETION_OPTIONS(path_plot_stream, plot_live_options),
+    SHELL_COMPLETION_SCALAR_STREAMS(path_plot_stream),
+    SHELL_COMPLETION_PATH(path_plot_file, false),
+    SHELL_COMPLETION_PATH(path_plot_long_file, false),
 #endif
     SHELL_COMPLETION_STATIC(path_watch, watch_subcommands),
     SHELL_COMPLETION_COMMANDS(path_watch),
@@ -2315,13 +2341,14 @@ static void shell_completion_emit_ports(shell_completion_match_t *state)
     }
 }
 
-static void shell_completion_emit_streams(shell_completion_match_t *state)
+static void shell_completion_emit_streams(shell_completion_match_t *state, bool scalar_only)
 {
     const size_t count = solar_os_stream_count();
 
     for (size_t i = 0; i < count; i++) {
         solar_os_stream_info_t info;
-        if (solar_os_stream_get(i, &info)) {
+        if (solar_os_stream_get(i, &info) &&
+            (!scalar_only || info.type == SOLAR_OS_STREAM_TYPE_SCALAR)) {
             shell_completion_emit(state, info.id);
         }
     }
@@ -2371,7 +2398,7 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             shell_completion_emit_ports(state);
         }
         if (rule->complete_streams) {
-            shell_completion_emit_streams(state);
+            shell_completion_emit_streams(state, rule->scalar_streams_only);
         }
     }
 
@@ -3652,11 +3679,11 @@ static bool shell_execute_line(solar_os_context_t *ctx,
             launch_argv[i] = argv[i];
         }
 
-        if ((strcmp(app->name, "edit") == 0 ||
+        if (argc >= 2 &&
+            (strcmp(app->name, "edit") == 0 ||
              strcmp(app->name, "less") == 0 ||
              strcmp(app->name, "reader") == 0 ||
-             strcmp(app->name, "sheet") == 0) &&
-            argc >= 2) {
+             strcmp(app->name, "sheet") == 0)) {
             if (!resolve_path_for_command(ctx, terminal(ctx),
                                           app->name,
                                           argv[1],
@@ -3665,6 +3692,17 @@ static bool shell_execute_line(solar_os_context_t *ctx,
                 return true;
             }
             launch_argv[1] = resolved_path;
+        } else if (strcmp(app->name, "plot") == 0 &&
+                   argc >= 3 &&
+                   (strcmp(argv[1], "-f") == 0 || strcmp(argv[1], "--file") == 0)) {
+            if (!resolve_path_for_command(ctx, terminal(ctx),
+                                          app->name,
+                                          argv[2],
+                                          resolved_path,
+                                          sizeof(resolved_path))) {
+                return true;
+            }
+            launch_argv[2] = resolved_path;
         } else if (strcmp(app->name, "scp") == 0) {
             if (!shell_prepare_scp_launch_args(ctx,
                                                argc,

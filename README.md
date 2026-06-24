@@ -332,6 +332,7 @@ Applications are launched by typing their name at the shell prompt.
 - `edit`: Text editor for SD card files with navigation, selection, copy/cut/paste, and PSRAM buffer storage.
 - `less`: Text file pager with wrapping and search.
 - `reader`: Text file pager that remembers per-file position in `/.reader/positions`; `Ctrl++` and `Ctrl-` adjust reader text size.
+- `plot`: Graphics plotter for live scalar streams or DAQ CSV files. Use `plot temperature humidity battery --rate 1000`, `plot -f /logs/env.csv`, or `plot -f /logs/env.csv temperature humidity`; in live mode `+`/`-` adjusts the rolling time window.
 - `sheet`: CSV grid viewer with simple aggregate formulas such as `=SUM(column)`, `=AVG(column)`, `=MIN(column)`, `=MAX(column)`, `=COUNT(*)`, `=DELTA(column)`, and `=RATE(column)`.
 - `com`: Serial terminal for the exposed UART pins.
 - `view`: Image viewer for baseline/progressive JPG/JPEG, BMP, and Netpbm PBM/PGM/PPM files. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.

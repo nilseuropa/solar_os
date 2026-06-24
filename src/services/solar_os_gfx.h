@@ -21,6 +21,12 @@ typedef enum {
     SOLAR_OS_GFX_FONT_BOLD,
 } solar_os_gfx_font_t;
 
+typedef enum {
+    SOLAR_OS_GFX_LINE_SOLID,
+    SOLAR_OS_GFX_LINE_DOTTED,
+    SOLAR_OS_GFX_LINE_DASHED,
+} solar_os_gfx_line_style_t;
+
 typedef struct solar_os_gfx solar_os_gfx_t;
 
 typedef struct {
@@ -36,6 +42,8 @@ void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color);
 solar_os_gfx_color_t solar_os_gfx_color(const solar_os_gfx_t *gfx);
 void solar_os_gfx_set_font(solar_os_gfx_t *gfx, solar_os_gfx_font_t font);
 solar_os_gfx_font_t solar_os_gfx_font(const solar_os_gfx_t *gfx);
+void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t style);
+solar_os_gfx_line_style_t solar_os_gfx_line_style(const solar_os_gfx_t *gfx);
 void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color);
 void solar_os_gfx_pixel(solar_os_gfx_t *gfx, int x, int y);
 void solar_os_gfx_line(solar_os_gfx_t *gfx, int x0, int y0, int x1, int y1);

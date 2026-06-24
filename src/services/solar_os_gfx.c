@@ -192,6 +192,7 @@ void solar_os_gfx_init(solar_os_gfx_t *gfx, u8g2_t *u8g2)
     gfx->u8g2 = u8g2;
     gfx->color = SOLAR_OS_GFX_COLOR_BLACK;
     gfx->font = SOLAR_OS_GFX_FONT_MONO;
+    gfx->line_style = SOLAR_OS_GFX_LINE_SOLID;
 }
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
@@ -253,6 +254,28 @@ solar_os_gfx_font_t solar_os_gfx_font(const solar_os_gfx_t *gfx)
     return gfx != NULL ? gfx->font : SOLAR_OS_GFX_FONT_MONO;
 }
 
+void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t style)
+{
+    if (gfx == NULL) {
+        return;
+    }
+
+    switch (style) {
+    case SOLAR_OS_GFX_LINE_SOLID:
+    case SOLAR_OS_GFX_LINE_DOTTED:
+    case SOLAR_OS_GFX_LINE_DASHED:
+        gfx->line_style = style;
+        break;
+    default:
+        break;
+    }
+}
+
+solar_os_gfx_line_style_t solar_os_gfx_line_style(const solar_os_gfx_t *gfx)
+{
+    return gfx != NULL ? gfx->line_style : SOLAR_OS_GFX_LINE_SOLID;
+}
+
 void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
 {
     if (!gfx_ready(gfx)) {
@@ -289,12 +312,29 @@ void solar_os_gfx_line(solar_os_gfx_t *gfx, int x0, int y0, int x1, int y1)
     int dy = y1 > y0 ? y0 - y1 : y1 - y0;
     int sy = y0 < y1 ? 1 : -1;
     int err = dx + dy;
+    unsigned step = 0;
 
     while (true) {
-        gfx_draw_hline_shade_clipped(gfx, x0, y0, 1);
+        bool draw = true;
+        switch (gfx->line_style) {
+        case SOLAR_OS_GFX_LINE_DOTTED:
+            draw = (step % 4U) == 0U;
+            break;
+        case SOLAR_OS_GFX_LINE_DASHED:
+            draw = (step % 12U) < 7U;
+            break;
+        case SOLAR_OS_GFX_LINE_SOLID:
+        default:
+            draw = true;
+            break;
+        }
+        if (draw) {
+            gfx_draw_hline_shade_clipped(gfx, x0, y0, 1);
+        }
         if (x0 == x1 && y0 == y1) {
             break;
         }
+        step++;
         const int e2 = 2 * err;
         if (e2 >= dy) {
             err += dy;
