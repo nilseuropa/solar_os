@@ -22,6 +22,7 @@
 #define SOLAR_OS_SSH_TX_QUEUE_LEN 16
 #define SOLAR_OS_SSH_TX_CHUNK_MAX 64
 #define SOLAR_OS_SSH_TERM_TYPE "xterm-mono"
+#define SOLAR_OS_SSH_INTERACTIVE_IDLE_MS 5
 
 typedef struct {
     size_t len;
@@ -156,6 +157,15 @@ static int ssh_wait_socket(solar_os_ssh_session_t *session,
     return solar_os_ssh_transport_wait_socket(&config, socket_fd, lib_session);
 }
 
+static void ssh_idle_delay(void)
+{
+    TickType_t ticks = pdMS_TO_TICKS(SOLAR_OS_SSH_INTERACTIVE_IDLE_MS);
+    if (ticks == 0) {
+        ticks = 1;
+    }
+    vTaskDelay(ticks);
+}
+
 static void ssh_request_env(solar_os_ssh_session_t *session,
                             LIBSSH2_SESSION *lib_session,
                             LIBSSH2_CHANNEL *channel,
@@ -272,13 +282,19 @@ static bool ssh_write_channel(solar_os_ssh_session_t *session,
 static bool ssh_pump_channel(solar_os_ssh_session_t *session,
                              LIBSSH2_SESSION *lib_session,
                              LIBSSH2_CHANNEL *channel,
-                             int socket_fd)
+                             int socket_fd,
+                             bool *had_activity)
 {
+    (void)lib_session;
+    (void)socket_fd;
     char buffer[SOLAR_OS_SSH_EVENT_DATA_MAX];
 
     while (!ssh_should_stop(session)) {
         const ssize_t read_len = libssh2_channel_read(channel, buffer, sizeof(buffer));
         if (read_len > 0) {
+            if (had_activity != NULL) {
+                *had_activity = true;
+            }
             ssh_send_event(session,
                            SOLAR_OS_SSH_EVENT_OUTPUT,
                            NULL,
@@ -297,7 +313,6 @@ static bool ssh_pump_channel(solar_os_ssh_session_t *session,
         return false;
     }
 
-    (void)ssh_wait_socket(session, socket_fd, lib_session);
     return !ssh_should_stop(session);
 }
 
@@ -330,14 +345,19 @@ static void ssh_session_task(void *arg)
 
     while (!ssh_should_stop(session)) {
         solar_os_ssh_tx_chunk_t tx;
+        bool had_activity = false;
         while (xQueueReceive(session->tx, &tx, 0) == pdTRUE) {
+            had_activity = true;
             if (!ssh_write_channel(session, lib_session, channel, socket_fd, tx.data, tx.len)) {
                 goto done;
             }
         }
 
-        if (!ssh_pump_channel(session, lib_session, channel, socket_fd)) {
+        if (!ssh_pump_channel(session, lib_session, channel, socket_fd, &had_activity)) {
             break;
+        }
+        if (!had_activity) {
+            ssh_idle_delay();
         }
     }
 

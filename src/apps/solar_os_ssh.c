@@ -306,6 +306,23 @@ static void ssh_send_terminal_response(const char *response)
     }
 }
 
+static void ssh_send_cursor_position_response(solar_os_terminal_t *term, bool private_response)
+{
+    if (ssh_app.session == NULL) {
+        return;
+    }
+
+    char response[32];
+    const unsigned row = (unsigned)solar_os_terminal_cursor_row(term) + 1U;
+    const unsigned col = (unsigned)solar_os_terminal_cursor_col(term) + 1U;
+    const int response_len = private_response ?
+        snprintf(response, sizeof(response), "\x1b[?%u;%uR", row, col) :
+        snprintf(response, sizeof(response), "\x1b[%u;%uR", row, col);
+    if (response_len > 0 && response_len < (int)sizeof(response)) {
+        (void)solar_os_ssh_send(ssh_app.session, response, (size_t)response_len);
+    }
+}
+
 static void ssh_handle_sgr(solar_os_terminal_t *term)
 {
     if (ssh_app.csi.param_count == 0) {
@@ -499,17 +516,10 @@ static void ssh_handle_csi(solar_os_terminal_t *term, char final)
     case 'n':
         if (!ssh_app.csi.private_question && ssh_csi_param(0, 0) == 5) {
             ssh_send_terminal_response("\x1b[0n");
-        } else if (!ssh_app.csi.private_question && ssh_csi_param(0, 0) == 6 &&
-                   ssh_app.session != NULL) {
-            char response[24];
-            const int response_len = snprintf(response,
-                                              sizeof(response),
-                                              "\x1b[%u;%uR",
-                                              (unsigned)solar_os_terminal_cursor_row(term) + 1U,
-                                              (unsigned)solar_os_terminal_cursor_col(term) + 1U);
-            if (response_len > 0 && response_len < (int)sizeof(response)) {
-                (void)solar_os_ssh_send(ssh_app.session, response, (size_t)response_len);
-            }
+        } else if (ssh_app.csi.private_question && ssh_csi_param(0, 0) == 6) {
+            ssh_send_cursor_position_response(term, true);
+        } else if (!ssh_app.csi.private_question && ssh_csi_param(0, 0) == 6) {
+            ssh_send_cursor_position_response(term, false);
         }
         break;
     case 'h':
