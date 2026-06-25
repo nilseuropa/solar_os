@@ -544,6 +544,58 @@ static void notes_move_up(void)
     }
 }
 
+static bool notes_group_bounds(size_t index, size_t *start, size_t *end)
+{
+    if (index >= notes.item_count || start == NULL || end == NULL) {
+        return false;
+    }
+
+    if (notes.items[index].checked) {
+        *start = notes.done_start;
+        *end = notes.item_count;
+    } else {
+        *start = 0;
+        *end = notes.done_start;
+    }
+    return *start < *end;
+}
+
+static void notes_move_selected_item(bool down)
+{
+    if (notes.item_count == 0 || notes.cursor >= notes.item_count) {
+        return;
+    }
+
+    size_t start = 0;
+    size_t end = 0;
+    if (!notes_group_bounds(notes.cursor, &start, &end)) {
+        return;
+    }
+
+    size_t target = notes.cursor;
+    if (down) {
+        if (notes.cursor + 1U >= end) {
+            notes_set_message("bottom of section");
+            return;
+        }
+        target = notes.cursor + 1U;
+    } else {
+        if (notes.cursor <= start) {
+            notes_set_message("top of section");
+            return;
+        }
+        target = notes.cursor - 1U;
+    }
+
+    const notes_item_t item = notes.items[notes.cursor];
+    notes.items[notes.cursor] = notes.items[target];
+    notes.items[target] = item;
+    notes.cursor = target;
+    if (notes_save() == ESP_OK) {
+        notes_set_message("moved");
+    }
+}
+
 static void notes_page(solar_os_shell_io_t *io, bool down)
 {
     const size_t step = notes_list_rows(io) > 0 ? notes_list_rows(io) : 1U;
@@ -670,6 +722,12 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case SOLAR_OS_KEY_DOWN:
         notes_move_down();
+        break;
+    case SOLAR_OS_KEY_SHIFT_UP:
+        notes_move_selected_item(false);
+        break;
+    case SOLAR_OS_KEY_SHIFT_DOWN:
+        notes_move_selected_item(true);
         break;
     case SOLAR_OS_KEY_PAGE_UP:
         notes_page(notes_io(ctx), false);

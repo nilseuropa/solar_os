@@ -335,7 +335,7 @@ Applications are launched by typing their name at the shell prompt.
 - `curl`: HTTP/HTTPS GET client with redirect support and optional SD card output.
 - `edit`: Text editor for SD card files with navigation, selection, copy/cut/paste, and PSRAM buffer storage.
 - `less`: Text file pager with wrapping and search.
-- `notes`: Markdown checklist notes stored as `- [ ]` / `- [x]` items. Use `notes` for `/.notes/default.md` or `notes /notes/todo.md`.
+- `notes`: Markdown checklist notes stored as `- [ ]` / `- [x]` items. Use `notes` for `/.notes/default.md` or `notes /notes/todo.md`; `Shift+Up`/`Shift+Down` reorders the selected item inside its active/done section.
 - `reader`: Text file pager that remembers per-file position in `/.reader/positions`; `Ctrl++` and `Ctrl-` adjust reader text size.
 - `plot`: Graphics plotter for live scalar streams or DAQ CSV files. Use `plot temperature humidity battery --rate 1000`, `plot -f /logs/env.csv`, or `plot -f /logs/env.csv temperature humidity`; in live mode `+`/`-` adjusts the rolling time window.
 - `sheet`: CSV grid viewer with simple aggregate formulas such as `=SUM(column)`, `=AVG(column)`, `=MIN(column)`, `=MAX(column)`, `=COUNT(*)`, `=DELTA(column)`, and `=RATE(column)`.
