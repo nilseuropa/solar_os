@@ -176,7 +176,7 @@ Hardware and sensors:
 
 - `battery [status|config|capacity|min_voltage|max_voltage]`: read smoothed voltage, infer battery/external power from trend plus the max-voltage shortcut, and configure battery estimate limits.
 - `stream [list|status]`: list timestamped data streams available to DAQ jobs.
-- `daq [status|start|stop]`: start or stop CSV capture from one data stream.
+- `daq [help|status|streams|start|stop]`: start or stop CSV/raw capture from data streams.
 - `gpio [status|list|mode|read|write]`: runtime user GPIO access is limited to GPIO1, GPIO2, GPIO3, and GPIO17.
 - `adc [status|read]`: read analog voltage on ADC-capable runtime GPIOs.
 - `pwm [status|set|off]`: generate LEDC PWM on runtime GPIOs.
@@ -236,19 +236,17 @@ Examples:
 ```text
 stream list
 stream status battery
-daq start battery /logs/battery.csv --rate 60
-daq start temperature humidity battery /logs/env.csv --rate 60
 daq start /logs/env.csv temperature humidity battery --rate 60
-daq start gpio17 /logs/key.csv --changes
-daq start uart0 /logs/serial.csv --rate-ms 25
-daq start uart0 /logs/serial.bin --raw --rate-ms 25
+daq start /logs/battery.csv battery --rate 60
+daq start /logs/key.csv gpio17 --changes
+daq start /logs/serial.bin uart0 --raw --rate-ms 25
 xfer send uart0 /logs/payload.bin --raw
 xfer recv uart0 /logs/capture.bin --raw --idle-ms 5000
 daq status
 daq stop
 ```
 
-`daq start` appends by default and writes a CSV header when creating a new CSV file. Use `--replace` to overwrite. Units are encoded in CSV column names, not repeated on every row. Each acquired row or raw byte chunk is flushed and synced to the filesystem before the job continues. `--changes` stores only changed values for single-stream CSV capture. `--raw` is byte-stream only, single-stream only, and writes received bytes directly to the file without timestamps, CSV framing, or a header.
+`daq` without arguments prints usage. `daq streams` lists available stream IDs. `daq start` accepts either file-first or stream-first argument order; file-first is easier to complete for multi-stream captures. It appends by default and writes a CSV header when creating a new CSV file. Use `--replace` to overwrite. Units are encoded in CSV column names, not repeated on every row. Each acquired row or raw byte chunk is flushed and synced to the filesystem before the job continues. `--changes` stores only changed values for single-stream CSV capture. `--raw` is byte-stream only, single-stream only, and writes received bytes directly to the file without timestamps, CSV framing, or a header.
 
 `xfer` is for explicit file transfer over byte-stream ports. Raw send/receive is supported now; ZMODEM and Kermit are reserved protocol slots. `xfer send <port> <file> --raw` writes file bytes to a port. `xfer recv <port> <file> --raw` captures bytes from a port until stopped, or until `--idle-ms` expires. Use `-d <ms>`/`--delay-ms <ms>` with `send` to pace bytes for slower targets.
 

@@ -2183,31 +2183,36 @@ static void stream_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  stream status <id>");
 }
 
+static void stream_print_list(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_stream_count();
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "streams: none");
+        return;
+    }
+
+    solar_os_shell_io_writeln(term, "ID           TYPE    FORMAT UNIT      SUMMARY");
+    for (size_t i = 0; i < count; i++) {
+        solar_os_stream_info_t info;
+        if (!solar_os_stream_get(i, &info)) {
+            continue;
+        }
+        solar_os_shell_io_printf(term,
+                                 "%-12s %-7s %-6s %-9s %s\n",
+                                 info.id,
+                                 solar_os_stream_type_name(info.type),
+                                 info.format,
+                                 info.unit[0] != '\0' ? info.unit : "-",
+                                 info.summary);
+    }
+}
+
 void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
-        const size_t count = solar_os_stream_count();
-        if (count == 0) {
-            solar_os_shell_io_writeln(term, "streams: none");
-            return;
-        }
-
-        solar_os_shell_io_writeln(term, "ID           TYPE    FORMAT UNIT      SUMMARY");
-        for (size_t i = 0; i < count; i++) {
-            solar_os_stream_info_t info;
-            if (!solar_os_stream_get(i, &info)) {
-                continue;
-            }
-            solar_os_shell_io_printf(term,
-                                     "%-12s %-7s %-6s %-9s %s\n",
-                                     info.id,
-                                     solar_os_stream_type_name(info.type),
-                                     info.format,
-                                     info.unit[0] != '\0' ? info.unit : "-",
-                                     info.summary);
-        }
+        stream_print_list(term);
         return;
     }
 
@@ -2241,13 +2246,19 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
 static void daq_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  daq help");
     solar_os_shell_io_writeln(term, "  daq status");
-    solar_os_shell_io_writeln(term, "  daq start <stream> <file> [--rate seconds]");
-    solar_os_shell_io_writeln(term, "  daq start <stream...> <file> [--rate-ms ms]");
-    solar_os_shell_io_writeln(term, "  daq start <file> <stream...> [--rate-ms ms]");
-    solar_os_shell_io_writeln(term, "  daq start <stream> <file> [--changes] [--append|--replace]");
-    solar_os_shell_io_writeln(term, "  daq start <byte-stream> <file> --raw [--append|--replace]");
+    solar_os_shell_io_writeln(term, "  daq streams");
+    solar_os_shell_io_writeln(term, "  daq start <file.csv> <stream...> [--rate seconds|--rate-ms ms]");
+    solar_os_shell_io_writeln(term, "  daq start <stream...> <file.csv> [--rate seconds|--rate-ms ms]");
+    solar_os_shell_io_writeln(term, "  daq start <file.csv> <stream> --changes [--append|--replace]");
+    solar_os_shell_io_writeln(term, "  daq start <file.bin> <byte-stream> --raw [--rate-ms ms]");
     solar_os_shell_io_writeln(term, "  daq stop");
+    solar_os_shell_io_writeln(term, "");
+    solar_os_shell_io_writeln(term, "examples:");
+    solar_os_shell_io_writeln(term, "  daq start /logs/env.csv temperature humidity battery --rate 60");
+    solar_os_shell_io_writeln(term, "  daq start /logs/key.csv gpio17 --changes");
+    solar_os_shell_io_writeln(term, "  daq start /logs/uart0.bin uart0 --raw --rate-ms 25");
 }
 
 static void daq_print_status(solar_os_shell_io_t *term)
@@ -2326,8 +2337,18 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "help") == 0)) {
+        daq_print_usage(term);
+        return;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
         daq_print_status(term);
+        return;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "streams") == 0) {
+        stream_print_list(term);
         return;
     }
 
@@ -6034,7 +6055,7 @@ static bool xfer_is_send(const char *direction)
 
 static bool xfer_is_recv(const char *direction)
 {
-    return strcmp(direction, "recv") == 0 || strcmp(direction, "receive") == 0;
+    return strcmp(direction, "recv") == 0;
 }
 
 static bool xfer_parse_args(solar_os_shell_io_t *term,
