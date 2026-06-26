@@ -42,6 +42,7 @@
 #include "solar_os_sensors.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_splash.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal_internal.h"
 #include "solar_os_time.h"
@@ -848,6 +849,9 @@ void app_main(void)
         }
     }
 
+    solar_os_gfx_init(&gfx, rlcd_st7305_get_u8g2(&lcd));
+    solar_os_splash_clear(&gfx);
+
     terminal = solar_os_psram_calloc(1, sizeof(*terminal));
     if (terminal == NULL) {
         ESP_LOGE(TAG, "Terminal allocation failed");
@@ -857,8 +861,8 @@ void app_main(void)
     }
 
     solar_os_terminal_init(terminal, rlcd_st7305_get_u8g2(&lcd));
-    solar_os_gfx_init(&gfx, rlcd_st7305_get_u8g2(&lcd));
     solar_os_context_init(&os_ctx, terminal, &gfx);
+    solar_os_splash_draw(&gfx, "starting services");
     ESP_ERROR_CHECK(solar_os_jobs_init());
 
     init_peripherals();

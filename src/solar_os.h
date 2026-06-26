@@ -83,5 +83,6 @@ void solar_os_context_request_exit(solar_os_context_t *ctx);
 bool solar_os_context_take_exit_request(solar_os_context_t *ctx);
 void solar_os_context_request_sleep(solar_os_context_t *ctx);
 bool solar_os_context_take_sleep_request(solar_os_context_t *ctx);
+void solar_os_context_reboot(solar_os_context_t *ctx, const char *status);
 int solar_os_context_argc(const solar_os_context_t *ctx);
 const char *solar_os_context_argv(const solar_os_context_t *ctx, int index);

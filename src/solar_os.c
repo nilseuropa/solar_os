@@ -3,7 +3,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_gfx.h"
+#include "solar_os_splash.h"
 
 void solar_os_context_init(solar_os_context_t *ctx,
                            solar_os_terminal_t *terminal,
@@ -196,6 +200,15 @@ bool solar_os_context_take_sleep_request(solar_os_context_t *ctx)
 
     ctx->sleep_requested = false;
     return true;
+}
+
+void solar_os_context_reboot(solar_os_context_t *ctx, const char *status)
+{
+    if (ctx != NULL && ctx->gfx != NULL) {
+        solar_os_splash_draw_reboot(ctx->gfx, status);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+    esp_restart();
 }
 
 int solar_os_context_argc(const solar_os_context_t *ctx)

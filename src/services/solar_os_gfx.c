@@ -296,6 +296,16 @@ solar_os_gfx_font_t solar_os_gfx_font(const solar_os_gfx_t *gfx)
     return gfx != NULL ? gfx->font : SOLAR_OS_GFX_FONT_MONO;
 }
 
+size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx, const char *text)
+{
+    if (!gfx_ready(gfx) || text == NULL) {
+        return 0;
+    }
+
+    gfx_apply_draw_state(gfx);
+    return (size_t)u8g2_GetUTF8Width(gfx->u8g2, text);
+}
+
 void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t style)
 {
     if (gfx == NULL) {

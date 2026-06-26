@@ -647,8 +647,8 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "ota: upgrade complete; rebooting");
             solar_os_shell_io_flush(term);
-            vTaskDelay(pdMS_TO_TICKS(500));
-            esp_restart();
+            vTaskDelay(pdMS_TO_TICKS(200));
+            solar_os_context_reboot(ctx, "installing update");
         } else {
             solar_os_shell_io_printf(term,
                                      "ota: upgrade failed: %s\n",
@@ -733,8 +733,8 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) {
             solar_os_shell_io_printf(term, "ota: boot slot set to ota_%u; rebooting\n", slot);
             solar_os_shell_io_flush(term);
-            vTaskDelay(pdMS_TO_TICKS(200));
-            esp_restart();
+            vTaskDelay(pdMS_TO_TICKS(100));
+            solar_os_context_reboot(ctx, "switching slot");
         } else if (err == ESP_ERR_NOT_FOUND) {
             solar_os_shell_io_printf(term, "ota: slot not found: %u\n", slot);
         } else if (err == ESP_ERR_OTA_VALIDATE_FAILED) {

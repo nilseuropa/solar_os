@@ -4355,8 +4355,8 @@ static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
     (void)argv;
     solar_os_shell_io_writeln(term, "rebooting");
     solar_os_shell_io_flush(term);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    esp_restart();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    solar_os_context_reboot(ctx, "restarting");
 }
 
 solar_os_shell_session_t *solar_os_shell_session_create(void)
