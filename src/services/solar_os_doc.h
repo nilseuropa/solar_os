@@ -29,6 +29,19 @@ typedef enum {
     SOLAR_OS_DOC_RUN_UNDERLINE = 1U << 4,
 } solar_os_doc_run_style_t;
 
+typedef esp_err_t (*solar_os_doc_asset_read_cb_t)(void *user,
+                                                  const char *document_path,
+                                                  const char *target,
+                                                  uint8_t **out_data,
+                                                  size_t *out_len);
+typedef void (*solar_os_doc_asset_release_cb_t)(void *user, uint8_t *data);
+
+typedef struct {
+    solar_os_doc_asset_read_cb_t read;
+    solar_os_doc_asset_release_cb_t release;
+    void *user;
+} solar_os_doc_asset_provider_t;
+
 typedef struct {
     uint32_t width;
     uint32_t height;
@@ -66,6 +79,7 @@ typedef struct {
     solar_os_doc_run_t *runs;
     size_t run_count;
     size_t run_capacity;
+    solar_os_doc_asset_provider_t assets;
 } solar_os_doc_t;
 
 typedef struct {
@@ -124,6 +138,8 @@ typedef struct {
 
 void solar_os_doc_init(solar_os_doc_t *doc);
 void solar_os_doc_free(solar_os_doc_t *doc);
+void solar_os_doc_set_asset_provider(solar_os_doc_t *doc,
+                                     const solar_os_doc_asset_provider_t *provider);
 esp_err_t solar_os_doc_load_path(solar_os_doc_t *doc, const char *path);
 esp_err_t solar_os_doc_load_path_as(solar_os_doc_t *doc, const char *path, bool markdown);
 esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,

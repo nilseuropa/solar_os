@@ -82,12 +82,13 @@ void solar_os_doc_init(solar_os_doc_t *doc)
     }
 }
 
-void solar_os_doc_free(solar_os_doc_t *doc)
+static void doc_clear(solar_os_doc_t *doc, bool keep_assets)
 {
     if (doc == NULL) {
         return;
     }
 
+    solar_os_doc_asset_provider_t assets = doc->assets;
     for (size_t i = 0; i < doc->block_count; i++) {
         doc_free(doc->blocks[i].text);
         doc_free(doc->blocks[i].image.gray);
@@ -96,6 +97,28 @@ void solar_os_doc_free(solar_os_doc_t *doc)
     doc_free(doc->runs);
     doc_free(doc->source);
     memset(doc, 0, sizeof(*doc));
+    if (keep_assets) {
+        doc->assets = assets;
+    }
+}
+
+void solar_os_doc_free(solar_os_doc_t *doc)
+{
+    doc_clear(doc, false);
+}
+
+void solar_os_doc_set_asset_provider(solar_os_doc_t *doc,
+                                     const solar_os_doc_asset_provider_t *provider)
+{
+    if (doc == NULL) {
+        return;
+    }
+
+    if (provider != NULL) {
+        doc->assets = *provider;
+    } else {
+        memset(&doc->assets, 0, sizeof(doc->assets));
+    }
 }
 
 static bool doc_path_has_suffix(const char *path, const char *suffix)
@@ -119,111 +142,55 @@ static bool doc_path_has_suffix(const char *path, const char *suffix)
     return true;
 }
 
-static bool doc_target_is_url(const char *target)
+static void doc_release_asset(const solar_os_doc_t *doc, uint8_t *data)
 {
-    return target != NULL && strstr(target, "://") != NULL;
-}
-
-static esp_err_t doc_resolve_asset_path(const solar_os_doc_t *doc,
-                                        const char *target,
-                                        char *out,
-                                        size_t out_len)
-{
-    if (target == NULL || target[0] == '\0' || out == NULL || out_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (doc_target_is_url(target)) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    if (target[0] == '/') {
-        if (target[1] == '\0') {
-            return ESP_ERR_INVALID_ARG;
-        }
-        if (strncmp(target, "/sdcard/", 8) == 0 ||
-            strncmp(target, "/mnt/", 5) == 0 ||
-            strcmp(target, "/sdcard") == 0) {
-            strlcpy(out, target, out_len);
-            return strlen(out) == strlen(target) ? ESP_OK : ESP_ERR_INVALID_SIZE;
-        }
-        return solar_os_storage_resolve_path(target, out, out_len);
-    }
-
-    const char *slash = doc != NULL && doc->path[0] != '\0' ? strrchr(doc->path, '/') : NULL;
-    if (slash == NULL) {
-        return solar_os_storage_resolve_path(target, out, out_len);
-    }
-
-    const size_t dir_len = (size_t)(slash - doc->path);
-    if (dir_len + 1U + strlen(target) + 1U > out_len) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    memcpy(out, doc->path, dir_len);
-    out[dir_len] = '/';
-    strlcpy(&out[dir_len + 1U], target, out_len - dir_len - 1U);
-    return ESP_OK;
-}
-
-static esp_err_t doc_read_file_bytes(const char *path, uint8_t **out_data, size_t *out_len)
-{
-    if (path == NULL || out_data == NULL || out_len == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    *out_data = NULL;
-    *out_len = 0;
-
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    if (st.st_size <= 0 || (uint64_t)st.st_size > DOC_MAX_IMAGE_BYTES) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
-    }
-
-    uint8_t *data = doc_malloc((size_t)st.st_size);
     if (data == NULL) {
-        fclose(file);
-        return ESP_ERR_NO_MEM;
+        return;
+    }
+    if (doc != NULL && doc->assets.release != NULL) {
+        doc->assets.release(doc->assets.user, data);
+        return;
     }
 
-    const size_t read_len = fread(data, 1, (size_t)st.st_size, file);
-    const bool failed = ferror(file) || read_len != (size_t)st.st_size;
-    fclose(file);
-    if (failed) {
-        doc_free(data);
-        return ESP_FAIL;
-    }
-
-    *out_data = data;
-    *out_len = read_len;
-    return ESP_OK;
+    doc_free(data);
 }
 
-static esp_err_t doc_decode_image_path(const char *path, solar_os_doc_image_t *image)
+static esp_err_t doc_decode_image_asset(solar_os_doc_t *doc,
+                                        const char *target,
+                                        solar_os_doc_image_t *image)
 {
-    if (path == NULL || image == NULL) {
+    if (doc == NULL || target == NULL || image == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     image->attempted = true;
+    if (doc->assets.read == NULL) {
+        image->status = ESP_ERR_NOT_FOUND;
+        return image->status;
+    }
 
-#if SOLAR_OS_PACKAGE_MEDIA || SOLAR_OS_PACKAGE_NET
     uint8_t *bytes = NULL;
     size_t bytes_len = 0;
-    esp_err_t ret = doc_read_file_bytes(path, &bytes, &bytes_len);
+    esp_err_t ret = doc->assets.read(doc->assets.user,
+                                     doc->path,
+                                     target,
+                                     &bytes,
+                                     &bytes_len);
     if (ret != ESP_OK) {
         image->status = ret;
         return ret;
     }
+    if (bytes == NULL || bytes_len == 0 || bytes_len > DOC_MAX_IMAGE_BYTES) {
+        doc_release_asset(doc, bytes);
+        image->status = ESP_ERR_INVALID_SIZE;
+        return image->status;
+    }
 
+#if SOLAR_OS_PACKAGE_MEDIA || SOLAR_OS_PACKAGE_NET
     uint8_t *gray = NULL;
     uint32_t width = 0;
     uint32_t height = 0;
-    if (doc_path_has_suffix(path, ".webp")) {
+    if (doc_path_has_suffix(target, ".webp")) {
         ret = solar_os_webp_decode_gray(bytes,
                                         bytes_len,
                                         DOC_MAX_IMAGE_PIXELS,
@@ -238,11 +205,11 @@ static esp_err_t doc_decode_image_path(const char *path, solar_os_doc_image_t *i
                                        &width,
                                        &height);
     }
-    doc_free(bytes);
+    doc_release_asset(doc, bytes);
 
     image->status = ret;
     if (ret != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "image decode failed: %s %s", path, esp_err_to_name(ret));
+        SOLAR_OS_LOGW(TAG, "image decode failed: %s %s", target, esp_err_to_name(ret));
         return ret;
     }
     image->gray = gray;
@@ -250,7 +217,7 @@ static esp_err_t doc_decode_image_path(const char *path, solar_os_doc_image_t *i
     image->height = height;
     return ESP_OK;
 #else
-    (void)path;
+    doc_release_asset(doc, bytes);
     image->status = ESP_ERR_NOT_SUPPORTED;
     return ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -714,13 +681,7 @@ static esp_err_t doc_add_image_block(solar_os_doc_t *doc,
         .text = target,
     };
 
-    char resolved[SOLAR_OS_STORAGE_PATH_MAX];
-    if (doc_resolve_asset_path(doc, target, resolved, sizeof(resolved)) == ESP_OK) {
-        (void)doc_decode_image_path(resolved, &block->image);
-    } else {
-        block->image.attempted = true;
-        block->image.status = ESP_ERR_NOT_FOUND;
-    }
+    (void)doc_decode_image_asset(doc, target, &block->image);
     return ESP_OK;
 }
 
@@ -1162,8 +1123,7 @@ esp_err_t solar_os_doc_parse_text(solar_os_doc_t *doc,
         return ESP_ERR_INVALID_ARG;
     }
 
-    solar_os_doc_free(doc);
-    solar_os_doc_init(doc);
+    doc_clear(doc, true);
     if (path != NULL) {
         strlcpy(doc->path, path, sizeof(doc->path));
     }
@@ -1281,8 +1241,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
         return ESP_ERR_INVALID_ARG;
     }
 
-    solar_os_doc_free(doc);
-    solar_os_doc_init(doc);
+    doc_clear(doc, true);
     if (path != NULL) {
         strlcpy(doc->path, path, sizeof(doc->path));
     }

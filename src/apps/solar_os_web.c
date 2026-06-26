@@ -187,11 +187,15 @@ typedef struct {
     char history[WEB_HISTORY_COUNT][WEB_URL_MAX];
     size_t history_count;
     char url[WEB_URL_MAX];
+    char base_url[WEB_URL_MAX];
     char status[WEB_STATUS_MAX];
 } web_state_t;
 
 static const char *TAG = "solar_os_web";
 static web_state_t web;
+
+static bool web_resolve_url(const char *base, const char *href, char *out, size_t out_len);
+static const char *web_current_base_url(void);
 
 static void *web_malloc(size_t size)
 {
@@ -310,6 +314,7 @@ static void web_reset_document(void)
     web.edit_original[0] = '\0';
     web.status_code = -1;
     web.bytes_read = 0;
+    web.base_url[0] = '\0';
 
     if (web.html != NULL) {
         web.html[0] = '\0';
@@ -732,6 +737,56 @@ static bool web_tag_has_attr(const char *tag, const char *attr)
     return false;
 }
 
+static bool web_srcset_first_url(const char *srcset, char *out, size_t out_len)
+{
+    if (srcset == NULL || out == NULL || out_len == 0) {
+        return false;
+    }
+    out[0] = '\0';
+
+    while (*srcset != '\0' && isspace((unsigned char)*srcset)) {
+        srcset++;
+    }
+    const char *end = srcset;
+    while (*end != '\0' && *end != ',' && !isspace((unsigned char)*end)) {
+        end++;
+    }
+    const size_t len = (size_t)(end - srcset);
+    if (len == 0 || len + 1U > out_len) {
+        return false;
+    }
+
+    memcpy(out, srcset, len);
+    out[len] = '\0';
+    return true;
+}
+
+static bool web_tag_image_src(const char *tag, char *out, size_t out_len)
+{
+    if (out == NULL || out_len == 0) {
+        return false;
+    }
+    out[0] = '\0';
+
+    static const char *const attrs[] = {
+        "src",
+        "data-src",
+        "data-original",
+        "data-lazy-src",
+    };
+    for (size_t i = 0; i < sizeof(attrs) / sizeof(attrs[0]); i++) {
+        if (web_tag_attr(tag, attrs[i], out, out_len)) {
+            return true;
+        }
+    }
+
+    char srcset[WEB_URL_MAX];
+    if (web_tag_attr(tag, "srcset", srcset, sizeof(srcset))) {
+        return web_srcset_first_url(srcset, out, out_len);
+    }
+    return false;
+}
+
 static void web_lower_ascii(char *text)
 {
     if (text == NULL) {
@@ -1050,6 +1105,15 @@ static void web_parse_html(void)
             if (strcmp(name, "br") == 0) {
                 web_newline(current_style);
                 last_was_space = true;
+            } else if (strcmp(name, "base") == 0) {
+                char href[WEB_URL_MAX];
+                if (web_tag_attr(tag, "href", href, sizeof(href))) {
+                    char resolved[WEB_URL_MAX];
+                    if (web_resolve_url(web_current_base_url(), href, resolved, sizeof(resolved))) {
+                        strlcpy(web.base_url, resolved, sizeof(web.base_url));
+                        SOLAR_OS_LOGD(TAG, "base URL %s", web.base_url);
+                    }
+                }
             } else if (strcmp(name, "form") == 0) {
                 char action[WEB_URL_MAX] = "";
                 char method[8] = "get";
@@ -1143,7 +1207,7 @@ static void web_parse_html(void)
                 char alt[WEB_LINK_TITLE_MAX];
                 src[0] = '\0';
                 alt[0] = '\0';
-                (void)web_tag_attr(tag, "src", src, sizeof(src));
+                (void)web_tag_image_src(tag, src, sizeof(src));
                 (void)web_tag_attr(tag, "alt", alt, sizeof(alt));
                 const int image = web_add_image(src, alt);
                 if (image >= 0) {
@@ -1228,15 +1292,84 @@ static bool web_base_parts(const char *base,
     return true;
 }
 
+static bool web_copy_url_no_fragment(const char *url, char *out, size_t out_len)
+{
+    if (url == NULL || out == NULL || out_len == 0) {
+        return false;
+    }
+
+    while (*url != '\0' && isspace((unsigned char)*url)) {
+        url++;
+    }
+
+    size_t len = strcspn(url, "#");
+    while (len > 0 && isspace((unsigned char)url[len - 1U])) {
+        len--;
+    }
+    if (len == 0 || len + 1U > out_len) {
+        out[0] = '\0';
+        return false;
+    }
+
+    memcpy(out, url, len);
+    out[len] = '\0';
+    return true;
+}
+
+static bool web_url_has_scheme(const char *href)
+{
+    if (href == NULL) {
+        return false;
+    }
+    for (const char *p = href; *p != '\0'; p++) {
+        if (*p == ':') {
+            return true;
+        }
+        if (*p == '/' || *p == '?' || *p == '#') {
+            return false;
+        }
+    }
+    return false;
+}
+
+static void web_url_pop_dir(char *dir, size_t dir_len)
+{
+    if (dir == NULL || dir_len == 0) {
+        return;
+    }
+    size_t len = strlen(dir);
+    if (len <= 1U) {
+        strlcpy(dir, "/", dir_len);
+        return;
+    }
+    if (dir[len - 1U] == '/') {
+        dir[--len] = '\0';
+    }
+
+    char *slash = strrchr(dir, '/');
+    if (slash == NULL || slash == dir) {
+        strlcpy(dir, "/", dir_len);
+        return;
+    }
+    slash[1] = '\0';
+}
+
 static bool web_resolve_url(const char *base, const char *href, char *out, size_t out_len)
 {
     if (href == NULL || href[0] == '\0' || out == NULL || out_len == 0) {
         return false;
     }
     out[0] = '\0';
-    if (web_url_supported(href)) {
-        strlcpy(out, href, out_len);
-        return true;
+
+    char ref[WEB_URL_MAX];
+    if (!web_copy_url_no_fragment(href, ref, sizeof(ref))) {
+        return false;
+    }
+    if (web_url_supported(ref)) {
+        return strlcpy(out, ref, out_len) < out_len;
+    }
+    if (web_url_has_scheme(ref)) {
+        return false;
     }
 
     char scheme_host[WEB_URL_MAX];
@@ -1245,27 +1378,53 @@ static bool web_resolve_url(const char *base, const char *href, char *out, size_
         return false;
     }
 
-    if (strncmp(href, "//", 2) == 0) {
+    if (strncmp(ref, "//", 2) == 0) {
         const char *sep = strstr(base, "://");
         if (sep == NULL) {
             return false;
         }
         const size_t scheme_len = (size_t)(sep - base);
-        if (scheme_len + 1U + strlen(href) + 1U > out_len) {
+        if (scheme_len + 1U + strlen(ref) + 1U > out_len) {
             return false;
         }
         memcpy(out, base, scheme_len);
         out[scheme_len] = ':';
-        strlcpy(out + scheme_len + 1U, href, out_len - scheme_len - 1U);
+        strlcpy(out + scheme_len + 1U, ref, out_len - scheme_len - 1U);
         return true;
     }
 
-    if (href[0] == '/') {
-        snprintf(out, out_len, "%s%s", scheme_host, href);
+    if (ref[0] == '?') {
+        char base_page[WEB_URL_MAX];
+        if (!web_copy_url_no_fragment(base, base_page, sizeof(base_page))) {
+            return false;
+        }
+        char *query = strchr(base_page, '?');
+        if (query != NULL) {
+            *query = '\0';
+        }
+        snprintf(out, out_len, "%s%s", base_page, ref);
+    } else if (ref[0] == '/') {
+        snprintf(out, out_len, "%s%s", scheme_host, ref);
     } else {
-        snprintf(out, out_len, "%s%s%s", scheme_host, dir, href);
+        const char *rel = ref;
+        while (strncmp(rel, "./", 2) == 0) {
+            rel += 2;
+        }
+        while (strncmp(rel, "../", 3) == 0) {
+            web_url_pop_dir(dir, sizeof(dir));
+            rel += 3;
+            while (strncmp(rel, "./", 2) == 0) {
+                rel += 2;
+            }
+        }
+        snprintf(out, out_len, "%s%s%s", scheme_host, dir, rel);
     }
     return out[0] != '\0';
+}
+
+static const char *web_current_base_url(void)
+{
+    return web.base_url[0] != '\0' ? web.base_url : web.url;
 }
 
 typedef struct {
@@ -1683,7 +1842,7 @@ static void web_load_images(void)
         image->attempted = true;
 
         char resolved[WEB_URL_MAX];
-        if (!web_resolve_url(web.url, image->src, resolved, sizeof(resolved))) {
+        if (!web_resolve_url(web_current_base_url(), image->src, resolved, sizeof(resolved))) {
             continue;
         }
         if (web_url_is_unsupported_image(resolved)) {
@@ -2561,6 +2720,7 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     xQueueReset(web.events);
 
     strlcpy(web.url, url, sizeof(web.url));
+    strlcpy(web.base_url, web.url, sizeof(web.base_url));
     snprintf(web.status, sizeof(web.status), "GET %s", web.url);
     web.loading = true;
     web.loaded = false;
@@ -2715,7 +2875,7 @@ static bool web_submit_form(solar_os_context_t *ctx, int submit_control)
 
     char action[WEB_URL_MAX];
     if (form != NULL && form->action[0] != '\0' && strcmp(form->action, "#") != 0) {
-        if (!web_resolve_url(web.url, form->action, action, sizeof(action))) {
+        if (!web_resolve_url(web_current_base_url(), form->action, action, sizeof(action))) {
             web_set_status("bad form action");
             return true;
         }
@@ -3014,7 +3174,7 @@ static bool web_open_selected(solar_os_context_t *ctx)
     }
 
     char next_url[WEB_URL_MAX];
-    if (!web_resolve_url(web.url, web.links[item->index].href, next_url, sizeof(next_url))) {
+    if (!web_resolve_url(web_current_base_url(), web.links[item->index].href, next_url, sizeof(next_url))) {
         web_set_status("cannot resolve link");
         return true;
     }

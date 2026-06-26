@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "solar_os_doc.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
@@ -25,6 +26,7 @@
 #define READER_POSITIONS_FILE "positions"
 #define READER_POSITIONS_TMP_FILE "positions.tmp"
 #define READER_POSITION_LINE_MAX (SOLAR_OS_STORAGE_PATH_MAX + 64)
+#define READER_ASSET_MAX_BYTES (1024U * 1024U)
 
 typedef struct {
     solar_os_doc_t doc;
@@ -80,6 +82,131 @@ static bool reader_file_exists(const char *path)
 {
     struct stat st;
     return path != NULL && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool reader_target_is_url(const char *target)
+{
+    return target != NULL && strstr(target, "://") != NULL;
+}
+
+static void *reader_malloc(size_t size)
+{
+    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ptr == NULL) {
+        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
+    }
+    return ptr;
+}
+
+static esp_err_t reader_normalize_asset_target(const char *target, char *out, size_t out_len)
+{
+    if (target == NULL || out == NULL || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t len = strcspn(target, "?#");
+    if (len == 0 || len >= out_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    memcpy(out, target, len);
+    out[len] = '\0';
+    return ESP_OK;
+}
+
+static esp_err_t reader_resolve_asset_path(const char *document_path,
+                                           const char *target,
+                                           char *out,
+                                           size_t out_len)
+{
+    if (document_path == NULL || target == NULL || out == NULL || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (reader_target_is_url(target)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    char clean_target[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t ret = reader_normalize_asset_target(target, clean_target, sizeof(clean_target));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (clean_target[0] == '/') {
+        return solar_os_storage_resolve_path(clean_target, out, out_len);
+    }
+
+    const char *slash = strrchr(document_path, '/');
+    if (slash == NULL) {
+        return solar_os_storage_resolve_path(clean_target, out, out_len);
+    }
+
+    char raw[SOLAR_OS_STORAGE_PATH_MAX];
+    const size_t dir_len = (size_t)(slash - document_path);
+    if (dir_len + 1U + strlen(clean_target) + 1U > sizeof(raw)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    memcpy(raw, document_path, dir_len);
+    raw[dir_len] = '/';
+    strlcpy(&raw[dir_len + 1U], clean_target, sizeof(raw) - dir_len - 1U);
+    return solar_os_storage_normalize_path(raw, out, out_len);
+}
+
+static esp_err_t reader_doc_asset_read(void *user,
+                                       const char *document_path,
+                                       const char *target,
+                                       uint8_t **out_data,
+                                       size_t *out_len)
+{
+    (void)user;
+
+    if (out_data == NULL || out_len == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t ret = reader_resolve_asset_path(document_path, target, path, sizeof(path));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (st.st_size <= 0 || (uint64_t)st.st_size > READER_ASSET_MAX_BYTES) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+
+    uint8_t *data = reader_malloc((size_t)st.st_size);
+    if (data == NULL) {
+        fclose(file);
+        return ESP_ERR_NO_MEM;
+    }
+
+    const size_t read_len = fread(data, 1, (size_t)st.st_size, file);
+    const bool failed = ferror(file) || read_len != (size_t)st.st_size;
+    fclose(file);
+    if (failed) {
+        heap_caps_free(data);
+        return ESP_FAIL;
+    }
+
+    *out_data = data;
+    *out_len = read_len;
+    return ESP_OK;
+}
+
+static void reader_doc_asset_release(void *user, uint8_t *data)
+{
+    (void)user;
+    heap_caps_free(data);
 }
 
 static bool reader_path_has_suffix(const char *path, const char *suffix)
@@ -575,6 +702,12 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
 {
     memset(&reader, 0, sizeof(reader));
     solar_os_doc_init(&reader.doc);
+    const solar_os_doc_asset_provider_t assets = {
+        .read = reader_doc_asset_read,
+        .release = reader_doc_asset_release,
+        .user = NULL,
+    };
+    solar_os_doc_set_asset_provider(&reader.doc, &assets);
     solar_os_doc_layout_init(&reader.layout);
     reader.zoom = 1;
 
