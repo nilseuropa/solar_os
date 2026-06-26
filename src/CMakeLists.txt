@@ -131,6 +131,7 @@ set(SOLAR_OS_SRCS
     "services/solar_os_tui.c"
     "services/solar_os_uart.c"
     "services/solar_os_wifi.c"
+    "services/solar_os_zip.c"
     "services/solar_os_zmodem.c"
 )
 
@@ -153,6 +154,7 @@ set(SOLAR_OS_REQUIRES
     esp_http_client
     esp_https_ota
     esp_netif
+    esp_rom
     esp_timer
     esp_wifi
     fatfs

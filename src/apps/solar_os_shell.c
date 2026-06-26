@@ -28,6 +28,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
 #include "solar_os_terminal.h"
+#include "solar_os_zip.h"
 
 #define SHELL_INPUT_MAX 192
 #define SHELL_ARG_MAX 20
@@ -45,6 +46,10 @@
 #define SHELL_WATCH_MAX_INTERVAL_MS 86400000U
 #define SHELL_LOG_FOLLOW_POLL_MS 250U
 #define SHELL_LOG_FOLLOW_BATCH 8
+#define SHELL_ZIP_SOURCE_MAX 64
+#define SHELL_ZIP_TASK_STACK 24576
+#define SHELL_ZIP_TASK_PRIORITY 4
+#define SHELL_ZIP_WAIT_POLL_MS 20U
 #define SHELL_ARRAY_COUNT(array) (sizeof(array) / sizeof((array)[0]))
 #define SHELL_COMPLETION_ANY "*"
 
@@ -119,6 +124,8 @@ static void cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_rm(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_mv(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_zip(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_unzip(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
@@ -180,6 +187,8 @@ static const shell_command_t shell_builtin_commands[] = {
     {"rm", "remove files or directories", cmd_rm},
     {"mv", "rename or move a file", cmd_mv},
     {"cp", "copy a file", cmd_cp},
+    {"zip", "create ZIP archives", cmd_zip},
+    {"unzip", "list or extract ZIP archives", cmd_unzip},
     {"reboot", "restart the board", cmd_reboot},
 };
 
@@ -430,6 +439,8 @@ static const char * const daq_rate_ms_values[] = {"0", "25", "100", "1000"};
 static const char * const watch_subcommands[] = {"-n"};
 static const char * const ls_options[] = {"-a", "-h", "--"};
 static const char * const rm_options[] = {"-f", "-rf"};
+static const char * const zip_options[] = {"-0", "--"};
+static const char * const unzip_options[] = {"-l", "--"};
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
 #endif
@@ -440,6 +451,12 @@ static const char * const plot_live_options[] = {"--rate"};
 
 static const char * const path_ls[] = {"ls"};
 static const char * const path_rm[] = {"rm"};
+static const char * const path_zip[] = {"zip"};
+static const char * const path_zip_after_archive[] = {"zip", SHELL_COMPLETION_ANY};
+static const char * const path_zip_after_option[] = {"zip", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
+static const char * const path_unzip[] = {"unzip"};
+static const char * const path_unzip_after_archive[] = {"unzip", SHELL_COMPLETION_ANY};
+static const char * const path_unzip_after_option[] = {"unzip", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const path_view[] = {"view"};
 #endif
@@ -661,6 +678,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
 static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
+    SHELL_COMPLETION_OPTIONS(path_zip, zip_options),
+    SHELL_COMPLETION_PATH(path_zip_after_archive, false),
+    SHELL_COMPLETION_PATH(path_zip_after_option, false),
+    SHELL_COMPLETION_OPTIONS(path_unzip, unzip_options),
+    SHELL_COMPLETION_PATH(path_unzip_after_archive, false),
+    SHELL_COMPLETION_PATH(path_unzip_after_option, false),
 #if SOLAR_OS_PACKAGE_MEDIA
     SHELL_COMPLETION_OPTIONS(path_view, view_options),
 #endif
@@ -1961,6 +1984,8 @@ static bool shell_is_path_command(const char *command)
            strcmp(command, "rm") == 0 ||
            strcmp(command, "mv") == 0 ||
            strcmp(command, "cp") == 0 ||
+           strcmp(command, "zip") == 0 ||
+           strcmp(command, "unzip") == 0 ||
 #if SOLAR_OS_PACKAGE_AUDIO
            strcmp(command, "aplay") == 0 ||
            strcmp(command, "arecord") == 0 ||
@@ -3941,6 +3966,385 @@ static void cmd_mv(solar_os_context_t *ctx, int argc, char **argv)
 static void cmd_cp(solar_os_context_t *ctx, int argc, char **argv)
 {
     shell_cmd_copy_move(ctx, argc, argv, false);
+}
+
+typedef struct {
+    solar_os_shell_io_t *term;
+    const char **sources;
+    char (*paths)[SHELL_PATH_MAX];
+    size_t count;
+    size_t capacity;
+    bool had_error;
+} shell_zip_source_list_t;
+
+static bool shell_zip_add_source(shell_zip_source_list_t *list,
+                                 const char *command,
+                                 const char *path,
+                                 const char *display_path)
+{
+    if (list->count >= list->capacity) {
+        solar_os_shell_io_printf(list->term,
+                                 "%s: too many sources, limit is %u\n",
+                                 command,
+                                 (unsigned)list->capacity);
+        list->had_error = true;
+        return false;
+    }
+
+    if (strlcpy(list->paths[list->count], path, SHELL_PATH_MAX) >= SHELL_PATH_MAX) {
+        solar_os_shell_io_printf(list->term,
+                                 "%s: path too long: %s\n",
+                                 command,
+                                 display_path != NULL ? display_path : path);
+        list->had_error = true;
+        return false;
+    }
+
+    list->sources[list->count] = list->paths[list->count];
+    list->count++;
+    return true;
+}
+
+static bool shell_zip_match(solar_os_context_t *ctx,
+                            const char *full_path,
+                            const char *display_path,
+                            const char *name,
+                            void *user)
+{
+    shell_zip_source_list_t *list = (shell_zip_source_list_t *)user;
+
+    (void)ctx;
+    (void)name;
+
+    return shell_zip_add_source(list, "zip", full_path, display_path);
+}
+
+typedef struct {
+    solar_os_shell_io_t *term;
+    bool list;
+} shell_zip_progress_t;
+
+typedef struct {
+    solar_os_shell_io_t *term;
+    const char *archive;
+    const char **sources;
+    size_t source_count;
+    bool store_only;
+    volatile bool done;
+    esp_err_t result;
+} shell_zip_create_request_t;
+
+static const char *shell_zip_method_name(uint16_t method)
+{
+    switch (method) {
+    case 0:
+        return "store";
+    case 8:
+        return "deflate";
+    default:
+        return "?";
+    }
+}
+
+static void shell_zip_progress(const solar_os_zip_event_info_t *info, void *user)
+{
+    shell_zip_progress_t *progress = (shell_zip_progress_t *)user;
+    solar_os_shell_io_t *term = progress != NULL ? progress->term : NULL;
+
+    if (term == NULL || info == NULL) {
+        return;
+    }
+
+    if (progress->list) {
+        solar_os_shell_io_printf(term,
+                                 "%10" PRIu32 "  %-7s  %s\n",
+                                 info->uncompressed_size,
+                                 shell_zip_method_name(info->method),
+                                 info->archive_name);
+        return;
+    }
+
+    switch (info->event) {
+    case SOLAR_OS_ZIP_EVENT_ADD:
+        solar_os_shell_io_printf(term, "adding: %s\n", info->archive_name);
+        break;
+    case SOLAR_OS_ZIP_EVENT_DIRECTORY:
+        solar_os_shell_io_printf(term, "adding: %s\n", info->archive_name);
+        break;
+    case SOLAR_OS_ZIP_EVENT_EXTRACT:
+        solar_os_shell_io_printf(term, "extracting: %s\n", info->archive_name);
+        break;
+    case SOLAR_OS_ZIP_EVENT_LIST:
+        break;
+    }
+}
+
+static void shell_zip_create_task(void *arg)
+{
+    shell_zip_create_request_t *request = (shell_zip_create_request_t *)arg;
+    shell_zip_progress_t progress = {
+        .term = request->term,
+        .list = false,
+    };
+    const solar_os_zip_options_t options = {
+        .store_only = request->store_only,
+        .progress = shell_zip_progress,
+        .user = &progress,
+    };
+
+    request->result = solar_os_zip_create(request->archive,
+                                          request->sources,
+                                          request->source_count,
+                                          &options);
+    request->done = true;
+    vTaskDelete(NULL);
+}
+
+static esp_err_t shell_zip_run_create_task(shell_zip_create_request_t *request)
+{
+    TaskHandle_t task = NULL;
+    request->done = false;
+    request->result = ESP_FAIL;
+
+    const BaseType_t created = xTaskCreatePinnedToCore(shell_zip_create_task,
+                                                       "solar_os_zip",
+                                                       SHELL_ZIP_TASK_STACK,
+                                                       request,
+                                                       SHELL_ZIP_TASK_PRIORITY,
+                                                       &task,
+                                                       tskNO_AFFINITY);
+    if (created != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    TickType_t poll_ticks = pdMS_TO_TICKS(SHELL_ZIP_WAIT_POLL_MS);
+    if (poll_ticks == 0) {
+        poll_ticks = 1;
+    }
+    while (!request->done) {
+        vTaskDelay(poll_ticks);
+    }
+    return request->result;
+}
+
+static const char *shell_zip_error_reason(esp_err_t err)
+{
+    switch (err) {
+    case ESP_ERR_NO_MEM:
+        return "no memory";
+    case ESP_ERR_INVALID_ARG:
+        return "invalid archive path";
+    case ESP_ERR_INVALID_SIZE:
+        return "ZIP64 or path size is not supported";
+    case ESP_ERR_NOT_SUPPORTED:
+        return "unsupported ZIP feature";
+    case ESP_ERR_NOT_FOUND:
+        return "not a ZIP archive";
+    case ESP_ERR_INVALID_RESPONSE:
+        return "corrupt ZIP archive";
+    case ESP_ERR_INVALID_CRC:
+        return "CRC mismatch";
+    default:
+        break;
+    }
+
+    return errno != 0 ? strerror(errno) : "I/O error";
+}
+
+static void shell_zip_print_error(solar_os_shell_io_t *term,
+                                  const char *command,
+                                  esp_err_t err)
+{
+    solar_os_shell_io_printf(term,
+                             "%s: failed: %s\n",
+                             command,
+                             shell_zip_error_reason(err));
+}
+
+static bool shell_zip_alloc_sources(shell_zip_source_list_t *list, solar_os_shell_io_t *term)
+{
+    memset(list, 0, sizeof(*list));
+    list->term = term;
+    list->capacity = SHELL_ZIP_SOURCE_MAX;
+    list->sources = heap_caps_calloc(list->capacity,
+                                     sizeof(*list->sources),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (list->sources == NULL) {
+        list->sources = heap_caps_calloc(list->capacity,
+                                         sizeof(*list->sources),
+                                         MALLOC_CAP_8BIT);
+    }
+    list->paths = heap_caps_calloc(list->capacity,
+                                   sizeof(*list->paths),
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (list->paths == NULL) {
+        list->paths = heap_caps_calloc(list->capacity,
+                                       sizeof(*list->paths),
+                                       MALLOC_CAP_8BIT);
+    }
+
+    if (list->sources == NULL || list->paths == NULL) {
+        heap_caps_free(list->sources);
+        heap_caps_free(list->paths);
+        memset(list, 0, sizeof(*list));
+        return false;
+    }
+    return true;
+}
+
+static void shell_zip_free_sources(shell_zip_source_list_t *list)
+{
+    if (list == NULL) {
+        return;
+    }
+
+    heap_caps_free(list->sources);
+    heap_caps_free(list->paths);
+    memset(list, 0, sizeof(*list));
+}
+
+static void cmd_zip(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+    bool store_only = false;
+    int first_arg = 1;
+
+    while (first_arg < argc && argv[first_arg][0] == '-' && argv[first_arg][1] != '\0') {
+        if (strcmp(argv[first_arg], "--") == 0) {
+            first_arg++;
+            break;
+        }
+        if (strcmp(argv[first_arg], "-0") == 0) {
+            store_only = true;
+            first_arg++;
+            continue;
+        }
+
+        solar_os_shell_io_printf(term, "zip: unsupported option: %s\n", argv[first_arg]);
+        solar_os_shell_io_writeln(term, "usage: zip [-0] <archive.zip> <path|pattern> [path|pattern...]");
+        return;
+    }
+
+    if (argc - first_arg < 2) {
+        solar_os_shell_io_writeln(term, "usage: zip [-0] <archive.zip> <path|pattern> [path|pattern...]");
+        return;
+    }
+    if (shell_arg_has_wildcards(argv[first_arg])) {
+        solar_os_shell_io_writeln(term, "zip: archive path cannot contain wildcards");
+        return;
+    }
+
+    char archive[SHELL_PATH_MAX];
+    if (!resolve_path_for_command(ctx, term, "zip", argv[first_arg], archive, sizeof(archive))) {
+        return;
+    }
+
+    shell_zip_source_list_t source_list;
+    if (!shell_zip_alloc_sources(&source_list, term)) {
+        solar_os_shell_io_writeln(term, "zip: no memory");
+        return;
+    }
+
+    for (int i = first_arg + 1; i < argc && !source_list.had_error; i++) {
+        if (shell_arg_has_wildcards(argv[i])) {
+            bool had_error = false;
+            const size_t match_count =
+                shell_for_each_wildcard_match(ctx, "zip", argv[i], shell_zip_match, &source_list, &had_error);
+            shell_report_no_wildcard_matches(term,
+                                             "zip",
+                                             argv[i],
+                                             match_count,
+                                             had_error || source_list.had_error);
+            continue;
+        }
+
+        char source[SHELL_PATH_MAX];
+        if (!resolve_path_for_command(ctx, term, "zip", argv[i], source, sizeof(source))) {
+            source_list.had_error = true;
+            break;
+        }
+        (void)shell_zip_add_source(&source_list, "zip", source, argv[i]);
+    }
+
+    if (!source_list.had_error && source_list.count == 0) {
+        solar_os_shell_io_writeln(term, "zip: no input files");
+        source_list.had_error = true;
+    }
+
+    if (!source_list.had_error) {
+        shell_zip_create_request_t request = {
+            .term = term,
+            .archive = archive,
+            .sources = source_list.sources,
+            .source_count = source_list.count,
+            .store_only = store_only,
+        };
+        const esp_err_t err = shell_zip_run_create_task(&request);
+        if (err != ESP_OK) {
+            shell_zip_print_error(term, "zip", err);
+        }
+    }
+
+    shell_zip_free_sources(&source_list);
+}
+
+static void cmd_unzip(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+    bool list_only = false;
+    int first_arg = 1;
+
+    while (first_arg < argc && argv[first_arg][0] == '-' && argv[first_arg][1] != '\0') {
+        if (strcmp(argv[first_arg], "--") == 0) {
+            first_arg++;
+            break;
+        }
+        if (strcmp(argv[first_arg], "-l") == 0) {
+            list_only = true;
+            first_arg++;
+            continue;
+        }
+
+        solar_os_shell_io_printf(term, "unzip: unsupported option: %s\n", argv[first_arg]);
+        solar_os_shell_io_writeln(term, "usage: unzip [-l] <archive.zip> [dest]");
+        return;
+    }
+
+    if ((list_only && argc - first_arg != 1) || (!list_only && (argc - first_arg < 1 || argc - first_arg > 2))) {
+        solar_os_shell_io_writeln(term, "usage: unzip [-l] <archive.zip> [dest]");
+        return;
+    }
+
+    char archive[SHELL_PATH_MAX];
+    if (!resolve_path_for_command(ctx, term, "unzip", argv[first_arg], archive, sizeof(archive))) {
+        return;
+    }
+
+    shell_zip_progress_t progress = {
+        .term = term,
+        .list = list_only,
+    };
+
+    esp_err_t err = ESP_OK;
+    if (list_only) {
+        solar_os_shell_io_writeln(term, "    Length  Method   Name");
+        err = solar_os_zip_list(archive, shell_zip_progress, &progress);
+    } else {
+        char dest[SHELL_PATH_MAX];
+        const char *dest_arg = argc - first_arg == 2 ? argv[first_arg + 1] : NULL;
+        if (!resolve_path_for_command(ctx, term, "unzip", dest_arg, dest, sizeof(dest))) {
+            return;
+        }
+        const solar_os_unzip_options_t options = {
+            .progress = shell_zip_progress,
+            .user = &progress,
+        };
+        err = solar_os_zip_extract(archive, dest, &options);
+    }
+
+    if (err != ESP_OK) {
+        shell_zip_print_error(term, "unzip", err);
+    }
 }
 
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
