@@ -145,6 +145,8 @@ static TaskHandle_t reconnect_task_handle;
 static TickType_t reconnect_fast_until_tick;
 static portMUX_TYPE repeat_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool initialized;
+static bool hidh_initialized;
+static bool classic_bt_memory_released;
 static bool connected;
 static bool reconnect_suppressed_for_sleep;
 static bool reconnect_suppressed_for_pairing;
@@ -305,6 +307,43 @@ static void stop_reconnect_task(const char *reason)
     vTaskDelete(task);
 }
 
+static void stop_scan_task_for_sleep(uint32_t timeout_ms)
+{
+    if (scan_task_handle == NULL && state != BLE_KEYBOARD_SCANNING) {
+        return;
+    }
+
+    pairing_cancel_requested = true;
+    if (state == BLE_KEYBOARD_SCANNING) {
+        SOLAR_OS_LOGI(TAG, "sleep: stopping BLE scan");
+        (void)esp_ble_gap_stop_scanning();
+    }
+    if (scan_done_sem != NULL) {
+        xSemaphoreGive(scan_done_sem);
+    }
+
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    while (scan_task_handle != NULL && (int32_t)(deadline - xTaskGetTickCount()) > 0) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    if (scan_task_handle != NULL) {
+        SOLAR_OS_LOGW(TAG, "sleep: forcing scan task stop");
+        TaskHandle_t task = scan_task_handle;
+        scan_task_handle = NULL;
+        vTaskDelete(task);
+    }
+
+    pairing_cancel_requested = false;
+    active_scan_results = NULL;
+    active_scan_max_results = 0;
+    active_scan_result_count = 0;
+    active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
+    if (!connected) {
+        set_status(BLE_KEYBOARD_IDLE, "sleep");
+    }
+}
+
 static void gatt_lock(void)
 {
     if (gatt_mutex != NULL) {
@@ -326,6 +365,58 @@ static void gatt_set_status_locked(const char *fmt, ...)
     va_start(args, fmt);
     vsnprintf(gatt_state.status, sizeof(gatt_state.status), fmt, args);
     va_end(args);
+}
+
+static void reset_gatt_runtime_state(const char *status)
+{
+    gatt_lock();
+    gatt_state.connected = false;
+    gatt_state.registered = false;
+    gatt_state.connecting = false;
+    gatt_state.gattc_if = ESP_GATT_IF_NONE;
+    gatt_state.conn_id = BLE_GATT_INVALID_CONN_ID;
+    gatt_state.mtu = 0;
+    gatt_state.service_count = 0;
+    gatt_state.op = BLE_GATT_OP_NONE;
+    gatt_state.op_status = ESP_GATT_OK;
+    gatt_state.op_value_len = 0;
+    memset(gatt_state.bda, 0, sizeof(gatt_state.bda));
+    gatt_set_status_locked("%s", status != NULL ? status : "idle");
+    gatt_unlock();
+}
+
+static esp_err_t ensure_runtime_objects(void)
+{
+    if (scan_done_sem == NULL) {
+        scan_done_sem = xSemaphoreCreateBinary();
+    }
+    if (close_done_sem == NULL) {
+        close_done_sem = xSemaphoreCreateBinary();
+    }
+    if (status_mutex == NULL) {
+        status_mutex = xSemaphoreCreateMutex();
+    }
+    if (gatt_mutex == NULL) {
+        gatt_mutex = xSemaphoreCreateMutex();
+    }
+    if (gatt_op_sem == NULL) {
+        gatt_op_sem = xSemaphoreCreateBinary();
+    }
+    if (char_queue == NULL) {
+        char_queue = xQueueCreate(BLE_KEYBOARD_CHAR_QUEUE_LEN, sizeof(char));
+    }
+
+    if (status_mutex == NULL ||
+        scan_done_sem == NULL ||
+        close_done_sem == NULL ||
+        gatt_mutex == NULL ||
+        gatt_op_sem == NULL ||
+        char_queue == NULL) {
+        set_status(BLE_KEYBOARD_FAILED, "ble no memory");
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
 }
 
 static void gatt_clear_services_locked(void)
@@ -2440,20 +2531,9 @@ esp_err_t solar_os_ble_keyboard_init(void)
         return ESP_OK;
     }
 
-    scan_done_sem = xSemaphoreCreateBinary();
-    close_done_sem = xSemaphoreCreateBinary();
-    status_mutex = xSemaphoreCreateMutex();
-    gatt_mutex = xSemaphoreCreateMutex();
-    gatt_op_sem = xSemaphoreCreateBinary();
-    char_queue = xQueueCreate(BLE_KEYBOARD_CHAR_QUEUE_LEN, sizeof(char));
-    if (status_mutex == NULL ||
-        scan_done_sem == NULL ||
-        close_done_sem == NULL ||
-        gatt_mutex == NULL ||
-        gatt_op_sem == NULL ||
-        char_queue == NULL) {
-        set_status(BLE_KEYBOARD_FAILED, "ble no memory");
-        return ESP_ERR_NO_MEM;
+    ESP_RETURN_ON_ERROR(ensure_runtime_objects(), TAG, "runtime object setup failed");
+    if (char_queue != NULL) {
+        xQueueReset(char_queue);
     }
 
     ESP_RETURN_ON_ERROR(init_nvs(), TAG, "nvs init failed");
@@ -2470,23 +2550,50 @@ esp_err_t solar_os_ble_keyboard_init(void)
         SOLAR_OS_LOGW(TAG, "load remembered keyboard failed: %s", esp_err_to_name(peer_ret));
     }
 
-    esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGW(TAG, "classic bt memory release failed: %s", esp_err_to_name(ret));
+    esp_err_t ret = ESP_OK;
+    if (!classic_bt_memory_released) {
+        ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+        if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
+            classic_bt_memory_released = true;
+        } else {
+            SOLAR_OS_LOGW(TAG, "classic bt memory release failed: %s", esp_err_to_name(ret));
+        }
     }
 
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    ESP_RETURN_ON_ERROR(esp_bt_controller_init(&bt_cfg), TAG, "controller init failed");
-    ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_BLE), TAG, "controller enable failed");
+    esp_bt_controller_status_t controller_status = esp_bt_controller_get_status();
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_IDLE) {
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        ESP_RETURN_ON_ERROR(esp_bt_controller_init(&bt_cfg), TAG, "controller init failed");
+        controller_status = esp_bt_controller_get_status();
+    }
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_INITED) {
+        ESP_RETURN_ON_ERROR(esp_bt_controller_enable(ESP_BT_MODE_BLE),
+                            TAG,
+                            "controller enable failed");
+    } else if (controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        SOLAR_OS_LOGW(TAG, "unexpected controller status %d", (int)controller_status);
+        return ESP_ERR_INVALID_STATE;
+    }
     ret = esp_bt_sleep_disable();
     if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED && ret != ESP_ERR_INVALID_STATE) {
         SOLAR_OS_LOGW(TAG, "BLE controller sleep disable failed: %s", esp_err_to_name(ret));
     }
 
-    esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-    bluedroid_cfg.ssp_en = false;
-    ESP_RETURN_ON_ERROR(esp_bluedroid_init_with_cfg(&bluedroid_cfg), TAG, "bluedroid init failed");
-    ESP_RETURN_ON_ERROR(esp_bluedroid_enable(), TAG, "bluedroid enable failed");
+    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
+        esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+        bluedroid_cfg.ssp_en = false;
+        ESP_RETURN_ON_ERROR(esp_bluedroid_init_with_cfg(&bluedroid_cfg),
+                            TAG,
+                            "bluedroid init failed");
+        bluedroid_status = esp_bluedroid_get_status();
+    }
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_INITIALIZED) {
+        ESP_RETURN_ON_ERROR(esp_bluedroid_enable(), TAG, "bluedroid enable failed");
+    } else if (bluedroid_status != ESP_BLUEDROID_STATUS_ENABLED) {
+        SOLAR_OS_LOGW(TAG, "unexpected bluedroid status %d", (int)bluedroid_status);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     ESP_RETURN_ON_ERROR(esp_ble_gap_register_callback(gap_callback), TAG, "gap callback failed");
     ESP_RETURN_ON_ERROR(esp_ble_gattc_register_callback(ble_gattc_callback),
@@ -2498,9 +2605,13 @@ esp_err_t solar_os_ble_keyboard_init(void)
         .event_stack_size = 4096,
         .callback_arg = NULL,
     };
-    ESP_RETURN_ON_ERROR(esp_hidh_init(&hidh_config), TAG, "hid host init failed");
+    if (!hidh_initialized) {
+        ESP_RETURN_ON_ERROR(esp_hidh_init(&hidh_config), TAG, "hid host init failed");
+        hidh_initialized = true;
+    }
 
     gatt_drain_op_sem();
+    reset_gatt_runtime_state("idle");
     ESP_RETURN_ON_ERROR(esp_ble_gattc_app_register(BLE_GATT_APP_ID),
                         TAG,
                         "generic gatt app register failed");
@@ -3231,50 +3342,110 @@ esp_err_t solar_os_ble_keyboard_prepare_sleep(uint32_t timeout_ms)
         return ESP_OK;
     }
 
+    esp_err_t result = ESP_OK;
+
     reconnect_suppressed_for_sleep = true;
     reconnect_fast_until_tick = 0;
+    pairing_retry_pending = false;
+    reconnect_suppressed_for_pairing = false;
 
     stop_reconnect_task("sleep");
+    stop_scan_task_for_sleep(timeout_ms);
 
     while (close_done_sem != NULL && xSemaphoreTake(close_done_sem, 0) == pdTRUE) {
     }
 
-    (void)close_pending_open_attempt("sleep", timeout_ms);
-
-    if (!connected || connected_dev == NULL) {
-        return ESP_OK;
+    if (!close_pending_open_attempt("sleep", timeout_ms)) {
+        result = ESP_ERR_TIMEOUT;
     }
 
-    SOLAR_OS_LOGI(TAG, "sleep: closing keyboard connection");
-    esp_hidh_dev_close(connected_dev);
+    if (connected && connected_dev != NULL) {
+        SOLAR_OS_LOGI(TAG, "sleep: closing keyboard connection");
+        esp_hidh_dev_t *dev = connected_dev;
+        esp_hidh_dev_close(dev);
 
-    if (close_done_sem == NULL || timeout_ms == 0) {
-        return ESP_OK;
+        if (close_done_sem != NULL && timeout_ms > 0) {
+            if (xSemaphoreTake(close_done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
+                SOLAR_OS_LOGI(TAG, "sleep: keyboard disconnected");
+            } else {
+                SOLAR_OS_LOGW(TAG, "sleep: keyboard disconnect timeout");
+                if (esp_hidh_dev_exists(dev)) {
+                    (void)esp_hidh_dev_free_inner(dev);
+                }
+                clear_runtime_connection_state("sleep disconnect timeout");
+                result = ESP_ERR_TIMEOUT;
+            }
+        }
     }
 
-    if (xSemaphoreTake(close_done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
-        SOLAR_OS_LOGI(TAG, "sleep: keyboard disconnected");
-        return ESP_OK;
+    clear_runtime_connection_state("sleep");
+    reset_gatt_runtime_state("sleep");
+    hid_gattc_if = ESP_GATT_IF_NONE;
+
+    if (hidh_initialized) {
+        const esp_err_t deinit_ret = esp_hidh_deinit();
+        if (deinit_ret == ESP_OK || deinit_ret == ESP_ERR_INVALID_STATE) {
+            hidh_initialized = false;
+        } else {
+            SOLAR_OS_LOGW(TAG, "sleep: HIDH deinit failed: %s", esp_err_to_name(deinit_ret));
+            result = deinit_ret;
+        }
     }
 
-    SOLAR_OS_LOGW(TAG, "sleep: keyboard disconnect timeout");
-    clear_runtime_connection_state("sleep disconnect timeout");
-    return ESP_ERR_TIMEOUT;
+    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_ENABLED) {
+        const esp_err_t disable_ret = esp_bluedroid_disable();
+        if (disable_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "sleep: bluedroid disable failed: %s", esp_err_to_name(disable_ret));
+            result = disable_ret;
+        }
+        bluedroid_status = esp_bluedroid_get_status();
+    }
+    if (bluedroid_status == ESP_BLUEDROID_STATUS_INITIALIZED) {
+        const esp_err_t deinit_ret = esp_bluedroid_deinit();
+        if (deinit_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "sleep: bluedroid deinit failed: %s", esp_err_to_name(deinit_ret));
+            result = deinit_ret;
+        }
+    }
+
+    esp_bt_controller_status_t controller_status = esp_bt_controller_get_status();
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        const esp_err_t disable_ret = esp_bt_controller_disable();
+        if (disable_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "sleep: controller disable failed: %s", esp_err_to_name(disable_ret));
+            result = disable_ret;
+        }
+        controller_status = esp_bt_controller_get_status();
+    }
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_INITED) {
+        const esp_err_t deinit_ret = esp_bt_controller_deinit();
+        if (deinit_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "sleep: controller deinit failed: %s", esp_err_to_name(deinit_ret));
+            result = deinit_ret;
+        }
+    }
+
+    initialized = false;
+    set_status(BLE_KEYBOARD_IDLE, "sleep");
+    return result;
 }
 
 void solar_os_ble_keyboard_resume(void)
 {
     reconnect_suppressed_for_sleep = false;
     reconnect_suppressed_for_pairing = false;
+    pairing_retry_pending = false;
+    pairing_cancel_requested = false;
 
-    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
-        esp_bt_controller_wakeup_request();
-        const esp_err_t ret = esp_bt_sleep_disable();
-        if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED && ret != ESP_ERR_INVALID_STATE) {
-            SOLAR_OS_LOGW(TAG, "resume: BLE sleep disable failed: %s", esp_err_to_name(ret));
-        }
-        vTaskDelay(pdMS_TO_TICKS(BLE_KEYBOARD_RESUME_RECONNECT_DELAY_MS));
+    const esp_err_t ret = solar_os_ble_keyboard_init();
+    if (ret != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "resume: BLE init failed: %s", esp_err_to_name(ret));
+        set_status(BLE_KEYBOARD_FAILED, "resume failed");
+        return;
     }
+
+    vTaskDelay(pdMS_TO_TICKS(BLE_KEYBOARD_RESUME_RECONNECT_DELAY_MS));
 
     if (!initialized || connected || remembered_peer_count() == 0) {
         return;
