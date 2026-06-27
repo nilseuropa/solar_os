@@ -15,7 +15,7 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_vt100.h"
 
-#define SHELL_JOB_TASK_STACK 8192
+#define SHELL_JOB_TASK_STACK 16384
 #define SHELL_JOB_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define SHELL_JOB_READ_BUF 64
 #define SHELL_JOB_READ_TIMEOUT_MS 50U

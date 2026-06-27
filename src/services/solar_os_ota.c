@@ -952,40 +952,52 @@ static void ota_report_progress(solar_os_ota_progress_cb_t cb,
 
 esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
 {
-    solar_os_ota_check_result_t artifact;
-    esp_err_t err = ota_resolve_artifact(&artifact);
-    if (err != ESP_OK) {
-        return err;
+    solar_os_ota_check_result_t *artifact = ota_malloc(sizeof(*artifact));
+    solar_os_ota_progress_t *event = ota_malloc(sizeof(*event));
+    ota_firmware_verify_t *verify = ota_malloc(sizeof(*verify));
+    esp_https_ota_handle_t handle = NULL;
+    esp_err_t err = ESP_OK;
+    bool verify_initialized = false;
+
+    if (artifact == NULL || event == NULL || verify == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto cleanup;
     }
 
-    solar_os_ota_progress_t event = {
-        .stage = SOLAR_OS_OTA_PROGRESS_CONNECTING,
-        .status_code = -1,
-        .image_size = artifact.image_size,
-        .image_size_known = artifact.image_size_known,
-    };
-    strlcpy(event.firmware_url, artifact.firmware_url, sizeof(event.firmware_url));
-    strlcpy(event.version, artifact.available_version, sizeof(event.version));
-    ota_report_progress(progress, user, &event);
+    memset(artifact, 0, sizeof(*artifact));
+    memset(event, 0, sizeof(*event));
+    memset(verify, 0, sizeof(*verify));
 
-    ota_firmware_verify_t verify = {0};
-    solar_os_crypto_sha256_init(&verify.sha256);
-    err = solar_os_crypto_sha256_start(&verify.sha256);
+    err = ota_resolve_artifact(artifact);
     if (err != ESP_OK) {
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return err;
+        goto cleanup;
     }
 
-    SOLAR_OS_LOGI(TAG, "upgrade %s", artifact.firmware_url);
+    event->stage = SOLAR_OS_OTA_PROGRESS_CONNECTING;
+    event->status_code = -1;
+    event->image_size = artifact->image_size;
+    event->image_size_known = artifact->image_size_known;
+    strlcpy(event->firmware_url, artifact->firmware_url, sizeof(event->firmware_url));
+    strlcpy(event->version, artifact->available_version, sizeof(event->version));
+    ota_report_progress(progress, user, event);
+
+    solar_os_crypto_sha256_init(&verify->sha256);
+    verify_initialized = true;
+    err = solar_os_crypto_sha256_start(&verify->sha256);
+    if (err != ESP_OK) {
+        goto cleanup;
+    }
+
+    SOLAR_OS_LOGI(TAG, "upgrade %s", artifact->firmware_url);
     esp_http_client_config_t http_config = {
-        .url = artifact.firmware_url,
+        .url = artifact->firmware_url,
         .method = HTTP_METHOD_GET,
         .timeout_ms = OTA_HTTP_TIMEOUT_MS,
         .event_handler = ota_firmware_http_event,
         .buffer_size = 2048,
         .buffer_size_tx = 512,
         .user_agent = "SolarOS-ota/0.1",
-        .user_data = &verify,
+        .user_data = verify,
         .keep_alive_enable = true,
         .max_redirection_count = 3,
     };
@@ -997,79 +1009,79 @@ esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
         .http_config = &http_config,
     };
 
-    esp_https_ota_handle_t handle = NULL;
     err = esp_https_ota_begin(&ota_config, &handle);
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "upgrade begin failed: %s", esp_err_to_name(err));
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return err;
+        goto cleanup;
     }
 
-    event.status_code = esp_https_ota_get_status_code(handle);
+    event->status_code = esp_https_ota_get_status_code(handle);
     int image_size = esp_https_ota_get_image_size(handle);
     if (image_size > 0) {
-        event.image_size = (uint32_t)image_size;
-        event.image_size_known = true;
+        event->image_size = (uint32_t)image_size;
+        event->image_size_known = true;
     }
 
     esp_app_desc_t app_desc;
     if (esp_https_ota_get_img_desc(handle, &app_desc) == ESP_OK) {
-        strlcpy(event.version, app_desc.version, sizeof(event.version));
-        event.stage = SOLAR_OS_OTA_PROGRESS_IMAGE;
+        strlcpy(event->version, app_desc.version, sizeof(event->version));
+        event->stage = SOLAR_OS_OTA_PROGRESS_IMAGE;
         const int desc_bytes_read = esp_https_ota_get_image_len_read(handle);
-        event.bytes_read = desc_bytes_read > 0 ? (uint32_t)desc_bytes_read : 0;
-        ota_report_progress(progress, user, &event);
+        event->bytes_read = desc_bytes_read > 0 ? (uint32_t)desc_bytes_read : 0;
+        ota_report_progress(progress, user, event);
         SOLAR_OS_LOGI(TAG, "image version=%s project=%s size=%" PRIu32,
                  app_desc.version,
                  app_desc.project_name,
-                 event.image_size);
+                 event->image_size);
     }
 
     do {
         err = esp_https_ota_perform(handle);
         const int bytes_read = esp_https_ota_get_image_len_read(handle);
         image_size = esp_https_ota_get_image_size(handle);
-        event.stage = SOLAR_OS_OTA_PROGRESS_WRITING;
-        event.bytes_read = bytes_read > 0 ? (uint32_t)bytes_read : 0;
+        event->stage = SOLAR_OS_OTA_PROGRESS_WRITING;
+        event->bytes_read = bytes_read > 0 ? (uint32_t)bytes_read : 0;
         if (image_size > 0) {
-            event.image_size = (uint32_t)image_size;
-            event.image_size_known = true;
+            event->image_size = (uint32_t)image_size;
+            event->image_size_known = true;
         }
-        ota_report_progress(progress, user, &event);
+        ota_report_progress(progress, user, event);
         vTaskDelay(1);
     } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
 
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "upgrade perform failed: %s", esp_err_to_name(err));
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return err;
+        handle = NULL;
+        goto cleanup;
     }
 
-    event.stage = SOLAR_OS_OTA_PROGRESS_VERIFYING;
-    ota_report_progress(progress, user, &event);
+    event->stage = SOLAR_OS_OTA_PROGRESS_VERIFYING;
+    ota_report_progress(progress, user, event);
 
     if (!esp_https_ota_is_complete_data_received(handle)) {
         SOLAR_OS_LOGW(TAG, "upgrade incomplete");
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return ESP_ERR_INVALID_SIZE;
+        handle = NULL;
+        err = ESP_ERR_INVALID_SIZE;
+        goto cleanup;
     }
 
-    if (verify.hash_failed) {
+    if (verify->hash_failed) {
         SOLAR_OS_LOGW(TAG, "upgrade hash failed");
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return ESP_FAIL;
+        handle = NULL;
+        err = ESP_FAIL;
+        goto cleanup;
     }
 
     uint8_t image_digest[SOLAR_OS_CRYPTO_SHA256_LEN];
-    err = solar_os_crypto_sha256_finish(&verify.sha256, image_digest);
+    err = solar_os_crypto_sha256_finish(&verify->sha256, image_digest);
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "upgrade hash finish failed: %s", esp_err_to_name(err));
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return err;
+        handle = NULL;
+        goto cleanup;
     }
 
     char image_digest_hex[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
@@ -1079,32 +1091,45 @@ esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
                                        sizeof(image_digest_hex));
     if (err != ESP_OK) {
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return err;
+        handle = NULL;
+        goto cleanup;
     }
-    if (!solar_os_crypto_sha256_matches_hex(image_digest, artifact.image_sha256)) {
+    if (!solar_os_crypto_sha256_matches_hex(image_digest, artifact->image_sha256)) {
         SOLAR_OS_LOGW(TAG,
                       "upgrade hash mismatch expected=%s actual=%s",
-                      artifact.image_sha256,
+                      artifact->image_sha256,
                       image_digest_hex);
         (void)esp_https_ota_abort(handle);
-        solar_os_crypto_sha256_free(&verify.sha256);
-        return ESP_ERR_INVALID_CRC;
+        handle = NULL;
+        err = ESP_ERR_INVALID_CRC;
+        goto cleanup;
     }
     SOLAR_OS_LOGI(TAG,
                   "upgrade hash verified sha256=%s bytes=%" PRIu32,
                   image_digest_hex,
-                  verify.bytes_hashed);
+                  verify->bytes_hashed);
 
     err = esp_https_ota_finish(handle);
-    solar_os_crypto_sha256_free(&verify.sha256);
+    handle = NULL;
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "upgrade finish failed: %s", esp_err_to_name(err));
-        return err;
+        goto cleanup;
     }
 
-    event.stage = SOLAR_OS_OTA_PROGRESS_DONE;
-    ota_report_progress(progress, user, &event);
+    event->stage = SOLAR_OS_OTA_PROGRESS_DONE;
+    ota_report_progress(progress, user, event);
     SOLAR_OS_LOGI(TAG, "upgrade complete");
-    return ESP_OK;
+    err = ESP_OK;
+
+cleanup:
+    if (handle != NULL) {
+        (void)esp_https_ota_abort(handle);
+    }
+    if (verify_initialized) {
+        solar_os_crypto_sha256_free(&verify->sha256);
+    }
+    ota_free(verify);
+    ota_free(event);
+    ota_free(artifact);
+    return err;
 }
