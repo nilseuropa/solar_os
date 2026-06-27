@@ -72,6 +72,8 @@
 #define WIFI_TUI_REFRESH_MS 1000
 #define OTA_PROGRESS_BAR_WIDTH 24
 #define OTA_PROGRESS_STEP_BYTES (64U * 1024U)
+#define OTA_UPGRADE_TASK_STACK 24576
+#define OTA_UPGRADE_WAIT_MS 100U
 #define NETSCAN_MAX_PORTS 128
 #define NETSCAN_MAX_HOSTS 256
 #define NETSCAN_TIMEOUT_MS 350U
@@ -349,7 +351,8 @@ void solar_os_shell_cmd_version(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_shell_io_printf(term, "SolarOS %s\n", SOLAR_OS_VERSION);
     solar_os_shell_io_printf(term, "Flavor: %s\n", SOLAR_OS_FLAVOR_NAME);
-    solar_os_shell_io_printf(term, "Packages: %s\n", SOLAR_OS_PACKAGE_LIST);
+    solar_os_shell_io_write(term, "Packages: ");
+    solar_os_shell_io_writeln(term, SOLAR_OS_PACKAGE_LIST);
 }
 
 static void pkg_print_wrapped_list(solar_os_shell_io_t *term,
@@ -538,6 +541,12 @@ typedef struct {
     bool last_known;
 } ota_shell_progress_t;
 
+typedef struct {
+    ota_shell_progress_t progress;
+    esp_err_t result;
+    volatile bool done;
+} ota_upgrade_worker_t;
+
 static const char *ota_stage_name(solar_os_ota_progress_stage_t stage)
 {
     switch (stage) {
@@ -636,6 +645,53 @@ static void ota_shell_progress_cb(const solar_os_ota_progress_t *progress, void 
     }
 }
 
+static void ota_upgrade_task(void *arg)
+{
+    ota_upgrade_worker_t *worker = (ota_upgrade_worker_t *)arg;
+    if (worker != NULL) {
+        worker->result = solar_os_ota_upgrade(ota_shell_progress_cb, &worker->progress);
+        SOLAR_OS_LOGI("solar_os_shell",
+                      "OTA upgrade task stopped stack_min_free=%u bytes",
+                      (unsigned)uxTaskGetStackHighWaterMark(NULL));
+        worker->done = true;
+    }
+    vTaskDelete(NULL);
+}
+
+static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
+{
+    if (progress == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ota_upgrade_worker_t worker = {
+        .progress = *progress,
+        .result = ESP_FAIL,
+        .done = false,
+    };
+
+    TaskHandle_t task = NULL;
+    if (xTaskCreate(ota_upgrade_task,
+                    "ota_upgrade",
+                    OTA_UPGRADE_TASK_STACK,
+                    &worker,
+                    tskIDLE_PRIORITY + 2,
+                    &task) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    TickType_t wait_ticks = pdMS_TO_TICKS(OTA_UPGRADE_WAIT_MS);
+    if (wait_ticks == 0) {
+        wait_ticks = 1;
+    }
+    while (!worker.done) {
+        vTaskDelay(wait_ticks);
+    }
+
+    *progress = worker.progress;
+    return worker.result;
+}
+
 static bool ota_parse_slot(const char *text, uint8_t *slot)
 {
     if (text == NULL || slot == NULL) {
@@ -714,7 +770,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
             .last_stage = SOLAR_OS_OTA_PROGRESS_CONNECTING,
             .last_percent = 255,
         };
-        const esp_err_t err = solar_os_ota_upgrade(ota_shell_progress_cb, &progress);
+        const esp_err_t err = ota_run_upgrade_worker(&progress);
         if (progress.row_valid) {
             const size_t rows = solar_os_shell_io_rows(term);
             solar_os_shell_io_set_cursor(term,
