@@ -286,21 +286,28 @@ daq stop
 
 ## OTA Release Layout
 
-OTA artifacts are flavor-aware. A release directory can hold several firmware flavors under the same version:
+OTA artifacts are moving toward a board-aware and flavor-aware manifest layout. A manifest-aware release directory can hold several board/flavor firmware builds under the same version:
 
 ```text
 solaros/
-  1.6.0/
-    full/
-      version.txt
-      firmware.bin
-    core/
-      version.txt
-      firmware.bin
-  latest -> 1.6.0
+  latest/
+    index.json
+    waveshare_esp32_s3_rlcd_4_2/
+      full/
+        manifest.json
+        version.txt
+        firmware.bin
+    esp32_s3_devkitc1_n16r8/
+      netrunner/
+        manifest.json
+        version.txt
+        firmware.bin
+  2.6.0/
+    index.json
+    ...
 ```
 
-By default, the OTA target flavor is the flavor compiled into the running firmware. It can be changed from the device:
+The current firmware still uses the simple flavor-aware layout and appends the OTA target flavor directly to the configured base URL. By default, the OTA target flavor is the flavor compiled into the running firmware. It can be changed from the device:
 
 ```text
 ota flavor
@@ -310,6 +317,8 @@ ota upgrade
 ```
 
 With the default OTA URL, a device targeting `full` uses `https://hypergraph.cloud/solaros/latest/full/`, while a device targeting `core` uses `https://hypergraph.cloud/solaros/latest/core/`. If `ota url` is set directly to a `.bin` file, SolarOS treats that binary as exact and reads `version.txt` next to it. `ota check` reports an update when either the version differs or the target flavor differs from the currently running compiled flavor.
+
+The forward-compatible release schema is documented in [doc/solar_os_ota_schema.md](doc/solar_os_ota_schema.md), with JSON Schemas in [schemas/](schemas/). Deployment tooling should generate an `index.json` for release-wide board/flavor selection and a `manifest.json` next to each firmware image. A later manifest-aware OTA client can then select by both board id and target flavor instead of flavor alone.
 
 ## Built-In Jobs
 

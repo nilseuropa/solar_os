@@ -1,0 +1,75 @@
+{
+  "schema": "solaros.firmware_manifest",
+  "schema_version": 1,
+  "project": "SolarOS",
+  "version": "2.6.0",
+  "channel": "stable",
+  "created_utc": "2026-06-27T12:00:00Z",
+  "board": {
+    "id": "esp32_s3_devkitc1_n16r8",
+    "name": "Espressif ESP32-S3-DevKitC-1-N16R8",
+    "capabilities": [
+      "psram",
+      "cdc",
+      "uart",
+      "wifi",
+      "ble"
+    ],
+    "psram_bytes": 8388608
+  },
+  "flavor": {
+    "name": "netrunner",
+    "description": "Minimal SolarOS build with hardware services, and network tools.",
+    "groups": [
+      "core",
+      "net"
+    ],
+    "packages": [
+      "core.runtime",
+      "core.shell",
+      "core.fs-commands",
+      "service.wifi",
+      "service.ble",
+      "service.sd",
+      "service.audio",
+      "service.gpio",
+      "service.i2c",
+      "service.uart",
+      "service.battery",
+      "service.rtc",
+      "service.sensors",
+      "service.adc",
+      "service.pwm",
+      "app.ssh",
+      "app.scp",
+      "app.curl",
+      "app.web",
+      "app.chat",
+      "job.httpd",
+      "job.slip",
+      "job.bridge",
+      "job.log",
+      "job.shell",
+      "job.batmon",
+      "job.daq",
+      "job.ntp-sync"
+    ]
+  },
+  "artifact": {
+    "firmware": "firmware.bin",
+    "version_file": "version.txt",
+    "factory_firmware": "firmware.factory.bin",
+    "size": 2535181,
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "content_type": "application/octet-stream"
+  },
+  "build": {
+    "git_commit": "0123456789abcdef0123456789abcdef01234567",
+    "git_dirty": false,
+    "platformio_env": "esp32_s3_devkitc1_n16r8",
+    "idf_version": "5.5.4",
+    "compiler": "xtensa-esp-elf-gcc 14.2.0",
+    "partition_table": "partitions.csv",
+    "app_partition_size": 8323072
+  }
+}

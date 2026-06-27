@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hypergraph.cloud/solaros/schemas/solaros-release-index.schema.json",
+  "title": "SolarOS Release Index",
+  "description": "Board/flavor artifact index for one SolarOS release or moving channel such as latest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "project",
+    "release",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "solaros.release_index"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "project": {
+      "const": "SolarOS"
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "channel": {
+          "$ref": "#/$defs/name"
+        },
+        "created_utc": {
+          "$ref": "#/$defs/date_time"
+        },
+        "git_commit": {
+          "$ref": "#/$defs/git_commit"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact_summary"
+      }
+    }
+  },
+  "$defs": {
+    "artifact_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board_id",
+        "flavor",
+        "version",
+        "manifest",
+        "firmware",
+        "version_file",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "board_id": {
+          "$ref": "#/$defs/id"
+        },
+        "board_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "flavor": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "manifest": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "firmware": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "version_file": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "factory_firmware": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "groups": {
+          "$ref": "#/$defs/names"
+        },
+        "packages": {
+          "$ref": "#/$defs/package_labels"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/name"
+      },
+      "uniqueItems": true
+    },
+    "date_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "git_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,40}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "names": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/name"
+      },
+      "uniqueItems": true
+    },
+    "package_labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+      },
+      "uniqueItems": true
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180,
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^/"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(^|/)\\.\\.(/|$)"
+          }
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.+][A-Za-z0-9_.-]+)?$"
+    }
+  }
+}

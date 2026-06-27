@@ -1,0 +1,67 @@
+{
+  "schema": "solaros.release_index",
+  "schema_version": 1,
+  "project": "SolarOS",
+  "base_url": "https://hypergraph.cloud/solaros/2.6.0/",
+  "release": {
+    "version": "2.6.0",
+    "channel": "stable",
+    "created_utc": "2026-06-27T12:00:00Z",
+    "git_commit": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "artifacts": [
+    {
+      "board_id": "esp32_s3_devkitc1_n16r8",
+      "board_name": "Espressif ESP32-S3-DevKitC-1-N16R8",
+      "flavor": "netrunner",
+      "version": "2.6.0",
+      "manifest": "esp32_s3_devkitc1_n16r8/netrunner/manifest.json",
+      "firmware": "esp32_s3_devkitc1_n16r8/netrunner/firmware.bin",
+      "version_file": "esp32_s3_devkitc1_n16r8/netrunner/version.txt",
+      "factory_firmware": "esp32_s3_devkitc1_n16r8/netrunner/firmware.factory.bin",
+      "size": 2535181,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "capabilities": [
+        "psram",
+        "cdc",
+        "uart",
+        "wifi",
+        "ble"
+      ],
+      "groups": [
+        "core",
+        "net"
+      ],
+      "packages": [
+        "core.runtime",
+        "core.shell",
+        "core.fs-commands",
+        "service.wifi",
+        "service.ble",
+        "service.sd",
+        "service.audio",
+        "service.gpio",
+        "service.i2c",
+        "service.uart",
+        "service.battery",
+        "service.rtc",
+        "service.sensors",
+        "service.adc",
+        "service.pwm",
+        "app.ssh",
+        "app.scp",
+        "app.curl",
+        "app.web",
+        "app.chat",
+        "job.httpd",
+        "job.slip",
+        "job.bridge",
+        "job.log",
+        "job.shell",
+        "job.batmon",
+        "job.daq",
+        "job.ntp-sync"
+      ]
+    }
+  ]
+}
