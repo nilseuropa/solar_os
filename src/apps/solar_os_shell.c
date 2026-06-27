@@ -374,6 +374,7 @@ static const char * const power_subcommands[] = {
     "status",
     "profile",
     "idle",
+    "key",
     "sleep",
 };
 
@@ -384,6 +385,7 @@ static const char * const power_profile_values[] = {
     "offline",
 };
 static const char * const power_idle_values[] = {"off"};
+static const char * const power_key_values[] = {"off", "light"};
 
 static const char * const battery_subcommands[] = {
     "status",
@@ -611,6 +613,7 @@ static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
 static const char * const path_power_idle[] = {"power", "idle"};
+static const char * const path_power_key[] = {"power", "key"};
 static const char * const path_battery[] = {"battery"};
 static const char * const path_audio[] = {"audio"};
 #if SOLAR_OS_PACKAGE_NET
@@ -791,6 +794,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_power, power_subcommands),
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
     SHELL_COMPLETION_STATIC(path_power_idle, power_idle_values),
+    SHELL_COMPLETION_STATIC(path_power_key, power_key_values),
     SHELL_COMPLETION_STATIC(path_battery, battery_subcommands),
     SHELL_COMPLETION_STATIC(path_audio, audio_subcommands),
 #if SOLAR_OS_PACKAGE_NET

@@ -1143,6 +1143,7 @@ static void power_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  power status");
     solar_os_shell_io_writeln(term, "  power profile [performance|balanced|solar|offline]");
     solar_os_shell_io_writeln(term, "  power idle [off|seconds]");
+    solar_os_shell_io_writeln(term, "  power key [off|light]");
     solar_os_shell_io_writeln(term, "  power sleep");
 }
 
@@ -1163,6 +1164,37 @@ static void power_print_status(solar_os_shell_io_t *term)
     solar_os_shell_io_printf(term,
                              "Profile: %s\n",
                              solar_os_power_profile_name(status.profile));
+    solar_os_shell_io_printf(term,
+                             "CPU: %" PRIu32 "-%" PRIu32 " MHz\n",
+                             status.cpu_min_mhz,
+                             status.cpu_max_mhz);
+    solar_os_shell_io_printf(term,
+                             "Automatic light sleep: %s\n",
+                             status.automatic_light_sleep ? "on" : "off");
+    solar_os_shell_io_printf(term,
+                             "Explicit sleep transition: %s\n",
+                             status.explicit_sleep_active ? "active" : "idle");
+    if (status.automatic_light_sleep_holdoff_ms > 0) {
+        char holdoff_text[32];
+        solar_os_time_format_uptime(status.automatic_light_sleep_holdoff_ms,
+                                    holdoff_text,
+                                    sizeof(holdoff_text));
+        solar_os_shell_io_printf(term, "Automatic sleep holdoff: %s\n", holdoff_text);
+    }
+    solar_os_shell_io_printf(term,
+                             "PM: %s%s%s\n",
+                             status.pm_configured ? "configured" : "not configured",
+                             status.pm_last_error == ESP_OK ? "" : " ",
+                             status.pm_last_error == ESP_OK ? "" : esp_err_to_name(status.pm_last_error));
+    solar_os_shell_io_printf(term,
+                             "BT modem sleep: %s%s%s\n",
+                             status.bt_sleep_enabled ? "on" : "off",
+                             status.bt_sleep_last_error == ESP_OK ? "" : " ",
+                             status.bt_sleep_last_error == ESP_OK ?
+                                "" : esp_err_to_name(status.bt_sleep_last_error));
+    solar_os_shell_io_printf(term,
+                             "KEY short press: %s\n",
+                             solar_os_power_key_action_name(status.key_action));
     solar_os_shell_io_printf(term, "Idle sleep: %s\n", idle_text);
     solar_os_shell_io_printf(term,
                              "Light sleep count: %" PRIu32 "\n",
@@ -1264,6 +1296,41 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "power idle: save failed: %s\n",
+                                     esp_err_to_name(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "key") == 0) {
+        if (argc == 2) {
+            solar_os_power_status_t status;
+            solar_os_power_get_status(&status);
+            solar_os_shell_io_printf(term,
+                                     "key: %s\n",
+                                     solar_os_power_key_action_name(status.key_action));
+            solar_os_shell_io_writeln(term, "values: off light");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(term, "usage: power key [off|light]");
+            return;
+        }
+
+        solar_os_power_key_action_t action;
+        if (!solar_os_power_parse_key_action(argv[2], &action)) {
+            solar_os_shell_io_printf(term, "power key: invalid value: %s\n", argv[2]);
+            solar_os_shell_io_writeln(term, "values: off light");
+            return;
+        }
+
+        const esp_err_t err = solar_os_power_set_key_action(action);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "power key: %s\n",
+                                     solar_os_power_key_action_name(action));
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "power key: save failed: %s\n",
                                      esp_err_to_name(err));
         }
         return;

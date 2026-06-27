@@ -163,7 +163,7 @@ System:
 - `status`
 - `uptime`
 - `sleep`
-- `power [status|profile|idle|sleep]`: inspect power state, select power profile, configure display-shell idle sleep, or enter light sleep.
+- `power [status|profile|idle|key|sleep]`: inspect power state, select runtime performance policy, configure display-shell idle sleep, configure KEY short-press behavior, or enter light sleep.
 - `jobs`
 - `job [status|start|stop]`: control background jobs; job-specific arguments follow the job name.
 - `port [list|status]`: inspect registered byte-stream ports and current owners.
@@ -223,12 +223,12 @@ Hardware and sensors:
 
 Power profiles:
 
-- `power profile performance`: disables idle sleep.
-- `power profile balanced`: disables idle sleep; this is the default.
-- `power profile solar`: enables display-shell idle sleep after 300 seconds.
-- `power profile offline`: enables display-shell idle sleep after 60 seconds.
+- `power profile performance`: runs at the configured maximum CPU frequency and disables automatic light sleep.
+- `power profile balanced`: allows CPU frequency scaling down to 80 MHz and disables automatic light sleep; this is the default.
+- `power profile solar`: caps the CPU at 80 MHz, enables ESP-IDF automatic light sleep, and disables explicit idle sleep.
+- `power profile offline`: caps the CPU at 80 MHz, enables ESP-IDF automatic light sleep, and enables display-shell idle sleep after 60 seconds.
 
-`power idle [off|seconds]` overrides the profile idle timeout. Idle sleep currently applies only while the foreground app is the display shell, so SSH, editor, web, serial terminal, games, audio, and other foreground apps are not suspended unexpectedly.
+`power idle [off|seconds]` overrides the profile idle timeout. Idle sleep currently applies only while the foreground app is the display shell, so SSH, editor, web, serial terminal, games, audio, and other foreground apps are not suspended unexpectedly. `power key [off|light]` controls whether a short KEY press is ignored or enters explicit light sleep; long KEY press remains BLE keyboard pairing.
 
 Networking:
 

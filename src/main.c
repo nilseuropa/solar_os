@@ -77,6 +77,7 @@
 #define KEY_WAKE_MODE ESP_EXT1_WAKEUP_ANY_HIGH
 #endif
 #define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 500
+#define BLE_RESUME_PM_HOLDOFF_MS 15000
 #define APP_TICK_INTERVAL_MS 25
 #define STATUS_UPDATE_INTERVAL_MS 1000
 
@@ -407,16 +408,28 @@ static void enter_light_sleep(const char *reason)
 
     SOLAR_OS_LOGI(TAG, "%s: entering light sleep", reason);
 
-    esp_err_t err = key_prepare_rtc_wakeup();
+    esp_err_t err = solar_os_power_begin_explicit_sleep();
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "%s: explicit sleep power policy failed: %s",
+                      reason,
+                      esp_err_to_name(err));
+    }
+
+    (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+
+    err = key_prepare_rtc_wakeup();
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "KEY RTC wake GPIO setup failed: %s", esp_err_to_name(err));
         key_restore_gpio_after_rtc();
+        (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
     if (!wait_key_rtc_released_stable(KEY_RELEASE_STABLE_MS, KEY_RELEASE_STABLE_TIMEOUT_MS)) {
         SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, RTC key release was not stable", reason);
         key_restore_gpio_after_rtc();
+        (void)solar_os_power_end_explicit_sleep();
         key_pressed = key_button_is_pressed();
         key_long_press_fired = false;
         key_pressed_ms = millis_u32();
@@ -428,6 +441,7 @@ static void enter_light_sleep(const char *reason)
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "KEY sleep RTC power setup failed: %s", esp_err_to_name(err));
         key_restore_gpio_after_rtc();
+        (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
@@ -436,6 +450,7 @@ static void enter_light_sleep(const char *reason)
         SOLAR_OS_LOGW(TAG, "KEY sleep source setup failed: %s", esp_err_to_name(err));
         (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
         key_restore_gpio_after_rtc();
+        (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
@@ -478,15 +493,30 @@ static void enter_light_sleep(const char *reason)
     }
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
         solar_os_ble_keyboard_resume();
+        (void)solar_os_power_hold_automatic_light_sleep(BLE_RESUME_PM_HOLDOFF_MS);
     }
+    (void)solar_os_power_end_explicit_sleep();
 
     update_status();
     resume_display_after_sleep(now_ms);
 }
 
-static void enter_key_light_sleep(void)
+static void handle_key_short_press(void)
 {
-    enter_light_sleep("KEY short press");
+    solar_os_power_status_t power_status;
+    solar_os_power_get_status(&power_status);
+
+    switch (power_status.key_action) {
+    case SOLAR_OS_POWER_KEY_ACTION_OFF:
+        SOLAR_OS_LOGI(TAG, "KEY short press: sleep disabled");
+        break;
+    case SOLAR_OS_POWER_KEY_ACTION_LIGHT:
+        enter_light_sleep("KEY short press");
+        break;
+    default:
+        SOLAR_OS_LOGW(TAG, "KEY short press: unknown power action");
+        break;
+    }
 }
 
 static void key_button_init(void)
@@ -548,7 +578,7 @@ static void poll_key_button(void)
         key_pressed = false;
         solar_os_power_note_activity(now_ms);
         if (short_press) {
-            enter_key_light_sleep();
+            handle_key_short_press();
         }
     }
 
@@ -1053,6 +1083,7 @@ void app_main(void)
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
 
     while (true) {
+        solar_os_power_poll();
         poll_key_button();
         dispatch_keyboard_chars();
         dispatch_app_tick();

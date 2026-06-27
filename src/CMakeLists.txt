@@ -354,6 +354,7 @@ set(SOLAR_OS_REQUIRES
     esp_http_client
     esp_https_ota
     esp_netif
+    esp_pm
     esp_rom
     esp_timer
     esp_wifi

@@ -19,6 +19,7 @@
 #include "esp_hidh_gattc.h"
 #include "esp_private/esp_hidh_private.h"
 #include "solar_os_log.h"
+#include "solar_os_power.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -2574,10 +2575,7 @@ esp_err_t solar_os_ble_keyboard_init(void)
         SOLAR_OS_LOGW(TAG, "unexpected controller status %d", (int)controller_status);
         return ESP_ERR_INVALID_STATE;
     }
-    ret = esp_bt_sleep_disable();
-    if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED && ret != ESP_ERR_INVALID_STATE) {
-        SOLAR_OS_LOGW(TAG, "BLE controller sleep disable failed: %s", esp_err_to_name(ret));
-    }
+    (void)solar_os_power_apply_runtime_policy();
 
     esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
     if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
