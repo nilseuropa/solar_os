@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hypergraph.cloud/solaros/schemas/solaros-firmware-manifest.schema.json",
+  "title": "SolarOS Firmware Artifact Manifest",
+  "description": "Complete metadata for one SolarOS firmware binary built for one board and one flavor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "project",
+    "version",
+    "board",
+    "flavor",
+    "artifact"
+  ],
+  "properties": {
+    "schema": {
+      "const": "solaros.firmware_manifest"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "project": {
+      "const": "SolarOS"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "channel": {
+      "$ref": "#/$defs/name"
+    },
+    "created_utc": {
+      "$ref": "#/$defs/date_time"
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "capabilities"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "psram_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "flavor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "groups",
+        "packages"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "groups": {
+          "$ref": "#/$defs/names"
+        },
+        "packages": {
+          "$ref": "#/$defs/package_labels"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "firmware",
+        "version_file",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "firmware": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "version_file": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "factory_firmware": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "content_type": {
+          "type": "string",
+          "default": "application/octet-stream"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "git_commit": {
+          "$ref": "#/$defs/git_commit"
+        },
+        "git_dirty": {
+          "type": "boolean"
+        },
+        "platformio_env": {
+          "$ref": "#/$defs/id"
+        },
+        "idf_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "compiler": {
+          "type": "string",
+          "maxLength": 96
+        },
+        "partition_table": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "app_partition_size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/name"
+      },
+      "uniqueItems": true
+    },
+    "date_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "git_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{7,40}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "names": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/name"
+      },
+      "uniqueItems": true
+    },
+    "package_labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+      },
+      "uniqueItems": true
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180,
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^/"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(^|/)\\.\\.(/|$)"
+          }
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.+][A-Za-z0-9_.-]+)?$"
+    }
+  }
+}

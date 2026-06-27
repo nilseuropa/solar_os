@@ -9,10 +9,9 @@
 
 #include "esp_heap_caps.h"
 #include "mbedtls/base64.h"
-#include "mbedtls/ctr_drbg.h"
-#include "mbedtls/entropy.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/rsa.h"
+#include "solar_os_crypto.h"
 #include "solar_os_identity.h"
 #include "solar_os_storage.h"
 
@@ -346,33 +345,24 @@ esp_err_t solar_os_ssh_keys_generate_rsa(uint32_t bits, bool overwrite)
         return ESP_ERR_INVALID_STATE;
     }
 
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context ctr_drbg;
+    solar_os_crypto_rng_t rng = {0};
     mbedtls_pk_context pk;
-    mbedtls_entropy_init(&entropy);
-    mbedtls_ctr_drbg_init(&ctr_drbg);
     mbedtls_pk_init(&pk);
 
-    const char personalization[] = "SolarOS sshkey";
-    int rc = mbedtls_ctr_drbg_seed(&ctr_drbg,
-                                   mbedtls_entropy_func,
-                                   &entropy,
-                                   (const unsigned char *)personalization,
-                                   sizeof(personalization) - 1);
-    if (rc != 0) {
-        ret = ESP_FAIL;
+    ret = solar_os_crypto_rng_init(&rng, "SolarOS sshkey");
+    if (ret != ESP_OK) {
         goto cleanup;
     }
 
-    rc = mbedtls_pk_setup(&pk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
+    int rc = mbedtls_pk_setup(&pk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
     if (rc != 0) {
         ret = ESP_FAIL;
         goto cleanup;
     }
 
     rc = mbedtls_rsa_gen_key(mbedtls_pk_rsa(pk),
-                             mbedtls_ctr_drbg_random,
-                             &ctr_drbg,
+                             solar_os_crypto_rng_mbedtls,
+                             &rng,
                              bits,
                              SSH_KEYS_EXPONENT);
     if (rc != 0) {
@@ -410,8 +400,7 @@ esp_err_t solar_os_ssh_keys_generate_rsa(uint32_t bits, bool overwrite)
 
 cleanup:
     mbedtls_pk_free(&pk);
-    mbedtls_ctr_drbg_free(&ctr_drbg);
-    mbedtls_entropy_free(&entropy);
+    solar_os_crypto_rng_free(&rng);
     return ret;
 }
 

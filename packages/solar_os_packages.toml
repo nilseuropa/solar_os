@@ -9,6 +9,8 @@ members = [
   "service_audio",
   "service_gpio",
   "service_i2c",
+  "service_json",
+  "service_crypto",
   "service_uart",
   "service_battery",
   "service_rtc",
@@ -125,6 +127,12 @@ label = "service.gpio"
 
 [packages.service_i2c]
 label = "service.i2c"
+
+[packages.service_json]
+label = "service.json"
+
+[packages.service_crypto]
+label = "service.crypto"
 
 [packages.service_uart]
 label = "service.uart"
