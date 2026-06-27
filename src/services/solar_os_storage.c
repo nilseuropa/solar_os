@@ -10,7 +10,7 @@
 #include "ff.h"
 #include "solar_os_board_caps.h"
 #if SOLAR_OS_BOARD_HAS_SD
-#include "sd_card.h"
+#include "solar_os_board_storage.h"
 #endif
 
 #define SOLAR_OS_STORAGE_COPY_BUFFER_SIZE 512
@@ -63,7 +63,7 @@ esp_err_t solar_os_storage_init(void)
 esp_err_t solar_os_storage_mount(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_init();
+    return solar_os_board_storage_mount();
 #else
     return ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -72,7 +72,7 @@ esp_err_t solar_os_storage_mount(void)
 esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_point)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_mount_volume(name, mount_point);
+    return solar_os_board_storage_mount_volume(name, mount_point);
 #else
     (void)name;
     (void)mount_point;
@@ -83,7 +83,7 @@ esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_poin
 esp_err_t solar_os_storage_unmount(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_unmount();
+    return solar_os_board_storage_unmount();
 #else
     return ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -92,7 +92,7 @@ esp_err_t solar_os_storage_unmount(void)
 esp_err_t solar_os_storage_unmount_volume(const char *target)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_unmount_volume(target);
+    return solar_os_board_storage_unmount_volume(target);
 #else
     (void)target;
     return ESP_ERR_NOT_SUPPORTED;
@@ -102,7 +102,7 @@ esp_err_t solar_os_storage_unmount_volume(const char *target)
 bool solar_os_storage_is_mounted(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_is_mounted();
+    return solar_os_board_storage_is_mounted();
 #else
     return false;
 #endif
@@ -111,7 +111,7 @@ bool solar_os_storage_is_mounted(void)
 void solar_os_storage_get_status(char *buffer, size_t len)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    sd_card_get_status(buffer, len);
+    solar_os_board_storage_get_status(buffer, len);
 #else
     if (buffer != NULL && len > 0) {
         strlcpy(buffer, "unavailable", len);
@@ -122,7 +122,7 @@ void solar_os_storage_get_status(char *buffer, size_t len)
 const char *solar_os_storage_mount_point(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_mount_point();
+    return solar_os_board_storage_mount_point();
 #else
     return SOLAR_OS_STORAGE_DEFAULT_MOUNT_POINT;
 #endif
@@ -191,7 +191,7 @@ esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *b
 esp_err_t solar_os_storage_rescan(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_rescan();
+    return solar_os_board_storage_rescan();
 #else
     return ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -200,7 +200,7 @@ esp_err_t solar_os_storage_rescan(void)
 size_t solar_os_storage_block_count(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
-    return sd_card_block_count();
+    return solar_os_board_storage_block_count();
 #else
     return 0;
 #endif
@@ -216,30 +216,30 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
     (void)index;
     return false;
 #else
-    sd_card_block_t sd_block;
-    if (!sd_card_get_block(index, &sd_block)) {
+    solar_os_board_storage_block_t board_block;
+    if (!solar_os_board_storage_get_block(index, &board_block)) {
         return false;
     }
 
     memset(block, 0, sizeof(*block));
-    strlcpy(block->name, sd_block.name, sizeof(block->name));
-    block->type = sd_block.type == SD_CARD_BLOCK_PARTITION ?
+    strlcpy(block->name, board_block.name, sizeof(block->name));
+    block->type = board_block.type == SOLAR_OS_BOARD_STORAGE_BLOCK_PARTITION ?
         SOLAR_OS_STORAGE_BLOCK_PARTITION :
         SOLAR_OS_STORAGE_BLOCK_DISK;
-    block->partition_number = sd_block.partition_number;
-    block->mbr_type = sd_block.mbr_type;
-    block->bootable = sd_block.bootable;
-    block->mountable = sd_block.mountable;
-    block->mounted = sd_block.mounted;
-    block->whole_disk_filesystem = sd_block.whole_disk_filesystem;
-    block->logical_volume = sd_block.logical_volume;
-    block->start_sector = sd_block.start_sector;
-    block->sector_count = sd_block.sector_count;
-    block->sector_size = sd_block.sector_size;
-    block->size_bytes = sd_block.size_bytes;
-    strlcpy(block->fs, sd_block.fs, sizeof(block->fs));
-    strlcpy(block->type_name, sd_block.type_name, sizeof(block->type_name));
-    strlcpy(block->mount_point, sd_block.mount_point, sizeof(block->mount_point));
+    block->partition_number = board_block.partition_number;
+    block->mbr_type = board_block.mbr_type;
+    block->bootable = board_block.bootable;
+    block->mountable = board_block.mountable;
+    block->mounted = board_block.mounted;
+    block->whole_disk_filesystem = board_block.whole_disk_filesystem;
+    block->logical_volume = board_block.logical_volume;
+    block->start_sector = board_block.start_sector;
+    block->sector_count = board_block.sector_count;
+    block->sector_size = board_block.sector_size;
+    block->size_bytes = board_block.size_bytes;
+    strlcpy(block->fs, board_block.fs, sizeof(block->fs));
+    strlcpy(block->type_name, board_block.type_name, sizeof(block->type_name));
+    strlcpy(block->mount_point, board_block.mount_point, sizeof(block->mount_point));
     return true;
 #endif
 }

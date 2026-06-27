@@ -15,7 +15,7 @@
 #include "solar_os_board_caps.h"
 
 #if SOLAR_OS_BOARD_HAS_RTC
-#include "rtc_pcf85063.h"
+#include "solar_os_board_rtc.h"
 #endif
 
 #define TIME_NVS_NAMESPACE "time"
@@ -45,7 +45,8 @@ static char timezone_posix[SOLAR_OS_TIMEZONE_POSIX_MAX] = "UTC0";
 static bool timezone_loaded;
 
 #if SOLAR_OS_BOARD_HAS_RTC
-static void datetime_from_driver(solar_os_datetime_t *out, const rtc_datetime_t *in)
+static void datetime_from_board(solar_os_datetime_t *out,
+                                const solar_os_board_rtc_datetime_t *in)
 {
     out->year = in->year;
     out->month = in->month;
@@ -71,7 +72,8 @@ static void datetime_from_tm(solar_os_datetime_t *out, const struct tm *in, bool
 }
 
 #if SOLAR_OS_BOARD_HAS_RTC
-static void datetime_to_driver(rtc_datetime_t *out, const solar_os_datetime_t *in)
+static void datetime_to_board(solar_os_board_rtc_datetime_t *out,
+                              const solar_os_datetime_t *in)
 {
     out->year = in->year;
     out->month = in->month;
@@ -296,7 +298,7 @@ esp_err_t solar_os_time_init(void)
 #if !SOLAR_OS_BOARD_HAS_RTC
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    return rtc_pcf85063_init();
+    return solar_os_board_rtc_init();
 #endif
 }
 
@@ -398,13 +400,13 @@ esp_err_t solar_os_time_get_utc_datetime(solar_os_datetime_t *datetime)
 #if !SOLAR_OS_BOARD_HAS_RTC
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    rtc_datetime_t driver_datetime;
-    const esp_err_t ret = rtc_pcf85063_get_datetime(&driver_datetime);
+    solar_os_board_rtc_datetime_t board_datetime;
+    const esp_err_t ret = solar_os_board_rtc_get_datetime(&board_datetime);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    datetime_from_driver(datetime, &driver_datetime);
+    datetime_from_board(datetime, &board_datetime);
     return ESP_OK;
 #endif
 }
@@ -418,9 +420,9 @@ esp_err_t solar_os_time_set_utc_datetime(const solar_os_datetime_t *datetime)
 #if !SOLAR_OS_BOARD_HAS_RTC
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    rtc_datetime_t driver_datetime;
-    datetime_to_driver(&driver_datetime, datetime);
-    return rtc_pcf85063_set_datetime(&driver_datetime);
+    solar_os_board_rtc_datetime_t board_datetime;
+    datetime_to_board(&board_datetime, datetime);
+    return solar_os_board_rtc_set_datetime(&board_datetime);
 #endif
 }
 

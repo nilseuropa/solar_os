@@ -4,13 +4,13 @@
 
 #include "solar_os_board_caps.h"
 #if SOLAR_OS_BOARD_HAS_TEMPERATURE || SOLAR_OS_BOARD_HAS_HUMIDITY
-#include "shtc3.h"
+#include "solar_os_board_sensors.h"
 #endif
 
 esp_err_t solar_os_sensors_init(void)
 {
 #if SOLAR_OS_BOARD_HAS_TEMPERATURE || SOLAR_OS_BOARD_HAS_HUMIDITY
-    return shtc3_init();
+    return solar_os_board_sensors_init();
 #else
     return ESP_ERR_NOT_SUPPORTED;
 #endif
@@ -25,8 +25,8 @@ esp_err_t solar_os_sensors_read_environment(solar_os_environment_t *environment)
 #if !SOLAR_OS_BOARD_HAS_TEMPERATURE && !SOLAR_OS_BOARD_HAS_HUMIDITY
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    shtc3_measurement_t measurement;
-    const esp_err_t ret = shtc3_read_measurement(&measurement);
+    solar_os_board_environment_t measurement;
+    const esp_err_t ret = solar_os_board_sensors_read_environment(&measurement);
     if (ret != ESP_OK) {
         return ret;
     }

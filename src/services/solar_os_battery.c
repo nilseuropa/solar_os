@@ -7,7 +7,7 @@
 #include "solar_os_board_caps.h"
 
 #if SOLAR_OS_BOARD_HAS_BATTERY
-#include "battery_adc.h"
+#include "solar_os_board_battery.h"
 #endif
 
 #include "nvs.h"
@@ -22,7 +22,7 @@
 #define BATTERY_ALLOWED_MIN_MV 2500U
 #define BATTERY_ALLOWED_MAX_MV 5000U
 #define BATTERY_CAPACITY_MAX_MAH 100000U
-#define BATTERY_ADC_AVG_WINDOW 8U
+#define BATTERY_VOLTAGE_AVG_WINDOW 8U
 #define BATTERY_MONITOR_HISTORY 16U
 #define BATTERY_TREND_WINDOW 8U
 #define BATTERY_TREND_MIN_SAMPLES 4U
@@ -44,10 +44,10 @@ static solar_os_battery_monitor_status_t monitor_status = {
     .trend = SOLAR_OS_BATTERY_TREND_UNKNOWN,
     .last_error = ESP_OK,
 };
-static uint16_t battery_adc_samples[BATTERY_ADC_AVG_WINDOW];
-static size_t battery_adc_sample_count;
-static size_t battery_adc_sample_index;
-static uint32_t battery_adc_sample_sum;
+static uint16_t battery_voltage_samples[BATTERY_VOLTAGE_AVG_WINDOW];
+static size_t battery_voltage_sample_count;
+static size_t battery_voltage_sample_index;
+static uint32_t battery_voltage_sample_sum;
 static battery_monitor_sample_t monitor_samples[BATTERY_MONITOR_HISTORY];
 static size_t monitor_sample_count;
 
@@ -138,23 +138,23 @@ static bool battery_voltage_external_power(uint16_t mv)
     return mv > battery_config.max_voltage_mv;
 }
 
-static uint16_t battery_push_adc_average(uint16_t mv)
+static uint16_t battery_push_voltage_average(uint16_t mv)
 {
-    if (battery_adc_sample_count < BATTERY_ADC_AVG_WINDOW) {
-        battery_adc_samples[battery_adc_sample_count++] = mv;
-        battery_adc_sample_sum += mv;
+    if (battery_voltage_sample_count < BATTERY_VOLTAGE_AVG_WINDOW) {
+        battery_voltage_samples[battery_voltage_sample_count++] = mv;
+        battery_voltage_sample_sum += mv;
     } else {
-        battery_adc_sample_sum -= battery_adc_samples[battery_adc_sample_index];
-        battery_adc_samples[battery_adc_sample_index] = mv;
-        battery_adc_sample_sum += mv;
-        battery_adc_sample_index++;
-        if (battery_adc_sample_index >= BATTERY_ADC_AVG_WINDOW) {
-            battery_adc_sample_index = 0;
+        battery_voltage_sample_sum -= battery_voltage_samples[battery_voltage_sample_index];
+        battery_voltage_samples[battery_voltage_sample_index] = mv;
+        battery_voltage_sample_sum += mv;
+        battery_voltage_sample_index++;
+        if (battery_voltage_sample_index >= BATTERY_VOLTAGE_AVG_WINDOW) {
+            battery_voltage_sample_index = 0;
         }
     }
 
-    return (uint16_t)((battery_adc_sample_sum + (battery_adc_sample_count / 2U)) /
-                      battery_adc_sample_count);
+    return (uint16_t)((battery_voltage_sample_sum + (battery_voltage_sample_count / 2U)) /
+                      battery_voltage_sample_count);
 }
 
 static bool battery_monitor_indicates_external_power(void)
@@ -298,7 +298,7 @@ esp_err_t solar_os_battery_init(void)
 #if !SOLAR_OS_BOARD_HAS_BATTERY
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    return battery_adc_init();
+    return solar_os_board_battery_init();
 #endif
 }
 
@@ -314,13 +314,13 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     memset(status, 0, sizeof(*status));
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    battery_adc_sample_t sample;
-    const esp_err_t ret = battery_adc_read(&sample);
+    solar_os_board_battery_sample_t sample;
+    const esp_err_t ret = solar_os_board_battery_read(&sample);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    const uint16_t averaged_mv = battery_push_adc_average(sample.battery_mv);
+    const uint16_t averaged_mv = battery_push_voltage_average(sample.battery_mv);
     status->voltage_mv = averaged_mv;
     status->percent = battery_percent_from_voltage(averaged_mv);
     status->percent_estimated = true;

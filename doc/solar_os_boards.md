@@ -52,6 +52,11 @@ set(SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2")
 set(SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2")
 set(SOLAR_OS_BOARD_DISPLAY_DRIVER "st7305")
+set(SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc")
+set(SOLAR_OS_BOARD_RTC_DRIVER "pcf85063")
+set(SOLAR_OS_BOARD_BATTERY_DRIVER "adc")
+set(SOLAR_OS_BOARD_AUDIO_DRIVER "es8311_es7210")
+set(SOLAR_OS_BOARD_SENSOR_DRIVER "shtc3")
 
 set(SOLAR_OS_BOARD_HAS_DISPLAY ON)
 set(SOLAR_OS_BOARD_HAS_GFX ON)
@@ -76,9 +81,20 @@ Only enable a capability when the board header provides the required pin macros
 and the hardware has been checked. Unsupported services still compile, but their
 runtime calls return `ESP_ERR_NOT_SUPPORTED`.
 
-Some capabilities also need a concrete driver selection. For example, a board
-with `SOLAR_OS_BOARD_HAS_DISPLAY ON` must set `SOLAR_OS_BOARD_DISPLAY_DRIVER`.
-The current supported display driver value is `st7305`.
+Capabilities describe what services should exist. Driver selections describe how
+this board implements those capabilities. For example, a board with
+`SOLAR_OS_BOARD_HAS_DISPLAY ON` must set `SOLAR_OS_BOARD_DISPLAY_DRIVER`.
+
+Current built-in driver selector values:
+
+| Selector | Values |
+| --- | --- |
+| `SOLAR_OS_BOARD_DISPLAY_DRIVER` | `st7305` |
+| `SOLAR_OS_BOARD_STORAGE_DRIVER` | `sdmmc` |
+| `SOLAR_OS_BOARD_RTC_DRIVER` | `pcf85063` |
+| `SOLAR_OS_BOARD_BATTERY_DRIVER` | `adc` |
+| `SOLAR_OS_BOARD_AUDIO_DRIVER` | `es8311_es7210` |
+| `SOLAR_OS_BOARD_SENSOR_DRIVER` | `shtc3` |
 
 ## Capability Flags
 
@@ -104,9 +120,11 @@ The current capability flags are:
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 
-`src/CMakeLists.txt` uses these flags to include low-level driver sources only
-when they are needed. For example, `SOLAR_OS_BOARD_HAS_SD` adds `drivers/sd_card.c`,
-while `SOLAR_OS_BOARD_HAS_UART` adds `drivers/uart_port.c`.
+`src/CMakeLists.txt` uses these flags and driver selectors to include board
+bindings and low-level driver sources only when they are needed. For example,
+`SOLAR_OS_BOARD_HAS_SD` plus `SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc"` adds
+`board/solar_os_board_storage_sdmmc.c` and `drivers/sd_card.c`, while
+`SOLAR_OS_BOARD_HAS_UART` adds `drivers/uart_port.c`.
 
 ## Board Header
 
@@ -253,8 +271,8 @@ driver is for the ST7305 reflective LCD:
 #define SOLAR_OS_BOARD_PIN_LCD_TE GPIO_NUM_6
 ```
 
-Different display controllers should get a separate driver and a board-specific
-board display binding instead of overloading the ST7305 macros.
+Different display controllers should get a separate driver and board display
+binding instead of overloading the ST7305 macros.
 
 The runtime path is:
 
@@ -270,8 +288,16 @@ driver headers.
 
 ## Storage, I2C, Sensors, RTC, And Audio
 
-Enable these capabilities only when the board header defines the matching bus and
-pin metadata:
+Enable these capabilities only when the board profile selects the matching
+driver and the board header defines the required bus and pin metadata:
+
+```cmake
+set(SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc")
+set(SOLAR_OS_BOARD_RTC_DRIVER "pcf85063")
+set(SOLAR_OS_BOARD_BATTERY_DRIVER "adc")
+set(SOLAR_OS_BOARD_AUDIO_DRIVER "es8311_es7210")
+set(SOLAR_OS_BOARD_SENSOR_DRIVER "shtc3")
+```
 
 ```c
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
@@ -288,6 +314,19 @@ pin metadata:
 
 Audio boards also need I2S and codec power/pin metadata. See the Waveshare board
 header for the complete ES8311/ES7210 example.
+
+The runtime path follows the same pattern as display:
+
+```text
+services/solar_os_<service>.c
+  -> solar_os_board_<class>_*
+    -> board/solar_os_board_<class>_<driver>.c
+      -> drivers/<concrete_driver>.c
+```
+
+Services and applications should include the board abstraction headers, not
+concrete driver headers such as `sd_card.h`, `rtc_pcf85063.h`,
+`audio_codec_board.h`, `shtc3.h`, or `battery_adc.h`.
 
 ## Validation Checklist
 

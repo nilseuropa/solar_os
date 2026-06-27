@@ -785,9 +785,9 @@ static void init_peripherals(void)
 
             if (board_has(SOLAR_OS_BOARD_CAP_TEMPERATURE) ||
                 board_has(SOLAR_OS_BOARD_CAP_HUMIDITY)) {
-                const esp_err_t shtc3_err = solar_os_sensors_init();
-                if (shtc3_err != ESP_OK) {
-                    SOLAR_OS_LOGW(TAG, "SHTC3 unavailable: %s", esp_err_to_name(shtc3_err));
+                const esp_err_t sensors_err = solar_os_sensors_init();
+                if (sensors_err != ESP_OK) {
+                    SOLAR_OS_LOGW(TAG, "Sensors unavailable: %s", esp_err_to_name(sensors_err));
                 }
             }
         }

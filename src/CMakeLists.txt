@@ -188,7 +188,22 @@ if(SOLAR_OS_BOARD_HAS_UART)
     list(APPEND SOLAR_OS_SRCS "drivers/uart_port.c")
 endif()
 if(SOLAR_OS_BOARD_HAS_SD)
-    list(APPEND SOLAR_OS_SRCS "drivers/sd_card.c")
+    if(NOT DEFINED SOLAR_OS_BOARD_STORAGE_DRIVER OR
+            "${SOLAR_OS_BOARD_STORAGE_DRIVER}" STREQUAL "")
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables SD without SOLAR_OS_BOARD_STORAGE_DRIVER"
+        )
+    endif()
+    if("${SOLAR_OS_BOARD_STORAGE_DRIVER}" STREQUAL "sdmmc")
+        list(APPEND SOLAR_OS_SRCS
+            "board/solar_os_board_storage_sdmmc.c"
+            "drivers/sd_card.c"
+        )
+    else()
+        message(FATAL_ERROR
+            "Unsupported SolarOS storage driver for ${SOLAR_OS_BOARD_ID}: ${SOLAR_OS_BOARD_STORAGE_DRIVER}"
+        )
+    endif()
 endif()
 if(SOLAR_OS_BOARD_HAS_I2C OR
         SOLAR_OS_BOARD_HAS_RTC OR
@@ -198,13 +213,58 @@ if(SOLAR_OS_BOARD_HAS_I2C OR
     list(APPEND SOLAR_OS_SRCS "drivers/i2c_bus.c")
 endif()
 if(SOLAR_OS_BOARD_HAS_RTC)
-    list(APPEND SOLAR_OS_SRCS "drivers/rtc_pcf85063.c")
+    if(NOT DEFINED SOLAR_OS_BOARD_RTC_DRIVER OR
+            "${SOLAR_OS_BOARD_RTC_DRIVER}" STREQUAL "")
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables RTC without SOLAR_OS_BOARD_RTC_DRIVER"
+        )
+    endif()
+    if("${SOLAR_OS_BOARD_RTC_DRIVER}" STREQUAL "pcf85063")
+        list(APPEND SOLAR_OS_SRCS
+            "board/solar_os_board_rtc_pcf85063.c"
+            "drivers/rtc_pcf85063.c"
+        )
+    else()
+        message(FATAL_ERROR
+            "Unsupported SolarOS RTC driver for ${SOLAR_OS_BOARD_ID}: ${SOLAR_OS_BOARD_RTC_DRIVER}"
+        )
+    endif()
 endif()
 if(SOLAR_OS_BOARD_HAS_TEMPERATURE OR SOLAR_OS_BOARD_HAS_HUMIDITY)
-    list(APPEND SOLAR_OS_SRCS "drivers/shtc3.c")
+    if(NOT DEFINED SOLAR_OS_BOARD_SENSOR_DRIVER OR
+            "${SOLAR_OS_BOARD_SENSOR_DRIVER}" STREQUAL "")
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables sensors without SOLAR_OS_BOARD_SENSOR_DRIVER"
+        )
+    endif()
+    if("${SOLAR_OS_BOARD_SENSOR_DRIVER}" STREQUAL "shtc3")
+        list(APPEND SOLAR_OS_SRCS
+            "board/solar_os_board_sensors_shtc3.c"
+            "drivers/shtc3.c"
+        )
+    else()
+        message(FATAL_ERROR
+            "Unsupported SolarOS sensor driver for ${SOLAR_OS_BOARD_ID}: ${SOLAR_OS_BOARD_SENSOR_DRIVER}"
+        )
+    endif()
 endif()
 if(SOLAR_OS_BOARD_HAS_AUDIO)
-    list(APPEND SOLAR_OS_SRCS "drivers/audio_codec_board.c")
+    if(NOT DEFINED SOLAR_OS_BOARD_AUDIO_DRIVER OR
+            "${SOLAR_OS_BOARD_AUDIO_DRIVER}" STREQUAL "")
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables AUDIO without SOLAR_OS_BOARD_AUDIO_DRIVER"
+        )
+    endif()
+    if("${SOLAR_OS_BOARD_AUDIO_DRIVER}" STREQUAL "es8311_es7210")
+        list(APPEND SOLAR_OS_SRCS
+            "board/solar_os_board_audio_es8311_es7210.c"
+            "drivers/audio_codec_board.c"
+        )
+    else()
+        message(FATAL_ERROR
+            "Unsupported SolarOS audio driver for ${SOLAR_OS_BOARD_ID}: ${SOLAR_OS_BOARD_AUDIO_DRIVER}"
+        )
+    endif()
 endif()
 if(SOLAR_OS_BOARD_HAS_GPIO)
     list(APPEND SOLAR_OS_SRCS "drivers/gpio_port.c")
@@ -213,7 +273,22 @@ if(SOLAR_OS_BOARD_HAS_ADC OR SOLAR_OS_BOARD_HAS_BATTERY)
     list(APPEND SOLAR_OS_SRCS "drivers/adc_port.c")
 endif()
 if(SOLAR_OS_BOARD_HAS_BATTERY)
-    list(APPEND SOLAR_OS_SRCS "drivers/battery_adc.c")
+    if(NOT DEFINED SOLAR_OS_BOARD_BATTERY_DRIVER OR
+            "${SOLAR_OS_BOARD_BATTERY_DRIVER}" STREQUAL "")
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables BATTERY without SOLAR_OS_BOARD_BATTERY_DRIVER"
+        )
+    endif()
+    if("${SOLAR_OS_BOARD_BATTERY_DRIVER}" STREQUAL "adc")
+        list(APPEND SOLAR_OS_SRCS
+            "board/solar_os_board_battery_adc.c"
+            "drivers/battery_adc.c"
+        )
+    else()
+        message(FATAL_ERROR
+            "Unsupported SolarOS battery driver for ${SOLAR_OS_BOARD_ID}: ${SOLAR_OS_BOARD_BATTERY_DRIVER}"
+        )
+    endif()
 endif()
 if(SOLAR_OS_BOARD_HAS_PWM)
     list(APPEND SOLAR_OS_SRCS "drivers/pwm_port.c")
