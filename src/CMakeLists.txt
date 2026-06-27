@@ -147,6 +147,7 @@ set(SOLAR_OS_SRCS
     "services/solar_os_board_caps.c"
     "services/solar_os_cdc.c"
     "services/solar_os_clipboard.c"
+    "services/solar_os_crypto.c"
     "services/solar_os_doc.c"
     "services/solar_os_epub.c"
     "services/solar_os_gfx.c"
@@ -333,6 +334,7 @@ set(SOLAR_OS_REQUIRES
     heap
     json
     lwip
+    mbedtls
     nvs_flash
     sdmmc
     u8g2

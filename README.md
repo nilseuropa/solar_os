@@ -65,7 +65,7 @@ apps and jobs are not compiled into the image.
 
 Current package groups:
 
-- `core`: Always enabled. Board hardware services, display/terminal, shell, SD storage, ports, logs, jobs framework, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, UART, SHTC3 sensors, and the `audio` hardware command.
+- `core`: Always enabled. Board hardware services, display/terminal, shell, SD storage, ports, logs, jobs framework, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, UART, SHTC3 sensors, and the `audio` hardware command.
 - `audio`: `arecord`, `aplay`, and MP3 decoding.
 - `net`: Network tools/apps/jobs such as `ping`, `netscan`, `mqtt`, `ssh`, `scp`, `curl`, `web`, `chat`, `httpd`, `slip`, and `sshkey`.
 - `media`: Image viewer and image decoder apps.
@@ -75,7 +75,7 @@ Current package groups:
 - `utils`: Text editor, pager, reader, clock, and serial terminal app.
 
 Individual package keys use names such as `app_ssh`, `app_reader`,
-`app_python`, `job_httpd`, `job_daq`, `service_uart`, and `service_battery`.
+`app_python`, `job_httpd`, `job_daq`, `service_crypto`, `service_uart`, and `service_battery`.
 Existing group-style flavor files continue to work:
 
 ```toml
@@ -240,7 +240,7 @@ Networking:
 - `wifi nat [status|on|off]`: enable or disable persistent IPv4 NAT for APSTA.
 - `mqtt [status|connect|disconnect|publish|subscribe]`: MQTT/MQTTS client with broker URL and credentials stored in NVS.
 - `ping <host>`
-- `ota [status|check|upgrade|url|flavor|boot]`: inspect OTA partitions, check `version.txt`, stream `firmware.bin` into the inactive OTA slot, configure the OTA base URL or target flavor, or select an OTA slot to boot. The default base URL is `https://hypergraph.cloud/solaros/latest`; SolarOS appends the OTA target flavor, so the full flavor checks `latest/full/version.txt` and downloads `latest/full/firmware.bin`.
+- `ota [status|check|upgrade|url|flavor|boot]`: inspect OTA partitions, resolve a board/flavor firmware artifact from `index.json`, stream `firmware.bin` into the inactive OTA slot, verify its SHA-256 before selecting it for boot, configure the OTA base URL or target flavor, or select an OTA slot to boot. The default base URL is `https://hypergraph.cloud/solaros/latest`, so SolarOS reads `https://hypergraph.cloud/solaros/latest/index.json`.
 - `sshkey [status|gen|pub|rm]`
 
 `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` starts an access point. Supplying an SSID saves the AP settings in NVS; later `wifi ap on` reuses the saved SSID/password/auth mode, or falls back to the default open AP when no saved AP exists. With no password it creates an open AP. With a password and no explicit auth mode it uses WPA2. ESP-IDF does not support WEP in SoftAP mode, so SolarOS rejects `wep` for AP mode.
@@ -286,7 +286,7 @@ daq stop
 
 ## OTA Release Layout
 
-OTA artifacts are moving toward a board-aware and flavor-aware manifest layout. A manifest-aware release directory can hold several board/flavor firmware builds under the same version:
+OTA artifacts use a board-aware and flavor-aware manifest layout. A release directory can hold several board/flavor firmware builds under the same version:
 
 ```text
 solaros/
@@ -307,7 +307,7 @@ solaros/
     ...
 ```
 
-The current firmware still uses the simple flavor-aware layout and appends the OTA target flavor directly to the configured base URL. By default, the OTA target flavor is the flavor compiled into the running firmware. It can be changed from the device:
+By default, the OTA target flavor is the flavor compiled into the running firmware. It can be changed from the device:
 
 ```text
 ota flavor
@@ -316,9 +316,9 @@ ota check
 ota upgrade
 ```
 
-With the default OTA URL, a device targeting `full` uses `https://hypergraph.cloud/solaros/latest/full/`, while a device targeting `core` uses `https://hypergraph.cloud/solaros/latest/core/`. If `ota url` is set directly to a `.bin` file, SolarOS treats that binary as exact and reads `version.txt` next to it. `ota check` reports an update when either the version differs or the target flavor differs from the currently running compiled flavor.
+With the default OTA URL, every board/flavor target reads `https://hypergraph.cloud/solaros/latest/index.json`. `ota check` selects the artifact whose `board_id` matches the compiled board and whose `flavor` matches the OTA target flavor. It reports an update when either the artifact version differs or the target flavor differs from the currently running compiled flavor. `ota upgrade` hashes the received firmware stream and aborts before switching the boot partition if the digest does not match the selected artifact's `sha256`.
 
-The forward-compatible release schema is documented in [doc/solar_os_ota_schema.md](doc/solar_os_ota_schema.md), with JSON Schemas in [schemas/](schemas/). Deployment tooling should generate an `index.json` for release-wide board/flavor selection and a `manifest.json` next to each firmware image. A later manifest-aware OTA client can then select by both board id and target flavor instead of flavor alone.
+The release schema is documented in [doc/solar_os_ota_schema.md](doc/solar_os_ota_schema.md), with JSON Schemas in [schemas/](schemas/). Deployment tooling should generate an `index.json` for release-wide board/flavor selection and a `manifest.json` next to each firmware image.
 
 ## Built-In Jobs
 

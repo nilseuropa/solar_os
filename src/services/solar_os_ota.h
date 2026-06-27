@@ -12,8 +12,12 @@
 #define SOLAR_OS_OTA_LABEL_MAX 17
 #define SOLAR_OS_OTA_VERSION_MAX 32
 #define SOLAR_OS_OTA_FLAVOR_MAX 32
+#define SOLAR_OS_OTA_BOARD_MAX 64
 #define SOLAR_OS_OTA_PROJECT_MAX 32
 #define SOLAR_OS_OTA_STATE_MAX 16
+#define SOLAR_OS_OTA_SHA256_MAX 65
+#define SOLAR_OS_OTA_INDEX_FILE "index.json"
+#define SOLAR_OS_OTA_MANIFEST_FILE "manifest.json"
 #define SOLAR_OS_OTA_VERSION_FILE "version.txt"
 #define SOLAR_OS_OTA_FIRMWARE_FILE "firmware.bin"
 
@@ -52,10 +56,15 @@ typedef struct {
     char target_flavor[SOLAR_OS_OTA_FLAVOR_MAX];
     char current_version[SOLAR_OS_OTA_VERSION_MAX];
     char available_version[SOLAR_OS_OTA_VERSION_MAX];
-    char version_url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
+    char board_id[SOLAR_OS_OTA_BOARD_MAX];
+    char index_url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
+    char manifest_url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
     char firmware_url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
+    char image_sha256[SOLAR_OS_OTA_SHA256_MAX];
+    uint32_t image_size;
     int status_code;
     int64_t content_length;
+    bool image_size_known;
     bool update_available;
 } solar_os_ota_check_result_t;
 
@@ -76,10 +85,7 @@ void solar_os_ota_get_url(char *url, size_t len);
 esp_err_t solar_os_ota_set_url(const char *url);
 void solar_os_ota_get_flavor(char *flavor, size_t len);
 esp_err_t solar_os_ota_set_flavor(const char *flavor);
-esp_err_t solar_os_ota_get_artifact_urls(char *version_url,
-                                         size_t version_url_len,
-                                         char *firmware_url,
-                                         size_t firmware_url_len);
+esp_err_t solar_os_ota_get_index_url(char *index_url, size_t index_url_len);
 esp_err_t solar_os_ota_get_status(solar_os_ota_status_t *status);
 esp_err_t solar_os_ota_set_boot_slot(uint8_t slot);
 esp_err_t solar_os_ota_check(solar_os_ota_check_result_t *result);

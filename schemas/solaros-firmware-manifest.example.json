@@ -34,6 +34,7 @@
       "service.audio",
       "service.gpio",
       "service.i2c",
+      "service.crypto",
       "service.uart",
       "service.battery",
       "service.rtc",

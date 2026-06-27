@@ -10,7 +10,7 @@ The schemas live in:
 - `schemas/solaros-release-index.schema.json`
 - `schemas/solaros-firmware-manifest.schema.json`
 
-The current firmware still supports the simple `version.txt` plus `firmware.bin` OTA layout. These JSON files are the forward contract for deployment tooling, CI, and future OTA selection.
+The firmware reads `index.json` from the configured OTA base URL, selects the matching board/flavor artifact, and downloads that artifact's `firmware` path. `version.txt` is still produced beside each firmware image for humans and simple tooling, but OTA selection is driven by the release index.
 
 ## Release Layout
 
@@ -120,13 +120,13 @@ Optional but recommended fields:
 
 ## OTA Selection
 
-A future manifest-aware OTA flow should be:
+The firmware OTA flow is:
 
 1. Device fetches `<base>/index.json`.
 2. Device finds an artifact where `board_id` matches the compiled board id and `flavor` matches the OTA target flavor.
 3. Device compares artifact `version` with the running app version.
-4. Device downloads the selected `firmware` path.
-5. Device verifies `sha256` and checks the image fits the inactive OTA partition.
-6. Device writes the image to the inactive OTA partition and switches boot partition.
+4. Device downloads the selected `firmware` path and streams it into the inactive OTA partition while hashing the received bytes.
+5. Device verifies the received firmware stream against artifact `sha256`.
+6. `esp_https_ota` finalizes image validation, then switches the boot partition.
 
-The per-artifact `manifest.json` can be fetched for detailed display, logging, or stricter verification, but the release index intentionally includes enough information for constrained device selection.
+The release index includes `sha256` and image `size`, so constrained devices can select and verify an artifact without first fetching the per-artifact manifest. The per-artifact `manifest.json` can be fetched later for detailed display, logging, signatures, or stricter verification.
