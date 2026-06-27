@@ -99,6 +99,22 @@ static solar_os_terminal_t *display_terminal(solar_os_context_t *ctx)
     return solar_os_context_terminal(ctx);
 }
 
+static bool shell_print_not_supported(solar_os_shell_io_t *term,
+                                      const char *command,
+                                      const char *feature,
+                                      esp_err_t err)
+{
+    if (err != ESP_ERR_NOT_SUPPORTED) {
+        return false;
+    }
+
+    solar_os_shell_io_printf(term,
+                             "%s: %s not available on this board\n",
+                             command,
+                             feature);
+    return true;
+}
+
 void solar_os_shell_cmd_board(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -2115,6 +2131,8 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
                                  (unsigned)(battery_status.voltage_mv / 1000U),
                                  (unsigned)(battery_status.voltage_mv % 1000U),
                                  (unsigned)battery_status.percent);
+    } else if (battery_err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "Battery: not available on this board");
     } else {
         solar_os_shell_io_printf(term, "Battery: unavailable (%s)\n", esp_err_to_name(battery_err));
     }
@@ -2122,21 +2140,29 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
                              "Heap: internal %u, PSRAM %u\n",
                              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                              (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    solar_os_shell_io_printf(term,
-                             "I2C: SDA %d, SCL %d, %" PRIu32 " Hz\n",
-                             solar_os_i2c_get_sda_pin(),
-                             solar_os_i2c_get_scl_pin(),
-                             solar_os_i2c_get_speed_hz());
+    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
+        solar_os_shell_io_printf(term,
+                                 "I2C: SDA %d, SCL %d, %" PRIu32 " Hz\n",
+                                 solar_os_i2c_get_sda_pin(),
+                                 solar_os_i2c_get_scl_pin(),
+                                 solar_os_i2c_get_speed_hz());
+    } else {
+        solar_os_shell_io_writeln(term, "I2C: not available on this board");
+    }
     solar_os_audio_get_status(&audio_status);
-    solar_os_shell_io_printf(term,
-                             "Audio: %s, %" PRIu32 " Hz %uch %ubit, vol %u, mic ",
-                             audio_status.initialized ? "on" : "off",
-                             audio_status.sample_rate,
-                             (unsigned)audio_status.channels,
-                             (unsigned)audio_status.bits_per_sample,
-                             (unsigned)audio_status.volume);
-    audio_print_gain(term, audio_status.mic_gain_db);
-    solar_os_shell_io_put_char(term, '\n');
+    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
+        solar_os_shell_io_printf(term,
+                                 "Audio: %s, %" PRIu32 " Hz %uch %ubit, vol %u, mic ",
+                                 audio_status.initialized ? "on" : "off",
+                                 audio_status.sample_rate,
+                                 (unsigned)audio_status.channels,
+                                 (unsigned)audio_status.bits_per_sample,
+                                 (unsigned)audio_status.volume);
+        audio_print_gain(term, audio_status.mic_gain_db);
+        solar_os_shell_io_put_char(term, '\n');
+    } else {
+        solar_os_shell_io_writeln(term, "Audio: not available on this board");
+    }
     solar_os_uart_get_status(&uart_status);
     if (uart_status.initialized) {
         if (uart_status.rx_buffered_valid) {
@@ -2158,11 +2184,15 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
                                      solar_os_uart_mode_name(uart_status.mode));
         }
     } else {
-        solar_os_shell_io_printf(term,
-                                 "UART: unavailable (UART%d TX %d RX %d)\n",
-                                 uart_status.port_num,
-                                 uart_status.tx_pin,
-                                 uart_status.rx_pin);
+        if (uart_status.port_num >= 0) {
+            solar_os_shell_io_printf(term,
+                                     "UART: unavailable (UART%d TX %d RX %d)\n",
+                                     uart_status.port_num,
+                                     uart_status.tx_pin,
+                                     uart_status.rx_pin);
+        } else {
+            solar_os_shell_io_writeln(term, "UART: not available on this board");
+        }
     }
 }
 
@@ -2425,6 +2455,9 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
 
     const esp_err_t scan_err = solar_os_storage_rescan();
     if (scan_err != ESP_OK) {
+        if (shell_print_not_supported(term, "df", "SD storage", scan_err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "df: SD card not available: %s\n", esp_err_to_name(scan_err));
         return;
     }
@@ -2485,6 +2518,9 @@ static void sd_print_lsblk(solar_os_shell_io_t *term)
 {
     const esp_err_t err = solar_os_storage_rescan();
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "sd", "SD storage", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "sd lsblk failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -2554,6 +2590,8 @@ void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_mount_volume(volume, mount_point);
         if (err == ESP_OK) {
             sd_print_status(term);
+        } else if (shell_print_not_supported(term, "sd", "SD storage", err)) {
+            return;
         } else {
             solar_os_shell_io_printf(term, "sd mount failed: %s\n", esp_err_to_name(err));
         }
@@ -2571,6 +2609,8 @@ void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_storage_unmount_volume(argv[2]);
         if (err == ESP_OK) {
             sd_print_status(term);
+        } else if (shell_print_not_supported(term, "sd", "SD storage", err)) {
+            return;
         } else if (err == ESP_ERR_INVALID_STATE) {
             solar_os_shell_io_writeln(term, "SD: not mounted");
         } else if (err == ESP_ERR_NOT_FOUND) {
@@ -2843,6 +2883,9 @@ static void battery_print_status(solar_os_shell_io_t *term)
     solar_os_battery_status_t status;
     const esp_err_t err = solar_os_battery_get_status(&status);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "battery", "battery monitor", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "battery: read failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -5580,6 +5623,9 @@ static void audio_cmd_tone(solar_os_shell_io_t *term, int argc, char **argv)
 
     const esp_err_t err = solar_os_audio_play_tone(frequency_hz, duration_ms, volume);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "audio tone failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -5611,6 +5657,9 @@ static void audio_cmd_level(solar_os_shell_io_t *term, int argc, char **argv)
 
     const esp_err_t err = solar_os_audio_set_volume(volume);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "audio level failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -5636,6 +5685,9 @@ static void audio_cmd_mic(solar_os_shell_io_t *term, int argc, char **argv)
     solar_os_audio_level_t level;
     const esp_err_t err = solar_os_audio_measure_level(duration_ms, &level);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "audio mic failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -5671,6 +5723,9 @@ static void audio_cmd_loopback(solar_os_shell_io_t *term, int argc, char **argv)
 
     const esp_err_t err = solar_os_audio_loopback(duration_ms, volume);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "audio loopback failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -6320,6 +6375,11 @@ static void uart_print_status(solar_os_shell_io_t *term)
     solar_os_uart_status_t status;
     solar_os_uart_get_status(&status);
 
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_UART)) {
+        solar_os_shell_io_writeln(term, "UART: not available on this board");
+        return;
+    }
+
     solar_os_shell_io_printf(term,
                              "UART: %s\n",
                              status.initialized ? "ready" : "unavailable");
@@ -6359,6 +6419,8 @@ static void uart_print_apply_result(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term, "%s: %s\n", setting, value);
     } else if (err == ESP_ERR_INVALID_ARG) {
         solar_os_shell_io_printf(term, "%s: invalid value: %s\n", setting, value);
+    } else if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_printf(term, "%s failed: UART not available on this board\n", setting);
     } else if (err == ESP_ERR_INVALID_STATE) {
         solar_os_shell_io_printf(term, "%s failed: port is busy\n", setting);
     } else if (applied) {
@@ -6479,6 +6541,9 @@ static void uart_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
     size_t written = 0;
     const esp_err_t err = solar_os_uart_write(buffer, len, &written);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "uart write failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -6526,6 +6591,9 @@ static void uart_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
     size_t read_len = 0;
     const esp_err_t err = solar_os_uart_read(buffer, sizeof(buffer), (uint32_t)timeout_ms, &read_len);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "uart read failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -6586,6 +6654,10 @@ static bool gpio_parse_pin(const char *text, int *pin)
 
 static void gpio_print_error(solar_os_shell_io_t *term, const char *action, int pin, esp_err_t err)
 {
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "gpio: GPIO hardware not available on this board");
+        return;
+    }
     if (err == ESP_ERR_NOT_ALLOWED) {
         solar_os_shell_io_printf(term, "gpio %s: GPIO%d is reserved\n", action, pin);
         return;
@@ -6615,6 +6687,10 @@ static void gpio_print_pin_info(solar_os_shell_io_t *term, const solar_os_gpio_p
 
 static void gpio_cmd_list(solar_os_shell_io_t *term)
 {
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_GPIO)) {
+        solar_os_shell_io_writeln(term, "gpio: GPIO hardware not available on this board");
+        return;
+    }
     for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
         solar_os_gpio_pin_info_t info;
         if (solar_os_gpio_get_pin_info(i, &info)) {
@@ -6721,6 +6797,10 @@ static void adc_print_usage(solar_os_shell_io_t *term)
 
 static void adc_print_error(solar_os_shell_io_t *term, const char *action, int pin, esp_err_t err)
 {
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "adc: ADC hardware not available on this board");
+        return;
+    }
     if (err == ESP_ERR_NOT_ALLOWED) {
         solar_os_shell_io_printf(term, "adc %s: GPIO%d is reserved\n", action, pin);
         return;
@@ -6752,6 +6832,10 @@ static void adc_print_pin_info(solar_os_shell_io_t *term, const solar_os_adc_pin
 
 static void adc_cmd_status(solar_os_shell_io_t *term)
 {
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_ADC)) {
+        solar_os_shell_io_writeln(term, "adc: ADC hardware not available on this board");
+        return;
+    }
     for (size_t i = 0; i < solar_os_adc_pin_count(); i++) {
         solar_os_adc_pin_info_t info;
         if (solar_os_adc_get_pin_info(i, &info)) {
@@ -6824,6 +6908,10 @@ static void pwm_print_usage(solar_os_shell_io_t *term)
 
 static void pwm_print_error(solar_os_shell_io_t *term, const char *action, int pin, esp_err_t err)
 {
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "pwm: PWM hardware not available on this board");
+        return;
+    }
     if (err == ESP_ERR_NOT_ALLOWED) {
         solar_os_shell_io_printf(term, "pwm %s: GPIO%d is reserved\n", action, pin);
         return;
@@ -6856,6 +6944,10 @@ static void pwm_print_pin_info(solar_os_shell_io_t *term, const solar_os_pwm_pin
 
 static void pwm_cmd_status(solar_os_shell_io_t *term)
 {
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_PWM)) {
+        solar_os_shell_io_writeln(term, "pwm: PWM hardware not available on this board");
+        return;
+    }
     for (size_t i = 0; i < solar_os_pwm_pin_count(); i++) {
         solar_os_pwm_pin_info_t info;
         if (solar_os_pwm_get_pin_info(i, &info)) {
@@ -6937,6 +7029,10 @@ void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv)
 
 static void i2c_print_status(solar_os_shell_io_t *term)
 {
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
+        solar_os_shell_io_writeln(term, "I2C: not available on this board");
+        return;
+    }
     solar_os_shell_io_printf(term,
                              "I2C: SDA %d, SCL %d, %" PRIu32 " Hz\n",
                              solar_os_i2c_get_sda_pin(),
@@ -6957,6 +7053,11 @@ static void i2c_print_usage(solar_os_shell_io_t *term)
 static void i2c_cmd_scan(solar_os_shell_io_t *term)
 {
     size_t found = 0;
+
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
+        solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
+        return;
+    }
 
     solar_os_shell_io_writeln(term, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
     for (uint8_t row = 0; row < 0x80; row += 0x10) {
@@ -6996,6 +7097,8 @@ static void i2c_cmd_probe(solar_os_shell_io_t *term, int argc, char **argv)
     const esp_err_t err = solar_os_i2c_probe(address);
     if (err == ESP_OK) {
         solar_os_shell_io_printf(term, "0x%02x: ACK\n", address);
+    } else if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
     } else if (err == ESP_ERR_TIMEOUT) {
         solar_os_shell_io_printf(term, "0x%02x: bus busy\n", address);
     } else {
@@ -7021,6 +7124,9 @@ static void i2c_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
     uint8_t data[I2C_READ_MAX_LEN];
     const esp_err_t err = solar_os_i2c_read_reg(address, reg, data, len);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "i2c read failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -7055,6 +7161,9 @@ static void i2c_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 
     const esp_err_t err = solar_os_i2c_write_reg(address, reg, data, len);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "i2c write failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -7103,6 +7212,9 @@ void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1) {
         const esp_err_t err = solar_os_time_get_datetime(&datetime);
         if (err != ESP_OK) {
+            if (shell_print_not_supported(term, "date", "RTC", err)) {
+                return;
+            }
             solar_os_shell_io_printf(term, "date: RTC read failed: %s\n", esp_err_to_name(err));
             return;
         }
@@ -7142,6 +7254,9 @@ void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv)
 
     const esp_err_t err = solar_os_time_set_datetime(&datetime);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "date", "RTC", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "date: RTC write failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -7161,6 +7276,9 @@ void solar_os_shell_cmd_time(solar_os_context_t *ctx, int argc, char **argv)
 
     if (argc == 1) {
         if (read_err != ESP_OK) {
+            if (shell_print_not_supported(term, "time", "RTC", read_err)) {
+                return;
+            }
             solar_os_shell_io_printf(term, "time: RTC read failed: %s\n", esp_err_to_name(read_err));
             return;
         }
@@ -7180,6 +7298,10 @@ void solar_os_shell_cmd_time(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (read_err != ESP_OK) {
+        if (read_err == ESP_ERR_NOT_SUPPORTED) {
+            solar_os_shell_io_writeln(term, "time: RTC not available on this board");
+            return;
+        }
         solar_os_shell_io_writeln(term, "time: set date first with date YYYY-MM-DD");
         return;
     }
@@ -7191,6 +7313,9 @@ void solar_os_shell_cmd_time(solar_os_context_t *ctx, int argc, char **argv)
 
     const esp_err_t err = solar_os_time_set_datetime(&datetime);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "time", "RTC", err)) {
+            return;
+        }
         solar_os_shell_io_printf(term, "time: RTC write failed: %s\n", esp_err_to_name(err));
         return;
     }
@@ -7248,6 +7373,10 @@ void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (err == ESP_ERR_INVALID_ARG) {
         solar_os_shell_io_writeln(term, "usage: ntp [server]");
+        return;
+    }
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "ntp: RTC not available on this board");
         return;
     }
     if (err != ESP_OK) {
@@ -7422,6 +7551,9 @@ static bool read_environment_for_shell(solar_os_shell_io_t *term, solar_os_envir
 {
     const esp_err_t err = solar_os_sensors_read_environment(environment);
     if (err != ESP_OK) {
+        if (shell_print_not_supported(term, "sensor", "environment sensors", err)) {
+            return false;
+        }
         solar_os_shell_io_printf(term, "sensor read failed: %s\n", esp_err_to_name(err));
         return false;
     }

@@ -4,7 +4,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "solar_os_board_caps.h"
+#if SOLAR_OS_BOARD_HAS_CDC
 #include "cdc_port.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_log.h"
@@ -17,6 +20,21 @@ static const char *TAG = "solar_os_cdc";
 static SemaphoreHandle_t cdc_mutex;
 static bool cdc_initialized;
 
+static void cdc_lock(void)
+{
+    if (cdc_mutex != NULL) {
+        xSemaphoreTake(cdc_mutex, portMAX_DELAY);
+    }
+}
+
+static void cdc_unlock(void)
+{
+    if (cdc_mutex != NULL) {
+        xSemaphoreGive(cdc_mutex);
+    }
+}
+
+#if SOLAR_OS_BOARD_HAS_CDC
 static esp_err_t cdc_port_read_cb(void *user,
                                   uint8_t *data,
                                   size_t len,
@@ -36,20 +54,6 @@ static esp_err_t cdc_port_write_cb(void *user,
     return cdc_port_write(data, len, written);
 }
 
-static void cdc_lock(void)
-{
-    if (cdc_mutex != NULL) {
-        xSemaphoreTake(cdc_mutex, portMAX_DELAY);
-    }
-}
-
-static void cdc_unlock(void)
-{
-    if (cdc_mutex != NULL) {
-        xSemaphoreGive(cdc_mutex);
-    }
-}
-
 static esp_err_t cdc_register_stream_port(void)
 {
     const solar_os_port_driver_t driver = {
@@ -64,9 +68,13 @@ static esp_err_t cdc_register_stream_port(void)
     const esp_err_t ret = solar_os_port_register(&driver);
     return ret == ESP_ERR_INVALID_STATE ? ESP_OK : ret;
 }
+#endif
 
 esp_err_t solar_os_cdc_init(void)
 {
+#if !SOLAR_OS_BOARD_HAS_CDC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (cdc_initialized) {
         return ESP_OK;
     }
@@ -102,6 +110,7 @@ esp_err_t solar_os_cdc_init(void)
 
     cdc_unlock();
     return ret;
+#endif
 }
 
 void solar_os_cdc_get_status(solar_os_cdc_status_t *status)
@@ -113,8 +122,13 @@ void solar_os_cdc_get_status(solar_os_cdc_status_t *status)
     cdc_lock();
     *status = (solar_os_cdc_status_t){
         .initialized = cdc_initialized,
+#if SOLAR_OS_BOARD_HAS_CDC
         .connected = cdc_port_is_connected(),
         .driver_installed = cdc_port_driver_installed(),
+#else
+        .connected = false,
+        .driver_installed = false,
+#endif
     };
     cdc_unlock();
 

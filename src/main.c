@@ -14,14 +14,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
+#include "solar_os_board_caps.h"
+#if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "rlcd_st7305.h"
+#endif
 #include "solar_os.h"
 #include "solar_os_adc.h"
 #include "solar_os_audio.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
-#include "solar_os_board_caps.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_NET
 #include "solar_os_chat.h"
@@ -80,7 +82,9 @@
 
 static const char *TAG = "solar_os";
 
+#if SOLAR_OS_BOARD_HAS_DISPLAY
 static rlcd_st7305_t lcd;
+#endif
 static solar_os_terminal_t *terminal;
 static solar_os_gfx_t gfx;
 static solar_os_context_t os_ctx;
@@ -259,6 +263,10 @@ static void dispatch_app_resume(uint32_t now_ms)
 
 static void resume_display_after_sleep(uint32_t now_ms)
 {
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    (void)now_ms;
+    return;
+#else
     if (!display_ready) {
         return;
     }
@@ -275,6 +283,7 @@ static void resume_display_after_sleep(uint32_t now_ms)
         terminal->dirty = true;
         draw_terminal_if_needed();
     }
+#endif
 }
 
 static esp_err_t key_button_configure_gpio(void)
@@ -980,6 +989,7 @@ void app_main(void)
     solar_os_context_init(&os_ctx, NULL, NULL);
 
     if (board_has(SOLAR_OS_BOARD_CAP_DISPLAY)) {
+#if SOLAR_OS_BOARD_HAS_DISPLAY
         const esp_err_t display_err = rlcd_st7305_init(&lcd);
         if (display_err == ESP_OK) {
             display_ready = true;
@@ -1000,6 +1010,9 @@ void app_main(void)
                      "Display init failed: %s; continuing without display shell",
                      esp_err_to_name(display_err));
         }
+#else
+        ESP_LOGE(TAG, "Display capability set, but no display driver was compiled");
+#endif
     } else {
         SOLAR_OS_LOGI(TAG, "No display capability; booting headless");
     }

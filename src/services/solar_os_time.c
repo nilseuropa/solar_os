@@ -12,7 +12,11 @@
 #include "esp_netif_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "nvs.h"
+#include "solar_os_board_caps.h"
+
+#if SOLAR_OS_BOARD_HAS_RTC
 #include "rtc_pcf85063.h"
+#endif
 
 #define TIME_NVS_NAMESPACE "time"
 #define TIME_NVS_TZ_NAME_KEY "tz_name"
@@ -40,6 +44,7 @@ static char timezone_name[SOLAR_OS_TIMEZONE_NAME_MAX] = "UTC";
 static char timezone_posix[SOLAR_OS_TIMEZONE_POSIX_MAX] = "UTC0";
 static bool timezone_loaded;
 
+#if SOLAR_OS_BOARD_HAS_RTC
 static void datetime_from_driver(solar_os_datetime_t *out, const rtc_datetime_t *in)
 {
     out->year = in->year;
@@ -51,6 +56,7 @@ static void datetime_from_driver(solar_os_datetime_t *out, const rtc_datetime_t 
     out->weekday = in->weekday;
     out->clock_integrity = in->clock_integrity;
 }
+#endif
 
 static void datetime_from_tm(solar_os_datetime_t *out, const struct tm *in, bool clock_integrity)
 {
@@ -64,6 +70,7 @@ static void datetime_from_tm(solar_os_datetime_t *out, const struct tm *in, bool
     out->clock_integrity = clock_integrity;
 }
 
+#if SOLAR_OS_BOARD_HAS_RTC
 static void datetime_to_driver(rtc_datetime_t *out, const solar_os_datetime_t *in)
 {
     out->year = in->year;
@@ -75,6 +82,7 @@ static void datetime_to_driver(rtc_datetime_t *out, const solar_os_datetime_t *i
     out->weekday = in->weekday;
     out->clock_integrity = in->clock_integrity;
 }
+#endif
 
 static bool datetime_is_valid(const solar_os_datetime_t *datetime)
 {
@@ -82,9 +90,28 @@ static bool datetime_is_valid(const solar_os_datetime_t *datetime)
         return false;
     }
 
-    rtc_datetime_t driver_datetime;
-    datetime_to_driver(&driver_datetime, datetime);
-    return rtc_pcf85063_datetime_is_valid(&driver_datetime);
+    if (datetime->year < 2000 ||
+        datetime->month < 1 ||
+        datetime->month > 12 ||
+        datetime->day < 1 ||
+        datetime->hour > 23 ||
+        datetime->minute > 59 ||
+        datetime->second > 59 ||
+        datetime->weekday > 6) {
+        return false;
+    }
+
+    static const uint8_t days_per_month[] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    };
+    uint8_t days = days_per_month[datetime->month - 1U];
+    const bool leap =
+        (datetime->year % 4U == 0U && datetime->year % 100U != 0U) ||
+        (datetime->year % 400U == 0U);
+    if (datetime->month == 2 && leap) {
+        days = 29;
+    }
+    return datetime->day <= days;
 }
 
 static int64_t days_from_civil(int year, unsigned month, unsigned day)
@@ -266,7 +293,11 @@ static esp_err_t timezone_save(void)
 esp_err_t solar_os_time_init(void)
 {
     timezone_load();
+#if !SOLAR_OS_BOARD_HAS_RTC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     return rtc_pcf85063_init();
+#endif
 }
 
 uint64_t solar_os_time_uptime_ms(void)
@@ -364,6 +395,9 @@ esp_err_t solar_os_time_get_utc_datetime(solar_os_datetime_t *datetime)
         return ESP_ERR_INVALID_ARG;
     }
 
+#if !SOLAR_OS_BOARD_HAS_RTC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     rtc_datetime_t driver_datetime;
     const esp_err_t ret = rtc_pcf85063_get_datetime(&driver_datetime);
     if (ret != ESP_OK) {
@@ -372,6 +406,7 @@ esp_err_t solar_os_time_get_utc_datetime(solar_os_datetime_t *datetime)
 
     datetime_from_driver(datetime, &driver_datetime);
     return ESP_OK;
+#endif
 }
 
 esp_err_t solar_os_time_set_utc_datetime(const solar_os_datetime_t *datetime)
@@ -380,9 +415,13 @@ esp_err_t solar_os_time_set_utc_datetime(const solar_os_datetime_t *datetime)
         return ESP_ERR_INVALID_ARG;
     }
 
+#if !SOLAR_OS_BOARD_HAS_RTC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     rtc_datetime_t driver_datetime;
     datetime_to_driver(&driver_datetime, datetime);
     return rtc_pcf85063_set_datetime(&driver_datetime);
+#endif
 }
 
 esp_err_t solar_os_time_utc_to_local(const solar_os_datetime_t *utc, solar_os_datetime_t *local)

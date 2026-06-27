@@ -8,9 +8,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_port.h"
+
+#if SOLAR_OS_BOARD_HAS_UART
 #include "uart_port.h"
 #include "solar_os_board.h"
+#endif
 
 #define UART_NVS_NAMESPACE "uart"
 #define UART_NVS_BAUD_KEY "baud"
@@ -25,6 +29,7 @@ static bool uart_initialized;
 static uint32_t uart_baud_rate = SOLAR_OS_UART_DEFAULT_BAUD_RATE;
 static solar_os_uart_mode_t uart_mode = SOLAR_OS_UART_MODE_RAW;
 
+#if SOLAR_OS_BOARD_HAS_UART
 static esp_err_t uart_port_read_cb(void *user,
                                    uint8_t *data,
                                    size_t len,
@@ -34,6 +39,7 @@ static esp_err_t uart_port_write_cb(void *user,
                                     const uint8_t *data,
                                     size_t len,
                                     size_t *written);
+#endif
 
 static void uart_lock(void)
 {
@@ -131,6 +137,7 @@ static esp_err_t uart_save_config(void)
     return ret;
 }
 
+#if SOLAR_OS_BOARD_HAS_UART
 static esp_err_t uart_register_stream_port(void)
 {
     const solar_os_port_driver_t driver = {
@@ -160,9 +167,14 @@ static esp_err_t uart_require_port_idle(void)
     }
     return info.claimed ? ESP_ERR_INVALID_STATE : ESP_OK;
 }
+#endif
 
 esp_err_t solar_os_uart_init(void)
 {
+#if !SOLAR_OS_BOARD_HAS_UART
+    uart_load_config();
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (uart_initialized) {
         return ESP_OK;
     }
@@ -210,6 +222,7 @@ esp_err_t solar_os_uart_init(void)
 
     uart_unlock();
     return ret;
+#endif
 }
 
 esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate)
@@ -223,6 +236,9 @@ esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate)
         return ret;
     }
 
+#if !SOLAR_OS_BOARD_HAS_UART
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     ret = uart_require_port_idle();
     if (ret != ESP_OK) {
         return ret;
@@ -239,6 +255,7 @@ esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate)
         return ret;
     }
     return uart_save_config();
+#endif
 }
 
 esp_err_t solar_os_uart_set_mode(solar_os_uart_mode_t mode)
@@ -252,6 +269,9 @@ esp_err_t solar_os_uart_set_mode(solar_os_uart_mode_t mode)
         return ret;
     }
 
+#if !SOLAR_OS_BOARD_HAS_UART
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     ret = uart_require_port_idle();
     if (ret != ESP_OK) {
         return ret;
@@ -261,8 +281,10 @@ esp_err_t solar_os_uart_set_mode(solar_os_uart_mode_t mode)
     uart_mode = mode;
     uart_unlock();
     return uart_save_config();
+#endif
 }
 
+#if SOLAR_OS_BOARD_HAS_UART
 static esp_err_t uart_write_direct(const uint8_t *data, size_t len, size_t *written)
 {
     if (written != NULL) {
@@ -274,6 +296,7 @@ static esp_err_t uart_write_direct(const uint8_t *data, size_t len, size_t *writ
     uart_unlock();
     return ret;
 }
+#endif
 
 esp_err_t solar_os_uart_write(const uint8_t *data, size_t len, size_t *written)
 {
@@ -287,6 +310,9 @@ esp_err_t solar_os_uart_write(const uint8_t *data, size_t len, size_t *written)
         return ESP_OK;
     }
 
+#if !SOLAR_OS_BOARD_HAS_UART
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     esp_err_t ret = solar_os_uart_init();
     if (ret != ESP_OK) {
         return ret;
@@ -301,8 +327,10 @@ esp_err_t solar_os_uart_write(const uint8_t *data, size_t len, size_t *written)
     ret = solar_os_port_write(&handle, data, len, written);
     const esp_err_t release_ret = solar_os_port_release(&handle);
     return ret == ESP_OK ? release_ret : ret;
+#endif
 }
 
+#if SOLAR_OS_BOARD_HAS_UART
 static esp_err_t uart_read_line_mode(uint8_t *data,
                                      size_t len,
                                      uint32_t timeout_ms,
@@ -386,6 +414,7 @@ static esp_err_t uart_port_write_cb(void *user,
     (void)user;
     return uart_write_direct(data, len, written);
 }
+#endif
 
 esp_err_t solar_os_uart_read(uint8_t *data, size_t len, uint32_t timeout_ms, size_t *read_len)
 {
@@ -399,6 +428,9 @@ esp_err_t solar_os_uart_read(uint8_t *data, size_t len, uint32_t timeout_ms, siz
         return ESP_OK;
     }
 
+#if !SOLAR_OS_BOARD_HAS_UART
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     esp_err_t ret = solar_os_uart_init();
     if (ret != ESP_OK) {
         return ret;
@@ -413,6 +445,7 @@ esp_err_t solar_os_uart_read(uint8_t *data, size_t len, uint32_t timeout_ms, siz
     ret = solar_os_port_read(&handle, data, len, timeout_ms, read_len);
     const esp_err_t release_ret = solar_os_port_release(&handle);
     return ret == ESP_OK ? release_ret : ret;
+#endif
 }
 
 void solar_os_uart_get_status(solar_os_uart_status_t *status)
@@ -424,14 +457,21 @@ void solar_os_uart_get_status(solar_os_uart_status_t *status)
     const bool locked = uart_try_lock();
     *status = (solar_os_uart_status_t){
         .initialized = uart_initialized,
+#if SOLAR_OS_BOARD_HAS_UART
         .port_num = (int)SOLAR_OS_BOARD_UART_PORT,
         .tx_pin = (int)SOLAR_OS_BOARD_PIN_UART_TX,
         .rx_pin = (int)SOLAR_OS_BOARD_PIN_UART_RX,
+#else
+        .port_num = -1,
+        .tx_pin = -1,
+        .rx_pin = -1,
+#endif
         .baud_rate = uart_baud_rate,
         .mode = uart_mode,
         .rx_buffered = 0,
         .rx_buffered_valid = false,
     };
+#if SOLAR_OS_BOARD_HAS_UART
     if (locked && uart_initialized) {
         size_t buffered = 0;
         if (uart_port_get_rx_buffered(&buffered) == ESP_OK) {
@@ -450,4 +490,5 @@ void solar_os_uart_get_status(solar_os_uart_status_t *status)
             strlcpy(status->port_owner, port_info.owner, sizeof(status->port_owner));
         }
     }
+#endif
 }

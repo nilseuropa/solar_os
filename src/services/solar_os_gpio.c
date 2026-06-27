@@ -3,10 +3,15 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "solar_os_board_caps.h"
+
+#if SOLAR_OS_BOARD_HAS_GPIO
 #include "driver/gpio.h"
 #include "gpio_port.h"
 #include "solar_os_board.h"
+#endif
 
+#if SOLAR_OS_BOARD_HAS_GPIO
 typedef struct {
     int pin;
     bool runtime_allowed;
@@ -55,19 +60,33 @@ static gpio_port_pull_t to_port_pull(solar_os_gpio_pull_t pull)
         return GPIO_PORT_PULL_NONE;
     }
 }
+#endif
 
 esp_err_t solar_os_gpio_init(void)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     return ESP_OK;
+#endif
 }
 
 size_t solar_os_gpio_pin_count(void)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    return 0;
+#else
     return sizeof(gpio_slots) / sizeof(gpio_slots[0]);
+#endif
 }
 
 bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *info)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)index;
+    (void)info;
+    return false;
+#else
     if (info == NULL || index >= solar_os_gpio_pin_count()) {
         return false;
     }
@@ -87,28 +106,46 @@ bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *info)
         .level_valid = level_err == ESP_OK,
     };
     return true;
+#endif
 }
 
 bool solar_os_gpio_get_pin_info_by_pin(int pin, solar_os_gpio_pin_info_t *info)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)info;
+    return false;
+#else
     for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
         if (gpio_slots[i].pin == pin) {
             return solar_os_gpio_get_pin_info(i, info);
         }
     }
     return false;
+#endif
 }
 
 bool solar_os_gpio_is_runtime_allowed(int pin)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    return false;
+#else
     const gpio_slot_t *slot = find_const_slot(pin);
     return slot != NULL &&
         slot->runtime_allowed &&
         board_mask_contains(SOLAR_OS_BOARD_USER_GPIO_MASK, pin);
+#endif
 }
 
 esp_err_t solar_os_gpio_configure(int pin, solar_os_gpio_mode_t mode, solar_os_gpio_pull_t pull)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)mode;
+    (void)pull;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     gpio_slot_t *slot = find_slot(pin);
     if (slot == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -132,10 +169,18 @@ esp_err_t solar_os_gpio_configure(int pin, solar_os_gpio_mode_t mode, solar_os_g
         slot->pull = pull;
     }
     return err;
+#endif
 }
 
 esp_err_t solar_os_gpio_read(int pin, bool *level)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    if (level == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     gpio_slot_t *slot = find_slot(pin);
     if (level == NULL || slot == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -153,10 +198,16 @@ esp_err_t solar_os_gpio_read(int pin, bool *level)
     }
 
     return gpio_port_read((gpio_num_t)pin, level);
+#endif
 }
 
 esp_err_t solar_os_gpio_write(int pin, bool level)
 {
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)level;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     gpio_slot_t *slot = find_slot(pin);
     if (slot == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -179,6 +230,7 @@ esp_err_t solar_os_gpio_write(int pin, bool level)
     }
 
     return gpio_port_write((gpio_num_t)pin, level);
+#endif
 }
 
 const char *solar_os_gpio_mode_name(solar_os_gpio_mode_t mode)

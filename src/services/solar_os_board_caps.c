@@ -30,7 +30,24 @@ static const board_capability_name_t capability_names[] = {
 
 solar_os_board_capabilities_t solar_os_board_capabilities(void)
 {
-    return (solar_os_board_capabilities_t)(SOLAR_OS_BOARD_CAPABILITIES);
+    return
+        (SOLAR_OS_BOARD_HAS_DISPLAY ? SOLAR_OS_BOARD_CAP_DISPLAY : 0U) |
+        (SOLAR_OS_BOARD_HAS_GFX ? SOLAR_OS_BOARD_CAP_GFX : 0U) |
+        (SOLAR_OS_BOARD_HAS_CDC ? SOLAR_OS_BOARD_CAP_CDC : 0U) |
+        (SOLAR_OS_BOARD_HAS_UART ? SOLAR_OS_BOARD_CAP_UART : 0U) |
+        (SOLAR_OS_BOARD_HAS_SD ? SOLAR_OS_BOARD_CAP_SD : 0U) |
+        (SOLAR_OS_BOARD_HAS_I2C ? SOLAR_OS_BOARD_CAP_I2C : 0U) |
+        (SOLAR_OS_BOARD_HAS_RTC ? SOLAR_OS_BOARD_CAP_RTC : 0U) |
+        (SOLAR_OS_BOARD_HAS_BATTERY ? SOLAR_OS_BOARD_CAP_BATTERY : 0U) |
+        (SOLAR_OS_BOARD_HAS_AUDIO ? SOLAR_OS_BOARD_CAP_AUDIO : 0U) |
+        (SOLAR_OS_BOARD_HAS_WIFI ? SOLAR_OS_BOARD_CAP_WIFI : 0U) |
+        (SOLAR_OS_BOARD_HAS_BLE ? SOLAR_OS_BOARD_CAP_BLE : 0U) |
+        (SOLAR_OS_BOARD_HAS_GPIO ? SOLAR_OS_BOARD_CAP_GPIO : 0U) |
+        (SOLAR_OS_BOARD_HAS_ADC ? SOLAR_OS_BOARD_CAP_ADC : 0U) |
+        (SOLAR_OS_BOARD_HAS_PWM ? SOLAR_OS_BOARD_CAP_PWM : 0U) |
+        (SOLAR_OS_BOARD_HAS_KEY ? SOLAR_OS_BOARD_CAP_KEY : 0U) |
+        (SOLAR_OS_BOARD_HAS_TEMPERATURE ? SOLAR_OS_BOARD_CAP_TEMPERATURE : 0U) |
+        (SOLAR_OS_BOARD_HAS_HUMIDITY ? SOLAR_OS_BOARD_CAP_HUMIDITY : 0U);
 }
 
 bool solar_os_board_has(solar_os_board_capability_t capability)

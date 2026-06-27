@@ -8,9 +8,13 @@
 #include <unistd.h>
 
 #include "ff.h"
+#include "solar_os_board_caps.h"
+#if SOLAR_OS_BOARD_HAS_SD
 #include "sd_card.h"
+#endif
 
 #define SOLAR_OS_STORAGE_COPY_BUFFER_SIZE 512
+#define SOLAR_OS_STORAGE_DEFAULT_MOUNT_POINT "/sdcard"
 
 static esp_err_t get_usage_for_fatfs_path(const char *fatfs_path, solar_os_storage_usage_t *usage)
 {
@@ -58,37 +62,70 @@ esp_err_t solar_os_storage_init(void)
 
 esp_err_t solar_os_storage_mount(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_init();
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_point)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_mount_volume(name, mount_point);
+#else
+    (void)name;
+    (void)mount_point;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_storage_unmount(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_unmount();
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_storage_unmount_volume(const char *target)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_unmount_volume(target);
+#else
+    (void)target;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 bool solar_os_storage_is_mounted(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_is_mounted();
+#else
+    return false;
+#endif
 }
 
 void solar_os_storage_get_status(char *buffer, size_t len)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     sd_card_get_status(buffer, len);
+#else
+    if (buffer != NULL && len > 0) {
+        strlcpy(buffer, "unavailable", len);
+    }
+#endif
 }
 
 const char *solar_os_storage_mount_point(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_mount_point();
+#else
+    return SOLAR_OS_STORAGE_DEFAULT_MOUNT_POINT;
+#endif
 }
 
 esp_err_t solar_os_storage_get_usage(solar_os_storage_usage_t *usage)
@@ -104,6 +141,9 @@ esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage
     if (path == NULL || path[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
+#if !SOLAR_OS_BOARD_HAS_SD
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!solar_os_storage_is_mounted() && strcmp(path, solar_os_storage_mount_point()) == 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -127,6 +167,7 @@ esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage
     }
 
     return found ? solar_os_storage_get_usage_for_block(&match, usage) : ESP_ERR_NOT_FOUND;
+#endif
 }
 
 esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *block,
@@ -139,18 +180,30 @@ esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *b
         return ESP_ERR_INVALID_STATE;
     }
 
+#if !SOLAR_OS_BOARD_HAS_SD
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     char drive[3] = {(char)('0' + block->logical_volume), ':', '\0'};
     return get_usage_for_fatfs_path(drive, usage);
+#endif
 }
 
 esp_err_t solar_os_storage_rescan(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_rescan();
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 size_t solar_os_storage_block_count(void)
 {
+#if SOLAR_OS_BOARD_HAS_SD
     return sd_card_block_count();
+#else
+    return 0;
+#endif
 }
 
 bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
@@ -159,6 +212,10 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
         return false;
     }
 
+#if !SOLAR_OS_BOARD_HAS_SD
+    (void)index;
+    return false;
+#else
     sd_card_block_t sd_block;
     if (!sd_card_get_block(index, &sd_block)) {
         return false;
@@ -184,6 +241,7 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
     strlcpy(block->type_name, sd_block.type_name, sizeof(block->type_name));
     strlcpy(block->mount_point, sd_block.mount_point, sizeof(block->mount_point));
     return true;
+#endif
 }
 
 bool solar_os_storage_path_has_mount_prefix(const char *path)
@@ -199,6 +257,9 @@ esp_err_t solar_os_storage_path_mount_point(const char *path,
     if (path == NULL || path[0] == '\0' || mount_point == NULL || mount_point_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+#if !SOLAR_OS_BOARD_HAS_SD
+    return ESP_ERR_NOT_SUPPORTED;
+#else
 
     char best_mount[SOLAR_OS_STORAGE_MOUNT_POINT_MAX] = {0};
     size_t best_len = 0;
@@ -233,6 +294,7 @@ esp_err_t solar_os_storage_path_mount_point(const char *path,
         return ESP_ERR_INVALID_SIZE;
     }
     return ESP_OK;
+#endif
 }
 
 static esp_err_t storage_append_path_segment(char *out,

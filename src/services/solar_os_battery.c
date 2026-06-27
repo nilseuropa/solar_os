@@ -4,7 +4,12 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "solar_os_board_caps.h"
+
+#if SOLAR_OS_BOARD_HAS_BATTERY
 #include "battery_adc.h"
+#endif
+
 #include "nvs.h"
 
 #define BATTERY_NVS_NAMESPACE "battery"
@@ -290,7 +295,11 @@ static void battery_monitor_update_estimate(void)
 esp_err_t solar_os_battery_init(void)
 {
     battery_load_config();
+#if !SOLAR_OS_BOARD_HAS_BATTERY
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     return battery_adc_init();
+#endif
 }
 
 esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
@@ -301,6 +310,10 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
 
     battery_load_config();
 
+#if !SOLAR_OS_BOARD_HAS_BATTERY
+    memset(status, 0, sizeof(*status));
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     battery_adc_sample_t sample;
     const esp_err_t ret = battery_adc_read(&sample);
     if (ret != ESP_OK) {
@@ -315,6 +328,7 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     status->external_power = battery_voltage_external_power(sample.battery_mv) ||
         battery_monitor_indicates_external_power();
     return ESP_OK;
+#endif
 }
 
 void solar_os_battery_get_config(solar_os_battery_config_t *config)
@@ -365,12 +379,16 @@ esp_err_t solar_os_battery_monitor_start(uint32_t interval_ms)
     if (interval_ms == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+#if !SOLAR_OS_BOARD_HAS_BATTERY
+    return ESP_ERR_NOT_SUPPORTED;
+#else
 
     battery_load_config();
     battery_monitor_reset_estimate();
     monitor_status.running = true;
     monitor_status.interval_ms = interval_ms;
     return ESP_OK;
+#endif
 }
 
 void solar_os_battery_monitor_stop(void)

@@ -27,6 +27,41 @@ if(NOT SOLAR_OS_BOARD_ID OR NOT SOLAR_OS_BOARD_NAME OR NOT SOLAR_OS_BOARD_DEFINE
 endif()
 message(STATUS "SolarOS board: ${SOLAR_OS_BOARD_NAME} (${SOLAR_OS_BOARD_ID})")
 
+set(SOLAR_OS_BOARD_CAPABILITY_NAMES
+    DISPLAY
+    GFX
+    CDC
+    UART
+    SD
+    I2C
+    RTC
+    BATTERY
+    AUDIO
+    WIFI
+    BLE
+    GPIO
+    ADC
+    PWM
+    KEY
+    TEMPERATURE
+    HUMIDITY
+)
+set(SOLAR_OS_BOARD_CAPABILITY_DEFINES)
+foreach(SOLAR_OS_BOARD_CAPABILITY IN LISTS SOLAR_OS_BOARD_CAPABILITY_NAMES)
+    if(NOT DEFINED SOLAR_OS_BOARD_HAS_${SOLAR_OS_BOARD_CAPABILITY})
+        set(SOLAR_OS_BOARD_HAS_${SOLAR_OS_BOARD_CAPABILITY} OFF)
+    endif()
+    if(SOLAR_OS_BOARD_HAS_${SOLAR_OS_BOARD_CAPABILITY})
+        list(APPEND SOLAR_OS_BOARD_CAPABILITY_DEFINES
+            "SOLAR_OS_BOARD_HAS_${SOLAR_OS_BOARD_CAPABILITY}=1"
+        )
+    else()
+        list(APPEND SOLAR_OS_BOARD_CAPABILITY_DEFINES
+            "SOLAR_OS_BOARD_HAS_${SOLAR_OS_BOARD_CAPABILITY}=0"
+        )
+    endif()
+endforeach()
+
 if(NOT DEFINED SOLAR_OS_FLAVOR OR SOLAR_OS_FLAVOR STREQUAL "")
     if(DEFINED ENV{SOLAR_OS_FLAVOR} AND NOT "$ENV{SOLAR_OS_FLAVOR}" STREQUAL "")
         set(SOLAR_OS_FLAVOR "$ENV{SOLAR_OS_FLAVOR}")
@@ -93,18 +128,6 @@ set(SOLAR_OS_SRCS
     "jobs/solar_os_job_registry.c"
     "jobs/solar_os_log_job.c"
     "jobs/solar_os_shell_job.c"
-    "drivers/cdc_port.c"
-    "drivers/adc_port.c"
-    "drivers/audio_codec_board.c"
-    "drivers/battery_adc.c"
-    "drivers/gpio_port.c"
-    "drivers/i2c_bus.c"
-    "drivers/pwm_port.c"
-    "drivers/rlcd_st7305.c"
-    "drivers/rtc_pcf85063.c"
-    "drivers/sd_card.c"
-    "drivers/shtc3.c"
-    "drivers/uart_port.c"
     "services/solar_os_adc.c"
     "services/solar_os_audio.c"
     "services/solar_os_battery.c"
@@ -139,6 +162,47 @@ set(SOLAR_OS_SRCS
     "services/solar_os_zip.c"
     "services/solar_os_zmodem.c"
 )
+
+if(SOLAR_OS_BOARD_HAS_CDC)
+    list(APPEND SOLAR_OS_SRCS "drivers/cdc_port.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_DISPLAY)
+    list(APPEND SOLAR_OS_SRCS "drivers/rlcd_st7305.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_UART)
+    list(APPEND SOLAR_OS_SRCS "drivers/uart_port.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_SD)
+    list(APPEND SOLAR_OS_SRCS "drivers/sd_card.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_I2C OR
+        SOLAR_OS_BOARD_HAS_RTC OR
+        SOLAR_OS_BOARD_HAS_TEMPERATURE OR
+        SOLAR_OS_BOARD_HAS_HUMIDITY OR
+        SOLAR_OS_BOARD_HAS_AUDIO)
+    list(APPEND SOLAR_OS_SRCS "drivers/i2c_bus.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_RTC)
+    list(APPEND SOLAR_OS_SRCS "drivers/rtc_pcf85063.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_TEMPERATURE OR SOLAR_OS_BOARD_HAS_HUMIDITY)
+    list(APPEND SOLAR_OS_SRCS "drivers/shtc3.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_AUDIO)
+    list(APPEND SOLAR_OS_SRCS "drivers/audio_codec_board.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_GPIO)
+    list(APPEND SOLAR_OS_SRCS "drivers/gpio_port.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_ADC OR SOLAR_OS_BOARD_HAS_BATTERY)
+    list(APPEND SOLAR_OS_SRCS "drivers/adc_port.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_BATTERY)
+    list(APPEND SOLAR_OS_SRCS "drivers/battery_adc.c")
+endif()
+if(SOLAR_OS_BOARD_HAS_PWM)
+    list(APPEND SOLAR_OS_SRCS "drivers/pwm_port.c")
+endif()
 
 set(SOLAR_OS_REQUIRES
     app_update
@@ -249,6 +313,7 @@ idf_component_register(
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${SOLAR_OS_BOARD_DEFINE}=1
+    ${SOLAR_OS_BOARD_CAPABILITY_DEFINES}
     SOLAR_OS_BOARD_TARGET="${SOLAR_OS_BOARD_ID}"
     SOLAR_OS_VERSION="${SOLAR_OS_VERSION}"
     SOLAR_OS_FLAVOR_STAMP="${SOLAR_OS_FLAVOR_STAMP}"

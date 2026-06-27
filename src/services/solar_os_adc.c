@@ -1,17 +1,29 @@
 #include "solar_os_adc.h"
 
+#include "solar_os_board_caps.h"
+
+#if SOLAR_OS_BOARD_HAS_ADC
 #include "adc_port.h"
 #include "driver/gpio.h"
 #include "hal/adc_types.h"
+#endif
+
 #include "solar_os_gpio.h"
 
 esp_err_t solar_os_adc_init(void)
 {
+#if !SOLAR_OS_BOARD_HAS_ADC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     return adc_port_init();
+#endif
 }
 
 size_t solar_os_adc_pin_count(void)
 {
+#if !SOLAR_OS_BOARD_HAS_ADC
+    return 0;
+#else
     size_t count = 0;
     for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
         solar_os_gpio_pin_info_t gpio_info;
@@ -20,10 +32,16 @@ size_t solar_os_adc_pin_count(void)
         }
     }
     return count;
+#endif
 }
 
 bool solar_os_adc_get_pin_info(size_t index, solar_os_adc_pin_info_t *info)
 {
+#if !SOLAR_OS_BOARD_HAS_ADC
+    (void)index;
+    (void)info;
+    return false;
+#else
     if (info == NULL) {
         return false;
     }
@@ -51,6 +69,7 @@ bool solar_os_adc_get_pin_info(size_t index, solar_os_adc_pin_info_t *info)
         return true;
     }
     return false;
+#endif
 }
 
 esp_err_t solar_os_adc_read(int pin, solar_os_adc_sample_t *sample)
@@ -58,6 +77,10 @@ esp_err_t solar_os_adc_read(int pin, solar_os_adc_sample_t *sample)
     if (sample == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+#if !SOLAR_OS_BOARD_HAS_ADC
+    (void)pin;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!solar_os_gpio_is_runtime_allowed(pin)) {
         return ESP_ERR_NOT_ALLOWED;
     }
@@ -77,4 +100,5 @@ esp_err_t solar_os_adc_read(int pin, solar_os_adc_sample_t *sample)
         .calibrated = port_sample.calibrated,
     };
     return ESP_OK;
+#endif
 }

@@ -10,6 +10,18 @@
 #error "Selected SolarOS board header did not define SOLAR_OS_BOARD_ID."
 #endif
 
+#ifndef SOLAR_OS_BOARD_HAS_GPIO
+#define SOLAR_OS_BOARD_HAS_GPIO 0
+#endif
+
 #ifndef SOLAR_OS_BOARD_GPIO_SLOTS
+#if SOLAR_OS_BOARD_HAS_GPIO
 #error "Selected SolarOS board header did not define SOLAR_OS_BOARD_GPIO_SLOTS."
+#else
+#define SOLAR_OS_BOARD_GPIO_SLOTS {{0}}
+#endif
+#endif
+
+#ifndef SOLAR_OS_BOARD_USER_GPIO_MASK
+#define SOLAR_OS_BOARD_USER_GPIO_MASK 0ULL
 #endif
