@@ -468,6 +468,7 @@ static esp_err_t shell_job_start(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_context_init(&shell_job.ctx,
                           solar_os_context_terminal(ctx),
                           solar_os_context_gfx(ctx));
+    solar_os_context_copy_session_handlers(&shell_job.ctx, ctx);
     solar_os_shell_io_init_port(solar_os_shell_session_io(session),
                                 &port,
                                 SHELL_JOB_DEFAULT_COLS,

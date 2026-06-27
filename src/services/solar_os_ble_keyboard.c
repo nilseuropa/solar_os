@@ -1995,11 +1995,18 @@ static char hid_keycode_to_char(uint8_t keycode, uint8_t modifiers)
     return hid_keycode_to_char_us(keycode, shift);
 }
 
-static bool hid_should_prefix_alt(uint8_t modifiers, char ch)
+static bool hid_should_prefix_alt(uint8_t modifiers, uint8_t keycode, char ch)
 {
-    return (modifiers & HID_MOD_LEFT_ALT) != 0 &&
+    const bool left_alt = (modifiers & HID_MOD_LEFT_ALT) != 0;
+
+    return left_alt &&
         ch != '\0' &&
         (uint8_t)ch != SOLAR_OS_KEY_APP_EXIT;
+}
+
+static bool hid_is_alt_tab(uint8_t modifiers, uint8_t keycode)
+{
+    return (modifiers & HID_MOD_ALT) != 0 && keycode == 0x2b;
 }
 
 static void handle_keyboard_report(const uint8_t *data, uint16_t length)
@@ -2029,12 +2036,19 @@ static void handle_keyboard_report(const uint8_t *data, uint16_t length)
             continue;
         }
 
+        if (hid_is_alt_tab(modifiers, key)) {
+            queue_char((char)SOLAR_OS_KEY_ALT_PREFIX);
+            queue_char('\t');
+            repeat_clear();
+            continue;
+        }
+
         const char ch = hid_keycode_to_char(key, modifiers);
         if (ch != '\0') {
             char sequence[BLE_KEYBOARD_REPEAT_SEQUENCE_MAX];
             size_t sequence_len = 0;
 
-            if (hid_should_prefix_alt(modifiers, ch)) {
+            if (hid_should_prefix_alt(modifiers, key, ch)) {
                 queue_char((char)SOLAR_OS_KEY_ALT_PREFIX);
                 sequence[sequence_len++] = (char)SOLAR_OS_KEY_ALT_PREFIX;
             }

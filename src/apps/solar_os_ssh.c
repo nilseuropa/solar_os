@@ -68,6 +68,7 @@ typedef struct {
     size_t saved_col;
     bool saved_cursor_valid;
     bool saw_error;
+    bool suspended;
 } ssh_app_state_t;
 
 static ssh_app_state_t ssh_app;
@@ -91,6 +92,13 @@ static solar_os_terminal_t *ssh_terminal(solar_os_context_t *ctx)
     return term != NULL ? term : solar_os_context_terminal(ctx);
 }
 
+static void ssh_flush(solar_os_context_t *ctx)
+{
+    if (!ssh_app.suspended) {
+        solar_os_shell_io_flush(ssh_io(ctx));
+    }
+}
+
 static bool ssh_is_printable(char ch)
 {
     const unsigned char value = (unsigned char)ch;
@@ -107,7 +115,7 @@ static void ssh_render_usage(solar_os_context_t *ctx)
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage: ssh [user@]host [port]");
     solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    solar_os_shell_io_flush(io);
+    ssh_flush(ctx);
 }
 
 static bool ssh_parse_port(const char *text, uint16_t *port)
@@ -186,7 +194,7 @@ static void ssh_render_password_prompt(solar_os_context_t *ctx)
     for (size_t i = 0; i < ssh_app.password_len; i++) {
         solar_os_shell_io_put_char(io, '*');
     }
-    solar_os_shell_io_flush(io);
+    ssh_flush(ctx);
 }
 
 static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
@@ -208,7 +216,7 @@ static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
                                   ssh_app.host,
                                   (unsigned)ssh_app.port);
     solar_os_shell_io_writeln(io, "starting");
-    solar_os_shell_io_flush(io);
+    ssh_flush(ctx);
 
     const esp_err_t err = solar_os_ssh_start(&config, &ssh_app.session);
     memset(ssh_app.password, 0, sizeof(ssh_app.password));
@@ -216,7 +224,7 @@ static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "ssh start failed: %s\n", esp_err_to_name(err));
         solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-        solar_os_shell_io_flush(io);
+        ssh_flush(ctx);
         ssh_app.mode = SSH_APP_ERROR;
         return err;
     }
@@ -749,7 +757,7 @@ static void ssh_write_output(solar_os_context_t *ctx, const char *data, size_t l
     solar_os_shell_io_t *io = ssh_io(ctx);
     if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
         solar_os_shell_io_write_raw(io, data, len);
-        solar_os_shell_io_flush(io);
+        ssh_flush(ctx);
         return;
     }
 
@@ -758,7 +766,7 @@ static void ssh_write_output(solar_os_context_t *ctx, const char *data, size_t l
     for (size_t i = 0; i < len; i++) {
         ssh_feed_output_char(term, data[i]);
     }
-    solar_os_shell_io_flush(io);
+    ssh_flush(ctx);
 }
 
 static void ssh_drain_events(solar_os_context_t *ctx)
@@ -774,12 +782,12 @@ static void ssh_drain_events(solar_os_context_t *ctx)
         switch (event.type) {
         case SOLAR_OS_SSH_EVENT_STATUS:
             solar_os_shell_io_printf(io, "ssh: %s\n", event.message);
-            solar_os_shell_io_flush(io);
+            ssh_flush(ctx);
             break;
         case SOLAR_OS_SSH_EVENT_CONNECTED:
             ssh_app.mode = SSH_APP_CONNECTED;
             solar_os_shell_io_printf(io, "ssh: %s\n", event.message);
-            solar_os_shell_io_flush(io);
+            ssh_flush(ctx);
             break;
         case SOLAR_OS_SSH_EVENT_OUTPUT:
             ssh_write_output(ctx, event.data, event.len);
@@ -787,17 +795,17 @@ static void ssh_drain_events(solar_os_context_t *ctx)
         case SOLAR_OS_SSH_EVENT_ERROR:
             ssh_app.saw_error = true;
             solar_os_shell_io_printf(io, "ssh: %s\n", event.message);
-            solar_os_shell_io_flush(io);
+            ssh_flush(ctx);
             break;
         case SOLAR_OS_SSH_EVENT_DISCONNECTED:
             solar_os_shell_io_printf(io, "ssh: %s\n", event.message);
-            solar_os_shell_io_flush(io);
+            ssh_flush(ctx);
             solar_os_ssh_stop(ssh_app.session);
             ssh_app.session = NULL;
             if (ssh_app.saw_error) {
                 ssh_app.mode = SSH_APP_ERROR;
                 solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-                solar_os_shell_io_flush(io);
+                ssh_flush(ctx);
             } else {
                 solar_os_context_request_exit(ctx);
             }
@@ -1007,6 +1015,39 @@ static void ssh_stop(solar_os_context_t *ctx)
     memset(&ssh_app, 0, sizeof(ssh_app));
 }
 
+static void ssh_suspend(solar_os_context_t *ctx)
+{
+    (void)ctx;
+    ssh_app.suspended = true;
+}
+
+static void ssh_resume(solar_os_context_t *ctx)
+{
+    ssh_app.suspended = false;
+    solar_os_context_set_shell_io(ctx, NULL);
+    (void)ssh_io(ctx);
+    ssh_flush(ctx);
+    ssh_drain_events(ctx);
+}
+
+static void ssh_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
+{
+    (void)ctx;
+
+    if (buffer == NULL || buffer_len == 0) {
+        return;
+    }
+    if (ssh_app.username[0] != '\0' && ssh_app.host[0] != '\0') {
+        snprintf(buffer,
+                 buffer_len,
+                 "ssh %s@%s",
+                 ssh_app.username,
+                 ssh_app.host);
+        return;
+    }
+    strlcpy(buffer, "ssh", buffer_len);
+}
+
 static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
@@ -1025,7 +1066,7 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
         if (ssh_app.session != NULL) {
             solar_os_shell_io_writeln(ssh_io(ctx), "\nssh: closing");
-            solar_os_shell_io_flush(ssh_io(ctx));
+            ssh_flush(ctx);
             solar_os_ssh_stop(ssh_app.session);
             ssh_app.session = NULL;
         }
@@ -1066,7 +1107,11 @@ static bool ssh_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_ssh_app = {
     .name = "ssh",
     .summary = "SSH client",
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = ssh_start,
+    .suspend = ssh_suspend,
+    .resume = ssh_resume,
     .stop = ssh_stop,
     .event = ssh_event,
+    .title = ssh_title,
 };

@@ -96,6 +96,8 @@ struct solar_os_shell_session {
     bool history_browsing;
     bool previous_key_was_tab;
     bool builtin_suppressed_prompt;
+    bool prompt_on_resume;
+    bool clear_on_resume;
     bool startup_attempted;
     bool watch_active;
     bool watch_executing;
@@ -127,6 +129,9 @@ static void cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_zip(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_unzip(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_close(solar_os_context_t *ctx, int argc, char **argv);
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
                                bool add_history,
@@ -138,6 +143,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"apps", "list applications", solar_os_shell_cmd_apps},
     {"jobs", "list background jobs", solar_os_shell_cmd_jobs},
     {"job", "control background jobs", solar_os_shell_cmd_job},
+    {"sessions", "list foreground app sessions", cmd_sessions},
+    {"fg", "resume a foreground app session", cmd_fg},
+    {"close", "close a foreground app session", cmd_close},
     {"version", "show SolarOS version", solar_os_shell_cmd_version},
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"board", "show board capabilities", solar_os_shell_cmd_board},
@@ -972,6 +980,8 @@ static void shell_prompt(solar_os_context_t *ctx)
     shell_session(ctx)->history_index = -1;
     shell_session(ctx)->history_browsing = false;
     shell_session(ctx)->previous_key_was_tab = false;
+    shell_session(ctx)->prompt_on_resume = false;
+    shell_session(ctx)->clear_on_resume = false;
 
     if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
         shell_reset_cwd(shell_session(ctx));
@@ -4376,6 +4386,67 @@ static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_context_reboot(ctx, "restarting");
 }
 
+static bool parse_session_id(const char *text, uint8_t *session_id)
+{
+    if (text == NULL || text[0] == '\0' || session_id == NULL) {
+        return false;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const unsigned long value = strtoul(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0' || value > UINT8_MAX) {
+        return false;
+    }
+
+    *session_id = (uint8_t)value;
+    return true;
+}
+
+static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv)
+{
+    (void)argv;
+
+    if (argc != 1) {
+        solar_os_shell_io_writeln(terminal(ctx), "usage: sessions");
+        return;
+    }
+
+    const esp_err_t err = solar_os_context_print_session_list(ctx);
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(terminal(ctx),
+                                 "sessions: unavailable: %s\n",
+                                 esp_err_to_name(err));
+    }
+}
+
+static void cmd_fg(solar_os_context_t *ctx, int argc, char **argv)
+{
+    uint8_t session_id = 0;
+
+    if (argc != 2 || !parse_session_id(argv[1], &session_id)) {
+        solar_os_shell_io_writeln(terminal(ctx), "usage: fg <session-id>");
+        return;
+    }
+
+    shell_session(ctx)->builtin_suppressed_prompt = true;
+    shell_session(ctx)->prompt_on_resume = true;
+    solar_os_context_request_session_fg(ctx, session_id);
+}
+
+static void cmd_close(solar_os_context_t *ctx, int argc, char **argv)
+{
+    uint8_t session_id = 0;
+
+    if (argc != 2 || !parse_session_id(argv[1], &session_id)) {
+        solar_os_shell_io_writeln(terminal(ctx), "usage: close <session-id>");
+        return;
+    }
+
+    shell_session(ctx)->builtin_suppressed_prompt = true;
+    solar_os_context_request_session_close(ctx, session_id);
+}
+
 solar_os_shell_session_t *solar_os_shell_session_create(void)
 {
     solar_os_shell_session_t *session =
@@ -4557,6 +4628,9 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 
         const esp_err_t err = solar_os_context_request_launch(ctx, app->app, argc, launch_argv);
         if (err == ESP_OK) {
+            shell_session(ctx)->prompt_on_resume = true;
+            shell_session(ctx)->clear_on_resume =
+                (app->app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) == 0;
             return false;
         }
 
@@ -4771,6 +4845,8 @@ esp_err_t solar_os_shell_session_start(solar_os_context_t *ctx,
     session->history_browsing = false;
     session->previous_key_was_tab = false;
     session->builtin_suppressed_prompt = false;
+    session->prompt_on_resume = false;
+    session->clear_on_resume = false;
     session->script_depth = 0;
     session->alias_depth = 0;
     session->watch_active = false;
@@ -4861,12 +4937,40 @@ static bool shell_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     return solar_os_shell_session_event(ctx, &shell_display_session, event);
 }
 
+static void shell_resume(solar_os_context_t *ctx)
+{
+    solar_os_context_set_shell_session(ctx, &shell_display_session);
+    solar_os_context_set_shell_io(ctx, &shell_display_session.io);
+    const bool preserve_terminal = solar_os_context_take_terminal_preserve(ctx);
+    if (shell_display_session.clear_on_resume && !preserve_terminal) {
+        solar_os_shell_io_clear(&shell_display_session.io);
+    } else if (preserve_terminal &&
+               solar_os_shell_io_cursor_col(&shell_display_session.io) != 0) {
+        solar_os_shell_io_newline(&shell_display_session.io);
+    }
+    if (shell_display_session.prompt_on_resume) {
+        shell_prompt(ctx);
+    }
+}
+
+static void shell_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
+{
+    (void)ctx;
+
+    if (buffer != NULL && buffer_len > 0) {
+        strlcpy(buffer, "shell", buffer_len);
+    }
+}
+
 static const solar_os_app_t shell_app = {
     .name = "shell",
     .summary = "SolarOS command shell",
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = shell_start,
+    .resume = shell_resume,
     .stop = NULL,
     .event = shell_event,
+    .title = shell_title,
 };
 
 const solar_os_app_t *solar_os_shell_app(void)

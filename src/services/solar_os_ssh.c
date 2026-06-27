@@ -16,7 +16,7 @@
 #include "solar_os_task.h"
 
 #define SOLAR_OS_SSH_DEFAULT_PORT 22
-#define SOLAR_OS_SSH_TASK_STACK 24576
+#define SOLAR_OS_SSH_TASK_STACK 12288
 #define SOLAR_OS_SSH_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define SOLAR_OS_SSH_EVENT_QUEUE_LEN 16
 #define SOLAR_OS_SSH_TX_QUEUE_LEN 16
@@ -38,6 +38,10 @@ struct solar_os_ssh_session {
     uint16_t rows;
     QueueHandle_t events;
     QueueHandle_t tx;
+    StaticQueue_t *events_queue;
+    uint8_t *events_storage;
+    StaticQueue_t *tx_queue;
+    uint8_t *tx_storage;
     TaskHandle_t task;
     volatile bool stop_requested;
     volatile bool task_done;
@@ -132,6 +136,41 @@ static bool ssh_should_stop(const solar_os_ssh_session_t *session)
     return session == NULL || session->stop_requested;
 }
 
+static QueueHandle_t ssh_create_queue(UBaseType_t len,
+                                      UBaseType_t item_size,
+                                      StaticQueue_t **queue_out,
+                                      uint8_t **storage_out)
+{
+    if (queue_out == NULL || storage_out == NULL || len == 0 || item_size == 0) {
+        return NULL;
+    }
+
+    StaticQueue_t *queue =
+        heap_caps_calloc(1, sizeof(*queue), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    uint8_t *storage =
+        heap_caps_calloc(len, item_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (storage == NULL) {
+        storage = heap_caps_calloc(len, item_size, MALLOC_CAP_8BIT);
+    }
+
+    if (queue == NULL || storage == NULL) {
+        heap_caps_free(queue);
+        heap_caps_free(storage);
+        return NULL;
+    }
+
+    QueueHandle_t handle = xQueueCreateStatic(len, item_size, storage, queue);
+    if (handle == NULL) {
+        heap_caps_free(queue);
+        heap_caps_free(storage);
+        return NULL;
+    }
+
+    *queue_out = queue;
+    *storage_out = storage;
+    return handle;
+}
+
 static void ssh_session_destroy(solar_os_ssh_session_t *session)
 {
     if (session == NULL) {
@@ -146,6 +185,10 @@ static void ssh_session_destroy(solar_os_ssh_session_t *session)
         vQueueDelete(session->tx);
         session->tx = NULL;
     }
+    heap_caps_free(session->events_storage);
+    heap_caps_free(session->events_queue);
+    heap_caps_free(session->tx_storage);
+    heap_caps_free(session->tx_queue);
     memset(session->password, 0, sizeof(session->password));
     heap_caps_free(session);
 }
@@ -385,7 +428,10 @@ done:
         }
     }
 
-    SOLAR_OS_LOGI(TAG, "SSH task stopped");
+    UBaseType_t stack_free_words = uxTaskGetStackHighWaterMark(NULL);
+    SOLAR_OS_LOGI(TAG,
+                  "SSH task stopped stack_min_free=%u bytes",
+                  (unsigned)stack_free_words);
     vTaskDelete(NULL);
 }
 
@@ -414,8 +460,14 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
     session->cols = config->cols;
     session->rows = config->rows;
 
-    session->events = xQueueCreate(SOLAR_OS_SSH_EVENT_QUEUE_LEN, sizeof(solar_os_ssh_event_t));
-    session->tx = xQueueCreate(SOLAR_OS_SSH_TX_QUEUE_LEN, sizeof(solar_os_ssh_tx_chunk_t));
+    session->events = ssh_create_queue(SOLAR_OS_SSH_EVENT_QUEUE_LEN,
+                                       sizeof(solar_os_ssh_event_t),
+                                       &session->events_queue,
+                                       &session->events_storage);
+    session->tx = ssh_create_queue(SOLAR_OS_SSH_TX_QUEUE_LEN,
+                                   sizeof(solar_os_ssh_tx_chunk_t),
+                                   &session->tx_queue,
+                                   &session->tx_storage);
     if (session->events == NULL || session->tx == NULL) {
         solar_os_ssh_stop(session);
         return ESP_ERR_NO_MEM;

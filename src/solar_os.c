@@ -24,6 +24,10 @@ void solar_os_context_init(solar_os_context_t *ctx,
     ctx->requested_app = NULL;
     ctx->exit_requested = false;
     ctx->sleep_requested = false;
+    ctx->session_request = SOLAR_OS_SESSION_REQUEST_NONE;
+    ctx->session_request_id = 0;
+    ctx->session_list_fn = NULL;
+    ctx->session_list_user = NULL;
     ctx->graphics_active = false;
     ctx->preserve_terminal = false;
     ctx->argc = 0;
@@ -199,6 +203,82 @@ bool solar_os_context_take_sleep_request(solar_os_context_t *ctx)
     }
 
     ctx->sleep_requested = false;
+    return true;
+}
+
+void solar_os_context_set_session_list_handler(solar_os_context_t *ctx,
+                                               solar_os_session_list_fn fn,
+                                               void *user)
+{
+    if (ctx == NULL) {
+        return;
+    }
+
+    ctx->session_list_fn = fn;
+    ctx->session_list_user = user;
+}
+
+void solar_os_context_copy_session_handlers(solar_os_context_t *dst,
+                                            const solar_os_context_t *src)
+{
+    if (dst == NULL || src == NULL) {
+        return;
+    }
+
+    dst->session_list_fn = src->session_list_fn;
+    dst->session_list_user = src->session_list_user;
+}
+
+esp_err_t solar_os_context_print_session_list(solar_os_context_t *ctx)
+{
+    if (ctx == NULL || ctx->session_list_fn == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ctx->session_list_fn(ctx->shell_io, ctx->session_list_user);
+    return ESP_OK;
+}
+
+void solar_os_context_request_session_list(solar_os_context_t *ctx)
+{
+    if (ctx != NULL) {
+        ctx->session_request = SOLAR_OS_SESSION_REQUEST_LIST;
+        ctx->session_request_id = 0;
+    }
+}
+
+void solar_os_context_request_session_fg(solar_os_context_t *ctx, uint8_t session_id)
+{
+    if (ctx != NULL) {
+        ctx->session_request = SOLAR_OS_SESSION_REQUEST_FG;
+        ctx->session_request_id = session_id;
+    }
+}
+
+void solar_os_context_request_session_close(solar_os_context_t *ctx, uint8_t session_id)
+{
+    if (ctx != NULL) {
+        ctx->session_request = SOLAR_OS_SESSION_REQUEST_CLOSE;
+        ctx->session_request_id = session_id;
+    }
+}
+
+bool solar_os_context_take_session_request(solar_os_context_t *ctx,
+                                           solar_os_session_request_type_t *type,
+                                           uint8_t *session_id)
+{
+    if (ctx == NULL || ctx->session_request == SOLAR_OS_SESSION_REQUEST_NONE) {
+        return false;
+    }
+
+    if (type != NULL) {
+        *type = ctx->session_request;
+    }
+    if (session_id != NULL) {
+        *session_id = ctx->session_request_id;
+    }
+    ctx->session_request = SOLAR_OS_SESSION_REQUEST_NONE;
+    ctx->session_request_id = 0;
     return true;
 }
 
