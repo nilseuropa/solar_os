@@ -154,6 +154,7 @@ set(SOLAR_OS_SRCS
     "services/solar_os_gpio.c"
     "services/solar_os_i2c.c"
     "services/solar_os_identity.c"
+    "services/solar_os_json.c"
     "services/solar_os_log.c"
     "services/solar_os_memory.c"
     "services/solar_os_ota.c"
@@ -330,6 +331,7 @@ set(SOLAR_OS_REQUIRES
     esp_wifi
     fatfs
     heap
+    json
     lwip
     nvs_flash
     sdmmc
