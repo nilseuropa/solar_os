@@ -14,6 +14,7 @@
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_identity.h"
 #include "solar_os_scp.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_ssh.h"
 #include "solar_os_ssh_keys.h"
@@ -97,7 +98,7 @@ static bool scp_parse_remote(const char *arg, scp_target_t *target)
     }
 
     const char *colon = strchr(arg, ':');
-    if (colon == NULL || colon == arg || colon[1] == '\0') {
+    if (colon == NULL || colon == arg) {
         return false;
     }
 
@@ -131,10 +132,10 @@ static bool scp_parse_remote(const char *arg, scp_target_t *target)
     target->remote = true;
     strlcpy(target->host, host, sizeof(target->host));
     strlcpy(target->path, colon + 1, sizeof(target->path));
-    return target->username[0] != '\0' && target->host[0] != '\0' && target->path[0] != '\0';
+    return target->username[0] != '\0' && target->host[0] != '\0';
 }
 
-static bool scp_parse_target(const char *arg, scp_target_t *target)
+static bool scp_parse_target(solar_os_context_t *ctx, const char *arg, scp_target_t *target)
 {
     memset(target, 0, sizeof(*target));
     if (scp_parse_remote(arg, target)) {
@@ -146,9 +147,7 @@ static bool scp_parse_target(const char *arg, scp_target_t *target)
     }
 
     target->remote = false;
-    return solar_os_storage_resolve_path(arg,
-                                         target->path,
-                                         sizeof(target->path)) == ESP_OK &&
+    return solar_os_shell_resolve_path(ctx, arg, target->path, sizeof(target->path)) == ESP_OK &&
         target->path[0] != '\0';
 }
 
@@ -161,12 +160,39 @@ static const char *scp_remote_basename(const char *path)
     return path != NULL && path[0] != '\0' ? path : "scp.out";
 }
 
-static bool scp_prepare_local_download_path(const char *arg,
+static const char *scp_local_basename(const char *path)
+{
+    const char *slash = path != NULL ? strrchr(path, '/') : NULL;
+    if (slash != NULL && slash[1] != '\0') {
+        return slash + 1;
+    }
+    return path != NULL && path[0] != '\0' ? path : "scp.out";
+}
+
+static bool scp_append_path(char *path, size_t path_len, const char *dir, const char *name)
+{
+    if (path == NULL || path_len == 0 || dir == NULL || name == NULL || name[0] == '\0') {
+        return false;
+    }
+
+    const size_t dir_len = strlen(dir);
+    const int written = snprintf(path,
+                                 path_len,
+                                 "%s%s%s",
+                                 dir,
+                                 dir_len > 0 && dir[dir_len - 1] == '/' ? "" : "/",
+                                 name);
+    return written >= 0 && (size_t)written < path_len;
+}
+
+static bool scp_prepare_local_download_path(solar_os_context_t *ctx,
+                                            const char *arg,
                                             const char *remote_path,
                                             char *local_path,
                                             size_t local_path_len)
 {
-    if (solar_os_storage_resolve_path(arg, local_path, local_path_len) != ESP_OK) {
+    const char *target = arg != NULL && arg[0] != '\0' ? arg : ".";
+    if (solar_os_shell_resolve_path(ctx, target, local_path, local_path_len) != ESP_OK) {
         return false;
     }
     if (local_path[0] == '\0') {
@@ -178,14 +204,27 @@ static bool scp_prepare_local_download_path(const char *arg,
         const char *name = scp_remote_basename(remote_path);
         char dir[SOLAR_OS_STORAGE_PATH_MAX];
         strlcpy(dir, local_path, sizeof(dir));
-        const int written = snprintf(local_path,
-                                     local_path_len,
-                                     "%s/%s",
-                                     dir,
-                                     name);
-        return written >= 0 && (size_t)written < local_path_len;
+        return scp_append_path(local_path, local_path_len, dir, name);
     }
     return true;
+}
+
+static bool scp_prepare_remote_upload_path(const char *remote_arg,
+                                           const char *local_path,
+                                           char *remote_path,
+                                           size_t remote_path_len)
+{
+    const char *name = scp_local_basename(local_path);
+    if (remote_arg == NULL || remote_arg[0] == '\0') {
+        return strlcpy(remote_path, name, remote_path_len) < remote_path_len;
+    }
+
+    const size_t remote_len = strlen(remote_arg);
+    if (remote_arg[remote_len - 1] == '/') {
+        return scp_append_path(remote_path, remote_path_len, remote_arg, name);
+    }
+
+    return strlcpy(remote_path, remote_arg, remote_path_len) < remote_path_len;
 }
 
 static void scp_render_usage(solar_os_context_t *ctx)
@@ -197,7 +236,9 @@ static void scp_render_usage(solar_os_context_t *ctx)
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  scp [-P port] local [user@]host:remote");
+    solar_os_shell_io_writeln(io, "  scp [-P port] local [user@]host:");
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote local");
+    solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote");
     solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
     solar_os_shell_io_flush(io);
 }
@@ -339,14 +380,34 @@ static bool scp_parse_args(solar_os_context_t *ctx)
         argi += 2;
     }
 
-    if (argc - argi != 2) {
+    const int operand_count = argc - argi;
+    if (operand_count != 1 && operand_count != 2) {
         return false;
     }
 
     scp_target_t src;
     scp_target_t dst;
-    if (!scp_parse_target(solar_os_context_argv(ctx, argi), &src) ||
-        !scp_parse_target(solar_os_context_argv(ctx, argi + 1), &dst)) {
+    if (!scp_parse_target(ctx, solar_os_context_argv(ctx, argi), &src)) {
+        return false;
+    }
+
+    if (operand_count == 1) {
+        if (!src.remote || src.path[0] == '\0') {
+            return false;
+        }
+
+        scp_app.direction = SOLAR_OS_SCP_DOWNLOAD;
+        strlcpy(scp_app.username, src.username, sizeof(scp_app.username));
+        strlcpy(scp_app.host, src.host, sizeof(scp_app.host));
+        strlcpy(scp_app.remote_path, src.path, sizeof(scp_app.remote_path));
+        return scp_prepare_local_download_path(ctx,
+                                               NULL,
+                                               scp_app.remote_path,
+                                               scp_app.local_path,
+                                               sizeof(scp_app.local_path));
+    }
+
+    if (!scp_parse_target(ctx, solar_os_context_argv(ctx, argi + 1), &dst)) {
         return false;
     }
     if (src.remote == dst.remote) {
@@ -354,11 +415,15 @@ static bool scp_parse_args(solar_os_context_t *ctx)
     }
 
     if (src.remote) {
+        if (src.path[0] == '\0') {
+            return false;
+        }
         scp_app.direction = SOLAR_OS_SCP_DOWNLOAD;
         strlcpy(scp_app.username, src.username, sizeof(scp_app.username));
         strlcpy(scp_app.host, src.host, sizeof(scp_app.host));
         strlcpy(scp_app.remote_path, src.path, sizeof(scp_app.remote_path));
-        return scp_prepare_local_download_path(solar_os_context_argv(ctx, argi + 1),
+        return scp_prepare_local_download_path(ctx,
+                                               solar_os_context_argv(ctx, argi + 1),
                                                scp_app.remote_path,
                                                scp_app.local_path,
                                                sizeof(scp_app.local_path));
@@ -368,8 +433,10 @@ static bool scp_parse_args(solar_os_context_t *ctx)
     strlcpy(scp_app.username, dst.username, sizeof(scp_app.username));
     strlcpy(scp_app.host, dst.host, sizeof(scp_app.host));
     strlcpy(scp_app.local_path, src.path, sizeof(scp_app.local_path));
-    strlcpy(scp_app.remote_path, dst.path, sizeof(scp_app.remote_path));
-    return true;
+    return scp_prepare_remote_upload_path(dst.path,
+                                          scp_app.local_path,
+                                          scp_app.remote_path,
+                                          sizeof(scp_app.remote_path));
 }
 
 static esp_err_t scp_start(solar_os_context_t *ctx)

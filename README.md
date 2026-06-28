@@ -6,21 +6,59 @@ The current firmware is still a single ESP-IDF image. Applications are built int
 
 ## Supported Boards
 
+SolarOS board support is selected at build time with `SOLAR_OS_BOARD=<target>`.
+The current tree includes one full pocket-terminal target and one minimal
+headless ESP32-S3 target.
+
 ### Waveshare ESP32-S3-RLCD-4.2
-- ESP32-S3-WROOM-1-N16R8
-- 240 MHz dual-core CPU
-- 16 MB QIO flash
-- 8 MB octal PSRAM
+
+Build target: `waveshare_esp32_s3_rlcd_4_2`
+
+This is the primary SolarOS hardware target and provides the complete
+pocket-terminal feature set.
+
+- ESP32-S3-WROOM-1-N16R8, 240 MHz dual-core CPU
+- 16 MB QIO flash and 8 MB octal PSRAM
 - ST7305 reflective LCD, 400 x 300
+- Display terminal and graphics apps
 - TF card slot over SDMMC 1-bit mode
-- BLE HID keyboard input
-- Wi-Fi station, SoftAP, APSTA, and NAT modes
+- USB CDC port `cdc0`
+- Expansion UART `uart0` on U0TXD/GPIO43 and U0RXD/GPIO44
+- BLE HID keyboard input and BLE/GATT tools
+- Wi-Fi station, SoftAP, APSTA, NAT, and network apps
 - PCF85063 RTC
 - SHTC3 temperature and humidity sensor
 - Battery voltage ADC
-- Exposed UART on U0TXD/GPIO43 and U0RXD/GPIO44
+- ES8311 speaker DAC and ES7210 stereo microphone input
 - I2C bus on SDA/GPIO13 and SCL/GPIO14
-- Expansion port exposes GPIO0, GPIO1, GPIO2, GPIO3, GPIO17, and GPIO18. GPIO0 is also BOOT/download mode and GPIO18 is also the board KEY input.
+- KEY button for BLE pairing and optional light sleep
+- Expansion port exposes GPIO0, GPIO1, GPIO2, GPIO3, GPIO17, and GPIO18.
+  Runtime GPIO access is intentionally limited to GPIO1, GPIO2, GPIO3, and
+  GPIO17. GPIO0 is BOOT/download mode and GPIO18 is the board KEY input.
+
+On this board, SolarOS boots into the display shell. Additional shell, log, SLIP,
+or bridge jobs can claim `cdc0` or `uart0`.
+
+### Espressif ESP32-S3-DevKitC-1-N16R8
+
+Build target: `esp32_s3_devkitc1_n16r8`
+
+This is the current minimal headless SolarOS target. It is useful for validating
+board abstraction, package/flavor builds, OTA, port shells, Wi-Fi/BLE services,
+and network tools without a display or onboard peripherals.
+
+- ESP32-S3-WROOM-1-N16R8
+- 16 MB flash and 8 MB PSRAM
+- USB CDC port `cdc0`
+- UART port `uart0` on GPIO43/GPIO44
+- Wi-Fi station/AP services
+- BLE services
+- No display, SD card, RTC, battery monitor, audio codec, SHTC3 sensor, or
+  board KEY profile enabled
+
+On headless builds, SolarOS starts the primary shell on `uart0` when UART is
+available. `cdc0` remains available for a later shell job, log job, bridge job,
+or host-side tooling.
 
 ## Build
 
