@@ -99,6 +99,12 @@ static void ssh_flush(solar_os_context_t *ctx)
     }
 }
 
+static void ssh_request_close(solar_os_context_t *ctx)
+{
+    solar_os_context_request_terminal_preserve(ctx);
+    solar_os_context_request_exit(ctx);
+}
+
 static bool ssh_is_printable(char ch)
 {
     const unsigned char value = (unsigned char)ch;
@@ -223,9 +229,9 @@ static esp_err_t ssh_begin_connect(solar_os_context_t *ctx)
     ssh_app.password_len = 0;
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "ssh start failed: %s\n", esp_err_to_name(err));
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         ssh_flush(ctx);
         ssh_app.mode = SSH_APP_ERROR;
+        ssh_request_close(ctx);
         return err;
     }
 
@@ -804,10 +810,10 @@ static void ssh_drain_events(solar_os_context_t *ctx)
             ssh_app.session = NULL;
             if (ssh_app.saw_error) {
                 ssh_app.mode = SSH_APP_ERROR;
-                solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
                 ssh_flush(ctx);
+                ssh_request_close(ctx);
             } else {
-                solar_os_context_request_exit(ctx);
+                ssh_request_close(ctx);
             }
             break;
         default:
