@@ -132,7 +132,7 @@ while not solaros.should_exit() do
     end
 end
 
-gfx.end()
+gfx["end"]()
 ```
 
 ## Notes
