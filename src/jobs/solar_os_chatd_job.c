@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "esp_heap_caps.h"
@@ -20,6 +21,7 @@
 #include "solar_os_chat.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_storage.h"
 
 #define CHATD_DEFAULT_PORT 7777U
 #define CHATD_MAX_CLIENTS 6U
@@ -31,6 +33,8 @@
 #define CHATD_SELECT_TIMEOUT_MS 250U
 #define CHATD_STOP_WAIT_MS 2000U
 #define CHATD_DEFAULT_CHANNEL "general"
+#define CHATD_HISTORY_COUNT 64U
+#define CHATD_HISTORY_TYPE_MAX 16U
 
 static const char *TAG = "solar_os_chatd";
 
@@ -50,6 +54,15 @@ typedef struct {
 } chatd_client_t;
 
 typedef struct {
+    bool valid;
+    char type[CHATD_HISTORY_TYPE_MAX];
+    char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
+    char from[SOLAR_OS_CHAT_USER_MAX];
+    char text[SOLAR_OS_CHAT_TEXT_MAX];
+    uint64_t timestamp;
+} chatd_history_entry_t;
+
+typedef struct {
     bool running;
     volatile bool stop_requested;
     TaskHandle_t task;
@@ -62,6 +75,11 @@ typedef struct {
     chatd_client_t clients[CHATD_MAX_CLIENTS];
     char *tx_line;
     char *text_arg;
+    chatd_history_entry_t *history;
+    size_t history_head;
+    size_t history_count;
+    FILE *history_file;
+    char history_path[SOLAR_OS_STORAGE_PATH_MAX];
     uint32_t connection_count;
     uint32_t message_count;
     uint32_t dropped_count;
@@ -195,14 +213,15 @@ static void chatd_builder_put_field(chatd_json_builder_t *builder,
     chatd_builder_put_json_string(builder, value);
 }
 
-static bool chatd_build_event(chatd_job_state_t *state,
-                              const char *type,
-                              const char *channel,
-                              const char *from,
-                              const char *text,
-                              bool include_ts,
-                              int code,
-                              bool include_code)
+static bool chatd_build_event_at(chatd_job_state_t *state,
+                                 const char *type,
+                                 const char *channel,
+                                 const char *from,
+                                 const char *text,
+                                 bool include_ts,
+                                 uint64_t timestamp,
+                                 int code,
+                                 bool include_code)
 {
     chatd_json_builder_t builder;
     chatd_builder_init(&builder, state->tx_line, CHATD_LINE_MAX);
@@ -213,7 +232,7 @@ static bool chatd_build_event(chatd_job_state_t *state,
     chatd_builder_put_field(&builder, "text", text);
     if (include_ts) {
         chatd_builder_put(&builder, ",\"ts\":");
-        chatd_builder_put_u64(&builder, chatd_now_ms());
+        chatd_builder_put_u64(&builder, timestamp);
     }
     if (include_code) {
         chatd_builder_put(&builder, ",\"code\":");
@@ -221,6 +240,26 @@ static bool chatd_build_event(chatd_job_state_t *state,
     }
     chatd_builder_put(&builder, "}\n");
     return builder.ok;
+}
+
+static bool chatd_build_event(chatd_job_state_t *state,
+                              const char *type,
+                              const char *channel,
+                              const char *from,
+                              const char *text,
+                              bool include_ts,
+                              int code,
+                              bool include_code)
+{
+    return chatd_build_event_at(state,
+                                type,
+                                channel,
+                                from,
+                                text,
+                                include_ts,
+                                chatd_now_ms(),
+                                code,
+                                include_code);
 }
 
 static bool chatd_build_channel_event(chatd_job_state_t *state, const char *channel)
@@ -282,6 +321,96 @@ static bool chatd_send_channel_event(chatd_job_state_t *state,
 
 static void chatd_close_client(chatd_job_state_t *state, size_t index, bool notify);
 
+static void chatd_store_history(chatd_job_state_t *state,
+                                const char *type,
+                                const char *channel,
+                                const char *from,
+                                const char *text,
+                                uint64_t timestamp)
+{
+    if (state == NULL || state->history == NULL || type == NULL || channel == NULL ||
+        channel[0] == '\0') {
+        return;
+    }
+
+    const size_t index = state->history_head;
+    chatd_history_entry_t *entry = &state->history[index];
+    memset(entry, 0, sizeof(*entry));
+    entry->valid = true;
+    strlcpy(entry->type, type, sizeof(entry->type));
+    strlcpy(entry->channel, channel, sizeof(entry->channel));
+    if (from != NULL) {
+        strlcpy(entry->from, from, sizeof(entry->from));
+    }
+    if (text != NULL) {
+        strlcpy(entry->text, text, sizeof(entry->text));
+    }
+    entry->timestamp = timestamp;
+
+    state->history_head = (state->history_head + 1U) % CHATD_HISTORY_COUNT;
+    if (state->history_count < CHATD_HISTORY_COUNT) {
+        state->history_count++;
+    }
+}
+
+static void chatd_drop_channel_history(chatd_job_state_t *state, const char *channel)
+{
+    if (state == NULL || state->history == NULL || channel == NULL || channel[0] == '\0') {
+        return;
+    }
+
+    for (size_t i = 0; i < CHATD_HISTORY_COUNT; i++) {
+        chatd_history_entry_t *entry = &state->history[i];
+        if (entry->valid && strcmp(entry->channel, channel) == 0) {
+            entry->valid = false;
+        }
+    }
+}
+
+static void chatd_append_history_dump(chatd_job_state_t *state, const char *line)
+{
+    if (state == NULL || state->history_file == NULL || line == NULL) {
+        return;
+    }
+
+    fputs(line, state->history_file);
+    fflush(state->history_file);
+}
+
+static void chatd_send_history(chatd_job_state_t *state,
+                               chatd_client_t *client,
+                               size_t channel_index)
+{
+    if (state == NULL || client == NULL || state->history == NULL ||
+        channel_index >= state->channel_count || state->history_count == 0) {
+        return;
+    }
+
+    const char *channel = state->channels[channel_index];
+    const size_t oldest =
+        state->history_count == CHATD_HISTORY_COUNT ? state->history_head : 0U;
+    for (size_t logical = 0; logical < state->history_count; logical++) {
+        const size_t index = (oldest + logical) % CHATD_HISTORY_COUNT;
+        const chatd_history_entry_t *entry = &state->history[index];
+        if (!entry->valid || strcmp(entry->channel, channel) != 0) {
+            continue;
+        }
+        if (!chatd_build_event_at(state,
+                                  entry->type,
+                                  entry->channel,
+                                  entry->from,
+                                  entry->text,
+                                  true,
+                                  entry->timestamp,
+                                  0,
+                                  false) ||
+            !chatd_send_raw(client, state->tx_line)) {
+            state->dropped_count++;
+            break;
+        }
+    }
+}
+
 static void chatd_broadcast_event(chatd_job_state_t *state,
                                   size_t channel_index,
                                   const char *type,
@@ -293,22 +422,72 @@ static void chatd_broadcast_event(chatd_job_state_t *state,
     if (state == NULL || channel_index >= state->channel_count) {
         return;
     }
-    if (!chatd_build_event(state,
-                           type,
-                           state->channels[channel_index],
-                           from,
-                           text,
-                           include_ts,
-                           0,
-                           false)) {
+    const uint64_t timestamp = include_ts ? chatd_now_ms() : 0;
+    const char *channel = state->channels[channel_index];
+    if (!chatd_build_event_at(state,
+                              type,
+                              channel,
+                              from,
+                              text,
+                              include_ts,
+                              timestamp,
+                              0,
+                              false)) {
         state->dropped_count++;
         return;
     }
+    if (include_ts) {
+        chatd_store_history(state, type, channel, from, text, timestamp);
+    }
+    chatd_append_history_dump(state, state->tx_line);
 
     const uint32_t mask = 1UL << channel_index;
     for (size_t i = 0; i < CHATD_MAX_CLIENTS; i++) {
         chatd_client_t *client = &state->clients[i];
         if (!client->active || !client->authed || (client->joined_mask & mask) == 0 ||
+            (exclude_index >= 0 && (size_t)exclude_index == i)) {
+            continue;
+        }
+        if (!chatd_send_raw(client, state->tx_line)) {
+            state->dropped_count++;
+            chatd_close_client(state, i, false);
+        }
+    }
+}
+
+static void chatd_broadcast_global_event(chatd_job_state_t *state,
+                                         const char *type,
+                                         const char *channel,
+                                         const char *from,
+                                         const char *text,
+                                         bool include_ts,
+                                         int exclude_index)
+{
+    if (state == NULL) {
+        return;
+    }
+
+    const uint64_t timestamp = include_ts ? chatd_now_ms() : 0;
+    if (!chatd_build_event_at(state,
+                              type,
+                              channel,
+                              from,
+                              text,
+                              include_ts,
+                              timestamp,
+                              0,
+                              false)) {
+        state->dropped_count++;
+        return;
+    }
+    if (include_ts && channel != NULL && channel[0] != '\0') {
+        chatd_store_history(state, type, channel, from, text, timestamp);
+    }
+    chatd_append_history_dump(state, state->tx_line);
+
+    for (size_t i = 0; i < CHATD_MAX_CLIENTS; i++) {
+        chatd_client_t *client = &state->clients[i];
+        if (!client->active || !client->authed ||
             (exclude_index >= 0 && (size_t)exclude_index == i)) {
             continue;
         }
@@ -634,6 +813,7 @@ static void chatd_client_join(chatd_job_state_t *state, size_t client_index, con
                            true,
                            0,
                            false);
+    chatd_send_history(state, client, (size_t)channel_index);
     chatd_broadcast_event(state,
                           (size_t)channel_index,
                           "presence",
@@ -641,6 +821,14 @@ static void chatd_client_join(chatd_job_state_t *state, size_t client_index, con
                           "joined",
                           true,
                           (int)client_index);
+}
+
+static uint32_t chatd_mask_without_channel(uint32_t mask, size_t channel_index)
+{
+    const uint32_t lower_mask = channel_index == 0 ? 0U : ((1UL << channel_index) - 1U);
+    const uint32_t lower = mask & lower_mask;
+    const uint32_t upper = channel_index + 1U >= 32U ? 0U : mask >> (channel_index + 1U);
+    return lower | (upper << channel_index);
 }
 
 static void chatd_client_leave(chatd_job_state_t *state, size_t client_index, const char *channel)
@@ -691,6 +879,63 @@ static void chatd_client_leave(chatd_job_state_t *state, size_t client_index, co
                           "left",
                           true,
                           (int)client_index);
+}
+
+static void chatd_client_delete_channel(chatd_job_state_t *state,
+                                        size_t client_index,
+                                        const char *channel)
+{
+    chatd_client_t *client = &state->clients[client_index];
+    const int channel_index = chatd_find_channel(state, channel);
+    if (channel_index < 0) {
+        (void)chatd_send_event(state,
+                               client,
+                               "error",
+                               NULL,
+                               NULL,
+                               "unknown channel",
+                               false,
+                               404,
+                               true);
+        return;
+    }
+    if (strcmp(state->channels[channel_index], CHATD_DEFAULT_CHANNEL) == 0) {
+        (void)chatd_send_event(state,
+                               client,
+                               "error",
+                               state->channels[channel_index],
+                               NULL,
+                               "default channel cannot be deleted",
+                               false,
+                               403,
+                               true);
+        return;
+    }
+
+    char removed[SOLAR_OS_CHAT_CHANNEL_MAX];
+    strlcpy(removed, state->channels[channel_index], sizeof(removed));
+
+    chatd_broadcast_global_event(state,
+                                 "deleted",
+                                 removed,
+                                 client->from,
+                                 "deleted",
+                                 true,
+                                 -1);
+
+    const size_t remove_index = (size_t)channel_index;
+    for (size_t i = remove_index; i + 1U < state->channel_count; i++) {
+        strlcpy(state->channels[i], state->channels[i + 1U], sizeof(state->channels[i]));
+    }
+    if (state->channel_count > 0) {
+        state->channel_count--;
+    }
+
+    for (size_t i = 0; i < CHATD_MAX_CLIENTS; i++) {
+        state->clients[i].joined_mask =
+            chatd_mask_without_channel(state->clients[i].joined_mask, remove_index);
+    }
+    chatd_drop_channel_history(state, removed);
 }
 
 static void chatd_client_message(chatd_job_state_t *state,
@@ -881,6 +1126,20 @@ static void chatd_process_line(chatd_job_state_t *state, size_t client_index, co
             strlcpy(channel, CHATD_DEFAULT_CHANNEL, sizeof(channel));
         }
         chatd_client_leave(state, client_index, channel);
+    } else if (strcmp(type, "delete") == 0) {
+        if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
+            (void)chatd_send_event(state,
+                                   client,
+                                   "error",
+                                   NULL,
+                                   NULL,
+                                   "missing channel",
+                                   false,
+                                   400,
+                                   true);
+            return;
+        }
+        chatd_client_delete_channel(state, client_index, channel);
     } else if (strcmp(type, "msg") == 0) {
         if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
             strlcpy(channel, CHATD_DEFAULT_CHANNEL, sizeof(channel));
@@ -1017,6 +1276,10 @@ static void chatd_close_all_sockets(chatd_job_state_t *state)
 
 static void chatd_free_buffers(chatd_job_state_t *state)
 {
+    if (state->history_file != NULL) {
+        fclose(state->history_file);
+        state->history_file = NULL;
+    }
     for (size_t i = 0; i < CHATD_MAX_CLIENTS; i++) {
         if (state->clients[i].line != NULL) {
             heap_caps_free(state->clients[i].line);
@@ -1030,6 +1293,10 @@ static void chatd_free_buffers(chatd_job_state_t *state)
     if (state->text_arg != NULL) {
         heap_caps_free(state->text_arg);
         state->text_arg = NULL;
+    }
+    if (state->history != NULL) {
+        heap_caps_free(state->history);
+        state->history = NULL;
     }
 }
 
@@ -1131,44 +1398,118 @@ static bool chatd_parse_port(const char *text, uint16_t *port)
     return true;
 }
 
-static esp_err_t chatd_parse_args(int argc, char **argv, uint16_t *port, const char **token)
+static esp_err_t chatd_parse_args(int argc,
+                                  char **argv,
+                                  uint16_t *port,
+                                  const char **token,
+                                  const char **history_path)
 {
-    if (argc < 1 || argc > 3 || argv == NULL || port == NULL || token == NULL) {
+    if (argc < 1 || argc > 6 || argv == NULL || port == NULL || token == NULL ||
+        history_path == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     *port = CHATD_DEFAULT_PORT;
     *token = NULL;
+    *history_path = NULL;
+    bool port_set = false;
 
-    if (argc == 1) {
-        return ESP_OK;
-    }
-    if (argc == 2) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--history") == 0 || strcmp(argv[i], "--log") == 0) {
+            if (i + 1 >= argc || *history_path != NULL) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            *history_path = argv[++i];
+            continue;
+        }
+
         uint16_t parsed_port = 0;
-        if (chatd_parse_port(argv[1], &parsed_port)) {
+        if (!port_set && chatd_parse_port(argv[i], &parsed_port)) {
             *port = parsed_port;
-        } else {
-            *token = argv[1];
+            port_set = true;
+            continue;
         }
-    } else {
-        if (!chatd_parse_port(argv[1], port)) {
-            return ESP_ERR_INVALID_ARG;
+        if (*token == NULL) {
+            *token = argv[i];
+            continue;
         }
-        *token = argv[2];
+        if (*history_path == NULL) {
+            *history_path = argv[i];
+            continue;
+        }
+        return ESP_ERR_INVALID_ARG;
     }
 
     if (*token != NULL &&
         !chatd_text_arg_valid(*token, SOLAR_OS_CHAT_TOKEN_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (*history_path != NULL && (*history_path)[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
     return ESP_OK;
+}
+
+static void chatd_mkdir_parent(const char *path)
+{
+    if (path == NULL || path[0] == '\0') {
+        return;
+    }
+
+    char work[SOLAR_OS_STORAGE_PATH_MAX];
+    if (strlcpy(work, path, sizeof(work)) >= sizeof(work)) {
+        return;
+    }
+
+    char *slash = strrchr(work, '/');
+    if (slash == NULL || slash == work) {
+        return;
+    }
+    *slash = '\0';
+
+    for (char *p = work + 1; *p != '\0'; p++) {
+        if (*p != '/') {
+            continue;
+        }
+        *p = '\0';
+        if (work[0] != '\0') {
+            (void)mkdir(work, 0777);
+        }
+        *p = '/';
+    }
+    (void)mkdir(work, 0777);
+}
+
+static void chatd_open_history_dump(chatd_job_state_t *state, const char *path)
+{
+    if (state == NULL || path == NULL || path[0] == '\0') {
+        return;
+    }
+
+    char resolved[SOLAR_OS_STORAGE_PATH_MAX];
+    const char *open_path = path;
+    if (solar_os_storage_resolve_path(path, resolved, sizeof(resolved)) == ESP_OK) {
+        open_path = resolved;
+    }
+
+    chatd_mkdir_parent(open_path);
+    state->history_file = fopen(open_path, "a");
+    if (state->history_file == NULL) {
+        SOLAR_OS_LOGW(TAG, "history dump unavailable: %s errno=%d", open_path, errno);
+        state->history_path[0] = '\0';
+        return;
+    }
+
+    strlcpy(state->history_path, open_path, sizeof(state->history_path));
+    SOLAR_OS_LOGI(TAG, "history dump: %s", state->history_path);
 }
 
 static esp_err_t chatd_alloc_buffers(chatd_job_state_t *state)
 {
     state->tx_line = solar_os_psram_malloc(CHATD_LINE_MAX);
     state->text_arg = solar_os_psram_malloc(SOLAR_OS_CHAT_TEXT_MAX);
-    if (state->tx_line == NULL || state->text_arg == NULL) {
+    state->history = solar_os_psram_calloc(CHATD_HISTORY_COUNT, sizeof(chatd_history_entry_t));
+    if (state->tx_line == NULL || state->text_arg == NULL || state->history == NULL) {
         chatd_free_buffers(state);
         return ESP_ERR_NO_MEM;
     }
@@ -1222,7 +1563,8 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
 
     uint16_t port = CHATD_DEFAULT_PORT;
     const char *token = NULL;
-    esp_err_t err = chatd_parse_args(argc, argv, &port, &token);
+    const char *history_path = NULL;
+    esp_err_t err = chatd_parse_args(argc, argv, &port, &token, &history_path);
     if (err != ESP_OK) {
         return err;
     }
@@ -1233,6 +1575,9 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     chatd_job.port = port;
     chatd_job.token_set = token != NULL;
     chatd_job.token[0] = '\0';
+    chatd_job.history_path[0] = '\0';
+    chatd_job.history_head = 0;
+    chatd_job.history_count = 0;
     if (token != NULL) {
         strlcpy(chatd_job.token, token, sizeof(chatd_job.token));
     }
@@ -1255,6 +1600,7 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
         chatd_job.last_error = err;
         return err;
     }
+    chatd_open_history_dump(&chatd_job, history_path);
 
     err = chatd_open_listener(&chatd_job);
     if (err != ESP_OK) {
