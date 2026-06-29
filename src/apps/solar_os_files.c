@@ -674,59 +674,59 @@ static bool files_path_has_suffix(const char *path, const char *suffix)
     return true;
 }
 
+static bool files_app_available(const char *app_name)
+{
+    const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(app_name);
+    return entry != NULL && entry->app != NULL;
+}
+
 static const char *files_default_viewer(const char *path)
 {
-#if SOLAR_OS_PACKAGE_APP_VIEW
-    if (files_path_has_suffix(path, ".png") ||
-        files_path_has_suffix(path, ".jpg") ||
-        files_path_has_suffix(path, ".jpeg") ||
-        files_path_has_suffix(path, ".gif") ||
-        files_path_has_suffix(path, ".webp") ||
-        files_path_has_suffix(path, ".bmp") ||
-        files_path_has_suffix(path, ".pnm") ||
-        files_path_has_suffix(path, ".pbm") ||
-        files_path_has_suffix(path, ".pgm") ||
-        files_path_has_suffix(path, ".ppm")) {
+    if (files_app_available("view") &&
+        (files_path_has_suffix(path, ".png") ||
+         files_path_has_suffix(path, ".jpg") ||
+         files_path_has_suffix(path, ".jpeg") ||
+         files_path_has_suffix(path, ".gif") ||
+         files_path_has_suffix(path, ".webp") ||
+         files_path_has_suffix(path, ".bmp") ||
+         files_path_has_suffix(path, ".pnm") ||
+         files_path_has_suffix(path, ".pbm") ||
+         files_path_has_suffix(path, ".pgm") ||
+         files_path_has_suffix(path, ".ppm"))) {
         return "view";
     }
-#endif
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
-    if (files_path_has_suffix(path, ".wav") ||
-        files_path_has_suffix(path, ".mp3")) {
+    if (files_app_available("aplay") &&
+        (files_path_has_suffix(path, ".wav") ||
+         files_path_has_suffix(path, ".mp3"))) {
         return "aplay";
     }
-#endif
 
-#if SOLAR_OS_PACKAGE_APP_SHEET
-    if (files_path_has_suffix(path, ".csv")) {
+    if (files_app_available("sheet") &&
+        files_path_has_suffix(path, ".csv")) {
         return "sheet";
     }
-#endif
 
-#if SOLAR_OS_PACKAGE_APP_PYTHON
-    if (files_path_has_suffix(path, ".py") ||
-        files_path_has_suffix(path, ".pyw") ||
-        files_path_has_suffix(path, ".mpy")) {
+    if (files_app_available("python") &&
+        (files_path_has_suffix(path, ".py") ||
+         files_path_has_suffix(path, ".pyw") ||
+         files_path_has_suffix(path, ".mpy"))) {
         return "python";
     }
-#endif
 
-#if SOLAR_OS_PACKAGE_APP_LUA
-    if (files_path_has_suffix(path, ".lua")) {
+    if (files_app_available("lua") &&
+        files_path_has_suffix(path, ".lua")) {
         return "lua";
     }
-#endif
 
-#if SOLAR_OS_PACKAGE_APP_READER
-    if (files_path_has_suffix(path, ".md") ||
-        files_path_has_suffix(path, ".markdown") ||
-        files_path_has_suffix(path, ".epub") ||
-        files_path_has_suffix(path, ".txt") ||
-        files_path_has_suffix(path, ".text")) {
+    if (files_app_available("reader") &&
+        (files_path_has_suffix(path, ".md") ||
+         files_path_has_suffix(path, ".markdown") ||
+         files_path_has_suffix(path, ".epub") ||
+         files_path_has_suffix(path, ".txt") ||
+         files_path_has_suffix(path, ".text"))) {
         return "reader";
     }
-#endif
 
     return "less";
 }
