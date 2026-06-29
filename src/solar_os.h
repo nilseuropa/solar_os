@@ -8,6 +8,7 @@
 
 #define SOLAR_OS_APP_ARG_MAX 8
 #define SOLAR_OS_APP_ARG_LEN 160
+#define SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX 160
 
 typedef struct solar_os_terminal solar_os_terminal_t;
 typedef struct solar_os_gfx solar_os_gfx_t;
@@ -41,6 +42,8 @@ typedef struct {
     void *session_list_user;
     bool graphics_active;
     bool preserve_terminal;
+    bool status_message_pending;
+    char status_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
     int argc;
     char argv[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
 } solar_os_context_t;
@@ -94,6 +97,10 @@ void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active);
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx);
 void solar_os_context_request_terminal_preserve(solar_os_context_t *ctx);
 bool solar_os_context_take_terminal_preserve(solar_os_context_t *ctx);
+void solar_os_context_set_status_message(solar_os_context_t *ctx, const char *message);
+bool solar_os_context_take_status_message(solar_os_context_t *ctx,
+                                          char *buffer,
+                                          size_t buffer_len);
 esp_err_t solar_os_context_request_launch(solar_os_context_t *ctx,
                                           const solar_os_app_t *app,
                                           int argc,

@@ -698,18 +698,6 @@ static void dispatch_char_to_foreground(char ch)
         return;
     }
 
-    if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT &&
-        foreground_session != NULL &&
-        foreground_session->app != solar_os_shell_app() &&
-        app_is_resumable(foreground_session->app)) {
-        SOLAR_OS_LOGI(TAG,
-                      "detach app session %u: %s",
-                      (unsigned)foreground_session->id,
-                      app_display_name(foreground_session->app));
-        (void)switch_to_session(ensure_shell_session(), true);
-        return;
-    }
-
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_CHAR,
         .data.ch = ch,
