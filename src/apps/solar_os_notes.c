@@ -11,8 +11,8 @@
 
 #include "esp_heap_caps.h"
 #include "solar_os_keys.h"
-#include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
+#include "solar_os_tui.h"
 
 #define NOTES_DEFAULT_PATH "/.notes/default.md"
 #define NOTES_DEFAULT_DIR "/.notes"
@@ -69,6 +69,7 @@ typedef struct {
 typedef struct {
     bool running;
     bool error_only;
+    solar_os_tui_t tui;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
     char message[NOTES_MESSAGE_MAX];
@@ -95,18 +96,6 @@ typedef struct {
 } notes_state_t;
 
 static notes_state_t notes;
-static solar_os_shell_io_t notes_fallback_io;
-
-static solar_os_shell_io_t *notes_io(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&notes_fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &notes_fallback_io);
-        io = &notes_fallback_io;
-    }
-    return io;
-}
 
 static void notes_set_message(const char *message)
 {
@@ -496,9 +485,9 @@ static size_t notes_preamble_visible_rows(size_t body_rows)
     return visible;
 }
 
-static size_t notes_list_rows(solar_os_shell_io_t *io)
+static size_t notes_list_rows(void)
 {
-    const size_t rows = solar_os_shell_io_rows(io);
+    const size_t rows = solar_os_tui_rows(&notes.tui);
     if (rows <= 3) {
         return 0;
     }
@@ -507,9 +496,9 @@ static size_t notes_list_rows(solar_os_shell_io_t *io)
     return body > preamble_rows ? body - preamble_rows : 0;
 }
 
-static void notes_ensure_visible(solar_os_shell_io_t *io)
+static void notes_ensure_visible(void)
 {
-    const size_t list_rows = notes_list_rows(io);
+    const size_t list_rows = notes_list_rows();
     if (list_rows == 0 || notes.view_count == 0) {
         notes.top = 0;
         return;
@@ -526,18 +515,79 @@ static void notes_ensure_visible(solar_os_shell_io_t *io)
     }
 }
 
-static void notes_write_clipped(solar_os_shell_io_t *io, const char *text, size_t width)
+static size_t notes_utf8_char_len(unsigned char ch)
 {
+    if (ch < 0x80U) {
+        return 1;
+    }
+    if ((ch & 0xe0U) == 0xc0U) {
+        return 2;
+    }
+    if ((ch & 0xf0U) == 0xe0U) {
+        return 3;
+    }
+    if ((ch & 0xf8U) == 0xf0U) {
+        return 4;
+    }
+    return 1;
+}
+
+static void notes_clip_text(const char *text, size_t cells, char *out, size_t out_len)
+{
+    if (out == NULL || out_len == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (text == NULL || cells == 0) {
+        return;
+    }
+
+    size_t in = 0;
+    size_t out_pos = 0;
+    size_t used_cells = 0;
+    while (text[in] != '\0' && used_cells < cells && out_pos + 1U < out_len) {
+        size_t char_len = notes_utf8_char_len((unsigned char)text[in]);
+        if (char_len == 0 || out_pos + char_len >= out_len) {
+            break;
+        }
+        for (size_t i = 1; i < char_len; i++) {
+            if (((unsigned char)text[in + i] & 0xc0U) != 0x80U) {
+                char_len = 1;
+                break;
+            }
+        }
+        memcpy(&out[out_pos], &text[in], char_len);
+        out_pos += char_len;
+        in += char_len;
+        used_cells++;
+    }
+    out[out_pos] = '\0';
+}
+
+static void notes_write_cell(size_t row,
+                             size_t col,
+                             size_t width,
+                             const char *text,
+                             uint8_t attr)
+{
+    const size_t rows = solar_os_tui_rows(&notes.tui);
+    const size_t cols = solar_os_tui_cols(&notes.tui);
+    char clipped[NOTES_LINE_MAX];
+
+    if (row >= rows || col >= cols || width == 0) {
+        return;
+    }
+    if (col + width > cols) {
+        width = cols - col;
+    }
     if (width == 0) {
         return;
     }
-    const size_t len = text != NULL ? strlen(text) : 0;
-    const size_t write_len = len < width ? len : width;
-    if (write_len > 0) {
-        solar_os_shell_io_write_len(io, text, write_len);
-    }
-    for (size_t i = write_len; i < width; i++) {
-        solar_os_shell_io_put_char(io, ' ');
+
+    solar_os_tui_fill(&notes.tui, row, col, 1, width, ' ', attr);
+    notes_clip_text(text, width, clipped, sizeof(clipped));
+    if (clipped[0] != '\0') {
+        solar_os_tui_addstr(&notes.tui, row, col, clipped, attr);
     }
 }
 
@@ -549,36 +599,38 @@ static void notes_input_ensure_visible(size_t width)
     }
     if (notes.input_cursor < notes.input_view_offset) {
         notes.input_view_offset = notes.input_cursor;
-    } else if (notes.input_cursor > notes.input_view_offset + width) {
-        notes.input_view_offset = notes.input_cursor - width;
+    } else if (notes.input_cursor >= notes.input_view_offset + width) {
+        notes.input_view_offset = notes.input_cursor - width + 1U;
     }
 }
 
-static void notes_render_row(solar_os_shell_io_t *io, const notes_view_row_t *view, size_t cols)
+static void notes_render_row(const notes_view_row_t *view, size_t row_index, size_t cols)
 {
     if (view == NULL) {
-        notes_write_clipped(io, "", cols);
+        notes_write_cell(row_index, 0, cols, "", SOLAR_OS_TUI_ATTR_NORMAL);
         return;
     }
 
     const bool selected = !notes.error_only && view == notes_current_row();
     char line[NOTES_LINE_MAX];
+    uint8_t attr = selected ? SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_NORMAL;
 
     if (view->type == NOTES_VIEW_CATEGORY) {
         const notes_category_t *cat = &notes.categories[view->category];
         const char marker = cat->collapsed ? '+' : '-';
         snprintf(line, sizeof(line), "%c %s", marker, cat->text);
-        solar_os_shell_io_set_bold(io, true);
-        solar_os_shell_io_set_inverse(io, selected);
-        notes_write_clipped(io, line, cols);
-        solar_os_shell_io_set_inverse(io, false);
-        solar_os_shell_io_set_bold(io, false);
+        attr |= SOLAR_OS_TUI_ATTR_BOLD;
+        notes_write_cell(row_index, 0, cols, line, attr);
         return;
     }
 
     if (view->type == NOTES_VIEW_SEPARATOR) {
         const notes_category_t *cat = &notes.categories[view->category];
-        notes_write_clipped(io, notes_category_visible(cat) ? "  ---- done ----" : "---- done ----", cols);
+        notes_write_cell(row_index,
+                         0,
+                         cols,
+                         notes_category_visible(cat) ? "  ---- done ----" : "---- done ----",
+                         SOLAR_OS_TUI_ATTR_NORMAL);
         return;
     }
 
@@ -591,9 +643,7 @@ static void notes_render_row(solar_os_shell_io_t *io, const notes_view_row_t *vi
                  notes_category_visible(cat) ? "  " : "",
                  item->checked ? 'x' : ' ',
                  item->text);
-        solar_os_shell_io_set_inverse(io, selected);
-        notes_write_clipped(io, line, cols);
-        solar_os_shell_io_set_inverse(io, false);
+        notes_write_cell(row_index, 0, cols, line, attr);
     }
 }
 
@@ -615,66 +665,65 @@ static const char *notes_input_label(void)
 
 static void notes_render(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = notes_io(ctx);
-    const size_t rows = solar_os_shell_io_rows(io);
-    const size_t cols = solar_os_shell_io_cols(io);
+    (void)ctx;
+
+    const size_t rows = solar_os_tui_rows(&notes.tui);
+    const size_t cols = solar_os_tui_cols(&notes.tui);
     if (rows == 0 || cols == 0) {
         return;
     }
 
     notes_build_view(NOTES_SELECT_NONE, 0);
-    notes_ensure_visible(io);
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_set_cursor_visible(io, false);
+    notes_ensure_visible();
+    solar_os_tui_clear(&notes.tui);
+    solar_os_tui_set_cursor_visible(&notes.tui, false);
 
-    solar_os_shell_io_set_cursor(io, 0, 0);
-    solar_os_shell_io_set_inverse(io, true);
     char title[NOTES_LINE_MAX];
     snprintf(title,
              sizeof(title),
              "notes %s%s",
              notes.display_name[0] ? notes.display_name : notes.path,
              notes.error_only ? "" : "");
-    notes_write_clipped(io, title, cols);
-    solar_os_shell_io_set_inverse(io, false);
+    notes_write_cell(0, 0, cols, title, SOLAR_OS_TUI_ATTR_INVERSE);
 
     size_t row = 1;
     const size_t body_rows = rows > 2 ? rows - 2U : 0U;
     const size_t preamble_rows = notes_preamble_visible_rows(body_rows);
     for (size_t i = 0; i < preamble_rows && row + 1U < rows; i++, row++) {
-        solar_os_shell_io_set_cursor(io, row, 0);
-        notes_write_clipped(io, notes.preamble[i], cols);
+        notes_write_cell(row, 0, cols, notes.preamble[i], SOLAR_OS_TUI_ATTR_NORMAL);
     }
 
     if (notes.view_count == 0 && !notes.error_only && row + 1U < rows) {
-        solar_os_shell_io_set_cursor(io, row, 0);
-        notes_write_clipped(io, "No checklist items", cols);
+        notes_write_cell(row, 0, cols, "No checklist items", SOLAR_OS_TUI_ATTR_NORMAL);
     }
 
     const size_t list_rows = rows > row + 1U ? rows - row - 1U : 0U;
     for (size_t visible = 0; visible < list_rows && notes.top + visible < notes.view_count; visible++) {
-        solar_os_shell_io_set_cursor(io, row + visible, 0);
-        notes_render_row(io, &notes.view[notes.top + visible], cols);
+        notes_render_row(&notes.view[notes.top + visible], row + visible, cols);
     }
 
-    solar_os_shell_io_set_cursor(io, rows - 1U, 0);
     if (notes.input_mode != NOTES_INPUT_NONE) {
         const char *label = notes_input_label();
-        solar_os_shell_io_write(io, label);
         const size_t label_len = strlen(label);
         const size_t input_width = cols > label_len ? cols - label_len : 0U;
         notes_input_ensure_visible(input_width);
-        notes_write_clipped(io, &notes.input[notes.input_view_offset], input_width);
-        solar_os_shell_io_set_cursor(io,
-                                     rows - 1U,
-                                     label_len + (notes.input_cursor >= notes.input_view_offset ?
-                                         notes.input_cursor - notes.input_view_offset :
-                                         0U));
-        solar_os_shell_io_set_cursor_visible(io, true);
+        notes_write_cell(rows - 1U, 0, cols, "", SOLAR_OS_TUI_ATTR_NORMAL);
+        notes_write_cell(rows - 1U, 0, label_len, label, SOLAR_OS_TUI_ATTR_NORMAL);
+        notes_write_cell(rows - 1U,
+                         label_len,
+                         input_width,
+                         &notes.input[notes.input_view_offset],
+                         SOLAR_OS_TUI_ATTR_NORMAL);
+        const size_t cursor_col =
+            label_len + (notes.input_cursor >= notes.input_view_offset ?
+                notes.input_cursor - notes.input_view_offset :
+                0U);
+        solar_os_tui_move(&notes.tui, rows - 1U, cursor_col < cols ? cursor_col : cols - 1U);
+        solar_os_tui_set_cursor_visible(&notes.tui, true);
     } else {
-        notes_write_clipped(io, notes.message, cols);
+        notes_write_cell(rows - 1U, 0, cols, notes.message, SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    solar_os_shell_io_flush(io);
+    solar_os_tui_refresh(&notes.tui);
 }
 
 static bool notes_ensure_default_dir(void)
@@ -1156,9 +1205,10 @@ static void notes_move_selected_item(bool down)
     }
 }
 
-static void notes_page(solar_os_shell_io_t *io, bool down)
+static void notes_page(bool down)
 {
-    const size_t step = notes_list_rows(io) > 0 ? notes_list_rows(io) : 1U;
+    const size_t list_rows = notes_list_rows();
+    const size_t step = list_rows > 0 ? list_rows : 1U;
     for (size_t i = 0; i < step; i++) {
         if (down) {
             notes_move_down();
@@ -1292,6 +1342,14 @@ static esp_err_t notes_start(solar_os_context_t *ctx)
         return ESP_ERR_NO_MEM;
     }
 
+    const esp_err_t tui_err = solar_os_tui_begin(&notes.tui, ctx);
+    if (tui_err != ESP_OK) {
+        notes_free_buffers();
+        memset(&notes, 0, sizeof(notes));
+        return tui_err;
+    }
+    (void)solar_os_tui_enable_diff(&notes.tui, true);
+
     const int argc = solar_os_context_argc(ctx);
     if (argc > 2) {
         notes.error_only = true;
@@ -1332,8 +1390,11 @@ static esp_err_t notes_start(solar_os_context_t *ctx)
 
 static void notes_stop(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = notes_io(ctx);
-    solar_os_shell_io_set_cursor_visible(io, true);
+    (void)ctx;
+
+    solar_os_tui_set_cursor_visible(&notes.tui, true);
+    solar_os_tui_refresh(&notes.tui);
+    solar_os_tui_end(&notes.tui);
     notes_free_buffers();
     memset(&notes, 0, sizeof(notes));
 }
@@ -1394,10 +1455,10 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         notes_expand_selected();
         break;
     case SOLAR_OS_KEY_PAGE_UP:
-        notes_page(notes_io(ctx), false);
+        notes_page(false);
         break;
     case SOLAR_OS_KEY_PAGE_DOWN:
-        notes_page(notes_io(ctx), true);
+        notes_page(true);
         break;
     case SOLAR_OS_KEY_HOME:
         notes_home();
