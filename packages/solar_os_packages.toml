@@ -34,6 +34,7 @@ members = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_telnet",
   "app_web",
   "app_chat",
   "job_httpd",
@@ -45,6 +46,7 @@ triggers = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_telnet",
   "app_web",
   "app_chat",
   "job_httpd",
@@ -174,6 +176,10 @@ sources = ["apps/solar_os_scp.c"]
 [packages.app_curl]
 label = "app.curl"
 sources = ["apps/solar_os_curl.c"]
+
+[packages.app_telnet]
+label = "app.telnet"
+sources = ["apps/solar_os_telnet.c"]
 
 [packages.app_web]
 label = "app.web"

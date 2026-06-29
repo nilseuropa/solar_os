@@ -969,6 +969,7 @@ static void shell_prompt(solar_os_context_t *ctx)
     char identity[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
     char display_path[SHELL_PATH_MAX];
     char prompt[SHELL_PATH_MAX + sizeof(identity) + 4];
+    char status_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
 
     shell_session(ctx)->input_len = 0;
     shell_session(ctx)->input_cursor = 0;
@@ -979,6 +980,16 @@ static void shell_prompt(solar_os_context_t *ctx)
     shell_session(ctx)->previous_key_was_tab = false;
     shell_session(ctx)->prompt_on_resume = false;
     shell_session(ctx)->clear_on_resume = false;
+
+    if (solar_os_context_take_status_message(ctx,
+                                             status_message,
+                                             sizeof(status_message)) &&
+        status_message[0] != '\0') {
+        if (solar_os_shell_io_cursor_col(io) != 0) {
+            solar_os_shell_io_newline(io);
+        }
+        solar_os_shell_io_writeln(io, status_message);
+    }
 
     if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
         shell_reset_cwd(shell_session(ctx));

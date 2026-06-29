@@ -30,6 +30,8 @@ void solar_os_context_init(solar_os_context_t *ctx,
     ctx->session_list_user = NULL;
     ctx->graphics_active = false;
     ctx->preserve_terminal = false;
+    ctx->status_message_pending = false;
+    ctx->status_message[0] = '\0';
     ctx->argc = 0;
     memset(ctx->argv, 0, sizeof(ctx->argv));
 }
@@ -131,6 +133,38 @@ bool solar_os_context_take_terminal_preserve(solar_os_context_t *ctx)
     }
 
     ctx->preserve_terminal = false;
+    return true;
+}
+
+void solar_os_context_set_status_message(solar_os_context_t *ctx, const char *message)
+{
+    if (ctx == NULL) {
+        return;
+    }
+
+    if (message == NULL || message[0] == '\0') {
+        ctx->status_message_pending = false;
+        ctx->status_message[0] = '\0';
+        return;
+    }
+
+    strlcpy(ctx->status_message, message, sizeof(ctx->status_message));
+    ctx->status_message_pending = true;
+}
+
+bool solar_os_context_take_status_message(solar_os_context_t *ctx,
+                                          char *buffer,
+                                          size_t buffer_len)
+{
+    if (ctx == NULL || !ctx->status_message_pending) {
+        return false;
+    }
+
+    if (buffer != NULL && buffer_len > 0) {
+        strlcpy(buffer, ctx->status_message, buffer_len);
+    }
+    ctx->status_message_pending = false;
+    ctx->status_message[0] = '\0';
     return true;
 }
 
