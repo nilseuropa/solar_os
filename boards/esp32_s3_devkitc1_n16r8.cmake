@@ -1,6 +1,10 @@
 set(SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8")
 set(SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8")
+
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
+
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
 set(SOLAR_OS_BOARD_HAS_CDC ON)

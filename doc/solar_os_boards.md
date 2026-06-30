@@ -27,6 +27,16 @@ If PlatformIO does not already provide the board definition, also add:
 boards/my_board.json
 ```
 
+Concrete hardware drivers are selected through reusable CMake fragments:
+
+```text
+boards/drivers/<driver>.cmake
+```
+
+Add a new fragment when a board needs a new concrete display, storage, RTC,
+sensor, battery, audio, or port driver. Do not extend `src/CMakeLists.txt` for
+each new driver.
+
 ## Board Profile
 
 `boards/<target>.cmake` is consumed by `src/CMakeLists.txt`. It gives the board a
@@ -38,6 +48,9 @@ Minimal headless example:
 set(SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8")
 set(SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8")
+
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
@@ -53,12 +66,19 @@ Full board example:
 set(SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2")
 set(SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2")
-set(SOLAR_OS_BOARD_DISPLAY_DRIVER "st7305")
-set(SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc")
-set(SOLAR_OS_BOARD_RTC_DRIVER "pcf85063")
-set(SOLAR_OS_BOARD_BATTERY_DRIVER "adc")
-set(SOLAR_OS_BOARD_AUDIO_DRIVER "es8311_es7210")
-set(SOLAR_OS_BOARD_SENSOR_DRIVER "shtc3")
+
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdmmc.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_pcf85063.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/sensors_shtc3.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/audio_es8311_es7210.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/gpio_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/adc_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/battery_adc.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/pwm_esp_idf.cmake")
 
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
@@ -85,20 +105,32 @@ Only enable a capability when the hardware has been checked and, for pin-backed
 peripherals, the board header provides the required pin macros. Unsupported
 services still compile, but their runtime calls return `ESP_ERR_NOT_SUPPORTED`.
 
-Capabilities describe what services should exist. Driver selections describe how
+Capabilities describe what services should exist. Driver fragments describe how
 this board implements those capabilities. For example, a board with
-`SOLAR_OS_BOARD_HAS_DISPLAY ON` must set `SOLAR_OS_BOARD_DISPLAY_DRIVER`.
+`SOLAR_OS_BOARD_HAS_DISPLAY ON` must include a fragment such as
+`drivers/display_st7305.cmake`.
+
+Each fragment appends board-specific sources to `SOLAR_OS_BOARD_SRCS`, appends
+ESP-IDF component dependencies to `SOLAR_OS_BOARD_REQUIRES`, and sets the
+matching selector variable. That keeps concrete source/dependency mapping close
+to the driver definition.
 
 Current built-in driver selector values:
 
-| Selector | Values |
-| --- | --- |
-| `SOLAR_OS_BOARD_DISPLAY_DRIVER` | `st7305` |
-| `SOLAR_OS_BOARD_STORAGE_DRIVER` | `sdmmc` |
-| `SOLAR_OS_BOARD_RTC_DRIVER` | `pcf85063` |
-| `SOLAR_OS_BOARD_BATTERY_DRIVER` | `adc` |
-| `SOLAR_OS_BOARD_AUDIO_DRIVER` | `es8311_es7210` |
-| `SOLAR_OS_BOARD_SENSOR_DRIVER` | `shtc3` |
+| Capability | Fragment | Selector |
+| --- | --- | --- |
+| `CDC` | `drivers/cdc_usb_serial_jtag.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=usb_serial_jtag` |
+| `UART` | `drivers/uart_esp_idf.cmake` | `SOLAR_OS_BOARD_UART_DRIVER=esp_idf` |
+| `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
+| `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
+| `I2C` | `drivers/i2c_esp_idf.cmake` | `SOLAR_OS_BOARD_I2C_DRIVER=esp_idf` |
+| `RTC` | `drivers/rtc_pcf85063.cmake` | `SOLAR_OS_BOARD_RTC_DRIVER=pcf85063` |
+| `TEMPERATURE`, `HUMIDITY` | `drivers/sensors_shtc3.cmake` | `SOLAR_OS_BOARD_SENSOR_DRIVER=shtc3` |
+| `AUDIO` | `drivers/audio_es8311_es7210.cmake` | `SOLAR_OS_BOARD_AUDIO_DRIVER=es8311_es7210` |
+| `GPIO` | `drivers/gpio_esp_idf.cmake` | `SOLAR_OS_BOARD_GPIO_DRIVER=esp_idf` |
+| `ADC` | `drivers/adc_esp_idf.cmake` | `SOLAR_OS_BOARD_ADC_DRIVER=esp_idf` |
+| `BATTERY` | `drivers/battery_adc.cmake` | `SOLAR_OS_BOARD_BATTERY_DRIVER=adc` |
+| `PWM` | `drivers/pwm_esp_idf.cmake` | `SOLAR_OS_BOARD_PWM_DRIVER=esp_idf` |
 
 ## Capability Flags
 
@@ -125,11 +157,10 @@ The current capability flags are:
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 
-`src/CMakeLists.txt` uses these flags and driver selectors to include board
-bindings and low-level driver sources only when they are needed. For example,
-`SOLAR_OS_BOARD_HAS_SD` plus `SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc"` adds
-`board/solar_os_board_storage_sdmmc.c` and `drivers/sd_card.c`, while
-`SOLAR_OS_BOARD_HAS_UART` adds `drivers/uart_port.c`.
+`src/CMakeLists.txt` validates that every enabled driver-backed capability has a
+matching selector, then consumes `SOLAR_OS_BOARD_SRCS` and
+`SOLAR_OS_BOARD_REQUIRES`. It does not know which concrete source files belong
+to ST7305, SDMMC, PCF85063, or any future driver.
 
 ## Board Header
 
@@ -241,6 +272,8 @@ Recommended minimal capability set for a generic ESP32-S3 board:
 ```cmake
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 set(SOLAR_OS_BOARD_HAS_CDC ON)
 set(SOLAR_OS_BOARD_HAS_UART ON)
 set(SOLAR_OS_BOARD_HAS_WIFI ON)
@@ -252,12 +285,11 @@ job, bridge jobs, or host-side tooling.
 
 ## Display Boards
 
-For a display board, enable both `DISPLAY` and `GFX` and provide the controller
-pin macros expected by the selected driver. The board profile selects the
-concrete driver:
+For a display board, enable both `DISPLAY` and `GFX`, include the display
+fragment, and provide the controller pin macros expected by the selected driver:
 
 ```cmake
-set(SOLAR_OS_BOARD_DISPLAY_DRIVER "st7305")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
 set(SOLAR_OS_BOARD_HAS_DISPLAY ON)
 set(SOLAR_OS_BOARD_HAS_GFX ON)
 ```
@@ -295,15 +327,16 @@ driver headers.
 
 ## Storage, I2C, Sensors, RTC, And Audio
 
-Enable these capabilities only when the board profile selects the matching
-driver and the board header defines the required bus and pin metadata:
+Enable these capabilities only when the board profile includes the matching
+driver fragment and the board header defines the required bus and pin metadata:
 
 ```cmake
-set(SOLAR_OS_BOARD_STORAGE_DRIVER "sdmmc")
-set(SOLAR_OS_BOARD_RTC_DRIVER "pcf85063")
-set(SOLAR_OS_BOARD_BATTERY_DRIVER "adc")
-set(SOLAR_OS_BOARD_AUDIO_DRIVER "es8311_es7210")
-set(SOLAR_OS_BOARD_SENSOR_DRIVER "shtc3")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdmmc.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_pcf85063.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/battery_adc.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/audio_es8311_es7210.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/sensors_shtc3.cmake")
 ```
 
 ```c
