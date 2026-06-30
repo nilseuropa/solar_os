@@ -469,7 +469,8 @@ static int L12_dequantize_granule(float *grbuf, bs_t *bs, L12_scale_info *sci, i
 static void L12_apply_scf_384(L12_scale_info *sci, const float *scf, float *dst)
 {
     int i, k;
-    memcpy(dst + 576 + sci->stereo_bands*18, dst + sci->stereo_bands*18, (sci->total_bands - sci->stereo_bands)*18*sizeof(float));
+    if (sci->total_bands > sci->stereo_bands)
+        memcpy(dst + 576 + sci->stereo_bands*18, dst + sci->stereo_bands*18, (sci->total_bands - sci->stereo_bands)*18*sizeof(float));
     for (i = 0; i < sci->total_bands; i++, dst += 18, scf += 6)
     {
         for (k = 0; k < 12; k++)
