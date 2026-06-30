@@ -2,8 +2,8 @@
 
 #include "driver/gpio.h"
 #include "driver/uart.h"
+#include "solar_os_adc_dpad.h"
 #include "solar_os_buttons.h"
-#include "solar_os_joystick.h"
 #include "solar_os_keys.h"
 
 #define SOLAR_OS_BOARD_ID "odroid_go"
@@ -23,16 +23,20 @@
 #define SOLAR_OS_BOARD_PIN_TFT_SCLK GPIO_NUM_18
 #define SOLAR_OS_BOARD_PIN_SD_CARD_CS GPIO_NUM_22
 
+#define SOLAR_OS_BOARD_PIN_KEY GPIO_NUM_39
+#define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
+#define SOLAR_OS_BOARD_KEY_PULL_UP 0
+#define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
+
 #define SOLAR_OS_BOARD_BUTTONS { \
     {.pin = GPIO_NUM_32, .name = "A", .key = '\n', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, \
     {.pin = GPIO_NUM_33, .name = "B", .key = 0x7f, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, \
     {.pin = GPIO_NUM_13, .name = "MENU", .key = SOLAR_OS_KEY_ESCAPE, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, \
     {.pin = GPIO_NUM_27, .name = "SELECT", .key = '\t', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, \
-    {.pin = GPIO_NUM_39, .name = "START", .key = '\n', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
     {.pin = GPIO_NUM_0, .name = "VOLUME", .key = SOLAR_OS_KEY_APP_EXIT, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, \
 }
 
-#define SOLAR_OS_BOARD_JOYSTICK_AXES { \
-    {.pin = GPIO_NUM_34, .name = "x", .low_key = SOLAR_OS_KEY_LEFT, .high_key = SOLAR_OS_KEY_RIGHT, .low_press = 1100, .low_release = 1600, .high_press = 3000, .high_release = 2500}, \
-    {.pin = GPIO_NUM_35, .name = "y", .low_key = SOLAR_OS_KEY_UP, .high_key = SOLAR_OS_KEY_DOWN, .low_press = 1100, .low_release = 1600, .high_press = 3000, .high_release = 2500}, \
+#define SOLAR_OS_BOARD_ADC_DPAD_AXES { \
+    {.pin = GPIO_NUM_34, .name = "x", .mid_key = SOLAR_OS_KEY_RIGHT, .high_key = SOLAR_OS_KEY_LEFT, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}, \
+    {.pin = GPIO_NUM_35, .name = "y", .mid_key = SOLAR_OS_KEY_DOWN, .high_key = SOLAR_OS_KEY_UP, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}, \
 }

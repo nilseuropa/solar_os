@@ -159,6 +159,12 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
     {"adc", "read expansion analog inputs", solar_os_shell_cmd_adc},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
+    {"dpad", "ADC D-pad tools", solar_os_shell_cmd_dpad},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
+    {"joystick", "analog joystick tools", solar_os_shell_cmd_joystick},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     {"ble", "BLE keyboard control", solar_os_shell_cmd_ble},
 #endif
@@ -400,6 +406,25 @@ static const char * const bit_values[] = {"0", "1"};
 static const char * const adc_subcommands[] = {
     "status",
     "read",
+};
+
+static const char * const dpad_subcommands[] = {
+    "status",
+    "calibrate",
+};
+
+static const char * const dpad_calibrate_subcommands[] = {
+    "idle",
+    "reset",
+};
+
+static const char * const joystick_subcommands[] = {
+    "status",
+    "calibrate",
+};
+
+static const char * const joystick_calibrate_subcommands[] = {
+    "reset",
 };
 
 static const char * const pwm_subcommands[] = {
@@ -650,6 +675,10 @@ static const char * const path_gpio_write[] = {"gpio", "write"};
 static const char * const path_gpio_write_pin[] = {"gpio", "write", SHELL_COMPLETION_ANY};
 static const char * const path_adc[] = {"adc"};
 static const char * const path_adc_read[] = {"adc", "read"};
+static const char * const path_dpad[] = {"dpad"};
+static const char * const path_dpad_calibrate[] = {"dpad", "calibrate"};
+static const char * const path_joystick[] = {"joystick"};
+static const char * const path_joystick_calibrate[] = {"joystick", "calibrate"};
 static const char * const path_pwm[] = {"pwm"};
 static const char * const path_pwm_set[] = {"pwm", "set"};
 static const char * const path_pwm_off[] = {"pwm", "off"};
@@ -842,6 +871,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
     SHELL_COMPLETION_STATIC(path_adc, adc_subcommands),
     SHELL_COMPLETION_STATIC(path_adc_read, expansion_gpio_values),
+    SHELL_COMPLETION_STATIC(path_dpad, dpad_subcommands),
+    SHELL_COMPLETION_STATIC(path_dpad_calibrate, dpad_calibrate_subcommands),
+    SHELL_COMPLETION_STATIC(path_joystick, joystick_subcommands),
+    SHELL_COMPLETION_STATIC(path_joystick_calibrate, joystick_calibrate_subcommands),
     SHELL_COMPLETION_STATIC(path_pwm, pwm_subcommands),
     SHELL_COMPLETION_STATIC(path_pwm_set, expansion_gpio_values),
     SHELL_COMPLETION_STATIC(path_pwm_off, expansion_gpio_values),

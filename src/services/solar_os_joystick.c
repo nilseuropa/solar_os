@@ -29,6 +29,13 @@ typedef struct {
     bool configured;
     int direction;
     uint32_t next_repeat_ms;
+    uint16_t low_press;
+    uint16_t low_release;
+    uint16_t high_press;
+    uint16_t high_release;
+    int last_raw;
+    bool last_raw_valid;
+    esp_err_t last_read_error;
 } joystick_axis_state_t;
 
 static const char *TAG = "solar_os_joystick";
@@ -82,23 +89,31 @@ static esp_err_t joystick_read_raw(size_t axis_index, int *raw)
         return ESP_ERR_INVALID_STATE;
     }
 
-    return adc_oneshot_read(joystick_units[unit_index], state->channel, raw);
+    const esp_err_t err = adc_oneshot_read(joystick_units[unit_index], state->channel, raw);
+    state->last_read_error = err;
+    if (err == ESP_OK) {
+        state->last_raw = *raw;
+        state->last_raw_valid = true;
+    } else {
+        state->last_raw_valid = false;
+    }
+    return err;
 }
 
-static int joystick_direction_from_raw(const solar_os_joystick_axis_def_t *axis,
+static int joystick_direction_from_raw(const joystick_axis_state_t *state,
                                        int raw,
                                        int previous_direction)
 {
-    if (previous_direction < 0 && raw <= axis->low_release) {
+    if (previous_direction < 0 && raw <= state->low_release) {
         return -1;
     }
-    if (previous_direction > 0 && raw >= axis->high_release) {
+    if (previous_direction > 0 && raw >= state->high_release) {
         return 1;
     }
-    if (raw <= axis->low_press) {
+    if (raw <= state->low_press) {
         return -1;
     }
-    if (raw >= axis->high_press) {
+    if (raw >= state->high_press) {
         return 1;
     }
     return 0;
@@ -159,11 +174,18 @@ esp_err_t solar_os_joystick_init(void)
             .configured = true,
             .direction = 0,
             .next_repeat_ms = 0,
+            .low_press = axis->low_press,
+            .low_release = axis->low_release,
+            .high_press = axis->high_press,
+            .high_release = axis->high_release,
+            .last_raw = 0,
+            .last_raw_valid = false,
+            .last_read_error = ESP_ERR_INVALID_STATE,
         };
 
         int raw = 0;
         if (joystick_read_raw(i, &raw) == ESP_OK) {
-            joystick_states[i].direction = joystick_direction_from_raw(axis, raw, 0);
+            joystick_states[i].direction = joystick_direction_from_raw(&joystick_states[i], raw, 0);
             if (joystick_states[i].direction != 0) {
                 joystick_states[i].next_repeat_ms =
                     joystick_millis() + SOLAR_OS_JOYSTICK_REPEAT_DELAY_MS;
@@ -173,6 +195,108 @@ esp_err_t solar_os_joystick_init(void)
 
     joystick_initialized = true;
     SOLAR_OS_LOGI(TAG, "%u joystick axes ready", (unsigned)(sizeof(joystick_axes) / sizeof(joystick_axes[0])));
+    return ESP_OK;
+#endif
+}
+
+size_t solar_os_joystick_axis_count(void)
+{
+#if !SOLAR_OS_BOARD_HAS_JOYSTICK
+    return 0;
+#else
+    return sizeof(joystick_axes) / sizeof(joystick_axes[0]);
+#endif
+}
+
+bool solar_os_joystick_get_axis_status(size_t index, solar_os_joystick_axis_status_t *status)
+{
+#if !SOLAR_OS_BOARD_HAS_JOYSTICK
+    (void)index;
+    (void)status;
+    return false;
+#else
+    if (status == NULL || index >= sizeof(joystick_axes) / sizeof(joystick_axes[0])) {
+        return false;
+    }
+
+    const solar_os_joystick_axis_def_t *axis = &joystick_axes[index];
+    joystick_axis_state_t *state = &joystick_states[index];
+    int raw = 0;
+    const esp_err_t err = joystick_read_raw(index, &raw);
+    const int direction = err == ESP_OK ?
+        joystick_direction_from_raw(state, raw, state->direction) :
+        state->direction;
+
+    *status = (solar_os_joystick_axis_status_t) {
+        .initialized = joystick_initialized && state->configured,
+        .pin = axis->pin,
+        .name = axis->name,
+        .raw = err == ESP_OK ? raw : state->last_raw,
+        .raw_valid = err == ESP_OK || state->last_raw_valid,
+        .read_error = err,
+        .direction = direction,
+        .low_key = axis->low_key,
+        .high_key = axis->high_key,
+        .low_press = state->low_press,
+        .low_release = state->low_release,
+        .high_press = state->high_press,
+        .high_release = state->high_release,
+    };
+    return true;
+#endif
+}
+
+esp_err_t solar_os_joystick_calibrate_center(void)
+{
+#if !SOLAR_OS_BOARD_HAS_JOYSTICK
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!joystick_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (size_t i = 0; i < sizeof(joystick_axes) / sizeof(joystick_axes[0]); i++) {
+        joystick_axis_state_t *state = &joystick_states[i];
+        int raw = 0;
+        const esp_err_t err = joystick_read_raw(i, &raw);
+        if (err != ESP_OK) {
+            return err;
+        }
+
+        const int low_press = raw - 700;
+        const int low_release = raw - 350;
+        const int high_release = raw + 350;
+        const int high_press = raw + 700;
+        state->low_press = (uint16_t)(low_press < 0 ? 0 : low_press);
+        state->low_release = (uint16_t)(low_release < 0 ? 0 : low_release);
+        state->high_release = (uint16_t)(high_release > 4095 ? 4095 : high_release);
+        state->high_press = (uint16_t)(high_press > 4095 ? 4095 : high_press);
+        state->direction = 0;
+        state->next_repeat_ms = 0;
+    }
+    return ESP_OK;
+#endif
+}
+
+esp_err_t solar_os_joystick_calibrate_reset(void)
+{
+#if !SOLAR_OS_BOARD_HAS_JOYSTICK
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!joystick_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (size_t i = 0; i < sizeof(joystick_axes) / sizeof(joystick_axes[0]); i++) {
+        const solar_os_joystick_axis_def_t *axis = &joystick_axes[i];
+        joystick_axis_state_t *state = &joystick_states[i];
+        state->low_press = axis->low_press;
+        state->low_release = axis->low_release;
+        state->high_press = axis->high_press;
+        state->high_release = axis->high_release;
+        state->direction = 0;
+        state->next_repeat_ms = 0;
+    }
     return ESP_OK;
 #endif
 }
@@ -192,14 +316,13 @@ size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len)
     size_t count = 0;
 
     for (size_t i = 0; i < sizeof(joystick_axes) / sizeof(joystick_axes[0]); i++) {
-        const solar_os_joystick_axis_def_t *axis = &joystick_axes[i];
         joystick_axis_state_t *state = &joystick_states[i];
         int raw = 0;
         if (joystick_read_raw(i, &raw) != ESP_OK) {
             continue;
         }
 
-        const int direction = joystick_direction_from_raw(axis, raw, state->direction);
+        const int direction = joystick_direction_from_raw(state, raw, state->direction);
         bool emit = false;
         if (direction != state->direction) {
             state->direction = direction;
@@ -217,7 +340,7 @@ size_t solar_os_joystick_read_chars(char *buffer, size_t buffer_len)
             continue;
         }
 
-        const uint8_t key = joystick_key_for_direction(axis, direction);
+        const uint8_t key = joystick_key_for_direction(&joystick_axes[i], direction);
         if (key == 0) {
             continue;
         }

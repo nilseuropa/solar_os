@@ -22,6 +22,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os.h"
 #include "solar_os_adc.h"
+#include "solar_os_adc_dpad.h"
 #include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
@@ -782,11 +783,27 @@ static void dispatch_joystick_chars(void)
 #endif
 }
 
+static void dispatch_adc_dpad_chars(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
+    if (!board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+        return;
+    }
+
+    char chars[8];
+    size_t count;
+    while ((count = solar_os_adc_dpad_read_chars(chars, sizeof(chars))) > 0) {
+        dispatch_input_chars(chars, count);
+    }
+#endif
+}
+
 static void dispatch_input_sources(void)
 {
     dispatch_keyboard_chars();
     dispatch_button_chars();
     dispatch_joystick_chars();
+    dispatch_adc_dpad_chars();
 }
 
 static void dispatch_app_tick(void)
@@ -985,6 +1002,15 @@ static void init_peripherals(void)
         const esp_err_t joystick_err = solar_os_joystick_init();
         if (joystick_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "Joystick unavailable: %s", esp_err_to_name(joystick_err));
+        }
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
+    if (board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+        const esp_err_t dpad_err = solar_os_adc_dpad_init();
+        if (dpad_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "ADC D-pad unavailable: %s", esp_err_to_name(dpad_err));
         }
     }
 #endif

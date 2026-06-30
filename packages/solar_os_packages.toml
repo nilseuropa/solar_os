@@ -19,6 +19,7 @@ members = [
   "service_pwm",
   "service_buttons",
   "service_joystick",
+  "service_adc_dpad",
   "job_bridge",
   "job_log",
   "job_batmon",
@@ -277,6 +278,12 @@ label = "service.joystick"
 sources = ["services/solar_os_joystick.c"]
 requires = ["esp_adc", "esp_driver_gpio"]
 capabilities = ["joystick"]
+
+[packages.service_adc_dpad]
+label = "service.adc-dpad"
+sources = ["services/solar_os_adc_dpad.c"]
+requires = ["esp_adc", "esp_driver_gpio"]
+capabilities = ["adc_dpad"]
 
 [packages.app_aplay]
 label = "app.aplay"

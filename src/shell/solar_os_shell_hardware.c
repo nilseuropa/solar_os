@@ -14,6 +14,7 @@
 
 #include "esp_err.h"
 #include "solar_os_adc.h"
+#include "solar_os_adc_dpad.h"
 #include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
@@ -21,6 +22,7 @@
 #include "solar_os_config.h"
 #include "solar_os_gpio.h"
 #include "solar_os_i2c.h"
+#include "solar_os_joystick.h"
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_storage.h"
@@ -1915,6 +1917,246 @@ void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv)
     } else {
         gpio_print_usage(term);
     }
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
+static const char *dpad_zone_name(solar_os_adc_dpad_zone_t zone)
+{
+    switch (zone) {
+    case SOLAR_OS_ADC_DPAD_ZONE_IDLE:
+        return "idle";
+    case SOLAR_OS_ADC_DPAD_ZONE_MID:
+        return "mid";
+    case SOLAR_OS_ADC_DPAD_ZONE_HIGH:
+        return "high";
+    default:
+        return "?";
+    }
+}
+
+static void dpad_print_usage(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  dpad [status]");
+    solar_os_shell_io_writeln(term, "  dpad calibrate [idle]");
+    solar_os_shell_io_writeln(term, "  dpad calibrate reset");
+}
+
+static void dpad_print_status(solar_os_shell_io_t *term)
+{
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+        solar_os_shell_io_writeln(term, "dpad: not available on this board");
+        return;
+    }
+
+    const size_t count = solar_os_adc_dpad_axis_count();
+    solar_os_shell_io_printf(term, "dpad: %u ADC %s\n", (unsigned)count, count == 1 ? "axis" : "axes");
+    solar_os_shell_io_writeln(term, "AXIS PIN RAW  ZONE  IDLE<= MID       HIGH>=");
+    for (size_t i = 0; i < count; i++) {
+        solar_os_adc_dpad_axis_status_t status;
+        if (!solar_os_adc_dpad_get_axis_status(i, &status)) {
+            continue;
+        }
+
+        if (!status.initialized) {
+            solar_os_shell_io_printf(term,
+                                     "%-4s %-3d -    -     -      -         -\n",
+                                     status.name != NULL ? status.name : "?",
+                                     (int)status.pin);
+            continue;
+        }
+
+        if (status.read_error != ESP_OK && !status.raw_valid) {
+            solar_os_shell_io_printf(term,
+                                     "%-4s %-3d err  %-5s %-6u %4u-%-4u %-6u %s\n",
+                                     status.name != NULL ? status.name : "?",
+                                     (int)status.pin,
+                                     dpad_zone_name(status.zone),
+                                     (unsigned)status.idle_max,
+                                     (unsigned)status.mid_min,
+                                     (unsigned)status.mid_max,
+                                     (unsigned)status.high_min,
+                                     esp_err_to_name(status.read_error));
+            continue;
+        }
+
+        solar_os_shell_io_printf(term,
+                                 "%-4s %-3d %-4d %-5s %-6u %4u-%-4u %-6u\n",
+                                 status.name != NULL ? status.name : "?",
+                                 (int)status.pin,
+                                 status.raw,
+                                 dpad_zone_name(status.zone),
+                                 (unsigned)status.idle_max,
+                                 (unsigned)status.mid_min,
+                                 (unsigned)status.mid_max,
+                                 (unsigned)status.high_min);
+    }
+}
+
+void solar_os_shell_cmd_dpad(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 2) {
+            solar_os_shell_io_writeln(term, "usage: dpad status");
+            return;
+        }
+        dpad_print_status(term);
+        return;
+    }
+
+    if (strcmp(argv[1], "calibrate") == 0) {
+        if (argc > 3) {
+            dpad_print_usage(term);
+            return;
+        }
+
+        esp_err_t err;
+        if (argc == 3 && strcmp(argv[2], "reset") == 0) {
+            err = solar_os_adc_dpad_calibrate_reset();
+        } else if (argc == 2 || (argc == 3 && strcmp(argv[2], "idle") == 0)) {
+            err = solar_os_adc_dpad_calibrate_idle();
+        } else {
+            dpad_print_usage(term);
+            return;
+        }
+
+        if (err == ESP_OK) {
+            solar_os_shell_io_writeln(term,
+                                      argc == 3 && strcmp(argv[2], "reset") == 0 ?
+                                          "dpad calibration reset" :
+                                          "dpad idle calibrated");
+            dpad_print_status(term);
+        } else if (shell_print_not_supported(term, "dpad", "ADC D-pad", err)) {
+            return;
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_writeln(term, "dpad: not initialized");
+        } else {
+            solar_os_shell_io_printf(term, "dpad calibrate failed: %s\n", esp_err_to_name(err));
+        }
+        return;
+    }
+
+    dpad_print_usage(term);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
+static const char *joystick_direction_name(int direction)
+{
+    if (direction < 0) {
+        return "low";
+    }
+    if (direction > 0) {
+        return "high";
+    }
+    return "center";
+}
+
+static void joystick_print_usage(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  joystick [status]");
+    solar_os_shell_io_writeln(term, "  joystick calibrate");
+    solar_os_shell_io_writeln(term, "  joystick calibrate reset");
+}
+
+static void joystick_print_status(solar_os_shell_io_t *term)
+{
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
+        solar_os_shell_io_writeln(term, "joystick: not available on this board");
+        return;
+    }
+
+    const size_t count = solar_os_joystick_axis_count();
+    solar_os_shell_io_printf(term, "joystick: %u %s\n", (unsigned)count, count == 1 ? "axis" : "axes");
+    solar_os_shell_io_writeln(term, "AXIS PIN RAW  DIR    LOW-P LOW-R HIGH-R HIGH-P");
+    for (size_t i = 0; i < count; i++) {
+        solar_os_joystick_axis_status_t status;
+        if (!solar_os_joystick_get_axis_status(i, &status)) {
+            continue;
+        }
+
+        if (!status.initialized) {
+            solar_os_shell_io_printf(term,
+                                     "%-4s %-3d -    -      -     -     -      -\n",
+                                     status.name != NULL ? status.name : "?",
+                                     (int)status.pin);
+            continue;
+        }
+
+        if (status.read_error != ESP_OK && !status.raw_valid) {
+            solar_os_shell_io_printf(term,
+                                     "%-4s %-3d err  %-6s %-5u %-5u %-6u %-6u %s\n",
+                                     status.name != NULL ? status.name : "?",
+                                     (int)status.pin,
+                                     joystick_direction_name(status.direction),
+                                     (unsigned)status.low_press,
+                                     (unsigned)status.low_release,
+                                     (unsigned)status.high_release,
+                                     (unsigned)status.high_press,
+                                     esp_err_to_name(status.read_error));
+            continue;
+        }
+
+        solar_os_shell_io_printf(term,
+                                 "%-4s %-3d %-4d %-6s %-5u %-5u %-6u %-6u\n",
+                                 status.name != NULL ? status.name : "?",
+                                 (int)status.pin,
+                                 status.raw,
+                                 joystick_direction_name(status.direction),
+                                 (unsigned)status.low_press,
+                                 (unsigned)status.low_release,
+                                 (unsigned)status.high_release,
+                                 (unsigned)status.high_press);
+    }
+}
+
+void solar_os_shell_cmd_joystick(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 2) {
+            solar_os_shell_io_writeln(term, "usage: joystick status");
+            return;
+        }
+        joystick_print_status(term);
+        return;
+    }
+
+    if (strcmp(argv[1], "calibrate") == 0) {
+        if (argc > 3) {
+            joystick_print_usage(term);
+            return;
+        }
+
+        esp_err_t err;
+        if (argc == 3 && strcmp(argv[2], "reset") == 0) {
+            err = solar_os_joystick_calibrate_reset();
+        } else if (argc == 2) {
+            err = solar_os_joystick_calibrate_center();
+        } else {
+            joystick_print_usage(term);
+            return;
+        }
+
+        if (err == ESP_OK) {
+            solar_os_shell_io_writeln(term, argc == 3 ? "joystick calibration reset" : "joystick center calibrated");
+            joystick_print_status(term);
+        } else if (shell_print_not_supported(term, "joystick", "joystick", err)) {
+            return;
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_writeln(term, "joystick: not initialized");
+        } else {
+            solar_os_shell_io_printf(term, "joystick calibrate failed: %s\n", esp_err_to_name(err));
+        }
+        return;
+    }
+
+    joystick_print_usage(term);
 }
 #endif
 
