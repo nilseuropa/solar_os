@@ -33,6 +33,7 @@ typedef enum {
     SOLAR_OS_BOARD_CAP_SPI = 1U << 21,
     SOLAR_OS_BOARD_CAP_STATUS_LED = 1U << 22,
     SOLAR_OS_BOARD_CAP_DISPLAY_BRIGHTNESS = 1U << 23,
+    SOLAR_OS_BOARD_CAP_AUDIO_INPUT = 1U << 24,
 } solar_os_board_capability_t;
 
 #ifndef SOLAR_OS_BOARD_CAPABILITIES
@@ -73,6 +74,9 @@ typedef enum {
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_AUDIO
 #define SOLAR_OS_BOARD_HAS_AUDIO 0
+#endif
+#ifndef SOLAR_OS_BOARD_HAS_AUDIO_INPUT
+#define SOLAR_OS_BOARD_HAS_AUDIO_INPUT 0
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_WIFI
 #define SOLAR_OS_BOARD_HAS_WIFI 0

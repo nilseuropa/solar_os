@@ -93,7 +93,7 @@ static const stream_source_t singleton_streams[] = {
         .format = "csv",
         .summary = "left microphone level",
         .kind = STREAM_KIND_MIC,
-        .required_capability = SOLAR_OS_BOARD_CAP_AUDIO,
+        .required_capability = SOLAR_OS_BOARD_CAP_AUDIO_INPUT,
         .index = 0,
     },
     {
@@ -103,7 +103,7 @@ static const stream_source_t singleton_streams[] = {
         .format = "csv",
         .summary = "right microphone level",
         .kind = STREAM_KIND_MIC,
-        .required_capability = SOLAR_OS_BOARD_CAP_AUDIO,
+        .required_capability = SOLAR_OS_BOARD_CAP_AUDIO_INPUT,
         .index = 1,
     },
 #endif

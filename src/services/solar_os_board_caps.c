@@ -20,6 +20,7 @@ static const board_capability_name_t capability_names[] = {
     {SOLAR_OS_BOARD_CAP_RTC, "rtc"},
     {SOLAR_OS_BOARD_CAP_BATTERY, "battery"},
     {SOLAR_OS_BOARD_CAP_AUDIO, "audio"},
+    {SOLAR_OS_BOARD_CAP_AUDIO_INPUT, "audio_input"},
     {SOLAR_OS_BOARD_CAP_WIFI, "wifi"},
     {SOLAR_OS_BOARD_CAP_BLE, "ble"},
     {SOLAR_OS_BOARD_CAP_GPIO, "gpio"},
@@ -48,6 +49,7 @@ solar_os_board_capabilities_t solar_os_board_capabilities(void)
         (SOLAR_OS_BOARD_HAS_RTC ? SOLAR_OS_BOARD_CAP_RTC : 0U) |
         (SOLAR_OS_BOARD_HAS_BATTERY ? SOLAR_OS_BOARD_CAP_BATTERY : 0U) |
         (SOLAR_OS_BOARD_HAS_AUDIO ? SOLAR_OS_BOARD_CAP_AUDIO : 0U) |
+        (SOLAR_OS_BOARD_HAS_AUDIO_INPUT ? SOLAR_OS_BOARD_CAP_AUDIO_INPUT : 0U) |
         (SOLAR_OS_BOARD_HAS_WIFI ? SOLAR_OS_BOARD_CAP_WIFI : 0U) |
         (SOLAR_OS_BOARD_HAS_BLE ? SOLAR_OS_BOARD_CAP_BLE : 0U) |
         (SOLAR_OS_BOARD_HAS_GPIO ? SOLAR_OS_BOARD_CAP_GPIO : 0U) |
