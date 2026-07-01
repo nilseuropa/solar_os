@@ -29,6 +29,7 @@ static const board_capability_name_t capability_names[] = {
     {SOLAR_OS_BOARD_CAP_BUTTONS, "buttons"},
     {SOLAR_OS_BOARD_CAP_JOYSTICK, "joystick"},
     {SOLAR_OS_BOARD_CAP_ADC_DPAD, "adc_dpad"},
+    {SOLAR_OS_BOARD_CAP_STATUS_LED, "status_led"},
     {SOLAR_OS_BOARD_CAP_TEMPERATURE, "temperature"},
     {SOLAR_OS_BOARD_CAP_HUMIDITY, "humidity"},
 };
@@ -55,6 +56,7 @@ solar_os_board_capabilities_t solar_os_board_capabilities(void)
         (SOLAR_OS_BOARD_HAS_BUTTONS ? SOLAR_OS_BOARD_CAP_BUTTONS : 0U) |
         (SOLAR_OS_BOARD_HAS_JOYSTICK ? SOLAR_OS_BOARD_CAP_JOYSTICK : 0U) |
         (SOLAR_OS_BOARD_HAS_ADC_DPAD ? SOLAR_OS_BOARD_CAP_ADC_DPAD : 0U) |
+        (SOLAR_OS_BOARD_HAS_STATUS_LED ? SOLAR_OS_BOARD_CAP_STATUS_LED : 0U) |
         (SOLAR_OS_BOARD_HAS_TEMPERATURE ? SOLAR_OS_BOARD_CAP_TEMPERATURE : 0U) |
         (SOLAR_OS_BOARD_HAS_HUMIDITY ? SOLAR_OS_BOARD_CAP_HUMIDITY : 0U) |
         (SOLAR_OS_BOARD_HAS_PSRAM ? SOLAR_OS_BOARD_CAP_PSRAM : 0U);

@@ -54,6 +54,7 @@
 #include "solar_os_splash.h"
 #include "solar_os_spi.h"
 #include "solar_os_storage.h"
+#include "solar_os_status_led.h"
 #include "solar_os_terminal_internal.h"
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
@@ -1000,6 +1001,13 @@ static void init_peripherals(void)
         const esp_err_t gpio_err = solar_os_gpio_init();
         if (gpio_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "GPIO service unavailable: %s", esp_err_to_name(gpio_err));
+        }
+    }
+
+    if (board_has(SOLAR_OS_BOARD_CAP_STATUS_LED)) {
+        const esp_err_t led_err = solar_os_status_led_init();
+        if (led_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "Status LED unavailable: %s", esp_err_to_name(led_err));
         }
     }
 #endif

@@ -39,6 +39,7 @@
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
@@ -1373,6 +1374,44 @@ static int solua_gpio_write(lua_State *L)
                                                lua_toboolean(L, 2)));
 }
 
+static int solua_led_status(lua_State *L)
+{
+    bool on = false;
+    (void)solua_check_esp(L, solar_os_status_led_get(&on));
+    lua_pushboolean(L, on);
+    return 1;
+}
+
+static int solua_led_set(lua_State *L)
+{
+    const bool on = lua_toboolean(L, 1);
+    (void)solua_check_esp(L, solar_os_status_led_set(on));
+    lua_pushboolean(L, on);
+    return 1;
+}
+
+static int solua_led_on(lua_State *L)
+{
+    (void)solua_check_esp(L, solar_os_status_led_set(true));
+    lua_pushboolean(L, true);
+    return 1;
+}
+
+static int solua_led_off(lua_State *L)
+{
+    (void)solua_check_esp(L, solar_os_status_led_set(false));
+    lua_pushboolean(L, false);
+    return 1;
+}
+
+static int solua_led_toggle(lua_State *L)
+{
+    bool on = false;
+    (void)solua_check_esp(L, solar_os_status_led_toggle(&on));
+    lua_pushboolean(L, on);
+    return 1;
+}
+
 static int solua_adc_pins(lua_State *L)
 {
     lua_newtable(L);
@@ -2491,6 +2530,15 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "configure", solua_gpio_mode);
     solua_set_func(L, mod, "read", solua_gpio_read);
     solua_set_func(L, mod, "write", solua_gpio_write);
+    lua_pop(L, 1);
+
+    solua_new_submodule(L, solaros, "led");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "status", solua_led_status);
+    solua_set_func(L, mod, "set", solua_led_set);
+    solua_set_func(L, mod, "on", solua_led_on);
+    solua_set_func(L, mod, "off", solua_led_off);
+    solua_set_func(L, mod, "toggle", solua_led_toggle);
     lua_pop(L, 1);
 
     solua_new_submodule(L, solaros, "adc");

@@ -216,7 +216,7 @@ capabilities = ["audio"]
 
 [packages.service_gpio]
 label = "service.gpio"
-sources = ["services/solar_os_gpio.c"]
+sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
 

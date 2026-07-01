@@ -45,6 +45,7 @@
 #include "solar_os_sensors.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_ssh_keys.h"
+#include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
@@ -1444,6 +1445,44 @@ static mp_obj_t solaros_gpio_write(mp_obj_t pin_obj, mp_obj_t level_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_gpio_write_obj, solaros_gpio_write);
 
+static mp_obj_t solaros_led_status(void)
+{
+    bool on = false;
+    python_check_esp(solar_os_status_led_get(&on));
+    return mp_obj_new_bool(on);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_led_status_obj, solaros_led_status);
+
+static mp_obj_t solaros_led_set(mp_obj_t on_obj)
+{
+    const bool on = mp_obj_is_true(on_obj);
+    python_check_esp(solar_os_status_led_set(on));
+    return mp_obj_new_bool(on);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_led_set_obj, solaros_led_set);
+
+static mp_obj_t solaros_led_on(void)
+{
+    python_check_esp(solar_os_status_led_set(true));
+    return mp_const_true;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_led_on_obj, solaros_led_on);
+
+static mp_obj_t solaros_led_off(void)
+{
+    python_check_esp(solar_os_status_led_set(false));
+    return mp_const_false;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_led_off_obj, solaros_led_off);
+
+static mp_obj_t solaros_led_toggle(void)
+{
+    bool on = false;
+    python_check_esp(solar_os_status_led_toggle(&on));
+    return mp_obj_new_bool(on);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_led_toggle_obj, solaros_led_toggle);
+
 static mp_obj_t python_adc_info_to_dict(const solar_os_adc_pin_info_t *info)
 {
     mp_obj_t dict = mp_obj_new_dict(5);
@@ -2707,6 +2746,13 @@ static void python_register_solaros_module(void)
     python_module_store(gpio, "configure", MP_OBJ_FROM_PTR(&solaros_gpio_mode_obj));
     python_module_store(gpio, "read", MP_OBJ_FROM_PTR(&solaros_gpio_read_obj));
     python_module_store(gpio, "write", MP_OBJ_FROM_PTR(&solaros_gpio_write_obj));
+
+    mp_obj_t led = python_new_submodule(module, "led");
+    python_module_store(led, "status", MP_OBJ_FROM_PTR(&solaros_led_status_obj));
+    python_module_store(led, "set", MP_OBJ_FROM_PTR(&solaros_led_set_obj));
+    python_module_store(led, "on", MP_OBJ_FROM_PTR(&solaros_led_on_obj));
+    python_module_store(led, "off", MP_OBJ_FROM_PTR(&solaros_led_off_obj));
+    python_module_store(led, "toggle", MP_OBJ_FROM_PTR(&solaros_led_toggle_obj));
 
     mp_obj_t adc = python_new_submodule(module, "adc");
     python_module_store(adc, "pins", MP_OBJ_FROM_PTR(&solaros_adc_pins_obj));

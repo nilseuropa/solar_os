@@ -53,6 +53,9 @@
 #define SOLAR_OS_BOARD_AUDIO_CODEC_OUT "ESP32-DAC"
 #define SOLAR_OS_BOARD_AUDIO_CODEC_IN "-"
 
+#define SOLAR_OS_BOARD_PIN_STATUS_LED GPIO_NUM_2
+#define SOLAR_OS_BOARD_STATUS_LED_ACTIVE_LEVEL 1
+
 #define SOLAR_OS_BOARD_PIN_LCD_DC SOLAR_OS_BOARD_PIN_TFT_DC
 #define SOLAR_OS_BOARD_PIN_LCD_CS SOLAR_OS_BOARD_PIN_TFT_CS
 #define SOLAR_OS_BOARD_PIN_LCD_SCK SOLAR_OS_BOARD_PIN_TFT_SCLK
@@ -79,4 +82,15 @@
 #define SOLAR_OS_BOARD_ADC_DPAD_AXES { \
     {.pin = GPIO_NUM_34, .name = "x", .mid_key = SOLAR_OS_KEY_RIGHT, .high_key = SOLAR_OS_KEY_LEFT, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}, \
     {.pin = GPIO_NUM_35, .name = "y", .mid_key = SOLAR_OS_KEY_DOWN, .high_key = SOLAR_OS_KEY_UP, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}, \
+}
+
+#define SOLAR_OS_BOARD_EXPANSION_GPIO_MASK ((1ULL << GPIO_NUM_4) | \
+                                            (1ULL << GPIO_NUM_15))
+#define SOLAR_OS_BOARD_USER_GPIO_MASK SOLAR_OS_BOARD_EXPANSION_GPIO_MASK
+#define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "4 15"
+#define SOLAR_OS_BOARD_USER_GPIO_LIST "4 15"
+#define SOLAR_OS_BOARD_GPIO_SLOTS { \
+    {.pin = 2, .runtime_allowed = false, .role = "status LED"}, \
+    {.pin = 4, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
+    {.pin = 15, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
 }

@@ -19,6 +19,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_board_caps.h"
+#include "solar_os_gpio.h"
 #include "solar_os_identity.h"
 #include "solar_os_job_registry.h"
 #include "solar_os_keys.h"
@@ -68,6 +70,7 @@ typedef struct {
     bool complete_jobs;
     bool complete_ports;
     bool complete_ramfs_mounts;
+    bool complete_gpio_pins;
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
@@ -189,6 +192,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
     {"spi", "SPI bus tools", solar_os_shell_cmd_spi},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
+    {"led", "status LED control", solar_os_shell_cmd_led},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
     {"gpio", "expansion GPIO tools", solar_os_shell_cmd_gpio},
@@ -414,7 +420,13 @@ static const char * const gpio_subcommands[] = {
     "write",
 };
 
-static const char * const expansion_gpio_values[] = {"1", "2", "3", "17"};
+static const char * const led_subcommands[] = {
+    "status",
+    "on",
+    "off",
+    "toggle",
+};
+
 static const char * const gpio_mode_values[] = {"in", "out"};
 static const char * const gpio_pull_values[] = {"none", "up", "down"};
 static const char * const bit_values[] = {"0", "1"};
@@ -710,6 +722,7 @@ static const char * const path_log_follow[] = {"log", "follow"};
 static const char * const path_log_level[] = {"log", "level"};
 static const char * const path_log_sink[] = {"log", "sink"};
 static const char * const path_log_sink_cdc[] = {"log", "sink", "cdc"};
+static const char * const path_led[] = {"led"};
 static const char * const path_gpio[] = {"gpio"};
 static const char * const path_gpio_mode[] = {"gpio", "mode"};
 static const char * const path_gpio_mode_pin[] = {"gpio", "mode", SHELL_COMPLETION_ANY};
@@ -784,6 +797,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_ramfs_mounts = true, \
+    }
+#define SHELL_COMPLETION_GPIO_PINS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_gpio_pins = true, \
     }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
@@ -928,22 +947,25 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_log_level, log_level_values),
     SHELL_COMPLETION_STATIC(path_log_sink, log_sink_values),
     SHELL_COMPLETION_STATIC(path_log_sink_cdc, on_off_values),
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
+    SHELL_COMPLETION_STATIC(path_led, led_subcommands),
+#endif
     SHELL_COMPLETION_STATIC(path_gpio, gpio_subcommands),
-    SHELL_COMPLETION_STATIC(path_gpio_mode, expansion_gpio_values),
+    SHELL_COMPLETION_GPIO_PINS(path_gpio_mode),
     SHELL_COMPLETION_STATIC(path_gpio_mode_pin, gpio_mode_values),
     SHELL_COMPLETION_STATIC(path_gpio_mode_pin_mode, gpio_pull_values),
-    SHELL_COMPLETION_STATIC(path_gpio_read, expansion_gpio_values),
-    SHELL_COMPLETION_STATIC(path_gpio_write, expansion_gpio_values),
+    SHELL_COMPLETION_GPIO_PINS(path_gpio_read),
+    SHELL_COMPLETION_GPIO_PINS(path_gpio_write),
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
     SHELL_COMPLETION_STATIC(path_adc, adc_subcommands),
-    SHELL_COMPLETION_STATIC(path_adc_read, expansion_gpio_values),
+    SHELL_COMPLETION_GPIO_PINS(path_adc_read),
     SHELL_COMPLETION_STATIC(path_dpad, dpad_subcommands),
     SHELL_COMPLETION_STATIC(path_dpad_calibrate, dpad_calibrate_subcommands),
     SHELL_COMPLETION_STATIC(path_joystick, joystick_subcommands),
     SHELL_COMPLETION_STATIC(path_joystick_calibrate, joystick_calibrate_subcommands),
     SHELL_COMPLETION_STATIC(path_pwm, pwm_subcommands),
-    SHELL_COMPLETION_STATIC(path_pwm_set, expansion_gpio_values),
-    SHELL_COMPLETION_STATIC(path_pwm_off, expansion_gpio_values),
+    SHELL_COMPLETION_GPIO_PINS(path_pwm_set),
+    SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
     SHELL_COMPLETION_STATIC(path_power, power_subcommands),
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
     SHELL_COMPLETION_STATIC(path_power_idle, power_idle_values),
@@ -2730,6 +2752,24 @@ static void shell_completion_emit_ramfs_mounts(shell_completion_match_t *state)
     }
 }
 
+static void shell_completion_emit_gpio_pins(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
+    char value[8];
+
+    for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
+        solar_os_gpio_pin_info_t info;
+        if (!solar_os_gpio_get_pin_info(i, &info) || !info.runtime_allowed) {
+            continue;
+        }
+        snprintf(value, sizeof(value), "%d", info.pin);
+        shell_completion_emit(state, value);
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_spi_cs(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
@@ -3142,6 +3182,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_ramfs_mounts) {
             shell_completion_emit_ramfs_mounts(state);
+        }
+        if (rule->complete_gpio_pins) {
+            shell_completion_emit_gpio_pins(state);
         }
         if (rule->complete_spi_cs) {
             shell_completion_emit_spi_cs(state);

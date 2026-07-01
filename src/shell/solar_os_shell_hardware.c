@@ -26,6 +26,7 @@
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_spi.h"
+#include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
@@ -1768,6 +1769,83 @@ void solar_os_shell_cmd_uart(solar_os_context_t *ctx, int argc, char **argv)
     } else {
         uart_print_usage(term);
     }
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
+static void led_print_usage(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  led status");
+    solar_os_shell_io_writeln(term, "  led on");
+    solar_os_shell_io_writeln(term, "  led off");
+    solar_os_shell_io_writeln(term, "  led toggle");
+}
+
+static void led_print_error(solar_os_shell_io_t *term, const char *action, esp_err_t err)
+{
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_writeln(term, "led: status LED not available on this board");
+        return;
+    }
+    solar_os_shell_io_printf(term, "led %s failed: %s\n", action, esp_err_to_name(err));
+}
+
+static void led_print_status(solar_os_shell_io_t *term)
+{
+    bool on = false;
+    const esp_err_t err = solar_os_status_led_get(&on);
+    if (err != ESP_OK) {
+        led_print_error(term, "status", err);
+        return;
+    }
+    solar_os_shell_io_printf(term, "led: %s\n", on ? "on" : "off");
+}
+
+void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 2) {
+            solar_os_shell_io_writeln(term, "usage: led status");
+            return;
+        }
+        led_print_status(term);
+        return;
+    }
+
+    if (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0) {
+        if (argc != 2) {
+            solar_os_shell_io_printf(term, "usage: led %s\n", argv[1]);
+            return;
+        }
+        const bool on = strcmp(argv[1], "on") == 0;
+        const esp_err_t err = solar_os_status_led_set(on);
+        if (err != ESP_OK) {
+            led_print_error(term, argv[1], err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "led: %s\n", on ? "on" : "off");
+        return;
+    }
+
+    if (strcmp(argv[1], "toggle") == 0) {
+        if (argc != 2) {
+            solar_os_shell_io_writeln(term, "usage: led toggle");
+            return;
+        }
+        bool on = false;
+        const esp_err_t err = solar_os_status_led_toggle(&on);
+        if (err != ESP_OK) {
+            led_print_error(term, "toggle", err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "led: %s\n", on ? "on" : "off");
+        return;
+    }
+
+    led_print_usage(term);
 }
 #endif
 
