@@ -1340,13 +1340,13 @@ static void audio_cmd_tone(solar_os_shell_io_t *term, int argc, char **argv)
 {
     uint32_t frequency_hz = 880;
     uint32_t duration_ms = 500;
-    uint8_t volume = 50;
+    uint8_t volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
 
     if (argc > 5 ||
         (argc >= 3 && !audio_parse_frequency(argv[2], &frequency_hz)) ||
         (argc >= 4 && !audio_parse_duration(argv[3], &duration_ms)) ||
         (argc >= 5 && !parse_u8(argv[4], &volume)) ||
-        volume > 100) {
+        (argc >= 5 && volume > 100)) {
         solar_os_shell_io_writeln(term, "usage: audio tone [hz] [ms] [volume]");
         solar_os_shell_io_printf(term,
                                  "hz: %u..%u, ms: 1..%u, volume: 0..100\n",
@@ -1356,11 +1356,18 @@ static void audio_cmd_tone(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    solar_os_shell_io_printf(term,
-                             "tone: %" PRIu32 " Hz %" PRIu32 " ms volume %u\n",
-                             frequency_hz,
-                             duration_ms,
-                             (unsigned)volume);
+    if (volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
+        solar_os_shell_io_printf(term,
+                                 "tone: %" PRIu32 " Hz %" PRIu32 " ms volume global\n",
+                                 frequency_hz,
+                                 duration_ms);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 "tone: %" PRIu32 " Hz %" PRIu32 " ms volume %u\n",
+                                 frequency_hz,
+                                 duration_ms,
+                                 (unsigned)volume);
+    }
     solar_os_shell_io_flush(term);
 
     const esp_err_t err = solar_os_audio_play_tone(frequency_hz, duration_ms, volume);

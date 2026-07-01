@@ -1745,7 +1745,10 @@ static mp_obj_t solaros_audio_tone(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t frequency_hz = python_optional_u32(n_args, args, 0, 0);
     const uint32_t duration_ms = python_optional_u32(n_args, args, 1, 0);
-    const uint8_t volume = python_optional_u8(n_args, args, 2, 50);
+    const uint8_t volume = python_optional_u8(n_args,
+                                              args,
+                                              2,
+                                              SOLAR_OS_AUDIO_VOLUME_GLOBAL);
     python_check_esp(solar_os_audio_play_tone(frequency_hz, duration_ms, volume));
     return mp_const_none;
 }
@@ -1767,7 +1770,10 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_level_obj, solaros_audio_level);
 static mp_obj_t solaros_audio_loopback(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t duration_ms = python_optional_u32(n_args, args, 0, 0);
-    const uint8_t volume = python_optional_u8(n_args, args, 1, 50);
+    const uint8_t volume = python_optional_u8(n_args,
+                                              args,
+                                              1,
+                                              SOLAR_OS_AUDIO_VOLUME_GLOBAL);
     python_check_esp(solar_os_audio_loopback(duration_ms, volume));
     return mp_const_none;
 }
@@ -1808,7 +1814,10 @@ static mp_obj_t solaros_audio_play_wav(size_t n_args, const mp_obj_t *args)
 {
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     python_resolve_path_obj(args[0], path, sizeof(path));
-    const uint8_t volume = python_optional_u8(n_args, args, 1, 50);
+    const uint8_t volume = python_optional_u8(n_args,
+                                              args,
+                                              1,
+                                              SOLAR_OS_AUDIO_VOLUME_GLOBAL);
 
     solar_os_audio_wav_info_t info;
     const solar_os_audio_wav_options_t options = {

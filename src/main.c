@@ -895,7 +895,7 @@ static void update_status(void)
     solar_os_audio_status_t audio;
     if (board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
         solar_os_audio_get_status(&audio);
-        status.audio_enabled = audio.initialized;
+        status.audio_enabled = true;
         status.audio_volume = audio.volume;
     }
 #endif

@@ -47,15 +47,6 @@ typedef struct {
 static const char *TAG = "solar_os_clock";
 static clock_state_t clock_state;
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-static uint8_t clock_sound_volume(void)
-{
-    solar_os_audio_status_t status;
-    solar_os_audio_get_status(&status);
-    return status.volume;
-}
-#endif
-
 static uint32_t clock_now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -533,7 +524,9 @@ static void clock_alarm_sound_task(void *arg)
     while (!clock_state.alarm_sound_stop_requested) {
         if (sound_available) {
             for (int i = 0; i < 4 && !clock_state.alarm_sound_stop_requested; i++) {
-                const esp_err_t err = solar_os_audio_play_tone(1200, 70, clock_sound_volume());
+                const esp_err_t err = solar_os_audio_play_tone(1200,
+                                                               70,
+                                                               SOLAR_OS_AUDIO_VOLUME_GLOBAL);
                 if (err != ESP_OK) {
                     sound_available = false;
                     SOLAR_OS_LOGW(TAG, "alarm sound unavailable: %s", esp_err_to_name(err));

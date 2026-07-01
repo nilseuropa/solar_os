@@ -102,13 +102,6 @@ static invaders_state_t invaders;
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static invaders_audio_t invaders_audio;
 
-static uint8_t invaders_sound_volume(void)
-{
-    solar_os_audio_status_t status;
-    solar_os_audio_get_status(&status);
-    return status.volume;
-}
-
 static void invaders_sound_task(void *arg)
 {
     (void)arg;
@@ -126,28 +119,27 @@ static void invaders_sound_task(void *arg)
             continue;
         }
 
-        const uint8_t volume = invaders_sound_volume();
         esp_err_t err = ESP_OK;
         switch (sound) {
         case INVADERS_SOUND_FIRE:
-            err = solar_os_audio_play_tone(1400, 28, volume);
+            err = solar_os_audio_play_tone(1400, 28, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             break;
         case INVADERS_SOUND_HIT:
-            err = solar_os_audio_play_tone(420, 45, volume);
+            err = solar_os_audio_play_tone(420, 45, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             break;
         case INVADERS_SOUND_PLAYER_HIT:
-            err = solar_os_audio_play_tone(180, 80, volume);
+            err = solar_os_audio_play_tone(180, 80, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             break;
         case INVADERS_SOUND_WIN:
-            err = solar_os_audio_play_tone(880, 55, volume);
+            err = solar_os_audio_play_tone(880, 55, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             if (err == ESP_OK) {
-                err = solar_os_audio_play_tone(1320, 70, volume);
+                err = solar_os_audio_play_tone(1320, 70, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             }
             break;
         case INVADERS_SOUND_GAME_OVER:
-            err = solar_os_audio_play_tone(220, 80, volume);
+            err = solar_os_audio_play_tone(220, 80, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             if (err == ESP_OK) {
-                err = solar_os_audio_play_tone(120, 110, volume);
+                err = solar_os_audio_play_tone(120, 110, SOLAR_OS_AUDIO_VOLUME_GLOBAL);
             }
             break;
         default:

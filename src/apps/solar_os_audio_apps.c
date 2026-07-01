@@ -24,7 +24,6 @@
 #define AUDIO_APP_EVENT_QUEUE_LEN 8
 #define AUDIO_APP_MESSAGE_MAX 96
 #define AUDIO_APP_DEFAULT_RECORD_MS 10000U
-#define AUDIO_APP_DEFAULT_VOLUME 50U
 
 typedef enum {
     AUDIO_APP_MODE_RECORD,
@@ -155,7 +154,7 @@ static bool audio_app_parse_record_args(solar_os_context_t *ctx)
 
 static bool audio_app_parse_play_args(solar_os_context_t *ctx)
 {
-    audio_app.volume = AUDIO_APP_DEFAULT_VOLUME;
+    audio_app.volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
 
     const int argc = solar_os_context_argc(ctx);
     for (int i = 1; i < argc; i++) {
@@ -376,7 +375,11 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         }
         solar_os_terminal_write(term, "source: ");
         audio_app_print_info(term, audio_app.format, &source);
-        solar_os_terminal_printf(term, "volume: %u\n", (unsigned)audio_app.volume);
+        if (audio_app.volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL) {
+            solar_os_terminal_writeln(term, "volume: global");
+        } else {
+            solar_os_terminal_printf(term, "volume: %u\n", (unsigned)audio_app.volume);
+        }
     }
 
     audio_app.events = xQueueCreate(AUDIO_APP_EVENT_QUEUE_LEN, sizeof(audio_app_event_t));

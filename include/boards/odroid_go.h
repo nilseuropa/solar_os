@@ -48,8 +48,10 @@
 #define SOLAR_OS_BOARD_PIN_BATTERY_ADC GPIO_NUM_36
 #define SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO 2.0f
 
-#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS GPIO_NUM_25
-#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG GPIO_NUM_26
+#define SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN GPIO_NUM_25
+#define SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL 1
+#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS GPIO_NUM_26
+#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG GPIO_NUM_NC
 #define SOLAR_OS_BOARD_AUDIO_CODEC_OUT "ESP32-DAC"
 #define SOLAR_OS_BOARD_AUDIO_CODEC_IN "-"
 
@@ -94,6 +96,8 @@
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
     {.pin = 2, .runtime_allowed = false, .role = "status LED"}, \
     {.pin = 14, .runtime_allowed = false, .role = "LCD backlight"}, \
+    {.pin = 25, .runtime_allowed = false, .role = "speaker enable"}, \
+    {.pin = 26, .runtime_allowed = false, .role = "speaker DAC"}, \
     {.pin = 4, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
     {.pin = 15, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
 }

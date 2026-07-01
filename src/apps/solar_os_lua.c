@@ -1622,7 +1622,9 @@ static int solua_audio_tone(lua_State *L)
     return solua_check_esp(L,
                            solar_os_audio_play_tone(solua_check_u32(L, 1),
                                                     solua_check_u32(L, 2),
-                                                    solua_optional_u8(L, 3, 50)));
+                                                    solua_optional_u8(L,
+                                                                      3,
+                                                                      SOLAR_OS_AUDIO_VOLUME_GLOBAL)));
 }
 
 static int solua_audio_level(lua_State *L)
@@ -1642,7 +1644,9 @@ static int solua_audio_loopback(lua_State *L)
 {
     return solua_check_esp(L,
                            solar_os_audio_loopback(solua_check_u32(L, 1),
-                                                   solua_optional_u8(L, 2, 50)));
+                                                   solua_optional_u8(L,
+                                                                     2,
+                                                                     SOLAR_OS_AUDIO_VOLUME_GLOBAL)));
 }
 
 static int solua_audio_wav_info(lua_State *L)
@@ -1691,7 +1695,9 @@ static int solua_audio_play_wav(lua_State *L)
     };
     (void)solua_check_esp(L,
                           solar_os_audio_play_wav(path,
-                                                  solua_optional_u8(L, 2, 50),
+                                                  solua_optional_u8(L,
+                                                                    2,
+                                                                    SOLAR_OS_AUDIO_VOLUME_GLOBAL),
                                                   &options,
                                                   &info));
     solua_push_wav_info(L, &info);
