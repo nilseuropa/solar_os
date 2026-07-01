@@ -2,8 +2,8 @@
 
 #include <stdbool.h>
 
-#include "esp_adc/adc_oneshot.h"
 #include "esp_timer.h"
+#include "adc_port.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_log.h"
 
@@ -21,7 +21,6 @@
 #define SOLAR_OS_ADC_DPAD_REPEAT_INTERVAL_MS 90U
 #endif
 
-#define ADC_DPAD_ADC_UNIT_COUNT 2
 #define ADC_DPAD_IDLE_MARGIN 300
 #define ADC_DPAD_MIN_IDLE_MAX 100
 
@@ -43,40 +42,11 @@ typedef struct {
 static const char *TAG = "solar_os_adc_dpad";
 static const solar_os_adc_dpad_axis_def_t dpad_axes[] = SOLAR_OS_BOARD_ADC_DPAD_AXES;
 static adc_dpad_axis_state_t dpad_states[sizeof(dpad_axes) / sizeof(dpad_axes[0])];
-static adc_oneshot_unit_handle_t dpad_units[ADC_DPAD_ADC_UNIT_COUNT];
 static bool dpad_initialized;
 
 static uint32_t dpad_millis(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
-}
-
-static int dpad_unit_index(adc_unit_t unit)
-{
-    switch (unit) {
-    case ADC_UNIT_1:
-        return 0;
-    case ADC_UNIT_2:
-        return 1;
-    default:
-        return -1;
-    }
-}
-
-static esp_err_t dpad_ensure_unit(adc_unit_t unit)
-{
-    const int index = dpad_unit_index(unit);
-    if (index < 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (dpad_units[index] != NULL) {
-        return ESP_OK;
-    }
-
-    adc_oneshot_unit_init_cfg_t unit_config = {
-        .unit_id = unit,
-    };
-    return adc_oneshot_new_unit(&unit_config, &dpad_units[index]);
 }
 
 static esp_err_t dpad_read_raw(size_t axis_index, int *raw)
@@ -86,15 +56,16 @@ static esp_err_t dpad_read_raw(size_t axis_index, int *raw)
     }
 
     adc_dpad_axis_state_t *state = &dpad_states[axis_index];
-    const int unit_index = dpad_unit_index(state->unit);
-    if (!state->configured || unit_index < 0 || dpad_units[unit_index] == NULL) {
+    if (!state->configured) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    const esp_err_t err = adc_oneshot_read(dpad_units[unit_index], state->channel, raw);
+    adc_port_sample_t sample;
+    const esp_err_t err = adc_port_read(dpad_axes[axis_index].pin, &sample);
     state->last_read_error = err;
     if (err == ESP_OK) {
-        state->last_raw = *raw;
+        *raw = sample.raw;
+        state->last_raw = sample.raw;
         state->last_raw_valid = true;
     } else {
         state->last_raw_valid = false;
@@ -149,25 +120,11 @@ esp_err_t solar_os_adc_dpad_init(void)
         adc_unit_t unit;
         adc_channel_t channel;
 
-        esp_err_t ret = adc_oneshot_io_to_channel(axis->pin, &unit, &channel);
-        if (ret != ESP_OK) {
-            return ret;
-        }
-        ret = dpad_ensure_unit(unit);
-        if (ret != ESP_OK) {
-            return ret;
+        if (!adc_port_is_adc_capable(axis->pin, &unit, &channel)) {
+            return ESP_ERR_NOT_FOUND;
         }
 
-        const int unit_index = dpad_unit_index(unit);
-        if (unit_index < 0) {
-            return ESP_ERR_INVALID_ARG;
-        }
-
-        const adc_oneshot_chan_cfg_t channel_config = {
-            .atten = ADC_ATTEN_DB_12,
-            .bitwidth = ADC_BITWIDTH_12,
-        };
-        ret = adc_oneshot_config_channel(dpad_units[unit_index], channel, &channel_config);
+        esp_err_t ret = adc_port_configure_pin(axis->pin, ADC_ATTEN_DB_12, ADC_BITWIDTH_12);
         if (ret != ESP_OK) {
             return ret;
         }
