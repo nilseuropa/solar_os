@@ -50,6 +50,7 @@
 #include "solar_os_port_shell.h"
 #include "solar_os_power.h"
 #include "solar_os_pwm.h"
+#include "solar_os_radio.h"
 #include "solar_os_resources.h"
 #include "solar_os_sensors.h"
 #include "solar_os_sessions.h"
@@ -1110,6 +1111,13 @@ static void init_peripherals(void)
         if (expansion_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "Expansion service unavailable: %s", esp_err_to_name(expansion_err));
         }
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+    const esp_err_t radio_err = solar_os_radio_init();
+    if (radio_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Radio service unavailable: %s", esp_err_to_name(radio_err));
     }
 #endif
 

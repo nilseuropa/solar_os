@@ -352,6 +352,12 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion devices` | List manually attached expansion devices. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
+| `radio` | `radio [status|list]` | List packet radios registered by expansion drivers. |
+| `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |
+| `radio` | `radio config <name> [field value]` | Show or update common packet-radio configuration. |
+| `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
+| `radio` | `radio send <name> <text|byte...>` | Send one packet. |
+| `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `uart` | `uart status` | Show UART service state. |
 | `uart` | `uart baud [rate]` | Show or set UART baud rate. |
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
@@ -404,6 +410,18 @@ hardware:
 expansion attach manual radio0 spi0 cs=gpio10 irq=gpio4 reset=gpio5
 expansion attach manual sensor0 i2c0 addr=0x40
 expansion detach radio0
+```
+
+Packet radio devices are datagram endpoints registered by expansion drivers, not
+byte-stream ports. The common radio layer preserves packet metadata such as RSSI
+and optional source/destination IDs:
+
+```text
+radio status radio0
+radio config radio0 freq 868000000
+radio config radio0 modulation gfsk
+radio send radio0 hello
+radio recv radio0 5000
 ```
 
 ## Quick Examples

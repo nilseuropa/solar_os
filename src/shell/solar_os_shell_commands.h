@@ -46,6 +46,9 @@ void solar_os_shell_cmd_pkg(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_port(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv);

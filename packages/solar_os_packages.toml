@@ -12,6 +12,7 @@ members = [
   "service_i2c",
   "service_spi",
   "service_expansion",
+  "service_radio",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -252,6 +253,17 @@ any_capabilities = [
   "expansion_uart",
   "expansion_adc",
   "expansion_pwm",
+]
+
+[packages.service_radio]
+label = "service.radio"
+sources = [
+  "services/solar_os_radio.c",
+  "shell/solar_os_shell_radio.c",
+]
+any_capabilities = [
+  "expansion_spi",
+  "expansion_uart",
 ]
 
 [packages.service_json]
