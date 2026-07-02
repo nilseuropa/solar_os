@@ -366,6 +366,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `i2c` | `i2c probe <addr>` | Probe one address. |
 | `i2c` | `i2c read <addr> <reg> [len]` | Read bytes from a register. |
 | `i2c` | `i2c write <addr> <reg> <byte...>` | Write bytes to a register. |
+| `spi` | `spi [status]` | Show SPI bus pins and chip-select slots. |
+| `spi` | `spi xfer <cs> <mode> <hz> <byte...>` | Full-duplex SPI transfer. |
+| `spi` | `spi read <cs> <mode> <hz> <len> [fill]` | Read bytes over SPI. |
+| `spi` | `spi write <cs> <mode> <hz> <byte...>` | Write bytes over SPI. |
 | `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
 | `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
 | `temperature` | `temperature` | Read the board temperature sensor when available. |
@@ -373,7 +377,19 @@ and writes the inactive ESP-IDF OTA partition.
 
 Runtime GPIO access is board-filtered. On the Waveshare ESP32-S3-RLCD-4.2,
 runtime user GPIO access is intentionally limited to GPIO1, GPIO2, GPIO3, and
-GPIO17.
+GPIO17. On the ESP32-S3-DevKitC-1-N16R8, runtime GPIO access is available on
+GPIO1, GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16,
+GPIO17, GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. The
+DevKitC I2C bus uses GPIO8/GPIO9, SPI uses GPIO12/GPIO13/GPIO11 with
+GPIO10/GPIO5/GPIO6/GPIO7 chip-select slots, GPIO19/GPIO20 are native USB,
+GPIO35-GPIO37 are reserved by N16R8 Octal PSRAM, GPIO43/GPIO44 are `uart0`,
+and GPIO0/GPIO3/GPIO45/GPIO46 are boot strapping pins. On ODROID-GO, runtime
+GPIO access is limited to GPIO4 and GPIO15; both are external IO pins and SPI
+chip-select slots. GPIO2 is the status LED, GPIO14 is the LCD backlight,
+GPIO25/GPIO26 are speaker amplifier/DAC pins, GPIO18/GPIO19/GPIO23 are VSPI,
+GPIO5/GPIO21 are TFT control pins, GPIO22 is SD card chip select, GPIO34/GPIO35
+are ADC D-pad axes, GPIO36 is battery ADC, GPIO39 is the board key input, and
+GPIO32/GPIO33/GPIO13/GPIO27/GPIO0 are built-in buttons.
 
 ## Quick Examples
 

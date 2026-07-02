@@ -210,7 +210,12 @@ while not solaros.should_exit():
 
 ## `solaros.gpio`
 
-GPIO functions expose only the runtime-safe expansion pins: GPIO1, GPIO2, GPIO3, and GPIO17. GPIO0 is exposed on the connector but reserved for BOOT/download mode, and GPIO18 is reserved for the board KEY input.
+GPIO functions expose only runtime-safe expansion pins. Use `solaros.gpio.pins()`
+to inspect the active board. On the Waveshare ESP32-S3-RLCD-4.2 this is GPIO1,
+GPIO2, GPIO3, and GPIO17. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
+GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16, GPIO17,
+GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. On ODROID-GO this
+is GPIO4 and GPIO15.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
 - `pins()`: return expansion GPIO dictionaries with `pin`, `allowed`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.
@@ -237,7 +242,9 @@ solaros.gpio.write(1, 1)
 
 ## `solaros.adc`
 
-ADC functions expose analog reads on runtime-safe expansion pins that are ADC capable. On the ESP32-S3-RLCD board, GPIO1, GPIO2, GPIO3, and GPIO17 are expected to map to ADC channels.
+ADC functions expose analog reads on runtime-safe expansion pins that are ADC
+capable. Some runtime GPIOs are digital-only; check `adc_capable` from
+`solaros.adc.pins()` before reading.
 
 - `pins()`: return dictionaries with `pin`, `allowed`, `adc_capable`, `unit`, and `channel`.
 - `read(pin)`: return `pin`, `raw`, `voltage_mv`, `unit`, `channel`, and `calibrated`.

@@ -72,21 +72,33 @@
                                             (1ULL << GPIO_NUM_1) | \
                                             (1ULL << GPIO_NUM_2) | \
                                             (1ULL << GPIO_NUM_3) | \
+                                            (1ULL << GPIO_NUM_13) | \
+                                            (1ULL << GPIO_NUM_14) | \
                                             (1ULL << GPIO_NUM_17) | \
-                                            (1ULL << GPIO_NUM_18))
+                                            (1ULL << GPIO_NUM_18) | \
+                                            (1ULL << GPIO_NUM_19) | \
+                                            (1ULL << GPIO_NUM_20) | \
+                                            (1ULL << GPIO_NUM_43) | \
+                                            (1ULL << GPIO_NUM_44))
 #define SOLAR_OS_BOARD_USER_GPIO_MASK ((1ULL << GPIO_NUM_1) | \
                                        (1ULL << GPIO_NUM_2) | \
                                        (1ULL << GPIO_NUM_3) | \
                                        (1ULL << GPIO_NUM_17))
-#define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 17 18"
+#define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 13 14 17 18 19 20 43 44"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2 3 17"
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
     {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
     {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \
     {.pin = 2, .runtime_allowed = true, .role = "expansion"}, \
     {.pin = 3, .runtime_allowed = true, .role = "expansion"}, \
+    {.pin = 13, .runtime_allowed = false, .role = "I2C SDA"}, \
+    {.pin = 14, .runtime_allowed = false, .role = "I2C SCL"}, \
     {.pin = 17, .runtime_allowed = true, .role = "expansion"}, \
     {.pin = 18, .runtime_allowed = false, .role = "KEY"}, \
+    {.pin = 19, .runtime_allowed = false, .role = "USB D-/CDC"}, \
+    {.pin = 20, .runtime_allowed = false, .role = "USB D+/CDC"}, \
+    {.pin = 43, .runtime_allowed = false, .role = "UART TX"}, \
+    {.pin = 44, .runtime_allowed = false, .role = "UART RX"}, \
 }
 
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
