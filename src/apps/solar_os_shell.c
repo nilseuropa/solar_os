@@ -202,6 +202,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
     {"pwm", "expansion PWM output", solar_os_shell_cmd_pwm},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    {"expansion", "manage expansion hardware", solar_os_shell_cmd_expansion},
+#endif
     {"date", "read or set local date", solar_os_shell_cmd_date},
     {"time", "read or set local time", solar_os_shell_cmd_time},
 #if SOLAR_OS_PACKAGE_NET
@@ -368,6 +371,16 @@ static const char * const spi_subcommands[] = {
 static const char * const spi_mode_values[] = {"0", "1", "2", "3"};
 static const char * const spi_speed_values[] = {"100k", "1m", "4m", "10m", "20m"};
 static const char * const spi_fill_values[] = {"0xff", "0x00"};
+
+static const char * const expansion_subcommands[] = {
+    "status",
+    "scan",
+    "drivers",
+    "devices",
+    "attach",
+    "detach",
+};
+static const char * const expansion_driver_values[] = {"manual"};
 
 static const char * const uart_subcommands[] = {
     "status",
@@ -749,6 +762,8 @@ static const char * const path_joystick_calibrate[] = {"joystick", "calibrate"};
 static const char * const path_pwm[] = {"pwm"};
 static const char * const path_pwm_set[] = {"pwm", "set"};
 static const char * const path_pwm_off[] = {"pwm", "off"};
+static const char * const path_expansion[] = {"expansion"};
+static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
 static const char * const path_power_idle[] = {"power", "idle"};
@@ -973,6 +988,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_pwm, pwm_subcommands),
     SHELL_COMPLETION_GPIO_PINS(path_pwm_set),
     SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
+    SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
+#endif
     SHELL_COMPLETION_STATIC(path_power, power_subcommands),
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
     SHELL_COMPLETION_STATIC(path_power_idle, power_idle_values),

@@ -7,9 +7,11 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
+  "service_resources",
   "service_gpio",
   "service_i2c",
   "service_spi",
+  "service_expansion",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -215,6 +217,10 @@ sources = ["services/solar_os_audio.c"]
 requires = ["esp_codec_dev", "esp_driver_i2s", "minimp3"]
 capabilities = ["audio"]
 
+[packages.service_resources]
+label = "service.resources"
+sources = ["services/solar_os_resources.c"]
+
 [packages.service_gpio]
 label = "service.gpio"
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
@@ -232,6 +238,21 @@ label = "service.spi"
 sources = ["services/solar_os_spi.c"]
 requires = ["esp_driver_gpio", "esp_driver_spi"]
 capabilities = ["spi"]
+
+[packages.service_expansion]
+label = "service.expansion"
+sources = [
+  "services/solar_os_expansion.c",
+  "shell/solar_os_shell_expansion.c",
+]
+any_capabilities = [
+  "expansion_gpio",
+  "expansion_i2c",
+  "expansion_spi",
+  "expansion_uart",
+  "expansion_adc",
+  "expansion_pwm",
+]
 
 [packages.service_json]
 label = "service.json"

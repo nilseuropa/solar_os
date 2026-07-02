@@ -43,9 +43,9 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
-| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, and runtime GPIO1/GPIO2/GPIO3/GPIO17. |
-| `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, and runtime GPIO4/GPIO15. |
-| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, I2C, SPI, GPIO, ADC, PWM, and no display or onboard sensors. |
+| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/UART/GPIO/ADC/PWM, and runtime GPIO1/GPIO2/GPIO3/GPIO17. |
+| `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/GPIO/PWM, and runtime GPIO4/GPIO15. |
+| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/GPIO/ADC/PWM, and no display or onboard sensors. |
 
 ## Board Profile
 
@@ -205,6 +205,12 @@ The current capability flags are:
 | `GPIO` | Runtime-safe GPIO service. |
 | `ADC` | Runtime-safe ADC service. |
 | `PWM` | Runtime-safe PWM service. |
+| `EXPANSION_GPIO` | Expansion connector has runtime-safe GPIO pins for external hardware. |
+| `EXPANSION_I2C` | Expansion connector exposes a usable I2C bus. |
+| `EXPANSION_SPI` | Expansion connector exposes a usable SPI bus and chip-select slots. |
+| `EXPANSION_UART` | Expansion connector exposes a UART port usable by external hardware. |
+| `EXPANSION_ADC` | Expansion connector has ADC-capable runtime pins. |
+| `EXPANSION_PWM` | Expansion connector has PWM-capable runtime pins. |
 | `KEY` | Built-in board key for sleep/pairing control. |
 | `BUTTONS` | Built-in digital buttons are available for keyboard/app input. |
 | `JOYSTICK` | Built-in analog joystick axes are available for keyboard/app input. |
@@ -218,6 +224,12 @@ The current capability flags are:
 matching selector, then consumes `SOLAR_OS_BOARD_SRCS` and
 `SOLAR_OS_BOARD_REQUIRES`. It does not know which concrete source files belong
 to ST7305, SDMMC, PCF85063, or any future driver.
+
+Expansion capabilities are compile-time gates for external hardware packages.
+Use them when a package needs connector resources rather than an internal board
+peripheral. For example, an SPI radio package should require `expansion_spi`
+and `expansion_gpio`, not plain `spi` and `gpio`, so it does not build for a
+board where SPI exists only for a display or storage device.
 
 ## Board Header
 
@@ -275,6 +287,38 @@ Runtime GPIO example:
 Keep the user GPIO list conservative. Do not expose boot strapping pins,
 flash/PSRAM pins, display pins, SD pins, I2C pins, or key inputs as runtime GPIO
 unless the board design makes that safe.
+
+Expansion bus example:
+
+```c
+#include "solar_os_expansion_types.h"
+
+#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
+    {.name = "i2c0", .port = I2C_NUM_0, .sda_pin = GPIO_NUM_8, .scl_pin = GPIO_NUM_9}, \
+}
+#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+    { \
+        .name = "spi0", \
+        .host = SPI2_HOST, \
+        .sclk_pin = GPIO_NUM_12, \
+        .miso_pin = GPIO_NUM_13, \
+        .mosi_pin = GPIO_NUM_11, \
+        .max_transfer_size = 4096, \
+        .cs_count = 2, \
+        .cs = { \
+            {.name = "gpio10", .pin = GPIO_NUM_10}, \
+            {.name = "gpio5", .pin = GPIO_NUM_5}, \
+        }, \
+    }, \
+}
+#define SOLAR_OS_BOARD_EXPANSION_ADC_MASK ((1ULL << GPIO_NUM_1) | \
+                                           (1ULL << GPIO_NUM_2))
+#define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
+```
+
+The expansion descriptors describe connector resources available for future
+runtime expansion management. They do not claim the resources or initialize
+external hardware by themselves.
 
 ## Board Selector
 

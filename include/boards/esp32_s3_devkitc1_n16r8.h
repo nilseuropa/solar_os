@@ -4,6 +4,7 @@
 #include "driver/i2c_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
+#include "solar_os_expansion_types.h"
 
 #define SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8"
 #define SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8"
@@ -17,6 +18,9 @@
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
 #define SOLAR_OS_BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_9
+#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
+    {.name = "i2c0", .port = SOLAR_OS_BOARD_I2C_PORT, .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL}, \
+}
 
 #define SOLAR_OS_BOARD_SPI_HOST SPI2_HOST
 #define SOLAR_OS_BOARD_SPI_NAME "FSPI"
@@ -29,6 +33,23 @@
     {.pin = GPIO_NUM_5, .name = "gpio5"}, \
     {.pin = GPIO_NUM_6, .name = "gpio6"}, \
     {.pin = GPIO_NUM_7, .name = "gpio7"}, \
+}
+#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+    { \
+        .name = "spi0", \
+        .host = SOLAR_OS_BOARD_SPI_HOST, \
+        .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
+        .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
+        .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
+        .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
+        .cs_count = 4, \
+        .cs = { \
+            {.name = "gpio10", .pin = GPIO_NUM_10}, \
+            {.name = "gpio5", .pin = GPIO_NUM_5}, \
+            {.name = "gpio6", .pin = GPIO_NUM_6}, \
+            {.name = "gpio7", .pin = GPIO_NUM_7}, \
+        }, \
+    }, \
 }
 
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_MASK ((1ULL << GPIO_NUM_0) | \
@@ -87,6 +108,19 @@
                                        (1ULL << GPIO_NUM_47))
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 35 36 37 38 39 40 41 42 43 44 45 46 47 48"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2 4 5 6 7 10 14 15 16 17 18 21 39 40 41 42 47"
+#define SOLAR_OS_BOARD_EXPANSION_ADC_MASK ((1ULL << GPIO_NUM_1) | \
+                                           (1ULL << GPIO_NUM_2) | \
+                                           (1ULL << GPIO_NUM_4) | \
+                                           (1ULL << GPIO_NUM_5) | \
+                                           (1ULL << GPIO_NUM_6) | \
+                                           (1ULL << GPIO_NUM_7) | \
+                                           (1ULL << GPIO_NUM_10) | \
+                                           (1ULL << GPIO_NUM_14) | \
+                                           (1ULL << GPIO_NUM_15) | \
+                                           (1ULL << GPIO_NUM_16) | \
+                                           (1ULL << GPIO_NUM_17) | \
+                                           (1ULL << GPIO_NUM_18))
+#define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
     {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
     {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \

@@ -346,6 +346,12 @@ and writes the inactive ESP-IDF OTA partition.
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
+| `expansion` | `expansion [status]` | Show expansion capabilities, connector resources, active devices, and resource claims. |
+| `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
+| `expansion` | `expansion drivers` | List compiled expansion drivers. |
+| `expansion` | `expansion devices` | List manually attached expansion devices. |
+| `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
+| `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
 | `uart` | `uart status` | Show UART service state. |
 | `uart` | `uart baud [rate]` | Show or set UART baud rate. |
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
@@ -390,6 +396,15 @@ GPIO25/GPIO26 are speaker amplifier/DAC pins, GPIO18/GPIO19/GPIO23 are VSPI,
 GPIO5/GPIO21 are TFT control pins, GPIO22 is SD card chip select, GPIO34/GPIO35
 are ADC D-pad axes, GPIO36 is battery ADC, GPIO39 is the board key input, and
 GPIO32/GPIO33/GPIO13/GPIO27/GPIO0 are built-in buttons.
+
+Manual expansion profiles claim resources without initializing external
+hardware:
+
+```text
+expansion attach manual radio0 spi0 cs=gpio10 irq=gpio4 reset=gpio5
+expansion attach manual sensor0 i2c0 addr=0x40
+expansion detach radio0
+```
 
 ## Quick Examples
 
