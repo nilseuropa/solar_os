@@ -62,7 +62,7 @@ static const radio_tui_item_def_t radio_tui_items[] = {
     [RADIO_TUI_ITEM_DEVICE] = {.label = "device", .editable = false},
     [RADIO_TUI_ITEM_STATE] = {.label = "state", .editable = false},
     [RADIO_TUI_ITEM_RSSI] = {.label = "rssi", .editable = false},
-    [RADIO_TUI_ITEM_FREQ] = {.label = "freq", .editable = true},
+    [RADIO_TUI_ITEM_FREQ] = {.label = "frequency", .editable = true},
     [RADIO_TUI_ITEM_MODULATION] = {.label = "modulation", .editable = false},
     [RADIO_TUI_ITEM_BITRATE] = {.label = "bitrate", .editable = true},
     [RADIO_TUI_ITEM_DEVIATION] = {.label = "deviation", .editable = true},
@@ -158,6 +158,118 @@ static bool radio_tui_parse_i32(const char *text, int32_t min, int32_t max, int3
         return false;
     }
     *value = (int32_t)parsed;
+    return true;
+}
+
+static bool radio_tui_token_equals_ci(const char *start, const char *end, const char *token)
+{
+    const char *p = start;
+    const char *q = token;
+
+    while (p < end && *q != '\0') {
+        if (tolower((unsigned char)*p) != tolower((unsigned char)*q)) {
+            return false;
+        }
+        p++;
+        q++;
+    }
+    return p == end && *q == '\0';
+}
+
+static bool radio_tui_parse_frequency(const char *text, uint32_t min, uint32_t max, uint32_t *value)
+{
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+
+    const char *start = text;
+    while (isspace((unsigned char)*start)) {
+        start++;
+    }
+    const char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+    if (start == end) {
+        return false;
+    }
+
+    const char *p = start;
+    uint64_t whole = 0;
+    bool has_digit = false;
+    while (p < end && isdigit((unsigned char)*p)) {
+        const uint64_t digit = (uint64_t)(*p - '0');
+        if (whole > (UINT64_MAX - digit) / 10ULL) {
+            return false;
+        }
+        whole = whole * 10ULL + digit;
+        has_digit = true;
+        p++;
+    }
+    if (!has_digit) {
+        return false;
+    }
+
+    uint64_t fraction = 0;
+    uint64_t fraction_scale = 1;
+    bool has_fraction = false;
+    if (p < end && *p == '.') {
+        p++;
+        while (p < end && isdigit((unsigned char)*p)) {
+            if (fraction_scale > 100000000ULL) {
+                return false;
+            }
+            fraction = fraction * 10ULL + (uint64_t)(*p - '0');
+            fraction_scale *= 10ULL;
+            has_fraction = true;
+            p++;
+        }
+        if (!has_fraction) {
+            return false;
+        }
+    }
+
+    while (p < end && isspace((unsigned char)*p)) {
+        p++;
+    }
+
+    uint64_t multiplier = 1;
+    if (p == end) {
+        multiplier = 1;
+    } else if (radio_tui_token_equals_ci(p, end, "hz")) {
+        multiplier = 1;
+    } else if (radio_tui_token_equals_ci(p, end, "k") ||
+               radio_tui_token_equals_ci(p, end, "khz")) {
+        multiplier = 1000ULL;
+    } else if (radio_tui_token_equals_ci(p, end, "m") ||
+               radio_tui_token_equals_ci(p, end, "mhz")) {
+        multiplier = 1000000ULL;
+    } else {
+        return false;
+    }
+
+    if (has_fraction && multiplier == 1) {
+        return false;
+    }
+    if (whole > UINT64_MAX / multiplier) {
+        return false;
+    }
+    uint64_t hz = whole * multiplier;
+    if (has_fraction) {
+        if (fraction > UINT64_MAX / multiplier) {
+            return false;
+        }
+        const uint64_t fractional_hz = (fraction * multiplier + fraction_scale / 2ULL) / fraction_scale;
+        if (hz > UINT64_MAX - fractional_hz) {
+            return false;
+        }
+        hz += fractional_hz;
+    }
+    if (hz < min || hz > max) {
+        return false;
+    }
+
+    *value = (uint32_t)hz;
     return true;
 }
 
@@ -465,7 +577,7 @@ static bool radio_tui_commit_edit(void)
     solar_os_radio_config_t config = status.config;
     switch ((radio_tui_item_t)radio_tui.selected) {
     case RADIO_TUI_ITEM_FREQ:
-        if (!radio_tui_parse_u32(radio_tui.edit_text, 1, UINT32_MAX, &u32)) {
+        if (!radio_tui_parse_frequency(radio_tui.edit_text, 1, UINT32_MAX, &u32)) {
             radio_tui_set_status("invalid frequency");
             return false;
         }

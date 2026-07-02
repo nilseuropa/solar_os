@@ -403,14 +403,11 @@ static const char * const radio_subcommands[] = {
     "recv",
 };
 static const char * const radio_config_fields[] = {
-    "freq",
     "frequency",
-    "mod",
     "modulation",
     "bitrate",
     "deviation",
     "bandwidth",
-    "bw",
     "power",
     "crc",
     "variable",
@@ -821,7 +818,6 @@ static const char * const path_radio_status[] = {"radio", "status"};
 static const char * const path_radio_config[] = {"radio", "config"};
 static const char * const path_radio_config_name[] = {"radio", "config", SHELL_COMPLETION_ANY};
 static const char * const path_radio_config_modulation[] = {"radio", "config", SHELL_COMPLETION_ANY, "modulation"};
-static const char * const path_radio_config_mod[] = {"radio", "config", SHELL_COMPLETION_ANY, "mod"};
 static const char * const path_radio_config_crc[] = {"radio", "config", SHELL_COMPLETION_ANY, "crc"};
 static const char * const path_radio_config_variable[] = {"radio", "config", SHELL_COMPLETION_ANY, "variable"};
 static const char * const path_radio_state[] = {"radio", "state"};
@@ -1068,7 +1064,6 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_RADIOS(path_radio_config),
     SHELL_COMPLETION_STATIC(path_radio_config_name, radio_config_fields),
     SHELL_COMPLETION_STATIC(path_radio_config_modulation, radio_modulation_values),
-    SHELL_COMPLETION_STATIC(path_radio_config_mod, radio_modulation_values),
     SHELL_COMPLETION_STATIC(path_radio_config_crc, on_off_values),
     SHELL_COMPLETION_STATIC(path_radio_config_variable, on_off_values),
     SHELL_COMPLETION_RADIOS(path_radio_state),

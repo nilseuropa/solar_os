@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -21,7 +22,8 @@ static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 static void radio_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  radio [status|list]");
+    solar_os_shell_io_writeln(term, "  radio");
+    solar_os_shell_io_writeln(term, "  radio status|list");
     solar_os_shell_io_writeln(term, "  radio status <name>");
     solar_os_shell_io_writeln(term, "  radio config <name> [field value]");
     solar_os_shell_io_writeln(term, "  radio state <name> [sleep|standby|rx|tx]");
@@ -56,6 +58,116 @@ static bool parse_i32_arg(const char *text, int32_t min, int32_t max, int32_t *v
         return false;
     }
     *value = (int32_t)parsed;
+    return true;
+}
+
+static bool token_equals_ci(const char *start, const char *end, const char *token)
+{
+    const char *p = start;
+    const char *q = token;
+
+    while (p < end && *q != '\0') {
+        if (tolower((unsigned char)*p) != tolower((unsigned char)*q)) {
+            return false;
+        }
+        p++;
+        q++;
+    }
+    return p == end && *q == '\0';
+}
+
+static bool parse_frequency_arg(const char *text, uint32_t min, uint32_t max, uint32_t *value)
+{
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+
+    const char *start = text;
+    while (isspace((unsigned char)*start)) {
+        start++;
+    }
+    const char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+    if (start == end) {
+        return false;
+    }
+
+    const char *p = start;
+    uint64_t whole = 0;
+    bool has_digit = false;
+    while (p < end && isdigit((unsigned char)*p)) {
+        const uint64_t digit = (uint64_t)(*p - '0');
+        if (whole > (UINT64_MAX - digit) / 10ULL) {
+            return false;
+        }
+        whole = whole * 10ULL + digit;
+        has_digit = true;
+        p++;
+    }
+    if (!has_digit) {
+        return false;
+    }
+
+    uint64_t fraction = 0;
+    uint64_t fraction_scale = 1;
+    bool has_fraction = false;
+    if (p < end && *p == '.') {
+        p++;
+        while (p < end && isdigit((unsigned char)*p)) {
+            if (fraction_scale > 100000000ULL) {
+                return false;
+            }
+            fraction = fraction * 10ULL + (uint64_t)(*p - '0');
+            fraction_scale *= 10ULL;
+            has_fraction = true;
+            p++;
+        }
+        if (!has_fraction) {
+            return false;
+        }
+    }
+
+    while (p < end && isspace((unsigned char)*p)) {
+        p++;
+    }
+
+    uint64_t multiplier = 1;
+    if (p == end) {
+        multiplier = 1;
+    } else if (token_equals_ci(p, end, "hz")) {
+        multiplier = 1;
+    } else if (token_equals_ci(p, end, "k") || token_equals_ci(p, end, "khz")) {
+        multiplier = 1000ULL;
+    } else if (token_equals_ci(p, end, "m") || token_equals_ci(p, end, "mhz")) {
+        multiplier = 1000000ULL;
+    } else {
+        return false;
+    }
+
+    if (has_fraction && multiplier == 1) {
+        return false;
+    }
+    if (whole > UINT64_MAX / multiplier) {
+        return false;
+    }
+    uint64_t hz = whole * multiplier;
+    if (has_fraction) {
+        if (fraction > UINT64_MAX / multiplier) {
+            return false;
+        }
+        const uint64_t fractional_hz = (fraction * multiplier + fraction_scale / 2ULL) / fraction_scale;
+        if (hz > UINT64_MAX - fractional_hz) {
+            return false;
+        }
+        hz += fractional_hz;
+    }
+    if (hz < min || hz > max) {
+        return false;
+    }
+
+    *value = (uint32_t)hz;
     return true;
 }
 
@@ -146,7 +258,7 @@ static void radio_print_sync_word(solar_os_shell_io_t *term, const solar_os_radi
 static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_config_t *config)
 {
     solar_os_shell_io_printf(term,
-                             "freq=%" PRIu32 " modulation=%s bitrate=%" PRIu32
+                             "frequency=%" PRIu32 " modulation=%s bitrate=%" PRIu32
                              " deviation=%" PRIu32 " bandwidth=%" PRIu32
                              " power=%d crc=%s preamble=%u variable=%s ",
                              config->frequency_hz,
@@ -304,13 +416,13 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
     int32_t i32 = 0;
     bool bit = false;
 
-    if (strcmp(field, "freq") == 0 || strcmp(field, "frequency") == 0) {
-        if (!parse_u32_arg(argv[4], 1, UINT32_MAX, &u32)) {
+    if (strcmp(field, "frequency") == 0) {
+        if (!parse_frequency_arg(argv[4], 1, UINT32_MAX, &u32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
             return;
         }
         config.frequency_hz = u32;
-    } else if (strcmp(field, "mod") == 0 || strcmp(field, "modulation") == 0) {
+    } else if (strcmp(field, "modulation") == 0) {
         const solar_os_radio_modulation_t modulation = solar_os_radio_modulation_from_name(argv[4]);
         if (modulation == SOLAR_OS_RADIO_MODULATION_NONE) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
@@ -329,7 +441,7 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
         config.deviation_hz = u32;
-    } else if (strcmp(field, "bandwidth") == 0 || strcmp(field, "bw") == 0) {
+    } else if (strcmp(field, "bandwidth") == 0) {
         if (!parse_u32_arg(argv[4], 0, UINT32_MAX, &u32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
             return;

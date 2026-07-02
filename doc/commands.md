@@ -424,11 +424,12 @@ expansion detach radio0
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI
-and optional source/destination IDs:
+and optional source/destination IDs. Radio frequency values are Hz by default
+and also accept `k`, `kHz`, `M`, and `MHz` suffixes:
 
 ```text
 radio status radio0
-radio config radio0 freq 433000000
+radio config radio0 frequency 433MHz
 radio config radio0 modulation gfsk
 radio send radio0 hello
 radio recv radio0 5000
