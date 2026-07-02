@@ -60,6 +60,11 @@ On headless builds, SolarOS starts the primary shell on `uart0` when UART is
 available. `cdc0` remains available for a later port shell session, log job,
 bridge job, or host-side tooling.
 
+NOTE: The DevKitC1 does not come with an SD-card slot, so none of the filesystem
+utilities will work on first boot.  To work around this, a small ramfs partition
+can be created using "ramfs mount / 1m" to create a temporary root filesystem (which
+will obviously disappear on reboot).
+
 ## Build
 
 This project uses PlatformIO with ESP-IDF through the pioarduino Espressif32 platform.
