@@ -949,11 +949,9 @@ static void init_peripherals(void)
     }
     solar_os_power_note_activity(millis_u32());
 
-    if (board_has(SOLAR_OS_BOARD_CAP_SD)) {
-        const esp_err_t sd_err = solar_os_storage_init();
-        if (sd_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "SD card unavailable: %s", esp_err_to_name(sd_err));
-        }
+    const esp_err_t storage_err = solar_os_storage_init();
+    if (storage_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Default storage unavailable: %s", esp_err_to_name(storage_err));
     }
 
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES

@@ -988,73 +988,48 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_writeln(term, "Filesystem  Total    Used     Free     Use% Mount");
 
     const esp_err_t scan_err = solar_os_storage_rescan();
-    if (scan_err == ESP_OK) {
-        const size_t count = solar_os_storage_block_count();
-        for (size_t i = 0; i < count; i++) {
-            solar_os_storage_block_t block;
-            solar_os_storage_usage_t usage;
-            char total[12];
-            char used[12];
-            char free_space[12];
-
-            if (!solar_os_storage_get_block(i, &block) || !block.mounted) {
-                continue;
-            }
-
-            const esp_err_t err = solar_os_storage_get_usage_for_block(&block, &usage);
-            if (err != ESP_OK) {
-                solar_os_shell_io_printf(term, "%-10s read failed: %s\n", block.name, esp_err_to_name(err));
-                any = true;
-                continue;
-            }
-
-            format_bytes(usage.total_bytes, total, sizeof(total));
-            format_bytes(usage.used_bytes, used, sizeof(used));
-            format_bytes(usage.free_bytes, free_space, sizeof(free_space));
-            const uint32_t used_percent = usage.total_bytes > 0 ?
-                (uint32_t)((usage.used_bytes * 100ULL) / usage.total_bytes) :
-                0U;
-
-            solar_os_shell_io_printf(term,
-                                     "%-10s %-8s %-8s %-8s %3u%% %s\n",
-                                     block.name,
-                                     total,
-                                     used,
-                                     free_space,
-                                     (unsigned)used_percent,
-                                     block.mount_point);
-            any = true;
-        }
-    } else if (scan_err != ESP_ERR_NOT_SUPPORTED) {
+    if (scan_err != ESP_OK && scan_err != ESP_ERR_NOT_SUPPORTED) {
         solar_os_shell_io_printf(term, "sd         read failed: %s\n", esp_err_to_name(scan_err));
         any = true;
     }
 
-    const size_t ramfs_count = solar_os_ramfs_mount_count();
-    for (size_t i = 0; i < ramfs_count; i++) {
-        solar_os_ramfs_info_t info;
+    const size_t count = solar_os_storage_mount_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_storage_mount_info_t mount;
+        solar_os_storage_usage_t usage;
         char total[12];
         char used[12];
         char free_space[12];
 
-        if (!solar_os_ramfs_get_info(i, &info)) {
+        if (!solar_os_storage_get_mount(i, &mount)) {
             continue;
         }
-        format_bytes(info.total_bytes, total, sizeof(total));
-        format_bytes(info.used_bytes, used, sizeof(used));
-        format_bytes(info.free_bytes, free_space, sizeof(free_space));
-        const uint32_t used_percent = info.total_bytes > 0 ?
-            (uint32_t)((info.used_bytes * 100ULL) / info.total_bytes) :
+
+        const esp_err_t err = solar_os_storage_get_usage_for_path(mount.mount_point, &usage);
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "%-10s read failed: %s\n",
+                                     mount.name,
+                                     esp_err_to_name(err));
+            any = true;
+            continue;
+        }
+
+        format_bytes(usage.total_bytes, total, sizeof(total));
+        format_bytes(usage.used_bytes, used, sizeof(used));
+        format_bytes(usage.free_bytes, free_space, sizeof(free_space));
+        const uint32_t used_percent = usage.total_bytes > 0 ?
+            (uint32_t)((usage.used_bytes * 100ULL) / usage.total_bytes) :
             0U;
 
         solar_os_shell_io_printf(term,
                                  "%-10s %-8s %-8s %-8s %3u%% %s\n",
-                                 "ramfs",
+                                 mount.name,
                                  total,
                                  used,
                                  free_space,
                                  (unsigned)used_percent,
-                                 info.mount_point);
+                                 mount.mount_point);
         any = true;
     }
 

@@ -9,7 +9,8 @@ the running image.
 
 Paths are resolved relative to the current shell directory. The default storage
 volume is presented as `/`. On SD-backed boards, the primary SD card volume also
-has the internal mount path `/sdcard`.
+has the internal mount path `/sdcard`, and the internal flash volume is mounted
+at `/flash`. On boards without SD support, internal flash is mounted as `/`.
 
 Wildcard patterns are supported by selected filesystem commands, for example
 `*.txt`.

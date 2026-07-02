@@ -524,7 +524,11 @@ print(solaros.storage.usage("/")["free_bytes"])
 
 ## Storage Layout
 
-The default storage volume is presented as `/` in shell paths. On SD-backed boards, the primary SD card volume is also mounted internally at `/sdcard`.
+The default storage volume is presented as `/` in shell paths. SolarOS also
+mounts a 64 KiB internal flash FAT volume. On SD-backed boards, the primary SD
+card volume remains the default storage and is mounted internally at `/sdcard`;
+internal flash is available at `/flash`. On boards without SD support, internal
+flash is mounted as `/`.
 
 Current conventional files:
 

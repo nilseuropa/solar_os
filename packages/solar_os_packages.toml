@@ -132,6 +132,7 @@ sources = [
   "solar_os.c",
   "solar_os_jobs.c",
   "solar_os_task.c",
+  "drivers/flash_storage.c",
   "apps/solar_os_app_registry.c",
   "jobs/solar_os_job_registry.c",
   "services/solar_os_board_caps.c",
@@ -170,6 +171,7 @@ requires = [
   "heap",
   "nvs_flash",
   "u8g2",
+  "wear_levelling",
 ]
 
 [packages.core_shell]

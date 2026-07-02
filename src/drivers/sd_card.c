@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "ff.h"
+#include "flash_storage.h"
 #include "sdmmc_cmd.h"
 #include "sdkconfig.h"
 #include "solar_os_board.h"
@@ -294,7 +295,13 @@ static sd_card_mount_t *find_mount_by_target(const char *target)
 
 static sd_card_mount_t *alloc_mount(uint8_t *logical_volume)
 {
+    const uint8_t flash_volume = flash_storage_logical_volume();
+
     for (uint8_t vol = 0; vol < SD_CARD_MAX_MOUNTS; vol++) {
+        if (vol == flash_volume) {
+            continue;
+        }
+
         bool used = false;
         for (size_t i = 0; i < SD_CARD_MAX_MOUNTS; i++) {
             if (mounts[i].active && mounts[i].logical_volume == vol) {
