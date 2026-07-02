@@ -214,7 +214,8 @@ GPIO functions expose only runtime-safe expansion pins. Use `solaros.gpio.pins()
 to inspect the active board. On the Waveshare ESP32-S3-RLCD-4.2 this is GPIO1,
 GPIO2, GPIO3, and GPIO17. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
 GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16, GPIO17,
-GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47.
+GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. On ODROID-GO this
+is GPIO4 and GPIO15.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
 - `pins()`: return expansion GPIO dictionaries with `pin`, `allowed`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.

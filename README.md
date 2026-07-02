@@ -7,8 +7,8 @@ The current firmware is still a single ESP-IDF image. Applications are built int
 ## Supported Boards
 
 SolarOS board support is selected at build time with `SOLAR_OS_BOARD=<target>`.
-The current tree includes one full pocket-terminal target and one minimal
-headless ESP32-S3 target.
+The current tree includes the primary Waveshare pocket-terminal target, the
+classic ESP32 ODROID-GO target, and a minimal headless ESP32-S3 target.
 
 ### Waveshare ESP32-S3-RLCD-4.2
 
@@ -42,6 +42,33 @@ pocket-terminal feature set.
 On this board, SolarOS boots into the display shell. Additional shell, log, SLIP,
 or bridge jobs can claim `cdc0` or `uart0`.
 
+### Hardkernel ODROID-GO
+
+Build target: `odroid_go`
+
+This is the classic ESP32 display target. It is useful for validating the
+non-S3 ESP32 path, ILI9341 display support, SD-over-SPI storage, the ESP32 DAC
+audio path, and built-in button input.
+
+- ESP32-WROVER with 4 MB PSRAM
+- ILI9341 TFT, 320 x 240 landscape
+- Display terminal and graphics apps
+- SD card over VSPI/SDSPI
+- UART port `uart0` on GPIO1/GPIO3
+- Wi-Fi station/AP services and BLE services
+- Battery voltage ADC on GPIO36
+- Speaker output through the ESP32 DAC on GPIO26 with amplifier enable on GPIO25
+- A, B, MENU, SELECT, and VOLUME buttons
+- Board KEY input on GPIO39
+- ADC D-pad on GPIO34/GPIO35
+- Status LED on GPIO2
+- Runtime GPIO access is intentionally limited to GPIO4 and GPIO15. Both pins
+  are external IO and available as SPI chip-select slots. The shared VSPI bus
+  uses GPIO18 SCLK, GPIO19 MISO, and GPIO23 MOSI.
+
+On this board, SolarOS boots into the display shell. `uart0` remains available
+for a later port shell session, log job, bridge job, or host-side tooling.
+
 ### Espressif ESP32-S3-DevKitC-1-N16R8
 
 Build target: `esp32_s3_devkitc1_n16r8`
@@ -70,6 +97,7 @@ This project uses PlatformIO with ESP-IDF through the pioarduino Espressif32 pla
 ```sh
 pio run
 pio run -e waveshare_esp32_s3_rlcd_4_2
+pio run -e odroid_go
 pio run -t upload
 pio device monitor -b 115200
 ```
@@ -82,7 +110,8 @@ The default PlatformIO environment is `waveshare_esp32_s3_rlcd_4_2`. Each Platfo
 
 To add a board target:
 
-1. Add a PlatformIO board definition in `boards/<target>.json`.
+1. Add a PlatformIO board definition in `boards/<target>.json` if PlatformIO
+   does not already provide one.
 2. Add `boards/<target>.cmake` with `SOLAR_OS_BOARD_ID`, `SOLAR_OS_BOARD_NAME`, and `SOLAR_OS_BOARD_DEFINE`.
 3. Add `include/boards/<target>.h` with the `SOLAR_OS_BOARD_*` pin and hardware metadata.
 4. Add `[env:<target>]` to `platformio.ini` and set `board = <target>`.
@@ -180,8 +209,9 @@ SolarOS has a byte-stream port layer for serial-style endpoints. Ports can be cl
 
 Current ports:
 
-- `cdc0`: USB serial/JTAG CDC byte stream.
-- `uart0`: expansion UART on U0TXD/GPIO43 and U0RXD/GPIO44.
+- `cdc0`: USB serial/JTAG CDC byte stream when the board has CDC.
+- `uart0`: hardware UART when the board has UART. Waveshare and DevKitC use
+  GPIO43/GPIO44; ODROID-GO uses GPIO1/GPIO3.
 
 Use `port list` or `port status <name>` to inspect capabilities and ownership. Capability letters are `r` for read, `w` for write, and `c` for configurable.
 
@@ -255,7 +285,7 @@ Hardware and sensors:
 - `battery [status|config|capacity|min_voltage|max_voltage]`: read smoothed voltage, infer battery/external power from trend plus the max-voltage shortcut, and configure battery estimate limits.
 - `stream [list|status]`: list timestamped data streams available to DAQ jobs.
 - `daq [help|status|streams|start|stop]`: start or stop CSV/raw capture from data streams.
-- `gpio [status|list|mode|read|write]`: runtime user GPIO access on the Waveshare board is limited to GPIO1, GPIO2, GPIO3, and GPIO17.
+- `gpio [status|list|mode|read|write]`: runtime user GPIO access is board-filtered. Waveshare exposes GPIO1, GPIO2, GPIO3, and GPIO17; ODROID-GO exposes GPIO4 and GPIO15.
 - `adc [status|read]`: read analog voltage on ADC-capable runtime GPIOs.
 - `pwm [status|set|off]`: generate LEDC PWM on runtime GPIOs.
 - `i2c [status|speed|scan|probe|read|write]`
@@ -299,15 +329,17 @@ Networking:
 
 ## Data Streams
 
-SolarOS exposes sensor and byte-stream sources through a small stream service. Stream records always include `uptime_ms`; they also include UTC `time_ms` when RTC time is trusted.
+SolarOS exposes sensor and byte-stream sources through a small stream service. Stream records always include `uptime_ms`; they also include UTC `time_ms` when RTC time is trusted. Available stream IDs depend on the selected board and firmware flavor.
 
-Current stream IDs:
+Common stream IDs:
 
-- `temperature`, `humidity`, and `battery`
-- `mic0` and `mic1` for microphone amplitude levels
-- `adc1`, `adc2`, `adc3`, and `adc17` on ADC-capable expansion pins
-- `gpio1`, `gpio2`, `gpio3`, and `gpio17` for runtime GPIO state
-- `uart0` and `cdc0` as framed byte streams when the port is not owned by another job or shell
+- `temperature`, `humidity`, and `battery` when the board has those sensors
+- `mic0` and `mic1` for microphone amplitude levels when audio input exists
+- `adc<pin>` on ADC-capable runtime GPIO pins
+- `gpio<pin>` for runtime GPIO state, such as `gpio1` on Waveshare or `gpio4`
+  on ODROID-GO
+- `uart0` and `cdc0` as framed byte streams when the port exists and is not
+  owned by another job or shell
 
 Examples:
 
