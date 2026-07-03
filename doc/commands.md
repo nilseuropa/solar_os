@@ -31,16 +31,16 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 ## Shell Control
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `help` | `help` | List built-in shell commands. |
-| `clear` | `clear` | Clear the active shell terminal. |
-| `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
-| `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
-| `reboot` | `reboot` | Restart the board. |
-| `sessions` | `sessions` | List display foreground app sessions. |
-| `fg` | `fg <session-id>` | Resume a display foreground app session. |
-| `close` | `close <session-id>` | Close a display foreground app session. |
+| Command    | Usage                                    | Description                                                                    |
+| ---------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `help`     | `help`                                   | List built-in shell commands.                                                  |
+| `clear`    | `clear`                                  | Clear the active shell terminal.                                               |
+| `watch`    | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
+| `sh`       | `sh <file>`                              | Run a simple SolarOS shell script from storage.                                |
+| `reboot`   | `reboot`                                 | Restart the board.                                                             |
+| `sessions` | `sessions`                               | List display foreground app sessions.                                          |
+| `fg`       | `fg <session-id>`                        | Resume a display foreground app session.                                       |
+| `close`    | `close <session-id>`                     | Close a display foreground app session.                                        |
 
 Sessions are foreground application state. Background services such as log
 followers, SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
@@ -59,17 +59,17 @@ Arguments typed after the alias are appended.
 
 ## System And Diagnostics
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `version` | `version` | Print SolarOS version, board, flavor, and package information. |
-| `pkg` | `pkg` | Print compiled package groups and build units. |
-| `board` | `board` | Print board ID, name, and capabilities. |
-| `status` | `status` | Print a compact system status summary. |
-| `uptime` | `uptime` | Print elapsed time since boot. |
-| `mem` | `mem` | Print internal RAM, PSRAM, and DMA memory status. |
-| `top` | `top` | Print FreeRTOS task resource information when available. |
-| `sleep` | `sleep` | Enter explicit light sleep. |
-| `power` | See below | Inspect and configure power policy. |
+| Command   | Usage     | Description                                                                                    |
+| --------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `version` | `version` | Print SolarOS version, board, flavor, and package information.                                 |
+| `pkg`     | `pkg`     | Print compiled package groups and build units.                                                 |
+| `board`   | `board`   | Print board ID, name, and capabilities.                                                        |
+| `status`  | `status`  | Print a compact system status summary.                                                         |
+| `uptime`  | `uptime`  | Print elapsed time since boot.                                                                 |
+| `mem`     | `mem`     | Print internal RAM, PSRAM, and DMA memory status.                                              |
+| `top`     | `top`     | Print FreeRTOS task resource information when available.                                       |
+| `sleep`   | `sleep`   | Enter explicit light sleep.                                                                    |
+| `power`   | See below | Inspect and configure power policy.                                                            |
 | `setterm` | See below | Configure terminal/input preferences. Without arguments, opens the display TUI when available. |
 
 `power` usage:
@@ -84,12 +84,12 @@ power sleep
 
 Profiles:
 
-| Profile | Behavior |
-| --- | --- |
-| `performance` | Maximum configured CPU frequency, no automatic light sleep. |
-| `balanced` | CPU frequency scaling down to 80 MHz, no automatic light sleep. This is the default. |
-| `solar` | CPU capped at 80 MHz with ESP-IDF automatic light sleep. |
-| `offline` | CPU capped at 80 MHz, automatic light sleep, and display-shell idle sleep after 60 seconds. |
+| Profile       | Behavior                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| `performance` | Maximum configured CPU frequency, no automatic light sleep.                                 |
+| `balanced`    | CPU frequency scaling down to 80 MHz, no automatic light sleep. This is the default.        |
+| `solar`       | CPU capped at 80 MHz with ESP-IDF automatic light sleep.                                    |
+| `offline`     | CPU capped at 80 MHz, automatic light sleep, and display-shell idle sleep after 60 seconds. |
 
 `setterm` usage:
 
@@ -106,17 +106,17 @@ setterm otaurl [url]
 
 ## Apps And Jobs
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `apps` | `apps` | List registered foreground apps compiled into the firmware. |
-| `jobs` | `jobs` | List registered jobs and their state. |
-| `job` | `job status [name]` | Show one job or all jobs. |
-| `job` | `job start <name> [args...]` | Start or restart a job. |
-| `job` | `job stop <name>` | Stop a job. |
-| `session` | `session list` | List display app sessions and port shell sessions. |
-| `session` | `session create shell <port>` | Start a VT100 shell session on a byte-stream port. |
-| `session` | `session fg <id>` or `session switch <id>` | Resume a display app session. |
-| `session` | `session close <id>` | Close a display app session or stop a port shell session. |
+| Command   | Usage                                      | Description                                                 |
+| --------- | ------------------------------------------ | ----------------------------------------------------------- |
+| `apps`    | `apps`                                     | List registered foreground apps compiled into the firmware. |
+| `jobs`    | `jobs`                                     | List registered jobs and their state.                       |
+| `job`     | `job status [name]`                        | Show one job or all jobs.                                   |
+| `job`     | `job start <name> [args...]`               | Start or restart a job.                                     |
+| `job`     | `job stop <name>`                          | Stop a job.                                                 |
+| `session` | `session list`                             | List display app sessions and port shell sessions.          |
+| `session` | `session create shell <port>`              | Start a VT100 shell session on a byte-stream port.          |
+| `session` | `session fg <id>` or `session switch <id>` | Resume a display app session.                               |
+| `session` | `session close <id>`                       | Close a display app session or stop a port shell session.   |
 
 `jobs` prints a compact table that fits the built-in display terminal:
 
@@ -128,14 +128,14 @@ log          stopped  background  tick     0   0
 
 Columns:
 
-| Column | Meaning |
-| --- | --- |
-| `NAME` | Job registry name. |
-| `STATE` | `stopped`, `running`, or `failed`. |
-| `KIND` | Job kind. Current registry jobs are background workers. |
-| `EVT` | `tick` if the job receives periodic tick events, otherwise `-`. |
-| `TICKS` | Number of dispatched tick events while running. |
-| `RES` | Number of resources currently recorded for the job. |
+| Column  | Meaning                                                         |
+| ------- | --------------------------------------------------------------- |
+| `NAME`  | Job registry name.                                              |
+| `STATE` | `stopped`, `running`, or `failed`.                              |
+| `KIND`  | Job kind. Current registry jobs are background workers.         |
+| `EVT`   | `tick` if the job receives periodic tick events, otherwise `-`. |
+| `TICKS` | Number of dispatched tick events while running.                 |
+| `RES`   | Number of resources currently recorded for the job.             |
 
 Use `job status <name>` for the job summary, owner string, last error, and
 resource details. Job-owned resources use owner strings such as `job:log`; port
@@ -161,25 +161,25 @@ same job again stops the previous instance and starts it with the new arguments.
 
 ## Filesystems And Storage
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `sd` | `sd [status]` | Show SD/storage status. |
-| `sd` | `sd lsblk` | List detected SD block devices and partitions. |
-| `sd` | `sd mount [sd0pN] [mount]` | Mount the default volume or an explicit partition. |
-| `sd` | `sd unmount [sd0pN|mount]` | Unmount the default volume or an explicit partition/mount point. |
-| `ramfs` | `ramfs [status]` | List PSRAM-backed volatile filesystem mounts. |
-| `ramfs` | `ramfs mount /path size` | Mount a volatile filesystem that reserves PSRAM, such as `ramfs mount / 1m`. |
-| `ramfs` | `ramfs unmount /path` | Unmount a ramfs mount. |
-| `df` | `df` | Show free space on mounted storage volumes. |
-| `cd` | `cd [path]` | Change current shell directory. |
-| `ls` | `ls [-a] [-h] [path|pattern]` | List files. Hidden files are shown only with `-a`; sizes are human-readable with `-h`. |
-| `cat` | `cat <path|pattern>` | Print a small text file. |
-| `mkdir` | `mkdir <path> [path...]` | Create directories. |
-| `rm` | `rm [-f|-rf] <path|pattern> [path|pattern...]` | Remove files. `-f` allows directories; `-rf` removes directories recursively. |
-| `mv` | `mv <source|pattern> <dest>` | Rename or move a file or matched set. |
-| `cp` | `cp <source|pattern> <dest>` | Copy a file or matched set. |
-| `zip` | `zip [-0] <archive.zip> <path|pattern> [path|pattern...]` | Create a ZIP archive. `-0` stores without compression. |
-| `unzip` | `unzip [-l] <archive.zip> [dest]` | List or extract a ZIP archive. |
+| Command | Usage                                                       | Description                                                                            |
+| ------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `sd`    | `sd [status]`                                               | Show SD/storage status.                                                                |
+| `sd`    | `sd lsblk`                                                  | List detected SD block devices and partitions.                                         |
+| `sd`    | `sd mount [sd0pN] [mount]`                                  | Mount the default volume or an explicit partition.                                     |
+| `sd`    | `sd unmount [sd0pN\|mount]`                                 | Unmount the default volume or an explicit partition/mount point.                       |
+| `ramfs` | `ramfs [status]`                                            | List PSRAM-backed volatile filesystem mounts.                                          |
+| `ramfs` | `ramfs mount /path size`                                    | Mount a volatile filesystem that reserves PSRAM, such as `ramfs mount / 1m`.           |
+| `ramfs` | `ramfs unmount /path`                                       | Unmount a ramfs mount.                                                                 |
+| `df`    | `df`                                                        | Show free space on mounted storage volumes.                                            |
+| `cd`    | `cd [path]`                                                 | Change current shell directory.                                                        |
+| `ls`    | `ls [-a] [-h] [path\|pattern]`                              | List files. Hidden files are shown only with `-a`; sizes are human-readable with `-h`. |
+| `cat`   | `cat <path\|pattern>`                                       | Print a small text file.                                                               |
+| `mkdir` | `mkdir <path> [path...]`                                    | Create directories.                                                                    |
+| `rm`    | `rm [-f\|-rf] <path\|pattern> [path\|pattern...]`           | Remove files. `-f` allows directories; `-rf` removes directories recursively.          |
+| `mv`    | `mv <source\|pattern> <dest>`                               | Rename or move a file or matched set.                                                  |
+| `cp`    | `cp <source\|pattern> <dest>`                               | Copy a file or matched set.                                                            |
+| `zip`   | `zip [-0] <archive.zip> <path\|pattern> [path\|pattern...]` | Create a ZIP archive. `-0` stores without compression.                                 |
+| `unzip` | `unzip [-l] <archive.zip> [dest]`                           | List or extract a ZIP archive.                                                         |
 
 Examples:
 
@@ -197,23 +197,23 @@ unzip -l /books/archive.zip
 
 ## Streams, Logs, Ports, And Transfers
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `stream` | `stream` or `stream list` | List timestamped data streams. |
-| `stream` | `stream status <id>` | Show one stream. |
-| `daq` | `daq help` | Print DAQ usage. |
-| `daq` | `daq status` | Show DAQ job status. |
-| `daq` | `daq streams` | List stream IDs. |
-| `daq` | See below | Start or stop data acquisition. |
-| `log` | `log status` | Show runtime log ring status. |
-| `log` | `log show [count]` | Print recent SolarOS log entries. |
-| `log` | `log follow [error|warn|info|debug]` | Follow logs in the current shell. |
-| `log` | `log clear` | Clear the runtime log ring. |
-| `log` | `log level [error|warn|info|debug]` | Show or change runtime log level. |
-| `log` | `log sink cdc [on|off]` | Enable or disable CDC mirroring of SolarOS logs. |
-| `port` | `port list` | List byte-stream ports. |
-| `port` | `port status <name>` | Show port capabilities and owner. |
-| `xfer` | See below | Send or receive files over a byte-stream port. |
+| Command  | Usage                                   | Description                                      |
+| -------- | --------------------------------------- | ------------------------------------------------ |
+| `stream` | `stream` or `stream list`               | List timestamped data streams.                   |
+| `stream` | `stream status <id>`                    | Show one stream.                                 |
+| `daq`    | `daq help`                              | Print DAQ usage.                                 |
+| `daq`    | `daq status`                            | Show DAQ job status.                             |
+| `daq`    | `daq streams`                           | List stream IDs.                                 |
+| `daq`    | See below                               | Start or stop data acquisition.                  |
+| `log`    | `log status`                            | Show runtime log ring status.                    |
+| `log`    | `log show [count]`                      | Print recent SolarOS log entries.                |
+| `log`    | `log follow [error\|warn\|info\|debug]` | Follow logs in the current shell.                |
+| `log`    | `log clear`                             | Clear the runtime log ring.                      |
+| `log`    | `log level [error\|warn\|info\|debug]`  | Show or change runtime log level.                |
+| `log`    | `log sink cdc [on\|off]`                | Enable or disable CDC mirroring of SolarOS logs. |
+| `port`   | `port list`                             | List byte-stream ports.                          |
+| `port`   | `port status <name>`                    | Show port capabilities and owner.                |
+| `xfer`   | See below                               | Send or receive files over a byte-stream port.   |
 
 DAQ usage:
 
@@ -251,31 +251,31 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 
 ## Networking
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `wifi` | `wifi` | Open the Wi-Fi display TUI when launched from the display shell. |
-| `wifi` | `wifi status` | Show station/AP/NAT state. |
-| `wifi` | `wifi on` | Start Wi-Fi station mode and connect to remembered networks. |
-| `wifi` | `wifi off` | Stop Wi-Fi station mode. |
-| `wifi` | `wifi scan` | Scan access points. |
-| `wifi` | `wifi connect [ssid [password]]` | Connect and save/update a station profile. |
-| `wifi` | `wifi disconnect` | Disconnect station mode. |
-| `wifi` | `wifi known` | List remembered station profiles. |
-| `wifi` | `wifi forget [ssid|all]` | Remove one or all remembered station profiles. |
-| `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
-| `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
-| `wifi ap` | `wifi ap off` | Stop SoftAP. |
-| `wifi nat` | `wifi nat [status|on|off]` | Configure IPv4 NAT for APSTA. |
-| `ble` | `ble [status]` | Show BLE keyboard state. |
-| `ble` | `ble scan` | Scan nearby BLE devices. |
-| `ble` | `ble pair` | Start keyboard pairing. |
-| `ble` | `ble cancel` | Cancel pairing or pending pairing. |
-| `ble` | `ble forget` | Forget the remembered keyboard. |
-| `ble gatt` | See below | Generic BLE GATT client. |
-| `mqtt` | See below | MQTT/MQTTS client. |
-| `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
-| `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
-| `ntp` | `ntp [server]` | Sync RTC from NTP. |
+| Command    | Usage                             | Description                                                       |
+| ---------- | --------------------------------- | ----------------------------------------------------------------- |
+| `wifi`     | `wifi`                            | Open the Wi-Fi display TUI when launched from the display shell.  |
+| `wifi`     | `wifi status`                     | Show station/AP/NAT state.                                        |
+| `wifi`     | `wifi on`                         | Start Wi-Fi station mode and connect to remembered networks.      |
+| `wifi`     | `wifi off`                        | Stop Wi-Fi station mode.                                          |
+| `wifi`     | `wifi scan`                       | Scan access points.                                               |
+| `wifi`     | `wifi connect [ssid [password]]`  | Connect and save/update a station profile.                        |
+| `wifi`     | `wifi disconnect`                 | Disconnect station mode.                                          |
+| `wifi`     | `wifi known`                      | List remembered station profiles.                                 |
+| `wifi`     | `wifi forget [ssid                | all]`                                                             | Remove one or all remembered station profiles. |
+| `wifi ap`  | `wifi ap [status]`                | Show SoftAP status.                                               |
+| `wifi ap`  | `wifi ap on [ssid [password [open | wpa                                                               | wpa2                                           | wpa/wpa2]]]` | Start and save SoftAP settings. |
+| `wifi ap`  | `wifi ap off`                     | Stop SoftAP.                                                      |
+| `wifi nat` | `wifi nat [status\|on\|off]`      | Configure IPv4 NAT for APSTA.                                     |
+| `ble`      | `ble [status]`                    | Show BLE keyboard state.                                          |
+| `ble`      | `ble scan`                        | Scan nearby BLE devices.                                          |
+| `ble`      | `ble pair`                        | Start keyboard pairing.                                           |
+| `ble`      | `ble cancel`                      | Cancel pairing or pending pairing.                                |
+| `ble`      | `ble forget`                      | Forget the remembered keyboard.                                   |
+| `ble gatt` | See below                         | Generic BLE GATT client.                                          |
+| `mqtt`     | See below                         | MQTT/MQTTS client.                                                |
+| `ping`     | `ping <host> [count]`             | Send ICMP echo requests. Without count, ping runs until app-exit. |
+| `netscan`  | `netscan <host\|range> [ports]`   | Scan TCP ports on one host or a capped IPv4 range.                |
+| `ntp`      | `ntp [server]`                    | Sync RTC from NTP.                                                |
 
 BLE GATT usage:
 
@@ -314,18 +314,18 @@ netscan wintermute 22
 
 ## OTA And Keys
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `ota` | `ota status` | Show running and configured OTA state. |
-| `ota` | `ota check` | Check signed board/flavor release metadata. |
-| `ota` | `ota upgrade` | Download firmware into the inactive OTA partition and reboot into it. |
-| `ota` | `ota url [url]` | Show or set the OTA base URL. |
-| `ota` | `ota flavor [flavor]` | Show or set target OTA flavor. |
-| `ota` | `ota boot 0|1` | Select an OTA slot and reboot. |
-| `sshkey` | `sshkey [status]` | Show default SSH key status. |
-| `sshkey` | `sshkey gen [-f] [2048|3072|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`. |
-| `sshkey` | `sshkey pub` | Print the default public key. |
-| `sshkey` | `sshkey rm` | Remove the default key pair. |
+| Command  | Usage                                | Description                                                           |
+| -------- | ------------------------------------ | --------------------------------------------------------------------- |
+| `ota`    | `ota status`                         | Show running and configured OTA state.                                |
+| `ota`    | `ota check`                          | Check signed board/flavor release metadata.                           |
+| `ota`    | `ota upgrade`                        | Download firmware into the inactive OTA partition and reboot into it. |
+| `ota`    | `ota url [url]`                      | Show or set the OTA base URL.                                         |
+| `ota`    | `ota flavor [flavor]`                | Show or set target OTA flavor.                                        |
+| `ota`    | `ota boot 0\|1`                      | Select an OTA slot and reboot.                                        |
+| `sshkey` | `sshkey [status]`                    | Show default SSH key status.                                          |
+| `sshkey` | `sshkey gen [-f] [2048\|3072\|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`.                       |
+| `sshkey` | `sshkey pub`                         | Print the default public key.                                         |
+| `sshkey` | `sshkey rm`                          | Remove the default key pair.                                          |
 
 OTA resolves the artifact for the compiled board and target flavor from the
 configured release index, verifies the signed index, verifies firmware SHA-256,
@@ -333,43 +333,43 @@ and writes the inactive ESP-IDF OTA partition.
 
 ## Hardware And Time
 
-| Command | Usage | Description |
-| --- | --- | --- |
-| `battery` | `battery [status]` | Show voltage, estimated charge, power source, config, and monitor trend. |
-| `battery` | `battery config` | Show battery capacity and voltage thresholds. |
-| `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
-| `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
-| `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
-| `audio` | `audio status` | Show audio service state and global speaker level. |
-| `audio` | `audio tone [hz] [ms] [volume]` | Play a diagnostic tone. |
-| `audio` | `audio level [volume]` | Show or set global speaker level. |
-| `audio` | `audio mic [ms]` | Sample microphone level. |
-| `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
-| `audio` | `audio off` | Stop audio output. |
-| `uart` | `uart status` | Show UART service state. |
-| `uart` | `uart baud [rate]` | Show or set UART baud rate. |
-| `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
-| `uart` | `uart write <text>` | Write text to `uart0` for diagnostics. |
-| `uart` | `uart read [ms]` | Read UART bytes for diagnostics. |
-| `gpio` | `gpio status` or `gpio list` | List runtime-accessible GPIOs. |
-| `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
-| `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
-| `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |
-| `adc` | `adc status` | Show ADC service status. |
-| `adc` | `adc read <pin>` | Read an ADC-capable runtime pin. |
-| `pwm` | `pwm status` | Show PWM state. |
-| `pwm` | `pwm set <pin> <freq-hz> <duty-percent>` | Start LEDC PWM on a runtime pin. |
-| `pwm` | `pwm off <pin>` | Stop PWM on a pin. |
-| `i2c` | `i2c status` | Show I2C bus state. |
-| `i2c` | `i2c speed [hz]` | Show or set bus speed. |
-| `i2c` | `i2c scan` | Scan the I2C bus. |
-| `i2c` | `i2c probe <addr>` | Probe one address. |
-| `i2c` | `i2c read <addr> <reg> [len]` | Read bytes from a register. |
-| `i2c` | `i2c write <addr> <reg> <byte...>` | Write bytes to a register. |
-| `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
-| `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
-| `temperature` | `temperature` | Read the board temperature sensor when available. |
-| `humidity` | `humidity` | Read the board humidity sensor when available. |
+| Command       | Usage                                        | Description                                                              |
+| ------------- | -------------------------------------------- | ------------------------------------------------------------------------ |
+| `battery`     | `battery [status]`                           | Show voltage, estimated charge, power source, config, and monitor trend. |
+| `battery`     | `battery config`                             | Show battery capacity and voltage thresholds.                            |
+| `battery`     | `battery capacity [mAh]`                     | Show or set capacity estimate.                                           |
+| `battery`     | `battery min_voltage [V\|mV]`                | Show or set low-voltage threshold.                                       |
+| `battery`     | `battery max_voltage [V\|mV]`                | Show or set full/external-power shortcut threshold.                      |
+| `audio`       | `audio status`                               | Show audio service state and global speaker level.                       |
+| `audio`       | `audio tone [hz] [ms] [volume]`              | Play a diagnostic tone.                                                  |
+| `audio`       | `audio level [volume]`                       | Show or set global speaker level.                                        |
+| `audio`       | `audio mic [ms]`                             | Sample microphone level.                                                 |
+| `audio`       | `audio loopback [ms] [volume]`               | Run microphone-to-speaker loopback.                                      |
+| `audio`       | `audio off`                                  | Stop audio output.                                                       |
+| `uart`        | `uart status`                                | Show UART service state.                                                 |
+| `uart`        | `uart baud [rate]`                           | Show or set UART baud rate.                                              |
+| `uart`        | `uart mode [raw\|line]`                      | Show or set UART service mode.                                           |
+| `uart`        | `uart write <text>`                          | Write text to `uart0` for diagnostics.                                   |
+| `uart`        | `uart read [ms]`                             | Read UART bytes for diagnostics.                                         |
+| `gpio`        | `gpio status` or `gpio list`                 | List runtime-accessible GPIOs.                                           |
+| `gpio`        | `gpio mode <pin> <in\|out> [none\|up\|down]` | Configure a runtime GPIO.                                                |
+| `gpio`        | `gpio read <pin>`                            | Read a runtime GPIO.                                                     |
+| `gpio`        | `gpio write <pin> <0\|1>`                    | Write a runtime GPIO configured as output.                               |
+| `adc`         | `adc status`                                 | Show ADC service status.                                                 |
+| `adc`         | `adc read <pin>`                             | Read an ADC-capable runtime pin.                                         |
+| `pwm`         | `pwm status`                                 | Show PWM state.                                                          |
+| `pwm`         | `pwm set <pin> <freq-hz> <duty-percent>`     | Start LEDC PWM on a runtime pin.                                         |
+| `pwm`         | `pwm off <pin>`                              | Stop PWM on a pin.                                                       |
+| `i2c`         | `i2c status`                                 | Show I2C bus state.                                                      |
+| `i2c`         | `i2c speed [hz]`                             | Show or set bus speed.                                                   |
+| `i2c`         | `i2c scan`                                   | Scan the I2C bus.                                                        |
+| `i2c`         | `i2c probe <addr>`                           | Probe one address.                                                       |
+| `i2c`         | `i2c read <addr> <reg> [len]`                | Read bytes from a register.                                              |
+| `i2c`         | `i2c write <addr> <reg> <byte...>`           | Write bytes to a register.                                               |
+| `date`        | `date [YYYY-MM-DD]`                          | Show or set local RTC date.                                              |
+| `time`        | `time [HH:MM[:SS]]`                          | Show or set local RTC time.                                              |
+| `temperature` | `temperature`                                | Read the board temperature sensor when available.                        |
+| `humidity`    | `humidity`                                   | Read the board humidity sensor when available.                           |
 
 Runtime GPIO access is board-filtered. On the Waveshare ESP32-S3-RLCD-4.2,
 runtime user GPIO access is intentionally limited to GPIO1, GPIO2, GPIO3, and
