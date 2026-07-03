@@ -7,7 +7,7 @@ python
 python /apps/demo.py arg1 arg2
 ```
 
-Scripts receive their arguments through `sys.argv`. Script output is drawn in the SolarOS terminal. `CTRL+ALT+DEL` exits the REPL or requests `KeyboardInterrupt` while code is running.
+Scripts receive their arguments through `sys.argv`. Script output is drawn in the SolarOS terminal. The active shell's app-exit key exits the REPL or requests `KeyboardInterrupt` while code is running.
 
 The native module is called `solaros`:
 
@@ -22,6 +22,8 @@ solaros.write("SolarOS " + solaros.version() + "\n")
 Most mutating functions return `None` on success and raise `OSError("ESP_ERR_...")` on service failure. Query functions return strings, integers, booleans, dictionaries, or lists.
 
 Functions that accept file paths use SolarOS shell-style paths. `/` means the default storage mount; internally this resolves to the active storage mount point.
+
+Hardware-backed helpers and submodules are present only when the board/flavor includes the corresponding service package. For example, a DevKitC1 full build has Python but omits `solaros.audio`, `solaros.battery`, and `solaros.sensors` because that board has no built-in audio, battery, or environmental sensor service.
 
 ```python
 print(solaros.storage.resolve("/.shell/history"))
@@ -54,9 +56,9 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.write(text)`: write text to the SolarOS terminal.
 - `solaros.version()`: return the SolarOS firmware version string.
 - `solaros.should_exit()`: return `True` when the app is being asked to stop.
-- `solaros.battery_status()`: shortcut for `solaros.battery.status()`.
+- `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
 - `solaros.wifi_status()`: compact Wi-Fi status shortcut.
-- `solaros.environment()`: shortcut for `solaros.sensors.environment()`.
+- `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
 
 ## `solaros.storage`
 
@@ -126,6 +128,8 @@ if solaros.wifi.status()["has_ip"]:
 
 ## `solaros.battery`
 
+Available when the firmware includes the battery service.
+
 - `status()`: return battery status with `voltage_mv`, `percent`, `percent_estimated`, `adc_calibrated`, and `external_power`.
 
 Example:
@@ -138,6 +142,8 @@ print("{} mV, {}%".format(battery["voltage_mv"], battery["percent"]))
 ```
 
 ## `solaros.sensors`
+
+Available when the firmware includes the environmental sensor service.
 
 - `environment()`: return `temperature_c` and `humidity_percent`.
 
@@ -240,6 +246,24 @@ print("GPIO17", solaros.gpio.read(17))
 solaros.gpio.write(1, 1)
 ```
 
+## `solaros.led`
+
+Status LED functions control a built-in board status LED when the board has one.
+
+- `status()`: return whether the status LED is currently on.
+- `set(on)`: set the status LED and return the resulting boolean state.
+- `on()`: turn the status LED on and return `True`.
+- `off()`: turn the status LED off and return `False`.
+- `toggle()`: toggle the status LED and return the resulting boolean state.
+
+Example:
+
+```python
+import solaros
+
+solaros.led.toggle()
+```
+
 ## `solaros.adc`
 
 ADC functions expose analog reads on runtime-safe expansion pins that are ADC
@@ -319,6 +343,8 @@ print(solaros.uart.read(64, 500))
 ```
 
 ## `solaros.audio`
+
+Available when the firmware includes the audio service.
 
 Audio functions expose the microphone, speaker, and WAV service.
 
@@ -451,6 +477,32 @@ print(solaros.jobs.status("ntp-sync"))
 solaros.jobs.stop("ntp-sync")
 ```
 
+## `solaros.sessions`
+
+Session functions create and close foreground shell/app sessions.
+
+- `create_shell(port[, term[, cols, rows]])`: create a port shell session and return its numeric session id.
+- `create_shell(port, term="auto", cols=80, rows=24)`: keyword form for the same call.
+- `close(session_id)`: close a display/app session or stop a port shell session.
+
+Manual port shell sessions created from scripts do not run `/.shell/startup`.
+
+Example:
+
+```python
+import solaros
+
+try:
+    solaros.jobs.stop("slip")
+except OSError:
+    pass
+
+sid = solaros.sessions.create_shell("uart0", term="auto")
+# later:
+solaros.sessions.close(sid)
+solaros.jobs.start("slip", ["uart0", "115200"])
+```
+
 ## `solaros.apps`
 
 Application functions inspect the built-in foreground app registry.
@@ -518,7 +570,7 @@ while not solaros.should_exit():
 
 ## `solaros.gfx`
 
-Graphics functions provide queued access to the SolarOS foreground graphics service. Call `begin()` before drawing and `refresh()`/`present()` to push the frame to the display.
+Graphics functions provide queued access to the SolarOS foreground graphics service. Call `begin()` before drawing and `refresh()`/`present()` to push the frame to the display. `begin(target)` claims a named display target, such as `lcd0`, until `end()` or script cleanup.
 
 Colors:
 
@@ -544,7 +596,7 @@ Italic constants currently map to the closest upright face in the trimmed firmwa
 
 Functions:
 
-- `begin()`: enter foreground graphics mode.
+- `begin([target])`: enter foreground graphics mode; when `target` is provided, claim and draw to that named display target.
 - `end()`: leave graphics mode and redraw the terminal.
 - `width()`: return graphics width in pixels.
 - `height()`: return graphics height in pixels.
@@ -593,6 +645,16 @@ while not solaros.should_exit():
 gfx.end()
 ```
 
+For an attached auxiliary display, use the target name:
+
+```python
+gfx.begin("lcd0")
+gfx.clear(gfx.WHITE)
+gfx.text(2, 14, "aux")
+gfx.present()
+gfx.end()
+```
+
 ## Longer Example: Status Snapshot
 
 ```python
@@ -614,4 +676,4 @@ solaros.write("wifi {} {}\n".format(wifi["state"], wifi["ip"]))
 
 ## Not Exposed Yet
 
-The Python bridge intentionally does not expose raw SSH/SCP session handles or direct foreground graphics drawing yet. Those APIs need object lifetime, ownership, and event-loop rules before they can safely become scriptable.
+The Python bridge intentionally does not expose raw SSH/SCP session handles yet. Those APIs need object lifetime, ownership, and event-loop rules before they can safely become scriptable.

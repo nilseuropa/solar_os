@@ -69,6 +69,7 @@ void solar_os_terminal_set_status_bar(solar_os_terminal_t *terminal,
                                       const solar_os_status_bar_t *status);
 void solar_os_terminal_get_status_bar(const solar_os_terminal_t *terminal,
                                       solar_os_status_bar_t *status);
+void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool black_is_one);
 size_t solar_os_terminal_cursor_row(const solar_os_terminal_t *terminal);
 size_t solar_os_terminal_cursor_col(const solar_os_terminal_t *terminal);
 size_t solar_os_terminal_rows(const solar_os_terminal_t *terminal);

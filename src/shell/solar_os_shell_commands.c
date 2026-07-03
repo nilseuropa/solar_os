@@ -22,12 +22,14 @@
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_config.h"
 #include "solar_os_display.h"
+#include "solar_os_fonts.h"
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_ota.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
+#include "solar_os_sessions.h"
 #include "solar_os_shell.h"
 #if SOLAR_OS_PACKAGE_NET
 #include "solar_os_ssh_keys.h"
@@ -208,6 +210,132 @@ static void ota_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  ota url [url]");
     solar_os_shell_io_writeln(term, "  ota flavor [flavor]");
     solar_os_shell_io_writeln(term, "  ota boot 0|1");
+}
+
+static void display_print_usage(solar_os_shell_io_t *term)
+{
+    solar_os_shell_io_writeln(term, "usage:");
+    solar_os_shell_io_writeln(term, "  display [list]");
+    solar_os_shell_io_writeln(term, "  display test <target>");
+}
+
+static void display_print_targets(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_display_target_count();
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "no display targets");
+        return;
+    }
+
+    solar_os_shell_io_writeln(term, "TARGET   SOURCE    DRIVER     SIZE      ROLE     READY BRIGHT OWNER");
+    for (size_t i = 0; i < count; i++) {
+        solar_os_display_target_t target;
+        if (!solar_os_display_get_target(i, &target)) {
+            continue;
+        }
+
+        char size[16];
+        snprintf(size,
+                 sizeof(size),
+                 "%ux%u",
+                 (unsigned)target.width,
+                 (unsigned)target.height);
+        solar_os_shell_io_printf(term,
+                                 "%-8s %-9s %-10s %-9s %-8s %-5s %-6s %s\n",
+                                 target.name,
+                                 target.source,
+                                 target.driver,
+                                 size,
+                                 target.role[0] != '\0' ? target.role : "-",
+                                 target.ready ? "yes" : "no",
+                                 target.brightness_supported ? "yes" : "no",
+                                 target.owner[0] != '\0' ? target.owner : "-");
+    }
+}
+
+static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
+{
+    const u8g2_uint_t width = u8g2_GetDisplayWidth(u8g2);
+    const u8g2_uint_t height = u8g2_GetDisplayHeight(u8g2);
+
+    u8g2_ClearBuffer(u8g2);
+    u8g2_SetDrawColor(u8g2, 1);
+    u8g2_DrawFrame(u8g2, 0, 0, width, height);
+    if (width > 1 && height > 1) {
+        u8g2_DrawVLine(u8g2, width / 4, 1, height - 2);
+        u8g2_DrawVLine(u8g2, (width * 3) / 4, 1, height - 2);
+    }
+    for (u8g2_uint_t y = 6; y + 6 < height; y += 8) {
+        u8g2_DrawHLine(u8g2, 2, y, width > 4 ? width - 4 : width);
+    }
+
+    u8g2_SetFont(u8g2, u8g2_font_solar_os_default_r_12_tf);
+    u8g2_SetFontMode(u8g2, 1);
+    u8g2_SetFontPosBaseline(u8g2);
+    u8g2_DrawBox(u8g2, 3, 14, width > 6 ? width - 6 : width, 20);
+    u8g2_SetDrawColor(u8g2, 0);
+    u8g2_DrawStr(u8g2, 6, 24, "SolarOS");
+    u8g2_DrawStr(u8g2, 6, 32, name != NULL ? name : "display");
+    u8g2_SetDrawColor(u8g2, 1);
+    u8g2_SendBuffer(u8g2);
+}
+
+static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    static const char owner[] = "shell:display-test";
+
+    if (argc != 3) {
+        solar_os_shell_io_writeln(term, "usage: display test <target>");
+        return;
+    }
+
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(argv[2], &target)) {
+        solar_os_shell_io_printf(term, "display test: %s not found\n", argv[2]);
+        return;
+    }
+    if (!target.ready || target.u8g2 == NULL) {
+        solar_os_shell_io_printf(term, "display test: %s is not drawable\n", argv[2]);
+        return;
+    }
+
+    char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+    const esp_err_t claim_err =
+        solar_os_display_claim(target.name, owner, busy_owner, sizeof(busy_owner));
+    if (claim_err == ESP_ERR_INVALID_STATE && busy_owner[0] != '\0') {
+        solar_os_shell_io_printf(term,
+                                 "display test: %s owned by %s\n",
+                                 target.name,
+                                 busy_owner);
+        return;
+    }
+    if (claim_err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "display test: %s claim failed: %s\n",
+                                 target.name,
+                                 esp_err_to_name(claim_err));
+        return;
+    }
+
+    display_draw_test_pattern(target.u8g2, target.name);
+    (void)solar_os_display_release(target.name, owner);
+    solar_os_shell_io_printf(term, "display test: drew %s\n", target.name);
+}
+
+void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
+        display_print_targets(term);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "test") == 0) {
+        display_cmd_test(term, argc, argv);
+        return;
+    }
+
+    display_print_usage(term);
 }
 
 static void ota_print_partition(solar_os_shell_io_t *term,
@@ -911,6 +1039,33 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         if (strcmp(argv[2], "shell") == 0) {
+            solar_os_display_target_t display_target;
+            if (argc == 4 && solar_os_display_find_target(argv[3], &display_target)) {
+                char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+                uint8_t session_id = 0;
+                const esp_err_t err =
+                    solar_os_sessions_create_display_shell(argv[3],
+                                                           &session_id,
+                                                           busy_owner,
+                                                           sizeof(busy_owner));
+                if (err == ESP_OK) {
+                    solar_os_shell_io_printf(term,
+                                             "job shell moved to sessions; session %u created: shell on %s\n",
+                                             (unsigned)session_id,
+                                             argv[3]);
+                } else if (err == ESP_ERR_INVALID_STATE && busy_owner[0] != '\0') {
+                    solar_os_shell_io_printf(term,
+                                             "session create failed: %s owned by %s\n",
+                                             argv[3],
+                                             busy_owner);
+                } else {
+                    solar_os_shell_io_printf(term,
+                                             "session create failed: %s\n",
+                                             esp_err_to_name(err));
+                }
+                return;
+            }
+
             solar_os_port_shell_options_t options;
             if (argc < 4 || !parse_port_shell_options(argc, argv, 4, &options)) {
                 solar_os_shell_io_writeln(

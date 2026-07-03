@@ -81,6 +81,9 @@ and network tools without a display or onboard peripherals.
 - 16 MB flash and 8 MB PSRAM
 - USB CDC port `cdc0`
 - UART port `uart0` on GPIO43/GPIO44
+- I2C bus on GPIO8/GPIO9
+- SPI bus on GPIO12/GPIO13/GPIO11 with GPIO10/GPIO5/GPIO6/GPIO7 chip-select slots
+- Runtime GPIO, ADC, and PWM on board-safe expansion pins
 - Wi-Fi station/AP services
 - BLE services
 - No display, SD card, RTC, battery monitor, audio codec, SHTC3 sensor, or
@@ -135,9 +138,9 @@ apps and jobs are not compiled into the image.
 
 Current package groups:
 
-- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, UART, SHTC3 sensors, and the `audio` hardware command.
+- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, SPI, UART, expansion/radio services, bundled expansion drivers, SHTC3 sensors, and the `audio` hardware command.
 - `audio`: `arecord`, `aplay`, and MP3 decoding.
-- `net`: Network tools/apps/jobs such as `ping`, `netscan`, `mqtt`, `ssh`, `scp`, `curl`, `web`, `chat`, `httpd`, `slip`, and `sshkey`.
+- `net`: Network tools/apps/jobs such as `ping`, `netscan`, `mqtt`, `ssh`, `scp`, `curl`, `telnet`, `web`, `chat`, `httpd`, `chatd`, `ntp-sync`, `slip`, and `sshkey`.
 - `media`: Image viewer and image decoder apps.
 - `games`: Built-in games.
 - `python`: MicroPython runtime. This currently also enables `net` because the Python module exposes network bindings.
@@ -162,7 +165,7 @@ Use `pkg` on the device to see selected groups and concrete build units.
 
 Long-press the board `KEY` button to start BLE keyboard pairing. Pairing is remembered in NVS and SolarOS retries reconnects automatically when the keyboard becomes available again.
 
-The application exit chord is `Ctrl+Alt+Del`. `Esc` is passed through to foreground applications such as SSH.
+On the display shell, the application exit chord is `Ctrl+Alt+Del`. Port shells use `Ctrl+]`. `Esc` is passed through to foreground applications such as SSH.
 
 The shell and editor understand cursor keys, Page Up/Down, Home/End, and selected Ctrl/Shift navigation combinations. The editor also supports `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` with a PSRAM-backed clipboard.
 
@@ -222,11 +225,17 @@ port list
 port status cdc0
 session create shell cdc0
 session create shell uart0
+session create shell lcd0
 sessions
 close 16
 ```
 
-Port shells are VT100-style shells over the selected byte stream. Text-capable apps marked as port-capable can run there; display-only TUI/graphics apps remain on the board display. On a port shell, `Ctrl+]` is the foreground app exit key. On the display shell, the foreground app exit chord remains `CTRL+ALT+DEL`.
+Port shells are VT100-style shells over the selected byte stream. A shell can
+also be attached to a ready display target such as `lcd0` with
+`session create shell lcd0`. Text-capable apps marked as port-capable can run
+on port shells; display-only TUI/graphics apps remain on the active display
+shell. On a port shell, `Ctrl+]` is the foreground app exit key. On a display
+shell, the foreground app exit chord remains `CTRL+ALT+DEL`.
 
 ## Built-In Shell Commands
 
@@ -234,11 +243,13 @@ System:
 
 - `version`
 - `pkg`
+- `board`
+- `display [list]`; `display test <target>`: list drawable display targets or draw a test pattern on one target.
 - `status`
 - `uptime`
 - `sleep`
 - `power [status|profile|idle|key|sleep]`: inspect power state, select runtime performance policy, configure display-shell idle sleep, configure KEY short-press behavior, or enter light sleep.
-- `session [list|create|fg|switch|close]`: manage foreground app sessions and port shell sessions.
+- `session [list|create|fg|switch|close|background]`: manage foreground app sessions, display shell sessions, and port shell sessions.
 - `jobs`
 - `job [status|start|stop]`: control background jobs; job-specific arguments follow the job name.
 - `port [list|status]`: inspect registered byte-stream ports and current owners.
@@ -254,6 +265,9 @@ Display, input, and identity:
 - `setterm orientation [0|90|180|270]`
 - `setterm font [mono|compact]`
 - `setterm textsize [12|14|16|18|20]`
+- `setterm brightness [0..100]`
+- `setterm backlight [0..100]`: alias for `brightness`.
+- `setterm profile [vt100|ansi|dumb]`: runtime terminal profile for the current port shell.
 - `setterm keyboard [us|de]`
 - `setterm keyrate [off|1..60 [delay-ms]]`
 - `setterm timezone [UTC|Europe/Berlin|POSIX-TZ]`
@@ -273,6 +287,8 @@ Storage and files:
 - `rm`
 - `mv`
 - `cp`
+- `zip`
+- `unzip`
 
 Shell scripts are intentionally minimal. `sh <file>` reads the file line by line, skips blank lines and lines whose first non-space character is `#`, and runs each remaining line through the normal SolarOS shell command path. There are no variables, pipes, redirects, or quoting rules yet.
 
@@ -288,7 +304,11 @@ Hardware and sensors:
 - `gpio [status|list|mode|read|write]`: runtime user GPIO access is board-filtered. Waveshare exposes GPIO1, GPIO2, GPIO3, and GPIO17; ODROID-GO exposes GPIO4 and GPIO15.
 - `adc [status|read]`: read analog voltage on ADC-capable runtime GPIOs.
 - `pwm [status|set|off]`: generate LEDC PWM on runtime GPIOs.
+- `led [status|on|off|toggle]`: control the built-in status LED when the board has one.
 - `i2c [status|speed|scan|probe|read|write]`
+- `spi [status|xfer|read|write]`
+- `expansion [status|scan|drivers|devices|attach|detach]`: inspect and attach expansion hardware.
+- `radio [status|list|config|state|send|recv]`: manage packet radios registered by expansion drivers.
 - `uart [status|baud|mode|write|read]`
 - `audio [status|tone|level|mic|loopback|off]`: `level` shows/sets speaker volume; `mic` samples input level.
 - `date [YYYY-MM-DD]`
@@ -316,6 +336,7 @@ Networking:
 - `wifi nat [status|on|off]`: enable or disable persistent IPv4 NAT for APSTA.
 - `mqtt [status|connect|disconnect|publish|subscribe]`: MQTT/MQTTS client with broker URL and credentials stored in NVS.
 - `ping <host>`
+- `netscan <host|range> [ports]`
 - `ota [status|check|upgrade|url|flavor|boot]`: inspect OTA partitions, resolve a board/flavor firmware artifact from `index.json`, stream `firmware.bin` into the inactive OTA slot, verify its SHA-256 before selecting it for boot, configure the OTA base URL or target flavor, or select an OTA slot to boot. The default base URL is `https://hypergraph.cloud/solaros/latest`, so SolarOS reads `https://hypergraph.cloud/solaros/latest/index.json`.
 - `sshkey [status|gen|pub|rm]`
 
@@ -408,6 +429,7 @@ Jobs run in the background while a foreground app or shell remains active.
 
 - `batmon`: Periodically sample battery voltage and estimate trend/time left. Start with `job start batmon [interval-sec]`; default is `60`. SolarOS smooths ADC readings and uses a rolling trend as the main power-state signal: discharging means battery, charging means external power. Voltage above `battery max_voltage` is a fast external-power shortcut. If three consecutive samples are at or below `battery min_voltage` while on battery, SolarOS requests light sleep.
 - `bridge`: Raw bidirectional byte bridge between two ports. Start with `job start bridge <port-a> <port-b>`, for example `job start bridge cdc0 uart0`.
+- `chatd`: Local SolarOS chat gateway server. Start with `job start chatd [port] [token] [--history path]`.
 - `daq`: Capture one or more data streams to a timestamped CSV file, or one byte stream to a raw file. Start with `job start daq <stream...> <file.csv> [--rate seconds|--rate-ms ms] [--append|--replace]` or `job start daq <file.csv> <stream...> [--rate seconds|--rate-ms ms]`; add `--raw` for direct single byte-stream capture.
 - `httpd`: Serve static files from a folder. Start with `job start httpd <folder>`; relative folders resolve under the default storage mount point.
 - `log`: Stream SolarOS log entries to a byte-stream port or SD file. Start with `job start log <port> [error|warn|info|debug]` or `job start log file <path> [error|warn|info|debug]`.
@@ -460,20 +482,25 @@ Applications are launched by typing their name at the shell prompt.
 
 - `arecord`: Record native 16000 Hz stereo 16-bit PCM WAV audio to storage.
 - `aplay`: Play native 16000 Hz stereo 16-bit PCM WAV or MP3 audio from storage.
+- `chat`: Gateway chat client for local or remote SolarOS chat servers.
 - `clock`: Seven-segment clock, countdown alarm, and stopwatch. Use `clock` for time, `clock -a mm:ss` for a countdown alarm that beeps until quit, and `clock -s` for stopwatch mode.
-- `python`: Interactive MicroPython shell, plus `.py` and `.mpy` script execution from storage, with a PSRAM heap and a small `solaros` module.
-- `lua`: Interactive Lua shell, plus `.lua` script execution from storage, with PSRAM-first allocation and SolarOS service bindings.
-- `ssh`: SSH client with UTF-8 terminal rendering, host key checking, password/key auth, `/.ssh/known_hosts`, and `/.ssh/hosts` lookup.
-- `scp`: Copy files to or from a remote SSH server.
+- `com`: Serial terminal for the exposed UART pins.
 - `curl`: HTTP/HTTPS GET client with redirect support and optional storage output.
 - `edit`: Text editor for storage files with navigation, selection, copy/cut/paste, and PSRAM buffer storage.
+- `files`: Two-pane file manager for copy, move, delete, and launch workflows.
+- `invaders`: Graphical arcade shooter.
 - `less`: Text file pager with wrapping and search.
-- `reader`: Graphics Markdown/text reader using the shared retained document layout engine. Use `reader <file.md|file.txt>`; arrows scroll, page keys turn pages, and `+`/`-` adjusts zoom across 12/14/16/18/20 font sizes. `.txt` files use prose paragraph flow, while `.md`/`.markdown` files use Markdown parsing. Per-file position and zoom are saved in `/.reader/positions`.
+- `lua`: Interactive Lua shell, plus `.lua` script execution from storage, with PSRAM-first allocation and SolarOS service bindings.
 - `notes`: Markdown checklist notes stored as `- [ ]` / `- [x]` items. Use `notes` for `/.notes/default.md` or `notes /notes/todo.md`; `Shift+Up`/`Shift+Down` reorders the selected item inside its active/done section.
 - `plot`: Graphics plotter for live scalar streams or DAQ CSV files. Use `plot temperature humidity battery --rate 1000`, `plot -f /logs/env.csv`, or `plot -f /logs/env.csv temperature humidity`; in live mode `+`/`-` adjusts the rolling time window.
+- `python`: Interactive MicroPython shell, plus `.py` and `.mpy` script execution from storage, with a PSRAM heap and a small `solaros` module.
+- `reader`: Graphics Markdown/text/EPUB reader using the shared retained document layout engine. Use `reader <file.md|file.txt|file.epub>`; arrows scroll, page keys turn pages, and `+`/`-` adjusts zoom across 12/14/16/18/20 font sizes. `.txt` files use prose paragraph flow, while `.md`/`.markdown` files use Markdown parsing. Per-file position and zoom are saved in `/.reader/positions`.
+- `scp`: Copy files to or from a remote SSH server.
 - `sheet`: CSV grid viewer with simple aggregate formulas such as `=SUM(column)`, `=AVG(column)`, `=MIN(column)`, `=MAX(column)`, `=COUNT(*)`, `=DELTA(column)`, and `=RATE(column)`.
-- `com`: Serial terminal for the exposed UART pins.
-- `view`: Image viewer for baseline/progressive JPG/JPEG, BMP, and Netpbm PBM/PGM/PPM files. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
+- `ssh`: SSH client with UTF-8 terminal rendering, host key checking, password/key auth, `/.ssh/known_hosts`, and `/.ssh/hosts` lookup.
+- `telnet`: Telnet client with basic option negotiation and raw mode.
+- `view`: Image viewer for formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths when the media package is enabled. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
+- `web`: Simple graphical web browser for lightweight HTML pages.
 
 On display builds, foreground applications can be suspended into sessions and
 resumed with `fg <id>`. Only one foreground session is visible at a time. Apps
@@ -489,15 +516,15 @@ Application registry capabilities:
 
 The built-in app registry stores each app name, summary, implementation pointer, capability flags, and current owner. The owner guard prevents the same foreground app from being launched simultaneously by the display shell and a port shell. The `apps` command lists registered foreground apps; future SD-loaded apps should merge into this same registry model.
 
-`python` starts an interactive MicroPython prompt with `>>>` and `...` continuation prompts. `python <file.py|file.mpy> [args...]` runs a MicroPython script from storage. Script output is drawn in the SolarOS terminal, `sys.argv` contains the script path and following arguments, and `CTRL+ALT+DEL` exits at the prompt or requests `KeyboardInterrupt` while code is running.
+`python` starts an interactive MicroPython prompt with `>>>` and `...` continuation prompts. `python <file.py|file.mpy> [args...]` runs a MicroPython script from storage. Script output is drawn in the SolarOS terminal, `sys.argv` contains the script path and following arguments, and the active shell's app-exit key exits at the prompt or requests `KeyboardInterrupt` while code is running.
 
-The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, `solaros.apps`, `solaros.tui`, and `solaros.gfx`.
+The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, `solaros.sessions`, `solaros.apps`, `solaros.tui`, and `solaros.gfx`.
 
 See [SolarOS Python API](doc/solar_os_python.md) for the full module reference and examples.
 
 `lua` starts an interactive Lua prompt. `lua <file.lua> [args...]` runs a Lua script from storage, with `arg[0]` set to the script path and following arguments stored from `arg[1]`. The embedded Lua library set includes base, coroutine, table, string, math, UTF-8, and debug. Host-facing Lua `io`, `os`, and dynamic package loading are intentionally not opened. SolarOS preloads a global `solaros` table and also supports `local solaros = require("solaros")` through a minimal built-in shim.
 
-The Lua `solaros` API mirrors the Python service layout for storage, time, hardware services, Wi-Fi, audio, BLE, jobs, app registry, TUI, and graphics. Network-specific Lua modules such as `mqtt`, `net`, and `ssh_keys` are present when the `net` package is compiled.
+The Lua `solaros` API mirrors the Python service layout for storage, time, hardware services, Wi-Fi, audio, BLE, jobs, sessions, app registry, TUI, and graphics. Network-specific Lua modules such as `mqtt`, `net`, and `ssh_keys` are present when the `net` package is compiled.
 
 See [SolarOS Lua API](doc/solar_os_lua.md) for the Lua module reference and examples.
 
@@ -552,8 +579,8 @@ The code is organized around the boundary that apps should use services, not boa
 src/
   apps/           shell-launched foreground apps
   jobs/           background job implementations and registry
-  drivers/        display, I2C, SD, RTC, sensors, UART, ADC, PWM
-  services/       terminal, sessions, storage, time, streams, sensors, BLE, Wi-Fi, SSH, SCP, GPIO, ADC, PWM
+  drivers/        display, storage, I2C, SPI, RTC, sensors, UART, GPIO, ADC, PWM, audio, expansion chips
+  services/       terminal, sessions, storage, time, streams, sensors, BLE, Wi-Fi, SSH, SCP, GPIO, ADC, PWM, SPI, expansion, radio
   solar_os.h      common app/job context and app/job API
   solar_os_jobs.c job lifecycle, owner/resource model, and tick dispatch
 ```
@@ -562,7 +589,8 @@ The shell command parser currently lives in the shell app. Board and build confi
 
 The important rule is that drivers own hardware detail, services own policy, and apps and jobs use services. That lets shell commands, foreground applications, and background jobs share the same behavior for storage, terminal rendering, networking, identity, time, and input.
 
-Foreground app sessions and port shells are managed by the sessions service.
+Foreground app sessions, display shell sessions, and port shells are managed by
+the sessions service.
 Background jobs are for autonomous work such as logging, DAQ, HTTP serving,
 SLIP, NTP sync, and chatd. Jobs publish stable owner strings and resource claims
 so ports, files, streams, and network listeners can be inspected consistently.

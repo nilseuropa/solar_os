@@ -316,9 +316,9 @@ Expansion bus example:
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 ```
 
-The expansion descriptors describe connector resources available for future
-runtime expansion management. They do not claim the resources or initialize
-external hardware by themselves.
+The expansion descriptors describe connector resources available to runtime
+expansion management. They do not claim the resources or initialize external
+hardware by themselves.
 
 ## Board Selector
 
@@ -434,6 +434,10 @@ and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
 MISO, and GPIO11 MOSI, with chip-select slots on GPIO10, GPIO5, GPIO6, and
 GPIO7.
+Auxiliary SPI displays can use that expansion SPI bus through expansion
+drivers. For example, a PCD8544 84x48 LCD module can attach as `lcd0` with
+`expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5` and
+then be exercised with `display test lcd0`.
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves
@@ -494,10 +498,16 @@ main.c
   -> solar_os_board_display_*
     -> board/solar_os_board_display_<driver>.c
       -> drivers/<concrete_display_driver>.c
+  -> solar_os_display target display0
 ```
 
 `main.c`, terminal, and graphics services should not include concrete display
 driver headers.
+
+The board panel is registered with the display service as a target with
+`source=board` and `role=primary`. Expansion display drivers should remain
+expansion drivers for attach/probe/resource management, then register their own
+display targets with `source=expansion` when attached.
 
 ## Storage, I2C, Sensors, RTC, And Audio
 

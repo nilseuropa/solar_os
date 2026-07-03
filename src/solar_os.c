@@ -55,6 +55,15 @@ solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx)
     return ctx->gfx;
 }
 
+void solar_os_context_set_gfx(solar_os_context_t *ctx, solar_os_gfx_t *gfx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+
+    ctx->gfx = gfx;
+}
+
 void solar_os_context_set_shell_io(solar_os_context_t *ctx, solar_os_shell_io_t *io)
 {
     if (ctx == NULL) {

@@ -99,6 +99,7 @@ void solar_os_context_init(solar_os_context_t *ctx,
                            solar_os_gfx_t *gfx);
 solar_os_terminal_t *solar_os_context_terminal(solar_os_context_t *ctx);
 solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx);
+void solar_os_context_set_gfx(solar_os_context_t *ctx, solar_os_gfx_t *gfx);
 void solar_os_context_set_shell_io(solar_os_context_t *ctx, solar_os_shell_io_t *io);
 solar_os_shell_io_t *solar_os_context_shell_io(solar_os_context_t *ctx);
 void solar_os_context_set_shell_session(solar_os_context_t *ctx, solar_os_shell_session_t *session);

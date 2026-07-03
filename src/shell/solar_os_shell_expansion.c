@@ -327,7 +327,7 @@ static bool parse_binding_token(const char *arg,
     if (!parse_int_arg(value, 0, 63, &pin)) {
         return false;
     }
-    if (strcmp(key, "cs") == 0) {
+    if (strcmp(key, "cs") == 0 || strcmp(key, "ce") == 0) {
         char spi_target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
         for (size_t i = 0; i < *binding_count; i++) {
             if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_SPI_BUS) {
@@ -352,8 +352,11 @@ static bool parse_binding_token(const char *arg,
     if (strcmp(key, "gpio") == 0 ||
         strcmp(key, "irq") == 0 ||
         strcmp(key, "reset") == 0 ||
+        strcmp(key, "rst") == 0 ||
+        strcmp(key, "dc") == 0 ||
         strcmp(key, "busy") == 0) {
-        return binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_GPIO, key, "", pin, -1);
+        const char *role = strcmp(key, "rst") == 0 ? "reset" : key;
+        return binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_GPIO, role, "", pin, -1);
     }
 
     return false;
@@ -423,6 +426,8 @@ static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **arg
         solar_os_shell_io_printf(term, "detached %s\n", argv[2]);
     } else if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_printf(term, "expansion detach: %s not found\n", argv[2]);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term, "expansion detach: %s is busy\n", argv[2]);
     } else {
         solar_os_shell_io_printf(term, "expansion detach failed: %s\n", esp_err_to_name(err));
     }

@@ -10,6 +10,7 @@ static tft_ili9341_t ili9341_display;
 static void display_bind_ili9341(solar_os_board_display_t *display)
 {
     display->driver = &ili9341_display;
+    display->driver_name = "ili9341";
     display->u8g2 = tft_ili9341_get_u8g2(&ili9341_display);
     display->controller = SOLAR_OS_BOARD_DISPLAY_CONTROLLER;
     display->width = SOLAR_OS_BOARD_DISPLAY_WIDTH;
@@ -60,6 +61,11 @@ void solar_os_board_display_deinit(solar_os_board_display_t *display)
 u8g2_t *solar_os_board_display_u8g2(solar_os_board_display_t *display)
 {
     return display != NULL ? display->u8g2 : NULL;
+}
+
+const char *solar_os_board_display_driver_name(const solar_os_board_display_t *display)
+{
+    return display != NULL && display->driver_name != NULL ? display->driver_name : "unknown";
 }
 
 const char *solar_os_board_display_controller(const solar_os_board_display_t *display)

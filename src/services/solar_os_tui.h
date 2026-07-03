@@ -29,6 +29,8 @@ typedef struct {
     size_t cursor_row;
     size_t cursor_col;
     uint8_t draw_attr;
+    uint8_t saved_attr;
+    bool saved_cursor_visible;
     bool cursor_visible;
     uint32_t *front_codepoints;
     uint32_t *back_codepoints;

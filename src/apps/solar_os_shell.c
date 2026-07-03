@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_display.h"
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
 #include "solar_os_job_registry.h"
@@ -147,6 +148,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"version", "show SolarOS version", solar_os_shell_cmd_version},
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"board", "show board capabilities", solar_os_shell_cmd_board},
+    {"display", "list display targets", solar_os_shell_cmd_display},
     {"clear", "clear the screen", solar_os_shell_cmd_clear},
     {"sleep", "enter light sleep", solar_os_shell_cmd_sleep},
     {"power", "power profile and sleep policy", solar_os_shell_cmd_power},
@@ -270,6 +272,11 @@ static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
+
+static const char * const display_subcommands[] = {
+    "list",
+    "test",
+};
 
 static const char * const ble_subcommands[] = {
     "status",
@@ -397,6 +404,9 @@ static const char * const expansion_driver_values[] = {
     "manual",
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     "rfm69",
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
+    "pcd8544",
 #endif
 };
 
@@ -648,6 +658,7 @@ static const char * const path_setterm_keyrate[] = {"setterm", "keyrate"};
 static const char * const path_setterm_typerate[] = {"setterm", "typerate"};
 static const char * const path_setterm_repeat[] = {"setterm", "repeat"};
 static const char * const path_setterm_timezone[] = {"setterm", "timezone"};
+static const char * const path_display[] = {"display"};
 static const char * const path_job[] = {"job"};
 static const char * const path_job_status[] = {"job", "status"};
 static const char * const path_job_start[] = {"job", "start"};
@@ -962,6 +973,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_typerate, setterm_keyrate_values),
     SHELL_COMPLETION_STATIC(path_setterm_repeat, setterm_keyrate_values),
     SHELL_COMPLETION_STATIC(path_setterm_timezone, setterm_timezone_values),
+    SHELL_COMPLETION_STATIC(path_display, display_subcommands),
     SHELL_COMPLETION_STATIC(path_job, job_subcommands),
     SHELL_COMPLETION_JOBS(path_job_status),
     SHELL_COMPLETION_JOBS(path_job_start),
@@ -3804,6 +3816,7 @@ static void session_print_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  session list");
     solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+    solar_os_shell_io_writeln(io, "  session create shell <display-target>");
     solar_os_shell_io_writeln(io, "  session fg <session-id>");
     solar_os_shell_io_writeln(io, "  session switch <session-id>");
     solar_os_shell_io_writeln(io, "  session close <session-id>");
@@ -3824,27 +3837,48 @@ static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
 
 static void session_request_close(solar_os_context_t *ctx, uint8_t session_id)
 {
-    if (solar_os_port_shell_is_session_id(session_id)) {
-        const esp_err_t err = solar_os_port_shell_stop(session_id);
-        if (err == ESP_OK) {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "closed session %u\n",
-                                     (unsigned)session_id);
+    (void)solar_os_sessions_close_any(session_id, terminal(ctx));
+}
+
+static void session_create_display_shell(solar_os_context_t *ctx, const char *target_name)
+{
+    solar_os_shell_io_t *caller_io = terminal(ctx);
+    const bool caller_is_port =
+        solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT;
+    char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+    uint8_t session_id = 0;
+
+    const esp_err_t err =
+        solar_os_sessions_create_display_shell(target_name,
+                                               &session_id,
+                                               busy_owner,
+                                               sizeof(busy_owner));
+    if (err == ESP_OK) {
+        if (caller_is_port) {
+            solar_os_shell_io_printf(caller_io,
+                                     "session %u created: shell on %s\n",
+                                     (unsigned)session_id,
+                                     target_name);
         } else {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "close: failed: %s\n",
-                                     esp_err_to_name(err));
+            shell_session(ctx)->builtin_suppressed_prompt = true;
         }
         return;
     }
 
-    if (solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        solar_os_shell_io_writeln(terminal(ctx),
-                                  "close: display sessions can only be closed from the display shell");
-        return;
+    if (err == ESP_ERR_INVALID_STATE && busy_owner[0] != '\0') {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s owned by %s\n",
+                                 target_name,
+                                 busy_owner);
+    } else if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: display target not found: %s\n",
+                                 target_name);
+    } else {
+        solar_os_shell_io_printf(caller_io,
+                                 "session create failed: %s\n",
+                                 esp_err_to_name(err));
     }
-
-    (void)solar_os_sessions_close_session(session_id, terminal(ctx));
 }
 
 static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
@@ -3872,8 +3906,25 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "create") == 0) {
         solar_os_port_shell_options_t options;
-        if (argc < 4 || strcmp(argv[2], "shell") != 0 ||
-            !parse_port_shell_options(argc, argv, 4, &options)) {
+        if (argc < 4 || strcmp(argv[2], "shell") != 0) {
+            solar_os_shell_io_writeln(
+                io,
+                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
+            return;
+        }
+
+        solar_os_display_target_t display_target;
+        if (solar_os_display_find_target(argv[3], &display_target)) {
+            if (argc != 4) {
+                solar_os_shell_io_writeln(io,
+                                          "usage: session create shell <display-target>");
+                return;
+            }
+            session_create_display_shell(ctx, argv[3]);
+            return;
+        }
+
+        if (!parse_port_shell_options(argc, argv, 4, &options)) {
             solar_os_shell_io_writeln(
                 io,
                 "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
@@ -4441,32 +4492,32 @@ void solar_os_shell_session_prepare_foreground_launch(solar_os_context_t *ctx,
 static esp_err_t shell_start(solar_os_context_t *ctx)
 {
     const bool preserve_terminal = solar_os_context_take_terminal_preserve(ctx);
+    solar_os_shell_session_t *session = shell_session(ctx);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
 
-    solar_os_shell_io_init_terminal(&shell_display_session.io, solar_os_context_terminal(ctx));
-    return solar_os_shell_session_start(ctx,
-                                        &shell_display_session,
-                                        &shell_display_session.io,
-                                        preserve_terminal,
-                                        true);
+    solar_os_shell_io_init_terminal(io, solar_os_context_terminal(ctx));
+    return solar_os_shell_session_start(ctx, session, io, preserve_terminal, true);
 }
 
 static bool shell_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
-    return solar_os_shell_session_event(ctx, &shell_display_session, event);
+    return solar_os_shell_session_event(ctx, shell_session(ctx), event);
 }
 
 static void shell_resume(solar_os_context_t *ctx)
 {
-    solar_os_context_set_shell_session(ctx, &shell_display_session);
-    solar_os_context_set_shell_io(ctx, &shell_display_session.io);
+    solar_os_shell_session_t *session = shell_session(ctx);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
+    solar_os_context_set_shell_session(ctx, session);
+    solar_os_context_set_shell_io(ctx, io);
     const bool preserve_terminal = solar_os_context_take_terminal_preserve(ctx);
-    if (shell_display_session.clear_on_resume && !preserve_terminal) {
-        solar_os_shell_io_clear(&shell_display_session.io);
+    if (session->clear_on_resume && !preserve_terminal) {
+        solar_os_shell_io_clear(io);
     } else if (preserve_terminal &&
-               solar_os_shell_io_cursor_col(&shell_display_session.io) != 0) {
-        solar_os_shell_io_newline(&shell_display_session.io);
+               solar_os_shell_io_cursor_col(io) != 0) {
+        solar_os_shell_io_newline(io);
     }
-    if (shell_display_session.prompt_on_resume) {
+    if (session->prompt_on_resume) {
         shell_prompt(ctx);
     }
 }

@@ -17,6 +17,7 @@ members = [
   "service_expansion",
   "service_radio",
   "expansion_rfm69",
+  "expansion_pcd8544",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -276,6 +277,15 @@ sources = [
 requires = ["esp_driver_gpio"]
 capabilities = ["expansion_spi"]
 
+[packages.expansion_pcd8544]
+label = "expansion.pcd8544"
+sources = [
+  "drivers/pcd8544.c",
+  "services/solar_os_pcd8544.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["expansion_spi", "expansion_gpio"]
+
 [packages.service_json]
 label = "service.json"
 sources = ["services/solar_os_json.c"]
@@ -397,15 +407,13 @@ capabilities = ["gfx"]
 label = "app.python"
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
-capabilities = ["psram", "audio", "gpio", "adc", "pwm", "i2c", "battery"]
-any_capabilities = ["temperature", "humidity"]
+capabilities = ["psram", "wifi", "ble", "gpio", "adc", "pwm", "i2c", "uart"]
 
 [packages.app_lua]
 label = "app.lua"
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
-capabilities = ["psram", "audio", "gpio", "adc", "pwm", "i2c", "battery"]
-any_capabilities = ["temperature", "humidity"]
+capabilities = ["psram", "wifi", "ble", "gpio", "adc", "pwm", "i2c", "uart"]
 
 [packages.app_clock]
 label = "app.clock"

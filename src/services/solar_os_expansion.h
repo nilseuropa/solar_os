@@ -36,7 +36,7 @@ typedef struct {
 typedef esp_err_t (*solar_os_expansion_attach_fn_t)(const char *name,
                                                     const solar_os_expansion_binding_t *bindings,
                                                     size_t binding_count);
-typedef void (*solar_os_expansion_detach_fn_t)(const char *name);
+typedef esp_err_t (*solar_os_expansion_detach_fn_t)(const char *name);
 
 typedef struct {
     const char *name;

@@ -17,6 +17,7 @@ void solar_os_shell_cmd_cat(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv);
 #endif

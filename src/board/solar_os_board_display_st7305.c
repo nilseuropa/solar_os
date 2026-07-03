@@ -10,6 +10,7 @@ static rlcd_st7305_t st7305_display;
 static void display_bind_st7305(solar_os_board_display_t *display)
 {
     display->driver = &st7305_display;
+    display->driver_name = "st7305";
     display->u8g2 = rlcd_st7305_get_u8g2(&st7305_display);
     display->controller = SOLAR_OS_BOARD_DISPLAY_CONTROLLER;
     display->width = SOLAR_OS_BOARD_DISPLAY_WIDTH;
@@ -60,6 +61,11 @@ void solar_os_board_display_deinit(solar_os_board_display_t *display)
 u8g2_t *solar_os_board_display_u8g2(solar_os_board_display_t *display)
 {
     return display != NULL ? display->u8g2 : NULL;
+}
+
+const char *solar_os_board_display_driver_name(const solar_os_board_display_t *display)
+{
+    return display != NULL && display->driver_name != NULL ? display->driver_name : "unknown";
 }
 
 const char *solar_os_board_display_controller(const solar_os_board_display_t *display)

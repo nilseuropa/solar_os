@@ -39,12 +39,13 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
 | `reboot` | `reboot` | Restart the board. |
-| `sessions` | `sessions` | List display foreground app sessions. |
-| `fg` | `fg <session-id>` | Resume a display foreground app session. |
-| `close` | `close <session-id>` | Close a display foreground app session. |
+| `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
+| `fg` | `fg <session-id>` | Resume a display app or display shell session. |
+| `close` | `close <session-id>` | Close a display app or display shell session, or stop a port shell session. |
 
-Sessions are foreground application state. Background services such as log
-followers, SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
+Sessions are foreground application state plus shell instances attached to a
+display target or byte-stream port. Background services such as log followers,
+SLIP, DAQ, and HTTP serving are jobs and are controlled with `job`.
 
 Scripts are intentionally simple. `sh` skips blank lines and lines whose first
 non-space character is `#`, then executes each remaining line as a normal shell
@@ -65,6 +66,7 @@ Arguments typed after the alias are appended.
 | `version` | `version` | Print SolarOS version, board, flavor, and package information. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
+| `display` | `display [list]`; `display test <target>` | List drawable display targets or draw a test pattern. |
 | `status` | `status` | Print a compact system status summary. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem` | Print internal RAM, PSRAM, and DMA memory status. |
@@ -99,6 +101,8 @@ setterm
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [12|14|16|18|20]
+setterm brightness [0..100]
+setterm backlight [0..100]
 setterm profile [vt100|ansi|dumb]
 setterm keyboard [us|de]
 setterm keyrate [off|1..60 [delay-ms]]
@@ -118,10 +122,12 @@ the display shell it prints guidance to set the profile from a port shell.
 | `job` | `job status [name]` | Show one job or all jobs. |
 | `job` | `job start <name> [args...]` | Start or restart a job. |
 | `job` | `job stop <name>` | Stop a job. |
-| `session` | `session list` | List display app sessions and port shell sessions. |
+| `session` | `session list` | List display app sessions, display shell sessions, and port shell sessions. |
 | `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
-| `session` | `session fg <id>` or `session switch <id>` | Resume a display app session. |
-| `session` | `session close <id>` | Close a display app session or stop a port shell session. |
+| `session` | `session create shell <display-target>` | Attach a shell session to a ready display target such as `lcd0`. |
+| `session` | `session fg <id>` or `session switch <id>` | Resume a display app or display shell session. |
+| `session` | `session close <id>` | Close a display app or display shell session, or stop a port shell session. |
+| `session` | `session background` | Print the current foreground/background-session note. |
 
 Port shells default to `--term auto`. Auto mode sends a terminal Device
 Attributes probe; a recognizable response enables VT100-style cursor controls
@@ -158,6 +164,7 @@ Common job examples:
 ```text
 session create shell cdc0
 session create shell uart0 --term vt100 --size 100x30
+session create shell lcd0
 job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
@@ -358,6 +365,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
+| `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
 | `expansion` | `expansion [status]` | Show expansion capabilities, connector resources, active devices, and resource claims. |
 | `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
 | `expansion` | `expansion drivers` | List compiled expansion drivers. |
@@ -416,6 +424,14 @@ GPIO5/GPIO21 are TFT control pins, GPIO22 is SD card chip select, GPIO34/GPIO35
 are ADC D-pad axes, GPIO36 is battery ADC, GPIO39 is the board key input, and
 GPIO32/GPIO33/GPIO13/GPIO27/GPIO0 are built-in buttons.
 
+Physical displays are listed by `display list`. A built-in board panel registers
+as a board display target such as `display0`; an expansion display driver stays
+in `expansion drivers` as attachable hardware and registers a display target
+after it is attached. The built-in board panel is not an expansion driver.
+`display list` includes the current owner when a target is claimed. `display
+test <target>` claims the target while it draws a visible frame/test pattern,
+then releases it.
+
 Manual expansion profiles claim resources without initializing external
 hardware:
 
@@ -433,6 +449,25 @@ expansion attach rfm69 radio0 spi=spi0 cs=gpio10
 expansion attach rfm69 radio0 spi=spi0 cs=gpio10 irq=gpio4 reset=gpio5
 expansion detach radio0
 ```
+
+PCD8544 84x48 SPI LCD modules can be attached as auxiliary display targets with
+the `pcd8544` driver. The driver
+requires an expansion SPI bus, a CS/CE pin, a DC pin, and a reset/RST pin. On
+the ESP32-S3 DevKitC-1 target:
+
+```text
+display pins: VCC->3V3 GND->GND CLK/SCLK->GPIO12 DIN/MOSI->GPIO11
+display pins: CE/CS->GPIO10 DC->GPIO4 RST->GPIO5
+expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5
+display list
+display test lcd0
+```
+
+`ce=gpio10` is accepted as an alias for `cs=gpio10`, and `rst=gpio5` is
+accepted as an alias for `reset=gpio5`. If the module has an LED/backlight pin,
+wire it according to the module board; use suitable current limiting when tying
+it to 3V3. Boards without expansion SPI, such as the Waveshare RLCD target,
+will not compile the active `pcd8544` expansion driver.
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI
@@ -462,5 +497,6 @@ ota upgrade
 watch -n 1 battery
 daq start /logs/env.csv temperature humidity battery --rate 60
 session create shell cdc0 --term auto
+session create shell lcd0
 xfer send uart0 /logs/payload.bin --zmodem
 ```

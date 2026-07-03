@@ -829,6 +829,16 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     terminal->dirty = true;
 }
 
+void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool black_is_one)
+{
+    if (terminal == NULL) {
+        return;
+    }
+
+    terminal->black_is_one = black_is_one;
+    terminal->dirty = true;
+}
+
 void solar_os_terminal_clear(solar_os_terminal_t *terminal)
 {
     if (terminal == NULL) {
@@ -1728,6 +1738,18 @@ static bool terminal_draw_block_cell(u8g2_t *u8g2,
     }
 }
 
+static uint8_t terminal_apply_polarity(const solar_os_terminal_t *terminal, uint8_t white_bit)
+{
+    return terminal != NULL && terminal->black_is_one ? (uint8_t)!white_bit : white_bit;
+}
+
+static void terminal_set_draw_color(const solar_os_terminal_t *terminal,
+                                    u8g2_t *u8g2,
+                                    uint8_t white_bit)
+{
+    u8g2_SetDrawColor(u8g2, terminal_apply_polarity(terminal, white_bit));
+}
+
 static void terminal_draw_cell(solar_os_terminal_t *terminal,
                                u8g2_t *u8g2,
                                uint8_t text_scale,
@@ -1746,7 +1768,7 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
             height += top_y;
             top_y = 0;
         }
-        u8g2_SetDrawColor(u8g2, 0);
+        terminal_set_draw_color(terminal, u8g2, 0);
         if (height > 0) {
             u8g2_DrawBox(u8g2,
                          (u8g2_uint_t)x,
@@ -1754,18 +1776,18 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
                          terminal->char_width,
                          height);
         }
-        u8g2_SetDrawColor(u8g2, 1);
+        terminal_set_draw_color(terminal, u8g2, 1);
     } else {
-        u8g2_SetDrawColor(u8g2, 0);
+        terminal_set_draw_color(terminal, u8g2, 0);
     }
 
     if (cell == 0) {
-        u8g2_SetDrawColor(u8g2, 0);
+        terminal_set_draw_color(terminal, u8g2, 0);
         return;
     }
     if (terminal_draw_box_cell(u8g2, x, y, terminal->char_width, terminal->line_height, cell) ||
         terminal_draw_block_cell(u8g2, x, y, terminal->char_width, terminal->line_height, cell)) {
-        u8g2_SetDrawColor(u8g2, 0);
+        terminal_set_draw_color(terminal, u8g2, 0);
         return;
     }
 
@@ -1781,7 +1803,7 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
                        (u8g2_uint_t)(y + 1),
                        terminal->char_width);
     }
-    u8g2_SetDrawColor(u8g2, 0);
+    terminal_set_draw_color(terminal, u8g2, 0);
 }
 
 static void terminal_draw_line(solar_os_terminal_t *terminal,
@@ -1866,14 +1888,14 @@ static void terminal_draw_vrules(solar_os_terminal_t *terminal, u8g2_t *u8g2)
             continue;
         }
 
-        u8g2_SetDrawColor(u8g2, rule->inverse ? 1 : 0);
+        terminal_set_draw_color(terminal, u8g2, rule->inverse ? 1 : 0);
         u8g2_DrawBox(u8g2,
                      (u8g2_uint_t)x,
                      (u8g2_uint_t)y,
                      (u8g2_uint_t)draw_width,
                      (u8g2_uint_t)height);
     }
-    u8g2_SetDrawColor(u8g2, 0);
+    terminal_set_draw_color(terminal, u8g2, 0);
 }
 
 static int cursor_x_position(solar_os_terminal_t *terminal)
@@ -2194,10 +2216,10 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     const int height =
         terminal->status_bar_height > 0 ? terminal->status_bar_height : TERM_STATUS_BAR_HEIGHT;
 
-    u8g2_SetDrawColor(u8g2, 0);
+    terminal_set_draw_color(terminal, u8g2, 0);
     u8g2_DrawBox(u8g2, 0, 0, (u8g2_uint_t)width, (u8g2_uint_t)height);
 
-    u8g2_SetDrawColor(u8g2, 1);
+    terminal_set_draw_color(terminal, u8g2, 1);
     const int icon_y = height >= 16 ? 3 : 1;
     int x = 4;
 
@@ -2251,7 +2273,7 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
                  (u8g2_uint_t)time_x,
                  (u8g2_uint_t)(height - 3),
                  time_text);
-    u8g2_SetDrawColor(u8g2, 0);
+    terminal_set_draw_color(terminal, u8g2, 0);
 }
 
 void solar_os_terminal_draw(solar_os_terminal_t *terminal)
@@ -2264,10 +2286,10 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     terminal_apply_settings(terminal, false);
 
     u8g2_ClearBuffer(u8g2);
-    u8g2_SetDrawColor(u8g2, 1);
+    terminal_set_draw_color(terminal, u8g2, 1);
     u8g2_DrawBox(u8g2, 0, 0, u8g2_GetDisplayWidth(u8g2), u8g2_GetDisplayHeight(u8g2));
     terminal_draw_status_bar(terminal, u8g2);
-    u8g2_SetDrawColor(u8g2, 0);
+    terminal_set_draw_color(terminal, u8g2, 0);
     u8g2_SetFontMode(u8g2, 1);
     u8g2_SetFontPosBaseline(u8g2);
     const uint8_t text_scale = terminal_text_scale(terminal);
@@ -2301,9 +2323,9 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
             terminal->cursor_row < terminal_rows(terminal) &&
             terminal->cursor_col < terminal_cols(terminal) &&
             terminal_inverse_get(terminal->inverse[terminal->cursor_row], terminal->cursor_col);
-        u8g2_SetDrawColor(u8g2, inverse_cursor ? 1 : 0);
+        terminal_set_draw_color(terminal, u8g2, inverse_cursor ? 1 : 0);
         u8g2_DrawHLine(u8g2, (u8g2_uint_t)cursor_x, (u8g2_uint_t)cursor_y, terminal->char_width);
-        u8g2_SetDrawColor(u8g2, 0);
+        terminal_set_draw_color(terminal, u8g2, 0);
     }
 
     u8g2_SendBuffer(u8g2);

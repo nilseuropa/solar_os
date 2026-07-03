@@ -85,12 +85,20 @@ static uint8_t gfx_dither_threshold(solar_os_gfx_color_t color)
     }
 }
 
-static uint8_t gfx_binary_draw_color(solar_os_gfx_color_t color)
+static uint8_t gfx_apply_polarity(const solar_os_gfx_t *gfx, uint8_t white_bit)
 {
-    return gfx_dither_threshold(color) >= 8 ? 1 : 0;
+    return gfx != NULL && gfx->black_is_one ? (uint8_t)!white_bit : white_bit;
 }
 
-static uint8_t gfx_pattern_draw_color(solar_os_gfx_color_t color, int x, int y)
+static uint8_t gfx_binary_draw_color(const solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
+{
+    return gfx_apply_polarity(gfx, gfx_dither_threshold(color) >= 8 ? 1 : 0);
+}
+
+static uint8_t gfx_pattern_draw_color(const solar_os_gfx_t *gfx,
+                                      solar_os_gfx_color_t color,
+                                      int x,
+                                      int y)
 {
     static const uint8_t bayer4[4][4] = {
         {0, 8, 2, 10},
@@ -101,13 +109,13 @@ static uint8_t gfx_pattern_draw_color(solar_os_gfx_color_t color, int x, int y)
 
     const uint8_t threshold = gfx_dither_threshold(color);
     if (threshold == 0) {
-        return 0;
+        return gfx_apply_polarity(gfx, 0);
     }
     if (threshold >= 16) {
-        return 1;
+        return gfx_apply_polarity(gfx, 1);
     }
 
-    return bayer4[y & 3][x & 3] < threshold ? 1 : 0;
+    return gfx_apply_polarity(gfx, bayer4[y & 3][x & 3] < threshold ? 1 : 0);
 }
 
 static bool gfx_ready(const solar_os_gfx_t *gfx)
@@ -139,7 +147,7 @@ static void gfx_apply_draw_state(solar_os_gfx_t *gfx)
         return;
     }
 
-    u8g2_SetDrawColor(gfx->u8g2, gfx_binary_draw_color(gfx->color));
+    u8g2_SetDrawColor(gfx->u8g2, gfx_binary_draw_color(gfx, gfx->color));
     u8g2_SetFont(gfx->u8g2, gfx_font_data(gfx->font));
     u8g2_SetFontMode(gfx->u8g2, 1);
     u8g2_SetFontPosBaseline(gfx->u8g2);
@@ -192,7 +200,7 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
 
     const uint8_t threshold = gfx_dither_threshold(gfx->color);
     if (threshold == 0 || threshold >= 16) {
-        u8g2_SetDrawColor(gfx->u8g2, threshold >= 16 ? 1 : 0);
+        u8g2_SetDrawColor(gfx->u8g2, gfx_apply_polarity(gfx, threshold >= 16 ? 1 : 0));
         u8g2_DrawHLine(gfx->u8g2,
                        (u8g2_uint_t)start,
                        (u8g2_uint_t)y,
@@ -201,9 +209,9 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
     }
 
     int run_start = start;
-    uint8_t run_color = gfx_pattern_draw_color(gfx->color, start, y);
+    uint8_t run_color = gfx_pattern_draw_color(gfx, gfx->color, start, y);
     for (int col = start + 1; col < end; col++) {
-        const uint8_t color = gfx_pattern_draw_color(gfx->color, col, y);
+        const uint8_t color = gfx_pattern_draw_color(gfx, gfx->color, col, y);
         if (color == run_color) {
             continue;
         }
@@ -235,6 +243,15 @@ void solar_os_gfx_init(solar_os_gfx_t *gfx, u8g2_t *u8g2)
     gfx->color = SOLAR_OS_GFX_COLOR_BLACK;
     gfx->font = SOLAR_OS_GFX_FONT_MONO;
     gfx->line_style = SOLAR_OS_GFX_LINE_SOLID;
+}
+
+void solar_os_gfx_set_black_is_one(solar_os_gfx_t *gfx, bool black_is_one)
+{
+    if (gfx == NULL) {
+        return;
+    }
+
+    gfx->black_is_one = black_is_one;
 }
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)

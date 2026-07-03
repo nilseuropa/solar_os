@@ -472,12 +472,14 @@ esp_err_t solar_os_tui_begin(solar_os_tui_t *tui, solar_os_context_t *ctx)
     if (!solar_os_shell_io_is_cursor_addressable(tui->io)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-    tui->draw_attr = tui_attr_from_io(tui->io);
+    tui->saved_attr = tui_attr_from_io(tui->io);
+    tui->draw_attr = tui->saved_attr;
     tui->draw_row = solar_os_shell_io_cursor_row(tui->io);
     tui->draw_col = solar_os_shell_io_cursor_col(tui->io);
     tui->cursor_row = tui->draw_row;
     tui->cursor_col = tui->draw_col;
-    tui->cursor_visible = solar_os_shell_io_cursor_visible(tui->io);
+    tui->saved_cursor_visible = solar_os_shell_io_cursor_visible(tui->io);
+    tui->cursor_visible = tui->saved_cursor_visible;
     return tui_valid(tui) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
@@ -488,6 +490,13 @@ void solar_os_tui_end(solar_os_tui_t *tui)
     }
     tui_free_diff_buffers(tui);
     tui->diff_enabled = false;
+    if (tui_valid(tui)) {
+        tui_set_attr(tui, tui->saved_attr);
+        tui->draw_attr = tui->saved_attr;
+        tui->cursor_visible = tui->saved_cursor_visible;
+        (void)solar_os_shell_io_set_cursor_visible(tui->io, tui->saved_cursor_visible);
+        (void)solar_os_shell_io_flush(tui->io);
+    }
 }
 
 esp_err_t solar_os_tui_enable_diff(solar_os_tui_t *tui, bool enabled)
