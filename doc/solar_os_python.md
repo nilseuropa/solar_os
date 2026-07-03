@@ -459,6 +459,32 @@ print(solaros.jobs.status("ntp-sync"))
 solaros.jobs.stop("ntp-sync")
 ```
 
+## `solaros.sessions`
+
+Session functions create and close foreground shell/app sessions.
+
+- `create_shell(port[, term[, cols, rows]])`: create a port shell session and return its numeric session id.
+- `create_shell(port, term="auto", cols=80, rows=24)`: keyword form for the same call.
+- `close(session_id)`: close a display/app session or stop a port shell session.
+
+Manual port shell sessions created from scripts do not run `/.shell/startup`.
+
+Example:
+
+```python
+import solaros
+
+try:
+    solaros.jobs.stop("slip")
+except OSError:
+    pass
+
+sid = solaros.sessions.create_shell("uart0", term="auto")
+# later:
+solaros.sessions.close(sid)
+solaros.jobs.start("slip", ["uart0", "115200"])
+```
+
 ## `solaros.apps`
 
 Application functions inspect the built-in foreground app registry.

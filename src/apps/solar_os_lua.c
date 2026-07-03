@@ -41,10 +41,12 @@
 #include "solar_os_net.h"
 #include "solar_os_ssh_keys.h"
 #endif
+#include "solar_os_port_shell.h"
 #include "solar_os_pwm.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
 #endif
+#include "solar_os_sessions.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
@@ -1981,6 +1983,95 @@ static int solua_jobs_stop(lua_State *L)
     return solua_check_esp(L, solar_os_jobs_stop(solua.ctx, luaL_checkstring(L, 1)));
 }
 
+static solar_os_shell_terminal_profile_t solua_terminal_profile_from_arg(lua_State *L, int index)
+{
+    solar_os_shell_terminal_profile_t profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO;
+    if (lua_isnoneornil(L, index)) {
+        return profile;
+    }
+    if (!solar_os_shell_parse_terminal_profile(luaL_checkstring(L, index), &profile)) {
+        luaL_error(L, "expected terminal profile auto, vt100, ansi, or dumb");
+    }
+    return profile;
+}
+
+static void solua_apply_session_options_table(lua_State *L,
+                                              int index,
+                                              solar_os_port_shell_options_t *options)
+{
+    lua_getfield(L, index, "term");
+    if (!lua_isnil(L, -1)) {
+        options->terminal_profile = solua_terminal_profile_from_arg(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "cols");
+    if (!lua_isnil(L, -1)) {
+        options->cols = solua_check_u16_size(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "rows");
+    if (!lua_isnil(L, -1)) {
+        options->rows = solua_check_u16_size(L, -1);
+    }
+    lua_pop(L, 1);
+}
+
+static int solua_sessions_create_shell(lua_State *L)
+{
+    if (solua.ctx == NULL) {
+        return solua_check_esp(L, ESP_ERR_INVALID_STATE);
+    }
+
+    const int argc = lua_gettop(L);
+    if (argc < 1 || argc > 4) {
+        return luaL_error(L, "usage: solaros.sessions.create_shell(port[, term[, cols, rows]])");
+    }
+
+    solar_os_port_shell_options_t options = {
+        .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .cols = 0,
+        .rows = 0,
+    };
+
+    const char *port_name = luaL_checkstring(L, 1);
+    if (argc >= 2 && !lua_isnoneornil(L, 2)) {
+        if (lua_istable(L, 2)) {
+            if (argc != 2) {
+                return luaL_error(L, "options table must be the last argument");
+            }
+            solua_apply_session_options_table(L, 2, &options);
+        } else {
+            options.terminal_profile = solua_terminal_profile_from_arg(L, 2);
+        }
+    }
+    if (argc >= 3 && !lua_isnoneornil(L, 3)) {
+        options.cols = solua_check_u16_size(L, 3);
+    }
+    if (argc >= 4 && !lua_isnoneornil(L, 4)) {
+        options.rows = solua_check_u16_size(L, 4);
+    }
+
+    uint8_t session_id = 0;
+    const esp_err_t err = solar_os_port_shell_start_with_options(solua.ctx,
+                                                                 port_name,
+                                                                 &options,
+                                                                 false,
+                                                                 &session_id);
+    if (err != ESP_OK) {
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushinteger(L, (lua_Integer)session_id);
+    return 1;
+}
+
+static int solua_sessions_close(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_sessions_close_any(solua_check_u8(L, 1), NULL));
+}
+
 static int solua_apps_list(lua_State *L)
 {
     lua_newtable(L);
@@ -2746,6 +2837,12 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "status", solua_jobs_status);
     solua_set_func(L, mod, "start", solua_jobs_start);
     solua_set_func(L, mod, "stop", solua_jobs_stop);
+    lua_pop(L, 1);
+
+    solua_new_submodule(L, solaros, "sessions");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "create_shell", solua_sessions_create_shell);
+    solua_set_func(L, mod, "close", solua_sessions_close);
     lua_pop(L, 1);
 
     solua_new_submodule(L, solaros, "apps");

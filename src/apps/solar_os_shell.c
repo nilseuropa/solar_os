@@ -3837,21 +3837,7 @@ static void session_request_fg(solar_os_context_t *ctx, uint8_t session_id)
 
 static void session_request_close(solar_os_context_t *ctx, uint8_t session_id)
 {
-    if (solar_os_port_shell_is_session_id(session_id)) {
-        const esp_err_t err = solar_os_port_shell_stop(session_id);
-        if (err == ESP_OK) {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "closed session %u\n",
-                                     (unsigned)session_id);
-        } else {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "close: failed: %s\n",
-                                     esp_err_to_name(err));
-        }
-        return;
-    }
-
-    (void)solar_os_sessions_close_session(session_id, terminal(ctx));
+    (void)solar_os_sessions_close_any(session_id, terminal(ctx));
 }
 
 static void session_create_display_shell(solar_os_context_t *ctx, const char *target_name)

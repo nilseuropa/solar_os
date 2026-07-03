@@ -47,10 +47,12 @@
 #include "solar_os_jobs.h"
 #include "solar_os_mqtt.h"
 #include "solar_os_net.h"
+#include "solar_os_port_shell.h"
 #include "solar_os_pwm.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
 #endif
+#include "solar_os_sessions.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_ssh_keys.h"
 #include "solar_os_status_led.h"
@@ -2162,6 +2164,114 @@ static mp_obj_t solaros_jobs_stop(mp_obj_t name_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_jobs_stop_obj, solaros_jobs_stop);
 
+static mp_obj_t python_kw_value(mp_map_t *kw_args, const char *name)
+{
+    if (kw_args == NULL || kw_args->used == 0) {
+        return MP_OBJ_NULL;
+    }
+
+    mp_map_elem_t *elem = mp_map_lookup(kw_args,
+                                        MP_OBJ_NEW_QSTR(qstr_from_str(name)),
+                                        MP_MAP_LOOKUP);
+    return elem != NULL ? elem->value : MP_OBJ_NULL;
+}
+
+static void python_check_known_kwargs(mp_map_t *kw_args,
+                                      const char *first,
+                                      const char *second,
+                                      const char *third)
+{
+    if (kw_args == NULL || kw_args->used == 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < kw_args->alloc; i++) {
+        if (!mp_map_slot_is_filled(kw_args, i)) {
+            continue;
+        }
+        const char *key = mp_obj_str_get_str(kw_args->table[i].key);
+        if ((first != NULL && strcmp(key, first) == 0) ||
+            (second != NULL && strcmp(key, second) == 0) ||
+            (third != NULL && strcmp(key, third) == 0)) {
+            continue;
+        }
+        mp_raise_msg_varg(&mp_type_TypeError,
+                          MP_ERROR_TEXT("unexpected keyword argument '%s'"),
+                          key);
+    }
+}
+
+static solar_os_shell_terminal_profile_t python_terminal_profile_from_obj(mp_obj_t obj)
+{
+    solar_os_shell_terminal_profile_t profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO;
+    if (obj == MP_OBJ_NULL || obj == mp_const_none) {
+        return profile;
+    }
+    if (!solar_os_shell_parse_terminal_profile(mp_obj_str_get_str(obj), &profile)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected terminal profile auto, vt100, ansi, or dumb"));
+    }
+    return profile;
+}
+
+static mp_obj_t solaros_sessions_create_shell(size_t n_args,
+                                              const mp_obj_t *args,
+                                              mp_map_t *kw_args)
+{
+    mp_arg_check_num(n_args, kw_args != NULL ? kw_args->used : 0, 1, 4, true);
+    python_check_known_kwargs(kw_args, "term", "cols", "rows");
+    if (python_app.ctx == NULL) {
+        python_raise_esp(ESP_ERR_INVALID_STATE);
+    }
+
+    solar_os_port_shell_options_t options = {
+        .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .cols = 0,
+        .rows = 0,
+    };
+
+    const char *port_name = mp_obj_str_get_str(args[0]);
+    if (n_args >= 2) {
+        options.terminal_profile = python_terminal_profile_from_obj(args[1]);
+    }
+    if (n_args >= 3 && args[2] != mp_const_none) {
+        options.cols = python_u16_from_size(python_size_from_obj(args[2]));
+    }
+    if (n_args >= 4 && args[3] != mp_const_none) {
+        options.rows = python_u16_from_size(python_size_from_obj(args[3]));
+    }
+
+    mp_obj_t value = python_kw_value(kw_args, "term");
+    if (value != MP_OBJ_NULL) {
+        options.terminal_profile = python_terminal_profile_from_obj(value);
+    }
+    value = python_kw_value(kw_args, "cols");
+    if (value != MP_OBJ_NULL && value != mp_const_none) {
+        options.cols = python_u16_from_size(python_size_from_obj(value));
+    }
+    value = python_kw_value(kw_args, "rows");
+    if (value != MP_OBJ_NULL && value != mp_const_none) {
+        options.rows = python_u16_from_size(python_size_from_obj(value));
+    }
+
+    uint8_t session_id = 0;
+    python_check_esp(solar_os_port_shell_start_with_options(python_app.ctx,
+                                                            port_name,
+                                                            &options,
+                                                            false,
+                                                            &session_id));
+    return mp_obj_new_int_from_uint(session_id);
+}
+MP_DEFINE_CONST_FUN_OBJ_KW(solaros_sessions_create_shell_obj,
+                           1,
+                           solaros_sessions_create_shell);
+
+static mp_obj_t solaros_sessions_close(mp_obj_t session_id_obj)
+{
+    python_check_esp(solar_os_sessions_close_any(python_u8_from_obj(session_id_obj), NULL));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_sessions_close_obj, solaros_sessions_close);
+
 static mp_obj_t solaros_apps_list(void)
 {
     mp_obj_t list = mp_obj_new_list(0, NULL);
@@ -2954,6 +3064,12 @@ static void python_register_solaros_module(void)
     python_module_store(jobs, "status", MP_OBJ_FROM_PTR(&solaros_jobs_status_obj));
     python_module_store(jobs, "start", MP_OBJ_FROM_PTR(&solaros_jobs_start_obj));
     python_module_store(jobs, "stop", MP_OBJ_FROM_PTR(&solaros_jobs_stop_obj));
+
+    mp_obj_t sessions = python_new_submodule(module, "sessions");
+    python_module_store(sessions,
+                        "create_shell",
+                        MP_OBJ_FROM_PTR(&solaros_sessions_create_shell_obj));
+    python_module_store(sessions, "close", MP_OBJ_FROM_PTR(&solaros_sessions_close_obj));
 
     mp_obj_t apps = python_new_submodule(module, "apps");
     python_module_store(apps, "list", MP_OBJ_FROM_PTR(&solaros_apps_list_obj));

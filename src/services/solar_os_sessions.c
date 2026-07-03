@@ -1195,6 +1195,28 @@ esp_err_t solar_os_sessions_close_session(uint8_t session_id, solar_os_shell_io_
     return ESP_OK;
 }
 
+esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *io)
+{
+    if (solar_os_port_shell_is_session_id(session_id)) {
+        const esp_err_t err = solar_os_port_shell_stop(session_id);
+        if (io != NULL) {
+            if (err == ESP_OK) {
+                solar_os_shell_io_printf(io,
+                                         "closed session %u\n",
+                                         (unsigned)session_id);
+            } else {
+                solar_os_shell_io_printf(io,
+                                         "close: failed: %s\n",
+                                         esp_err_to_name(err));
+            }
+            solar_os_shell_io_flush(io);
+        }
+        return err;
+    }
+
+    return solar_os_sessions_close_session(session_id, io);
+}
+
 void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
 {
     (void)user;

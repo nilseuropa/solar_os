@@ -497,13 +497,13 @@ The built-in app registry stores each app name, summary, implementation pointer,
 
 `python` starts an interactive MicroPython prompt with `>>>` and `...` continuation prompts. `python <file.py|file.mpy> [args...]` runs a MicroPython script from storage. Script output is drawn in the SolarOS terminal, `sys.argv` contains the script path and following arguments, and `CTRL+ALT+DEL` exits at the prompt or requests `KeyboardInterrupt` while code is running.
 
-The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, `solaros.apps`, `solaros.tui`, and `solaros.gfx`.
+The native `solaros` module exposes SolarOS services to MicroPython scripts. Top-level helpers include `write(text)`, `version()`, `should_exit()`, `battery_status()`, `wifi_status()`, and `environment()`. Service modules are grouped as `solaros.storage`, `solaros.time`, `solaros.battery`, `solaros.sensors`, `solaros.wifi`, `solaros.mqtt`, `solaros.gpio`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.uart`, `solaros.audio`, `solaros.ble`, `solaros.clipboard`, `solaros.identity`, `solaros.net`, `solaros.ssh_keys`, `solaros.jobs`, `solaros.sessions`, `solaros.apps`, `solaros.tui`, and `solaros.gfx`.
 
 See [SolarOS Python API](doc/solar_os_python.md) for the full module reference and examples.
 
 `lua` starts an interactive Lua prompt. `lua <file.lua> [args...]` runs a Lua script from storage, with `arg[0]` set to the script path and following arguments stored from `arg[1]`. The embedded Lua library set includes base, coroutine, table, string, math, UTF-8, and debug. Host-facing Lua `io`, `os`, and dynamic package loading are intentionally not opened. SolarOS preloads a global `solaros` table and also supports `local solaros = require("solaros")` through a minimal built-in shim.
 
-The Lua `solaros` API mirrors the Python service layout for storage, time, hardware services, Wi-Fi, audio, BLE, jobs, app registry, TUI, and graphics. Network-specific Lua modules such as `mqtt`, `net`, and `ssh_keys` are present when the `net` package is compiled.
+The Lua `solaros` API mirrors the Python service layout for storage, time, hardware services, Wi-Fi, audio, BLE, jobs, sessions, app registry, TUI, and graphics. Network-specific Lua modules such as `mqtt`, `net`, and `ssh_keys` are present when the `net` package is compiled.
 
 See [SolarOS Lua API](doc/solar_os_lua.md) for the Lua module reference and examples.
 

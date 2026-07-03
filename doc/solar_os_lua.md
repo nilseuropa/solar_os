@@ -46,6 +46,7 @@ Hardware-backed tables are present only when the board/flavor includes the corre
 - `solaros.net`: `ping` when the `net` package is compiled
 - `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when the `net` package is compiled
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
+- `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`
 - `solaros.tui`: curses-like terminal drawing functions
 - `solaros.gfx`: foreground graphics drawing functions
@@ -87,6 +88,30 @@ while not solaros.should_exit() do
         break
     end
 end
+```
+
+## Sessions
+
+`solaros.sessions` creates manual port shell sessions and closes sessions by id.
+Script-created port shells do not run `/.shell/startup`.
+
+- `create_shell(port[, term[, cols, rows]])`: create a port shell and return its numeric session id.
+- `create_shell(port, {term="auto", cols=80, rows=24})`: table-options form for the same call.
+- `close(session_id)`: close a display/app session or stop a port shell session.
+
+Example:
+
+```lua
+local solaros = require("solaros")
+
+pcall(function()
+    solaros.jobs.stop("slip")
+end)
+
+local sid = solaros.sessions.create_shell("uart0", {term = "auto"})
+-- later:
+solaros.sessions.close(sid)
+solaros.jobs.start("slip", {"uart0", "115200"})
 ```
 
 ## Graphics
