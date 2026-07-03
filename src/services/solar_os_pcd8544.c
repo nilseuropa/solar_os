@@ -158,6 +158,7 @@ static esp_err_t register_display_target(solar_os_pcd8544_device_t *device)
     target.height = PCD8544_HEIGHT;
     target.ready = true;
     target.brightness_supported = false;
+    target.black_is_one = true;
     target.u8g2 = pcd8544_get_u8g2(&device->display);
     return solar_os_display_register_target(&target);
 }

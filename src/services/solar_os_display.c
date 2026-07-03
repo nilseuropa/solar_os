@@ -125,6 +125,16 @@ static void display_sync_slot(display_target_slot_t *slot)
 #endif
 }
 
+static void display_init_slot_gfx(display_target_slot_t *slot)
+{
+    if (slot == NULL) {
+        return;
+    }
+
+    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    solar_os_gfx_set_black_is_one(&slot->gfx, slot->target.black_is_one);
+}
+
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 static esp_err_t display_register_board_target(solar_os_board_display_t *display)
 {
@@ -203,7 +213,7 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.controller[sizeof(slot->target.controller) - 1] = '\0';
     slot->target.role[sizeof(slot->target.role) - 1] = '\0';
     slot->target.owner[0] = '\0';
-    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    display_init_slot_gfx(slot);
     return ESP_OK;
 }
 
@@ -304,7 +314,7 @@ esp_err_t solar_os_display_claim(const char *name,
     }
 
     strlcpy(slot->target.owner, owner, sizeof(slot->target.owner));
-    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    display_init_slot_gfx(slot);
     return ESP_OK;
 }
 
@@ -352,7 +362,7 @@ esp_err_t solar_os_display_release(const char *name, const char *owner)
     }
 
     slot->target.owner[0] = '\0';
-    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    display_init_slot_gfx(slot);
     return ESP_OK;
 }
 

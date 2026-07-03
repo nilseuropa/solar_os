@@ -29,6 +29,7 @@ typedef struct {
     uint16_t height;
     bool ready;
     bool brightness_supported;
+    bool black_is_one;
     u8g2_t *u8g2;
 } solar_os_display_target_t;
 
