@@ -226,7 +226,7 @@ static void display_print_targets(solar_os_shell_io_t *term)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "TARGET   SOURCE    DRIVER     SIZE      ROLE     READY BRIGHT");
+    solar_os_shell_io_writeln(term, "TARGET   SOURCE    DRIVER     SIZE      ROLE     READY BRIGHT OWNER");
     for (size_t i = 0; i < count; i++) {
         solar_os_display_target_t target;
         if (!solar_os_display_get_target(i, &target)) {
@@ -240,14 +240,15 @@ static void display_print_targets(solar_os_shell_io_t *term)
                  (unsigned)target.width,
                  (unsigned)target.height);
         solar_os_shell_io_printf(term,
-                                 "%-8s %-9s %-10s %-9s %-8s %-5s %s\n",
+                                 "%-8s %-9s %-10s %-9s %-8s %-5s %-6s %s\n",
                                  target.name,
                                  target.source,
                                  target.driver,
                                  size,
                                  target.role[0] != '\0' ? target.role : "-",
                                  target.ready ? "yes" : "no",
-                                 target.brightness_supported ? "yes" : "no");
+                                 target.brightness_supported ? "yes" : "no",
+                                 target.owner[0] != '\0' ? target.owner : "-");
     }
 }
 
@@ -280,6 +281,8 @@ static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
 
 static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    static const char owner[] = "shell:display-test";
+
     if (argc != 3) {
         solar_os_shell_io_writeln(term, "usage: display test <target>");
         return;
@@ -295,7 +298,26 @@ static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
+    char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+    const esp_err_t claim_err =
+        solar_os_display_claim(target.name, owner, busy_owner, sizeof(busy_owner));
+    if (claim_err == ESP_ERR_INVALID_STATE && busy_owner[0] != '\0') {
+        solar_os_shell_io_printf(term,
+                                 "display test: %s owned by %s\n",
+                                 target.name,
+                                 busy_owner);
+        return;
+    }
+    if (claim_err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "display test: %s claim failed: %s\n",
+                                 target.name,
+                                 esp_err_to_name(claim_err));
+        return;
+    }
+
     display_draw_test_pattern(target.u8g2, target.name);
+    (void)solar_os_display_release(target.name, owner);
     solar_os_shell_io_printf(term, "display test: drew %s\n", target.name);
 }
 

@@ -4,6 +4,7 @@
 
 #include "esp_check.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_gfx_internal.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "nvs.h"
@@ -20,6 +21,7 @@
 typedef struct {
     bool active;
     solar_os_display_target_t target;
+    solar_os_gfx_t gfx;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
 #endif
@@ -67,6 +69,13 @@ static uint8_t display_load_brightness(void)
 static bool display_target_name_valid(const char *name, size_t max_len)
 {
     return name != NULL && name[0] != '\0' && strnlen(name, max_len) < max_len;
+}
+
+static bool display_owner_valid(const char *owner)
+{
+    return owner != NULL &&
+        owner[0] != '\0' &&
+        strnlen(owner, SOLAR_OS_DISPLAY_TARGET_OWNER_MAX) < SOLAR_OS_DISPLAY_TARGET_OWNER_MAX;
 }
 
 static display_target_slot_t *display_find_slot(const char *name)
@@ -193,6 +202,8 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.driver[sizeof(slot->target.driver) - 1] = '\0';
     slot->target.controller[sizeof(slot->target.controller) - 1] = '\0';
     slot->target.role[sizeof(slot->target.role) - 1] = '\0';
+    slot->target.owner[0] = '\0';
+    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
     return ESP_OK;
 }
 
@@ -205,6 +216,9 @@ esp_err_t solar_os_display_unregister_target(const char *name)
     display_target_slot_t *slot = display_find_slot(name);
     if (slot == NULL) {
         return ESP_ERR_NOT_FOUND;
+    }
+    if (slot->target.owner[0] != '\0') {
+        return ESP_ERR_INVALID_STATE;
     }
 
     memset(slot, 0, sizeof(*slot));
@@ -257,6 +271,89 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
     display_sync_slot(slot);
     *target = slot->target;
     return true;
+}
+
+esp_err_t solar_os_display_claim(const char *name,
+                                 const char *owner,
+                                 char *busy_owner,
+                                 size_t busy_owner_len)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        !display_owner_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (busy_owner != NULL && busy_owner_len > 0) {
+        busy_owner[0] = '\0';
+    }
+
+    display_target_slot_t *slot = display_find_slot(name);
+    if (slot == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    display_sync_slot(slot);
+    if (!slot->target.ready || slot->target.u8g2 == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (slot->target.owner[0] != '\0' && strcmp(slot->target.owner, owner) != 0) {
+        if (busy_owner != NULL && busy_owner_len > 0) {
+            strlcpy(busy_owner, slot->target.owner, busy_owner_len);
+        }
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    strlcpy(slot->target.owner, owner, sizeof(slot->target.owner));
+    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_open_gfx(const char *name,
+                                    const char *owner,
+                                    solar_os_gfx_t **gfx,
+                                    char *busy_owner,
+                                    size_t busy_owner_len)
+{
+    if (gfx == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *gfx = NULL;
+
+    esp_err_t err = solar_os_display_claim(name, owner, busy_owner, busy_owner_len);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    display_target_slot_t *slot = display_find_slot(name);
+    if (slot == NULL) {
+        (void)solar_os_display_release(name, owner);
+        return ESP_ERR_NOT_FOUND;
+    }
+    *gfx = &slot->gfx;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_release(const char *name, const char *owner)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        !display_owner_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    display_target_slot_t *slot = display_find_slot(name);
+    if (slot == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (slot->target.owner[0] == '\0') {
+        return ESP_OK;
+    }
+    if (strcmp(slot->target.owner, owner) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    slot->target.owner[0] = '\0';
+    solar_os_gfx_init(&slot->gfx, slot->target.u8g2);
+    return ESP_OK;
 }
 
 bool solar_os_display_brightness_supported(void)

@@ -421,8 +421,9 @@ Physical displays are listed by `display list`. A built-in board panel registers
 as a board display target such as `display0`; an expansion display driver stays
 in `expansion drivers` as attachable hardware and registers a display target
 after it is attached. The built-in board panel is not an expansion driver.
-`display test <target>` draws a visible frame/test pattern to a registered
-target.
+`display list` includes the current owner when a target is claimed. `display
+test <target>` claims the target while it draws a visible frame/test pattern,
+then releases it.
 
 Manual expansion profiles claim resources without initializing external
 hardware:

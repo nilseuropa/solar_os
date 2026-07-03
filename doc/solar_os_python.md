@@ -23,6 +23,8 @@ Most mutating functions return `None` on success and raise `OSError("ESP_ERR_...
 
 Functions that accept file paths use SolarOS shell-style paths. `/` means the default storage mount; internally this resolves to the active storage mount point.
 
+Hardware-backed helpers and submodules are present only when the board/flavor includes the corresponding service package. For example, a DevKitC1 full build has Python but omits `solaros.audio`, `solaros.battery`, and `solaros.sensors` because that board has no built-in audio, battery, or environmental sensor service.
+
 ```python
 print(solaros.storage.resolve("/.shell/history"))
 ```
@@ -54,9 +56,9 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.write(text)`: write text to the SolarOS terminal.
 - `solaros.version()`: return the SolarOS firmware version string.
 - `solaros.should_exit()`: return `True` when the app is being asked to stop.
-- `solaros.battery_status()`: shortcut for `solaros.battery.status()`.
+- `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
 - `solaros.wifi_status()`: compact Wi-Fi status shortcut.
-- `solaros.environment()`: shortcut for `solaros.sensors.environment()`.
+- `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
 
 ## `solaros.storage`
 
@@ -126,6 +128,8 @@ if solaros.wifi.status()["has_ip"]:
 
 ## `solaros.battery`
 
+Available when the firmware includes the battery service.
+
 - `status()`: return battery status with `voltage_mv`, `percent`, `percent_estimated`, `adc_calibrated`, and `external_power`.
 
 Example:
@@ -138,6 +142,8 @@ print("{} mV, {}%".format(battery["voltage_mv"], battery["percent"]))
 ```
 
 ## `solaros.sensors`
+
+Available when the firmware includes the environmental sensor service.
 
 - `environment()`: return `temperature_c` and `humidity_percent`.
 
@@ -319,6 +325,8 @@ print(solaros.uart.read(64, 500))
 ```
 
 ## `solaros.audio`
+
+Available when the firmware includes the audio service.
 
 Audio functions expose the microphone, speaker, and WAV service.
 
@@ -518,7 +526,7 @@ while not solaros.should_exit():
 
 ## `solaros.gfx`
 
-Graphics functions provide queued access to the SolarOS foreground graphics service. Call `begin()` before drawing and `refresh()`/`present()` to push the frame to the display.
+Graphics functions provide queued access to the SolarOS foreground graphics service. Call `begin()` before drawing and `refresh()`/`present()` to push the frame to the display. `begin(target)` claims a named display target, such as `lcd0`, until `end()` or script cleanup.
 
 Colors:
 
@@ -544,7 +552,7 @@ Italic constants currently map to the closest upright face in the trimmed firmwa
 
 Functions:
 
-- `begin()`: enter foreground graphics mode.
+- `begin([target])`: enter foreground graphics mode; when `target` is provided, claim and draw to that named display target.
 - `end()`: leave graphics mode and redraw the terminal.
 - `width()`: return graphics width in pixels.
 - `height()`: return graphics height in pixels.
@@ -590,6 +598,16 @@ while not solaros.should_exit():
     if key == gfx.KEY_ESCAPE:
         break
 
+gfx.end()
+```
+
+For an attached auxiliary display, use the target name:
+
+```python
+gfx.begin("lcd0")
+gfx.clear(gfx.WHITE)
+gfx.text(2, 14, "aux")
+gfx.present()
 gfx.end()
 ```
 

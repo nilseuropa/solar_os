@@ -218,13 +218,14 @@ esp_err_t solar_os_pcd8544_attach(const char *name,
     return ESP_OK;
 }
 
-void solar_os_pcd8544_detach(const char *name)
+esp_err_t solar_os_pcd8544_detach(const char *name)
 {
     solar_os_pcd8544_device_t *device = find_device(name);
     if (device == NULL) {
-        return;
+        return ESP_ERR_NOT_FOUND;
     }
 
-    (void)solar_os_display_unregister_target(name);
+    ESP_RETURN_ON_ERROR(solar_os_display_unregister_target(name), TAG, "unregister display target failed");
     clear_device(device);
+    return ESP_OK;
 }

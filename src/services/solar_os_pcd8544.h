@@ -8,4 +8,4 @@
 esp_err_t solar_os_pcd8544_attach(const char *name,
                                   const solar_os_expansion_binding_t *bindings,
                                   size_t binding_count);
-void solar_os_pcd8544_detach(const char *name);
+esp_err_t solar_os_pcd8544_detach(const char *name);

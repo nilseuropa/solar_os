@@ -320,15 +320,15 @@ esp_err_t solar_os_rfm69_attach(const char *name,
     return ESP_OK;
 }
 
-void solar_os_rfm69_detach(const char *name)
+esp_err_t solar_os_rfm69_detach(const char *name)
 {
     solar_os_rfm69_device_t *device = find_device(name);
     if (device == NULL) {
-        return;
+        return ESP_ERR_NOT_FOUND;
     }
 
     (void)solar_os_radio_unregister(name);
     (void)rfm69_set_state(&device->radio, SOLAR_OS_RADIO_STATE_SLEEP);
     clear_device(device);
+    return ESP_OK;
 }
-

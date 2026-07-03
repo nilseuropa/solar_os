@@ -426,6 +426,8 @@ static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **arg
         solar_os_shell_io_printf(term, "detached %s\n", argv[2]);
     } else if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_printf(term, "expansion detach: %s not found\n", argv[2]);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term, "expansion detach: %s is busy\n", argv[2]);
     } else {
         solar_os_shell_io_printf(term, "expansion detach failed: %s\n", esp_err_to_name(err));
     }

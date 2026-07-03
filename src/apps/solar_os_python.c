@@ -30,10 +30,16 @@
 #include "py/runtime.h"
 #include "solar_os_adc.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
+#endif
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_clipboard.h"
+#include "solar_os_display.h"
 #include "solar_os_gfx.h"
 #include "solar_os_gpio.h"
 #include "solar_os_i2c.h"
@@ -42,7 +48,9 @@
 #include "solar_os_mqtt.h"
 #include "solar_os_net.h"
 #include "solar_os_pwm.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
+#endif
 #include "solar_os_shell_io.h"
 #include "solar_os_ssh_keys.h"
 #include "solar_os_status_led.h"
@@ -149,6 +157,9 @@ typedef struct {
     size_t repl_input_cursor;
     char repl_input[PYTHON_REPL_LINE_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solar_os_gfx_t *claimed_gfx;
+    char gfx_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    char gfx_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
     int argc;
     char argv[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
 } python_app_state_t;
@@ -373,6 +384,19 @@ static void python_check_esp(esp_err_t err)
     if (err != ESP_OK) {
         python_raise_esp(err);
     }
+}
+
+static void python_raise_display_claim_error(const char *target,
+                                             esp_err_t err,
+                                             const char *busy_owner)
+{
+    if (err == ESP_ERR_INVALID_STATE && busy_owner != NULL && busy_owner[0] != '\0') {
+        mp_raise_msg_varg(&mp_type_OSError,
+                          MP_ERROR_TEXT("%s owned by %s"),
+                          target != NULL ? target : "display",
+                          busy_owner);
+    }
+    python_raise_esp(err);
 }
 
 static const char *python_optional_str(size_t n_args,
@@ -637,6 +661,7 @@ static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
     return dict;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t python_audio_status_to_dict(const solar_os_audio_status_t *status)
 {
     mp_obj_t dict = mp_obj_new_dict(14);
@@ -657,6 +682,7 @@ static mp_obj_t python_audio_status_to_dict(const solar_os_audio_status_t *statu
     python_dict_store_cstr(dict, "input_codec", status->input_codec);
     return dict;
 }
+#endif
 
 static mp_obj_t python_mqtt_status_to_dict(const solar_os_mqtt_status_t *status)
 {
@@ -694,6 +720,7 @@ static mp_obj_t python_mqtt_message_to_dict(const solar_os_mqtt_message_t *messa
     return dict;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t python_wav_info_to_dict(const solar_os_audio_wav_info_t *info)
 {
     mp_obj_t dict = mp_obj_new_dict(6);
@@ -705,6 +732,7 @@ static mp_obj_t python_wav_info_to_dict(const solar_os_audio_wav_info_t *info)
     python_dict_store_int(dict, "bits_per_sample", info->bits_per_sample);
     return dict;
 }
+#endif
 
 static bool python_should_cancel(void *user)
 {
@@ -752,6 +780,7 @@ static mp_obj_t python_builtin_exit(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(python_builtin_exit_obj, 0, 1, python_builtin_exit);
 
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 static mp_obj_t solaros_battery(void)
 {
     solar_os_battery_status_t status;
@@ -768,6 +797,7 @@ static mp_obj_t solaros_battery(void)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_battery_obj, solaros_battery);
+#endif
 
 static mp_obj_t solaros_wifi(void)
 {
@@ -791,6 +821,7 @@ static mp_obj_t solaros_wifi(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_obj, solaros_wifi);
 
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 static mp_obj_t solaros_environment(void)
 {
     solar_os_environment_t environment;
@@ -804,6 +835,7 @@ static mp_obj_t solaros_environment(void)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_environment_obj, solaros_environment);
+#endif
 
 static mp_obj_t solaros_storage_status(void)
 {
@@ -1112,17 +1144,21 @@ static mp_obj_t solaros_time_ntp_sync(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_time_ntp_sync_obj, 0, 2, solaros_time_ntp_sync);
 
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 static mp_obj_t solaros_battery_status(void)
 {
     return solaros_battery();
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_battery_status_obj, solaros_battery_status);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 static mp_obj_t solaros_sensors_environment(void)
 {
     return solaros_environment();
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_sensors_environment_obj, solaros_sensors_environment);
+#endif
 
 static mp_obj_t solaros_wifi_status(void)
 {
@@ -1712,6 +1748,7 @@ static mp_obj_t solaros_uart_read(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_uart_read_obj, 0, 2, solaros_uart_read);
 
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t solaros_audio_status(void)
 {
     solar_os_audio_status_t status;
@@ -1830,6 +1867,7 @@ static mp_obj_t solaros_audio_play_wav(size_t n_args, const mp_obj_t *args)
     return python_wav_info_to_dict(&info);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_play_wav_obj, 1, 2, solaros_audio_play_wav);
+#endif
 
 static mp_obj_t solaros_ble_status(void)
 {
@@ -2168,10 +2206,44 @@ static solar_os_terminal_t *python_current_terminal(void)
 
 static solar_os_gfx_t *python_current_gfx(void)
 {
+    if (python_app.claimed_gfx != NULL) {
+        return python_app.claimed_gfx;
+    }
     if (python_app.ctx == NULL) {
         return NULL;
     }
     return solar_os_context_gfx(python_app.ctx);
+}
+
+static const char *python_gfx_owner(void)
+{
+    if (python_app.gfx_owner[0] == '\0') {
+        strlcpy(python_app.gfx_owner, "python", sizeof(python_app.gfx_owner));
+    }
+    return python_app.gfx_owner;
+}
+
+static void python_gfx_release_target(void)
+{
+    if (python_app.gfx_target[0] != '\0') {
+        (void)solar_os_display_release(python_app.gfx_target, python_gfx_owner());
+    }
+    python_app.claimed_gfx = NULL;
+    python_app.gfx_target[0] = '\0';
+}
+
+static void python_gfx_release_target_name(const char *target)
+{
+    if (target == NULL || target[0] == '\0') {
+        python_gfx_release_target();
+        return;
+    }
+
+    (void)solar_os_display_release(target, python_gfx_owner());
+    if (strcmp(python_app.gfx_target, target) == 0) {
+        python_app.claimed_gfx = NULL;
+        python_app.gfx_target[0] = '\0';
+    }
 }
 
 static void python_ui_send_event(const python_event_t *event)
@@ -2457,16 +2529,47 @@ static void python_gfx_send_text(int32_t x, int32_t y, const char *text, size_t 
     python_gfx_send_event(&event);
 }
 
-static mp_obj_t solaros_gfx_begin(void)
+static mp_obj_t solaros_gfx_begin(size_t n_args, const mp_obj_t *args)
 {
+    const char *target = NULL;
+    if (n_args >= 1 && args[0] != mp_const_none) {
+        target = mp_obj_str_get_str(args[0]);
+    }
+
+    if (target == NULL || target[0] == '\0') {
+        python_gfx_release_target();
+    } else if (strcmp(python_app.gfx_target, target) != 0) {
+        solar_os_gfx_t *gfx = NULL;
+        char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+        const esp_err_t err =
+            solar_os_display_open_gfx(target,
+                                      python_gfx_owner(),
+                                      &gfx,
+                                      busy_owner,
+                                      sizeof(busy_owner));
+        if (err != ESP_OK) {
+            python_raise_display_claim_error(target, err, busy_owner);
+        }
+        python_gfx_release_target();
+        python_app.claimed_gfx = gfx;
+        strlcpy(python_app.gfx_target, target, sizeof(python_app.gfx_target));
+    }
+
     python_gfx_send_simple(PYTHON_EVENT_GFX_BEGIN);
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_begin_obj, solaros_gfx_begin);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_begin_obj, 0, 1, solaros_gfx_begin);
 
 static mp_obj_t solaros_gfx_end(void)
 {
-    python_gfx_send_simple(PYTHON_EVENT_GFX_END);
+    python_event_t event = {
+        .type = PYTHON_EVENT_GFX_END,
+    };
+    if (python_app.gfx_target[0] != '\0') {
+        strlcpy(event.data, python_app.gfx_target, sizeof(event.data));
+        event.data_len = strlen(event.data);
+    }
+    python_gfx_send_event(&event);
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_end_obj, solaros_gfx_end);
@@ -2667,9 +2770,13 @@ static void python_register_solaros_module(void)
     python_module_store(module, "write", MP_OBJ_FROM_PTR(&solaros_write_obj));
     python_module_store(module, "version", MP_OBJ_FROM_PTR(&solaros_version_obj));
     python_module_store(module, "should_exit", MP_OBJ_FROM_PTR(&solaros_should_exit_obj));
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     python_module_store(module, "battery_status", MP_OBJ_FROM_PTR(&solaros_battery_obj));
+#endif
     python_module_store(module, "wifi_status", MP_OBJ_FROM_PTR(&solaros_wifi_obj));
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     python_module_store(module, "environment", MP_OBJ_FROM_PTR(&solaros_environment_obj));
+#endif
 
     mp_obj_t storage = python_new_submodule(module, "storage");
     python_module_store(storage, "status", MP_OBJ_FROM_PTR(&solaros_storage_status_obj));
@@ -2712,11 +2819,15 @@ static void python_register_solaros_module(void)
     python_module_store(time, "set_timezone", MP_OBJ_FROM_PTR(&solaros_time_set_timezone_obj));
     python_module_store(time, "ntp_sync", MP_OBJ_FROM_PTR(&solaros_time_ntp_sync_obj));
 
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     mp_obj_t battery = python_new_submodule(module, "battery");
     python_module_store(battery, "status", MP_OBJ_FROM_PTR(&solaros_battery_status_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     mp_obj_t sensors = python_new_submodule(module, "sensors");
     python_module_store(sensors, "environment", MP_OBJ_FROM_PTR(&solaros_sensors_environment_obj));
+#endif
 
     mp_obj_t wifi = python_new_submodule(module, "wifi");
     python_module_store(wifi, "status", MP_OBJ_FROM_PTR(&solaros_wifi_status_obj));
@@ -2789,6 +2900,7 @@ static void python_register_solaros_module(void)
     python_module_store(uart, "write", MP_OBJ_FROM_PTR(&solaros_uart_write_obj));
     python_module_store(uart, "read", MP_OBJ_FROM_PTR(&solaros_uart_read_obj));
 
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     mp_obj_t audio = python_new_submodule(module, "audio");
     python_module_store(audio, "status", MP_OBJ_FROM_PTR(&solaros_audio_status_obj));
     python_module_store(audio, "deinit", MP_OBJ_FROM_PTR(&solaros_audio_deinit_obj));
@@ -2801,6 +2913,7 @@ static void python_register_solaros_module(void)
     python_module_store(audio, "wav_info", MP_OBJ_FROM_PTR(&solaros_audio_wav_info_obj));
     python_module_store(audio, "record_wav", MP_OBJ_FROM_PTR(&solaros_audio_record_wav_obj));
     python_module_store(audio, "play_wav", MP_OBJ_FROM_PTR(&solaros_audio_play_wav_obj));
+#endif
 
     mp_obj_t ble = python_new_submodule(module, "ble");
     python_module_store(ble, "status", MP_OBJ_FROM_PTR(&solaros_ble_status_obj));
@@ -3522,6 +3635,7 @@ static void python_stop(solar_os_context_t *ctx)
         vQueueDelete(python_app.key_input);
         python_app.key_input = NULL;
     }
+    python_gfx_release_target();
 }
 
 static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t *event)
@@ -3579,21 +3693,27 @@ static void python_apply_gfx_event(solar_os_context_t *ctx, const python_event_t
         return;
     }
 
-    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    switch (event->type) {
+    case PYTHON_EVENT_GFX_BEGIN:
+        solar_os_context_set_graphics_active(ctx, true);
+        return;
+    case PYTHON_EVENT_GFX_END:
+        solar_os_context_set_graphics_active(ctx, false);
+        python_gfx_release_target_name(event->data_len > 0 ? event->data : NULL);
+        if (python_display_terminal(ctx) != NULL) {
+            solar_os_terminal_draw(python_display_terminal(ctx));
+        }
+        return;
+    default:
+        break;
+    }
+
+    solar_os_gfx_t *gfx = python_current_gfx();
     if (gfx == NULL) {
         return;
     }
 
     switch (event->type) {
-    case PYTHON_EVENT_GFX_BEGIN:
-        solar_os_context_set_graphics_active(ctx, true);
-        break;
-    case PYTHON_EVENT_GFX_END:
-        solar_os_context_set_graphics_active(ctx, false);
-        if (python_display_terminal(ctx) != NULL) {
-            solar_os_terminal_draw(python_display_terminal(ctx));
-        }
-        break;
     case PYTHON_EVENT_GFX_CLEAR:
         solar_os_gfx_clear(gfx, (solar_os_gfx_color_t)event->attr);
         break;
@@ -3707,6 +3827,8 @@ static void python_drain_events(solar_os_context_t *ctx)
         case PYTHON_EVENT_DONE:
             python_app.running = false;
             python_app.done = true;
+            python_gfx_release_target();
+            solar_os_context_set_graphics_active(ctx, false);
             if (python_app.mode == PYTHON_MODE_SCRIPT) {
                 python_finish_terminal_line(ctx, io);
                 if (!event.success) {

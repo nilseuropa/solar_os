@@ -18,18 +18,20 @@ Lua allocations prefer PSRAM. Host-facing Lua `io`, `os`, and dynamic package lo
 - `solaros.write(text)`: write to the foreground terminal.
 - `solaros.version()`: return the firmware version.
 - `solaros.should_exit()`: return whether the foreground app was asked to exit.
-- `solaros.battery_status()`: short battery status table or `nil`.
+- `solaros.battery_status()`: short battery status table or `nil` when battery support is compiled.
 - `solaros.wifi_status()`: short Wi-Fi status table.
-- `solaros.environment()`: temperature and humidity table or `nil`.
+- `solaros.environment()`: temperature and humidity table or `nil` when environmental sensor support is compiled.
 
 ## Service Tables
 
 Lua mirrors the Python `solaros` module structure:
 
+Hardware-backed tables are present only when the board/flavor includes the corresponding service package. For example, a DevKitC1 full build has Lua but omits `solaros.audio`, `solaros.battery`, and `solaros.sensors` because that board has no built-in audio, battery, or environmental sensor service.
+
 - `solaros.storage`: `status`, `is_mounted`, `mount`, `unmount`, `mount_point`, `usage`, `resolve`, `rescan`, `blocks`, `block_count`, `block`, `usage_for_block`, `mkdir`, `rmdir`, `remove`, `rename`, `copy`, `mount_volume`, `unmount_volume`
 - `solaros.time`: `uptime_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`
-- `solaros.battery`: `status`
-- `solaros.sensors`: `environment`
+- `solaros.battery`: `status` when battery support is compiled
+- `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when the `net` package is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`
@@ -37,7 +39,7 @@ Lua mirrors the Python `solaros` module structure:
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off`
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg`
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read`
-- `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav`
+- `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read`
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `format`
@@ -89,11 +91,11 @@ end
 
 ## Graphics
 
-`solaros.gfx` draws through the foreground graphics service. Colors are `WHITE`, `LIGHT`, `DARK`, `BLACK`, and `gray(level)` with `0..GRAY_MAX`. Fonts are `FONT_SMALL`, `FONT_MONO`, `FONT_BOLD`, regular document fonts `FONT_MONO_12` through `FONT_MONO_20`, bold document fonts `FONT_BOLD_12` through `FONT_BOLD_20`, and matching italic/bold-italic constants. Italic constants currently map to the closest upright face in the trimmed firmware font set.
+`solaros.gfx` draws through the foreground graphics service. `begin(target)` claims a named display target, such as `lcd0`, until `end()` or script cleanup. Colors are `WHITE`, `LIGHT`, `DARK`, `BLACK`, and `gray(level)` with `0..GRAY_MAX`. Fonts are `FONT_SMALL`, `FONT_MONO`, `FONT_BOLD`, regular document fonts `FONT_MONO_12` through `FONT_MONO_20`, bold document fonts `FONT_BOLD_12` through `FONT_BOLD_20`, and matching italic/bold-italic constants. Italic constants currently map to the closest upright face in the trimmed firmware font set.
 
 Functions:
 
-- `begin()`, `end()`
+- `begin([target])`, `end()`
 - `width()`, `height()`, `size()`
 - `clear([color])`
 - `gray(level)`
@@ -132,6 +134,16 @@ while not solaros.should_exit() do
     end
 end
 
+gfx["end"]()
+```
+
+For an attached auxiliary display, use the target name:
+
+```lua
+gfx.begin("lcd0")
+gfx.clear(gfx.WHITE)
+gfx.text(2, 14, "aux")
+gfx.present()
 gfx["end"]()
 ```
 

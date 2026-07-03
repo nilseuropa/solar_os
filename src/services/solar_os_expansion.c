@@ -562,7 +562,10 @@ esp_err_t solar_os_expansion_detach(const char *name)
 
     const solar_os_expansion_driver_t *driver = find_driver(device->driver);
     if (driver != NULL && driver->detach != NULL) {
-        driver->detach(name);
+        const esp_err_t ret = driver->detach(name);
+        if (ret != ESP_OK) {
+            return ret;
+        }
     }
 
     (void)solar_os_resource_release_owner(name);
