@@ -54,6 +54,10 @@
 #define SHELL_LOG_FOLLOW_BATCH 8
 #define SHELL_ARRAY_COUNT(array) (sizeof(array) / sizeof((array)[0]))
 #define SHELL_COMPLETION_ANY "*"
+#define SHELL_PORT_TERM_MIN_COLS 20U
+#define SHELL_PORT_TERM_MIN_ROWS 8U
+#define SHELL_PORT_TERM_MAX_COLS 300U
+#define SHELL_PORT_TERM_MAX_ROWS 120U
 
 typedef void (*shell_command_handler_t)(solar_os_context_t *ctx, int argc, char **argv);
 
@@ -247,6 +251,7 @@ static const char * const setterm_subcommands[] = {
     "textsize",
     "brightness",
     "backlight",
+    "profile",
     "keyboard",
     "keymap",
     "keyrate",
@@ -261,6 +266,7 @@ static const char * const setterm_orientation_values[] = {"0", "90", "180", "270
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"12", "14", "16", "18", "20"};
 static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", "100"};
+static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
@@ -635,6 +641,7 @@ static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
 static const char * const path_setterm_brightness[] = {"setterm", "brightness"};
 static const char * const path_setterm_backlight[] = {"setterm", "backlight"};
+static const char * const path_setterm_profile[] = {"setterm", "profile"};
 static const char * const path_setterm_keyboard[] = {"setterm", "keyboard"};
 static const char * const path_setterm_keymap[] = {"setterm", "keymap"};
 static const char * const path_setterm_keyrate[] = {"setterm", "keyrate"};
@@ -948,6 +955,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_brightness, setterm_brightness_values),
     SHELL_COMPLETION_STATIC(path_setterm_backlight, setterm_brightness_values),
+    SHELL_COMPLETION_STATIC(path_setterm_profile, setterm_profile_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyboard, setterm_keyboard_values),
     SHELL_COMPLETION_STATIC(path_setterm_keymap, setterm_keyboard_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyrate, setterm_keyrate_values),
@@ -1382,6 +1390,20 @@ static size_t shell_visible_input_cols(solar_os_context_t *ctx)
     return cols > shell_session(ctx)->input_col ? cols - shell_session(ctx)->input_col : 1;
 }
 
+static bool shell_can_redraw_input(solar_os_context_t *ctx)
+{
+    return solar_os_shell_io_is_cursor_addressable(shell_io(ctx));
+}
+
+static void shell_dumb_backspace(solar_os_context_t *ctx)
+{
+    solar_os_shell_io_t *io = shell_io(ctx);
+
+    solar_os_shell_io_put_char(io, '\b');
+    solar_os_shell_io_put_char(io, ' ');
+    solar_os_shell_io_put_char(io, '\b');
+}
+
 static void shell_ensure_cursor_visible(solar_os_context_t *ctx)
 {
     const size_t visible_cols = shell_visible_input_cols(ctx);
@@ -1398,6 +1420,10 @@ static void shell_render_input(solar_os_context_t *ctx)
     solar_os_shell_io_t *io = shell_io(ctx);
     const size_t visible_cols = shell_visible_input_cols(ctx);
     size_t written = 0;
+
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
 
     shell_ensure_cursor_visible(ctx);
     size_t cursor_col = shell_session(ctx)->input_cursor - shell_session(ctx)->input_view_offset;
@@ -1419,6 +1445,16 @@ static void shell_replace_input(solar_os_context_t *ctx, const char *text)
     const size_t max_len = shell_max_input_len(ctx);
     size_t copy_len = 0;
 
+    if (!shell_can_redraw_input(ctx)) {
+        while (shell_session(ctx)->input_len > 0) {
+            shell_dumb_backspace(ctx);
+            shell_session(ctx)->input_len--;
+        }
+        shell_session(ctx)->input_cursor = 0;
+        shell_session(ctx)->input_view_offset = 0;
+        shell_session(ctx)->input[0] = '\0';
+    }
+
     if (text != NULL) {
         copy_len = strnlen(text, max_len);
         memcpy(shell_session(ctx)->input, text, copy_len);
@@ -1428,11 +1464,18 @@ static void shell_replace_input(solar_os_context_t *ctx, const char *text)
     shell_session(ctx)->input_len = copy_len;
     shell_session(ctx)->input_cursor = copy_len;
     shell_session(ctx)->input_view_offset = 0;
+    if (!shell_can_redraw_input(ctx)) {
+        solar_os_shell_io_write(shell_io(ctx), shell_session(ctx)->input);
+        return;
+    }
     shell_render_input(ctx);
 }
 
 static void shell_move_cursor_left(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     if (shell_session(ctx)->input_cursor == 0) {
         return;
     }
@@ -1443,6 +1486,9 @@ static void shell_move_cursor_left(solar_os_context_t *ctx)
 
 static void shell_move_cursor_right(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     if (shell_session(ctx)->input_cursor >= shell_session(ctx)->input_len) {
         return;
     }
@@ -1453,6 +1499,9 @@ static void shell_move_cursor_right(solar_os_context_t *ctx)
 
 static void shell_move_cursor_home(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     if (shell_session(ctx)->input_cursor == 0) {
         return;
     }
@@ -1463,6 +1512,9 @@ static void shell_move_cursor_home(solar_os_context_t *ctx)
 
 static void shell_move_cursor_end(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     if (shell_session(ctx)->input_cursor >= shell_session(ctx)->input_len) {
         return;
     }
@@ -1480,6 +1532,9 @@ static bool shell_word_char(char ch)
 
 static void shell_move_cursor_word_left(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     size_t cursor = shell_session(ctx)->input_cursor;
 
     while (cursor > 0 && !shell_word_char(shell_session(ctx)->input[cursor - 1])) {
@@ -1497,6 +1552,9 @@ static void shell_move_cursor_word_left(solar_os_context_t *ctx)
 
 static void shell_move_cursor_word_right(solar_os_context_t *ctx)
 {
+    if (!shell_can_redraw_input(ctx)) {
+        return;
+    }
     size_t cursor = shell_session(ctx)->input_cursor;
 
     while (cursor < shell_session(ctx)->input_len && shell_word_char(shell_session(ctx)->input[cursor])) {
@@ -1517,6 +1575,16 @@ static void shell_insert_char(solar_os_context_t *ctx, char ch)
     if (shell_session(ctx)->input_len >= shell_max_input_len(ctx)) {
         return;
     }
+    if (!shell_can_redraw_input(ctx)) {
+        if (shell_session(ctx)->input_cursor != shell_session(ctx)->input_len) {
+            return;
+        }
+        shell_session(ctx)->input[shell_session(ctx)->input_cursor++] = ch;
+        shell_session(ctx)->input_len++;
+        shell_session(ctx)->input[shell_session(ctx)->input_len] = '\0';
+        solar_os_shell_io_put_char(shell_io(ctx), ch);
+        return;
+    }
 
     memmove(&shell_session(ctx)->input[shell_session(ctx)->input_cursor + 1],
             &shell_session(ctx)->input[shell_session(ctx)->input_cursor],
@@ -1529,6 +1597,16 @@ static void shell_insert_char(solar_os_context_t *ctx, char ch)
 static void shell_backspace(solar_os_context_t *ctx)
 {
     if (shell_session(ctx)->input_cursor == 0) {
+        return;
+    }
+    if (!shell_can_redraw_input(ctx)) {
+        if (shell_session(ctx)->input_cursor != shell_session(ctx)->input_len) {
+            return;
+        }
+        shell_session(ctx)->input_cursor--;
+        shell_session(ctx)->input_len--;
+        shell_session(ctx)->input[shell_session(ctx)->input_len] = '\0';
+        shell_dumb_backspace(ctx);
         return;
     }
 
@@ -3617,6 +3695,93 @@ static bool parse_session_id(const char *text, uint8_t *session_id)
     return true;
 }
 
+static bool parse_port_shell_size(const char *text, uint16_t *cols, uint16_t *rows)
+{
+    if (text == NULL || cols == NULL || rows == NULL) {
+        return false;
+    }
+
+    const char *sep = strchr(text, 'x');
+    if (sep == NULL) {
+        sep = strchr(text, 'X');
+    }
+    if (sep == NULL || sep == text || sep[1] == '\0') {
+        return false;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const unsigned long parsed_cols = strtoul(text, &end, 10);
+    if (errno != 0 || end != sep) {
+        return false;
+    }
+
+    errno = 0;
+    const unsigned long parsed_rows = strtoul(sep + 1, &end, 10);
+    if (errno != 0 || end == sep + 1 || *end != '\0') {
+        return false;
+    }
+    if (parsed_cols < SHELL_PORT_TERM_MIN_COLS ||
+        parsed_rows < SHELL_PORT_TERM_MIN_ROWS ||
+        parsed_cols > SHELL_PORT_TERM_MAX_COLS ||
+        parsed_rows > SHELL_PORT_TERM_MAX_ROWS) {
+        return false;
+    }
+
+    *cols = (uint16_t)parsed_cols;
+    *rows = (uint16_t)parsed_rows;
+    return true;
+}
+
+static bool parse_port_shell_options(int argc,
+                                     char **argv,
+                                     int first,
+                                     solar_os_port_shell_options_t *options)
+{
+    if (options == NULL) {
+        return false;
+    }
+
+    *options = (solar_os_port_shell_options_t){
+        .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .cols = 0,
+        .rows = 0,
+    };
+
+    for (int i = first; i < argc; i++) {
+        const char *term_arg = NULL;
+        const char *size_arg = NULL;
+
+        if (strcmp(argv[i], "--term") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            term_arg = argv[++i];
+        } else if (strncmp(argv[i], "--term=", 7) == 0) {
+            term_arg = argv[i] + 7;
+        } else if (strcmp(argv[i], "--size") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            size_arg = argv[++i];
+        } else if (strncmp(argv[i], "--size=", 7) == 0) {
+            size_arg = argv[i] + 7;
+        } else {
+            return false;
+        }
+
+        if (term_arg != NULL &&
+            !solar_os_shell_parse_terminal_profile(term_arg, &options->terminal_profile)) {
+            return false;
+        }
+        if (size_arg != NULL && !parse_port_shell_size(size_arg, &options->cols, &options->rows)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static void cmd_sessions(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)argv;
@@ -3638,7 +3803,7 @@ static void session_print_usage(solar_os_shell_io_t *io)
 {
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  session list");
-    solar_os_shell_io_writeln(io, "  session create shell <port>");
+    solar_os_shell_io_writeln(io, "  session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
     solar_os_shell_io_writeln(io, "  session fg <session-id>");
     solar_os_shell_io_writeln(io, "  session switch <session-id>");
     solar_os_shell_io_writeln(io, "  session close <session-id>");
@@ -3706,18 +3871,24 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "create") == 0) {
-        if (argc != 4 || strcmp(argv[2], "shell") != 0) {
-            solar_os_shell_io_writeln(io, "usage: session create shell <port>");
+        solar_os_port_shell_options_t options;
+        if (argc < 4 || strcmp(argv[2], "shell") != 0 ||
+            !parse_port_shell_options(argc, argv, 4, &options)) {
+            solar_os_shell_io_writeln(
+                io,
+                "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
             return;
         }
 
         uint8_t session_id = 0;
-        const esp_err_t err = solar_os_port_shell_start(ctx, argv[3], false, &session_id);
+        const esp_err_t err =
+            solar_os_port_shell_start_with_options(ctx, argv[3], &options, false, &session_id);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io,
-                                     "session %u created: shell on %s\n",
+                                     "session %u created: shell on %s term=%s\n",
                                      (unsigned)session_id,
-                                     argv[3]);
+                                     argv[3],
+                                     solar_os_shell_terminal_profile_name(options.terminal_profile));
         } else {
             solar_os_shell_io_printf(io,
                                      "session create failed: %s\n",

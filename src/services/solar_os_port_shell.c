@@ -24,6 +24,8 @@
 #define PORT_SHELL_TICK_MS 100U
 #define PORT_SHELL_DEFAULT_COLS 80
 #define PORT_SHELL_DEFAULT_ROWS 24
+#define PORT_SHELL_IDENTITY_PROBE_TIMEOUT_MS 200U
+#define PORT_SHELL_IDENTITY_PROBE_READ_MS 25U
 #define PORT_SHELL_SIZE_PROBE_TIMEOUT_MS 200U
 #define PORT_SHELL_SIZE_PROBE_READ_MS 25U
 #define PORT_SHELL_SIZE_PROBE_MIN_COLS 20U
@@ -44,6 +46,10 @@ typedef struct {
     solar_os_context_t ctx;
     solar_os_vt100_input_t input;
     bool run_startup;
+    solar_os_shell_terminal_profile_t requested_terminal_profile;
+    bool configured_size;
+    uint16_t configured_cols;
+    uint16_t configured_rows;
     char port_name[SOLAR_OS_PORT_NAME_MAX];
     esp_err_t last_error;
 } port_shell_state_t;
@@ -73,6 +79,49 @@ static void port_shell_owner(const port_shell_state_t *state, char *owner, size_
 static const solar_os_app_t *port_shell_foreground_app(port_shell_state_t *state)
 {
     return state != NULL ? solar_os_shell_session_foreground_app(state->session) : NULL;
+}
+
+static bool port_shell_terminal_profile_is_valid(solar_os_shell_terminal_profile_t profile)
+{
+    switch (profile) {
+    case SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO:
+    case SOLAR_OS_SHELL_TERMINAL_PROFILE_DUMB:
+    case SOLAR_OS_SHELL_TERMINAL_PROFILE_ANSI:
+    case SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool port_shell_parse_da_report(const uint8_t *data, size_t len)
+{
+    if (data == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i + 3U < len; i++) {
+        if (data[i] != 0x1b || data[i + 1U] != '[') {
+            continue;
+        }
+
+        size_t pos = i + 2U;
+        bool have_payload = false;
+        if (pos < len && (data[pos] == '?' || data[pos] == '>')) {
+            have_payload = true;
+            pos++;
+        }
+        while (pos < len &&
+               ((data[pos] >= '0' && data[pos] <= '9') || data[pos] == ';')) {
+            have_payload = true;
+            pos++;
+        }
+        if (have_payload && pos < len && data[pos] == 'c') {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static bool port_shell_parse_size_report(const uint8_t *data,
@@ -127,6 +176,48 @@ static bool port_shell_parse_size_report(const uint8_t *data,
     return false;
 }
 
+static bool port_shell_probe_terminal_identity(port_shell_state_t *state)
+{
+    uint8_t response[64];
+    size_t response_len = 0;
+
+    if (state == NULL || state->session == NULL ||
+        !solar_os_port_handle_valid(&state->port)) {
+        return false;
+    }
+
+    solar_os_shell_io_t *io = solar_os_shell_session_io(state->session);
+    if (io == NULL || solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_PORT) {
+        return false;
+    }
+
+    const char probe[] = "\x1b[c";
+    (void)solar_os_shell_io_write_raw(io, probe, sizeof(probe) - 1U);
+
+    const uint32_t start_ms = port_shell_now_ms();
+    while ((uint32_t)(port_shell_now_ms() - start_ms) < PORT_SHELL_IDENTITY_PROBE_TIMEOUT_MS &&
+           response_len < sizeof(response)) {
+        size_t read_len = 0;
+        const esp_err_t err = solar_os_port_read(&state->port,
+                                                 response + response_len,
+                                                 sizeof(response) - response_len,
+                                                 PORT_SHELL_IDENTITY_PROBE_READ_MS,
+                                                 &read_len);
+        if (err == ESP_OK && read_len > 0) {
+            response_len += read_len;
+            if (port_shell_parse_da_report(response, response_len)) {
+                return true;
+            }
+            continue;
+        }
+        if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
 static void port_shell_probe_terminal_size(port_shell_state_t *state)
 {
     uint8_t response[48];
@@ -144,7 +235,7 @@ static void port_shell_probe_terminal_size(port_shell_state_t *state)
         return;
     }
 
-    const char probe[] = "\x1b[?25h\x1b[999;999H\x1b[6n";
+    const char probe[] = "\x1b[?25h" "\x1b" "7" "\x1b[999;999H" "\x1b[6n" "\x1b" "8";
     (void)solar_os_shell_io_write_raw(io, probe, sizeof(probe) - 1U);
 
     const uint32_t start_ms = port_shell_now_ms();
@@ -368,7 +459,28 @@ static void port_shell_task(void *arg)
     uint32_t last_input_ms = last_tick_ms;
 
     solar_os_vt100_input_init(&state->input);
-    port_shell_probe_terminal_size(state);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(state->session);
+    if (state->requested_terminal_profile == SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO) {
+        const bool detected = port_shell_probe_terminal_identity(state);
+        solar_os_shell_io_set_terminal_profile(
+            io,
+            detected ?
+                SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100 :
+                SOLAR_OS_SHELL_TERMINAL_PROFILE_DUMB);
+        SOLAR_OS_LOGI(TAG,
+                      "terminal profile on %s: %s%s",
+                      state->port_name,
+                      solar_os_shell_terminal_profile_name(solar_os_shell_io_terminal_profile(io)),
+                      detected ? " (auto)" : " (auto fallback)");
+    } else {
+        solar_os_shell_io_set_terminal_profile(io, state->requested_terminal_profile);
+    }
+
+    if (state->configured_size) {
+        solar_os_shell_io_set_dimensions(io, state->configured_cols, state->configured_rows);
+    } else if (solar_os_shell_io_terminal_profile(io) == SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100) {
+        port_shell_probe_terminal_size(state);
+    }
 
     esp_err_t err = solar_os_shell_session_start(&state->ctx,
                                                  state->session,
@@ -481,16 +593,39 @@ bool solar_os_port_shell_is_session_id(uint8_t session_id)
     return port_shell_by_id(session_id) != NULL;
 }
 
-esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
-                                    const char *port_name,
-                                    bool run_startup,
-                                    uint8_t *session_id)
+esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
+                                                 const char *port_name,
+                                                 const solar_os_port_shell_options_t *options,
+                                                 bool run_startup,
+                                                 uint8_t *session_id)
 {
     solar_os_port_handle_t port = SOLAR_OS_PORT_HANDLE_INIT;
     solar_os_shell_session_t *session = NULL;
+    solar_os_shell_terminal_profile_t requested_profile =
+        SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO;
+    bool configured_size = false;
+    uint16_t cols = PORT_SHELL_DEFAULT_COLS;
+    uint16_t rows = PORT_SHELL_DEFAULT_ROWS;
 
     if (ctx == NULL || port_name == NULL || port_name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (options != NULL) {
+        requested_profile = options->terminal_profile;
+        if (!port_shell_terminal_profile_is_valid(requested_profile)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (options->cols != 0 || options->rows != 0) {
+            if (options->cols < PORT_SHELL_SIZE_PROBE_MIN_COLS ||
+                options->rows < PORT_SHELL_SIZE_PROBE_MIN_ROWS ||
+                options->cols > PORT_SHELL_SIZE_PROBE_MAX_COLS ||
+                options->rows > PORT_SHELL_SIZE_PROBE_MAX_ROWS) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            configured_size = true;
+            cols = options->cols;
+            rows = options->rows;
+        }
     }
     esp_err_t err = port_shell_validate_port(port_name);
     if (err != ESP_OK) {
@@ -524,13 +659,21 @@ esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
     solar_os_context_copy_session_handlers(&state->ctx, ctx);
     solar_os_shell_io_init_port(solar_os_shell_session_io(session),
                                 &port,
-                                PORT_SHELL_DEFAULT_COLS,
-                                PORT_SHELL_DEFAULT_ROWS);
+                                cols,
+                                rows);
+    solar_os_shell_io_set_terminal_profile(solar_os_shell_session_io(session),
+                                           requested_profile == SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO ?
+                                               SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100 :
+                                               requested_profile);
 
     state->port = port;
     state->session = session;
     state->stop_requested = false;
     state->run_startup = run_startup;
+    state->requested_terminal_profile = requested_profile;
+    state->configured_size = configured_size;
+    state->configured_cols = cols;
+    state->configured_rows = rows;
     state->running = true;
     state->last_error = ESP_OK;
     strlcpy(state->port_name, port_name, sizeof(state->port_name));
@@ -555,6 +698,18 @@ esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
         *session_id = state->id;
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
+                                    const char *port_name,
+                                    bool run_startup,
+                                    uint8_t *session_id)
+{
+    return solar_os_port_shell_start_with_options(ctx,
+                                                  port_name,
+                                                  NULL,
+                                                  run_startup,
+                                                  session_id);
 }
 
 esp_err_t solar_os_port_shell_stop(uint8_t session_id)
@@ -588,11 +743,14 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
         if (!state->used) {
             continue;
         }
+        solar_os_shell_io_t *session_io = solar_os_shell_session_io(state->session);
         solar_os_shell_io_printf(io,
-                                 "%-3u %-11s %-9s shell on %s\n",
+                                 "%-3u %-11s %-9s shell on %s term=%s\n",
                                  (unsigned)state->id,
                                  state->running ? "active" : "stopping",
                                  "shell",
-                                 state->port_name[0] != '\0' ? state->port_name : "?");
+                                 state->port_name[0] != '\0' ? state->port_name : "?",
+                                 solar_os_shell_terminal_profile_name(
+                                     solar_os_shell_io_terminal_profile(session_io)));
     }
 }

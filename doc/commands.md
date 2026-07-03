@@ -99,11 +99,15 @@ setterm
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [12|14|16|18|20]
+setterm profile [vt100|ansi|dumb]
 setterm keyboard [us|de]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
 setterm otaurl [url]
 ```
+
+`setterm profile` is runtime-only and applies to the current port shell. From
+the display shell it prints guidance to set the profile from a port shell.
 
 ## Apps And Jobs
 
@@ -115,9 +119,16 @@ setterm otaurl [url]
 | `job` | `job start <name> [args...]` | Start or restart a job. |
 | `job` | `job stop <name>` | Stop a job. |
 | `session` | `session list` | List display app sessions and port shell sessions. |
-| `session` | `session create shell <port>` | Start a VT100 shell session on a byte-stream port. |
+| `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
 | `session` | `session fg <id>` or `session switch <id>` | Resume a display app session. |
 | `session` | `session close <id>` | Close a display app session or stop a port shell session. |
+
+Port shells default to `--term auto`. Auto mode sends a terminal Device
+Attributes probe; a recognizable response enables VT100-style cursor controls
+and a size probe, while no response falls back to a dumb line-oriented shell.
+Use `--term vt100` or `--term ansi` to force escape-sequence output,
+`--term dumb` for plain text, and `--size COLSxROWS` to set the terminal dimensions
+without probing.
 
 `jobs` prints a compact table that fits the built-in display terminal:
 
@@ -146,7 +157,7 @@ Common job examples:
 
 ```text
 session create shell cdc0
-session create shell uart0
+session create shell uart0 --term vt100 --size 100x30
 job start log cdc0
 job start log file /.shell/log info
 job start bridge cdc0 uart0
@@ -450,6 +461,6 @@ ota check
 ota upgrade
 watch -n 1 battery
 daq start /logs/env.csv temperature humidity battery --rate 60
-session create shell cdc0
+session create shell cdc0 --term auto
 xfer send uart0 /logs/payload.bin --zmodem
 ```

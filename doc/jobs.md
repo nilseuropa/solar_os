@@ -4,7 +4,8 @@ This document covers the built-in background job registry. Jobs are autonomous
 workers such as log followers, DAQ capture, HTTP serving, SLIP, chatd, or NTP
 sync. Foreground applications are documented in [apps.md](apps.md), and shell
 commands are documented in [commands.md](commands.md). Port shells are sessions,
-started with `session create shell <port>`.
+started with `session create shell <port>` plus optional `--term` and `--size`
+terminal settings.
 
 Job availability depends on the selected firmware flavor and board
 capabilities. The running system is authoritative:

@@ -15,8 +15,16 @@ typedef enum {
     SOLAR_OS_SHELL_IO_KIND_PORT,
 } solar_os_shell_io_kind_t;
 
+typedef enum {
+    SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+    SOLAR_OS_SHELL_TERMINAL_PROFILE_DUMB,
+    SOLAR_OS_SHELL_TERMINAL_PROFILE_ANSI,
+    SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100,
+} solar_os_shell_terminal_profile_t;
+
 struct solar_os_shell_io {
     solar_os_shell_io_kind_t kind;
+    solar_os_shell_terminal_profile_t terminal_profile;
     solar_os_terminal_t *terminal;
     solar_os_port_handle_t port;
     uint16_t cols;
@@ -38,6 +46,13 @@ void solar_os_shell_io_init_port(solar_os_shell_io_t *io,
 void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, uint16_t rows);
 solar_os_shell_io_kind_t solar_os_shell_io_kind(const solar_os_shell_io_t *io);
 solar_os_terminal_t *solar_os_shell_io_terminal(solar_os_shell_io_t *io);
+const char *solar_os_shell_terminal_profile_name(solar_os_shell_terminal_profile_t profile);
+bool solar_os_shell_parse_terminal_profile(const char *name,
+                                           solar_os_shell_terminal_profile_t *profile);
+void solar_os_shell_io_set_terminal_profile(solar_os_shell_io_t *io,
+                                            solar_os_shell_terminal_profile_t profile);
+solar_os_shell_terminal_profile_t solar_os_shell_io_terminal_profile(const solar_os_shell_io_t *io);
+bool solar_os_shell_io_is_cursor_addressable(const solar_os_shell_io_t *io);
 const char *solar_os_shell_io_app_exit_key(const solar_os_shell_io_t *io);
 esp_err_t solar_os_shell_io_write(solar_os_shell_io_t *io, const char *text);
 esp_err_t solar_os_shell_io_write_len(solar_os_shell_io_t *io, const char *text, size_t len);

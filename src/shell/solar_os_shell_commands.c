@@ -42,6 +42,10 @@
 
 #define XFER_DELAY_MAX_MS 60000U
 #define XFER_IDLE_MAX_MS 86400000U
+#define PORT_SHELL_TERM_MIN_COLS 20U
+#define PORT_SHELL_TERM_MIN_ROWS 8U
+#define PORT_SHELL_TERM_MAX_COLS 300U
+#define PORT_SHELL_TERM_MAX_ROWS 120U
 #define PORT_LIST_MAX SOLAR_OS_PORT_MAX
 #define LOG_SHOW_DEFAULT 40
 #define OTA_PROGRESS_BAR_WIDTH 24
@@ -79,6 +83,93 @@ static bool parse_u8(const char *text, uint8_t *value)
 static bool parse_size_arg(const char *text, size_t min, size_t max, size_t *value)
 {
     return solar_os_shell_parse_size_arg(text, min, max, value);
+}
+
+static bool parse_port_shell_size(const char *text, uint16_t *cols, uint16_t *rows)
+{
+    if (text == NULL || cols == NULL || rows == NULL) {
+        return false;
+    }
+
+    const char *sep = strchr(text, 'x');
+    if (sep == NULL) {
+        sep = strchr(text, 'X');
+    }
+    if (sep == NULL || sep == text || sep[1] == '\0') {
+        return false;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const unsigned long parsed_cols = strtoul(text, &end, 10);
+    if (errno != 0 || end != sep) {
+        return false;
+    }
+
+    errno = 0;
+    const unsigned long parsed_rows = strtoul(sep + 1, &end, 10);
+    if (errno != 0 || end == sep + 1 || *end != '\0') {
+        return false;
+    }
+    if (parsed_cols < PORT_SHELL_TERM_MIN_COLS ||
+        parsed_rows < PORT_SHELL_TERM_MIN_ROWS ||
+        parsed_cols > PORT_SHELL_TERM_MAX_COLS ||
+        parsed_rows > PORT_SHELL_TERM_MAX_ROWS) {
+        return false;
+    }
+
+    *cols = (uint16_t)parsed_cols;
+    *rows = (uint16_t)parsed_rows;
+    return true;
+}
+
+static bool parse_port_shell_options(int argc,
+                                     char **argv,
+                                     int first,
+                                     solar_os_port_shell_options_t *options)
+{
+    if (options == NULL) {
+        return false;
+    }
+
+    *options = (solar_os_port_shell_options_t){
+        .terminal_profile = SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO,
+        .cols = 0,
+        .rows = 0,
+    };
+
+    for (int i = first; i < argc; i++) {
+        const char *term_arg = NULL;
+        const char *size_arg = NULL;
+
+        if (strcmp(argv[i], "--term") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            term_arg = argv[++i];
+        } else if (strncmp(argv[i], "--term=", 7) == 0) {
+            term_arg = argv[i] + 7;
+        } else if (strcmp(argv[i], "--size") == 0) {
+            if (i + 1 >= argc) {
+                return false;
+            }
+            size_arg = argv[++i];
+        } else if (strncmp(argv[i], "--size=", 7) == 0) {
+            size_arg = argv[i] + 7;
+        } else {
+            return false;
+        }
+
+        if (term_arg != NULL &&
+            !solar_os_shell_parse_terminal_profile(term_arg, &options->terminal_profile)) {
+            return false;
+        }
+        if (size_arg != NULL && !parse_port_shell_size(size_arg, &options->cols, &options->rows)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 
@@ -820,17 +911,22 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         if (strcmp(argv[2], "shell") == 0) {
-            if (argc != 4) {
-                solar_os_shell_io_writeln(term, "usage: session create shell <port>");
+            solar_os_port_shell_options_t options;
+            if (argc < 4 || !parse_port_shell_options(argc, argv, 4, &options)) {
+                solar_os_shell_io_writeln(
+                    term,
+                    "usage: session create shell <port> [--term auto|vt100|ansi|dumb] [--size COLSxROWS]");
                 return;
             }
             uint8_t session_id = 0;
-            const esp_err_t err = solar_os_port_shell_start(ctx, argv[3], false, &session_id);
+            const esp_err_t err =
+                solar_os_port_shell_start_with_options(ctx, argv[3], &options, false, &session_id);
             if (err == ESP_OK) {
                 solar_os_shell_io_printf(term,
-                                         "job shell moved to sessions; session %u created: shell on %s\n",
+                                         "job shell moved to sessions; session %u created: shell on %s term=%s\n",
                                          (unsigned)session_id,
-                                         argv[3]);
+                                         argv[3],
+                                         solar_os_shell_terminal_profile_name(options.terminal_profile));
             } else {
                 solar_os_shell_io_printf(term,
                                          "session create failed: %s\n",
@@ -895,6 +991,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [12|14|16|18|20]");
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
+    solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
@@ -1072,6 +1169,40 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         setterm_print_save_result(term, "brightness", argv[2], err);
+        return;
+    }
+
+    if (strcmp(argv[1], "profile") == 0) {
+        if (solar_os_shell_io_kind(term) != SOLAR_OS_SHELL_IO_KIND_PORT) {
+            solar_os_shell_io_writeln(term,
+                                      "profile: set profile on port shell to vt100, ansi, or dumb");
+            return;
+        }
+
+        if (argc == 2) {
+            solar_os_shell_io_printf(
+                term,
+                "profile: %s\n",
+                solar_os_shell_terminal_profile_name(solar_os_shell_io_terminal_profile(term)));
+            solar_os_shell_io_writeln(term, "values: vt100 ansi dumb");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_io_writeln(term, "usage: setterm profile [vt100|ansi|dumb]");
+            return;
+        }
+
+        solar_os_shell_terminal_profile_t profile;
+        if (!solar_os_shell_parse_terminal_profile(argv[2], &profile) ||
+            profile == SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO) {
+            solar_os_shell_io_writeln(term, "profile values: vt100 ansi dumb");
+            return;
+        }
+
+        solar_os_shell_io_set_terminal_profile(term, profile);
+        solar_os_shell_io_printf(term,
+                                 "profile: %s\n",
+                                 solar_os_shell_terminal_profile_name(profile));
         return;
     }
 
