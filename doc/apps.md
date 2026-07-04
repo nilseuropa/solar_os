@@ -378,8 +378,8 @@ Controls:
 ## view
 
 Graphical image viewer. It supports the image formats compiled into the current
-firmware, including common PNG/JPEG/GIF/WebP paths when the media package is
-enabled.
+firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF
+playback when the media package is enabled.
 
 Usage:
 
@@ -411,4 +411,3 @@ Controls:
 
 - Keyboard navigation follows the active web UI state.
 - `Esc` or app-exit key exits.
-

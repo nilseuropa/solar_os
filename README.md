@@ -500,7 +500,7 @@ Applications are launched by typing their name at the shell prompt.
 - `sheet`: CSV grid viewer with simple aggregate formulas such as `=SUM(column)`, `=AVG(column)`, `=MIN(column)`, `=MAX(column)`, `=COUNT(*)`, `=DELTA(column)`, and `=RATE(column)`.
 - `ssh`: SSH client with UTF-8 terminal rendering, host key checking, password/key auth, `/.ssh/known_hosts`, and `/.ssh/hosts` lookup.
 - `telnet`: Telnet client with basic option negotiation and raw mode.
-- `view`: Image viewer for formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths when the media package is enabled. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
+- `view`: Image viewer for formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
 - `web`: Simple graphical web browser for lightweight HTML pages.
 
 On display builds, foreground applications can be suspended into sessions and
