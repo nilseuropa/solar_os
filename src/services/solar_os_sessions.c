@@ -68,6 +68,13 @@ static bool app_is_resumable(const solar_os_app_t *app)
     return app != NULL && (app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) != 0;
 }
 
+static const solar_os_terminal_t *session_text_profile_source(void)
+{
+    return session_state.current_terminal != NULL ?
+        session_state.current_terminal :
+        session_state.shell_terminal;
+}
+
 static void set_current_terminal(solar_os_terminal_t *terminal)
 {
     session_state.current_terminal = terminal;
@@ -356,6 +363,7 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
         return ESP_ERR_NO_MEM;
     }
     solar_os_terminal_init(session_terminal, session_state.display_u8g2);
+    solar_os_terminal_inherit_text_profile(session_terminal, session_text_profile_source());
     session->terminal = session_terminal;
     session->owns_terminal = true;
     return ESP_OK;
@@ -1152,6 +1160,7 @@ esp_err_t solar_os_sessions_create_display_shell(const char *target_name,
         return ESP_ERR_NO_MEM;
     }
     solar_os_terminal_init(terminal, target.u8g2);
+    solar_os_terminal_inherit_text_profile(terminal, session_text_profile_source());
     solar_os_terminal_set_black_is_one(terminal, target.black_is_one);
 
     session->terminal = terminal;

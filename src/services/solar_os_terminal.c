@@ -830,6 +830,23 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     terminal->dirty = true;
 }
 
+void solar_os_terminal_inherit_text_profile(solar_os_terminal_t *terminal,
+                                            const solar_os_terminal_t *source)
+{
+    if (terminal == NULL || source == NULL || terminal == source) {
+        return;
+    }
+    if ((size_t)source->font >= sizeof(terminal_font_families) / sizeof(terminal_font_families[0]) ||
+        !terminal_text_size_is_valid(source->text_size)) {
+        return;
+    }
+
+    terminal->font = source->font;
+    terminal->text_size = source->text_size;
+    terminal_apply_settings(terminal, false);
+    terminal->dirty = true;
+}
+
 void solar_os_terminal_set_black_is_one(solar_os_terminal_t *terminal, bool black_is_one)
 {
     if (terminal == NULL) {
