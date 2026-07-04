@@ -22,12 +22,16 @@ typedef struct {
     uint64_t shadow_valid_rows;
     esp_err_t last_error;
     bool bus_initialized;
+    const char *controller_mode;
 } rlcd_st7305_t;
 
 esp_err_t rlcd_st7305_init(rlcd_st7305_t *display);
 esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display);
 void rlcd_st7305_deinit(rlcd_st7305_t *display);
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display);
+const char *rlcd_st7305_controller_mode(const rlcd_st7305_t *display);
+const char *rlcd_st7305_controller_mode_values(void);
+esp_err_t rlcd_st7305_set_controller_mode(rlcd_st7305_t *display, const char *mode);
 
 #ifdef __cplusplus
 }

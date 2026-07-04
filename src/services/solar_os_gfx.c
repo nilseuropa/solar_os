@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "solar_os_display.h"
 #include "solar_os_fonts.h"
 
 static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
@@ -83,6 +84,12 @@ static uint8_t gfx_dither_threshold(solar_os_gfx_color_t color)
     default:
         return 0;
     }
+}
+
+static bool gfx_color_uses_dither(solar_os_gfx_color_t color)
+{
+    const uint8_t threshold = gfx_dither_threshold(color);
+    return threshold > 0 && threshold < 16;
 }
 
 static uint8_t gfx_apply_polarity(const solar_os_gfx_t *gfx, uint8_t white_bit)
@@ -207,6 +214,8 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
                        (u8g2_uint_t)(end - start));
         return;
     }
+
+    gfx->low_shimmer_mode = true;
 
     int run_start = start;
     uint8_t run_color = gfx_pattern_draw_color(gfx, gfx->color, start, y);
@@ -351,6 +360,7 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
         return;
     }
 
+    gfx->low_shimmer_mode = gfx_color_uses_dither(color);
     const solar_os_gfx_color_t previous_color = gfx->color;
     gfx->color = color;
     for (int y = 0; y < (int)u8g2_GetDisplayHeight(gfx->u8g2); y++) {
@@ -588,6 +598,11 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         return;
     }
 
+    (void)solar_os_display_request_present_mode(
+        gfx->u8g2,
+        gfx->low_shimmer_mode ?
+            SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER :
+            SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
     u8g2_SendBuffer(gfx->u8g2);
     gfx->dirty = false;
 }

@@ -33,6 +33,7 @@
 #endif
 #include "solar_os_cdc.h"
 #include "solar_os_display.h"
+#include "solar_os_engines.h"
 #include "solar_os_expansion.h"
 #include "solar_os_gpio.h"
 #include "solar_os_gfx_internal.h"
@@ -303,7 +304,11 @@ static void draw_session_overlay_if_needed(void)
     if ((int32_t)(now_ms - session_overlay_until_ms) >= 0) {
         session_overlay_until_ms = 0;
         session_overlay_title[0] = '\0';
-        solar_os_sessions_mark_foreground_dirty();
+        if (solar_os_context_graphics_active(&os_ctx)) {
+            solar_os_sessions_dispatch_resume(now_ms);
+        } else {
+            solar_os_sessions_mark_foreground_dirty();
+        }
         return;
     }
 
@@ -336,6 +341,7 @@ static void draw_session_overlay_if_needed(void)
     u8g2_SetDrawColor(u8g2, 0);
     u8g2_DrawFrame(u8g2, box_x, box_y, box_width, box_height);
     u8g2_DrawUTF8(u8g2, text_x, text_y, session_overlay_title);
+    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     u8g2_SendBuffer(u8g2);
 }
 
@@ -958,6 +964,13 @@ static void init_peripherals(void)
     const esp_err_t resources_err = solar_os_resources_init();
     if (resources_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Resource claims unavailable: %s", esp_err_to_name(resources_err));
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ENGINES
+    const esp_err_t engines_err = solar_os_engines_init();
+    if (engines_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Engine telemetry unavailable: %s", esp_err_to_name(engines_err));
     }
 #endif
 

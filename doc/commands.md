@@ -66,7 +66,8 @@ Arguments typed after the alias are appended.
 | `version` | `version` | Print SolarOS version, board, flavor, and package information. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
-| `display` | `display [list]`; `display test <target>` | List drawable display targets or draw a test pattern. |
+| `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
+| `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change experimental controller modes. |
 | `status` | `status` | Print a compact system status summary. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem` | Print internal RAM, PSRAM, and DMA memory status. |
@@ -430,7 +431,12 @@ in `expansion drivers` as attachable hardware and registers a display target
 after it is attached. The built-in board panel is not an expansion driver.
 `display list` includes the current owner when a target is claimed. `display
 test <target>` claims the target while it draws a visible frame/test pattern,
-then releases it.
+then releases it. `display mode <target>` lists experimental controller modes
+for supported display drivers; `display mode <target> <mode>` applies one until
+the display driver is reinitialized. The built-in ST7305 path automatically
+switches between `default` for text/binary refresh and `lpm` for dithered
+graphic frames unless a non-auto experimental mode such as `inv-off` or `u8g2`
+is selected manually.
 
 Manual expansion profiles claim resources without initializing external
 hardware:

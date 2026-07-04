@@ -138,7 +138,7 @@ apps and jobs are not compiled into the image.
 
 Current package groups:
 
-- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, SPI, UART, expansion/radio services, bundled expansion drivers, SHTC3 sensors, and the `audio` hardware command.
+- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, engine telemetry, vector bulk operations, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, SPI, UART, expansion/radio services, bundled expansion drivers, SHTC3 sensors, and the `audio` hardware command.
 - `audio`: `arecord`, `aplay`, and MP3 decoding.
 - `net`: Network tools/apps/jobs such as `ping`, `netscan`, `mqtt`, `ssh`, `scp`, `curl`, `telnet`, `web`, `chat`, `httpd`, `chatd`, `ntp-sync`, `slip`, and `sshkey`.
 - `media`: Image viewer and image decoder apps.
@@ -244,6 +244,7 @@ System:
 - `version`
 - `pkg`
 - `board`
+- `engine [status|reset]`: inspect or reset generic engine utilization counters for CPU/SIMD-style execution backends and vector bulk operations.
 - `display [list]`; `display test <target>`: list drawable display targets or draw a test pattern on one target.
 - `status`
 - `uptime`
@@ -499,7 +500,7 @@ Applications are launched by typing their name at the shell prompt.
 - `sheet`: CSV grid viewer with simple aggregate formulas such as `=SUM(column)`, `=AVG(column)`, `=MIN(column)`, `=MAX(column)`, `=COUNT(*)`, `=DELTA(column)`, and `=RATE(column)`.
 - `ssh`: SSH client with UTF-8 terminal rendering, host key checking, password/key auth, `/.ssh/known_hosts`, and `/.ssh/hosts` lookup.
 - `telnet`: Telnet client with basic option negotiation and raw mode.
-- `view`: Image viewer for formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths when the media package is enabled. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
+- `view`: Image viewer for formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled. Use `view [-fit|-actual] <image>`; `f` toggles fit/actual size and cursor keys pan.
 - `web`: Simple graphical web browser for lightweight HTML pages.
 
 On display builds, foreground applications can be suspended into sessions and

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "solar_os_display.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
 #include "nvs.h"
@@ -2283,6 +2284,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
 
     u8g2_t *u8g2 = terminal->u8g2;
+    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     terminal_apply_settings(terminal, false);
 
     u8g2_ClearBuffer(u8g2);

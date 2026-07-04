@@ -217,6 +217,7 @@ static void display_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  display [list]");
     solar_os_shell_io_writeln(term, "  display test <target>");
+    solar_os_shell_io_writeln(term, "  display mode <target> [mode]");
 }
 
 static void display_print_targets(solar_os_shell_io_t *term)
@@ -277,6 +278,7 @@ static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
     u8g2_DrawStr(u8g2, 6, 24, "SolarOS");
     u8g2_DrawStr(u8g2, 6, 32, name != NULL ? name : "display");
     u8g2_SetDrawColor(u8g2, 1);
+    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     u8g2_SendBuffer(u8g2);
 }
 
@@ -322,6 +324,55 @@ static void display_cmd_test(solar_os_shell_io_t *term, int argc, char **argv)
     solar_os_shell_io_printf(term, "display test: drew %s\n", target.name);
 }
 
+static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc != 3 && argc != 4) {
+        solar_os_shell_io_writeln(term, "usage: display mode <target> [mode]");
+        return;
+    }
+
+    const char *current = NULL;
+    const char *values = NULL;
+    esp_err_t err = solar_os_display_get_controller_mode(argv[2], &current, &values);
+    if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "display mode: %s not found\n", argv[2]);
+        return;
+    }
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        solar_os_shell_io_printf(term, "display mode: %s unsupported\n", argv[2]);
+        return;
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "display mode: %s unavailable: %s\n",
+                                 argv[2],
+                                 esp_err_to_name(err));
+        return;
+    }
+
+    if (argc == 3) {
+        solar_os_shell_io_printf(term, "mode: %s\n", current != NULL ? current : "unknown");
+        solar_os_shell_io_printf(term, "values: %s\n", values != NULL ? values : "-");
+        return;
+    }
+
+    err = solar_os_display_set_controller_mode(argv[2], argv[3]);
+    if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "display mode: unknown mode %s\n", argv[3]);
+        solar_os_shell_io_printf(term, "values: %s\n", values != NULL ? values : "-");
+        return;
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "display mode: %s failed: %s\n",
+                                 argv[3],
+                                 esp_err_to_name(err));
+        return;
+    }
+
+    solar_os_shell_io_printf(term, "display mode: %s -> %s\n", argv[2], argv[3]);
+}
+
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -332,6 +383,10 @@ void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (argc >= 2 && strcmp(argv[1], "test") == 0) {
         display_cmd_test(term, argc, argv);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "mode") == 0) {
+        display_cmd_mode(term, argc, argv);
         return;
     }
 

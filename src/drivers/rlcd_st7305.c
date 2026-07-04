@@ -23,6 +23,7 @@
 #define RLCD_CONTROLLER_ROWS_PER_TILE 4
 #define RLCD_SHADOW_BYTES (RLCD_CONTROLLER_ROW_BYTES * RLCD_CONTROLLER_ROWS_PER_TILE * RLCD_TILE_HEIGHT)
 #define RLCD_MAX_TRANSFER_BYTES 4092
+#define RLCD_CONTROLLER_MODE_VALUES "default inv-off lpm lpm-inv-off u8g2 u8g2-lpm"
 
 static const char *TAG = "rlcd_st7305";
 static rlcd_st7305_t *active_display;
@@ -48,6 +49,135 @@ static const u8x8_display_info_t st7305_display_info = {
     .pixel_width = RLCD_NATIVE_WIDTH,
     .pixel_height = RLCD_NATIVE_HEIGHT,
 };
+
+typedef struct {
+    uint8_t d6[2];
+    uint8_t d1[1];
+    uint8_t c0[2];
+    uint8_t c1[4];
+    uint8_t c2[4];
+    uint8_t c4[4];
+    uint8_t c5[4];
+    uint8_t d8[2];
+    uint8_t b2[1];
+    uint8_t b3[10];
+    uint8_t b4[8];
+    uint8_t gate_timing[3];
+    uint8_t b7[1];
+    uint8_t b0[1];
+    uint8_t c9[1];
+    uint8_t m36[1];
+    uint8_t m3a[1];
+    uint8_t b9[1];
+    uint8_t b8[1];
+    uint8_t m35[1];
+    uint8_t d0[1];
+    uint8_t bb[1];
+} rlcd_controller_settings_t;
+
+typedef struct {
+    const char *name;
+    const rlcd_controller_settings_t *settings;
+    uint8_t power_mode_cmd;
+    uint8_t inversion_cmd;
+    bool inversion_after_display_on;
+    bool send_bb;
+} rlcd_controller_profile_t;
+
+static const rlcd_controller_settings_t rlcd_waveshare_settings = {
+    .d6 = {0x17, 0x02},
+    .d1 = {0x01},
+    .c0 = {0x11, 0x04},
+    .c1 = {0x69, 0x69, 0x69, 0x69},
+    .c2 = {0x19, 0x19, 0x19, 0x19},
+    .c4 = {0x4B, 0x4B, 0x4B, 0x4B},
+    .c5 = {0x19, 0x19, 0x19, 0x19},
+    .d8 = {0x80, 0xE9},
+    .b2 = {0x02},
+    .b3 = {0xE5, 0xF6, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45},
+    .b4 = {0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45},
+    .gate_timing = {0x32, 0x03, 0x1F},
+    .b7 = {0x13},
+    .b0 = {0x64},
+    .c9 = {0x00},
+    .m36 = {0x48},
+    .m3a = {0x11},
+    .b9 = {0x20},
+    .b8 = {0x29},
+    .m35 = {0x00},
+    .d0 = {0xFF},
+    .bb = {0x4F},
+};
+
+static const rlcd_controller_settings_t rlcd_u8g2_settings = {
+    .d6 = {0x13, 0x02},
+    .d1 = {0x01},
+    .c0 = {0x12, 0x0A},
+    .c1 = {0x3C, 0x3E, 0x3C, 0x3C},
+    .c2 = {0x23, 0x21, 0x23, 0x23},
+    .c4 = {0x5A, 0x5C, 0x5A, 0x5A},
+    .c5 = {0x37, 0x35, 0x37, 0x37},
+    .d8 = {0xA6, 0xE9},
+    .b2 = {0x12},
+    .b3 = {0xE5, 0xF6, 0x17, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x71},
+    .b4 = {0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45},
+    .gate_timing = {0x32, 0x03, 0x1F},
+    .b7 = {0x13},
+    .b0 = {0x64},
+    .c9 = {0x00},
+    .m36 = {0x48},
+    .m3a = {0x11},
+    .b9 = {0x20},
+    .b8 = {0x29},
+    .m35 = {0x00},
+    .d0 = {0xFF},
+    .bb = {0x4F},
+};
+
+static const rlcd_controller_profile_t rlcd_controller_profiles[] = {
+    {
+        .name = "default",
+        .settings = &rlcd_waveshare_settings,
+        .power_mode_cmd = 0x38,
+        .inversion_cmd = 0x21,
+    },
+    {
+        .name = "inv-off",
+        .settings = &rlcd_waveshare_settings,
+        .power_mode_cmd = 0x38,
+        .inversion_cmd = 0x20,
+    },
+    {
+        .name = "lpm",
+        .settings = &rlcd_waveshare_settings,
+        .power_mode_cmd = 0x39,
+        .inversion_cmd = 0x21,
+    },
+    {
+        .name = "lpm-inv-off",
+        .settings = &rlcd_waveshare_settings,
+        .power_mode_cmd = 0x39,
+        .inversion_cmd = 0x20,
+    },
+    {
+        .name = "u8g2",
+        .settings = &rlcd_u8g2_settings,
+        .power_mode_cmd = 0x38,
+        .inversion_cmd = 0x20,
+        .inversion_after_display_on = true,
+        .send_bb = true,
+    },
+    {
+        .name = "u8g2-lpm",
+        .settings = &rlcd_u8g2_settings,
+        .power_mode_cmd = 0x39,
+        .inversion_cmd = 0x20,
+        .inversion_after_display_on = true,
+        .send_bb = true,
+    },
+};
+
+static bool rlcd_checked_cmd(rlcd_st7305_t *display, uint8_t command);
 
 static esp_err_t rlcd_write_bytes(rlcd_st7305_t *display, const uint8_t *data, size_t length)
 {
@@ -186,6 +316,125 @@ static bool rlcd_checked_cmd_data(rlcd_st7305_t *display, uint8_t command, const
     return true;
 }
 
+static const rlcd_controller_profile_t *rlcd_find_controller_profile(const char *mode)
+{
+    if (mode == NULL || mode[0] == '\0') {
+        mode = "default";
+    }
+
+    for (size_t i = 0; i < sizeof(rlcd_controller_profiles) / sizeof(rlcd_controller_profiles[0]); i++) {
+        if (strcmp(rlcd_controller_profiles[i].name, mode) == 0) {
+            return &rlcd_controller_profiles[i];
+        }
+    }
+
+    return NULL;
+}
+
+static const rlcd_controller_profile_t *rlcd_current_controller_profile(const rlcd_st7305_t *display)
+{
+    const rlcd_controller_profile_t *profile =
+        rlcd_find_controller_profile(display != NULL ? display->controller_mode : NULL);
+    return profile != NULL ? profile : &rlcd_controller_profiles[0];
+}
+
+static bool rlcd_profiles_differ_only_by_power(const rlcd_controller_profile_t *current,
+                                               const rlcd_controller_profile_t *next)
+{
+    return current != NULL &&
+        next != NULL &&
+        current->settings == next->settings &&
+        current->inversion_cmd == next->inversion_cmd &&
+        current->inversion_after_display_on == next->inversion_after_display_on &&
+        current->send_bb == next->send_bb;
+}
+
+static esp_err_t rlcd_apply_controller_power_mode(rlcd_st7305_t *display,
+                                                  const rlcd_controller_profile_t *profile)
+{
+    if (display == NULL || profile == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!rlcd_checked_cmd(display, profile->power_mode_cmd)) {
+        return display->last_error;
+    }
+
+    display->controller_mode = profile->name;
+    display->last_error = ESP_OK;
+    return ESP_OK;
+}
+
+static esp_err_t rlcd_apply_controller_profile(rlcd_st7305_t *display,
+                                               const rlcd_controller_profile_t *profile,
+                                               bool display_was_reset)
+{
+    if (display == NULL || profile == NULL || profile->settings == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const rlcd_controller_settings_t *settings = profile->settings;
+    const uint8_t win_a[] = {0x12, 0x2A};
+    const uint8_t win_b[] = {0x00, 0xC7};
+
+    if (!rlcd_checked_cmd_data(display, 0xD6, settings->d6, sizeof(settings->d6)) ||
+        !rlcd_checked_cmd_data(display, 0xD1, settings->d1, sizeof(settings->d1)) ||
+        !rlcd_checked_cmd_data(display, 0xC0, settings->c0, sizeof(settings->c0)) ||
+        !rlcd_checked_cmd_data(display, 0xC1, settings->c1, sizeof(settings->c1)) ||
+        !rlcd_checked_cmd_data(display, 0xC2, settings->c2, sizeof(settings->c2)) ||
+        !rlcd_checked_cmd_data(display, 0xC4, settings->c4, sizeof(settings->c4)) ||
+        !rlcd_checked_cmd_data(display, 0xC5, settings->c5, sizeof(settings->c5)) ||
+        !rlcd_checked_cmd_data(display, 0xD8, settings->d8, sizeof(settings->d8)) ||
+        !rlcd_checked_cmd_data(display, 0xB2, settings->b2, sizeof(settings->b2)) ||
+        !rlcd_checked_cmd_data(display, 0xB3, settings->b3, sizeof(settings->b3)) ||
+        !rlcd_checked_cmd_data(display, 0xB4, settings->b4, sizeof(settings->b4)) ||
+        !rlcd_checked_cmd_data(display, 0x62, settings->gate_timing, sizeof(settings->gate_timing)) ||
+        !rlcd_checked_cmd_data(display, 0xB7, settings->b7, sizeof(settings->b7)) ||
+        !rlcd_checked_cmd_data(display, 0xB0, settings->b0, sizeof(settings->b0)) ||
+        !rlcd_checked_cmd(display, 0x11)) {
+        return display->last_error;
+    }
+
+    if (display_was_reset) {
+        vTaskDelay(pdMS_TO_TICKS(120));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    if (!rlcd_checked_cmd_data(display, 0xC9, settings->c9, sizeof(settings->c9)) ||
+        !rlcd_checked_cmd_data(display, 0x36, settings->m36, sizeof(settings->m36)) ||
+        !rlcd_checked_cmd_data(display, 0x3A, settings->m3a, sizeof(settings->m3a)) ||
+        !rlcd_checked_cmd_data(display, 0xB9, settings->b9, sizeof(settings->b9)) ||
+        !rlcd_checked_cmd_data(display, 0xB8, settings->b8, sizeof(settings->b8))) {
+        return display->last_error;
+    }
+
+    if (!profile->inversion_after_display_on && !rlcd_checked_cmd(display, profile->inversion_cmd)) {
+        return display->last_error;
+    }
+
+    if (!rlcd_checked_cmd_data(display, 0x2A, win_a, sizeof(win_a)) ||
+        !rlcd_checked_cmd_data(display, 0x2B, win_b, sizeof(win_b)) ||
+        !rlcd_checked_cmd_data(display, 0x35, settings->m35, sizeof(settings->m35)) ||
+        !rlcd_checked_cmd_data(display, 0xD0, settings->d0, sizeof(settings->d0)) ||
+        !rlcd_checked_cmd(display, profile->power_mode_cmd) ||
+        !rlcd_checked_cmd(display, 0x29)) {
+        return display->last_error;
+    }
+
+    if (profile->inversion_after_display_on && !rlcd_checked_cmd(display, profile->inversion_cmd)) {
+        return display->last_error;
+    }
+    if (profile->send_bb &&
+        !rlcd_checked_cmd_data(display, 0xBB, settings->bb, sizeof(settings->bb))) {
+        return display->last_error;
+    }
+
+    rlcd_invalidate_shadow(display);
+    display->controller_mode = profile->name;
+    display->last_error = ESP_OK;
+    return ESP_OK;
+}
+
 static bool rlcd_checked_cmd(rlcd_st7305_t *display, uint8_t command)
 {
     const esp_err_t err = rlcd_cmd(display, command);
@@ -230,67 +479,7 @@ static esp_err_t rlcd_full_init(rlcd_st7305_t *display)
 {
     rlcd_reset();
 
-    const uint8_t d6[] = {0x17, 0x02};
-    const uint8_t d1[] = {0x01};
-    const uint8_t c0[] = {0x11, 0x04};
-    const uint8_t c1[] = {0x69, 0x69, 0x69, 0x69};
-    const uint8_t c2[] = {0x19, 0x19, 0x19, 0x19};
-    const uint8_t c4[] = {0x4B, 0x4B, 0x4B, 0x4B};
-    const uint8_t d8[] = {0x80, 0xE9};
-    const uint8_t b2[] = {0x02};
-    const uint8_t b3[] = {0xE5, 0xF6, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45};
-    const uint8_t b4[] = {0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45};
-    const uint8_t g_timing[] = {0x32, 0x03, 0x1F};
-    const uint8_t b7[] = {0x13};
-    const uint8_t b0[] = {0x64};
-    const uint8_t c9[] = {0x00};
-    const uint8_t m36[] = {0x48};
-    const uint8_t m3a[] = {0x11};
-    const uint8_t b9[] = {0x20};
-    const uint8_t b8[] = {0x29};
-    const uint8_t win_a[] = {0x12, 0x2A};
-    const uint8_t win_b[] = {0x00, 0xC7};
-    const uint8_t m35[] = {0x00};
-    const uint8_t d0[] = {0xFF};
-
-    if (!rlcd_checked_cmd_data(display, 0xD6, d6, sizeof(d6)) ||
-        !rlcd_checked_cmd_data(display, 0xD1, d1, sizeof(d1)) ||
-        !rlcd_checked_cmd_data(display, 0xC0, c0, sizeof(c0)) ||
-        !rlcd_checked_cmd_data(display, 0xC1, c1, sizeof(c1)) ||
-        !rlcd_checked_cmd_data(display, 0xC2, c2, sizeof(c2)) ||
-        !rlcd_checked_cmd_data(display, 0xC4, c4, sizeof(c4)) ||
-        !rlcd_checked_cmd_data(display, 0xC5, c2, sizeof(c2)) ||
-        !rlcd_checked_cmd_data(display, 0xD8, d8, sizeof(d8)) ||
-        !rlcd_checked_cmd_data(display, 0xB2, b2, sizeof(b2)) ||
-        !rlcd_checked_cmd_data(display, 0xB3, b3, sizeof(b3)) ||
-        !rlcd_checked_cmd_data(display, 0xB4, b4, sizeof(b4)) ||
-        !rlcd_checked_cmd_data(display, 0x62, g_timing, sizeof(g_timing)) ||
-        !rlcd_checked_cmd_data(display, 0xB7, b7, sizeof(b7)) ||
-        !rlcd_checked_cmd_data(display, 0xB0, b0, sizeof(b0)) ||
-        !rlcd_checked_cmd(display, 0x11)) {
-        return display->last_error;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(120));
-
-    if (!rlcd_checked_cmd_data(display, 0xC9, c9, sizeof(c9)) ||
-        !rlcd_checked_cmd_data(display, 0x36, m36, sizeof(m36)) ||
-        !rlcd_checked_cmd_data(display, 0x3A, m3a, sizeof(m3a)) ||
-        !rlcd_checked_cmd_data(display, 0xB9, b9, sizeof(b9)) ||
-        !rlcd_checked_cmd_data(display, 0xB8, b8, sizeof(b8)) ||
-        !rlcd_checked_cmd(display, 0x21) ||
-        !rlcd_checked_cmd_data(display, 0x2A, win_a, sizeof(win_a)) ||
-        !rlcd_checked_cmd_data(display, 0x2B, win_b, sizeof(win_b)) ||
-        !rlcd_checked_cmd_data(display, 0x35, m35, sizeof(m35)) ||
-        !rlcd_checked_cmd_data(display, 0xD0, d0, sizeof(d0)) ||
-        !rlcd_checked_cmd(display, 0x38) ||
-        !rlcd_checked_cmd(display, 0x29)) {
-        return display->last_error;
-    }
-
-    rlcd_invalidate_shadow(display);
-    display->last_error = ESP_OK;
-    return ESP_OK;
+    return rlcd_apply_controller_profile(display, rlcd_current_controller_profile(display), true);
 }
 
 static uint8_t rlcd_u8x8_byte_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg_int, void *arg_ptr)
@@ -414,6 +603,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
 
     memset(display, 0, sizeof(*display));
     display->last_error = ESP_OK;
+    display->controller_mode = "default";
 
     ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(), TAG, "control pin config failed");
 
@@ -523,4 +713,38 @@ void rlcd_st7305_deinit(rlcd_st7305_t *display)
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display)
 {
     return display == NULL ? NULL : &display->u8g2;
+}
+
+const char *rlcd_st7305_controller_mode(const rlcd_st7305_t *display)
+{
+    return display != NULL && display->controller_mode != NULL ?
+        display->controller_mode :
+        "default";
+}
+
+const char *rlcd_st7305_controller_mode_values(void)
+{
+    return RLCD_CONTROLLER_MODE_VALUES;
+}
+
+esp_err_t rlcd_st7305_set_controller_mode(rlcd_st7305_t *display, const char *mode)
+{
+    if (display == NULL || display->spi == NULL || mode == NULL || mode[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const rlcd_controller_profile_t *profile = rlcd_find_controller_profile(mode);
+    if (profile == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const rlcd_controller_profile_t *current = rlcd_current_controller_profile(display);
+    if (current == profile) {
+        return ESP_OK;
+    }
+    if (rlcd_profiles_differ_only_by_power(current, profile)) {
+        return rlcd_apply_controller_power_mode(display, profile);
+    }
+
+    return rlcd_apply_controller_profile(display, profile, false);
 }

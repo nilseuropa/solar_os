@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -26,4 +27,6 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                                  uint8_t *session_id);
 esp_err_t solar_os_port_shell_stop(uint8_t session_id);
 bool solar_os_port_shell_is_session_id(uint8_t session_id);
+size_t solar_os_port_shell_session_count(void);
+bool solar_os_port_shell_get_session_id(size_t index, uint8_t *session_id);
 void solar_os_port_shell_print_list(solar_os_shell_io_t *io);

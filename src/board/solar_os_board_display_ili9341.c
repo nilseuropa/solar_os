@@ -111,3 +111,23 @@ esp_err_t solar_os_board_display_set_brightness(solar_os_board_display_t *displa
     }
     return tft_ili9341_set_backlight((tft_ili9341_t *)display->driver, percent);
 }
+
+const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *display)
+{
+    (void)display;
+    return NULL;
+}
+
+const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *display)
+{
+    (void)display;
+    return NULL;
+}
+
+esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *display,
+                                                     const char *mode)
+{
+    (void)display;
+    (void)mode;
+    return ESP_ERR_NOT_SUPPORTED;
+}

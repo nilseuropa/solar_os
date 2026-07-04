@@ -133,6 +133,18 @@ static void restore_foreground_context(void)
     }
 }
 
+static void session_request_text_present_mode(const solar_os_session_entry_t *session)
+{
+    if (session_state.ctx == NULL || solar_os_context_graphics_active(session_state.ctx)) {
+        return;
+    }
+
+    solar_os_terminal_t *terminal = session != NULL ? session->terminal : session_state.current_terminal;
+    if (terminal != NULL && terminal->u8g2 != NULL) {
+        (void)solar_os_display_request_present_mode(terminal->u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+    }
+}
+
 static void session_update_title(solar_os_session_entry_t *session)
 {
     if (session == NULL || session->app == NULL) {
@@ -557,6 +569,7 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
     session->suspended = false;
     session_update_title(session);
     session_mark_dirty(session);
+    session_request_text_present_mode(session);
     return true;
 }
 
@@ -1215,6 +1228,40 @@ esp_err_t solar_os_sessions_close_any(uint8_t session_id, solar_os_shell_io_t *i
     }
 
     return solar_os_sessions_close_session(session_id, io);
+}
+
+size_t solar_os_sessions_active_count(void)
+{
+    size_t count = 0;
+
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        if (session_state.sessions[i].used && session_state.sessions[i].app != NULL) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool solar_os_sessions_get_active_id(size_t index, uint8_t *session_id)
+{
+    size_t current = 0;
+
+    if (session_id == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        const solar_os_session_entry_t *session = &session_state.sessions[i];
+        if (!session->used || session->app == NULL) {
+            continue;
+        }
+        if (current == index) {
+            *session_id = session->id;
+            return true;
+        }
+        current++;
+    }
+    return false;
 }
 
 void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)

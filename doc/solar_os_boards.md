@@ -64,6 +64,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
+set(SOLAR_OS_BOARD_HAS_SIMD ON)
 set(SOLAR_OS_BOARD_HAS_CDC ON)
 set(SOLAR_OS_BOARD_HAS_UART ON)
 set(SOLAR_OS_BOARD_HAS_WIFI ON)
@@ -92,6 +93,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/pwm_esp_idf.cmake")
 
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
+set(SOLAR_OS_BOARD_HAS_SIMD ON)
 set(SOLAR_OS_BOARD_HAS_DISPLAY ON)
 set(SOLAR_OS_BOARD_HAS_GFX ON)
 set(SOLAR_OS_BOARD_HAS_CDC ON)
@@ -189,6 +191,7 @@ The current capability flags are:
 | Flag | Meaning |
 | --- | --- |
 | `PSRAM` | External PSRAM is present and configured. `SOLAR_OS_BOARD_PSRAM_BYTES` gives the expected capacity. |
+| `SIMD` | CPU vector/SIMD instructions are available for bulk data engines such as image, audio, DSP, or accelerated math paths. |
 | `DISPLAY` | Physical display driver is available. |
 | `GFX` | Foreground graphics service can draw to a display. Usually paired with `DISPLAY`. |
 | `CDC` | USB serial/JTAG CDC byte-stream port `cdc0`. |
@@ -418,6 +421,7 @@ Recommended minimal capability set for a generic ESP32-S3 board:
 ```cmake
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
+set(SOLAR_OS_BOARD_HAS_SIMD ON)
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 set(SOLAR_OS_BOARD_HAS_CDC ON)

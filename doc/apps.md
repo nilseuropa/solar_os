@@ -378,8 +378,8 @@ Controls:
 ## view
 
 Graphical image viewer. It supports the image formats compiled into the current
-firmware, including common PNG/JPEG/GIF/WebP paths when the media package is
-enabled.
+firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF
+playback when the media package is enabled.
 
 Usage:
 
@@ -390,7 +390,7 @@ view [-fit|-actual] <image>
 Controls:
 
 - Arrows pan.
-- `f` toggles fit/actual mode.
+- `f` toggles fit/actual mode. Fit mode scales the image up or down to the screen.
 - `0` selects actual size.
 - `1` selects fit-to-screen.
 - `Esc` or app-exit key exits.
@@ -411,4 +411,3 @@ Controls:
 
 - Keyboard navigation follows the active web UI state.
 - `Esc` or app-exit key exits.
-

@@ -19,6 +19,7 @@
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#include "solar_os_engines.h"
 #include "solar_os_i2c.h"
 #include "solar_os_power.h"
 #include "solar_os_ramfs.h"
@@ -805,6 +806,88 @@ static void mem_print_region(solar_os_shell_io_t *term, const char *label, uint3
                              low,
                              largest);
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_ENGINES
+static uint64_t engine_us_to_ms(uint64_t us)
+{
+    return (us + 500ULL) / 1000ULL;
+}
+
+static uint64_t engine_util_tenths(const solar_os_engine_stats_t *stats)
+{
+    if (stats == NULL || stats->since_us == 0) {
+        return 0;
+    }
+    return (stats->busy_us * 1000ULL) / stats->since_us;
+}
+
+static void engine_print_stats(solar_os_shell_io_t *term,
+                               const solar_os_engine_stats_t *stats)
+{
+    const uint64_t util = engine_util_tenths(stats);
+
+    solar_os_shell_io_printf(term,
+                             "%-8s %-8s %s ops=%" PRIu64
+                             " work=%" PRIu64 "ms busy=%" PRIu64
+                             "ms util=%" PRIu64 ".%u%% units=%" PRIu64,
+                             stats->name,
+                             stats->class_name[0] != '\0' ? stats->class_name : "-",
+                             stats->active ? "active" : "idle",
+                             stats->op_count,
+                             engine_us_to_ms(stats->work_us),
+                             engine_us_to_ms(stats->busy_us),
+                             util / 10ULL,
+                             (unsigned)(util % 10ULL),
+                             stats->unit_count);
+    if (stats->op_count > 0) {
+        solar_os_shell_io_printf(term,
+                                 " last=%" PRIu64 "us max=%" PRIu64 "us",
+                                 stats->last_us,
+                                 stats->max_us);
+    }
+    if (stats->owner[0] != '\0') {
+        solar_os_shell_io_printf(term, " owner=%s", stats->owner);
+    }
+    if (stats->label[0] != '\0') {
+        solar_os_shell_io_printf(term, " label=%s", stats->label);
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc > 2) {
+        solar_os_shell_io_writeln(term, "usage: engine [status|reset]");
+        return;
+    }
+
+    const char *action = argc == 2 ? argv[1] : "status";
+    if (strcmp(action, "reset") == 0) {
+        solar_os_engine_reset_all();
+        solar_os_shell_io_writeln(term, "engine counters reset");
+        return;
+    }
+    if (strcmp(action, "status") != 0 && strcmp(action, "list") != 0) {
+        solar_os_shell_io_writeln(term, "usage: engine [status|reset]");
+        return;
+    }
+
+    const size_t count = solar_os_engine_count();
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "no engines registered");
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_engine_stats_t stats;
+        if (solar_os_engine_get(i, &stats)) {
+            engine_print_stats(term, &stats);
+        }
+    }
+}
+#endif
 
 void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
 {

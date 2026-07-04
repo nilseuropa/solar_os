@@ -593,6 +593,39 @@ bool solar_os_port_shell_is_session_id(uint8_t session_id)
     return port_shell_by_id(session_id) != NULL;
 }
 
+size_t solar_os_port_shell_session_count(void)
+{
+    size_t count = 0;
+
+    for (size_t i = 0; i < PORT_SHELL_MAX; i++) {
+        if (port_shells[i].used) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool solar_os_port_shell_get_session_id(size_t index, uint8_t *session_id)
+{
+    size_t current = 0;
+
+    if (session_id == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i < PORT_SHELL_MAX; i++) {
+        if (!port_shells[i].used) {
+            continue;
+        }
+        if (current == index) {
+            *session_id = port_shells[i].id;
+            return true;
+        }
+        current++;
+    }
+    return false;
+}
+
 esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                                  const char *port_name,
                                                  const solar_os_port_shell_options_t *options,

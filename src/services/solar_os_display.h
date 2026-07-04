@@ -33,6 +33,12 @@ typedef struct {
     u8g2_t *u8g2;
 } solar_os_display_target_t;
 
+typedef enum {
+    SOLAR_OS_DISPLAY_PRESENT_TEXT,
+    SOLAR_OS_DISPLAY_PRESENT_GRAPHICS,
+    SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER,
+} solar_os_display_present_mode_t;
+
 esp_err_t solar_os_display_init(solar_os_board_display_t *display);
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *target);
 esp_err_t solar_os_display_unregister_target(const char *name);
@@ -52,3 +58,9 @@ esp_err_t solar_os_display_release(const char *name, const char *owner);
 bool solar_os_display_brightness_supported(void);
 esp_err_t solar_os_display_get_brightness(uint8_t *percent);
 esp_err_t solar_os_display_set_brightness(uint8_t percent);
+esp_err_t solar_os_display_get_controller_mode(const char *name,
+                                               const char **mode,
+                                               const char **values);
+esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode);
+esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
+                                                solar_os_display_present_mode_t mode);

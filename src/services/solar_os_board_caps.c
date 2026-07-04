@@ -40,6 +40,7 @@ static const board_capability_name_t capability_names[] = {
     {SOLAR_OS_BOARD_CAP_DISPLAY_BRIGHTNESS, "display_brightness"},
     {SOLAR_OS_BOARD_CAP_TEMPERATURE, "temperature"},
     {SOLAR_OS_BOARD_CAP_HUMIDITY, "humidity"},
+    {SOLAR_OS_BOARD_CAP_SIMD, "simd"},
 };
 
 solar_os_board_capabilities_t solar_os_board_capabilities(void)
@@ -75,6 +76,7 @@ solar_os_board_capabilities_t solar_os_board_capabilities(void)
         (SOLAR_OS_BOARD_HAS_DISPLAY_BRIGHTNESS ? SOLAR_OS_BOARD_CAP_DISPLAY_BRIGHTNESS : 0U) |
         (SOLAR_OS_BOARD_HAS_TEMPERATURE ? SOLAR_OS_BOARD_CAP_TEMPERATURE : 0U) |
         (SOLAR_OS_BOARD_HAS_HUMIDITY ? SOLAR_OS_BOARD_CAP_HUMIDITY : 0U) |
+        (SOLAR_OS_BOARD_HAS_SIMD ? SOLAR_OS_BOARD_CAP_SIMD : 0U) |
         (SOLAR_OS_BOARD_HAS_PSRAM ? SOLAR_OS_BOARD_CAP_PSRAM : 0U);
 }
 

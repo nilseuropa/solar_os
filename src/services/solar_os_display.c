@@ -17,6 +17,8 @@
 #define DISPLAY_BOARD_TARGET_NAME "display0"
 #define DISPLAY_BOARD_SOURCE "board"
 #define DISPLAY_BOARD_ROLE "primary"
+#define DISPLAY_CONTROLLER_TEXT_MODE "default"
+#define DISPLAY_CONTROLLER_LOW_SHIMMER_MODE "lpm"
 
 typedef struct {
     bool active;
@@ -28,6 +30,8 @@ typedef struct {
 } display_target_slot_t;
 
 static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
+
+static void display_sync_slot(display_target_slot_t *slot);
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 static solar_os_board_display_t *display_handle;
@@ -91,6 +95,24 @@ static display_target_slot_t *display_find_slot(const char *name)
     return NULL;
 }
 
+static display_target_slot_t *display_find_slot_by_u8g2(u8g2_t *u8g2)
+{
+    if (u8g2 == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
+        display_target_slot_t *slot = &display_targets[i];
+        if (!slot->active) {
+            continue;
+        }
+        display_sync_slot(slot);
+        if (slot->target.u8g2 == u8g2) {
+            return slot;
+        }
+    }
+    return NULL;
+}
+
 static display_target_slot_t *display_alloc_slot(void)
 {
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
@@ -100,6 +122,31 @@ static display_target_slot_t *display_alloc_slot(void)
     }
     return NULL;
 }
+
+static bool display_controller_mode_is_auto_pair(const char *mode)
+{
+    return mode == NULL ||
+        strcmp(mode, DISPLAY_CONTROLLER_TEXT_MODE) == 0 ||
+        strcmp(mode, DISPLAY_CONTROLLER_LOW_SHIMMER_MODE) == 0;
+}
+
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+static esp_err_t display_set_slot_controller_mode(display_target_slot_t *slot, const char *mode)
+{
+    if (slot == NULL || mode == NULL || mode[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (slot->board_display == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const char *current = solar_os_board_display_controller_mode(slot->board_display);
+    if (current != NULL && strcmp(current, mode) == 0) {
+        return ESP_OK;
+    }
+    return solar_os_board_display_set_controller_mode(slot->board_display, mode);
+}
+#endif
 
 static void display_sync_slot(display_target_slot_t *slot)
 {
@@ -418,5 +465,109 @@ esp_err_t solar_os_display_set_brightness(uint8_t percent)
     display_brightness = percent;
     ret = display_save_brightness(percent);
     return ret;
+#endif
+}
+
+esp_err_t solar_os_display_get_controller_mode(const char *name,
+                                               const char **mode,
+                                               const char **values)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (mode != NULL) {
+        *mode = NULL;
+    }
+    if (values != NULL) {
+        *values = NULL;
+    }
+
+    display_target_slot_t *slot = display_find_slot(name);
+    if (slot == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    (void)slot;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (slot->board_display == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const char *mode_value = solar_os_board_display_controller_mode(slot->board_display);
+    const char *mode_values = solar_os_board_display_controller_mode_values(slot->board_display);
+    if (mode_value == NULL || mode_values == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (mode != NULL) {
+        *mode = mode_value;
+    }
+    if (values != NULL) {
+        *values = mode_values;
+    }
+    return ESP_OK;
+#endif
+}
+
+esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        mode == NULL ||
+        mode[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    display_target_slot_t *slot = display_find_slot(name);
+    if (slot == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    (void)slot;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (slot->board_display == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return display_set_slot_controller_mode(slot, mode);
+#endif
+}
+
+esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
+                                                solar_os_display_present_mode_t mode)
+{
+    display_target_slot_t *slot = display_find_slot_by_u8g2(u8g2);
+    if (slot == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const char *controller_mode = NULL;
+    switch (mode) {
+    case SOLAR_OS_DISPLAY_PRESENT_TEXT:
+    case SOLAR_OS_DISPLAY_PRESENT_GRAPHICS:
+        controller_mode = DISPLAY_CONTROLLER_TEXT_MODE;
+        break;
+    case SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER:
+        controller_mode = DISPLAY_CONTROLLER_LOW_SHIMMER_MODE;
+        break;
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#if !SOLAR_OS_BOARD_HAS_DISPLAY
+    (void)controller_mode;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (slot->board_display == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const char *current = solar_os_board_display_controller_mode(slot->board_display);
+    if (!display_controller_mode_is_auto_pair(current)) {
+        return ESP_OK;
+    }
+    return display_set_slot_controller_mode(slot, controller_mode);
 #endif
 }

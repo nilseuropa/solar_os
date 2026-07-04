@@ -111,3 +111,26 @@ esp_err_t solar_os_board_display_set_brightness(solar_os_board_display_t *displa
     (void)percent;
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *display)
+{
+    if (display == NULL || display->driver == NULL) {
+        return NULL;
+    }
+    return rlcd_st7305_controller_mode((const rlcd_st7305_t *)display->driver);
+}
+
+const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *display)
+{
+    (void)display;
+    return rlcd_st7305_controller_mode_values();
+}
+
+esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *display,
+                                                     const char *mode)
+{
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return rlcd_st7305_set_controller_mode((rlcd_st7305_t *)display->driver, mode);
+}
