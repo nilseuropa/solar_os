@@ -10,7 +10,6 @@ struct solar_os_gfx {
     solar_os_gfx_line_style_t line_style;
     bool dirty;
     bool black_is_one;
-    bool low_shimmer_mode;
 };
 
 void solar_os_gfx_init(solar_os_gfx_t *gfx, u8g2_t *u8g2);

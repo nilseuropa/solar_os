@@ -17,8 +17,6 @@
 #define DISPLAY_BOARD_TARGET_NAME "display0"
 #define DISPLAY_BOARD_SOURCE "board"
 #define DISPLAY_BOARD_ROLE "primary"
-#define DISPLAY_CONTROLLER_TEXT_MODE "default"
-#define DISPLAY_CONTROLLER_LOW_SHIMMER_MODE "lpm"
 
 typedef struct {
     bool active;
@@ -121,13 +119,6 @@ static display_target_slot_t *display_alloc_slot(void)
         }
     }
     return NULL;
-}
-
-static bool display_controller_mode_is_auto_pair(const char *mode)
-{
-    return mode == NULL ||
-        strcmp(mode, DISPLAY_CONTROLLER_TEXT_MODE) == 0 ||
-        strcmp(mode, DISPLAY_CONTROLLER_LOW_SHIMMER_MODE) == 0;
 }
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -543,31 +534,11 @@ esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
         return ESP_ERR_NOT_FOUND;
     }
 
-    const char *controller_mode = NULL;
     switch (mode) {
     case SOLAR_OS_DISPLAY_PRESENT_TEXT:
     case SOLAR_OS_DISPLAY_PRESENT_GRAPHICS:
-        controller_mode = DISPLAY_CONTROLLER_TEXT_MODE;
-        break;
-    case SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER:
-        controller_mode = DISPLAY_CONTROLLER_LOW_SHIMMER_MODE;
-        break;
+        return ESP_OK;
     default:
         return ESP_ERR_INVALID_ARG;
     }
-
-#if !SOLAR_OS_BOARD_HAS_DISPLAY
-    (void)controller_mode;
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    if (slot->board_display == NULL) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    const char *current = solar_os_board_display_controller_mode(slot->board_display);
-    if (!display_controller_mode_is_auto_pair(current)) {
-        return ESP_OK;
-    }
-    return display_set_slot_controller_mode(slot, controller_mode);
-#endif
 }

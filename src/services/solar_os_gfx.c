@@ -215,8 +215,6 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
         return;
     }
 
-    gfx->low_shimmer_mode = true;
-
     int run_start = start;
     uint8_t run_color = gfx_pattern_draw_color(gfx, gfx->color, start, y);
     for (int col = start + 1; col < end; col++) {
@@ -360,7 +358,6 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
         return;
     }
 
-    gfx->low_shimmer_mode = gfx_color_uses_dither(color);
     const solar_os_gfx_color_t previous_color = gfx->color;
     gfx->color = color;
     for (int y = 0; y < (int)u8g2_GetDisplayHeight(gfx->u8g2); y++) {
@@ -598,11 +595,7 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         return;
     }
 
-    (void)solar_os_display_request_present_mode(
-        gfx->u8g2,
-        gfx->low_shimmer_mode ?
-            SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER :
-            SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
+    (void)solar_os_display_request_present_mode(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
     u8g2_SendBuffer(gfx->u8g2);
     gfx->dirty = false;
 }

@@ -122,8 +122,10 @@ const char *solar_os_board_display_controller_mode(const solar_os_board_display_
 
 const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *display)
 {
-    (void)display;
-    return rlcd_st7305_controller_mode_values();
+    if (display == NULL || display->driver == NULL) {
+        return NULL;
+    }
+    return rlcd_st7305_controller_mode_values((const rlcd_st7305_t *)display->driver);
 }
 
 esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *display,

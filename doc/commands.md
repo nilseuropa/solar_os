@@ -434,9 +434,13 @@ test <target>` claims the target while it draws a visible frame/test pattern,
 then releases it. `display mode <target>` lists experimental controller modes
 for supported display drivers; `display mode <target> <mode>` applies one until
 the display driver is reinitialized. The built-in ST7305 path automatically
-switches between `default` for text/binary refresh and `lpm` for dithered
-graphic frames unless a non-auto experimental mode such as `inv-off` or `u8g2`
-is selected manually.
+uses the normal power profile before writing changed frame content and switches
+to the paired `lpm` profile after the frame has been idle for the configured
+driver debounce, or immediately when a present pass finds no changed pixels.
+The default ST7305 idle debounce is 1000 ms. The advanced
+`display mode <target> idle-lpm-ms=<ms>` driver option updates it at runtime
+and persists it in the ST7305 NVS namespace; `idle-lpm-ms=default` restores the
+driver default. Manual modes choose the experimental controller family.
 
 Manual expansion profiles claim resources without initializing external
 hardware:

@@ -36,7 +36,6 @@ typedef struct {
 typedef enum {
     SOLAR_OS_DISPLAY_PRESENT_TEXT,
     SOLAR_OS_DISPLAY_PRESENT_GRAPHICS,
-    SOLAR_OS_DISPLAY_PRESENT_LOW_SHIMMER,
 } solar_os_display_present_mode_t;
 
 esp_err_t solar_os_display_init(solar_os_board_display_t *display);
