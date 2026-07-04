@@ -12,6 +12,7 @@ members = [
   "service_audio",
   "service_resources",
   "service_engines",
+  "service_vector",
   "service_gpio",
   "service_i2c",
   "service_spi",
@@ -228,6 +229,10 @@ sources = ["services/solar_os_resources.c"]
 label = "service.engines"
 sources = ["services/solar_os_engines.c"]
 requires = ["esp_timer"]
+
+[packages.service_vector]
+label = "service.vector"
+sources = ["services/solar_os_vector.c"]
 
 [packages.service_gpio]
 label = "service.gpio"

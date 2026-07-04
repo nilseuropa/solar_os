@@ -138,7 +138,7 @@ apps and jobs are not compiled into the image.
 
 Current package groups:
 
-- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, engine telemetry, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, SPI, UART, expansion/radio services, bundled expansion drivers, SHTC3 sensors, and the `audio` hardware command.
+- `core`: Always enabled. Board hardware services, display/terminal, shell, storage, editor, pager, serial terminal app, ports, logs, jobs framework, engine telemetry, vector bulk operations, crypto helpers, OTA, RTC/time, BLE keyboard, Wi-Fi control, battery, ADC, GPIO, PWM, I2C, SPI, UART, expansion/radio services, bundled expansion drivers, SHTC3 sensors, and the `audio` hardware command.
 - `audio`: `arecord`, `aplay`, and MP3 decoding.
 - `net`: Network tools/apps/jobs such as `ping`, `netscan`, `mqtt`, `ssh`, `scp`, `curl`, `telnet`, `web`, `chat`, `httpd`, `chatd`, `ntp-sync`, `slip`, and `sshkey`.
 - `media`: Image viewer and image decoder apps.
@@ -244,7 +244,7 @@ System:
 - `version`
 - `pkg`
 - `board`
-- `engine [status|reset]`: inspect or reset generic engine utilization counters for CPU/SIMD-style execution backends.
+- `engine [status|reset]`: inspect or reset generic engine utilization counters for CPU/SIMD-style execution backends and vector bulk operations.
 - `display [list]`; `display test <target>`: list drawable display targets or draw a test pattern on one target.
 - `status`
 - `uptime`

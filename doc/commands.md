@@ -66,7 +66,7 @@ Arguments typed after the alias are appended.
 | `version` | `version` | Print SolarOS version, board, flavor, and package information. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
-| `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters. |
+| `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>` | List drawable display targets or draw a test pattern. |
 | `status` | `status` | Print a compact system status summary. |
 | `uptime` | `uptime` | Print elapsed time since boot. |

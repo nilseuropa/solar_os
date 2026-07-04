@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_board.h"
+#include "solar_os_vector.h"
 #include "spi_bus.h"
 
 #ifndef SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ
@@ -294,12 +295,7 @@ static esp_err_t ili9341_set_window(tft_ili9341_t *display,
 
 static void ili9341_fill_line(tft_ili9341_t *display, uint16_t rgb565, size_t pixels)
 {
-    const uint8_t hi = (uint8_t)(rgb565 >> 8);
-    const uint8_t lo = (uint8_t)(rgb565 & 0xff);
-    for (size_t i = 0; i < pixels; i++) {
-        display->line_buffer[(i * 2U) + 0] = hi;
-        display->line_buffer[(i * 2U) + 1] = lo;
-    }
+    solar_os_vector_fill_rgb565_be(display->line_buffer, rgb565, pixels);
 }
 
 static esp_err_t ili9341_fill_screen(tft_ili9341_t *display, uint16_t rgb565)
@@ -378,12 +374,12 @@ static void ili9341_line_from_tile(tft_ili9341_t *display,
                                    int row,
                                    int width)
 {
-    for (int col = 0; col < width; col++) {
-        const bool white = ((tile_data[col] >> row) & 1U) != 0;
-        const uint16_t rgb565 = white ? ILI9341_RGB565_WHITE : ILI9341_RGB565_BLACK;
-        display->line_buffer[(col * 2) + 0] = (uint8_t)(rgb565 >> 8);
-        display->line_buffer[(col * 2) + 1] = (uint8_t)(rgb565 & 0xff);
-    }
+    solar_os_vector_expand_1bpp_to_rgb565_be(display->line_buffer,
+                                             tile_data,
+                                             (unsigned)row,
+                                             ILI9341_RGB565_BLACK,
+                                             ILI9341_RGB565_WHITE,
+                                             (size_t)width);
 }
 
 static esp_err_t ili9341_draw_tile(tft_ili9341_t *display, const u8x8_tile_t *tile)
