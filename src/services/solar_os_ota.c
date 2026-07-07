@@ -28,7 +28,7 @@
 #define OTA_NVS_URL_KEY "url"
 #define OTA_NVS_FLAVOR_KEY "flavor"
 #define OTA_HTTP_TIMEOUT_MS 15000
-#define OTA_INDEX_MAX 16384
+#define OTA_INDEX_MAX 32768
 #define OTA_INDEX_SIGNATURE_MAX 512
 #define OTA_HTTP_FETCH_URL_MAX (SOLAR_OS_OTA_ARTIFACT_URL_MAX + 40)
 
@@ -441,6 +441,10 @@ static esp_err_t ota_http_get_text(const char *url,
         return ESP_FAIL;
     }
     if (body.truncated) {
+        SOLAR_OS_LOGW(TAG,
+                      "check response too large: %u/%u bytes",
+                      (unsigned)body.body_len,
+                      (unsigned)(body.body_cap - 1U));
         return ESP_ERR_INVALID_SIZE;
     }
     return ESP_OK;
