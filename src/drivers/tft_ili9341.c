@@ -197,6 +197,7 @@ static esp_err_t ili9341_apply_backlight(uint8_t percent)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+#ifdef SOLAR_OS_BOARD_PIN_LCD_BL
 #if SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM
     return pwm_port_set(SOLAR_OS_BOARD_PIN_LCD_BL,
                         SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM_FREQ_HZ,
@@ -204,6 +205,10 @@ static esp_err_t ili9341_apply_backlight(uint8_t percent)
 #else
     const int active = SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL ? 1 : 0;
     return gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_BL, percent > 0 ? active : !active);
+#endif
+#else
+    (void)percent;
+    return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
 

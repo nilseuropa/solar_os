@@ -5,6 +5,10 @@
 #include "solar_os_board.h"
 #include "tft_ili9341.h"
 
+#if defined(SOLAR_OS_BOARD_M5STACK_CORE2)
+#include "pmic_axp192.h"
+#endif
+
 static tft_ili9341_t ili9341_display;
 
 static void display_bind_ili9341(solar_os_board_display_t *display)
@@ -25,6 +29,17 @@ esp_err_t solar_os_board_display_init(solar_os_board_display_t *display)
     }
 
     memset(display, 0, sizeof(*display));
+
+#if defined(SOLAR_OS_BOARD_M5STACK_CORE2)
+    /* Core2's LCD backlight and reset lines live behind the AXP192 PMIC,
+     * not ESP32 GPIOs, so they must be powered up before the panel init
+     * sequence talks to it over SPI. */
+    const esp_err_t pmic_err = pmic_axp192_core2_bringup();
+    if (pmic_err != ESP_OK) {
+        return pmic_err;
+    }
+#endif
+
     const esp_err_t err = tft_ili9341_init(&ili9341_display);
     if (err != ESP_OK) {
         return err;

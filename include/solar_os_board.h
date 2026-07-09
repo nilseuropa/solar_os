@@ -6,6 +6,8 @@
 #include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
 #include "boards/odroid_go.h"
+#elif defined(SOLAR_OS_BOARD_M5STACK_CORE2)
+#include "boards/m5stack_core2.h"
 #else
 #error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/<target>.cmake profile."
 #endif
