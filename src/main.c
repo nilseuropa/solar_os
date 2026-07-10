@@ -221,6 +221,7 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
+#if defined(SOLAR_OS_BOARD_PIN_LCD_MOSI)
 #if defined(SOLAR_OS_BOARD_PIN_LCD_RST) && defined(SOLAR_OS_BOARD_PIN_LCD_TE)
     SOLAR_OS_LOGI(TAG,
                   "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d TE=%d",
@@ -237,6 +238,14 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_SCK,
                   SOLAR_OS_BOARD_PIN_LCD_DC,
                   SOLAR_OS_BOARD_PIN_LCD_CS);
+#endif
+#elif defined(SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK)
+    SOLAR_OS_LOGI(TAG,
+                  "Display pins: HSYNC=%d VSYNC=%d DE=%d PCLK=%d",
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_HSYNC,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_VSYNC,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_DE,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK);
 #endif
 #endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
