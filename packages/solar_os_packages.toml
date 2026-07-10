@@ -491,7 +491,7 @@ capabilities = ["psram", "wifi"]
 label = "job.slip"
 sources = ["jobs/solar_os_slip_job.c"]
 requires = ["lwip"]
-capabilities = ["wifi"]
+capabilities = ["wifi", "uart"]
 
 [packages.job_bridge]
 label = "job.bridge"

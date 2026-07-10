@@ -221,6 +221,8 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
+#if defined(SOLAR_OS_BOARD_PIN_LCD_MOSI)
+#if defined(SOLAR_OS_BOARD_PIN_LCD_RST) && defined(SOLAR_OS_BOARD_PIN_LCD_TE)
     SOLAR_OS_LOGI(TAG,
                   "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d TE=%d",
                   SOLAR_OS_BOARD_PIN_LCD_MOSI,
@@ -229,6 +231,22 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_CS,
                   SOLAR_OS_BOARD_PIN_LCD_RST,
                   SOLAR_OS_BOARD_PIN_LCD_TE);
+#else
+    SOLAR_OS_LOGI(TAG,
+                  "Display pins: MOSI=%d SCK=%d DC=%d CS=%d",
+                  SOLAR_OS_BOARD_PIN_LCD_MOSI,
+                  SOLAR_OS_BOARD_PIN_LCD_SCK,
+                  SOLAR_OS_BOARD_PIN_LCD_DC,
+                  SOLAR_OS_BOARD_PIN_LCD_CS);
+#endif
+#elif defined(SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK)
+    SOLAR_OS_LOGI(TAG,
+                  "Display pins: HSYNC=%d VSYNC=%d DE=%d PCLK=%d",
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_HSYNC,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_VSYNC,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_DE,
+                  SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK);
+#endif
 #endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
     SOLAR_OS_LOGI(TAG,
@@ -1168,12 +1186,8 @@ static void maybe_enter_idle_sleep(void)
     }
 }
 
-static void start_headless_shell_if_needed(void)
+static void start_fallback_shell_if_needed(void)
 {
-    if (terminal != NULL) {
-        return;
-    }
-
     static const struct {
         solar_os_board_capability_t capability;
         const char *port_name;
@@ -1194,20 +1208,19 @@ static void start_headless_shell_if_needed(void)
             solar_os_port_shell_start(&os_ctx, fallback_ports[i].port_name, true, &session_id);
         if (err == ESP_OK) {
             SOLAR_OS_LOGI(TAG,
-                          "Headless shell session %u started on %s",
+                          "Fallback shell session %u started on %s",
                           (unsigned)session_id,
                           fallback_ports[i].port_name);
             return;
         }
         SOLAR_OS_LOGW(TAG,
-                      "Headless shell on %s failed: %s",
+                      "Fallback shell on %s failed: %s",
                       fallback_ports[i].port_name,
                       esp_err_to_name(err));
     }
 
     if (!had_candidate) {
-        SOLAR_OS_LOGW(TAG,
-                      "No display terminal and no byte-stream capability; no interactive shell started");
+        SOLAR_OS_LOGW(TAG, "No byte-stream capability; no fallback shell started");
     }
 }
 
@@ -1278,8 +1291,22 @@ void app_main(void)
 
     if (terminal != NULL) {
         solar_os_sessions_switch_to_app(solar_os_shell_app());
+        /*
+         * A board can have a display but no local input wired yet (no
+         * buttons/joystick/dpad, e.g. m5stack_core2's minimal port) --
+         * without this, the only way in is a BLE keyboard, and pairing
+         * one requires typing "ble pair" somewhere first. Start a
+         * fallback UART/CDC shell session alongside the display one so
+         * there's always some way to type commands.
+         */
+        if (!board_has(SOLAR_OS_BOARD_CAP_BUTTONS |
+                       SOLAR_OS_BOARD_CAP_KEY |
+                       SOLAR_OS_BOARD_CAP_JOYSTICK |
+                       SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+            start_fallback_shell_if_needed();
+        }
     } else {
-        start_headless_shell_if_needed();
+        start_fallback_shell_if_needed();
     }
 
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
