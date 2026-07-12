@@ -10,6 +10,8 @@
 #include "boards/m5stack_core2.h"
 #elif defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_TOUCH_LCD_5)
 #include "boards/waveshare_esp32_s3_touch_lcd_5.h"
+#elif defined(SOLAR_OS_BOARD_M5STACK_CORES3)
+#include "boards/m5stack_cores3.h"
 #else
 #error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/<target>.cmake profile."
 #endif

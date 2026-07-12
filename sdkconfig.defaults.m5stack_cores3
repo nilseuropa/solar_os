@@ -1,0 +1,9 @@
+# M5Stack CoreS3: ESP32-S3, 16MB flash, 8MB Quad PSRAM. The project-wide
+# sdkconfig.defaults assumes octal (OPI) PSRAM (matching the N16R8-family
+# boards already in this repo); CoreS3's module is quad, not octal, so
+# override that here. Target/flash size/console (native USB-Serial-JTAG)
+# are already correct from the shared defaults.
+CONFIG_SPIRAM_MODE_QUAD=y
+# CONFIG_SPIRAM_MODE_OCT is not set
+CONFIG_SPIRAM_SPEED_40M=y
+# CONFIG_SPIRAM_SPEED_80M is not set
