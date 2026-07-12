@@ -25,6 +25,18 @@
      SOLAR_OS_BOARD_CAP_BLE)
 
 /*
+ * solar_os_ble_keyboard_init() hangs boot indefinitely on this board
+ * (confirmed via a clean serial capture that stops dead partway
+ * through BLE bring-up, well past its own internal 5s timeout, on
+ * every boot -- root cause not yet found). The capability bit above
+ * stays set because plenty of shared shell code calls
+ * solar_os_ble_keyboard_* functions unconditionally regardless of it;
+ * those are all safe no-ops when the service was never initialized.
+ * This just stops main.c from making the one call that hangs.
+ */
+#define SOLAR_OS_BOARD_BLE_KEYBOARD_SKIP_INIT 1
+
+/*
  * 800x480 RGB-parallel panel (ST7262 controller, no command interface --
  * "simple RGB", so there's no SPI/I2C init sequence to send, just the
  * timing below plus reset/backlight through the CH422G expander).
@@ -130,10 +142,13 @@
 /*
  * Minimal port: display, RTC, SD, UART, connectivity. Not yet wired:
  * GT911 touch (SolarOS has no touch-input capability/service at all
- * yet -- follow-up work, same as Core2's touch) and RS485 (SP3485 on
+ * yet -- follow-up work, same as Core2's touch), RS485 (SP3485 on
  * GPIO43/44, which are also the ESP32-S3's default UART0 pins --
  * SolarOS's UART service only supports one active instance at a time,
  * so RS485 would need its own follow-up work rather than just being
- * wired alongside the GPIO15/16 UART above). USB native CDC
- * (GPIO19/20) is also available as a console.
+ * wired alongside the GPIO15/16 UART above), and BLE (see the
+ * HAS_BLE comment in the board's .cmake -- boot hangs indefinitely
+ * inside solar_os_ble_keyboard_init() on this board, root cause not
+ * yet found). USB native CDC (GPIO19/20) is also available as a
+ * console.
  */

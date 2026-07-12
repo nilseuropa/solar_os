@@ -1152,10 +1152,14 @@ static void init_peripherals(void)
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
+#if defined(SOLAR_OS_BOARD_BLE_KEYBOARD_SKIP_INIT) && SOLAR_OS_BOARD_BLE_KEYBOARD_SKIP_INIT
+        SOLAR_OS_LOGW(TAG, "BLE keyboard init skipped (board workaround for a boot hang)");
+#else
         const esp_err_t ble_err = solar_os_ble_keyboard_init();
         if (ble_err != ESP_OK) {
             SOLAR_OS_LOGE(TAG, "BLE keyboard init failed: %s", esp_err_to_name(ble_err));
         }
+#endif
     }
 #endif
 }
@@ -1196,7 +1200,17 @@ static void start_fallback_shell_if_needed(void)
         {SOLAR_OS_BOARD_CAP_CDC, SOLAR_OS_CDC_PORT_NAME},
     };
 
+    /*
+     * Start a session on EVERY available byte-stream port, not just the
+     * first one that works: a local UART port-shell "succeeds" as soon
+     * as the port is claimed and its task is created, regardless of
+     * whether anything is actually wired up on the other end (e.g. this
+     * board's UART needs a MAX232 swap to be reachable at all). Bailing
+     * out after that first, possibly-unreachable success used to leave
+     * boards with both UART and CDC unable to fall back to CDC.
+     */
     bool had_candidate = false;
+    bool started_any = false;
     for (size_t i = 0; i < sizeof(fallback_ports) / sizeof(fallback_ports[0]); i++) {
         if (!board_has(fallback_ports[i].capability)) {
             continue;
@@ -1207,11 +1221,12 @@ static void start_fallback_shell_if_needed(void)
         const esp_err_t err =
             solar_os_port_shell_start(&os_ctx, fallback_ports[i].port_name, true, &session_id);
         if (err == ESP_OK) {
+            started_any = true;
             SOLAR_OS_LOGI(TAG,
                           "Fallback shell session %u started on %s",
                           (unsigned)session_id,
                           fallback_ports[i].port_name);
-            return;
+            continue;
         }
         SOLAR_OS_LOGW(TAG,
                       "Fallback shell on %s failed: %s",
@@ -1221,6 +1236,8 @@ static void start_fallback_shell_if_needed(void)
 
     if (!had_candidate) {
         SOLAR_OS_LOGW(TAG, "No byte-stream capability; no fallback shell started");
+    } else if (!started_any) {
+        SOLAR_OS_LOGW(TAG, "All fallback shell candidates failed to start");
     }
 }
 
