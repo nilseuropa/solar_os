@@ -33,6 +33,12 @@
 #if SOLAR_OS_PACKAGE_APP_COM
 #include "solar_os_com.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_DHEX
+#include "solar_os_dhex.h"
+#endif
+#if SOLAR_OS_PACKAGE_APP_AQM
+#include "solar_os_aqm.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
 #include "solar_os_edit.h"
 #endif
@@ -97,6 +103,12 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_COM
     {"com", "serial terminal", &solar_os_com_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY},
+#endif
+#if SOLAR_OS_PACKAGE_APP_DHEX
+    {"dhex", "hex/ascii UART dump; usage: dhex [baud framing rx tx [port]] e.g. dhex 9600 8E1 13 14", &solar_os_dhex_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+#endif
+#if SOLAR_OS_PACKAGE_APP_AQM
+    {"aqm", "air quality monitor: particle sensor + SCD41 CO2/temp/RH", &solar_os_aqm_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
 #endif
 #if SOLAR_OS_PACKAGE_APP_EDIT
     {"edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},

@@ -116,6 +116,8 @@ members = [
   "app_notes",
   "app_plot",
   "app_sheet",
+  "app_dhex",
+  "app_aqm",
 ]
 triggers = [
   "app_clock",
@@ -124,6 +126,8 @@ triggers = [
   "app_notes",
   "app_plot",
   "app_sheet",
+  "app_dhex",
+  "app_aqm",
 ]
 
 [packages.core_runtime]
@@ -442,6 +446,18 @@ capabilities = ["gfx"]
 label = "app.com"
 sources = ["apps/solar_os_com.c"]
 capabilities = ["uart"]
+
+[packages.app_dhex]
+label = "app.dhex"
+sources = ["apps/solar_os_dhex.c"]
+requires = ["esp_driver_uart", "nvs_flash"]
+capabilities = ["gfx", "pm_uart"]
+
+[packages.app_aqm]
+label = "app.aqm"
+sources = ["apps/solar_os_aqm.c", "drivers/co2_scd41.c"]
+requires = ["esp_driver_uart", "esp_driver_i2c"]
+capabilities = ["gfx", "pm_uart", "port_a_i2c"]
 
 [packages.app_edit]
 label = "app.edit"
