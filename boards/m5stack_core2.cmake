@@ -8,6 +8,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/pmic_axp192.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_ili9341.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdspi.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_bm8563.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_bus_port_a.cmake")
 
 # Minimal port: display, storage, connectivity, RTC. No buttons/dpad/
 # battery/audio/sensors/status LED/runtime GPIO yet -- Core2 exposes
@@ -25,3 +26,6 @@ set(SOLAR_OS_BOARD_HAS_SPI ON)
 set(SOLAR_OS_BOARD_HAS_WIFI ON)
 set(SOLAR_OS_BOARD_HAS_BLE ON)
 set(SOLAR_OS_BOARD_HAS_RTC ON)
+set(SOLAR_OS_BOARD_HAS_CARDKB ON)
+set(SOLAR_OS_BOARD_HAS_PM_UART ON)
+set(SOLAR_OS_BOARD_HAS_PORT_A_I2C ON)

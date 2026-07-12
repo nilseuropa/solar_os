@@ -17,6 +17,22 @@
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_3
 
 /*
+ * Dedicated second UART for the particle sensor (Serial2 on the
+ * original project this was ported from) -- a separate hardware UART
+ * controller from the console above, not shared with it. Read raw by
+ * the dhex app, parsed into PM1.0/2.5/10 by the aqm app; both talk to
+ * the same physical sensor on this port. GPIO13/14 are free on Core2
+ * (no display/PMIC/touch/IMU claims them). Every board that wants
+ * either app declares its own SOLAR_OS_BOARD_PM_UART_* trio, since
+ * which UART controller is free and which pins are available varies
+ * per board (e.g. CoreS3's GPIO13 is already the AW88298 speaker's
+ * I2S DOUT).
+ */
+#define SOLAR_OS_BOARD_PM_UART_PORT UART_NUM_2
+#define SOLAR_OS_BOARD_PIN_PM_UART_TX GPIO_NUM_14
+#define SOLAR_OS_BOARD_PIN_PM_UART_RX GPIO_NUM_13
+
+/*
  * ILI9342C, 320x240, same command family as the ILI9341 driver already
  * used by odroid_go. MADCTL/rotation below reproduce the widely used
  * Core2 bring-up values (landscape, BGR order). Verify against your
@@ -106,7 +122,18 @@
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_22
 
 /*
- * Port A (external I2C, SDA=GPIO32/SCL=GPIO33) is not wired up as an
- * expansion bus yet. Add SOLAR_OS_BOARD_EXPANSION_I2C_BUSES plus the
- * EXPANSION_I2C capability in m5stack_core2.cmake once you want it.
+ * Port A (external I2C, SDA=GPIO32/SCL=GPIO33) is not wired up as a
+ * generic expansion bus yet (add SOLAR_OS_BOARD_EXPANSION_I2C_BUSES
+ * plus the EXPANSION_I2C capability in m5stack_core2.cmake for that).
+ * drivers/i2c_bus_port_a.c owns this as its own I2C_NUM_1 instance,
+ * shared by both solar_os_cardkb.c (CardKB) and the aqm app (SCD41 CO2
+ * sensor) -- multiple I2C devices can share one bus at different
+ * addresses, they just can't each call i2c_new_master_bus() on the
+ * same port. Port A's 5V pin is NOT a fixed rail (an earlier version
+ * of this comment incorrectly claimed that) -- it's AXP192 GPIO0
+ * configured as an LDO output, off by default; see
+ * pmic_axp192_set_grove_a_power().
  */
+#define SOLAR_OS_BOARD_PORT_A_I2C_PORT I2C_NUM_1
+#define SOLAR_OS_BOARD_PIN_PORT_A_I2C_SDA GPIO_NUM_32
+#define SOLAR_OS_BOARD_PIN_PORT_A_I2C_SCL GPIO_NUM_33

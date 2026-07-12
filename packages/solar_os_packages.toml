@@ -31,6 +31,7 @@ members = [
   "service_buttons",
   "service_joystick",
   "service_adc_dpad",
+  "service_cardkb",
   "job_bridge",
   "job_log",
   "job_batmon",
@@ -356,6 +357,12 @@ label = "service.adc-dpad"
 sources = ["services/solar_os_adc_dpad.c"]
 requires = ["esp_adc", "esp_driver_gpio"]
 capabilities = ["adc_dpad"]
+
+[packages.service_cardkb]
+label = "service.cardkb"
+sources = ["services/solar_os_cardkb.c"]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["cardkb"]
 
 [packages.app_aplay]
 label = "app.aplay"

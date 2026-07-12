@@ -14,6 +14,11 @@ static const char *TAG = "pmic_axp192";
 #define AXP192_REG_POWER_OUTPUT_CTRL 0x12
 #define AXP192_POWER_DCDC3_BIT 0x02
 #define AXP192_POWER_LDO2_BIT 0x04
+/* EXTEN: AXP192's dedicated external-power-enable output, the more
+ * common mechanism M5Stack's own ecosystem (M5StickC etc.) uses to
+ * gate Grove/HAT power -- trying this alongside GPIO0 LDO below since
+ * it's unconfirmed which one (if either) actually feeds Core2's Port A. */
+#define AXP192_POWER_EXTEN_BIT 0x40
 
 /* DCDC3 (backlight) output voltage: 0.7V + N * 0.025V, N in 0..127. */
 #define AXP192_REG_DCDC3_VOLTAGE 0x27
@@ -31,6 +36,17 @@ static const char *TAG = "pmic_axp192";
 #define AXP192_GPIO4_FUNCTION_NMOS_OUTPUT 0x84
 #define AXP192_REG_GPIO34_SIGNAL 0x96
 #define AXP192_GPIO4_OUTPUT_HIGH_BIT 0x02
+
+/* GPIO0 configured as an LDO output feeds Grove Port A's 5V pin.
+ * 0x02 = LDO mode (on), 0x07 = floating input (off). The LDO's own
+ * output voltage is a separate register (0x91) that M5Unified sets
+ * once during its own bring-up, not touched again by its runtime
+ * on/off toggle -- without it the LDO has no configured voltage. */
+#define AXP192_REG_GPIO0_FUNCTION 0x90
+#define AXP192_GPIO0_LDO_ON 0x02
+#define AXP192_REG_GPIO0_LDO_VOLTAGE 0x91
+#define AXP192_GPIO0_LDO_VOLTAGE_2V8 0xA0
+#define AXP192_GPIO0_FLOATING_OFF 0x07
 
 static esp_err_t axp192_read(uint8_t reg, uint8_t *value)
 {
@@ -86,4 +102,30 @@ esp_err_t pmic_axp192_core2_bringup(void)
      * command; the ili9341 driver's own post-reset delay covers the rest. */
     ESP_LOGI(TAG, "Core2 backlight/reset rails enabled (DC3=%umV)", AXP192_BACKLIGHT_TARGET_MV);
     return ESP_OK;
+}
+
+esp_err_t pmic_axp192_set_grove_a_power(bool enable)
+{
+    ESP_RETURN_ON_ERROR(i2c_bus_init(), TAG, "i2c bus init failed");
+
+    uint8_t power_ctrl = 0;
+    ESP_RETURN_ON_ERROR(axp192_read(AXP192_REG_POWER_OUTPUT_CTRL, &power_ctrl),
+                        TAG,
+                        "read power output ctrl failed");
+    if (enable) {
+        power_ctrl |= AXP192_POWER_EXTEN_BIT;
+    } else {
+        power_ctrl &= (uint8_t)~AXP192_POWER_EXTEN_BIT;
+    }
+    ESP_RETURN_ON_ERROR(axp192_write(AXP192_REG_POWER_OUTPUT_CTRL, power_ctrl),
+                        TAG,
+                        "set EXTEN failed");
+
+    if (enable) {
+        ESP_RETURN_ON_ERROR(axp192_write(AXP192_REG_GPIO0_LDO_VOLTAGE, AXP192_GPIO0_LDO_VOLTAGE_2V8),
+                            TAG,
+                            "set GPIO0 LDO voltage failed");
+    }
+    return axp192_write(AXP192_REG_GPIO0_FUNCTION,
+                        enable ? AXP192_GPIO0_LDO_ON : AXP192_GPIO0_FLOATING_OFF);
 }

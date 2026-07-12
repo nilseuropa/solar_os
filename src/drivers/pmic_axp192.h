@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 /*
@@ -17,3 +19,11 @@
  * has already run.
  */
 esp_err_t pmic_axp192_core2_bringup(void);
+
+/*
+ * Grove Port A's 5V pin is not a fixed rail on Core2 -- it's AXP192
+ * GPIO0 configured as an LDO output (register 0x90: 0x02 = LDO/on,
+ * 0x07 = floating/off), confirmed against M5Unified's Power_Class.cpp.
+ * Call with true before talking to anything plugged into Port A.
+ */
+esp_err_t pmic_axp192_set_grove_a_power(bool enable);
