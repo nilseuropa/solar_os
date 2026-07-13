@@ -56,6 +56,7 @@ members = [
   "job_chatd",
   "job_slip",
   "job_ntp_sync",
+  "job_remote",
 ]
 triggers = [
   "app_ssh",
@@ -68,6 +69,7 @@ triggers = [
   "job_chatd",
   "job_slip",
   "job_ntp_sync",
+  "job_remote",
 ]
 sources = [
   "shell/solar_os_shell_mqtt.c",
@@ -509,6 +511,16 @@ capabilities = ["wifi"]
 label = "job.chatd"
 sources = ["jobs/solar_os_chatd_job.c"]
 capabilities = ["psram", "wifi"]
+
+[packages.job_remote]
+label = "job.remote"
+sources = [
+  "jobs/solar_os_remote_job.c",
+  "services/solar_os_remote_screen.c",
+  "services/solar_os_remote_input.c",
+]
+requires = ["esp_http_server"]
+capabilities = ["wifi", "gfx"]
 
 [packages.job_slip]
 label = "job.slip"

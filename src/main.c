@@ -51,6 +51,10 @@
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
 #include "solar_os_power.h"
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+#include "solar_os_remote_input.h"
+#include "solar_os_remote_screen.h"
+#endif
 #include "solar_os_pwm.h"
 #include "solar_os_radio.h"
 #include "solar_os_resources.h"
@@ -877,6 +881,17 @@ static void dispatch_cardkb_chars(void)
 #endif
 }
 
+static void dispatch_remote_chars(void)
+{
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+    char chars[16];
+    size_t count;
+    while ((count = solar_os_remote_input_read_chars(chars, sizeof(chars))) > 0) {
+        dispatch_input_chars(chars, count);
+    }
+#endif
+}
+
 static void dispatch_input_sources(void)
 {
     dispatch_keyboard_chars();
@@ -884,6 +899,7 @@ static void dispatch_input_sources(void)
     dispatch_joystick_chars();
     dispatch_adc_dpad_chars();
     dispatch_cardkb_chars();
+    dispatch_remote_chars();
 }
 
 static void dispatch_app_tick(void)
@@ -1297,6 +1313,9 @@ void app_main(void)
                               esp_err_to_name(display_service_err));
             }
             solar_os_gfx_init(&gfx, display_u8g2);
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+            solar_os_remote_screen_attach(display_u8g2, &gfx);
+#endif
             solar_os_splash_clear(&gfx);
 
             shell_terminal = solar_os_psram_calloc(1, sizeof(*shell_terminal));
