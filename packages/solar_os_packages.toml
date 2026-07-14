@@ -14,6 +14,7 @@ members = [
   "service_engines",
   "service_vector",
   "service_gpio",
+  "service_logic",
   "service_i2c",
   "service_spi",
   "service_expansion",
@@ -35,6 +36,7 @@ members = [
   "job_log",
   "job_batmon",
   "job_daq",
+  "job_sump",
 ]
 
 [groups.audio]
@@ -114,6 +116,7 @@ members = [
   "app_files",
   "app_notes",
   "app_plot",
+  "app_logic",
   "app_sheet",
 ]
 triggers = [
@@ -122,6 +125,7 @@ triggers = [
   "app_files",
   "app_notes",
   "app_plot",
+  "app_logic",
   "app_sheet",
 ]
 
@@ -238,6 +242,12 @@ sources = ["services/solar_os_vector.c"]
 label = "service.gpio"
 sources = ["services/solar_os_gpio.c", "services/solar_os_status_led.c"]
 requires = ["esp_driver_gpio"]
+capabilities = ["gpio"]
+
+[packages.service_logic]
+label = "service.logic"
+sources = ["services/solar_os_logic.c"]
+requires = ["esp_driver_gpio", "esp_hw_support", "esp_timer", "heap"]
 capabilities = ["gpio"]
 
 [packages.service_i2c]
@@ -473,6 +483,12 @@ label = "app.plot"
 sources = ["apps/solar_os_plot.c"]
 capabilities = ["gfx"]
 
+[packages.app_logic]
+label = "app.logic"
+sources = ["apps/solar_os_logic_app.c"]
+requires = ["heap"]
+capabilities = ["gfx", "gpio"]
+
 [packages.app_sheet]
 label = "app.sheet"
 sources = ["apps/solar_os_sheet.c"]
@@ -509,6 +525,11 @@ capabilities = ["battery"]
 [packages.job_daq]
 label = "job.daq"
 sources = ["jobs/solar_os_daq_job.c"]
+
+[packages.job_sump]
+label = "job.sump"
+sources = ["jobs/solar_os_sump_job.c"]
+capabilities = ["cdc", "gpio"]
 
 [packages.job_ntp_sync]
 label = "job.ntp-sync"

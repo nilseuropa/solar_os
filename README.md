@@ -28,7 +28,8 @@ workflows:
   I2C, SPI, audio, sensors, and board-specific display hardware through shared
   SolarOS services.
 - Capture data streams to CSV or raw files, transfer files over byte-stream
-  ports, and inspect runtime resource ownership.
+  ports, capture GPIO waveforms through SUMP or the on-device logic analyzer,
+  and inspect runtime resource ownership.
 - Build smaller or larger firmware images through package flavors instead of
   treating every app and service as mandatory.
 

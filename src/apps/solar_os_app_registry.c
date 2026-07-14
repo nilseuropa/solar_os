@@ -48,6 +48,9 @@
 #if SOLAR_OS_PACKAGE_APP_PLOT
 #include "solar_os_plot.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_LOGIC
+#include "solar_os_logic_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_READER
 #include "solar_os_reader.h"
 #endif
@@ -112,6 +115,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLOT
     {"plot", "plot DAQ CSV files or scalar streams", &solar_os_plot_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+#endif
+#if SOLAR_OS_PACKAGE_APP_LOGIC
+    {"logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
     {"reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
