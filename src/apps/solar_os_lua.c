@@ -18,21 +18,29 @@
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
-#include "solar_os_adc.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
+#include "solar_os_adc.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
+#endif
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
+#endif
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
@@ -46,7 +54,9 @@
 #include "solar_os_onewire.h"
 #endif
 #include "solar_os_port_shell.h"
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
 #endif
@@ -55,13 +65,19 @@
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
 #include "solar_os_spi.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_status_led.h"
+#endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
+#if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
+#endif
 
 #ifndef SOLAR_OS_VERSION
 #define SOLAR_OS_VERSION "0.0.0"
@@ -596,6 +612,7 @@ static void solua_push_environment(lua_State *L, const solar_os_environment_t *e
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *status)
 {
     lua_newtable(L);
@@ -630,6 +647,7 @@ static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *s
     solua_set_int(L, -1, "nat_last_error", status->nat_last_error);
     solua_set_str(L, -1, "nat_last_error_name", esp_err_to_name(status->nat_last_error));
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static void solua_push_audio_status(lua_State *L, const solar_os_audio_status_t *status)
@@ -710,6 +728,7 @@ static void solua_push_ssh_key_status(lua_State *L, const solar_os_ssh_key_statu
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 static void solua_push_gpio_info(lua_State *L, const solar_os_gpio_pin_info_t *info)
 {
     lua_newtable(L);
@@ -728,7 +747,9 @@ static void solua_push_gpio_info(lua_State *L, const solar_os_gpio_pin_info_t *i
     solua_set_int(L, -1, "level", info->level ? 1 : 0);
     solua_set_bool(L, -1, "level_valid", info->level_valid);
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
 static void solua_push_adc_info(lua_State *L, const solar_os_adc_pin_info_t *info)
 {
     lua_newtable(L);
@@ -749,7 +770,9 @@ static void solua_push_adc_sample(lua_State *L, const solar_os_adc_sample_t *sam
     solua_set_int(L, -1, "channel", sample->channel);
     solua_set_bool(L, -1, "calibrated", sample->calibrated);
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
 static void solua_push_pwm_info(lua_State *L, const solar_os_pwm_pin_info_t *info)
 {
     lua_newtable(L);
@@ -760,7 +783,9 @@ static void solua_push_pwm_info(lua_State *L, const solar_os_pwm_pin_info_t *inf
     solua_set_int(L, -1, "freq_hz", info->freq_hz);
     solua_set_int(L, -1, "duty_percent", info->duty_percent);
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
 static void solua_push_uart_status(lua_State *L, const solar_os_uart_status_t *status)
 {
     lua_newtable(L);
@@ -773,6 +798,7 @@ static void solua_push_uart_status(lua_State *L, const solar_os_uart_status_t *s
     solua_set_int(L, -1, "rx_buffered", (lua_Integer)status->rx_buffered);
     solua_set_bool(L, -1, "rx_buffered_valid", status->rx_buffered_valid);
 }
+#endif
 
 static void solua_push_job_status(lua_State *L, const solar_os_job_status_t *status)
 {
@@ -825,6 +851,7 @@ static int solua_solaros_battery_status(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static int solua_solaros_wifi_status_short(lua_State *L)
 {
     solar_os_wifi_status_t status;
@@ -845,6 +872,7 @@ static int solua_solaros_wifi_status_short(lua_State *L)
     solua_set_bool(L, -1, "nat_active", status.nat_active);
     return 1;
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 static int solua_solaros_environment(lua_State *L)
@@ -1131,6 +1159,7 @@ static int solua_sensors_environment(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static int solua_wifi_status(lua_State *L)
 {
     solar_os_wifi_status_t status;
@@ -1247,6 +1276,7 @@ static int solua_wifi_nat(lua_State *L)
 {
     return solua_check_esp(L, solar_os_wifi_nat_set(lua_toboolean(L, 1)));
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_NET
 static int solua_mqtt_status(lua_State *L)
@@ -1315,6 +1345,7 @@ static int solua_mqtt_read(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 static solar_os_gpio_mode_t solua_gpio_mode_from_arg(lua_State *L, int index)
 {
     if (lua_isinteger(L, index)) {
@@ -1404,6 +1435,7 @@ static int solua_gpio_write(lua_State *L)
                            solar_os_gpio_write(solua_check_gpio_pin(L, 1),
                                                lua_toboolean(L, 2)));
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 static int solua_onewire_allowed(lua_State *L)
@@ -1477,6 +1509,7 @@ static int solua_onewire_xfer(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 static int solua_led_status(lua_State *L)
 {
     bool on = false;
@@ -1514,7 +1547,9 @@ static int solua_led_toggle(lua_State *L)
     lua_pushboolean(L, on);
     return 1;
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
 static int solua_adc_pins(lua_State *L)
 {
     lua_newtable(L);
@@ -1537,7 +1572,9 @@ static int solua_adc_read(lua_State *L)
     solua_push_adc_sample(L, &sample);
     return 1;
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
 static int solua_pwm_status(lua_State *L)
 {
     lua_newtable(L);
@@ -1569,7 +1606,9 @@ static int solua_pwm_off(lua_State *L)
 {
     return solua_check_esp(L, solar_os_pwm_stop(solua_check_gpio_pin(L, 1)));
 }
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
 static int solua_i2c_info(lua_State *L)
 {
     lua_newtable(L);
@@ -1627,6 +1666,7 @@ static int solua_i2c_write_reg(lua_State *L)
                                                   (const uint8_t *)data,
                                                   len));
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
 static int solua_spi_cs_from_arg(lua_State *L, int index)
@@ -1779,6 +1819,7 @@ static int solua_spi_write(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
 static int solua_uart_status(lua_State *L)
 {
     solar_os_uart_status_t status;
@@ -1845,6 +1886,7 @@ static int solua_uart_read(lua_State *L)
     lua_pushlstring(L, (const char *)data, read_len);
     return 1;
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static int solua_audio_status(lua_State *L)
@@ -1960,6 +2002,7 @@ static int solua_audio_play_wav(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
 static int solua_ble_status(lua_State *L)
 {
     char status[96];
@@ -2010,6 +2053,7 @@ static int solua_ble_read(lua_State *L)
     lua_pushlstring(L, buffer, read_len);
     return 1;
 }
+#endif
 
 static int solua_clipboard_set(lua_State *L)
 {
@@ -2855,7 +2899,9 @@ static void solua_open_solaros(lua_State *L)
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     solua_set_func(L, solaros, "battery_status", solua_solaros_battery_status);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
     solua_set_func(L, solaros, "wifi_status", solua_solaros_wifi_status_short);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     solua_set_func(L, solaros, "environment", solua_solaros_environment);
 #endif
@@ -2913,6 +2959,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
     solua_new_submodule(L, solaros, "wifi");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_wifi_status);
@@ -2931,6 +2978,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "ap_stop", solua_wifi_ap_stop);
     solua_set_func(L, mod, "nat", solua_wifi_nat);
     lua_pop(L, 1);
+#endif
 
 #if SOLAR_OS_PACKAGE_NET
     solua_new_submodule(L, solaros, "mqtt");
@@ -2944,6 +2992,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
     solua_new_submodule(L, solaros, "gpio");
     mod = lua_gettop(L);
     solua_set_int(L, mod, "INPUT", SOLAR_OS_GPIO_MODE_INPUT);
@@ -2958,6 +3007,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "read", solua_gpio_read);
     solua_set_func(L, mod, "write", solua_gpio_write);
     lua_pop(L, 1);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
     solua_new_submodule(L, solaros, "onewire");
@@ -2969,6 +3019,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
     solua_new_submodule(L, solaros, "led");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_led_status);
@@ -2977,13 +3028,17 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "off", solua_led_off);
     solua_set_func(L, mod, "toggle", solua_led_toggle);
     lua_pop(L, 1);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
     solua_new_submodule(L, solaros, "adc");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "pins", solua_adc_pins);
     solua_set_func(L, mod, "read", solua_adc_read);
     lua_pop(L, 1);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
     solua_new_submodule(L, solaros, "pwm");
     mod = lua_gettop(L);
     solua_set_int(L, mod, "FREQ_MIN", SOLAR_OS_PWM_FREQ_MIN_HZ);
@@ -2992,7 +3047,9 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "set", solua_pwm_set);
     solua_set_func(L, mod, "off", solua_pwm_off);
     lua_pop(L, 1);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
     solua_new_submodule(L, solaros, "i2c");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "info", solua_i2c_info);
@@ -3001,6 +3058,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "read_reg", solua_i2c_read_reg);
     solua_set_func(L, mod, "write_reg", solua_i2c_write_reg);
     lua_pop(L, 1);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
     solua_new_submodule(L, solaros, "spi");
@@ -3018,6 +3076,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
     solua_new_submodule(L, solaros, "uart");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_uart_status);
@@ -3027,6 +3086,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "write", solua_uart_write);
     solua_set_func(L, mod, "read", solua_uart_read);
     lua_pop(L, 1);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     solua_new_submodule(L, solaros, "audio");
@@ -3045,6 +3105,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
     solua_new_submodule(L, solaros, "ble");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_ble_status);
@@ -3054,6 +3115,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "layout", solua_ble_layout);
     solua_set_func(L, mod, "read", solua_ble_read);
     lua_pop(L, 1);
+#endif
 
     solua_new_submodule(L, solaros, "clipboard");
     mod = lua_gettop(L);

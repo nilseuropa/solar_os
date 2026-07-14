@@ -23,7 +23,23 @@ Most mutating functions return `None` on success and raise `OSError("ESP_ERR_...
 
 Functions that accept file paths use SolarOS shell-style paths. `/` means the default storage mount; internally this resolves to the active storage mount point.
 
-Hardware-backed helpers and submodules are present only when the board/flavor includes the corresponding service package. For example, a DevKitC1 full build has Python but omits `solaros.audio`, `solaros.battery`, and `solaros.sensors` because that board has no built-in audio, battery, or environmental sensor service.
+The Python runtime package requires PSRAM. Hardware and network helpers are
+added only when the board/flavor includes their service package. For example,
+an ODROID-GO full build includes Python with `solaros.spi` and
+`solaros.onewire`, while omitting `solaros.adc` and `solaros.i2c` because those
+service packages are not available on that board.
+
+Optional API groups follow these package gates:
+
+- `service.wifi`: top-level `wifi_status` and `solaros.wifi`
+- `net`: `solaros.mqtt`, `solaros.net`, and `solaros.ssh_keys`
+- `service.ble`: `solaros.ble`
+- `service.gpio`: `solaros.gpio` and `solaros.led`
+- `service.onewire`: `solaros.onewire`
+- `service.adc`, `service.pwm`, `service.i2c`, `service.spi`, and
+  `service.uart`: their matching submodules
+- `service.audio`, `service.battery`, and `service.sensors`: their matching
+  helpers and submodules
 
 ```python
 print(solaros.storage.resolve("/.shell/history"))
@@ -57,7 +73,7 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 - `solaros.version()`: return the SolarOS firmware version string.
 - `solaros.should_exit()`: return `True` when the app is being asked to stop.
 - `solaros.battery_status()`: shortcut for `solaros.battery.status()` when battery support is compiled.
-- `solaros.wifi_status()`: compact Wi-Fi status shortcut.
+- `solaros.wifi_status()`: compact Wi-Fi status shortcut when Wi-Fi support is compiled.
 - `solaros.environment()`: shortcut for `solaros.sensors.environment()` when environmental sensor support is compiled.
 
 ## `solaros.storage`

@@ -19,31 +19,35 @@ Lua allocations prefer PSRAM. Host-facing Lua `io`, `os`, and dynamic package lo
 - `solaros.version()`: return the firmware version.
 - `solaros.should_exit()`: return whether the foreground app was asked to exit.
 - `solaros.battery_status()`: short battery status table or `nil` when battery support is compiled.
-- `solaros.wifi_status()`: short Wi-Fi status table.
+- `solaros.wifi_status()`: short Wi-Fi status table when Wi-Fi support is compiled.
 - `solaros.environment()`: temperature and humidity table or `nil` when environmental sensor support is compiled.
 
 ## Service Tables
 
 Lua mirrors the Python `solaros` module structure:
 
-Hardware-backed tables are present only when the board/flavor includes the corresponding service package. For example, a DevKitC1 full build has Lua but omits `solaros.audio`, `solaros.battery`, and `solaros.sensors` because that board has no built-in audio, battery, or environmental sensor service.
+The Lua runtime package requires PSRAM. Hardware and network tables are present
+only when the board/flavor includes the corresponding service package. For
+example, an ODROID-GO full build includes Lua with `solaros.spi` and
+`solaros.onewire`, while omitting `solaros.adc` and `solaros.i2c` because those
+service packages are not available on that board.
 
 - `solaros.storage`: `status`, `is_mounted`, `mount`, `unmount`, `mount_point`, `usage`, `resolve`, `rescan`, `blocks`, `block_count`, `block`, `usage_for_block`, `mkdir`, `rmdir`, `remove`, `rename`, `copy`, `mount_volume`, `unmount_volume`
 - `solaros.time`: `uptime_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`
 - `solaros.battery`: `status` when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
-- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`
+- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when the `net` package is compiled
-- `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`
+- `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write` when GPIO support is compiled
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` when OneWire support is compiled
-- `solaros.led`: `status`, `set`, `on`, `off`, `toggle`
-- `solaros.adc`: `pins`, `read`
-- `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off`
-- `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg`
+- `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
+- `solaros.adc`: `pins`, `read` when ADC support is compiled
+- `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
+- `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
-- `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read`
+- `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
-- `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read`
+- `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `format`
 - `solaros.net`: `ping` when the `net` package is compiled

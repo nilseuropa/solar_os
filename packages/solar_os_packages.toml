@@ -435,13 +435,13 @@ capabilities = ["gfx"]
 label = "app.python"
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
-capabilities = ["psram", "wifi", "ble", "gpio", "adc", "pwm", "i2c", "uart"]
+capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
-capabilities = ["psram", "wifi", "ble", "gpio", "adc", "pwm", "i2c", "uart"]
+capabilities = ["psram"]
 
 [packages.app_clock]
 label = "app.clock"
