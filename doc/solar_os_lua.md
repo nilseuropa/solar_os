@@ -40,6 +40,7 @@ Hardware-backed tables are present only when the board/flavor includes the corre
 - `solaros.adc`: `pins`, `read`
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off`
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg`
+- `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read`
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read`
@@ -59,6 +60,13 @@ Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.rea
 `address` and numeric `family` code. `solaros.onewire.xfer(pin, read_len[, data])`
 resets the bus, writes the binary-safe `data` string, and returns `read_len`
 bytes. Reads and writes are each limited to 64 bytes.
+
+`solaros.spi.status()` reports the bus pins, transfer limit, and configured chip
+select slots. `xfer(cs, data[, mode[, speed_hz]])` performs a full-duplex
+transaction. `read(cs, length[, fill[, mode[, speed_hz]]])` and
+`write(cs, data[, mode[, speed_hz]])` provide one-direction convenience forms.
+The `cs` argument accepts a configured slot name or its numeric GPIO. Lua data
+and return values are binary-safe strings.
 
 `solaros.uart.status()` includes `rx_buffered` and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `false` because the live RX count is not sampled.
 

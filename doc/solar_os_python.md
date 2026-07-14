@@ -344,6 +344,31 @@ print(solaros.i2c.info())
 print([hex(addr) for addr in solaros.i2c.scan()])
 ```
 
+## `solaros.spi`
+
+Available when the board and flavor include the SPI service. Chip select may be
+a configured CS name from `status()["cs"]` or its configured numeric GPIO.
+Transfers are limited to the board's reported `max_transfer_size`.
+
+- Constants: `MODE0`, `MODE1`, `MODE2`, `MODE3`, `DEFAULT_SPEED`, `MAX_SPEED`.
+- `status()`: return the bus name, host, pins, speed, transfer limit, and configured CS slots.
+- `xfer(cs, data[, mode[, speed_hz]])`: perform a full-duplex transfer and return the received bytes.
+- `read(cs, length[, fill[, mode[, speed_hz]]])`: transmit the fill byte, default `0xff`, while reading.
+- `write(cs, data[, mode[, speed_hz]])`: write bytes and return the number written.
+
+Example:
+
+```python
+import solaros
+
+status = solaros.spi.status()
+cs = status["cs"][0]["name"]
+
+# JEDEC ID command followed by three dummy bytes in one CS transaction.
+response = solaros.spi.xfer(cs, b"\x9f\x00\x00\x00", solaros.spi.MODE0, 1_000_000)
+print(response[1:])
+```
+
 ## `solaros.uart`
 
 UART functions expose the external UART service.
