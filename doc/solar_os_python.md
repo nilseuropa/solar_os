@@ -246,6 +246,30 @@ print("GPIO17", solaros.gpio.read(17))
 solaros.gpio.write(1, 1)
 ```
 
+## `solaros.onewire`
+
+OneWire functions operate on runtime-safe expansion GPIOs when the OneWire
+service is included in the active flavor. Transfers reset the bus before writing
+and reading, and are limited to 64 bytes in each direction.
+
+- `allowed(pin)`: return whether the pin is available for OneWire operations.
+- `reset(pin)`: reset the bus and return whether a presence pulse was detected.
+- `scan(pin)`: return device dictionaries containing a 16-digit hexadecimal `address` and numeric `family` code.
+- `xfer(pin, read_len[, data])`: reset the bus, write a bytes-like object, then read and return `read_len` bytes. Either `read_len` or `data` must be non-empty.
+
+Example:
+
+```python
+import solaros
+
+for device in solaros.onewire.scan(17):
+    print(device["address"], device["family"])
+
+# Skip ROM, issue a command, and read two response bytes.
+response = solaros.onewire.xfer(17, 2, b"\xcc\x44")
+print(response)
+```
+
 ## `solaros.led`
 
 Status LED functions control a built-in board status LED when the board has one.
@@ -318,6 +342,31 @@ import solaros
 
 print(solaros.i2c.info())
 print([hex(addr) for addr in solaros.i2c.scan()])
+```
+
+## `solaros.spi`
+
+Available when the board and flavor include the SPI service. Chip select may be
+a configured CS name from `status()["cs"]` or its configured numeric GPIO.
+Transfers are limited to the board's reported `max_transfer_size`.
+
+- Constants: `MODE0`, `MODE1`, `MODE2`, `MODE3`, `DEFAULT_SPEED`, `MAX_SPEED`.
+- `status()`: return the bus name, host, pins, speed, transfer limit, and configured CS slots.
+- `xfer(cs, data[, mode[, speed_hz]])`: perform a full-duplex transfer and return the received bytes.
+- `read(cs, length[, fill[, mode[, speed_hz]]])`: transmit the fill byte, default `0xff`, while reading.
+- `write(cs, data[, mode[, speed_hz]])`: write bytes and return the number written.
+
+Example:
+
+```python
+import solaros
+
+status = solaros.spi.status()
+cs = status["cs"][0]["name"]
+
+# JEDEC ID command followed by three dummy bytes in one CS transaction.
+response = solaros.spi.xfer(cs, b"\x9f\x00\x00\x00", solaros.spi.MODE0, 1_000_000)
+print(response[1:])
 ```
 
 ## `solaros.uart`

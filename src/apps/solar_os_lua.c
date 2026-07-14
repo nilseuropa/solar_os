@@ -1,6 +1,7 @@
 #include "solar_os_lua.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -41,6 +42,9 @@
 #include "solar_os_net.h"
 #include "solar_os_ssh_keys.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+#include "solar_os_onewire.h"
+#endif
 #include "solar_os_port_shell.h"
 #include "solar_os_pwm.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
@@ -48,6 +52,9 @@
 #endif
 #include "solar_os_sessions.h"
 #include "solar_os_shell_io.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#include "solar_os_spi.h"
+#endif
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
@@ -1398,6 +1405,78 @@ static int solua_gpio_write(lua_State *L)
                                                lua_toboolean(L, 2)));
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static int solua_onewire_allowed(lua_State *L)
+{
+    lua_pushboolean(L, solar_os_onewire_pin_allowed(solua_check_gpio_pin(L, 1)));
+    return 1;
+}
+
+static int solua_onewire_reset(lua_State *L)
+{
+    bool present = false;
+    (void)solua_check_esp(L,
+                          solar_os_onewire_reset(solua_check_gpio_pin(L, 1), &present));
+    lua_pushboolean(L, present);
+    return 1;
+}
+
+static int solua_onewire_scan(lua_State *L)
+{
+    uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
+    size_t count = 0;
+    (void)solua_check_esp(L,
+                          solar_os_onewire_scan(solua_check_gpio_pin(L, 1),
+                                                addresses,
+                                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                                &count));
+
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    for (size_t i = 0; i < count; i++) {
+        char address[17];
+        snprintf(address, sizeof(address), "%016" PRIx64, addresses[i]);
+
+        lua_newtable(L);
+        solua_set_str(L, -1, "address", address);
+        solua_set_int(L, -1, "family", (uint8_t)addresses[i]);
+        lua_rawseti(L, list, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_onewire_xfer(lua_State *L)
+{
+    const int pin = solua_check_gpio_pin(L, 1);
+    const size_t read_len = solua_check_size(L, 2);
+    if (read_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        return luaL_error(L, "read length exceeds 64 bytes");
+    }
+
+    size_t write_len = 0;
+    const char *write_data = "";
+    if (!lua_isnoneornil(L, 3)) {
+        write_data = luaL_checklstring(L, 3, &write_len);
+    }
+    if (write_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        return luaL_error(L, "write data exceeds 64 bytes");
+    }
+    if (read_len == 0 && write_len == 0) {
+        return luaL_error(L, "empty transfer");
+    }
+
+    uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
+    (void)solua_check_esp(L,
+                          solar_os_onewire_transfer(pin,
+                                                    (const uint8_t *)write_data,
+                                                    write_len,
+                                                    rx_data,
+                                                    read_len));
+    lua_pushlstring(L, (const char *)rx_data, read_len);
+    return 1;
+}
+#endif
+
 static int solua_led_status(lua_State *L)
 {
     bool on = false;
@@ -1548,6 +1627,157 @@ static int solua_i2c_write_reg(lua_State *L)
                                                   (const uint8_t *)data,
                                                   len));
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+static int solua_spi_cs_from_arg(lua_State *L, int index)
+{
+    char pin_text[12];
+    const char *name = NULL;
+    if (lua_isinteger(L, index)) {
+        snprintf(pin_text, sizeof(pin_text), "%d", solua_check_gpio_pin(L, index));
+        name = pin_text;
+    } else {
+        name = luaL_checkstring(L, index);
+    }
+
+    int pin = -1;
+    (void)solua_check_esp(L, solar_os_spi_resolve_cs(name, &pin));
+    return pin;
+}
+
+static uint8_t solua_spi_mode(lua_State *L, int index)
+{
+    const uint8_t mode = solua_optional_u8(L, index, 0);
+    if (mode > 3) {
+        luaL_error(L, "expected SPI mode 0..3");
+    }
+    return mode;
+}
+
+static uint32_t solua_spi_speed(lua_State *L, int index)
+{
+    const uint32_t speed_hz = solua_optional_u32(L, index, SOLAR_OS_SPI_DEFAULT_SPEED_HZ);
+    if (speed_hz == 0 || speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ) {
+        luaL_error(L, "expected SPI speed 1..20000000 Hz");
+    }
+    return speed_hz;
+}
+
+static void solua_spi_validate_length(lua_State *L, size_t len)
+{
+    solar_os_spi_status_t status;
+    (void)solua_check_esp(L, solar_os_spi_get_status(&status));
+    if (len == 0 || len > status.max_transfer_size) {
+        luaL_error(L, "invalid SPI transfer length");
+    }
+}
+
+static uint8_t *solua_spi_alloc(lua_State *L, size_t len)
+{
+    uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (data == NULL) {
+        data = heap_caps_malloc(len, MALLOC_CAP_8BIT);
+    }
+    if (data == NULL) {
+        luaL_error(L, "SPI buffer allocation failed");
+    }
+    return data;
+}
+
+static int solua_spi_status(lua_State *L)
+{
+    solar_os_spi_status_t status;
+    (void)solua_check_esp(L, solar_os_spi_get_status(&status));
+
+    lua_newtable(L);
+    solua_set_bool(L, -1, "available", status.available);
+    solua_set_int(L, -1, "host", status.host);
+    solua_set_str(L, -1, "name", status.name);
+    solua_set_int(L, -1, "sclk_pin", status.sclk_pin);
+    solua_set_int(L, -1, "miso_pin", status.miso_pin);
+    solua_set_int(L, -1, "mosi_pin", status.mosi_pin);
+    solua_set_int(L, -1, "max_transfer_size", status.max_transfer_size);
+    solua_set_int(L, -1, "default_speed_hz", status.default_speed_hz);
+
+    lua_newtable(L);
+    const int cs = lua_gettop(L);
+    for (size_t i = 0; i < status.cs_count; i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", status.cs[i].name);
+        solua_set_int(L, -1, "pin", status.cs[i].pin);
+        lua_rawseti(L, cs, (lua_Integer)i + 1);
+    }
+    lua_setfield(L, -2, "cs");
+    return 1;
+}
+
+static int solua_spi_xfer(lua_State *L)
+{
+    const int cs_pin = solua_spi_cs_from_arg(L, 1);
+    size_t len = 0;
+    const char *tx = luaL_checklstring(L, 2, &len);
+    solua_spi_validate_length(L, len);
+    const uint8_t mode = solua_spi_mode(L, 3);
+    const uint32_t speed_hz = solua_spi_speed(L, 4);
+    uint8_t *rx = solua_spi_alloc(L, len);
+
+    const esp_err_t err = solar_os_spi_transfer(cs_pin,
+                                                mode,
+                                                speed_hz,
+                                                (const uint8_t *)tx,
+                                                rx,
+                                                len);
+    if (err != ESP_OK) {
+        heap_caps_free(rx);
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushlstring(L, (const char *)rx, len);
+    heap_caps_free(rx);
+    return 1;
+}
+
+static int solua_spi_read(lua_State *L)
+{
+    const int cs_pin = solua_spi_cs_from_arg(L, 1);
+    const size_t len = solua_check_size(L, 2);
+    solua_spi_validate_length(L, len);
+    const uint8_t fill = solua_optional_u8(L, 3, 0xff);
+    const uint8_t mode = solua_spi_mode(L, 4);
+    const uint32_t speed_hz = solua_spi_speed(L, 5);
+    uint8_t *buffers = solua_spi_alloc(L, len * 2U);
+    uint8_t *tx = buffers;
+    uint8_t *rx = buffers + len;
+    memset(tx, fill, len);
+
+    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    if (err != ESP_OK) {
+        heap_caps_free(buffers);
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushlstring(L, (const char *)rx, len);
+    heap_caps_free(buffers);
+    return 1;
+}
+
+static int solua_spi_write(lua_State *L)
+{
+    const int cs_pin = solua_spi_cs_from_arg(L, 1);
+    size_t len = 0;
+    const char *tx = luaL_checklstring(L, 2, &len);
+    solua_spi_validate_length(L, len);
+    (void)solua_check_esp(L,
+                          solar_os_spi_transfer(cs_pin,
+                                                solua_spi_mode(L, 3),
+                                                solua_spi_speed(L, 4),
+                                                (const uint8_t *)tx,
+                                                NULL,
+                                                len));
+    lua_pushinteger(L, (lua_Integer)len);
+    return 1;
+}
+#endif
 
 static int solua_uart_status(lua_State *L)
 {
@@ -2729,6 +2959,16 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "write", solua_gpio_write);
     lua_pop(L, 1);
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    solua_new_submodule(L, solaros, "onewire");
+    mod = lua_gettop(L);
+    solua_set_func(L, mod, "allowed", solua_onewire_allowed);
+    solua_set_func(L, mod, "reset", solua_onewire_reset);
+    solua_set_func(L, mod, "scan", solua_onewire_scan);
+    solua_set_func(L, mod, "xfer", solua_onewire_xfer);
+    lua_pop(L, 1);
+#endif
+
     solua_new_submodule(L, solaros, "led");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_led_status);
@@ -2761,6 +3001,22 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "read_reg", solua_i2c_read_reg);
     solua_set_func(L, mod, "write_reg", solua_i2c_write_reg);
     lua_pop(L, 1);
+
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+    solua_new_submodule(L, solaros, "spi");
+    mod = lua_gettop(L);
+    solua_set_int(L, mod, "MODE0", 0);
+    solua_set_int(L, mod, "MODE1", 1);
+    solua_set_int(L, mod, "MODE2", 2);
+    solua_set_int(L, mod, "MODE3", 3);
+    solua_set_int(L, mod, "DEFAULT_SPEED", SOLAR_OS_SPI_DEFAULT_SPEED_HZ);
+    solua_set_int(L, mod, "MAX_SPEED", SOLAR_OS_SPI_MAX_SPEED_HZ);
+    solua_set_func(L, mod, "status", solua_spi_status);
+    solua_set_func(L, mod, "xfer", solua_spi_xfer);
+    solua_set_func(L, mod, "read", solua_spi_read);
+    solua_set_func(L, mod, "write", solua_spi_write);
+    lua_pop(L, 1);
+#endif
 
     solua_new_submodule(L, solaros, "uart");
     mod = lua_gettop(L);
