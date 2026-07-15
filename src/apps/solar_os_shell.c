@@ -213,6 +213,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
+#if SOLAR_OS_PACKAGE_JOB_IRRIGD
+    {"irrig", "irrigation zones and schedules", solar_os_shell_cmd_irrig},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
     {"spi", "SPI bus tools", solar_os_shell_cmd_spi},
 #endif

@@ -404,6 +404,12 @@ and writes the inactive ESP-IDF OTA partition.
 | `spi` | `spi xfer <cs> <mode> <hz> <byte...>` | Full-duplex SPI transfer. |
 | `spi` | `spi read <cs> <mode> <hz> <len> [fill]` | Read bytes over SPI. |
 | `spi` | `spi write <cs> <mode> <hz> <byte...>` | Write bytes over SPI. |
+| `irrig` | `irrig [status]` | Show irrigation zones, mode, schedules, and relay outputs. |
+| `irrig` | `irrig zones <1..8>` | Set the number of irrigation zones. |
+| `irrig` | `irrig mode <auto|manual>` | Select schedule-driven or manual relay control. |
+| `irrig` | `irrig on <zone>` / `irrig off <zone>` | Set a zone's manual switch (zones are letters `A`..). |
+| `irrig` | `irrig set <zone> <slot> <HH:MM> <HH:MM> <days> <A|->` | Program a schedule slot; days are 7 chars Monday-first, e.g. `LMMJV--`. |
+| `irrig` | `irrig pin <zone> <gpio|->` | Assign or clear a zone's relay GPIO (active-low). |
 | `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
 | `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
 | `temperature` | `temperature` | Read the board temperature sensor when available. |

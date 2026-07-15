@@ -27,6 +27,9 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_JOB_IRRIGD
+void solar_os_shell_cmd_irrig(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_joystick(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv);

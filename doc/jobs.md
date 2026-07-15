@@ -287,6 +287,43 @@ Notes:
 - MIME types are provided for common text, image, audio, JSON, JavaScript, and
   CSS files.
 
+## irrigd
+
+Irrigation schedule engine. It evaluates zone schedules against the local
+clock once per second and drives the configured relay GPIOs. Configuration
+(zones, schedules, mode, pins) lives in NVS and is edited with the `irrig`
+shell command or the `irriga` graphical app; the job is only the evaluator,
+so watering continues no matter which app is in the foreground.
+
+Usage:
+
+```text
+job start irrigd [http-port|off]
+job stop irrigd
+job status irrigd
+```
+
+Defaults:
+
+| Setting | Value |
+| --- | --- |
+| Web editor port | `8081` |
+
+On builds with Wi-Fi, the job also serves a browser schedule editor on
+its own HTTP server: one tab per zone, a card per schedule slot with
+start/end time fields, weekday toggles, an active switch, a live
+screenshot of the device display, and a single SAVE that applies
+everything within one engine tick. `job start irrigd off` disables it.
+
+Notes:
+
+- Relay outputs are treated as active-low (on = pin low).
+- Zones without an assigned pin are evaluated as pure state, so schedules can
+  be tested with no hardware wired.
+- If the clock has no integrity (RTC not set, no NTP sync), schedules are
+  forced off rather than watering at a wrong time.
+- Stopping the job turns all zones off.
+
 ## log
 
 Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or

@@ -176,6 +176,32 @@ Controls:
 - `Space` or `f` fires.
 - `Esc` or app-exit key exits.
 
+## irriga
+
+Graphical front-end for the irrigation controller. It shows the clock and all
+zone states live, and edits schedules, zone count, mode, and the RTC. The
+schedule engine itself runs as the `irrigd` background job; the app is only a
+viewer/editor, so exiting it never changes relay outputs.
+
+Usage:
+
+```text
+irriga
+```
+
+Controls:
+
+- Home: `Up`/`Down` select a zone, `Enter` opens its schedule slots, `Space`
+  toggles the zone's manual switch, `m` toggles auto/manual mode, `s` opens
+  settings, `Esc` exits.
+- Zone: `Up`/`Down` select a slot, `Enter` edits it.
+- Slot editor: `Left`/`Right` move between fields (start/end time, weekday
+  toggles, active flag), `Up`/`Down` adjust the field, `Enter` saves, `Esc`
+  cancels.
+- Settings: zone count and mode with `Left`/`Right`, `Enter` on "Set clock"
+  opens a manual RTC editor for offline sites (weekday is derived
+  automatically).
+
 ## less
 
 Terminal pager for text files. It preserves original text layout and is useful

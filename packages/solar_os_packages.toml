@@ -36,6 +36,7 @@ members = [
   "job_log",
   "job_batmon",
   "job_daq",
+  "job_irrigd",
 ]
 
 [groups.audio]
@@ -58,6 +59,7 @@ members = [
   "job_slip",
   "job_ntp_sync",
   "job_remote",
+  "irrig_web",
 ]
 triggers = [
   "app_ssh",
@@ -72,6 +74,7 @@ triggers = [
   "job_slip",
   "job_ntp_sync",
   "job_remote",
+  "irrig_web",
 ]
 sources = [
   "shell/solar_os_shell_mqtt.c",
@@ -122,6 +125,7 @@ members = [
   "app_sheet",
   "app_dhex",
   "app_aqm",
+  "app_irriga",
 ]
 triggers = [
   "app_clock",
@@ -132,6 +136,7 @@ triggers = [
   "app_sheet",
   "app_dhex",
   "app_aqm",
+  "app_irriga",
 ]
 
 [packages.core_runtime]
@@ -452,6 +457,11 @@ label = "app.clock"
 sources = ["apps/solar_os_clock.c"]
 capabilities = ["gfx"]
 
+[packages.app_irriga]
+label = "app.irriga"
+sources = ["apps/solar_os_irriga.c"]
+capabilities = ["gfx"]
+
 [packages.app_com]
 label = "app.com"
 sources = ["apps/solar_os_com.c"]
@@ -552,6 +562,21 @@ capabilities = ["battery"]
 [packages.job_daq]
 label = "job.daq"
 sources = ["jobs/solar_os_daq_job.c"]
+
+[packages.job_irrigd]
+label = "job.irrigd"
+sources = [
+  "jobs/solar_os_irrigd_job.c",
+  "services/solar_os_irrig.c",
+  "shell/solar_os_shell_irrig.c",
+]
+requires = ["esp_driver_gpio", "nvs_flash"]
+
+[packages.irrig_web]
+label = "irrig.web"
+sources = ["jobs/solar_os_irrig_web.c"]
+requires = ["esp_http_server"]
+capabilities = ["wifi"]
 
 [packages.job_ntp_sync]
 label = "job.ntp-sync"

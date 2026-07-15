@@ -66,6 +66,9 @@
 #if SOLAR_OS_PACKAGE_APP_INVADERS
 #include "solar_os_invaders.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_IRRIGA
+#include "solar_os_irriga.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_PYTHON
 #include "solar_os_python.h"
 #endif
@@ -139,6 +142,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_INVADERS
     {"invaders", "arcade shooter", &solar_os_invaders_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
+#endif
+#if SOLAR_OS_PACKAGE_APP_IRRIGA
+    {"irriga", "irrigation controller UI (engine: job start irrigd)", &solar_os_irriga_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY},
 #endif
 #if SOLAR_OS_PACKAGE_APP_PYTHON
     {"python", "MicroPython runtime", &solar_os_python_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
