@@ -46,6 +46,10 @@
 #define SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ 40000000
 #define SOLAR_OS_BOARD_DISPLAY_MADCTL 0xa8
 #define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R1
+/* M5Stack's ILI9342C panels need color inversion enabled (INVON) or
+ * everything renders in negative -- spotted by comparing against the
+ * remote job's framebuffer view, which showed the true logical colors. */
+#define SOLAR_OS_BOARD_DISPLAY_INVERT 1
 
 /*
  * SPI bus is LCD-only in this port (SD is deferred -- see the .cmake

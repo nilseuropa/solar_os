@@ -28,6 +28,15 @@
 #define SOLAR_OS_BOARD_DISPLAY_MADCTL 0x28
 #endif
 
+/* Send INVON (0x21) during init. M5Stack's ILI9342C panels (Core2,
+ * CoreS3) run with color inversion enabled -- M5GFX's Panel_ILI9342
+ * does the same -- otherwise the whole image displays in negative
+ * (logical white renders black). Plain ILI9341 panels (odroid_go)
+ * must leave this off. */
+#ifndef SOLAR_OS_BOARD_DISPLAY_INVERT
+#define SOLAR_OS_BOARD_DISPLAY_INVERT 0
+#endif
+
 #ifndef SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION
 #define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R0
 #endif
@@ -498,6 +507,12 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display)
     }
 
     vTaskDelay(pdMS_TO_TICKS(120));
+
+#if SOLAR_OS_BOARD_DISPLAY_INVERT
+    if (!ili9341_checked_cmd(display, 0x21)) {
+        return display->last_error;
+    }
+#endif
 
     ESP_RETURN_ON_ERROR(ili9341_fill_screen(display, ILI9341_RGB565_WHITE),
                         TAG,

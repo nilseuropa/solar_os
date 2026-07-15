@@ -79,6 +79,9 @@
  */
 #define SOLAR_OS_BOARD_DISPLAY_MADCTL 0xa8
 #define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R1
+/* Same ILI9342C panel family as CoreS3: needs color inversion (INVON)
+ * or the image renders in negative vs. the logical framebuffer. */
+#define SOLAR_OS_BOARD_DISPLAY_INVERT 1
 
 /*
  * Shared VSPI bus: LCD and SD card both hang off it, same pattern as
