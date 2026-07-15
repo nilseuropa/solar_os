@@ -63,6 +63,17 @@ typedef struct {
     uint32_t progress_interval_ms;
 } solar_os_audio_wav_options_t;
 
+/*
+ * Byte source for streamed MP3 playback: return >0 = bytes produced,
+ * 0 = end of stream, <0 = error. May block (it runs on the caller's
+ * task, never the main loop).
+ */
+typedef int (*solar_os_audio_stream_read_cb_t)(void *user, uint8_t *buffer, size_t len);
+
+/* The MP3 decode pipeline is shared by the aplay app (file source)
+ * and the webradio app (HTTP source). */
+#define SOLAR_OS_AUDIO_HAS_MP3 (SOLAR_OS_PACKAGE_APP_APLAY || SOLAR_OS_PACKAGE_APP_WEBRADIO)
+
 esp_err_t solar_os_audio_init(void);
 void solar_os_audio_deinit(void);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);
@@ -75,7 +86,7 @@ esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_t *info);
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info);
 #endif
 esp_err_t solar_os_audio_record_wav(const char *path,
@@ -86,10 +97,22 @@ esp_err_t solar_os_audio_play_wav(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,
                                   solar_os_audio_wav_info_t *info);
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 esp_err_t solar_os_audio_play_mp3(const char *path,
                                   uint8_t volume,
                                   const solar_os_audio_wav_options_t *options,
                                   solar_os_audio_wav_info_t *info);
+/*
+ * Same decode pipeline as solar_os_audio_play_mp3, but pulling bytes
+ * from a caller-supplied reader instead of a file -- built for
+ * webradio-style endless streams. Blocks until the reader reports end
+ * of stream / error or the options cancel callback fires; call it from
+ * a dedicated task.
+ */
+esp_err_t solar_os_audio_play_mp3_stream(solar_os_audio_stream_read_cb_t read_cb,
+                                         void *user,
+                                         uint8_t volume,
+                                         const solar_os_audio_wav_options_t *options,
+                                         solar_os_audio_wav_info_t *info);
 #endif
 void solar_os_audio_get_status(solar_os_audio_status_t *status);

@@ -52,6 +52,7 @@ members = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_webradio",
   "job_httpd",
   "job_chatd",
   "job_slip",
@@ -65,6 +66,7 @@ triggers = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_webradio",
   "job_httpd",
   "job_chatd",
   "job_slip",
@@ -394,6 +396,12 @@ capabilities = ["wifi"]
 label = "app.curl"
 sources = ["apps/solar_os_curl.c"]
 capabilities = ["wifi"]
+
+[packages.app_webradio]
+label = "app.webradio"
+sources = ["apps/solar_os_webradio.c"]
+requires = ["esp_http_client"]
+capabilities = ["audio", "wifi"]
 
 [packages.app_telnet]
 label = "app.telnet"

@@ -15,7 +15,7 @@
 #include "solar_os_board_caps.h"
 #include "esp_timer.h"
 #include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 #include "minimp3.h"
 #endif
 #include "solar_os_storage.h"
@@ -27,7 +27,7 @@
 #define AUDIO_WAV_HEADER_BYTES 44U
 #define AUDIO_WAV_BUFFER_BYTES 4096U
 #define AUDIO_WAV_PCM_FORMAT 1U
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 #define AUDIO_MP3_INPUT_BUFFER_BYTES 16384U
 #define AUDIO_MP3_PROBE_SCAN_BYTES 65536U
 #define AUDIO_MP3_OUTPUT_MIN_SAMPLE_RATE 8000U
@@ -38,7 +38,7 @@ static const char *TAG = "solar_os_audio";
 static uint8_t audio_global_volume = SOLAR_OS_BOARD_AUDIO_DEFAULT_VOLUME;
 static uint8_t audio_mute_restore_volume = SOLAR_OS_BOARD_AUDIO_DEFAULT_VOLUME;
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 typedef struct {
     uint32_t sample_rate;
     uint8_t channels;
@@ -274,7 +274,7 @@ static esp_err_t audio_wav_read_info_from_file(FILE *file,
     return ESP_ERR_INVALID_RESPONSE;
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 static void *audio_heap_alloc(size_t size)
 {
     void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -368,12 +368,30 @@ static bool audio_mp3_parse_frame_header(uint32_t header, solar_os_audio_wav_inf
     return true;
 }
 
-static esp_err_t audio_mp3_fill_input(FILE *file,
+/* Byte source feeding the decode loop: a file for aplay, an HTTP
+ * stream for webradio -- the loop itself doesn't care. */
+typedef struct {
+    solar_os_audio_stream_read_cb_t read_cb;
+    void *user;
+} audio_mp3_source_t;
+
+static int audio_mp3_file_read_cb(void *user, uint8_t *buffer, size_t len)
+{
+    FILE *file = (FILE *)user;
+    const size_t got = fread(buffer, 1, len, file);
+    if (got == 0 && ferror(file)) {
+        return -1;
+    }
+    return (int)got;
+}
+
+static esp_err_t audio_mp3_fill_input(const audio_mp3_source_t *source,
                                       uint8_t *input,
                                       size_t *input_len,
                                       bool *eof)
 {
-    if (file == NULL || input == NULL || input_len == NULL || eof == NULL) {
+    if (source == NULL || source->read_cb == NULL || input == NULL ||
+        input_len == NULL || eof == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     if (*eof || *input_len >= AUDIO_MP3_INPUT_BUFFER_BYTES) {
@@ -381,14 +399,18 @@ static esp_err_t audio_mp3_fill_input(FILE *file,
     }
 
     const size_t wanted = AUDIO_MP3_INPUT_BUFFER_BYTES - *input_len;
-    const size_t got = fread(input + *input_len, 1, wanted, file);
-    *input_len += got;
-    if (got < wanted) {
-        if (ferror(file)) {
-            return ESP_FAIL;
-        }
-        *eof = true;
+    const int got = source->read_cb(source->user, input + *input_len, wanted);
+    if (got < 0) {
+        return ESP_FAIL;
     }
+    if (got == 0) {
+        /* Only a zero read means end of source; a short-but-nonzero
+         * read is normal for network streams and just means "that's
+         * what's available right now". */
+        *eof = true;
+        return ESP_OK;
+    }
+    *input_len += (size_t)got;
     return ESP_OK;
 }
 
@@ -892,7 +914,7 @@ esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_
     return ret;
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
+#if SOLAR_OS_AUDIO_HAS_MP3
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info)
 {
     if (path == NULL || path[0] == '\0' || info == NULL) {
@@ -1158,37 +1180,16 @@ esp_err_t solar_os_audio_play_wav(const char *path,
 #endif
 }
 
-#if SOLAR_OS_PACKAGE_APP_APLAY
-esp_err_t solar_os_audio_play_mp3(const char *path,
-                                  uint8_t volume,
-                                  const solar_os_audio_wav_options_t *options,
-                                  solar_os_audio_wav_info_t *info)
+#if SOLAR_OS_AUDIO_HAS_MP3
+#if SOLAR_OS_BOARD_HAS_AUDIO
+static esp_err_t audio_mp3_play_from_source(const audio_mp3_source_t *source,
+                                            uint8_t volume,
+                                            const solar_os_audio_wav_options_t *options,
+                                            solar_os_audio_wav_info_t *info,
+                                            const char *log_label)
 {
-    if (path == NULL || path[0] == '\0' || !audio_volume_arg_valid(volume)) {
-        errno = EINVAL;
-        return ESP_ERR_INVALID_ARG;
-    }
-#if !SOLAR_OS_BOARD_HAS_AUDIO
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    if (!solar_os_storage_is_mounted()) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        return ESP_FAIL;
-    }
-
-    esp_err_t ret = audio_mp3_seek_payload(file);
+    esp_err_t ret = audio_apply_playback_volume(volume);
     if (ret != ESP_OK) {
-        fclose(file);
-        return ret;
-    }
-
-    ret = audio_apply_playback_volume(volume);
-    if (ret != ESP_OK) {
-        fclose(file);
         return ret;
     }
 
@@ -1213,7 +1214,6 @@ esp_err_t solar_os_audio_play_mp3(const char *path,
         if (playback == NULL) {
             audio_log_heap_nomem("mp3 playback", AUDIO_WAV_BUFFER_BYTES);
         }
-        fclose(file);
         heap_caps_free(decoder);
         heap_caps_free(input);
         heap_caps_free(decoded);
@@ -1241,7 +1241,7 @@ esp_err_t solar_os_audio_play_mp3(const char *path,
             break;
         }
 
-        ret = audio_mp3_fill_input(file, input, &input_len, &eof);
+        ret = audio_mp3_fill_input(source, input, &input_len, &eof);
         if (ret != ESP_OK) {
             break;
         }
@@ -1336,12 +1336,6 @@ esp_err_t solar_os_audio_play_mp3(const char *path,
     }
     solar_os_board_audio_deinit();
 
-cleanup:
-    {
-        const int close_errno = errno;
-        fclose(file);
-        errno = close_errno;
-    }
     heap_caps_free(decoder);
     heap_caps_free(input);
     heap_caps_free(decoded);
@@ -1354,11 +1348,71 @@ cleanup:
     audio_wav_report_progress(options, &progress, true, cancelled);
     SOLAR_OS_LOGI(TAG,
              "play mp3 %s: bytes=%" PRIu32 " ms=%" PRIu32 " ret=%s",
-             path,
+             log_label,
              progress.data_bytes,
              progress.duration_ms,
              esp_err_to_name(ret));
     return ret;
+}
+#endif
+
+esp_err_t solar_os_audio_play_mp3(const char *path,
+                                  uint8_t volume,
+                                  const solar_os_audio_wav_options_t *options,
+                                  solar_os_audio_wav_info_t *info)
+{
+    if (path == NULL || path[0] == '\0' || !audio_volume_arg_valid(volume)) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+#if !SOLAR_OS_BOARD_HAS_AUDIO
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!solar_os_storage_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+
+    esp_err_t ret = audio_mp3_seek_payload(file);
+    if (ret == ESP_OK) {
+        const audio_mp3_source_t source = {
+            .read_cb = audio_mp3_file_read_cb,
+            .user = file,
+        };
+        ret = audio_mp3_play_from_source(&source, volume, options, info, path);
+    }
+
+    const int close_errno = errno;
+    fclose(file);
+    errno = close_errno;
+    return ret;
+#endif
+}
+
+esp_err_t solar_os_audio_play_mp3_stream(solar_os_audio_stream_read_cb_t read_cb,
+                                         void *user,
+                                         uint8_t volume,
+                                         const solar_os_audio_wav_options_t *options,
+                                         solar_os_audio_wav_info_t *info)
+{
+    if (read_cb == NULL || !audio_volume_arg_valid(volume)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if !SOLAR_OS_BOARD_HAS_AUDIO
+    (void)user;
+    (void)options;
+    (void)info;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    const audio_mp3_source_t source = {
+        .read_cb = read_cb,
+        .user = user,
+    };
+    return audio_mp3_play_from_source(&source, volume, options, info, "stream");
 #endif
 }
 #endif

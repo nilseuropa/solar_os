@@ -415,3 +415,27 @@ Controls:
 
 - Keyboard navigation follows the active web UI state.
 - `Esc` or app-exit key exits.
+
+## webradio
+
+Internet radio player for MP3 streams, on the same audio pipeline as `aplay`.
+A network task fills a PSRAM jitter buffer while the decode task plays from
+it, so short network hiccups do not interrupt playback.
+
+Usage:
+
+```text
+webradio <mp3-stream-url> [-v volume]
+```
+
+Example:
+
+```text
+webradio http://icecast.example.com/station.mp3 -v 80
+```
+
+Controls / notes:
+
+- `Esc` stops playback; the app-exit key exits.
+- MP3 streams only (HTTP or HTTPS); no AAC or HLS playlists.
+- Wi-Fi power save is reduced during playback and restored on stop.
