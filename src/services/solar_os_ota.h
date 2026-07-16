@@ -6,7 +6,7 @@
 
 #include "esp_err.h"
 
-#define SOLAR_OS_OTA_DEFAULT_URL "https://hypergraph.cloud/solaros/latest"
+#define SOLAR_OS_OTA_DEFAULT_URL "https://solar-os.eu/ota/latest"
 #define SOLAR_OS_OTA_URL_MAX 160
 #define SOLAR_OS_OTA_ARTIFACT_URL_MAX 220
 #define SOLAR_OS_OTA_LABEL_MAX 17

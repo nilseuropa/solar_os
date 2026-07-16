@@ -14,7 +14,11 @@ The schemas live in:
 - `schemas/solaros-release-index.schema.json`
 - `schemas/solaros-firmware-manifest.schema.json`
 
-The firmware reads `index.json` from the configured OTA base URL, selects the matching board/flavor artifact, and downloads that artifact's `firmware` path. `version.txt` is still produced beside each firmware image for humans and simple tooling, but OTA selection is driven by the release index.
+The firmware reads `index.json` from the configured OTA base URL, which defaults
+to `https://solar-os.eu/ota/latest`, selects the matching board/flavor artifact,
+and downloads that artifact's `firmware` path. `version.txt` is still produced
+beside each firmware image for humans and simple tooling, but OTA selection is
+driven by the release index.
 
 ## Release Layout
 
