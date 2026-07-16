@@ -225,6 +225,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
     {"gpio", "expansion GPIO tools", solar_os_shell_cmd_gpio},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    {"onewire", "1-Wire bus tools", solar_os_shell_cmd_onewire},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
     {"pwm", "expansion PWM output", solar_os_shell_cmd_pwm},
 #endif
@@ -544,6 +547,9 @@ static const char * const led_subcommands[] = {
 static const char * const gpio_mode_values[] = {"in", "out"};
 static const char * const gpio_pull_values[] = {"none", "up", "down"};
 static const char * const bit_values[] = {"0", "1"};
+
+static const char * const onewire_subcommands[] = {"reset", "scan", "xfer"};
+static const char * const onewire_read_lengths[] = {"0", "1", "2", "8", "9", "16", "32"};
 
 static const char * const adc_subcommands[] = {
     "status",
@@ -926,6 +932,21 @@ static const char * const path_gpio_mode_pin_mode[] = {
 static const char * const path_gpio_read[] = {"gpio", "read"};
 static const char * const path_gpio_write[] = {"gpio", "write"};
 static const char * const path_gpio_write_pin[] = {"gpio", "write", SHELL_COMPLETION_ANY};
+static const char * const path_onewire[] = {"onewire"};
+static const char * const path_onewire_reset[] = {"onewire", "reset"};
+static const char * const path_onewire_scan[] = {"onewire", "scan"};
+static const char * const path_onewire_xfer[] = {"onewire", "xfer"};
+static const char * const path_onewire_xfer_pin[] = {
+    "onewire",
+    "xfer",
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_onewire_xfer_len[] = {
+    "onewire",
+    "xfer",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_adc[] = {"adc"};
 static const char * const path_adc_read[] = {"adc", "read"};
 static const char * const path_dpad[] = {"dpad"};
@@ -1268,6 +1289,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_gpio_read),
     SHELL_COMPLETION_GPIO_PINS(path_gpio_write),
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
+    SHELL_COMPLETION_STATIC(path_onewire, onewire_subcommands),
+    SHELL_COMPLETION_GPIO_PINS(path_onewire_reset),
+    SHELL_COMPLETION_GPIO_PINS(path_onewire_scan),
+    SHELL_COMPLETION_GPIO_PINS(path_onewire_xfer),
+    SHELL_COMPLETION_STATIC(path_onewire_xfer_pin, onewire_read_lengths),
+    SHELL_COMPLETION_STATIC(path_onewire_xfer_len, byte_values),
     SHELL_COMPLETION_STATIC(path_adc, adc_subcommands),
     SHELL_COMPLETION_GPIO_PINS(path_adc_read),
     SHELL_COMPLETION_STATIC(path_dpad, dpad_subcommands),

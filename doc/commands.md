@@ -389,6 +389,9 @@ and writes the inactive ESP-IDF OTA partition.
 | `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
 | `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |
+| `onewire` | `onewire reset <pin>` | Reset a 1-Wire bus and report device presence. |
+| `onewire` | `onewire scan <pin>` | Discover and list 1-Wire ROM addresses. |
+| `onewire` | `onewire xfer <pin> <read-len> [byte...]` | Reset, write bytes, then read bytes on a 1-Wire bus. |
 | `adc` | `adc status` | Show ADC service status. |
 | `adc` | `adc read <pin>` | Read an ADC-capable runtime pin. |
 | `pwm` | `pwm status` | Show PWM state. |
@@ -430,6 +433,14 @@ GPIO25/GPIO26 are speaker amplifier/DAC pins, GPIO18/GPIO19/GPIO23 are VSPI,
 GPIO5/GPIO21 are TFT control pins, GPIO22 is SD card chip select, GPIO34/GPIO35
 are ADC D-pad axes, GPIO36 is battery ADC, GPIO39 is the board key input, and
 GPIO32/GPIO33/GPIO13/GPIO27/GPIO0 are built-in buttons.
+
+The `onewire` command accepts any runtime-accessible GPIO. Every `xfer` starts
+with a 1-Wire reset, writes the supplied bytes, and then reads `read-len` bytes.
+For example, `onewire xfer 1 9 0xcc 0xbe` issues Skip ROM and Read Scratchpad,
+then reads a nine-byte scratchpad. ROM address bytes supplied to `xfer` use
+least-significant-byte-first wire order. The service enables the ESP32 internal
+pull-up, but a 4.7 kohm external pull-up from the data line to 3.3 V is strongly
+recommended. The internal pull-up is not a parasite-power supply.
 
 Physical displays are listed by `display list`. A built-in board panel registers
 as a board display target such as `display0`; an expansion display driver stays

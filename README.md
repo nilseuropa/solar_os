@@ -25,10 +25,11 @@ workflows:
 - Keep background jobs running for logging, data acquisition, NTP sync, SLIP,
   HTTP serving, serial bridging, battery monitoring, and chat gateway service.
 - Use Wi-Fi, BLE, USB CDC, UART, SD or flash storage, RTC time, GPIO, ADC, PWM,
-  I2C, SPI, audio, sensors, and board-specific display hardware through shared
-  SolarOS services.
+  I2C, SPI, 1-Wire, audio, sensors, and board-specific display hardware through
+  shared SolarOS services.
 - Capture data streams to CSV or raw files, transfer files over byte-stream
-  ports, and inspect runtime resource ownership.
+  ports, capture GPIO waveforms through SUMP or the on-device logic analyzer,
+  and inspect runtime resource ownership.
 - Build smaller or larger firmware images through package flavors instead of
   treating every app and service as mandatory.
 

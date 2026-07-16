@@ -206,8 +206,6 @@ def load_flavor(path: Path,
         raise ValueError(f"unknown package key(s): {', '.join(sorted(unknown_packages))}")
 
     groups_enabled["core"] = True
-    if groups_enabled.get("python", False) or package_overrides.get("app_python", False):
-        groups_enabled["net"] = True
 
     for group, group_def in catalog.group_defs.items():
         if groups_enabled[group]:

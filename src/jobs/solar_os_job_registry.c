@@ -34,6 +34,9 @@
 #if SOLAR_OS_PACKAGE_JOB_SLIP
 #include "solar_os_slip_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_SUMP
+#include "solar_os_sump_job.h"
+#endif
 
 static const solar_os_job_registry_entry_t registered_jobs[] = {
 #if SOLAR_OS_PACKAGE_JOB_BATMON
@@ -65,6 +68,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
     {"slip", "SLIP IPv4 gateway on a port", &solar_os_slip_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_SUMP
+    {"sump", "SUMP logic analyzer on cdc0", &solar_os_sump_job},
 #endif
 };
 

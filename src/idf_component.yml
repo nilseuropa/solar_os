@@ -5,3 +5,5 @@ dependencies:
     version: "~1.1.0"
   espressif/esp_codec_dev:
     version: "~1.4.0"
+  espressif/onewire_bus:
+    version: "~1.1.1"

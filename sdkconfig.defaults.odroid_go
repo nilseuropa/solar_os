@@ -27,6 +27,8 @@ CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 # CONFIG_SPIRAM_BANKSWITCH_ENABLE is not set
 # Keep SD/SPI on the shared VSPI bus from consuming scarce ESP32 IRAM.
 # CONFIG_SPI_MASTER_ISR_IN_IRAM is not set
+# RMT hardware owns 1-Wire timing; keep optional encoder helpers in flash.
+# CONFIG_RMT_ENCODER_FUNC_IN_IRAM is not set
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_VOLUME_COUNT=4
 CONFIG_LWIP_IP_FORWARD=y

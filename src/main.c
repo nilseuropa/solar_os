@@ -44,6 +44,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_onewire.h"
 #if SOLAR_OS_PACKAGE_NET
 #include "solar_os_mqtt.h"
 #endif
@@ -1081,6 +1082,15 @@ static void init_peripherals(void)
         const esp_err_t led_err = solar_os_status_led_init();
         if (led_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "Status LED unavailable: %s", esp_err_to_name(led_err));
+        }
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    if (board_has(SOLAR_OS_BOARD_CAP_GPIO)) {
+        const esp_err_t onewire_err = solar_os_onewire_init();
+        if (onewire_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "1-Wire service unavailable: %s", esp_err_to_name(onewire_err));
         }
     }
 #endif

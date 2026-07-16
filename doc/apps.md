@@ -228,6 +228,40 @@ Controls:
 - `/` starts search, `n`/`N` repeat search.
 - `q`, `Esc`, or app-exit key exits.
 
+## logic
+
+On-device logic analyzer waveform viewer. It displays the latest capture made
+by the shared logic analyzer service or the SUMP job. With pin arguments it
+makes a new local capture before opening the viewer.
+
+Usage:
+
+```text
+logic
+logic <pin[,pin...]> [rate-hz] [samples]
+```
+
+Examples:
+
+```text
+logic
+logic 1,2,3,17
+logic 1,2 500000 8192
+```
+
+Controls:
+
+- Left/Right pans through the capture.
+- `+`/`-` or Page Up/Page Down changes the time scale.
+- `r` captures again with the current local configuration when the SUMP job is
+  stopped.
+- `a` or Home shows the complete capture.
+- `q`, Esc, or the app-exit key exits.
+
+The app is compiled only for boards with graphics and runtime-safe GPIOs. While
+the SUMP job is running, the app remains a viewer and automatically reloads
+captures received from the host.
+
 ## lua
 
 Embedded Lua runtime. It can run an interactive REPL or execute `.lua` scripts

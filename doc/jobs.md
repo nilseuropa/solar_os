@@ -426,3 +426,42 @@ Notes:
 - The selected port is claimed by the SLIP job until it stops.
 - `cdc0` is useful for Linux host testing; `uart0` is the natural expansion
   port path.
+
+## sump
+
+SUMP-compatible logic analyzer server on `cdc0`. It claims the CDC port and
+uses the shared logic analyzer service for acquisition. PulseView and sigrok
+can connect with the OpenBench Logic Sniffer/SUMP serial driver.
+
+Usage:
+
+```text
+job start sump [pin ...]
+job start sump [pin[,pin...]]
+job stop sump
+job status sump
+```
+
+Examples:
+
+```text
+job start sump
+job start sump 1 2 3 17
+job start sump 1,2,3,17
+```
+
+If no pins are supplied, the job uses up to eight runtime-safe GPIOs from the
+active board profile. Host commands select the sample rate and capture size.
+The current implementation supports 10 kHz to 2 MHz requests and up to 32768
+one-byte samples; the status recorded with each capture reports the measured
+effective rate.
+
+Notes:
+
+- The job requires both CDC and runtime-safe GPIO capabilities.
+- `cdc0` cannot be used by a port shell, logger, bridge, or another job while
+  SUMP is active. Start SUMP from the display shell, SSH, or another port after
+  stopping any shell attached to `cdc0`.
+- Basic trigger commands are accepted for host compatibility, but this first
+  implementation captures immediately instead of waiting for a trigger.
+- Captures remain available to the `logic` app after the job stops.

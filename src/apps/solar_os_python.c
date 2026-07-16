@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -28,40 +29,67 @@
 #include "py/qstr.h"
 #include "py/repl.h"
 #include "py/runtime.h"
-#include "solar_os_adc.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
+#include "solar_os_adc.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
+#endif
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
+#endif
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
+#include "solar_os_keys.h"
+#if SOLAR_OS_PACKAGE_NET
 #include "solar_os_mqtt.h"
 #include "solar_os_net.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+#include "solar_os_onewire.h"
+#endif
 #include "solar_os_port_shell.h"
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 #include "solar_os_sensors.h"
 #endif
 #include "solar_os_sessions.h"
 #include "solar_os_shell_io.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#include "solar_os_spi.h"
+#endif
+#if SOLAR_OS_PACKAGE_NET
 #include "solar_os_ssh_keys.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_status_led.h"
+#endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
+#if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
+#endif
 
 #ifndef SOLAR_OS_VERSION
 #define SOLAR_OS_VERSION "0.0.0"
@@ -627,6 +655,7 @@ static mp_obj_t python_storage_block_to_dict(const solar_os_storage_block_t *blo
     return dict;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
 {
     mp_obj_t dict = mp_obj_new_dict(24);
@@ -662,6 +691,7 @@ static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
     python_dict_store_cstr(dict, "nat_last_error_name", esp_err_to_name(status->nat_last_error));
     return dict;
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t python_audio_status_to_dict(const solar_os_audio_status_t *status)
@@ -686,6 +716,7 @@ static mp_obj_t python_audio_status_to_dict(const solar_os_audio_status_t *statu
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_NET
 static mp_obj_t python_mqtt_status_to_dict(const solar_os_mqtt_status_t *status)
 {
     mp_obj_t dict = mp_obj_new_dict(16);
@@ -721,6 +752,7 @@ static mp_obj_t python_mqtt_message_to_dict(const solar_os_mqtt_message_t *messa
     python_dict_store_bool(dict, "truncated", message->truncated);
     return dict;
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t python_wav_info_to_dict(const solar_os_audio_wav_info_t *info)
@@ -801,6 +833,7 @@ static mp_obj_t solaros_battery(void)
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_battery_obj, solaros_battery);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static mp_obj_t solaros_wifi(void)
 {
     solar_os_wifi_status_t status;
@@ -822,6 +855,7 @@ static mp_obj_t solaros_wifi(void)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_obj, solaros_wifi);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 static mp_obj_t solaros_environment(void)
@@ -1162,6 +1196,7 @@ static mp_obj_t solaros_sensors_environment(void)
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_sensors_environment_obj, solaros_sensors_environment);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static mp_obj_t solaros_wifi_status(void)
 {
     solar_os_wifi_status_t status;
@@ -1299,7 +1334,9 @@ static mp_obj_t solaros_wifi_nat(mp_obj_t enabled_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_wifi_nat_obj, solaros_wifi_nat);
+#endif
 
+#if SOLAR_OS_PACKAGE_NET
 static mp_obj_t solaros_mqtt_status(void)
 {
     solar_os_mqtt_status_t status;
@@ -1366,6 +1403,7 @@ static mp_obj_t solaros_mqtt_read(size_t n_args, const mp_obj_t *args)
     return python_mqtt_message_to_dict(&message);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_mqtt_read_obj, 0, 1, solaros_mqtt_read);
+#endif
 
 static int python_gpio_pin_from_obj(mp_obj_t obj)
 {
@@ -1376,6 +1414,7 @@ static int python_gpio_pin_from_obj(mp_obj_t obj)
     return (int)pin;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 static solar_os_gpio_mode_t python_gpio_mode_from_obj(mp_obj_t obj)
 {
     if (mp_obj_is_int(obj)) {
@@ -1482,7 +1521,77 @@ static mp_obj_t solaros_gpio_write(mp_obj_t pin_obj, mp_obj_t level_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_gpio_write_obj, solaros_gpio_write);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static mp_obj_t solaros_onewire_allowed(mp_obj_t pin_obj)
+{
+    return mp_obj_new_bool(solar_os_onewire_pin_allowed(python_gpio_pin_from_obj(pin_obj)));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_onewire_allowed_obj, solaros_onewire_allowed);
+
+static mp_obj_t solaros_onewire_reset(mp_obj_t pin_obj)
+{
+    bool present = false;
+    python_check_esp(solar_os_onewire_reset(python_gpio_pin_from_obj(pin_obj), &present));
+    return mp_obj_new_bool(present);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_onewire_reset_obj, solaros_onewire_reset);
+
+static mp_obj_t solaros_onewire_scan(mp_obj_t pin_obj)
+{
+    uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
+    size_t count = 0;
+    python_check_esp(solar_os_onewire_scan(python_gpio_pin_from_obj(pin_obj),
+                                           addresses,
+                                           SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                           &count));
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < count; i++) {
+        char address[17];
+        snprintf(address, sizeof(address), "%016" PRIx64, addresses[i]);
+
+        mp_obj_t device = mp_obj_new_dict(2);
+        python_dict_store_cstr(device, "address", address);
+        python_dict_store_int(device, "family", (uint8_t)addresses[i]);
+        mp_obj_list_append(list, device);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_onewire_scan_obj, solaros_onewire_scan);
+
+static mp_obj_t solaros_onewire_xfer(size_t n_args, const mp_obj_t *args)
+{
+    const int pin = python_gpio_pin_from_obj(args[0]);
+    const size_t read_len = python_size_from_obj(args[1]);
+    if (read_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        mp_raise_ValueError(MP_ERROR_TEXT("read length exceeds 64 bytes"));
+    }
+
+    mp_buffer_info_t tx = {0};
+    if (n_args >= 3 && args[2] != mp_const_none) {
+        mp_get_buffer_raise(args[2], &tx, MP_BUFFER_READ);
+    }
+    if (tx.len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        mp_raise_ValueError(MP_ERROR_TEXT("write data exceeds 64 bytes"));
+    }
+    if (read_len == 0 && tx.len == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("empty transfer"));
+    }
+
+    uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
+    python_check_esp(solar_os_onewire_transfer(pin,
+                                               tx.buf,
+                                               tx.len,
+                                               rx_data,
+                                               read_len));
+    return mp_obj_new_bytes(rx_data, read_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_onewire_xfer_obj, 2, 3, solaros_onewire_xfer);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
 static mp_obj_t solaros_led_status(void)
 {
     bool on = false;
@@ -1520,7 +1629,9 @@ static mp_obj_t solaros_led_toggle(void)
     return mp_obj_new_bool(on);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_led_toggle_obj, solaros_led_toggle);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
 static mp_obj_t python_adc_info_to_dict(const solar_os_adc_pin_info_t *info)
 {
     mp_obj_t dict = mp_obj_new_dict(5);
@@ -1564,7 +1675,9 @@ static mp_obj_t solaros_adc_read(mp_obj_t pin_obj)
     return python_adc_sample_to_dict(&sample);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_adc_read_obj, solaros_adc_read);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
 static mp_obj_t python_pwm_info_to_dict(const solar_os_pwm_pin_info_t *info)
 {
     mp_obj_t dict = mp_obj_new_dict(6);
@@ -1610,7 +1723,9 @@ static mp_obj_t solaros_pwm_off(mp_obj_t pin_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_pwm_off_obj, solaros_pwm_off);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
 static mp_obj_t solaros_i2c_info(void)
 {
     mp_obj_t dict = mp_obj_new_dict(3);
@@ -1667,7 +1782,155 @@ static mp_obj_t solaros_i2c_write_reg(mp_obj_t address_obj, mp_obj_t reg_obj, mp
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_3(solaros_i2c_write_reg_obj, solaros_i2c_write_reg);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+static int python_spi_cs_from_obj(mp_obj_t obj)
+{
+    char pin_text[12];
+    const char *name = NULL;
+    if (mp_obj_is_int(obj)) {
+        snprintf(pin_text, sizeof(pin_text), "%d", python_gpio_pin_from_obj(obj));
+        name = pin_text;
+    } else {
+        name = mp_obj_str_get_str(obj);
+    }
+
+    int pin = -1;
+    python_check_esp(solar_os_spi_resolve_cs(name, &pin));
+    return pin;
+}
+
+static uint8_t python_spi_mode(size_t n_args, const mp_obj_t *args, size_t index)
+{
+    const uint8_t mode = python_optional_u8(n_args, args, index, 0);
+    if (mode > 3) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected SPI mode 0..3"));
+    }
+    return mode;
+}
+
+static uint32_t python_spi_speed(size_t n_args, const mp_obj_t *args, size_t index)
+{
+    const uint32_t speed_hz = python_optional_u32(n_args,
+                                                  args,
+                                                  index,
+                                                  SOLAR_OS_SPI_DEFAULT_SPEED_HZ);
+    if (speed_hz == 0 || speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected SPI speed 1..20000000 Hz"));
+    }
+    return speed_hz;
+}
+
+static void python_spi_validate_length(size_t len)
+{
+    solar_os_spi_status_t status;
+    python_check_esp(solar_os_spi_get_status(&status));
+    if (len == 0 || len > status.max_transfer_size) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid SPI transfer length"));
+    }
+}
+
+static mp_obj_t solaros_spi_status(void)
+{
+    solar_os_spi_status_t status;
+    python_check_esp(solar_os_spi_get_status(&status));
+
+    mp_obj_t dict = mp_obj_new_dict(9);
+    python_dict_store_bool(dict, "available", status.available);
+    python_dict_store_int(dict, "host", status.host);
+    python_dict_store_cstr(dict, "name", status.name);
+    python_dict_store_int(dict, "sclk_pin", status.sclk_pin);
+    python_dict_store_int(dict, "miso_pin", status.miso_pin);
+    python_dict_store_int(dict, "mosi_pin", status.mosi_pin);
+    python_dict_store_uint(dict, "max_transfer_size", status.max_transfer_size);
+    python_dict_store_uint(dict, "default_speed_hz", status.default_speed_hz);
+
+    mp_obj_t cs = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < status.cs_count; i++) {
+        mp_obj_t slot = mp_obj_new_dict(2);
+        python_dict_store_cstr(slot, "name", status.cs[i].name);
+        python_dict_store_int(slot, "pin", status.cs[i].pin);
+        mp_obj_list_append(cs, slot);
+    }
+    mp_obj_dict_store(dict, python_key("cs"), cs);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_spi_status_obj, solaros_spi_status);
+
+static mp_obj_t solaros_spi_xfer(size_t n_args, const mp_obj_t *args)
+{
+    const int cs_pin = python_spi_cs_from_obj(args[0]);
+    mp_buffer_info_t tx;
+    mp_get_buffer_raise(args[1], &tx, MP_BUFFER_READ);
+    python_spi_validate_length(tx.len);
+    const uint8_t mode = python_spi_mode(n_args, args, 2);
+    const uint32_t speed_hz = python_spi_speed(n_args, args, 3);
+
+    uint8_t *rx = python_alloc_psram_first(tx.len);
+    if (rx == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx.buf, rx, tx.len);
+    if (err != ESP_OK) {
+        heap_caps_free(rx);
+        python_raise_esp(err);
+    }
+
+    mp_obj_t result = mp_obj_new_bytes(rx, tx.len);
+    heap_caps_free(rx);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_spi_xfer_obj, 2, 4, solaros_spi_xfer);
+
+static mp_obj_t solaros_spi_read(size_t n_args, const mp_obj_t *args)
+{
+    const int cs_pin = python_spi_cs_from_obj(args[0]);
+    const size_t len = python_size_from_obj(args[1]);
+    python_spi_validate_length(len);
+    const uint8_t fill = python_optional_u8(n_args, args, 2, 0xff);
+    const uint8_t mode = python_spi_mode(n_args, args, 3);
+    const uint32_t speed_hz = python_spi_speed(n_args, args, 4);
+
+    uint8_t *buffers = python_alloc_psram_first(len * 2U);
+    if (buffers == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+    uint8_t *tx = buffers;
+    uint8_t *rx = buffers + len;
+    memset(tx, fill, len);
+
+    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    if (err != ESP_OK) {
+        heap_caps_free(buffers);
+        python_raise_esp(err);
+    }
+
+    mp_obj_t result = mp_obj_new_bytes(rx, len);
+    heap_caps_free(buffers);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_spi_read_obj, 2, 5, solaros_spi_read);
+
+static mp_obj_t solaros_spi_write(size_t n_args, const mp_obj_t *args)
+{
+    const int cs_pin = python_spi_cs_from_obj(args[0]);
+    mp_buffer_info_t tx;
+    mp_get_buffer_raise(args[1], &tx, MP_BUFFER_READ);
+    python_spi_validate_length(tx.len);
+    python_check_esp(solar_os_spi_transfer(cs_pin,
+                                           python_spi_mode(n_args, args, 2),
+                                           python_spi_speed(n_args, args, 3),
+                                           tx.buf,
+                                           NULL,
+                                           tx.len));
+    return mp_obj_new_int_from_uint(tx.len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_spi_write_obj, 2, 4, solaros_spi_write);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_UART
 static mp_obj_t solaros_uart_status(void)
 {
     solar_os_uart_status_t status;
@@ -1749,6 +2012,7 @@ static mp_obj_t solaros_uart_read(size_t n_args, const mp_obj_t *args)
     return mp_obj_new_bytes(data, read_len);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_uart_read_obj, 0, 2, solaros_uart_read);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 static mp_obj_t solaros_audio_status(void)
@@ -1871,6 +2135,7 @@ static mp_obj_t solaros_audio_play_wav(size_t n_args, const mp_obj_t *args)
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_play_wav_obj, 1, 2, solaros_audio_play_wav);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
 static mp_obj_t solaros_ble_status(void)
 {
     char status[96];
@@ -1927,6 +2192,7 @@ static mp_obj_t solaros_ble_read(size_t n_args, const mp_obj_t *args)
     return mp_obj_new_bytes((const byte *)buffer, read_len);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_read_obj, 0, 1, solaros_ble_read);
+#endif
 
 static mp_obj_t solaros_clipboard_set(mp_obj_t data_obj)
 {
@@ -1985,6 +2251,7 @@ static mp_obj_t solaros_identity_format(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_identity_format_obj, solaros_identity_format);
 
+#if SOLAR_OS_PACKAGE_NET
 static mp_obj_t solaros_net_ping(size_t n_args, const mp_obj_t *args)
 {
     const char *host = mp_obj_str_get_str(args[0]);
@@ -2076,6 +2343,7 @@ static mp_obj_t solaros_ssh_keys_remove(void)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_remove_obj, solaros_ssh_keys_remove);
+#endif
 
 static mp_obj_t python_job_status_to_dict(const solar_os_job_status_t *status)
 {
@@ -2883,7 +3151,9 @@ static void python_register_solaros_module(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     python_module_store(module, "battery_status", MP_OBJ_FROM_PTR(&solaros_battery_obj));
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
     python_module_store(module, "wifi_status", MP_OBJ_FROM_PTR(&solaros_wifi_obj));
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     python_module_store(module, "environment", MP_OBJ_FROM_PTR(&solaros_environment_obj));
 #endif
@@ -2939,6 +3209,7 @@ static void python_register_solaros_module(void)
     python_module_store(sensors, "environment", MP_OBJ_FROM_PTR(&solaros_sensors_environment_obj));
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
     mp_obj_t wifi = python_new_submodule(module, "wifi");
     python_module_store(wifi, "status", MP_OBJ_FROM_PTR(&solaros_wifi_status_obj));
     python_module_store(wifi, "status_text", MP_OBJ_FROM_PTR(&solaros_wifi_status_text_obj));
@@ -2955,7 +3226,9 @@ static void python_register_solaros_module(void)
     python_module_store(wifi, "ap_start", MP_OBJ_FROM_PTR(&solaros_wifi_ap_start_obj));
     python_module_store(wifi, "ap_stop", MP_OBJ_FROM_PTR(&solaros_wifi_ap_stop_obj));
     python_module_store(wifi, "nat", MP_OBJ_FROM_PTR(&solaros_wifi_nat_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_NET
     mp_obj_t mqtt = python_new_submodule(module, "mqtt");
     python_module_store(mqtt, "status", MP_OBJ_FROM_PTR(&solaros_mqtt_status_obj));
     python_module_store(mqtt, "connect", MP_OBJ_FROM_PTR(&solaros_mqtt_connect_obj));
@@ -2963,7 +3236,9 @@ static void python_register_solaros_module(void)
     python_module_store(mqtt, "publish", MP_OBJ_FROM_PTR(&solaros_mqtt_publish_obj));
     python_module_store(mqtt, "subscribe", MP_OBJ_FROM_PTR(&solaros_mqtt_subscribe_obj));
     python_module_store(mqtt, "read", MP_OBJ_FROM_PTR(&solaros_mqtt_read_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
     mp_obj_t gpio = python_new_submodule(module, "gpio");
     python_module_store(gpio, "INPUT", mp_obj_new_int(SOLAR_OS_GPIO_MODE_INPUT));
     python_module_store(gpio, "OUTPUT", mp_obj_new_int(SOLAR_OS_GPIO_MODE_OUTPUT));
@@ -2976,32 +3251,68 @@ static void python_register_solaros_module(void)
     python_module_store(gpio, "configure", MP_OBJ_FROM_PTR(&solaros_gpio_mode_obj));
     python_module_store(gpio, "read", MP_OBJ_FROM_PTR(&solaros_gpio_read_obj));
     python_module_store(gpio, "write", MP_OBJ_FROM_PTR(&solaros_gpio_write_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    mp_obj_t onewire = python_new_submodule(module, "onewire");
+    python_module_store(onewire, "allowed", MP_OBJ_FROM_PTR(&solaros_onewire_allowed_obj));
+    python_module_store(onewire, "reset", MP_OBJ_FROM_PTR(&solaros_onewire_reset_obj));
+    python_module_store(onewire, "scan", MP_OBJ_FROM_PTR(&solaros_onewire_scan_obj));
+    python_module_store(onewire, "xfer", MP_OBJ_FROM_PTR(&solaros_onewire_xfer_obj));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GPIO
     mp_obj_t led = python_new_submodule(module, "led");
     python_module_store(led, "status", MP_OBJ_FROM_PTR(&solaros_led_status_obj));
     python_module_store(led, "set", MP_OBJ_FROM_PTR(&solaros_led_set_obj));
     python_module_store(led, "on", MP_OBJ_FROM_PTR(&solaros_led_on_obj));
     python_module_store(led, "off", MP_OBJ_FROM_PTR(&solaros_led_off_obj));
     python_module_store(led, "toggle", MP_OBJ_FROM_PTR(&solaros_led_toggle_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ADC
     mp_obj_t adc = python_new_submodule(module, "adc");
     python_module_store(adc, "pins", MP_OBJ_FROM_PTR(&solaros_adc_pins_obj));
     python_module_store(adc, "read", MP_OBJ_FROM_PTR(&solaros_adc_read_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
     mp_obj_t pwm = python_new_submodule(module, "pwm");
     python_module_store(pwm, "FREQ_MIN", mp_obj_new_int(SOLAR_OS_PWM_FREQ_MIN_HZ));
     python_module_store(pwm, "FREQ_MAX", mp_obj_new_int(SOLAR_OS_PWM_FREQ_MAX_HZ));
     python_module_store(pwm, "status", MP_OBJ_FROM_PTR(&solaros_pwm_status_obj));
     python_module_store(pwm, "set", MP_OBJ_FROM_PTR(&solaros_pwm_set_obj));
     python_module_store(pwm, "off", MP_OBJ_FROM_PTR(&solaros_pwm_off_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
     mp_obj_t i2c = python_new_submodule(module, "i2c");
     python_module_store(i2c, "info", MP_OBJ_FROM_PTR(&solaros_i2c_info_obj));
     python_module_store(i2c, "probe", MP_OBJ_FROM_PTR(&solaros_i2c_probe_obj));
     python_module_store(i2c, "scan", MP_OBJ_FROM_PTR(&solaros_i2c_scan_obj));
     python_module_store(i2c, "read_reg", MP_OBJ_FROM_PTR(&solaros_i2c_read_reg_obj));
     python_module_store(i2c, "write_reg", MP_OBJ_FROM_PTR(&solaros_i2c_write_reg_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+    mp_obj_t spi = python_new_submodule(module, "spi");
+    python_module_store(spi, "MODE0", mp_obj_new_int(0));
+    python_module_store(spi, "MODE1", mp_obj_new_int(1));
+    python_module_store(spi, "MODE2", mp_obj_new_int(2));
+    python_module_store(spi, "MODE3", mp_obj_new_int(3));
+    python_module_store(spi,
+                        "DEFAULT_SPEED",
+                        mp_obj_new_int_from_uint(SOLAR_OS_SPI_DEFAULT_SPEED_HZ));
+    python_module_store(spi,
+                        "MAX_SPEED",
+                        mp_obj_new_int_from_uint(SOLAR_OS_SPI_MAX_SPEED_HZ));
+    python_module_store(spi, "status", MP_OBJ_FROM_PTR(&solaros_spi_status_obj));
+    python_module_store(spi, "xfer", MP_OBJ_FROM_PTR(&solaros_spi_xfer_obj));
+    python_module_store(spi, "read", MP_OBJ_FROM_PTR(&solaros_spi_read_obj));
+    python_module_store(spi, "write", MP_OBJ_FROM_PTR(&solaros_spi_write_obj));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_UART
     mp_obj_t uart = python_new_submodule(module, "uart");
     python_module_store(uart, "status", MP_OBJ_FROM_PTR(&solaros_uart_status_obj));
     python_module_store(uart, "baud", MP_OBJ_FROM_PTR(&solaros_uart_baud_obj));
@@ -3009,6 +3320,7 @@ static void python_register_solaros_module(void)
     python_module_store(uart, "mode", MP_OBJ_FROM_PTR(&solaros_uart_mode_obj));
     python_module_store(uart, "write", MP_OBJ_FROM_PTR(&solaros_uart_write_obj));
     python_module_store(uart, "read", MP_OBJ_FROM_PTR(&solaros_uart_read_obj));
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     mp_obj_t audio = python_new_submodule(module, "audio");
@@ -3025,6 +3337,7 @@ static void python_register_solaros_module(void)
     python_module_store(audio, "play_wav", MP_OBJ_FROM_PTR(&solaros_audio_play_wav_obj));
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
     mp_obj_t ble = python_new_submodule(module, "ble");
     python_module_store(ble, "status", MP_OBJ_FROM_PTR(&solaros_ble_status_obj));
     python_module_store(ble, "connected", MP_OBJ_FROM_PTR(&solaros_ble_connected_obj));
@@ -3032,6 +3345,7 @@ static void python_register_solaros_module(void)
     python_module_store(ble, "forget", MP_OBJ_FROM_PTR(&solaros_ble_forget_obj));
     python_module_store(ble, "layout", MP_OBJ_FROM_PTR(&solaros_ble_layout_obj));
     python_module_store(ble, "read", MP_OBJ_FROM_PTR(&solaros_ble_read_obj));
+#endif
 
     mp_obj_t clipboard = python_new_submodule(module, "clipboard");
     python_module_store(clipboard, "set", MP_OBJ_FROM_PTR(&solaros_clipboard_set_obj));
@@ -3044,6 +3358,7 @@ static void python_register_solaros_module(void)
     python_module_store(identity, "hostname", MP_OBJ_FROM_PTR(&solaros_identity_hostname_obj));
     python_module_store(identity, "format", MP_OBJ_FROM_PTR(&solaros_identity_format_obj));
 
+#if SOLAR_OS_PACKAGE_NET
     mp_obj_t net = python_new_submodule(module, "net");
     python_module_store(net, "ping", MP_OBJ_FROM_PTR(&solaros_net_ping_obj));
 
@@ -3057,6 +3372,7 @@ static void python_register_solaros_module(void)
     python_module_store(ssh_keys, "status", MP_OBJ_FROM_PTR(&solaros_ssh_keys_status_obj));
     python_module_store(ssh_keys, "generate", MP_OBJ_FROM_PTR(&solaros_ssh_keys_generate_obj));
     python_module_store(ssh_keys, "remove", MP_OBJ_FROM_PTR(&solaros_ssh_keys_remove_obj));
+#endif
 
     mp_obj_t jobs = python_new_submodule(module, "jobs");
     python_module_store(jobs, "list", MP_OBJ_FROM_PTR(&solaros_jobs_list_obj));
