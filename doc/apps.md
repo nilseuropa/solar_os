@@ -191,16 +191,23 @@ irriga
 
 Controls:
 
-- Home: `Up`/`Down` select a zone, `Enter` opens its schedule slots, `Space`
-  toggles the zone's manual switch, `m` toggles auto/manual mode, `s` opens
-  settings, `Esc` exits.
-- Zone: `Up`/`Down` select a slot, `Enter` edits it.
-- Slot editor: `Left`/`Right` move between fields (start/end time, weekday
-  toggles, active flag), `Up`/`Down` adjust the field, `Enter` saves, `Esc`
-  cancels.
+- Home: `Up`/`Down`/`Left`/`Right` select a zone (the dashed focus frame
+  appears on the first key press and hides 5 seconds after the last one),
+  `Enter` opens the zone editor, `Space` toggles the zone's manual switch,
+  `m` toggles auto/manual mode, `s` opens settings, `Esc` exits.
+- Zone editor (Casio style): the zone's four slots on the left with the
+  edited field inverted; `Left`/`Right` (or NEXT) walk the fields --
+  start/end time, weekday toggles, active flag -- across all slots,
+  `Up`/`Down` (or +1/-1) adjust, `Enter` (or SET) commits the zone, `Esc`
+  (or BACK) returns without committing pending edits.
 - Settings: zone count and mode with `Left`/`Right`, `Enter` on "Set clock"
   opens a manual RTC editor for offline sites (weekday is derived
   automatically).
+
+On boards with the FT6336 touch panel (M5Stack Core2/CoreS3) the app is also
+tap-driven: tapping a zone's lettered button or panel on the home screen
+opens its editor, and the editor's BACK/SET/NEXT/+1/-1 buttons and slot rows
+respond to taps. Touch assumes the default landscape orientation.
 
 ## less
 
