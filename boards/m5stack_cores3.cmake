@@ -11,6 +11,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_ili9341.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_bm8563.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/audio_aw88298.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_bus_port_a.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/touch_ft6336.cmake")
 
 # Minimal port: display (through AXP2101 + AW9523B bring-up), RTC,
 # speaker (AW88298, output only), CardKB support on Grove Port A (a
@@ -22,9 +23,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_bus_port_a.cmake")
 # per-operation in M5Stack's own firmware -- solar_os's shared
 # sd_card.c/tft_ili9341.c have no notion of a pin doing double duty
 # like that, so this needs real driver-level work, not just board
-# wiring), FT6336U touch (SolarOS has no touch-input capability yet,
-# same as every other board so far), ES7210 mic input, BMI270/BMM150
-# IMU, GC0308 camera, and LTR-553 ALS.
+# wiring), ES7210 mic input, BMI270/BMM150 IMU, GC0308 camera, and
+# LTR-553 ALS. FT6336U touch is available to apps as a polled driver
+# (drivers/touch_ft6336.cmake); there is no system-wide touch input.
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
 set(SOLAR_OS_BOARD_HAS_SIMD ON)

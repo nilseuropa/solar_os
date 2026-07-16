@@ -9,6 +9,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_ili9341.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdspi.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_bm8563.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_bus_port_a.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/touch_ft6336.cmake")
 
 # Minimal port: display, storage, connectivity, RTC. No buttons/dpad/
 # battery/audio/sensors/status LED/runtime GPIO yet -- Core2 exposes
