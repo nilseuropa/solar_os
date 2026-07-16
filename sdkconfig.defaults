@@ -14,6 +14,10 @@ CONFIG_LWIP_IP_FORWARD=y
 CONFIG_LWIP_IPV4_NAPT=y
 CONFIG_LWIP_IPV4_NAPT_PORTMAP=y
 CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+# Let large TLS buffers follow the normal heap policy. PSRAM boards keep small
+# crypto allocations internal while placing large record buffers in PSRAM;
+# boards without PSRAM continue to use internal RAM.
+CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_FREERTOS_HZ=1000
 CONFIG_PM_ENABLE=y

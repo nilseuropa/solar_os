@@ -52,7 +52,7 @@
 #define LOG_SHOW_DEFAULT 40
 #define OTA_PROGRESS_BAR_WIDTH 24
 #define OTA_PROGRESS_STEP_BYTES (64U * 1024U)
-#define OTA_UPGRADE_TASK_STACK 24576
+#define OTA_UPGRADE_TASK_STACK 16384
 #define OTA_UPGRADE_WAIT_MS 100U
 
 #ifndef SOLAR_OS_VERSION
@@ -640,6 +640,12 @@ static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
                     &worker,
                     tskIDLE_PRIORITY + 2,
                     &task) != pdPASS) {
+        SOLAR_OS_LOGW("solar_os_shell",
+                      "OTA upgrade task create failed stack=%u internal_free=%u "
+                      "internal_largest=%u",
+                      (unsigned)OTA_UPGRADE_TASK_STACK,
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         return ESP_ERR_NO_MEM;
     }
 

@@ -2,7 +2,7 @@
   "schema": "solaros.release_index",
   "schema_version": 1,
   "project": "SolarOS",
-  "base_url": "https://hypergraph.cloud/solaros/2.6.0/",
+  "base_url": "https://solar-os.eu/ota/2.6.0/",
   "release": {
     "version": "2.6.0",
     "channel": "stable",
