@@ -55,6 +55,22 @@ static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
         return u8g2_font_solar_os_default_bi_18_tf;
     case SOLAR_OS_GFX_FONT_BOLD_ITALIC_20:
         return u8g2_font_solar_os_default_bi_20_tf;
+    case SOLAR_OS_GFX_FONT_MONO_32:
+        return u8g2_font_solar_os_default_r_32_tf;
+    case SOLAR_OS_GFX_FONT_BOLD_32:
+        return u8g2_font_solar_os_default_b_32_tf;
+    case SOLAR_OS_GFX_FONT_PROFONT_12:
+        return u8g2_font_profont12_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_12_NUM:
+        return u8g2_font_profont12_mn;
+    case SOLAR_OS_GFX_FONT_PROFONT_15:
+        return u8g2_font_profont15_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_17:
+        return u8g2_font_profont17_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_22:
+        return u8g2_font_profont22_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_29:
+        return u8g2_font_profont29_mf;
     case SOLAR_OS_GFX_FONT_MONO:
     default:
         return u8g2_font_solar_os_default_r_14_tf;

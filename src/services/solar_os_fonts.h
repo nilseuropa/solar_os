@@ -22,3 +22,5 @@ extern const uint8_t u8g2_font_solar_os_default_r_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_b_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_i_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_bi_20_tf[];
+extern const uint8_t u8g2_font_solar_os_default_r_32_tf[];
+extern const uint8_t u8g2_font_solar_os_default_b_32_tf[];

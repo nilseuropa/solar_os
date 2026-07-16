@@ -2,6 +2,7 @@ set(U8G2_CLIB_SRCS
     "src/clib/u8g2_box.c"
     "src/clib/u8g2_buffer.c"
     "src/clib/u8g2_font.c"
+    "src/clib/u8g2_fonts_profont.c"
     "src/clib/u8g2_hvline.c"
     "src/clib/u8g2_intersection.c"
     "src/clib/u8g2_kerning.c"
