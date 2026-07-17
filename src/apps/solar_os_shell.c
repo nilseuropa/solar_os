@@ -114,7 +114,6 @@ struct solar_os_shell_session {
     bool builtin_suppressed_prompt;
     bool prompt_on_resume;
     bool clear_on_resume;
-    bool startup_attempted;
     bool watch_active;
     bool watch_executing;
     bool log_follow_active;
@@ -131,6 +130,7 @@ struct solar_os_shell_session {
 };
 
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
+static bool shell_startup_attempted;
 
 static void cmd_help(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
@@ -4891,10 +4891,10 @@ static bool shell_run_startup_script(solar_os_context_t *ctx)
 {
     char path[SHELL_PATH_MAX];
 
-    if (shell_session(ctx)->startup_attempted) {
+    if (shell_startup_attempted) {
         return true;
     }
-    shell_session(ctx)->startup_attempted = true;
+    shell_startup_attempted = true;
 
     if (!solar_os_storage_is_mounted() ||
         !shell_make_state_path(path, sizeof(path), SHELL_STARTUP_FILE)) {

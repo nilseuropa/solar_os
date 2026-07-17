@@ -28,6 +28,9 @@ available. Optional startup and alias files:
 /.shell/hostname
 ```
 
+`/.shell/startup` runs once per boot on the first startup-enabled shell. Shell
+sessions created by that script do not run it again.
+
 The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 ## Shell Control
