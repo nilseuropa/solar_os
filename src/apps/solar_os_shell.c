@@ -174,6 +174,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"stream", "list data streams", solar_os_shell_cmd_stream},
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
     {"log", "show SolarOS logs", solar_os_shell_cmd_log},
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
+#endif
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
     {"df", "show filesystem free space", solar_os_shell_cmd_df},
@@ -530,6 +533,11 @@ static const char * const log_level_values[] = {"error", "warn", "info", "debug"
 static const char * const log_sink_values[] = {"cdc"};
 static const char * const on_off_values[] = {"on", "off"};
 
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
+static const char * const inbox_list_values[] = {"all", "unread"};
+#endif
+
 static const char * const gpio_subcommands[] = {
     "status",
     "list",
@@ -717,6 +725,10 @@ static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+static const char * const path_inbox[] = {"inbox"};
+static const char * const path_inbox_list[] = {"inbox", "list"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
 #endif
@@ -1280,6 +1292,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_log_level, log_level_values),
     SHELL_COMPLETION_STATIC(path_log_sink, log_sink_values),
     SHELL_COMPLETION_STATIC(path_log_sink_cdc, on_off_values),
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
+    SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),
 #endif

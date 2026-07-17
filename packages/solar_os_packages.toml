@@ -3,6 +3,7 @@ members = [
   "core_runtime",
   "core_shell",
   "core_fs_commands",
+  "service_inbox",
   "app_com",
   "app_edit",
   "app_less",
@@ -197,6 +198,14 @@ sources = [
   "services/solar_os_transfer.c",
   "services/solar_os_zmodem.c",
 ]
+
+[packages.service_inbox]
+label = "service.inbox"
+sources = [
+  "services/solar_os_inbox.c",
+  "shell/solar_os_shell_inbox.c",
+]
+requires = ["esp_timer", "heap"]
 
 [packages.core_fs_commands]
 label = "core.fs-commands"

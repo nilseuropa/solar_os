@@ -25,6 +25,7 @@ typedef enum {
 } solar_os_terminal_text_size_t;
 
 typedef struct {
+    uint16_t inbox_unread;
     bool battery_valid;
     uint8_t battery_percent;
     bool battery_external_power;

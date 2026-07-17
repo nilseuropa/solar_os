@@ -39,6 +39,9 @@
 #include "solar_os_gfx_internal.h"
 #include "solar_os_fonts.h"
 #include "solar_os_i2c.h"
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+#include "solar_os_inbox.h"
+#endif
 #include "solar_os_joystick.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
@@ -892,6 +895,13 @@ static void update_status(void)
 
     solar_os_status_bar_t status = {0};
 
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    solar_os_inbox_status_t inbox;
+    if (solar_os_inbox_get_status(&inbox) == ESP_OK) {
+        status.inbox_unread = inbox.unread > UINT16_MAX ? UINT16_MAX : (uint16_t)inbox.unread;
+    }
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     solar_os_battery_status_t battery;
     if (board_has(SOLAR_OS_BOARD_CAP_BATTERY) &&
@@ -1239,6 +1249,12 @@ void app_main(void)
     if (log_err != ESP_OK) {
         ESP_LOGW(TAG, "Log service unavailable: %s", esp_err_to_name(log_err));
     }
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    const esp_err_t inbox_err = solar_os_inbox_init();
+    if (inbox_err != ESP_OK) {
+        ESP_LOGW(TAG, "Inbox service unavailable: %s", esp_err_to_name(inbox_err));
+    }
+#endif
     print_boot_summary();
     key_button_init();
 

@@ -45,6 +45,11 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg <session-id>` | Resume a display app or display shell session. |
 | `close` | `close <session-id>` | Close a display app or display shell session, or stop a port shell session. |
+| `inbox` | `inbox [status]` | Show universal incoming-message counts and storage status. |
+| `inbox` | `inbox list [all\|unread]` | List newest messages first. |
+| `inbox` | `inbox read <id>` | Print one message and mark it read. |
+| `inbox` | `inbox clear` | Remove every message. |
+| `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,
@@ -61,6 +66,13 @@ name command-or-app fixed-args...
 ```
 
 Arguments typed after the alias are appended.
+
+The inbox is a volatile, producer-neutral message sink. Radio decoders,
+background chat or mail jobs, and shell scripts publish messages with a source,
+optional topic/sender/title, priority, timestamp, and body. New messages are
+unread by default. The status bar shows an envelope and unread count; reading or
+clearing messages removes that count. The first implementation keeps the newest
+64 messages in PSRAM when available and falls back to internal RAM.
 
 ## System And Diagnostics
 
