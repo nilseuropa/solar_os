@@ -39,6 +39,16 @@ solaros/
         manifest.json
         version.txt
         firmware.bin
+    elecrow_crowpanel_esp32_s3_4_2_epaper/
+      full/
+        manifest.json
+        version.txt
+        firmware.bin
+        firmware.factory.bin
+      core/
+        manifest.json
+        version.txt
+        firmware.bin
     esp32_s3_devkitc1_n16r8/
       core/
         manifest.json

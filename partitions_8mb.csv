@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# 8 MB flash, two OTA app slots, no factory app.
+nvs,      data, nvs,     ,        0x4000,
+otadata,  data, ota,     ,        0x2000,
+phy_init, data, phy,     ,        0x1000,
+ota_0,    app,  ota_0,   ,        0x3B0000,
+ota_1,    app,  ota_1,   ,        0x3B0000,
+flash,    data, fat,     ,        0x90000,

@@ -181,9 +181,9 @@ static void format_bytes(uint64_t bytes, char *buffer, size_t buffer_len)
 static void sd_print_status(solar_os_shell_io_t *term)
 {
     char status[64];
-    solar_os_storage_get_status(status, sizeof(status));
+    solar_os_storage_sd_get_status(status, sizeof(status));
     solar_os_shell_io_printf(term, "SD: %s\n", status);
-    solar_os_shell_io_printf(term, "Mount: %s\n", solar_os_storage_mount_point());
+    solar_os_shell_io_printf(term, "Mount: %s\n", solar_os_storage_sd_mount_point());
 }
 
 static void sd_print_lsblk(solar_os_shell_io_t *term)

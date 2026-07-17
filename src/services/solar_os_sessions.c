@@ -550,13 +550,19 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
         return false;
     }
 
+    // Keep the launching shell's output available while start() validates its
+    // arguments. Resumable display sessions otherwise clear shell_io before
+    // apps such as plot can print their usage or startup error.
+    solar_os_shell_io_t *launch_io = solar_os_context_shell_io(session_state.ctx);
     session_prepare_context(session);
     solar_os_context_set_graphics_active(session_state.ctx, false);
 
     if (!session->started) {
         session_store_context_args(session, session_state.ctx);
         if (session->app->start != NULL) {
+            solar_os_context_set_shell_io(session_state.ctx, launch_io);
             const esp_err_t app_err = session->app->start(session_state.ctx);
+            solar_os_context_set_shell_io(session_state.ctx, NULL);
             if (app_err != ESP_OK) {
                 SOLAR_OS_LOGE(TAG,
                               "App %s failed to start: %s",

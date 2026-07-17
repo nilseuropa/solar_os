@@ -633,7 +633,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     char ble_status[64];
 #endif
-    char sd_status[64];
+    char storage_status[64];
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     char wifi_status[64];
 #endif
@@ -655,7 +655,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    solar_os_storage_get_status(sd_status, sizeof(sd_status));
+    solar_os_storage_get_status(storage_status, sizeof(storage_status));
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solar_os_ble_keyboard_get_status(ble_status, sizeof(ble_status));
 #endif
@@ -667,7 +667,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solar_os_shell_io_printf(term, "BLE: %s\n", ble_status);
 #endif
-    solar_os_shell_io_printf(term, "SD: %s\n", sd_status);
+    solar_os_shell_io_printf(term, "Storage: %s\n", storage_status);
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     solar_os_shell_io_printf(term, "WiFi: %s\n", wifi_status);
 #endif
