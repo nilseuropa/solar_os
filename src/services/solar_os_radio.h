@@ -59,6 +59,7 @@ typedef struct {
     int8_t tx_power_dbm;
     bool crc_enabled;
     bool variable_length;
+    uint16_t payload_length;
     bool has_node_id;
     uint8_t node_id;
     bool has_network_id;

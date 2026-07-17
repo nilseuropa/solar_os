@@ -72,6 +72,7 @@ static solar_os_radio_config_t default_config(void)
         .tx_power_dbm = 13,
         .crc_enabled = true,
         .variable_length = true,
+        .payload_length = RFM69_MAX_PACKET_LEN,
     };
     return config;
 }

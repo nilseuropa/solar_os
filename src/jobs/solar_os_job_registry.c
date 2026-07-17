@@ -25,6 +25,9 @@
 #if SOLAR_OS_PACKAGE_JOB_NTP_SYNC
 #include "solar_os_ntp_sync_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+#include "solar_os_pocsag_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
 #include "solar_os_slip_job.h"
 #endif
@@ -53,6 +56,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_NTP_SYNC
     {"ntp-sync", "periodic RTC NTP sync", &solar_os_ntp_sync_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+    {"pocsag", "POCSAG pager receiver", &solar_os_pocsag_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
     {"slip", "SLIP IPv4 gateway on a port", &solar_os_slip_job},

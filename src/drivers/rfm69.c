@@ -306,6 +306,8 @@ static bool rfm69_config_valid(const solar_os_radio_config_t *config)
         config->bitrate_bps == 0 ||
         config->bitrate_bps > 300000U ||
         config->sync_word_len > SOLAR_OS_RADIO_SYNC_WORD_MAX ||
+        config->payload_length == 0 ||
+        config->payload_length > RFM69_MAX_PACKET_LEN ||
         config->tx_power_dbm < -18 ||
         config->tx_power_dbm > 13) {
         return false;
@@ -377,7 +379,8 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
     const uint16_t fdev = rfm69_fdev_reg(config->deviation_hz);
     const uint32_t frf = rfm69_frf_reg(config->frequency_hz);
     const bool ook = config->modulation == SOLAR_OS_RADIO_MODULATION_OOK;
-    const uint8_t payload_max = config->has_node_id ? RFM69_MAX_PACKET_LEN + 1 : RFM69_MAX_PACKET_LEN;
+    const uint8_t payload_length = (uint8_t)(config->payload_length +
+                                             (config->has_node_id ? 1U : 0U));
     uint8_t packet_config1 = config->variable_length ? PACKET_CONFIG1_VARIABLE : 0x00;
     if (config->crc_enabled) {
         packet_config1 |= PACKET_CONFIG1_CRC_ON;
@@ -450,7 +453,7 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
         ret = rfm69_write_reg_locked(dev, REG_PACKET_CONFIG1, packet_config1);
     }
     if (ret == ESP_OK) {
-        ret = rfm69_write_reg_locked(dev, REG_PAYLOAD_LENGTH, payload_max);
+        ret = rfm69_write_reg_locked(dev, REG_PAYLOAD_LENGTH, payload_length);
     }
     if (ret == ESP_OK) {
         ret = rfm69_write_reg_locked(dev, REG_NODE_ADRS, config->has_node_id ? config->node_id : 0x00);
@@ -588,11 +591,6 @@ esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t 
     if (ret != ESP_OK) {
         return ret;
     }
-    if (!dev->config.variable_length) {
-        rfm69_unlock(dev);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
     if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
         ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_RX);
     }
@@ -606,12 +604,13 @@ esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t 
 
     uint8_t irq2 = 0;
     uint8_t rssi = 0;
-    uint8_t radio_len = 0;
+    uint8_t radio_len = (uint8_t)(dev->config.payload_length +
+                                  (dev->config.has_node_id ? 1U : 0U));
     ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
     if (ret == ESP_OK) {
         ret = rfm69_read_reg_locked(dev, REG_RSSI_VALUE, &rssi);
     }
-    if (ret == ESP_OK) {
+    if (ret == ESP_OK && dev->config.variable_length) {
         ret = rfm69_read_burst_locked(dev, REG_FIFO, &radio_len, 1);
     }
     if (ret != ESP_OK) {

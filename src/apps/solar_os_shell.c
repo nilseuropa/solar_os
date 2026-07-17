@@ -177,6 +177,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
 #endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+    {"pocsag", "POCSAG receiver status", solar_os_shell_cmd_pocsag},
+#endif
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
     {"df", "show filesystem free space", solar_os_shell_cmd_df},
@@ -385,6 +388,9 @@ static const char * const session_shell_size_values[] = {"80x24", "100x30", "132
 
 static const char * const job_log_values[] = {"file"};
 static const char * const ntp_sync_values[] = {"once"};
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+static const char * const pocsag_subcommands[] = {"status"};
+#endif
 
 static const char * const sd_subcommands[] = {
     "status",
@@ -465,6 +471,7 @@ static const char * const radio_config_fields[] = {
     "power",
     "crc",
     "variable",
+    "length",
     "preamble",
     "sync",
     "node",
@@ -744,6 +751,10 @@ static const char * const path_job_start_bridge[] = {"job", "start", "bridge"};
 static const char * const path_job_start_bridge_port[] = {"job", "start", "bridge", SHELL_COMPLETION_ANY};
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
 static const char * const path_job_start_ntp_sync[] = {"job", "start", "ntp-sync"};
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+static const char * const path_job_start_pocsag[] = {"job", "start", "pocsag"};
+static const char * const path_pocsag[] = {"pocsag"};
+#endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
 static const char * const path_job_start_daq[] = {"job", "start", "daq"};
 static const char * const path_job_start_daq_stream[] = {"job", "start", "daq", SHELL_COMPLETION_ANY};
@@ -1197,6 +1208,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PORTS(path_job_start_bridge_port),
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
     SHELL_COMPLETION_STATIC(path_job_start_ntp_sync, ntp_sync_values),
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+    SHELL_COMPLETION_RADIOS(path_job_start_pocsag),
+    SHELL_COMPLETION_STATIC(path_pocsag, pocsag_subcommands),
+#endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
     SHELL_COMPLETION_STREAMS(path_job_start_daq),
     SHELL_COMPLETION_PATH(path_job_start_daq, false),

@@ -50,6 +50,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,
@@ -395,6 +396,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
+| `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `uart` | `uart status` | Show UART service state. |
 | `uart` | `uart baud [rate]` | Show or set UART baud rate. |
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
@@ -561,6 +563,20 @@ radio config radio0 modulation gfsk
 radio send radio0 hello
 radio recv radio0 5000
 ```
+
+The POCSAG job configures an attached packet radio for one paging channel,
+filters addresses to one RIC, corrects up to two bad bits per BCH codeword, and
+publishes decoded pages to the universal inbox. For the 448.425 MHz test channel:
+
+```text
+job start pocsag radio 448425000 1200 1841525 alpha
+pocsag status
+inbox list unread
+```
+
+Use `inverted` as the final argument if the transmitter and receiver use
+opposite FSK mark/space polarity. Stopping the job restores the radio's previous
+configuration and state.
 
 ## Quick Examples
 

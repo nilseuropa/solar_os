@@ -39,6 +39,7 @@ job-specific inspection code in the shell.
 
 Jobs that use byte-stream ports claim those ports while running. If a port is
 already owned, SolarOS reports the owner, for example `job log owns cdc0`.
+Radio listeners expose their radio as a custom job resource.
 
 Compact list example:
 
@@ -350,6 +351,41 @@ Notes:
 - In `once` mode, the job retries at the interval until the first successful
   sync, then stops itself.
 - Without `once`, it keeps syncing periodically.
+
+## pocsag
+
+POCSAG pager receiver job. It configures a registered packet radio for a fixed
+64-byte POCSAG batch, filters pages to one receiver identity code (RIC), decodes
+alphanumeric or numeric payloads, and publishes completed messages to the
+universal inbox.
+
+Usage:
+
+```text
+job start pocsag <radio> <frequency-hz> <baud> <ric> [alpha|numeric] [normal|inverted]
+job stop pocsag
+job status pocsag
+pocsag status
+```
+
+Example:
+
+```text
+job start pocsag radio 448425000 1200 1841525 alpha
+inbox list unread
+```
+
+Notes:
+
+- The decoder validates POCSAG parity and BCH and corrects up to two erroneous
+  bits per codeword.
+- Identical repeated pages received within 30 seconds produce one inbox entry.
+- The default FSK polarity is `normal`; retry with `inverted` if batches remain
+  at zero while the transmitter is active.
+- `pocsag status` shows batch/message counts, corrections, receive errors, and
+  the RSSI of the most recent batch.
+- Stopping the job restores the radio configuration and state that were active
+  when it started.
 
 ## slip
 

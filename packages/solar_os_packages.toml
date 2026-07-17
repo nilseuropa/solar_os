@@ -40,6 +40,7 @@ members = [
   "job_batmon",
   "job_daq",
   "job_sump",
+  "job_pocsag",
 ]
 
 [groups.audio]
@@ -561,3 +562,12 @@ capabilities = ["cdc", "gpio"]
 label = "job.ntp-sync"
 sources = ["jobs/solar_os_ntp_sync_job.c"]
 capabilities = ["wifi"]
+
+[packages.job_pocsag]
+label = "job.pocsag"
+sources = [
+  "services/solar_os_pocsag.c",
+  "jobs/solar_os_pocsag_job.c",
+  "shell/solar_os_shell_pocsag.c",
+]
+capabilities = ["expansion_spi"]
