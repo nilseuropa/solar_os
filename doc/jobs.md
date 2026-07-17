@@ -354,10 +354,10 @@ Notes:
 
 ## pocsag
 
-POCSAG pager receiver job. It configures a registered packet radio for a fixed
-64-byte POCSAG batch, filters pages to one receiver identity code (RIC), decodes
-alphanumeric or numeric payloads, and publishes completed messages to the
-universal inbox.
+POCSAG pager receiver job. It configures a registered packet radio for a
+continuous POCSAG byte stream, frames successive 64-byte batches, filters pages
+to one receiver identity code (RIC), decodes alphanumeric or numeric payloads,
+and publishes completed messages to the universal inbox.
 
 Usage:
 
@@ -379,6 +379,8 @@ Notes:
 
 - The decoder validates POCSAG parity and BCH and corrects up to two erroneous
   bits per codeword.
+- Messages may continue across batch boundaries; the receiver follows the sync
+  words between batches until the page is complete.
 - Identical repeated pages received within 30 seconds produce one inbox entry.
 - The default FSK polarity is `normal`; retry with `inverted` if batches remain
   at zero while the transmitter is active.

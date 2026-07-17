@@ -467,7 +467,7 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
         }
         config.variable_length = bit;
     } else if (strcmp(field, "length") == 0) {
-        if (!parse_u32_arg(argv[4], 1, SOLAR_OS_RADIO_PACKET_MAX, &u32)) {
+        if (!parse_u32_arg(argv[4], 0, SOLAR_OS_RADIO_PACKET_MAX, &u32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
             return;
         }

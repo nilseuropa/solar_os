@@ -37,6 +37,7 @@ typedef enum {
     SOLAR_OS_RADIO_FEATURE_ADDRESSING = 1U << 8,
     SOLAR_OS_RADIO_FEATURE_AES = 1U << 9,
     SOLAR_OS_RADIO_FEATURE_PROMISCUOUS = 1U << 10,
+    SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX = 1U << 11,
 } solar_os_radio_feature_t;
 
 typedef enum {

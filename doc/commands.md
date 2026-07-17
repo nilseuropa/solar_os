@@ -566,7 +566,8 @@ radio recv radio0 5000
 
 The POCSAG job configures an attached packet radio for one paging channel,
 filters addresses to one RIC, corrects up to two bad bits per BCH codeword, and
-publishes decoded pages to the universal inbox. For the 448.425 MHz test channel:
+publishes decoded pages to the universal inbox. Consecutive POCSAG batches are
+kept in one message. For the 448.425 MHz test channel:
 
 ```text
 job start pocsag radio 448425000 1200 1841525 alpha

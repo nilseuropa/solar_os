@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_inbox.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
@@ -16,8 +19,13 @@
 #define POCSAG_MESSAGE_FLUSH_MS 1500U
 #define POCSAG_DUPLICATE_WINDOW_MS 30000U
 #define POCSAG_RIC_MAX 2097151U
+#define POCSAG_RECEIVE_TIMEOUT_MS 100U
+#define POCSAG_TASK_STACK 4096
+#define POCSAG_STOP_WAIT_MS 500U
 
 static const char *TAG = "solar_os_pocsag";
+static const uint8_t pocsag_sync_normal[4] = {0x7C, 0xD2, 0x15, 0xD8};
+static const uint8_t pocsag_sync_inverted[4] = {0x83, 0x2D, 0xEA, 0x27};
 
 typedef struct {
     solar_os_pocsag_job_status_t status;
@@ -28,6 +36,12 @@ typedef struct {
     uint32_t last_message_ric;
     uint8_t last_message_function;
     char last_message_text[SOLAR_OS_INBOX_BODY_MAX];
+    uint8_t batch[SOLAR_OS_POCSAG_BATCH_BYTES];
+    size_t batch_len;
+    uint8_t sync_match;
+    bool waiting_for_sync;
+    volatile bool stop_requested;
+    TaskHandle_t task;
 } pocsag_job_state_t;
 
 static pocsag_job_state_t pocsag;
@@ -155,6 +169,90 @@ static void publish_message(const solar_os_pocsag_message_t *message, void *user
                   message->text);
 }
 
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static void pocsag_stream_resync(void)
+{
+    pocsag.batch_len = 0;
+    pocsag.sync_match = 0;
+    pocsag.waiting_for_sync = true;
+}
+
+static void pocsag_process_stream(const solar_os_radio_packet_t *packet, uint32_t current_ms)
+{
+    if (packet->has_rssi) {
+        pocsag.status.last_rssi_dbm = packet->rssi_dbm;
+    }
+
+    for (size_t i = 0; i < packet->len; i++) {
+        const uint8_t byte = pocsag.status.inverted ? (uint8_t)~packet->data[i] : packet->data[i];
+        if (pocsag.waiting_for_sync) {
+            if (byte == pocsag_sync_normal[pocsag.sync_match]) {
+                pocsag.sync_match++;
+                if (pocsag.sync_match == sizeof(pocsag_sync_normal)) {
+                    pocsag.sync_match = 0;
+                    pocsag.waiting_for_sync = false;
+                }
+            } else {
+                pocsag.sync_match = byte == pocsag_sync_normal[0] ? 1 : 0;
+            }
+            continue;
+        }
+
+        pocsag.batch[pocsag.batch_len++] = byte;
+        if (pocsag.batch_len != sizeof(pocsag.batch)) {
+            continue;
+        }
+
+        pocsag.status.batches++;
+        pocsag.last_batch_ms = current_ms;
+        (void)solar_os_pocsag_decode_batch(&pocsag.decoder,
+                                           pocsag.batch,
+                                           sizeof(pocsag.batch),
+                                           pocsag.status.last_rssi_dbm,
+                                           publish_message,
+                                           NULL);
+        pocsag.batch_len = 0;
+        pocsag.sync_match = 0;
+        pocsag.waiting_for_sync = true;
+    }
+}
+
+static void pocsag_receive_task(void *arg)
+{
+    (void)arg;
+
+    while (!pocsag.stop_requested) {
+        solar_os_radio_packet_t packet;
+        const esp_err_t err = solar_os_radio_receive(pocsag.status.radio,
+                                                     &packet,
+                                                     POCSAG_RECEIVE_TIMEOUT_MS);
+        const uint32_t current_ms = now_ms();
+        if (err == ESP_ERR_TIMEOUT) {
+            if (pocsag.decoder.active && pocsag.last_batch_ms != 0 &&
+                (uint32_t)(current_ms - pocsag.last_batch_ms) >= POCSAG_MESSAGE_FLUSH_MS) {
+                (void)solar_os_pocsag_decoder_flush(&pocsag.decoder, publish_message, NULL);
+            }
+            continue;
+        }
+
+        pocsag.status.last_error = err;
+        if (err != ESP_OK) {
+            pocsag.status.receive_errors++;
+            pocsag_stream_resync();
+            continue;
+        }
+
+        pocsag_process_stream(&packet, current_ms);
+    }
+
+    pocsag.task = NULL;
+    vTaskDelete(NULL);
+}
+
 static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
@@ -173,8 +271,8 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
     if (err != ESP_OK) {
         return err;
     }
-    if (info.max_packet_len < SOLAR_OS_POCSAG_BATCH_BYTES ||
-        (info.modulations & SOLAR_OS_RADIO_MODULATION_FSK) == 0) {
+    if ((info.modulations & SOLAR_OS_RADIO_MODULATION_FSK) == 0 ||
+        (info.features & SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX) == 0) {
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -185,8 +283,6 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_radio_config_t config = saved.config;
-    static const uint8_t sync_normal[4] = {0x7C, 0xD2, 0x15, 0xD8};
-    static const uint8_t sync_inverted[4] = {0x83, 0x2D, 0xEA, 0x27};
     config.frequency_hz = frequency_hz;
     config.modulation = SOLAR_OS_RADIO_MODULATION_FSK;
     config.bitrate_bps = baud;
@@ -194,10 +290,10 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
     config.rx_bandwidth_hz = POCSAG_DEFAULT_BANDWIDTH_HZ;
     config.preamble_len = 0;
     config.sync_word_len = 4;
-    memcpy(config.sync_word, inverted ? sync_inverted : sync_normal, 4);
+    memcpy(config.sync_word, inverted ? pocsag_sync_inverted : pocsag_sync_normal, 4);
     config.crc_enabled = false;
     config.variable_length = false;
-    config.payload_length = SOLAR_OS_POCSAG_BATCH_BYTES;
+    config.payload_length = 0;
     config.has_node_id = false;
     config.has_network_id = false;
 
@@ -221,7 +317,19 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
     pocsag.status.format = format;
     pocsag.status.inverted = inverted;
     pocsag.status.last_error = ESP_OK;
+    pocsag.waiting_for_sync = false;
     solar_os_pocsag_decoder_init(&pocsag.decoder, ric, format);
+    if (xTaskCreate(pocsag_receive_task,
+                    "pocsag_rx",
+                    POCSAG_TASK_STACK,
+                    NULL,
+                    tskIDLE_PRIORITY + 2,
+                    &pocsag.task) != pdPASS) {
+        pocsag.status.running = false;
+        pocsag.status.last_error = ESP_ERR_NO_MEM;
+        restore_radio();
+        return ESP_ERR_NO_MEM;
+    }
     (void)solar_os_jobs_note_resource(solar_os_pocsag_job.name,
                                       SOLAR_OS_JOB_RESOURCE_CUSTOM,
                                       radio,
@@ -241,53 +349,27 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
 static void pocsag_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
-    pocsag.status.running = false;
+
+    pocsag.stop_requested = true;
+    const TickType_t wait_ticks = pdMS_TO_TICKS(10);
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(POCSAG_STOP_WAIT_MS);
+    while (pocsag.task != NULL && (int32_t)(deadline - xTaskGetTickCount()) > 0) {
+        vTaskDelay(wait_ticks);
+    }
+    if (pocsag.task != NULL) {
+        vTaskDelete(pocsag.task);
+        pocsag.task = NULL;
+        pocsag.status.last_error = ESP_ERR_TIMEOUT;
+        pocsag.status.receive_errors++;
+    }
     (void)solar_os_pocsag_decoder_flush(&pocsag.decoder, publish_message, NULL);
+    pocsag.status.running = false;
     restore_radio();
     SOLAR_OS_LOGI(TAG,
                   "stopped: batches=%" PRIu32 " messages=%" PRIu32 " errors=%" PRIu32,
                   pocsag.status.batches,
                   pocsag.status.messages,
                   pocsag.status.receive_errors);
-}
-
-static bool pocsag_event(solar_os_context_t *ctx, const solar_os_event_t *event)
-{
-    (void)ctx;
-    if (!pocsag.status.running || event == NULL || event->type != SOLAR_OS_EVENT_TICK) {
-        return false;
-    }
-
-    solar_os_radio_packet_t packet;
-    const esp_err_t err = solar_os_radio_receive(pocsag.status.radio, &packet, 0);
-    if (err == ESP_ERR_TIMEOUT) {
-        if (pocsag.decoder.active && pocsag.last_batch_ms != 0 &&
-            (uint32_t)(event->data.tick_ms - pocsag.last_batch_ms) >= POCSAG_MESSAGE_FLUSH_MS) {
-            (void)solar_os_pocsag_decoder_flush(&pocsag.decoder, publish_message, NULL);
-        }
-        return false;
-    }
-    pocsag.status.last_error = err;
-    if (err != ESP_OK) {
-        pocsag.status.receive_errors++;
-        return false;
-    }
-
-    pocsag.status.batches++;
-    pocsag.status.last_rssi_dbm = packet.has_rssi ? packet.rssi_dbm : 0;
-    pocsag.last_batch_ms = event->data.tick_ms;
-    if (pocsag.status.inverted) {
-        for (size_t i = 0; i < packet.len; i++) {
-            packet.data[i] = (uint8_t)~packet.data[i];
-        }
-    }
-    (void)solar_os_pocsag_decode_batch(&pocsag.decoder,
-                                       packet.data,
-                                       packet.len,
-                                       pocsag.status.last_rssi_dbm,
-                                       publish_message,
-                                       NULL);
-    return true;
 }
 
 void solar_os_pocsag_job_get_status(solar_os_pocsag_job_status_t *status)
@@ -302,5 +384,5 @@ const solar_os_job_t solar_os_pocsag_job = {
     .summary = "POCSAG pager receiver",
     .start = pocsag_start,
     .stop = pocsag_stop,
-    .event = pocsag_event,
+    .event = NULL,
 };

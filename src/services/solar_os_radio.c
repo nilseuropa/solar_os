@@ -511,6 +511,8 @@ const char *solar_os_radio_feature_name(solar_os_radio_feature_t feature)
         return "aes";
     case SOLAR_OS_RADIO_FEATURE_PROMISCUOUS:
         return "promiscuous";
+    case SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX:
+        return "continuous_rx";
     default:
         return "unknown";
     }
@@ -605,6 +607,7 @@ void solar_os_radio_features_format(solar_os_radio_features_t features,
         SOLAR_OS_RADIO_FEATURE_ADDRESSING,
         SOLAR_OS_RADIO_FEATURE_AES,
         SOLAR_OS_RADIO_FEATURE_PROMISCUOUS,
+        SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
     };
     for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
         if ((features & (solar_os_radio_features_t)values[i]) != 0) {

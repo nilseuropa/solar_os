@@ -293,7 +293,8 @@ esp_err_t solar_os_rfm69_attach(const char *name,
                 SOLAR_OS_RADIO_FEATURE_SYNC_WORD |
                 SOLAR_OS_RADIO_FEATURE_PREAMBLE |
                 SOLAR_OS_RADIO_FEATURE_VARIABLE_LENGTH |
-                SOLAR_OS_RADIO_FEATURE_ADDRESSING,
+                SOLAR_OS_RADIO_FEATURE_ADDRESSING |
+                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
             .max_packet_len = RFM69_MAX_PACKET_LEN,
             .default_config = config,
             .initial_state = SOLAR_OS_RADIO_STATE_STANDBY,
