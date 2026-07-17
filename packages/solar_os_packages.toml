@@ -22,6 +22,7 @@ members = [
   "service_radio",
   "expansion_rfm69",
   "expansion_pcd8544",
+  "expansion_ssd1306",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -313,6 +314,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["expansion_spi", "expansion_gpio"]
+
+[packages.expansion_ssd1306]
+label = "expansion.ssd1306"
+sources = [
+  "drivers/ssd1306.c",
+  "services/solar_os_ssd1306.c",
+]
+requires = ["esp_driver_i2c", "u8g2"]
+capabilities = ["expansion_i2c"]
 
 [packages.service_json]
 label = "service.json"

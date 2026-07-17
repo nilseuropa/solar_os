@@ -13,6 +13,7 @@ set(U8G2_CLIB_SRCS
     "src/clib/u8x8_byte.c"
     "src/clib/u8x8_cad.c"
     "src/clib/u8x8_d_pcd8544_84x48.c"
+    "src/clib/u8x8_d_ssd1306_128x64_noname.c"
     "src/clib/u8x8_gpio.c"
     "src/clib/u8x8_message.c"
     "src/clib/u8x8_setup.c"

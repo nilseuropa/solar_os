@@ -439,6 +439,10 @@ static const char * const expansion_driver_values[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
     "pcd8544",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
+    "ssd1306",
+    "sh1106",
+#endif
 };
 
 static const char * const radio_subcommands[] = {

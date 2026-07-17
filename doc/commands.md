@@ -505,6 +505,35 @@ wire it according to the module board; use suitable current limiting when tying
 it to 3V3. Boards without expansion SPI, such as the Waveshare RLCD target,
 will not compile the active `pcd8544` expansion driver.
 
+Common 128x64 SSD1306 I2C OLED modules can be attached as auxiliary display
+targets with the `ssd1306` driver. The driver supports the usual `0x3c` and
+`0x3d` addresses and requires both the expansion I2C bus and address so the
+resource can be claimed. On the Waveshare RLCD target, wire the module to the
+I2C pins on the expansion header:
+
+```text
+display pins: VCC->3V3 GND->GND SDA->SDA(GPIO13) SCL->SCL(GPIO14)
+expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
+display list
+display test oled0
+session create shell oled0
+```
+
+Use `i2c scan` to confirm whether a module responds at `0x3c` or `0x3d` before
+attaching it. The same driver is available on other boards with expansion I2C;
+use `expansion status` to see that board's bus name and pins.
+
+If the image is shifted two pixels left and two uninitialized columns appear on
+the right, the module uses an SH1106-compatible 132-column controller despite
+often being sold as SSD1306. Reattach it with the SH1106 profile, which applies
+the controller's two-column visible-window offset:
+
+```text
+expansion detach oled0
+expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c
+display test oled0
+```
+
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI
 and optional source/destination IDs. Radio frequency values are Hz by default
