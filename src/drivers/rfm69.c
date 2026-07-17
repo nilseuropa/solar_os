@@ -62,6 +62,7 @@
 #define FIFO_WRITE_BIT 0x80
 #define RFM69_MODE_WAIT_MS 100
 #define RFM69_FIFO_DRAIN_LEN 16
+#define RFM69_FIFO_CAPACITY 66
 
 static void rfm69_reset_receive(rfm69_t *dev)
 {
@@ -594,6 +595,91 @@ esp_err_t rfm69_send(rfm69_t *dev, const solar_os_radio_packet_t *packet, uint32
         }
     }
 
+    rfm69_unlock(dev);
+    return ret;
+}
+
+esp_err_t rfm69_send_stream(rfm69_t *dev,
+                            const uint8_t *data,
+                            size_t len,
+                            uint32_t timeout_ms)
+{
+    if (data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t ret = rfm69_lock(dev);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (dev->config.variable_length || dev->config.payload_length != 0 ||
+        dev->config.crc_enabled || dev->config.has_node_id) {
+        rfm69_unlock(dev);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const int64_t start_us = esp_timer_get_time();
+    const int64_t timeout_us = (int64_t)timeout_ms * 1000;
+    size_t offset = 0;
+    bool tx_started = false;
+
+    ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+    if (ret == ESP_OK) {
+        ret = rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+    }
+    if (ret == ESP_OK) {
+        const size_t initial = len < RFM69_FIFO_CAPACITY ? len : RFM69_FIFO_CAPACITY;
+        ret = rfm69_write_burst_locked(dev, REG_FIFO, data, initial);
+        offset = ret == ESP_OK ? initial : 0;
+    }
+    if (ret == ESP_OK) {
+        ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_TX);
+        tx_started = ret == ESP_OK;
+    }
+
+    while (ret == ESP_OK && offset < len) {
+        uint8_t irq2 = 0;
+        ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+        if (ret != ESP_OK) {
+            break;
+        }
+        if ((irq2 & IRQ2_FIFO_LEVEL) == 0) {
+            size_t chunk = len - offset;
+            if (chunk > RFM69_FIFO_DRAIN_LEN) {
+                chunk = RFM69_FIFO_DRAIN_LEN;
+            }
+            ret = rfm69_write_burst_locked(dev, REG_FIFO, &data[offset], chunk);
+            if (ret == ESP_OK) {
+                offset += chunk;
+            }
+            continue;
+        }
+        if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+            ret = ESP_ERR_TIMEOUT;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    while (ret == ESP_OK) {
+        uint8_t irq2 = 0;
+        ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+        if (ret != ESP_OK || (irq2 & IRQ2_PACKET_SENT) != 0) {
+            break;
+        }
+        if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+            ret = ESP_ERR_TIMEOUT;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    if (tx_started) {
+        const esp_err_t standby_ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+        if (ret == ESP_OK) {
+            ret = standby_ret;
+        }
+    }
     rfm69_unlock(dev);
     return ret;
 }

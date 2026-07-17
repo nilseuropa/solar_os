@@ -222,11 +222,20 @@ static esp_err_t op_receive(void *ctx, solar_os_radio_packet_t *packet, uint32_t
     return rfm69_receive((rfm69_t *)ctx, packet, timeout_ms);
 }
 
+static esp_err_t op_send_stream(void *ctx,
+                                const uint8_t *data,
+                                size_t len,
+                                uint32_t timeout_ms)
+{
+    return rfm69_send_stream((rfm69_t *)ctx, data, len, timeout_ms);
+}
+
 static const solar_os_radio_ops_t radio_ops = {
     .configure = op_configure,
     .set_state = op_set_state,
     .get_status = op_get_status,
     .send = op_send,
+    .send_stream = op_send_stream,
     .receive = op_receive,
 };
 
@@ -294,7 +303,8 @@ esp_err_t solar_os_rfm69_attach(const char *name,
                 SOLAR_OS_RADIO_FEATURE_PREAMBLE |
                 SOLAR_OS_RADIO_FEATURE_VARIABLE_LENGTH |
                 SOLAR_OS_RADIO_FEATURE_ADDRESSING |
-                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
+                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX |
+                SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX,
             .max_packet_len = RFM69_MAX_PACKET_LEN,
             .default_config = config,
             .initial_state = SOLAR_OS_RADIO_STATE_STANDBY,

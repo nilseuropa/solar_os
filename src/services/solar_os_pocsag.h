@@ -4,7 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #define SOLAR_OS_POCSAG_BATCH_BYTES 64
+#define SOLAR_OS_POCSAG_PAYLOAD_MAX 512
 #define SOLAR_OS_POCSAG_TEXT_MAX 256
 
 typedef enum {
@@ -48,4 +51,12 @@ size_t solar_os_pocsag_decode_batch(solar_os_pocsag_decoder_t *decoder,
 bool solar_os_pocsag_decoder_flush(solar_os_pocsag_decoder_t *decoder,
                                    solar_os_pocsag_message_cb_t callback,
                                    void *user);
+esp_err_t solar_os_pocsag_encode_payload(uint32_t ric,
+                                         uint8_t function,
+                                         solar_os_pocsag_format_t format,
+                                         const char *text,
+                                         uint8_t *payload,
+                                         size_t payload_capacity,
+                                         size_t *payload_len,
+                                         size_t *batch_count);
 const char *solar_os_pocsag_format_name(solar_os_pocsag_format_t format);

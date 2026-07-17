@@ -178,7 +178,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
-    {"pocsag", "POCSAG receiver status", solar_os_shell_cmd_pocsag},
+    {"pocsag", "POCSAG pager send and receive", solar_os_shell_cmd_pocsag},
 #endif
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
@@ -389,7 +389,9 @@ static const char * const session_shell_size_values[] = {"80x24", "100x30", "132
 static const char * const job_log_values[] = {"file"};
 static const char * const ntp_sync_values[] = {"once"};
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
-static const char * const pocsag_subcommands[] = {"status"};
+static const char * const pocsag_subcommands[] = {"status", "send"};
+static const char * const pocsag_format_values[] = {"alpha", "numeric"};
+static const char * const pocsag_polarity_values[] = {"normal", "inverted"};
 #endif
 
 static const char * const sd_subcommands[] = {
@@ -754,6 +756,16 @@ static const char * const path_job_start_ntp_sync[] = {"job", "start", "ntp-sync
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 static const char * const path_job_start_pocsag[] = {"job", "start", "pocsag"};
 static const char * const path_pocsag[] = {"pocsag"};
+static const char * const path_pocsag_send[] = {"pocsag", "send"};
+static const char * const path_pocsag_send_message[] = {
+    "pocsag", "send", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+};
+static const char * const path_pocsag_send_format[] = {
+    "pocsag", "send", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 #endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
 static const char * const path_job_start_daq[] = {"job", "start", "daq"};
@@ -1211,6 +1223,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     SHELL_COMPLETION_RADIOS(path_job_start_pocsag),
     SHELL_COMPLETION_STATIC(path_pocsag, pocsag_subcommands),
+    SHELL_COMPLETION_RADIOS(path_pocsag_send),
+    SHELL_COMPLETION_STATIC(path_pocsag_send_message, pocsag_format_values),
+    SHELL_COMPLETION_STATIC(path_pocsag_send_format, pocsag_polarity_values),
 #endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
     SHELL_COMPLETION_STREAMS(path_job_start_daq),

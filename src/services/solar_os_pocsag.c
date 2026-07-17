@@ -3,7 +3,10 @@
 #include <string.h>
 
 #define POCSAG_IDLE_CODEWORD 0x7A89C197U
+#define POCSAG_SYNC_CODEWORD 0x7CD215D8U
 #define POCSAG_BCH_GENERATOR 0x769U
+#define POCSAG_RIC_MAX 2097151U
+#define POCSAG_CODEWORDS_PER_BATCH 16U
 
 static bool codeword_valid(uint32_t word)
 {
@@ -18,6 +21,97 @@ static bool codeword_valid(uint32_t word)
         }
     }
     return (value & 0x3FFU) == 0;
+}
+
+static uint32_t encode_codeword(uint32_t data)
+{
+    uint32_t value = data >> 1;
+    for (int bit = 30; bit >= 10; bit--) {
+        if ((value & (1UL << bit)) != 0) {
+            value ^= POCSAG_BCH_GENERATOR << (bit - 10);
+        }
+    }
+
+    uint32_t word = data | ((value & 0x3FFU) << 1);
+    if ((__builtin_popcount(word) & 1) != 0) {
+        word |= 1U;
+    }
+    return word;
+}
+
+static bool numeric_symbol(char character, uint8_t *symbol)
+{
+    static const char numeric[] = "0123456789*U -)(";
+    const char *match = strchr(numeric, character);
+    if (match == NULL) {
+        return false;
+    }
+    if (symbol != NULL) {
+        *symbol = (uint8_t)(match - numeric);
+    }
+    return true;
+}
+
+static bool message_valid(solar_os_pocsag_format_t format, const char *text, size_t *text_len)
+{
+    if (text == NULL || text_len == NULL ||
+        (format != SOLAR_OS_POCSAG_FORMAT_ALPHA && format != SOLAR_OS_POCSAG_FORMAT_NUMERIC)) {
+        return false;
+    }
+
+    const size_t len = strnlen(text, SOLAR_OS_POCSAG_TEXT_MAX);
+    if (len == 0 || len >= SOLAR_OS_POCSAG_TEXT_MAX) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        const unsigned char character = (unsigned char)text[i];
+        if (format == SOLAR_OS_POCSAG_FORMAT_ALPHA) {
+            if (character < 0x20 || character > 0x7E) {
+                return false;
+            }
+        } else if (!numeric_symbol((char)character, NULL)) {
+            return false;
+        }
+    }
+    *text_len = len;
+    return true;
+}
+
+static uint32_t message_data_word(solar_os_pocsag_format_t format,
+                                  const char *text,
+                                  size_t text_len,
+                                  size_t message_word)
+{
+    const size_t width = format == SOLAR_OS_POCSAG_FORMAT_NUMERIC ? 4U : 7U;
+    const size_t message_bits = text_len * width;
+    uint32_t data = 0;
+
+    for (size_t output_bit = 0; output_bit < 20; output_bit++) {
+        const size_t bit_index = message_word * 20U + output_bit;
+        size_t character_bit = 0;
+        uint8_t character = 0;
+        if (bit_index < message_bits) {
+            const size_t character_index = bit_index / width;
+            character_bit = bit_index % width;
+            character = (uint8_t)text[character_index];
+            if (format == SOLAR_OS_POCSAG_FORMAT_NUMERIC) {
+                (void)numeric_symbol(text[character_index], &character);
+            }
+        } else {
+            character_bit = (bit_index - message_bits) % width;
+            character = format == SOLAR_OS_POCSAG_FORMAT_NUMERIC ? 12U : (uint8_t)' ';
+        }
+        data |= ((uint32_t)((character >> character_bit) & 1U)) << (19U - output_bit);
+    }
+    return data;
+}
+
+static void write_word(uint8_t *output, uint32_t word)
+{
+    output[0] = (uint8_t)(word >> 24);
+    output[1] = (uint8_t)(word >> 16);
+    output[2] = (uint8_t)(word >> 8);
+    output[3] = (uint8_t)word;
 }
 
 static bool correct_codeword(uint32_t received, uint32_t *corrected, uint8_t *corrected_bits)
@@ -197,6 +291,65 @@ bool solar_os_pocsag_decoder_flush(solar_os_pocsag_decoder_t *decoder,
                                    void *user)
 {
     return decoder != NULL && finish_message(decoder, callback, user);
+}
+
+esp_err_t solar_os_pocsag_encode_payload(uint32_t ric,
+                                         uint8_t function,
+                                         solar_os_pocsag_format_t format,
+                                         const char *text,
+                                         uint8_t *payload,
+                                         size_t payload_capacity,
+                                         size_t *payload_len,
+                                         size_t *batch_count)
+{
+    size_t text_len = 0;
+    if (ric > POCSAG_RIC_MAX || function > 3 || payload == NULL || payload_len == NULL ||
+        !message_valid(format, text, &text_len)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t width = format == SOLAR_OS_POCSAG_FORMAT_NUMERIC ? 4U : 7U;
+    const size_t message_words = (text_len * width + 19U) / 20U;
+    const size_t address_index = (ric & 7U) * 2U;
+    const size_t batches = (address_index + 1U + message_words +
+                            POCSAG_CODEWORDS_PER_BATCH - 1U) /
+                           POCSAG_CODEWORDS_PER_BATCH;
+    const size_t required = batches * SOLAR_OS_POCSAG_BATCH_BYTES + (batches - 1U) * 4U;
+    if (required > payload_capacity || required > SOLAR_OS_POCSAG_PAYLOAD_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    size_t output_offset = 0;
+    for (size_t batch = 0; batch < batches; batch++) {
+        if (batch > 0) {
+            write_word(&payload[output_offset], POCSAG_SYNC_CODEWORD);
+            output_offset += 4;
+        }
+        for (size_t slot = 0; slot < POCSAG_CODEWORDS_PER_BATCH; slot++) {
+            const size_t codeword_index = batch * POCSAG_CODEWORDS_PER_BATCH + slot;
+            uint32_t word = POCSAG_IDLE_CODEWORD;
+            if (codeword_index == address_index) {
+                const uint32_t address = ((ric >> 3) & 0x3FFFFU) << 13;
+                word = encode_codeword(address | ((uint32_t)function << 11));
+            } else if (codeword_index > address_index &&
+                       codeword_index <= address_index + message_words) {
+                const size_t message_word = codeword_index - address_index - 1U;
+                word = encode_codeword(0x80000000U |
+                                       (message_data_word(format,
+                                                          text,
+                                                          text_len,
+                                                          message_word) << 11));
+            }
+            write_word(&payload[output_offset], word);
+            output_offset += 4;
+        }
+    }
+
+    *payload_len = output_offset;
+    if (batch_count != NULL) {
+        *batch_count = batches;
+    }
+    return ESP_OK;
 }
 
 const char *solar_os_pocsag_format_name(solar_os_pocsag_format_t format)

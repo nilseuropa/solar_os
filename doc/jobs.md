@@ -366,6 +366,7 @@ job start pocsag <radio> <frequency-hz> <baud> <ric> [alpha|numeric] [normal|inv
 job stop pocsag
 job status pocsag
 pocsag status
+pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha|numeric] [normal|inverted] [function]
 ```
 
 Example:
@@ -373,6 +374,9 @@ Example:
 ```text
 job start pocsag radio 448425000 1200 1841525 alpha
 inbox list unread
+
+job stop pocsag
+pocsag send radio 448425000 1200 1841525 "SolarOS calling" alpha inverted
 ```
 
 Notes:
@@ -388,6 +392,9 @@ Notes:
   the RSSI of the most recent batch.
 - Stopping the job restores the radio configuration and state that were active
   when it started.
+- Sending supports messages spanning multiple batches and restores the radio's
+  previous configuration afterward. A receiver job using the same half-duplex
+  radio must be stopped first.
 
 ## slip
 

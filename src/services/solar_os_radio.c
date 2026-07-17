@@ -400,6 +400,38 @@ esp_err_t solar_os_radio_send(const char *name,
     return ops->send(ctx, packet, timeout_ms);
 }
 
+esp_err_t solar_os_radio_send_stream(const char *name,
+                                     const uint8_t *data,
+                                     size_t len,
+                                     uint32_t timeout_ms)
+{
+    if (!radio_name_valid(name) || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+
+    const solar_os_radio_ops_t *ops = NULL;
+    void *ctx = NULL;
+    solar_os_radio_features_t features = 0;
+
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    const int index = radio_find_index_locked(name);
+    if (index < 0) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    features = radio_devices[index].info.features;
+    ops = radio_devices[index].ops;
+    ctx = radio_devices[index].ctx;
+    xSemaphoreGive(radio_mutex);
+
+    if ((features & SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX) == 0 ||
+        ops == NULL || ops->send_stream == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return ops->send_stream(ctx, data, len, timeout_ms);
+}
+
 esp_err_t solar_os_radio_receive(const char *name,
                                  solar_os_radio_packet_t *packet,
                                  uint32_t timeout_ms)
@@ -513,6 +545,8 @@ const char *solar_os_radio_feature_name(solar_os_radio_feature_t feature)
         return "promiscuous";
     case SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX:
         return "continuous_rx";
+    case SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX:
+        return "continuous_tx";
     default:
         return "unknown";
     }
@@ -608,6 +642,7 @@ void solar_os_radio_features_format(solar_os_radio_features_t features,
         SOLAR_OS_RADIO_FEATURE_AES,
         SOLAR_OS_RADIO_FEATURE_PROMISCUOUS,
         SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
+        SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX,
     };
     for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
         if ((features & (solar_os_radio_features_t)values[i]) != 0) {

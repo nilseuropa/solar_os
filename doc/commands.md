@@ -51,6 +51,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
 | `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
+| `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,
@@ -397,6 +398,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
+| `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart status` | Show UART service state. |
 | `uart` | `uart baud [rate]` | Show or set UART baud rate. |
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
@@ -578,6 +580,16 @@ inbox list unread
 Use `inverted` as the final argument if the transmitter and receiver use
 opposite FSK mark/space polarity. Stopping the job restores the radio's previous
 configuration and state.
+
+To transmit a page, stop the receiver when it uses the same half-duplex radio,
+then send the message. Alphanumeric pages default to function 3; numeric pages
+default to function 0. The optional final argument selects function 0 through 3.
+The previous radio configuration and state are restored after transmission.
+
+```text
+job stop pocsag
+pocsag send radio 448425000 1200 1841525 "SolarOS calling" alpha inverted
+```
 
 ## Quick Examples
 
