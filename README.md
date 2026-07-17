@@ -63,6 +63,7 @@ and apps, jobs, and shell commands use services.
 Current built-in targets include:
 
 - `waveshare_esp32_s3_rlcd_4_2`: primary reflective-display pocket terminal.
+- `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 SSD1683 e-paper HMI with rotary controls and microSD.
 - `odroid_go`: classic ESP32 handheld target.
 - `esp32_s3_devkitc1_n16r8`: minimal headless ESP32-S3 target.
 
@@ -75,6 +76,7 @@ SolarOS uses PlatformIO with ESP-IDF through the pioarduino Espressif32 platform
 
 ```sh
 pio run -e waveshare_esp32_s3_rlcd_4_2
+pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 pio run -e odroid_go
 pio run -e esp32_s3_devkitc1_n16r8
 pio run -t upload

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "solar_os_board.h"
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
@@ -18,6 +19,10 @@
 #define TERM_NVS_ORIENTATION_KEY "orientation"
 #define TERM_NVS_FONT_KEY "font"
 #define TERM_NVS_TEXT_SIZE_KEY "textsize"
+
+#ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION
+#define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 0
+#endif
 
 static const char *TAG = "solar_os_terminal";
 
@@ -815,7 +820,7 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     memset(terminal, 0, sizeof(*terminal));
     terminal_alloc_scrollback(terminal);
     terminal->u8g2 = u8g2;
-    terminal->orientation_degrees = 0;
+    terminal->orientation_degrees = SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION;
     terminal->font = SOLAR_OS_TERMINAL_FONT_MONO;
     terminal->text_size = SOLAR_OS_TERMINAL_TEXT_SIZE_14;
     terminal->cols = 65;

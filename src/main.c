@@ -222,6 +222,16 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
+#ifdef SOLAR_OS_BOARD_PIN_LCD_BUSY
+    SOLAR_OS_LOGI(TAG,
+                  "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d BUSY=%d",
+                  SOLAR_OS_BOARD_PIN_LCD_MOSI,
+                  SOLAR_OS_BOARD_PIN_LCD_SCK,
+                  SOLAR_OS_BOARD_PIN_LCD_DC,
+                  SOLAR_OS_BOARD_PIN_LCD_CS,
+                  SOLAR_OS_BOARD_PIN_LCD_RST,
+                  SOLAR_OS_BOARD_PIN_LCD_BUSY);
+#else
     SOLAR_OS_LOGI(TAG,
                   "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d TE=%d",
                   SOLAR_OS_BOARD_PIN_LCD_MOSI,
@@ -230,6 +240,7 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_CS,
                   SOLAR_OS_BOARD_PIN_LCD_RST,
                   SOLAR_OS_BOARD_PIN_LCD_TE);
+#endif
 #endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
     SOLAR_OS_LOGI(TAG,
@@ -1282,12 +1293,17 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(solar_os_jobs_init());
+    ESP_LOGI(TAG, "boot milestone: jobs ready");
 
+    ESP_LOGI(TAG, "boot milestone: starting peripherals");
     init_peripherals();
+    ESP_LOGI(TAG, "boot milestone: peripherals ready");
     update_status();
+    ESP_LOGI(TAG, "boot milestone: status ready");
 
     if (terminal != NULL) {
-        solar_os_sessions_switch_to_app(solar_os_shell_app());
+        const bool shell_started = solar_os_sessions_switch_to_app(solar_os_shell_app());
+        ESP_LOGI(TAG, "boot milestone: shell switch=%s", shell_started ? "ok" : "failed");
     } else {
         start_headless_shell_if_needed();
     }

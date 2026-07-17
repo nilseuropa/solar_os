@@ -5,6 +5,7 @@ list(APPEND SOLAR_OS_BOARD_SRCS
     "drivers/sd_card.c"
 )
 list(APPEND SOLAR_OS_BOARD_REQUIRES
+    esp_driver_gpio
     esp_driver_sdspi
     fatfs
     sdmmc
