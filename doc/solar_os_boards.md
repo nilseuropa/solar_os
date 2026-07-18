@@ -329,8 +329,18 @@ Expansion bus example:
 ```
 
 The expansion descriptors describe connector resources available to runtime
-expansion management. They do not claim the resources or initialize external
-hardware by themselves.
+expansion management. At boot they are copied into the protocol-neutral named
+bus registry. Bus names are unique across protocols. I2C and SPI buses accept
+shared logical leases; UART and future 1-Wire bus instances are exclusive.
+Attaching an expansion device acquires a lease under the device name and
+detaching it releases that lease.
+
+The registry distinguishes immutable board buses from future runtime-created
+buses. Board buses cannot be unregistered. A runtime bus can be removed only
+while it has no leases. Registry leases describe logical use only at this
+stage: the descriptors do not claim pins, remap the GPIO matrix, or initialize
+hardware by themselves. Dynamic routing will connect first-acquire and
+last-release to the protocol driver lifecycle in a later step.
 
 ## Board Selector
 

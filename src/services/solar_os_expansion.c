@@ -4,6 +4,7 @@
 
 #include "esp_check.h"
 #include "solar_os_board.h"
+#include "solar_os_buses.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
 #include "solar_os_pcd8544.h"
@@ -17,10 +18,6 @@
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
-
-static const solar_os_expansion_i2c_bus_t i2c_buses[] = SOLAR_OS_BOARD_EXPANSION_I2C_BUSES;
-static const solar_os_expansion_spi_bus_t spi_buses[] = SOLAR_OS_BOARD_EXPANSION_SPI_BUSES;
-static const solar_os_expansion_uart_port_t uart_ports[] = SOLAR_OS_BOARD_EXPANSION_UART_PORTS;
 
 static const solar_os_expansion_driver_t expansion_drivers[] = {
     {
@@ -75,21 +72,6 @@ static solar_os_expansion_device_t devices[SOLAR_OS_EXPANSION_DEVICE_MAX];
 static bool mask_contains(uint64_t mask, int pin)
 {
     return pin >= 0 && pin < 64 && (mask & (1ULL << (uint32_t)pin)) != 0;
-}
-
-static bool i2c_bus_active(const solar_os_expansion_i2c_bus_t *bus)
-{
-    return bus != NULL && bus->name != NULL && bus->name[0] != '\0';
-}
-
-static bool spi_bus_active(const solar_os_expansion_spi_bus_t *bus)
-{
-    return bus != NULL && bus->name != NULL && bus->name[0] != '\0';
-}
-
-static bool uart_port_active(const solar_os_expansion_uart_port_t *port)
-{
-    return port != NULL && port->name != NULL && port->name[0] != '\0';
 }
 
 static bool device_name_valid(const char *name)
@@ -303,8 +285,7 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
     case SOLAR_OS_EXPANSION_BINDING_PWM:
         return pin_is_expansion_pwm(binding->value);
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
-        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_I2C) &&
-            solar_os_expansion_find_i2c_bus(binding->target, NULL, NULL);
+        return solar_os_expansion_find_i2c_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
         if (binding->value < 0x03 || binding->value > 0x77) {
             return false;
@@ -314,16 +295,14 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         }
         return first_i2c_binding(bindings, binding_count, NULL, 0, NULL);
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
-        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_SPI) &&
-            solar_os_expansion_find_spi_bus(binding->target, NULL, NULL);
+        return solar_os_expansion_find_spi_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
         return pin_is_expansion_gpio(binding->value) &&
             solar_os_expansion_spi_cs_allowed(binding->target[0] != '\0' ? binding->target : NULL,
                                               binding->value);
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT: {
         solar_os_expansion_uart_port_t port;
-        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_UART) &&
-            solar_os_expansion_find_uart_port(binding->target, &port, NULL) &&
+        return solar_os_expansion_find_uart_port(binding->target, &port, NULL) &&
             port.port == binding->value;
     }
     default:
@@ -331,17 +310,97 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
     }
 }
 
+typedef struct {
+    solar_os_bus_protocol_t protocol;
+    const char *name;
+} expansion_bus_ref_t;
+
+static bool binding_bus_ref(const solar_os_expansion_binding_t *binding,
+                            expansion_bus_ref_t *ref)
+{
+    if (binding == NULL || ref == NULL) {
+        return false;
+    }
+    switch (binding->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+            .name = binding->target,
+        };
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
+        if (binding->target[0] == '\0') {
+            return false;
+        }
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+            .name = binding->target,
+        };
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_SPI,
+            .name = binding->target,
+        };
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
+            .name = binding->target,
+        };
+        return true;
+    default:
+        return false;
+    }
+}
+
+static esp_err_t acquire_binding_buses(const solar_os_expansion_binding_t *bindings,
+                                       size_t binding_count,
+                                       const char *owner)
+{
+    expansion_bus_ref_t acquired[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
+    size_t acquired_count = 0;
+
+    for (size_t i = 0; i < binding_count; i++) {
+        expansion_bus_ref_t ref;
+        if (!binding_bus_ref(&bindings[i], &ref)) {
+            continue;
+        }
+        bool duplicate = false;
+        for (size_t j = 0; j < acquired_count; j++) {
+            if (acquired[j].protocol == ref.protocol &&
+                strcmp(acquired[j].name, ref.name) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        const esp_err_t ret = solar_os_bus_acquire(ref.name, ref.protocol, owner);
+        if (ret != ESP_OK) {
+            (void)solar_os_bus_release_owner(owner);
+            return ret;
+        }
+        acquired[acquired_count++] = ref;
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_expansion_init(void)
 {
-    return solar_os_resources_init();
+    ESP_RETURN_ON_ERROR(solar_os_resources_init(), "expansion", "resource init failed");
+    return solar_os_buses_init();
 }
 
 bool solar_os_expansion_available(void)
 {
     return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO) ||
-        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_I2C) ||
-        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_SPI) ||
-        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_UART) ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0 ||
+        solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE) > 0 ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_ADC) ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_PWM);
 }
@@ -366,126 +425,130 @@ bool solar_os_expansion_driver_supported(const char *name)
     if (driver == NULL) {
         return false;
     }
-    const solar_os_board_capabilities_t caps = solar_os_board_capabilities();
+    solar_os_board_capabilities_t caps = solar_os_board_capabilities();
+    if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C) > 0) {
+        caps |= SOLAR_OS_BOARD_CAP_EXPANSION_I2C;
+    }
+    if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0) {
+        caps |= SOLAR_OS_BOARD_CAP_EXPANSION_SPI;
+    }
+    if (solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0) {
+        caps |= SOLAR_OS_BOARD_CAP_EXPANSION_UART;
+    }
     return driver->required_capabilities == 0 ||
         (caps & driver->required_capabilities) == driver->required_capabilities;
 }
 
 size_t solar_os_expansion_i2c_bus_count(void)
 {
-    size_t count = 0;
-    for (size_t i = 0; i < sizeof(i2c_buses) / sizeof(i2c_buses[0]); i++) {
-        if (i2c_bus_active(&i2c_buses[i])) {
-            count++;
-        }
-    }
-    return count;
+    return solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C);
 }
 
 bool solar_os_expansion_get_i2c_bus(size_t index, solar_os_expansion_i2c_bus_t *bus)
 {
-    size_t current = 0;
     if (bus == NULL) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(i2c_buses) / sizeof(i2c_buses[0]); i++) {
-        if (!i2c_bus_active(&i2c_buses[i])) {
-            continue;
-        }
-        if (current++ == index) {
-            *bus = i2c_buses[i];
-            return true;
-        }
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_I2C, index, &info)) {
+        return false;
     }
-    return false;
+    *bus = (solar_os_expansion_i2c_bus_t) {
+        .port = info.config.i2c.port,
+        .sda_pin = info.config.i2c.sda_pin,
+        .scl_pin = info.config.i2c.scl_pin,
+    };
+    strlcpy(bus->name, info.name, sizeof(bus->name));
+    return true;
 }
 
 bool solar_os_expansion_find_i2c_bus(const char *name, solar_os_expansion_i2c_bus_t *bus, size_t *index)
 {
-    size_t current = 0;
-    if (name == NULL || name[0] == '\0') {
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(i2c_buses) / sizeof(i2c_buses[0]); i++) {
-        if (!i2c_bus_active(&i2c_buses[i])) {
-            continue;
-        }
-        if (strcmp(i2c_buses[i].name, name) == 0) {
-            if (bus != NULL) {
-                *bus = i2c_buses[i];
-            }
-            if (index != NULL) {
-                *index = current;
-            }
-            return true;
-        }
-        current++;
+    if (bus != NULL) {
+        *bus = (solar_os_expansion_i2c_bus_t) {
+            .port = info.config.i2c.port,
+            .sda_pin = info.config.i2c.sda_pin,
+            .scl_pin = info.config.i2c.scl_pin,
+        };
+        strlcpy(bus->name, info.name, sizeof(bus->name));
     }
-    return false;
+    if (index != NULL) {
+        *index = info.id;
+    }
+    return true;
 }
 
 size_t solar_os_expansion_spi_bus_count(void)
 {
-    size_t count = 0;
-    for (size_t i = 0; i < sizeof(spi_buses) / sizeof(spi_buses[0]); i++) {
-        if (spi_bus_active(&spi_buses[i])) {
-            count++;
-        }
-    }
-    return count;
+    return solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI);
 }
 
 bool solar_os_expansion_get_spi_bus(size_t index, solar_os_expansion_spi_bus_t *bus)
 {
-    size_t current = 0;
     if (bus == NULL) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(spi_buses) / sizeof(spi_buses[0]); i++) {
-        if (!spi_bus_active(&spi_buses[i])) {
-            continue;
-        }
-        if (current++ == index) {
-            *bus = spi_buses[i];
-            return true;
-        }
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, index, &info)) {
+        return false;
     }
-    return false;
+    *bus = (solar_os_expansion_spi_bus_t) {
+        .host = info.config.spi.host,
+        .sclk_pin = info.config.spi.sclk_pin,
+        .miso_pin = info.config.spi.miso_pin,
+        .mosi_pin = info.config.spi.mosi_pin,
+        .max_transfer_size = info.config.spi.max_transfer_size,
+        .cs_count = info.config.spi.cs_count,
+    };
+    strlcpy(bus->name, info.name, sizeof(bus->name));
+    for (size_t i = 0; i < info.config.spi.cs_count && i < SOLAR_OS_EXPANSION_SPI_CS_MAX; i++) {
+        bus->cs[i] = info.config.spi.cs[i];
+    }
+    return true;
 }
 
 bool solar_os_expansion_find_spi_bus(const char *name, solar_os_expansion_spi_bus_t *bus, size_t *index)
 {
-    size_t current = 0;
-    if (name == NULL || name[0] == '\0') {
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info)) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(spi_buses) / sizeof(spi_buses[0]); i++) {
-        if (!spi_bus_active(&spi_buses[i])) {
-            continue;
+    if (bus != NULL) {
+        *bus = (solar_os_expansion_spi_bus_t) {
+            .host = info.config.spi.host,
+            .sclk_pin = info.config.spi.sclk_pin,
+            .miso_pin = info.config.spi.miso_pin,
+            .mosi_pin = info.config.spi.mosi_pin,
+            .max_transfer_size = info.config.spi.max_transfer_size,
+            .cs_count = info.config.spi.cs_count,
+        };
+        strlcpy(bus->name, info.name, sizeof(bus->name));
+        for (size_t i = 0; i < info.config.spi.cs_count && i < SOLAR_OS_EXPANSION_SPI_CS_MAX; i++) {
+            bus->cs[i] = info.config.spi.cs[i];
         }
-        if (strcmp(spi_buses[i].name, name) == 0) {
-            if (bus != NULL) {
-                *bus = spi_buses[i];
-            }
-            if (index != NULL) {
-                *index = current;
-            }
-            return true;
-        }
-        current++;
     }
-    return false;
+    if (index != NULL) {
+        *index = info.id;
+    }
+    return true;
 }
 
 bool solar_os_expansion_spi_cs_allowed(const char *bus_name, int pin)
 {
-    for (size_t i = 0; i < sizeof(spi_buses) / sizeof(spi_buses[0]); i++) {
-        const solar_os_expansion_spi_bus_t *bus = &spi_buses[i];
-        if (!spi_bus_active(bus) || (bus_name != NULL && strcmp(bus->name, bus_name) != 0)) {
+    for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI); i++) {
+        solar_os_bus_info_t bus;
+        if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, i, &bus) ||
+            (bus_name != NULL && strcmp(bus.name, bus_name) != 0)) {
             continue;
         }
-        for (size_t cs = 0; cs < bus->cs_count && cs < SOLAR_OS_EXPANSION_SPI_CS_MAX; cs++) {
-            if (bus->cs[cs].pin == pin) {
+        for (size_t cs = 0;
+             cs < bus.config.spi.cs_count && cs < SOLAR_OS_EXPANSION_SPI_CS_MAX;
+             cs++) {
+            if (bus.config.spi.cs[cs].pin == pin) {
                 return true;
             }
         }
@@ -495,55 +558,45 @@ bool solar_os_expansion_spi_cs_allowed(const char *bus_name, int pin)
 
 size_t solar_os_expansion_uart_port_count(void)
 {
-    size_t count = 0;
-    for (size_t i = 0; i < sizeof(uart_ports) / sizeof(uart_ports[0]); i++) {
-        if (uart_port_active(&uart_ports[i])) {
-            count++;
-        }
-    }
-    return count;
+    return solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
 }
 
 bool solar_os_expansion_get_uart_port(size_t index, solar_os_expansion_uart_port_t *port)
 {
-    size_t current = 0;
     if (port == NULL) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(uart_ports) / sizeof(uart_ports[0]); i++) {
-        if (!uart_port_active(&uart_ports[i])) {
-            continue;
-        }
-        if (current++ == index) {
-            *port = uart_ports[i];
-            return true;
-        }
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, index, &info)) {
+        return false;
     }
-    return false;
+    *port = (solar_os_expansion_uart_port_t) {
+        .port = info.config.uart.port,
+        .tx_pin = info.config.uart.tx_pin,
+        .rx_pin = info.config.uart.rx_pin,
+    };
+    strlcpy(port->name, info.name, sizeof(port->name));
+    return true;
 }
 
 bool solar_os_expansion_find_uart_port(const char *name, solar_os_expansion_uart_port_t *port, size_t *index)
 {
-    size_t current = 0;
-    if (name == NULL || name[0] == '\0') {
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &info)) {
         return false;
     }
-    for (size_t i = 0; i < sizeof(uart_ports) / sizeof(uart_ports[0]); i++) {
-        if (!uart_port_active(&uart_ports[i])) {
-            continue;
-        }
-        if (strcmp(uart_ports[i].name, name) == 0) {
-            if (port != NULL) {
-                *port = uart_ports[i];
-            }
-            if (index != NULL) {
-                *index = current;
-            }
-            return true;
-        }
-        current++;
+    if (port != NULL) {
+        *port = (solar_os_expansion_uart_port_t) {
+            .port = info.config.uart.port,
+            .tx_pin = info.config.uart.tx_pin,
+            .rx_pin = info.config.uart.rx_pin,
+        };
+        strlcpy(port->name, info.name, sizeof(port->name));
     }
-    return false;
+    if (index != NULL) {
+        *index = info.id;
+    }
+    return true;
 }
 
 esp_err_t solar_os_expansion_attach(const char *driver,
@@ -606,9 +659,16 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         }
     }
 
+    const esp_err_t bus_ret = acquire_binding_buses(normalized, binding_count, name);
+    if (bus_ret != ESP_OK) {
+        (void)solar_os_resource_release_owner(name);
+        return bus_ret;
+    }
+
     if (driver_def->attach != NULL) {
         const esp_err_t ret = driver_def->attach(name, normalized, binding_count);
         if (ret != ESP_OK) {
+            (void)solar_os_bus_release_owner(name);
             (void)solar_os_resource_release_owner(name);
             return ret;
         }
@@ -640,6 +700,7 @@ esp_err_t solar_os_expansion_detach(const char *name)
         }
     }
 
+    (void)solar_os_bus_release_owner(name);
     (void)solar_os_resource_release_owner(name);
     memset(device, 0, sizeof(*device));
     return ESP_OK;

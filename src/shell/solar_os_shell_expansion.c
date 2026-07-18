@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "esp_err.h"
+#include "solar_os_buses.h"
 #include "solar_os_expansion.h"
 #include "solar_os_resources.h"
 
@@ -49,13 +50,38 @@ static void print_cap(solar_os_shell_io_t *term, solar_os_board_capability_t cap
     solar_os_shell_io_printf(term, "%s%s", solar_os_board_has(cap) ? " " : "", solar_os_board_has(cap) ? name : "");
 }
 
+static void print_bus_cap(solar_os_shell_io_t *term,
+                          solar_os_bus_protocol_t protocol,
+                          const char *name)
+{
+    if (solar_os_bus_count_protocol(protocol) > 0) {
+        solar_os_shell_io_printf(term, " %s", name);
+    }
+}
+
+static void expansion_print_bus_meta(solar_os_shell_io_t *term,
+                                     const char *name,
+                                     solar_os_bus_protocol_t protocol)
+{
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, protocol, &info)) {
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             " [%s %s leases=%u]",
+                             solar_os_bus_origin_name(info.origin),
+                             solar_os_bus_sharing_name(info.sharing),
+                             (unsigned)info.lease_count);
+}
+
 static void expansion_print_resources(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_write(term, "Capabilities:");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_GPIO, "gpio");
-    print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_I2C, "i2c");
-    print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_SPI, "spi");
-    print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_UART, "uart");
+    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_I2C, "i2c");
+    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_SPI, "spi");
+    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_UART, "uart");
+    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, "onewire");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_ADC, "adc");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_PWM, "pwm");
     if (!solar_os_expansion_available()) {
@@ -67,11 +93,13 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         solar_os_expansion_i2c_bus_t bus;
         if (solar_os_expansion_get_i2c_bus(i, &bus)) {
             solar_os_shell_io_printf(term,
-                                     "I2C %-6s port %d SDA GPIO%d SCL GPIO%d\n",
+                                     "I2C %-6s port %d SDA GPIO%d SCL GPIO%d",
                                      bus.name,
                                      bus.port,
                                      bus.sda_pin,
                                      bus.scl_pin);
+            expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_I2C);
+            solar_os_shell_io_put_char(term, '\n');
         }
     }
 
@@ -90,6 +118,7 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         for (size_t cs = 0; cs < bus.cs_count && cs < SOLAR_OS_EXPANSION_SPI_CS_MAX; cs++) {
             solar_os_shell_io_printf(term, " %s(GPIO%d)", bus.cs[cs].name, bus.cs[cs].pin);
         }
+        expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_SPI);
         solar_os_shell_io_put_char(term, '\n');
     }
 
@@ -97,11 +126,13 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         solar_os_expansion_uart_port_t port;
         if (solar_os_expansion_get_uart_port(i, &port)) {
             solar_os_shell_io_printf(term,
-                                     "UART %-5s port %d TX GPIO%d RX GPIO%d\n",
+                                     "UART %-5s port %d TX GPIO%d RX GPIO%d",
                                      port.name,
                                      port.port,
                                      port.tx_pin,
                                      port.rx_pin);
+            expansion_print_bus_meta(term, port.name, SOLAR_OS_BUS_PROTOCOL_UART);
+            solar_os_shell_io_put_char(term, '\n');
         }
     }
 }

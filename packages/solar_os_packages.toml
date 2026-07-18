@@ -247,6 +247,7 @@ capabilities = ["audio"]
 [packages.service_resources]
 label = "service.resources"
 sources = [
+  "services/solar_os_buses.c",
   "services/solar_os_resources.c",
   "services/solar_os_pins.c",
 ]
