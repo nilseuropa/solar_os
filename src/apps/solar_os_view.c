@@ -17,6 +17,7 @@
 #include "esp_heap_caps.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_gfx.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_stb_image.h"
 #include "solar_os_terminal.h"
@@ -81,11 +82,9 @@ static int32_t view_read_le32s(const uint8_t *data)
 
 static uint8_t *view_alloc(size_t len)
 {
-    uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (data == NULL) {
-        data = heap_caps_malloc(len, MALLOC_CAP_8BIT);
-    }
-    return data;
+    return solar_os_memory_alloc(len,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "view.image");
 }
 
 static bool view_has_psram(void)

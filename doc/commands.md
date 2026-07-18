@@ -102,7 +102,7 @@ job for periodic polling.
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
 | `status` | `status` | Print a compact system status summary. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
-| `mem` | `mem` | Print internal RAM, PSRAM, and DMA memory status. |
+| `mem` | `mem [policy]` | Print heap status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
 | `top` | `top` | Print FreeRTOS task resource information when available. |
 | `sleep` | `sleep` | Enter explicit light sleep. |
 | `power` | See below | Inspect and configure power policy. |

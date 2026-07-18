@@ -20,6 +20,7 @@
 #include "lualib.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#include "solar_os_memory.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
 #endif
@@ -257,23 +258,19 @@ static void *solua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
     (void)osize;
 
     if (nsize == 0) {
-        heap_caps_free(ptr);
+        solar_os_memory_free(ptr);
         return NULL;
     }
 
-    void *next = NULL;
     if (ptr == NULL) {
-        next = heap_caps_malloc(nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (next == NULL) {
-            next = heap_caps_malloc(nsize, MALLOC_CAP_8BIT);
-        }
-    } else {
-        next = heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (next == NULL) {
-            next = heap_caps_realloc(ptr, nsize, MALLOC_CAP_8BIT);
-        }
+        return solar_os_memory_alloc(nsize,
+                                     SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                     "lua.heap");
     }
-    return next;
+    return solar_os_memory_realloc(ptr,
+                                   nsize,
+                                   SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                   "lua.heap");
 }
 
 static void solua_hook(lua_State *L, lua_Debug *ar)
@@ -1714,10 +1711,9 @@ static void solua_spi_validate_length(lua_State *L, size_t len)
 
 static uint8_t *solua_spi_alloc(lua_State *L, size_t len)
 {
-    uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (data == NULL) {
-        data = heap_caps_malloc(len, MALLOC_CAP_8BIT);
-    }
+    uint8_t *data = solar_os_memory_alloc(len,
+                                           SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                           "lua.spi");
     if (data == NULL) {
         luaL_error(L, "SPI buffer allocation failed");
     }

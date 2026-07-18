@@ -8,11 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_gfx.h"
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
 #include "solar_os_logic.h"
+#include "solar_os_memory.h"
 
 #define LOGIC_REFRESH_MS 250U
 
@@ -111,7 +111,7 @@ static bool logic_sump_running(void)
 
 static void logic_free_samples(void)
 {
-    heap_caps_free(logic_app.samples);
+    solar_os_memory_free(logic_app.samples);
     logic_app.samples = NULL;
     logic_app.sample_capacity = 0;
 }
@@ -122,14 +122,13 @@ static esp_err_t logic_reserve_samples(size_t count)
         return ESP_OK;
     }
 
-    uint8_t *replacement = heap_caps_malloc(count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (replacement == NULL) {
-        replacement = heap_caps_malloc(count, MALLOC_CAP_8BIT);
-    }
+    uint8_t *replacement = solar_os_memory_alloc(count,
+                                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                  "logic.samples");
     if (replacement == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    heap_caps_free(logic_app.samples);
+    solar_os_memory_free(logic_app.samples);
     logic_app.samples = replacement;
     logic_app.sample_capacity = count;
     return ESP_OK;

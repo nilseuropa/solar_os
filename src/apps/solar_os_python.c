@@ -30,6 +30,7 @@
 #include "py/repl.h"
 #include "py/runtime.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_memory.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
@@ -299,11 +300,9 @@ static bool python_is_printable_char(char ch)
 
 static uint8_t *python_alloc_psram_first(size_t len)
 {
-    uint8_t *data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (data == NULL) {
-        data = heap_caps_malloc(len, MALLOC_CAP_8BIT);
-    }
-    return data;
+    return solar_os_memory_alloc(len,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "python");
 }
 
 static bool python_path_has_suffix(const char *path, const char *suffix)

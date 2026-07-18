@@ -12,7 +12,6 @@
 
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -21,6 +20,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_stb_image.h"
 #include "solar_os_task.h"
 #include "solar_os_webp_decoder.h"
@@ -199,32 +199,27 @@ static web_state_t *web_state;
 static bool web_resolve_url(const char *base, const char *href, char *out, size_t out_len);
 static const char *web_current_base_url(void);
 
-static void *web_malloc(size_t size)
+static void *web_malloc(size_t size, const char *tag)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, tag);
 }
 
-static void *web_calloc(size_t count, size_t size)
+static void *web_calloc(size_t count, size_t size, const char *tag)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                  tag);
 }
 
 static web_state_t *web_alloc_state(void)
 {
-    return web_calloc(1, sizeof(web_state_t));
+    return web_calloc(1, sizeof(web_state_t), "web.state");
 }
 
 static void web_free_state(void)
 {
-    heap_caps_free(web_state);
+    solar_os_memory_free(web_state);
     web_state = NULL;
 }
 
@@ -357,13 +352,13 @@ static void web_reset_document(void)
 
 static bool web_allocate_buffers(void)
 {
-    web.html = web_malloc(WEB_HTML_MAX + 1U);
-    web.lines = web_calloc(WEB_LINE_COUNT, sizeof(web.lines[0]));
-    web.links = web_calloc(WEB_LINK_COUNT, sizeof(web.links[0]));
-    web.controls = web_calloc(WEB_CONTROL_COUNT, sizeof(web.controls[0]));
-    web.forms = web_calloc(WEB_FORM_COUNT, sizeof(web.forms[0]));
-    web.images = web_calloc(WEB_IMAGE_COUNT, sizeof(web.images[0]));
-    web.items = web_calloc(WEB_ITEM_COUNT, sizeof(web.items[0]));
+    web.html = web_malloc(WEB_HTML_MAX + 1U, "web.html");
+    web.lines = web_calloc(WEB_LINE_COUNT, sizeof(web.lines[0]), "web.lines");
+    web.links = web_calloc(WEB_LINK_COUNT, sizeof(web.links[0]), "web.links");
+    web.controls = web_calloc(WEB_CONTROL_COUNT, sizeof(web.controls[0]), "web.controls");
+    web.forms = web_calloc(WEB_FORM_COUNT, sizeof(web.forms[0]), "web.forms");
+    web.images = web_calloc(WEB_IMAGE_COUNT, sizeof(web.images[0]), "web.images");
+    web.items = web_calloc(WEB_ITEM_COUNT, sizeof(web.items[0]), "web.items");
     web.events = xQueueCreate(WEB_EVENT_QUEUE_LEN, sizeof(web_event_t));
 
     if (web.html == NULL ||
@@ -387,34 +382,34 @@ static void web_free_buffers(void)
         web.events = NULL;
     }
     if (web.html != NULL) {
-        heap_caps_free(web.html);
+        solar_os_memory_free(web.html);
         web.html = NULL;
     }
     if (web.lines != NULL) {
-        heap_caps_free(web.lines);
+        solar_os_memory_free(web.lines);
         web.lines = NULL;
     }
     if (web.links != NULL) {
-        heap_caps_free(web.links);
+        solar_os_memory_free(web.links);
         web.links = NULL;
     }
     if (web.controls != NULL) {
-        heap_caps_free(web.controls);
+        solar_os_memory_free(web.controls);
         web.controls = NULL;
     }
     if (web.forms != NULL) {
-        heap_caps_free(web.forms);
+        solar_os_memory_free(web.forms);
         web.forms = NULL;
     }
     if (web.images != NULL) {
         for (size_t i = 0; i < WEB_IMAGE_COUNT; i++) {
             web_free_image_data(&web.images[i]);
         }
-        heap_caps_free(web.images);
+        solar_os_memory_free(web.images);
         web.images = NULL;
     }
     if (web.items != NULL) {
-        heap_caps_free(web.items);
+        solar_os_memory_free(web.items);
         web.items = NULL;
     }
 }
@@ -1516,7 +1511,7 @@ static esp_err_t web_fetch_bytes(const char *url,
         return ESP_ERR_INVALID_SIZE;
     }
 
-    uint8_t *data = web_malloc(max_len);
+    uint8_t *data = web_malloc(max_len, "web.fetch");
     if (data == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -1549,7 +1544,7 @@ static esp_err_t web_fetch_bytes(const char *url,
 
         esp_http_client_handle_t client = esp_http_client_init(&config);
         if (client == NULL) {
-            heap_caps_free(data);
+            solar_os_memory_free(data);
             return ESP_ERR_NO_MEM;
         }
 
@@ -1572,7 +1567,7 @@ static esp_err_t web_fetch_bytes(const char *url,
             buffer.redirect_url[0] != '\0') {
             char next_url[WEB_URL_MAX];
             if (!web_resolve_url(current_url, buffer.redirect_url, next_url, sizeof(next_url))) {
-                heap_caps_free(data);
+                solar_os_memory_free(data);
                 return ESP_FAIL;
             }
             SOLAR_OS_LOGI(TAG, "redirect %d: %s -> %s", status, current_url, next_url);
@@ -1590,11 +1585,11 @@ static esp_err_t web_fetch_bytes(const char *url,
         *out_truncated = buffer.truncated;
     }
     if (err != ESP_OK) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return err;
     }
     if (status < 200 || status >= 300 || buffer.truncated) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return ESP_FAIL;
     }
 
@@ -1891,7 +1886,7 @@ static void web_load_images(void)
         }
 
         err = web_decode_image_bytes(image, data, len, resolved);
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         if (err != ESP_OK) {
             continue;
         }
@@ -1960,12 +1955,12 @@ static esp_err_t web_load_direct_image_document(uint32_t *out_bytes,
                       truncated ? "yes" : "no",
                       (unsigned)WEB_IMAGE_MAX_BYTES,
                       web.url);
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return err;
     }
 
     err = web_build_image_document(data, len, web.url);
-    heap_caps_free(data);
+    solar_os_memory_free(data);
     return err;
 }
 
@@ -2742,13 +2737,13 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     web.redraw = true;
     web_render(ctx);
 
-    const BaseType_t created = xTaskCreatePinnedToCore(web_task,
-                                                       "solar_os_web",
-                                                       WEB_TASK_STACK,
-                                                       NULL,
-                                                       WEB_TASK_PRIORITY,
-                                                       &web.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned(web_task,
+                                                           "solar_os_web",
+                                                           WEB_TASK_STACK,
+                                                           NULL,
+                                                           WEB_TASK_PRIORITY,
+                                                           &web.task,
+                                                           tskNO_AFFINITY);
     if (created != pdPASS) {
         web.task = NULL;
         web.task_done = true;

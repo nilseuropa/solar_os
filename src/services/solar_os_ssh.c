@@ -6,12 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "libssh2.h"
+#include "solar_os_memory.h"
 #include "solar_os_ssh_transport.h"
 #include "solar_os_task.h"
 
@@ -145,24 +145,25 @@ static QueueHandle_t ssh_create_queue(UBaseType_t len,
         return NULL;
     }
 
-    StaticQueue_t *queue =
-        heap_caps_calloc(1, sizeof(*queue), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *storage =
-        heap_caps_calloc(len, item_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (storage == NULL) {
-        storage = heap_caps_calloc(len, item_size, MALLOC_CAP_8BIT);
-    }
+    StaticQueue_t *queue = solar_os_memory_calloc(1,
+                                                  sizeof(*queue),
+                                                  SOLAR_OS_MEMORY_INTERNAL_CRITICAL,
+                                                  "ssh.queue");
+    uint8_t *storage = solar_os_memory_calloc(len,
+                                              item_size,
+                                              SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                              "ssh.queue-data");
 
     if (queue == NULL || storage == NULL) {
-        heap_caps_free(queue);
-        heap_caps_free(storage);
+        solar_os_memory_free(queue);
+        solar_os_memory_free(storage);
         return NULL;
     }
 
     QueueHandle_t handle = xQueueCreateStatic(len, item_size, storage, queue);
     if (handle == NULL) {
-        heap_caps_free(queue);
-        heap_caps_free(storage);
+        solar_os_memory_free(queue);
+        solar_os_memory_free(storage);
         return NULL;
     }
 
@@ -185,12 +186,12 @@ static void ssh_session_destroy(solar_os_ssh_session_t *session)
         vQueueDelete(session->tx);
         session->tx = NULL;
     }
-    heap_caps_free(session->events_storage);
-    heap_caps_free(session->events_queue);
-    heap_caps_free(session->tx_storage);
-    heap_caps_free(session->tx_queue);
+    solar_os_memory_free(session->events_storage);
+    solar_os_memory_free(session->events_queue);
+    solar_os_memory_free(session->tx_storage);
+    solar_os_memory_free(session->tx_queue);
     memset(session->password, 0, sizeof(session->password));
-    heap_caps_free(session);
+    solar_os_memory_free(session);
 }
 
 static int ssh_wait_socket(solar_os_ssh_session_t *session,
@@ -447,8 +448,10 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
         return ESP_ERR_INVALID_ARG;
     }
 
-    solar_os_ssh_session_t *session =
-        heap_caps_calloc(1, sizeof(*session), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    solar_os_ssh_session_t *session = solar_os_memory_calloc(1,
+                                                             sizeof(*session),
+                                                             SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                             "ssh.session");
     if (session == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -473,13 +476,13 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
         return ESP_ERR_NO_MEM;
     }
 
-    BaseType_t created = xTaskCreatePinnedToCore(ssh_session_task,
-                                                 "solar_os_ssh",
-                                                 SOLAR_OS_SSH_TASK_STACK,
-                                                 session,
-                                                 SOLAR_OS_SSH_TASK_PRIORITY,
-                                                 &session->task,
-                                                 tskNO_AFFINITY);
+    BaseType_t created = solar_os_task_create_pinned(ssh_session_task,
+                                                      "solar_os_ssh",
+                                                      SOLAR_OS_SSH_TASK_STACK,
+                                                      session,
+                                                      SOLAR_OS_SSH_TASK_PRIORITY,
+                                                      &session->task,
+                                                      tskNO_AFFINITY);
     if (created != pdPASS) {
         solar_os_ssh_stop(session);
         return ESP_ERR_NO_MEM;

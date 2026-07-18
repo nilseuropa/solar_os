@@ -9,10 +9,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
 #define HTTPD_JOB_ROOT_MAX SOLAR_OS_STORAGE_PATH_MAX
@@ -259,10 +259,9 @@ static esp_err_t send_file(httpd_req_t *req, const char *path)
         return httpd_resp_send_404(req);
     }
 
-    char *chunk = heap_caps_malloc(HTTPD_JOB_CHUNK_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (chunk == NULL) {
-        chunk = heap_caps_malloc(HTTPD_JOB_CHUNK_SIZE, MALLOC_CAP_8BIT);
-    }
+    char *chunk = solar_os_memory_alloc(HTTPD_JOB_CHUNK_SIZE,
+                                        SOLAR_OS_MEMORY_TRANSIENT,
+                                        "httpd.chunk");
     if (chunk == NULL) {
         fclose(file);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
@@ -287,7 +286,7 @@ static esp_err_t send_file(httpd_req_t *req, const char *path)
         }
     }
 
-    heap_caps_free(chunk);
+    solar_os_memory_free(chunk);
     fclose(file);
 
     if (ret == ESP_OK) {

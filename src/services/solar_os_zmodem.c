@@ -8,10 +8,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "solar_os_memory.h"
 
 #define ZM_SEND_CHUNK_SIZE 512U
 #define ZM_RECV_CHUNK_SIZE 1024U
@@ -85,10 +85,9 @@ static esp_err_t zm_session_init(zm_session_t *zm,
     memset(zm, 0, sizeof(*zm));
     zm->options = options;
     zm->port = port;
-    zm->rx_buffer = heap_caps_malloc(ZM_RX_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (zm->rx_buffer == NULL) {
-        zm->rx_buffer = heap_caps_malloc(ZM_RX_BUFFER_SIZE, MALLOC_CAP_8BIT);
-    }
+    zm->rx_buffer = solar_os_memory_alloc(ZM_RX_BUFFER_SIZE,
+                                           SOLAR_OS_MEMORY_TRANSIENT,
+                                           "zmodem.rx");
     if (zm->rx_buffer == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -102,7 +101,7 @@ static void zm_session_deinit(zm_session_t *zm)
         return;
     }
 
-    heap_caps_free(zm->rx_buffer);
+    solar_os_memory_free(zm->rx_buffer);
     zm->rx_buffer = NULL;
     zm->rx_capacity = 0;
     zm->rx_pos = 0;

@@ -1,5 +1,37 @@
 #include "solar_os_task.h"
 
+#include "solar_os_log.h"
+#include "solar_os_memory.h"
+
+BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
+                                        const char *name,
+                                        uint32_t stack_depth,
+                                        void *parameters,
+                                        UBaseType_t priority,
+                                        TaskHandle_t *handle,
+                                        BaseType_t core_id)
+{
+    const BaseType_t result = xTaskCreatePinnedToCore(task,
+                                                      name,
+                                                      stack_depth,
+                                                      parameters,
+                                                      priority,
+                                                      handle,
+                                                      core_id);
+    if (result != pdPASS) {
+        solar_os_memory_status_t memory;
+        solar_os_memory_get_status(&memory);
+        SOLAR_OS_LOGW("task",
+                      "create failed name=%s stack=%u internal_free=%u internal_max=%u external_free=%u",
+                      name != NULL ? name : "unknown",
+                      (unsigned)stack_depth,
+                      (unsigned)memory.internal.free,
+                      (unsigned)memory.internal.largest_free,
+                      (unsigned)memory.external.free);
+    }
+    return result;
+}
+
 bool solar_os_task_wait_done(TaskHandle_t task,
                              volatile bool *task_done,
                              uint32_t timeout_ms)

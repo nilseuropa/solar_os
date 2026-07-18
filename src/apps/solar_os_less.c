@@ -10,8 +10,8 @@
 #include <sys/stat.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 
@@ -705,10 +705,9 @@ static esp_err_t less_load_file(void)
     }
 
     const size_t len = (size_t)st.st_size;
-    less_state.buffer = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (less_state.buffer == NULL) {
-        less_state.buffer = heap_caps_malloc(len + 1, MALLOC_CAP_8BIT);
-    }
+    less_state.buffer = solar_os_memory_alloc(len + 1,
+                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                               "less.file");
     if (less_state.buffer == NULL) {
         less_set_message("out of memory");
         return ESP_ERR_NO_MEM;
@@ -781,7 +780,7 @@ static esp_err_t less_start(solar_os_context_t *ctx)
 static void less_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
-    heap_caps_free(less_state.buffer);
+    solar_os_memory_free(less_state.buffer);
     memset(&less_state, 0, sizeof(less_state));
 }
 

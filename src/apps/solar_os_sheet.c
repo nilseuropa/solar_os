@@ -12,8 +12,8 @@
 #include <sys/stat.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_tui.h"
 
@@ -69,12 +69,10 @@ static sheet_state_t *sheet_state;
 
 static sheet_state_t *sheet_alloc_state(void)
 {
-    sheet_state_t *state =
-        heap_caps_calloc(1, sizeof(*state), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (state == NULL) {
-        state = heap_caps_calloc(1, sizeof(*state), MALLOC_CAP_8BIT);
-    }
-    return state;
+    return solar_os_memory_calloc(1,
+                                  sizeof(sheet_state_t),
+                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                  "sheet.state");
 }
 
 static bool sheet_is_printable(uint8_t ch)
@@ -89,11 +87,10 @@ static void sheet_set_message(const char *message)
 
 static void *sheet_realloc(void *ptr, size_t bytes)
 {
-    void *next = heap_caps_realloc(ptr, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (next == NULL) {
-        next = heap_caps_realloc(ptr, bytes, MALLOC_CAP_8BIT);
-    }
-    return next;
+    return solar_os_memory_realloc(ptr,
+                                   bytes,
+                                   SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                   "sheet.rows");
 }
 
 static bool sheet_ensure_offset_capacity(size_t needed)
@@ -120,7 +117,7 @@ static bool sheet_ensure_offset_capacity(size_t needed)
 static void sheet_free_offsets(void)
 {
     if (sheet.row_offsets != NULL) {
-        heap_caps_free(sheet.row_offsets);
+        solar_os_memory_free(sheet.row_offsets);
         sheet.row_offsets = NULL;
     }
     sheet.row_count = 0;
@@ -909,7 +906,7 @@ static esp_err_t sheet_start(solar_os_context_t *ctx)
 
     esp_err_t err = solar_os_tui_begin(&sheet.tui, ctx);
     if (err != ESP_OK) {
-        heap_caps_free(sheet_state);
+        solar_os_memory_free(sheet_state);
         sheet_state = NULL;
         return err;
     }
@@ -956,7 +953,7 @@ static void sheet_stop(solar_os_context_t *ctx)
         solar_os_tui_end(&sheet.tui);
     }
     sheet_free_offsets();
-    heap_caps_free(sheet_state);
+    solar_os_memory_free(sheet_state);
     sheet_state = NULL;
 }
 
