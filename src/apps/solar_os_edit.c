@@ -8,8 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_clipboard.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
@@ -17,7 +17,8 @@
 #include "solar_os_syntax.h"
 #include "solar_os_terminal.h"
 
-#define EDITOR_BUFFER_CAPACITY (256 * 1024)
+#define EDITOR_PSRAM_BUFFER_CAPACITY (256 * 1024)
+#define EDITOR_INTERNAL_BUFFER_CAPACITY (32 * 1024)
 #define EDITOR_TAB_WIDTH 4
 
 typedef struct {
@@ -147,6 +148,15 @@ static void editor_update_preferred_col(void)
 static void editor_set_message(const char *message)
 {
     strlcpy(editor.message, message != NULL ? message : "", sizeof(editor.message));
+}
+
+static void editor_set_capacity_message(const char *message)
+{
+    snprintf(editor.message,
+             sizeof(editor.message),
+             "%s (%u KiB)",
+             message,
+             (unsigned)(editor.capacity / 1024U));
 }
 
 static void editor_capture_text_size(solar_os_context_t *ctx)
@@ -536,7 +546,7 @@ static bool editor_insert_char(char ch)
 
     const size_t selection_len = replacing ? selection_end - selection_start : 0;
     if (editor.len - selection_len + 1 >= editor.capacity) {
-        editor_set_message("buffer full");
+        editor_set_capacity_message("buffer full");
         return false;
     }
 
@@ -787,7 +797,7 @@ static void editor_paste_clipboard(void)
 
     const size_t selection_len = replacing ? selection_end - selection_start : 0;
     if (editor.len - selection_len + paste_len >= editor.capacity) {
-        editor_set_message("buffer full");
+        editor_set_capacity_message("buffer full");
         return;
     }
 
@@ -905,7 +915,7 @@ static esp_err_t editor_open_file(void)
     if (extra != EOF) {
         editor.len = 0;
         editor.buffer[0] = '\0';
-        editor_set_message("file too large");
+        editor_set_capacity_message("file too large");
         editor.error_only = true;
         return ESP_OK;
     }
@@ -927,13 +937,18 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
 {
     memset(&editor, 0, sizeof(editor));
 
-    editor.buffer = solar_os_memory_alloc(EDITOR_BUFFER_CAPACITY,
-                                           SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+    const bool has_psram = solar_os_board_has(SOLAR_OS_BOARD_CAP_PSRAM);
+    editor.capacity = has_psram ?
+        EDITOR_PSRAM_BUFFER_CAPACITY :
+        EDITOR_INTERNAL_BUFFER_CAPACITY;
+    editor.buffer = solar_os_memory_alloc(editor.capacity,
+                                           has_psram ?
+                                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED :
+                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                            "edit.buffer");
     if (editor.buffer == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    editor.capacity = EDITOR_BUFFER_CAPACITY;
     editor_capture_text_size(ctx);
 
     const int argc = solar_os_context_argc(ctx);
@@ -977,7 +992,7 @@ static void edit_stop(solar_os_context_t *ctx)
 {
     editor_restore_text_size(ctx);
 
-    heap_caps_free(editor.buffer);
+    solar_os_memory_free(editor.buffer);
     memset(&editor, 0, sizeof(editor));
 }
 

@@ -491,7 +491,6 @@ sources = [
   "apps/solar_os_edit.c",
   "services/solar_os_syntax.c",
 ]
-capabilities = ["psram"]
 
 [packages.app_less]
 label = "app.less"
