@@ -12,16 +12,17 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_clipboard.h"
 #include "solar_os_memory.h"
-#include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_syntax.h"
 #include "solar_os_terminal.h"
+#include "solar_os_tui.h"
 
 #define EDITOR_PSRAM_BUFFER_CAPACITY (256 * 1024)
 #define EDITOR_INTERNAL_BUFFER_CAPACITY (32 * 1024)
 #define EDITOR_TAB_WIDTH 4
 
 typedef struct {
+    solar_os_tui_t tui;
     char *buffer;
     size_t len;
     size_t capacity;
@@ -41,26 +42,7 @@ typedef struct {
     char message[72];
 } editor_state_t;
 
-typedef struct {
-    bool bold;
-    bool italic;
-    bool underline;
-    bool inverse;
-} editor_attrs_t;
-
 static editor_state_t editor;
-static solar_os_shell_io_t editor_fallback_io;
-
-static solar_os_shell_io_t *editor_io(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&editor_fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &editor_fallback_io);
-        io = &editor_fallback_io;
-    }
-    return io;
-}
 
 static const solar_os_terminal_text_size_t editor_text_sizes[] = {
     SOLAR_OS_TERMINAL_TEXT_SIZE_12,
@@ -159,9 +141,9 @@ static void editor_set_capacity_message(const char *message)
              (unsigned)(editor.capacity / 1024U));
 }
 
-static void editor_capture_text_size(solar_os_context_t *ctx)
+static void editor_capture_text_size(void)
 {
-    solar_os_terminal_t *terminal = solar_os_shell_io_terminal(editor_io(ctx));
+    solar_os_terminal_t *terminal = editor.tui.terminal;
     if (terminal == NULL) {
         return;
     }
@@ -170,13 +152,13 @@ static void editor_capture_text_size(solar_os_context_t *ctx)
     editor.saved_text_size_valid = true;
 }
 
-static void editor_restore_text_size(solar_os_context_t *ctx)
+static void editor_restore_text_size(void)
 {
     if (!editor.saved_text_size_valid) {
         return;
     }
 
-    solar_os_terminal_t *terminal = solar_os_shell_io_terminal(editor_io(ctx));
+    solar_os_terminal_t *terminal = editor.tui.terminal;
     if (terminal != NULL) {
         (void)solar_os_terminal_set_text_size_transient(terminal, editor.saved_text_size);
     }
@@ -192,9 +174,9 @@ static int editor_text_size_index(solar_os_terminal_text_size_t text_size)
     return 1;
 }
 
-static void editor_adjust_text_size(solar_os_context_t *ctx, int delta)
+static void editor_adjust_text_size(int delta)
 {
-    solar_os_terminal_t *terminal = solar_os_shell_io_terminal(editor_io(ctx));
+    solar_os_terminal_t *terminal = editor.tui.terminal;
     if (terminal == NULL) {
         editor_set_message("text size display only");
         return;
@@ -276,67 +258,46 @@ static void editor_finish_selection(bool selecting)
     editor_clear_selection();
 }
 
-static void editor_write_clipped(solar_os_shell_io_t *io,
+static void editor_write_clipped(size_t row,
+                                 size_t col,
                                  const char *text,
                                  size_t max_cols,
-                                 bool bold)
+                                 uint8_t attr)
 {
     char clipped[SOLAR_OS_TERMINAL_MAX_COLS + 1];
-    const size_t limit = max_cols < SOLAR_OS_TERMINAL_MAX_COLS ?
-        max_cols :
+    const size_t cols = solar_os_tui_cols(&editor.tui);
+    if (row >= solar_os_tui_rows(&editor.tui) || col >= cols || max_cols == 0) {
+        return;
+    }
+
+    const size_t available = cols - col;
+    const size_t width = max_cols < available ? max_cols : available;
+    const size_t limit = width < SOLAR_OS_TERMINAL_MAX_COLS ?
+        width :
         SOLAR_OS_TERMINAL_MAX_COLS;
 
     strlcpy(clipped, text != NULL ? text : "", sizeof(clipped));
     clipped[limit] = '\0';
-    if (bold) {
-        solar_os_shell_io_write_bold(io, clipped);
-    } else {
-        solar_os_shell_io_write(io, clipped);
-    }
+    (void)solar_os_tui_addstr(&editor.tui, row, col, clipped, attr);
 }
 
-static void editor_apply_style(solar_os_shell_io_t *io,
-                               editor_attrs_t *attrs,
-                               solar_os_syntax_style_t style,
-                               bool inverse)
+static uint8_t editor_tui_attr(solar_os_syntax_style_t style, bool inverse)
 {
-    const bool bold = style == SOLAR_OS_SYNTAX_STYLE_KEYWORD;
-    const bool underline = style == SOLAR_OS_SYNTAX_STYLE_COMMENT;
-    const bool italic = style == SOLAR_OS_SYNTAX_STYLE_STRING ||
-        style == SOLAR_OS_SYNTAX_STYLE_NUMBER;
-
-    if (attrs == NULL || attrs->bold != bold) {
-        (void)solar_os_shell_io_set_bold(io, bold);
-        if (attrs != NULL) {
-            attrs->bold = bold;
-        }
+    uint8_t attr = SOLAR_OS_TUI_ATTR_NORMAL;
+    if (style == SOLAR_OS_SYNTAX_STYLE_KEYWORD) {
+        attr |= SOLAR_OS_TUI_ATTR_BOLD;
     }
-    if (attrs == NULL || attrs->underline != underline) {
-        (void)solar_os_shell_io_set_underline(io, underline);
-        if (attrs != NULL) {
-            attrs->underline = underline;
-        }
+    if (style == SOLAR_OS_SYNTAX_STYLE_COMMENT) {
+        attr |= SOLAR_OS_TUI_ATTR_UNDERLINE;
     }
-    if (attrs == NULL || attrs->italic != italic) {
-        (void)solar_os_shell_io_set_italic(io, italic);
-        if (attrs != NULL) {
-            attrs->italic = italic;
-        }
+    if (style == SOLAR_OS_SYNTAX_STYLE_STRING ||
+        style == SOLAR_OS_SYNTAX_STYLE_NUMBER) {
+        attr |= SOLAR_OS_TUI_ATTR_ITALIC;
     }
-    if (attrs == NULL || attrs->inverse != inverse) {
-        (void)solar_os_shell_io_set_inverse(io, inverse);
-        if (attrs != NULL) {
-            attrs->inverse = inverse;
-        }
+    if (inverse) {
+        attr |= SOLAR_OS_TUI_ATTR_INVERSE;
     }
-}
-
-static void editor_reset_style(solar_os_shell_io_t *io)
-{
-    (void)solar_os_shell_io_set_bold(io, false);
-    (void)solar_os_shell_io_set_underline(io, false);
-    (void)solar_os_shell_io_set_italic(io, false);
-    (void)solar_os_shell_io_set_inverse(io, false);
+    return attr;
 }
 
 static void editor_prepare_syntax_state(solar_os_syntax_state_t *state, size_t first_line)
@@ -360,18 +321,16 @@ static void editor_prepare_syntax_state(solar_os_syntax_state_t *state, size_t f
     }
 }
 
-static void editor_ensure_cursor_visible(solar_os_shell_io_t *io)
+static void editor_ensure_cursor_visible(size_t text_rows, size_t cols)
 {
-    const size_t rows = solar_os_shell_io_rows(io);
-    const size_t cols = solar_os_shell_io_cols(io);
-    const size_t text_rows = rows > 1 ? rows - 1 : 1;
+    const size_t visible_rows = text_rows > 0 ? text_rows : 1;
     const size_t cursor_line = editor_line_for_index(editor.cursor);
     const size_t cursor_col = editor_cursor_col();
 
     if (cursor_line < editor.top_line) {
         editor.top_line = cursor_line;
-    } else if (cursor_line >= editor.top_line + text_rows) {
-        editor.top_line = cursor_line - text_rows + 1;
+    } else if (cursor_line >= editor.top_line + visible_rows) {
+        editor.top_line = cursor_line - visible_rows + 1;
     }
 
     if (cursor_col < editor.left_col) {
@@ -381,35 +340,68 @@ static void editor_ensure_cursor_visible(solar_os_shell_io_t *io)
     }
 }
 
-static void editor_render_error(solar_os_context_t *ctx)
+static void editor_render_error(void)
 {
-    solar_os_shell_io_t *io = editor_io(ctx);
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t cols = solar_os_tui_cols(&editor.tui);
+    if (rows == 0 || cols == 0) {
+        return;
+    }
 
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_write_bold(io, "edit");
-    solar_os_shell_io_newline(io);
-    solar_os_shell_io_writeln(io, editor.message);
-    solar_os_shell_io_writeln(io, "ESC");
-    solar_os_shell_io_flush(io);
+    solar_os_tui_clear(&editor.tui);
+    (void)solar_os_tui_set_cursor_visible(&editor.tui, false);
+    (void)solar_os_tui_fill(&editor.tui,
+                            0,
+                            0,
+                            1,
+                            cols,
+                            ' ',
+                            SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    editor_write_clipped(0,
+                         0,
+                         "edit",
+                         cols,
+                         SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    if (rows > 1) {
+        editor_write_clipped(1, 0, editor.message, cols, SOLAR_OS_TUI_ATTR_NORMAL);
+    }
+    if (rows > 2) {
+        (void)solar_os_tui_fill(&editor.tui,
+                                rows - 1,
+                                0,
+                                1,
+                                cols,
+                                ' ',
+                                SOLAR_OS_TUI_ATTR_INVERSE);
+        editor_write_clipped(rows - 1,
+                             0,
+                             "ESC quit",
+                             cols,
+                             SOLAR_OS_TUI_ATTR_INVERSE);
+    }
+    solar_os_tui_refresh(&editor.tui);
 }
 
 static void editor_render(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = editor_io(ctx);
-    const size_t rows = solar_os_shell_io_rows(io);
-    const size_t cols = solar_os_shell_io_cols(io);
-    const size_t text_rows = rows > 1 ? rows - 1 : 1;
+    (void)ctx;
+
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t cols = solar_os_tui_cols(&editor.tui);
+    const size_t text_rows = rows > 2 ? rows - 2 : 0;
     const size_t cursor_line = editor_line_for_index(editor.cursor);
     const size_t cursor_col = editor_cursor_col();
     solar_os_syntax_state_t syntax_state;
-    editor_attrs_t attrs = {0};
     size_t selection_start = 0;
     size_t selection_end = 0;
     const bool has_selection = editor_has_selection();
     char header[192];
 
     if (editor.error_only) {
-        editor_render_error(ctx);
+        editor_render_error();
+        return;
+    }
+    if (rows == 0 || cols == 0) {
         return;
     }
 
@@ -417,31 +409,27 @@ static void editor_render(solar_os_context_t *ctx)
         editor_selection_bounds(&selection_start, &selection_end);
     }
 
-    editor_ensure_cursor_visible(io);
-    solar_os_shell_io_clear(io);
+    editor_ensure_cursor_visible(text_rows, cols);
+    solar_os_tui_clear(&editor.tui);
+    (void)solar_os_tui_set_cursor_visible(&editor.tui, false);
 
-    if (editor.message[0] != '\0') {
-        snprintf(header,
-                 sizeof(header),
-                 "edit %s%s  %u:%u  %s",
-                 editor.display_name,
-                 editor.dirty ? " *" : "",
-                 (unsigned)(cursor_line + 1),
-                 (unsigned)(cursor_col + 1),
-                 editor.message);
-    } else {
-        snprintf(header,
-                 sizeof(header),
-                 "edit %s%s  %u:%u",
-                 editor.display_name,
-                 editor.dirty ? " *" : "",
-                 (unsigned)(cursor_line + 1),
-                 (unsigned)(cursor_col + 1));
-    }
-
-    solar_os_shell_io_set_cursor(io, 0, 0);
-    editor_write_clipped(io, header, cols, true);
-    editor_reset_style(io);
+    snprintf(header,
+             sizeof(header),
+             "edit %s%s",
+             editor.display_name,
+             editor.dirty ? " *" : "");
+    (void)solar_os_tui_fill(&editor.tui,
+                            0,
+                            0,
+                            1,
+                            cols,
+                            ' ',
+                            SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
+    editor_write_clipped(0,
+                         0,
+                         header,
+                         cols,
+                         SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
     editor_prepare_syntax_state(&syntax_state, editor.top_line);
 
     for (size_t row = 0; row < text_rows; row++) {
@@ -480,27 +468,66 @@ static void editor_render(solar_os_context_t *ctx)
             memset(styles, SOLAR_OS_SYNTAX_STYLE_NORMAL, copy_len);
         }
 
-        solar_os_shell_io_set_cursor(io, row + 1, 0);
         for (size_t col = 0; col < copy_len; col++) {
             const size_t index = visible_start + col;
             const bool selected = has_selection && index >= selection_start && index < selection_end;
             const solar_os_syntax_style_t style = (solar_os_syntax_style_t)styles[col];
-            editor_apply_style(io, &attrs, style, selected);
-            solar_os_shell_io_put_char(io, editor_is_printable(line[col]) ? line[col] : '.');
+            const uint32_t codepoint = editor_is_printable(line[col]) ?
+                (uint8_t)line[col] :
+                (uint32_t)'.';
+            (void)solar_os_tui_putch(&editor.tui,
+                                     row + 1,
+                                     col,
+                                     codepoint,
+                                     editor_tui_attr(style, selected));
         }
-        editor_reset_style(io);
-        memset(&attrs, 0, sizeof(attrs));
     }
-    editor_reset_style(io);
 
-    if (rows > 1 &&
+    if (rows > 1) {
+        char footer[192];
+        if (editor.message[0] != '\0') {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Ln %u Col %u  %s",
+                     (unsigned)(cursor_line + 1),
+                     (unsigned)(cursor_col + 1),
+                     editor.message);
+        } else {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Ln %u Col %u  %u/%u bytes  ESC save",
+                     (unsigned)(cursor_line + 1),
+                     (unsigned)(cursor_col + 1),
+                     (unsigned)editor.len,
+                     (unsigned)(editor.capacity - 1U));
+        }
+        (void)solar_os_tui_fill(&editor.tui,
+                                rows - 1,
+                                0,
+                                1,
+                                cols,
+                                ' ',
+                                SOLAR_OS_TUI_ATTR_INVERSE);
+        editor_write_clipped(rows - 1,
+                             0,
+                             footer,
+                             cols,
+                             SOLAR_OS_TUI_ATTR_INVERSE);
+    }
+
+    if (text_rows > 0 &&
         cursor_line >= editor.top_line &&
         cursor_line < editor.top_line + text_rows &&
         cursor_col >= editor.left_col) {
         const size_t screen_col = cursor_col - editor.left_col;
-        solar_os_shell_io_set_cursor(io, cursor_line - editor.top_line + 1, screen_col);
+        if (screen_col < cols) {
+            (void)solar_os_tui_move(&editor.tui,
+                                    cursor_line - editor.top_line + 1,
+                                    screen_col);
+            (void)solar_os_tui_set_cursor_visible(&editor.tui, true);
+        }
     }
-    solar_os_shell_io_flush(io);
+    solar_os_tui_refresh(&editor.tui);
 }
 
 static bool editor_delete_range(size_t start, size_t end)
@@ -706,22 +733,20 @@ static void editor_move_down(void)
     editor.cursor = next_start + col;
 }
 
-static void editor_page_up(solar_os_context_t *ctx)
+static void editor_page_up(void)
 {
-    solar_os_shell_io_t *io = editor_io(ctx);
-    const size_t rows = solar_os_shell_io_rows(io);
-    const size_t page = rows > 1 ? rows - 1 : 1;
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t page = rows > 2 ? rows - 2 : 1;
 
     for (size_t i = 0; i < page; i++) {
         editor_move_up();
     }
 }
 
-static void editor_page_down(solar_os_context_t *ctx)
+static void editor_page_down(void)
 {
-    solar_os_shell_io_t *io = editor_io(ctx);
-    const size_t rows = solar_os_shell_io_rows(io);
-    const size_t page = rows > 1 ? rows - 1 : 1;
+    const size_t rows = solar_os_tui_rows(&editor.tui);
+    const size_t page = rows > 2 ? rows - 2 : 1;
 
     for (size_t i = 0; i < page; i++) {
         editor_move_down();
@@ -949,7 +974,15 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
     if (editor.buffer == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    editor_capture_text_size(ctx);
+
+    const esp_err_t tui_err = solar_os_tui_begin(&editor.tui, ctx);
+    if (tui_err != ESP_OK) {
+        solar_os_memory_free(editor.buffer);
+        memset(&editor, 0, sizeof(editor));
+        return tui_err;
+    }
+    (void)solar_os_tui_enable_diff(&editor.tui, true);
+    editor_capture_text_size();
 
     const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
@@ -981,6 +1014,9 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
 
     const esp_err_t err = editor_open_file();
     if (err != ESP_OK) {
+        solar_os_tui_end(&editor.tui);
+        solar_os_memory_free(editor.buffer);
+        memset(&editor, 0, sizeof(editor));
         return err;
     }
 
@@ -990,8 +1026,12 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
 
 static void edit_stop(solar_os_context_t *ctx)
 {
-    editor_restore_text_size(ctx);
+    (void)ctx;
 
+    editor_restore_text_size();
+    (void)solar_os_tui_set_cursor_visible(&editor.tui, true);
+    solar_os_tui_refresh(&editor.tui);
+    solar_os_tui_end(&editor.tui);
     solar_os_memory_free(editor.buffer);
     memset(&editor, 0, sizeof(editor));
 }
@@ -1025,13 +1065,13 @@ static void editor_apply_move(bool selecting, void (*move)(void))
     editor_finish_selection(selecting);
 }
 
-static void editor_apply_page_move(solar_os_context_t *ctx, bool selecting, bool down)
+static void editor_apply_page_move(bool selecting, bool down)
 {
     editor_begin_selection(selecting);
     if (down) {
-        editor_page_down(ctx);
+        editor_page_down();
     } else {
-        editor_page_up(ctx);
+        editor_page_up();
     }
     editor_finish_selection(selecting);
 }
@@ -1074,10 +1114,10 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         editor_cut_selection();
         break;
     case SOLAR_OS_KEY_CTRL_PLUS:
-        editor_adjust_text_size(ctx, 1);
+        editor_adjust_text_size(1);
         break;
     case SOLAR_OS_KEY_CTRL_MINUS:
-        editor_adjust_text_size(ctx, -1);
+        editor_adjust_text_size(-1);
         break;
     case SOLAR_OS_KEY_LEFT:
         editor_apply_move(false, editor_move_left);
@@ -1144,16 +1184,16 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         editor_apply_move(true, editor_move_document_end);
         break;
     case SOLAR_OS_KEY_PAGE_UP:
-        editor_apply_page_move(ctx, false, false);
+        editor_apply_page_move(false, false);
         break;
     case SOLAR_OS_KEY_SHIFT_PAGE_UP:
-        editor_apply_page_move(ctx, true, false);
+        editor_apply_page_move(true, false);
         break;
     case SOLAR_OS_KEY_PAGE_DOWN:
-        editor_apply_page_move(ctx, false, true);
+        editor_apply_page_move(false, true);
         break;
     case SOLAR_OS_KEY_SHIFT_PAGE_DOWN:
-        editor_apply_page_move(ctx, true, true);
+        editor_apply_page_move(true, true);
         break;
     case SOLAR_OS_KEY_DELETE:
         editor_delete_forward();
