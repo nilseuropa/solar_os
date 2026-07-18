@@ -64,6 +64,7 @@
 #include "solar_os_onewire.h"
 #endif
 #include "solar_os_port_shell.h"
+#include "solar_os_pins.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -1450,9 +1451,11 @@ static solar_os_gpio_pull_t python_gpio_pull_from_obj(mp_obj_t obj)
 
 static mp_obj_t python_gpio_info_to_dict(const solar_os_gpio_pin_info_t *info)
 {
-    mp_obj_t dict = mp_obj_new_dict(8);
+    mp_obj_t dict = mp_obj_new_dict(10);
     python_dict_store_int(dict, "pin", info->pin);
+    python_dict_store_bool(dict, "expansion", info->expansion);
     python_dict_store_bool(dict, "allowed", info->runtime_allowed);
+    python_dict_store_cstr(dict, "policy", solar_os_pin_policy_name(info->policy));
     python_dict_store_cstr(dict, "role", info->role);
     python_dict_store_bool(dict, "configured", info->configured);
     python_dict_store_cstr(dict,

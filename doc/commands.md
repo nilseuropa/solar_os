@@ -419,7 +419,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
 | `uart` | `uart write <text>` | Write text to `uart0` for diagnostics. |
 | `uart` | `uart read [ms]` | Read UART bytes for diagnostics. |
-| `gpio` | `gpio status` or `gpio list` | List runtime-accessible GPIOs. |
+| `gpio` | `gpio status` or `gpio list` | List board GPIOs with free, releasable, or fixed pin policy. |
 | `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
 | `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |

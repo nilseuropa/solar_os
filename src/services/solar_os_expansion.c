@@ -179,52 +179,87 @@ static bool first_i2c_binding(const solar_os_expansion_binding_t *bindings,
     return false;
 }
 
-static esp_err_t claim_gpio_like(int pin, const char *owner, const char *label)
+static esp_err_t append_claim(solar_os_resource_request_t *requests,
+                              size_t *request_count,
+                              solar_os_resource_kind_t kind,
+                              int primary,
+                              int secondary,
+                              const char *label)
 {
-    return solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, owner, label);
+    if (requests == NULL || request_count == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (*request_count >= SOLAR_OS_RESOURCE_BUNDLE_MAX) {
+        return ESP_ERR_NO_MEM;
+    }
+    requests[(*request_count)++] = (solar_os_resource_request_t) {
+        .kind = kind,
+        .primary = primary,
+        .secondary = secondary,
+        .label = label,
+    };
+    return ESP_OK;
 }
 
-static esp_err_t claim_binding(const solar_os_expansion_binding_t *binding,
-                               const char *owner,
-                               const solar_os_expansion_binding_t *bindings,
-                               size_t binding_count)
+static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *binding,
+                                       const solar_os_expansion_binding_t *bindings,
+                                       size_t binding_count,
+                                       solar_os_resource_request_t *requests,
+                                       size_t *request_count)
 {
     switch (binding->kind) {
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
-        ESP_RETURN_ON_ERROR(claim_gpio_like(binding->value, owner, binding->role), "expansion", "claim gpio failed");
-        return ESP_OK;
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_GPIO_PIN,
+                            binding->value,
+                            -1,
+                            binding->role);
     case SOLAR_OS_EXPANSION_BINDING_ADC:
-        ESP_RETURN_ON_ERROR(solar_os_resource_claim(SOLAR_OS_RESOURCE_ADC_PIN,
-                                                    binding->value,
-                                                    -1,
-                                                    owner,
-                                                    binding->role),
+        ESP_RETURN_ON_ERROR(append_claim(requests,
+                                         request_count,
+                                         SOLAR_OS_RESOURCE_ADC_PIN,
+                                         binding->value,
+                                         -1,
+                                         binding->role),
                             "expansion",
-                            "claim adc failed");
-        ESP_RETURN_ON_ERROR(claim_gpio_like(binding->value, owner, "adc"), "expansion", "claim adc gpio failed");
-        return ESP_OK;
+                            "append adc claim failed");
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_GPIO_PIN,
+                            binding->value,
+                            -1,
+                            "adc");
     case SOLAR_OS_EXPANSION_BINDING_PWM:
-        ESP_RETURN_ON_ERROR(solar_os_resource_claim(SOLAR_OS_RESOURCE_PWM_PIN,
-                                                    binding->value,
-                                                    -1,
-                                                    owner,
-                                                    binding->role),
+        ESP_RETURN_ON_ERROR(append_claim(requests,
+                                         request_count,
+                                         SOLAR_OS_RESOURCE_PWM_PIN,
+                                         binding->value,
+                                         -1,
+                                         binding->role),
                             "expansion",
-                            "claim pwm failed");
-        ESP_RETURN_ON_ERROR(claim_gpio_like(binding->value, owner, "pwm"), "expansion", "claim pwm gpio failed");
-        return ESP_OK;
+                            "append pwm claim failed");
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_GPIO_PIN,
+                            binding->value,
+                            -1,
+                            "pwm");
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-        ESP_RETURN_ON_ERROR(solar_os_resource_claim(SOLAR_OS_RESOURCE_SPI_CS,
-                                                    binding->value,
-                                                    -1,
-                                                    owner,
-                                                    binding->target),
+        ESP_RETURN_ON_ERROR(append_claim(requests,
+                                         request_count,
+                                         SOLAR_OS_RESOURCE_SPI_CS,
+                                         binding->value,
+                                         -1,
+                                         binding->target),
                             "expansion",
-                            "claim spi cs failed");
-        ESP_RETURN_ON_ERROR(claim_gpio_like(binding->value, owner, "spi-cs"),
-                            "expansion",
-                            "claim spi cs gpio failed");
-        return ESP_OK;
+                            "append spi cs claim failed");
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_GPIO_PIN,
+                            binding->value,
+                            -1,
+                            "spi-cs");
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS: {
         char target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
         size_t bus_index = 0;
@@ -235,18 +270,20 @@ static esp_err_t claim_binding(const solar_os_expansion_binding_t *binding,
         } else if (!first_i2c_binding(bindings, binding_count, target, sizeof(target), &bus_index)) {
             return ESP_ERR_INVALID_ARG;
         }
-        return solar_os_resource_claim(SOLAR_OS_RESOURCE_I2C_ADDRESS,
-                                       (int)bus_index,
-                                       binding->value,
-                                       owner,
-                                       binding->target[0] != '\0' ? binding->target : target);
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_I2C_ADDRESS,
+                            (int)bus_index,
+                            binding->value,
+                            binding->target[0] != '\0' ? binding->target : "i2c");
     }
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
-        return solar_os_resource_claim(SOLAR_OS_RESOURCE_UART_PORT,
-                                       binding->value,
-                                       -1,
-                                       owner,
-                                       binding->target);
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_UART_PORT,
+                            binding->value,
+                            -1,
+                            binding->target);
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     default:
@@ -547,10 +584,24 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         return ESP_ERR_NO_MEM;
     }
 
+    solar_os_resource_request_t requests[SOLAR_OS_RESOURCE_BUNDLE_MAX];
+    size_t request_count = 0;
     for (size_t i = 0; i < binding_count; i++) {
-        const esp_err_t ret = claim_binding(&normalized[i], name, normalized, binding_count);
+        const esp_err_t ret = append_binding_claims(&normalized[i],
+                                                    normalized,
+                                                    binding_count,
+                                                    requests,
+                                                    &request_count);
         if (ret != ESP_OK) {
-            (void)solar_os_resource_release_owner(name);
+            return ret;
+        }
+    }
+    if (request_count > 0) {
+        const esp_err_t ret = solar_os_resource_claim_bundle(requests,
+                                                             request_count,
+                                                             name,
+                                                             NULL);
+        if (ret != ESP_OK) {
             return ret;
         }
     }

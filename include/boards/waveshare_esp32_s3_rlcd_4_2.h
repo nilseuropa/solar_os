@@ -5,6 +5,7 @@
 #include "driver/i2s_types.h"
 #include "driver/uart.h"
 #include "solar_os_expansion_types.h"
+#include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2"
 #define SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2"
@@ -97,18 +98,18 @@
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 13 14 17 18 19 20 43 44"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2 3 17"
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
-    {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 2, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 3, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 13, .runtime_allowed = false, .role = "I2C SDA"}, \
-    {.pin = 14, .runtime_allowed = false, .role = "I2C SCL"}, \
-    {.pin = 17, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 18, .runtime_allowed = false, .role = "KEY"}, \
-    {.pin = 19, .runtime_allowed = false, .role = "USB D-/CDC"}, \
-    {.pin = 20, .runtime_allowed = false, .role = "USB D+/CDC"}, \
-    {.pin = 43, .runtime_allowed = false, .role = "UART TX"}, \
-    {.pin = 44, .runtime_allowed = false, .role = "UART RX"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
+    {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "KEY"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
+    {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
+    {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART TX"}, \
+    {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART RX"}, \
 }
 
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0

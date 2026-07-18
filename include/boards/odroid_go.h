@@ -7,6 +7,7 @@
 #include "solar_os_buttons.h"
 #include "solar_os_expansion_types.h"
 #include "solar_os_keys.h"
+#include "solar_os_pin_types.h"
 #include "solar_os_spi.h"
 
 #define SOLAR_OS_BOARD_ID "odroid_go"
@@ -111,10 +112,10 @@
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "4 15"
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 2, .runtime_allowed = false, .role = "status LED"}, \
-    {.pin = 14, .runtime_allowed = false, .role = "LCD backlight"}, \
-    {.pin = 25, .runtime_allowed = false, .role = "speaker enable"}, \
-    {.pin = 26, .runtime_allowed = false, .role = "speaker DAC"}, \
-    {.pin = 4, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
-    {.pin = 15, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "status LED"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD backlight"}, \
+    {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker enable"}, \
+    {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker DAC"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
+    {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
 }

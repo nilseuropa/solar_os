@@ -244,7 +244,10 @@ GPIO8, GPIO9, GPIO14, GPIO15, GPIO16, GPIO17, GPIO18, GPIO19, GPIO20, GPIO21,
 and GPIO38.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
-- `pins()`: return expansion GPIO dictionaries with `pin`, `allowed`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.
+- `pins()`: return board GPIO dictionaries with `pin`, `expansion`, `allowed`,
+  `policy`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.
+  Pin policy is `free`, `releasable`, or `fixed`; only free pins in the board's
+  direct-GPIO mask report `allowed=True`.
 - `allowed(pin)`: return whether a pin can be controlled by runtime apps.
 - `mode(pin)`: return one pin dictionary.
 - `mode(pin, mode[, pull])`: configure an allowed pin. `mode` may be `INPUT`, `OUTPUT`, `"in"`, `"input"`, `"out"`, or `"output"`.

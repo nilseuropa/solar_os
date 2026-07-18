@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "solar_os_board_caps.h"
+#include "solar_os_pins.h"
 
 #if SOLAR_OS_BOARD_HAS_GPIO
 #include "driver/gpio.h"
@@ -14,7 +15,7 @@
 #if SOLAR_OS_BOARD_HAS_GPIO
 typedef struct {
     int pin;
-    bool runtime_allowed;
+    solar_os_pin_policy_t policy;
     const char *role;
     bool configured;
     solar_os_gpio_mode_t mode;
@@ -36,11 +37,6 @@ static gpio_slot_t *find_slot(int pin)
 static const gpio_slot_t *find_const_slot(int pin)
 {
     return find_slot(pin);
-}
-
-static bool board_mask_contains(uint64_t mask, int pin)
-{
-    return pin >= 0 && pin < 64 && (mask & (1ULL << (uint32_t)pin)) != 0;
 }
 
 static gpio_port_mode_t to_port_mode(solar_os_gpio_mode_t mode)
@@ -97,7 +93,9 @@ bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *info)
 
     *info = (solar_os_gpio_pin_info_t) {
         .pin = slot->pin,
-        .runtime_allowed = slot->runtime_allowed,
+        .expansion = solar_os_pin_is_expansion(slot->pin),
+        .runtime_allowed = solar_os_pin_is_direct_gpio(slot->pin),
+        .policy = slot->policy,
         .role = slot->role,
         .configured = slot->configured,
         .mode = slot->mode,
@@ -131,10 +129,7 @@ bool solar_os_gpio_is_runtime_allowed(int pin)
     (void)pin;
     return false;
 #else
-    const gpio_slot_t *slot = find_const_slot(pin);
-    return slot != NULL &&
-        slot->runtime_allowed &&
-        board_mask_contains(SOLAR_OS_BOARD_USER_GPIO_MASK, pin);
+    return find_const_slot(pin) != NULL && solar_os_pin_is_direct_gpio(pin);
 #endif
 }
 

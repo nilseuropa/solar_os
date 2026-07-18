@@ -284,14 +284,21 @@ Runtime GPIO example:
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "1 2"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2"
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 2, .runtime_allowed = true, .role = "expansion"}, \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
 }
 ```
 
-Keep the user GPIO list conservative. Do not expose boot strapping pins,
-flash/PSRAM pins, display pins, SD pins, I2C pins, or key inputs as runtime GPIO
-unless the board design makes that safe.
+Pin policy is separate from physical connector membership:
+
+- `SOLAR_OS_PIN_POLICY_FREE`: available for direct GPIO and future routed buses.
+- `SOLAR_OS_PIN_POLICY_RELEASABLE`: has a default board role but may be routed
+  after its current service releases it.
+- `SOLAR_OS_PIN_POLICY_FIXED`: never available to runtime pin routing.
+
+Keep the user GPIO list conservative. Do not mark boot strapping, flash/PSRAM,
+display, SD, system I2C, or key pins free. A releasable pin remains unavailable
+to direct GPIO until a resource-aware service explicitly takes ownership.
 
 Expansion bus example:
 

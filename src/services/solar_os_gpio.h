@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "esp_err.h"
+#include "solar_os_pin_types.h"
 
 typedef enum {
     SOLAR_OS_GPIO_MODE_INPUT,
@@ -18,7 +19,9 @@ typedef enum {
 
 typedef struct {
     int pin;
+    bool expansion;
     bool runtime_allowed;
+    solar_os_pin_policy_t policy;
     const char *role;
     bool configured;
     solar_os_gpio_mode_t mode;

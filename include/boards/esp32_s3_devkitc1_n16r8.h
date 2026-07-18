@@ -5,6 +5,7 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_expansion_types.h"
+#include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8"
 #define SOLAR_OS_BOARD_NAME "Espressif ESP32-S3-DevKitC-1-N16R8"
@@ -122,40 +123,40 @@
                                            (1ULL << GPIO_NUM_18))
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
-    {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 2, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 3, .runtime_allowed = false, .role = "strapping"}, \
-    {.pin = 4, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 5, .runtime_allowed = true, .role = "expansion / SPI CS"}, \
-    {.pin = 6, .runtime_allowed = true, .role = "expansion / SPI CS"}, \
-    {.pin = 7, .runtime_allowed = true, .role = "expansion / SPI CS"}, \
-    {.pin = 8, .runtime_allowed = false, .role = "I2C SDA"}, \
-    {.pin = 9, .runtime_allowed = false, .role = "I2C SCL"}, \
-    {.pin = 10, .runtime_allowed = true, .role = "expansion / SPI CS"}, \
-    {.pin = 11, .runtime_allowed = false, .role = "SPI MOSI"}, \
-    {.pin = 12, .runtime_allowed = false, .role = "SPI SCK"}, \
-    {.pin = 13, .runtime_allowed = false, .role = "SPI MISO"}, \
-    {.pin = 14, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 15, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 16, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 17, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 18, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 19, .runtime_allowed = false, .role = "USB D-/CDC"}, \
-    {.pin = 20, .runtime_allowed = false, .role = "USB D+/CDC"}, \
-    {.pin = 21, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 35, .runtime_allowed = false, .role = "Octal PSRAM"}, \
-    {.pin = 36, .runtime_allowed = false, .role = "Octal PSRAM"}, \
-    {.pin = 37, .runtime_allowed = false, .role = "Octal PSRAM"}, \
-    {.pin = 38, .runtime_allowed = false, .role = "RGB LED (v1.1)"}, \
-    {.pin = 39, .runtime_allowed = true, .role = "expansion / JTAG MTCK"}, \
-    {.pin = 40, .runtime_allowed = true, .role = "expansion / JTAG MTDO"}, \
-    {.pin = 41, .runtime_allowed = true, .role = "expansion / JTAG MTDI"}, \
-    {.pin = 42, .runtime_allowed = true, .role = "expansion / JTAG MTMS"}, \
-    {.pin = 43, .runtime_allowed = false, .role = "UART TX"}, \
-    {.pin = 44, .runtime_allowed = false, .role = "UART RX"}, \
-    {.pin = 45, .runtime_allowed = false, .role = "strapping"}, \
-    {.pin = 46, .runtime_allowed = false, .role = "strapping"}, \
-    {.pin = 47, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 48, .runtime_allowed = false, .role = "RGB LED (v1.0)"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
+    {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
+    {.pin = 7, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
+    {.pin = 8, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
+    {.pin = 9, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
+    {.pin = 10, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / SPI CS"}, \
+    {.pin = 11, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI MOSI"}, \
+    {.pin = 12, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI SCK"}, \
+    {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI MISO"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 16, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
+    {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
+    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 35, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "Octal PSRAM"}, \
+    {.pin = 36, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "Octal PSRAM"}, \
+    {.pin = 37, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "Octal PSRAM"}, \
+    {.pin = 38, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "RGB LED (v1.1)"}, \
+    {.pin = 39, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / JTAG MTCK"}, \
+    {.pin = 40, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / JTAG MTDO"}, \
+    {.pin = 41, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / JTAG MTDI"}, \
+    {.pin = 42, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / JTAG MTMS"}, \
+    {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "UART TX"}, \
+    {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "UART RX"}, \
+    {.pin = 45, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \
+    {.pin = 46, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "strapping"}, \
+    {.pin = 47, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 48, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "RGB LED (v1.0)"}, \
 }

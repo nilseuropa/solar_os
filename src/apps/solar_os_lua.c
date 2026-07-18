@@ -55,6 +55,7 @@
 #include "solar_os_onewire.h"
 #endif
 #include "solar_os_port_shell.h"
+#include "solar_os_pins.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -730,7 +731,9 @@ static void solua_push_gpio_info(lua_State *L, const solar_os_gpio_pin_info_t *i
 {
     lua_newtable(L);
     solua_set_int(L, -1, "pin", info->pin);
+    solua_set_bool(L, -1, "expansion", info->expansion);
     solua_set_bool(L, -1, "allowed", info->runtime_allowed);
+    solua_set_str(L, -1, "policy", solar_os_pin_policy_name(info->policy));
     solua_set_str(L, -1, "role", info->role);
     solua_set_bool(L, -1, "configured", info->configured);
     solua_set_str(L,

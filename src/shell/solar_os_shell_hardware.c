@@ -24,6 +24,7 @@
 #include "solar_os_i2c.h"
 #include "solar_os_joystick.h"
 #include "solar_os_onewire.h"
+#include "solar_os_pins.h"
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
 #include "solar_os_spi.h"
@@ -1907,9 +1908,9 @@ static void gpio_print_error(solar_os_shell_io_t *term, const char *action, int 
 static void gpio_print_pin_info(solar_os_shell_io_t *term, const solar_os_gpio_pin_info_t *info)
 {
     solar_os_shell_io_printf(term,
-                             "GPIO%-2d %-8s %-6s %-6s pull %-4s",
+                             "GPIO%-2d %-10s %-6s %-6s pull %-4s",
                              info->pin,
-                             info->runtime_allowed ? "user" : "reserved",
+                             solar_os_pin_policy_name(info->policy),
                              info->configured ? solar_os_gpio_mode_name(info->mode) : "-",
                              info->level_valid ? (info->level ? "high" : "low") : "?",
                              info->configured ? solar_os_gpio_pull_name(info->pull) : "-");
