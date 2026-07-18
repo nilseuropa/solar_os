@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include "cJSON.h"
-#include "esp_heap_caps.h"
+#include "solar_os_memory.h"
 
 struct solar_os_json_doc {
     cJSON *root;
@@ -21,16 +21,14 @@ static void *json_malloc(size_t size)
         size = 1;
     }
 
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size,
+                                 SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                 "json");
 }
 
 static void json_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 static void json_init_hooks(void)

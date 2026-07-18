@@ -174,6 +174,75 @@ void *solar_os_memory_calloc(size_t count,
     return memory_allocate(count, size, memory_class, tag, true);
 }
 
+void *solar_os_memory_realloc(void *ptr,
+                              size_t size,
+                              solar_os_memory_class_t memory_class,
+                              const char *tag)
+{
+    if (ptr == NULL) {
+        return solar_os_memory_alloc(size, memory_class, tag);
+    }
+    if (size == 0) {
+        solar_os_memory_free(ptr);
+        return NULL;
+    }
+    if (!memory_class_valid(memory_class)) {
+        return NULL;
+    }
+
+    const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    const uint32_t external_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    void *next = NULL;
+    bool fallback = false;
+
+    memory_record_request(memory_class, size);
+
+    switch (memory_class) {
+    case SOLAR_OS_MEMORY_INTERNAL_CRITICAL:
+        next = heap_caps_realloc(ptr, size, internal_caps);
+        break;
+    case SOLAR_OS_MEMORY_DMA:
+        next = heap_caps_realloc(ptr, size, internal_caps | MALLOC_CAP_DMA);
+        break;
+    case SOLAR_OS_MEMORY_EXTERNAL_REQUIRED:
+        next = heap_caps_realloc(ptr, size, external_caps);
+        break;
+    case SOLAR_OS_MEMORY_EXTERNAL_PREFERRED:
+    case SOLAR_OS_MEMORY_TRANSIENT: {
+        const bool external_available = heap_caps_get_total_size(external_caps) > 0;
+        if (external_available) {
+            next = heap_caps_realloc(ptr, size, external_caps);
+        }
+        if (next == NULL &&
+            (!external_available || memory_internal_fallback_allowed(size))) {
+            next = heap_caps_realloc(ptr, size, internal_caps);
+            fallback = next != NULL;
+        }
+        break;
+    }
+    case SOLAR_OS_MEMORY_CLASS_COUNT:
+    default:
+        break;
+    }
+
+    if (next != NULL) {
+        memory_record_success(memory_class, fallback);
+        return next;
+    }
+
+    memory_record_failure(memory_class, size, tag);
+    SOLAR_OS_LOGW(TAG,
+                  "%s reallocation failed tag=%s size=%u internal_free=%u internal_max=%u external_free=%u external_max=%u",
+                  solar_os_memory_class_name(memory_class),
+                  tag != NULL ? tag : "unknown",
+                  (unsigned)size,
+                  (unsigned)heap_caps_get_free_size(internal_caps),
+                  (unsigned)heap_caps_get_largest_free_block(internal_caps),
+                  (unsigned)heap_caps_get_free_size(external_caps),
+                  (unsigned)heap_caps_get_largest_free_block(external_caps));
+    return NULL;
+}
+
 void solar_os_memory_free(void *ptr)
 {
     heap_caps_free(ptr);

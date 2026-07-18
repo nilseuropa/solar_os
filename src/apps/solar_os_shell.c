@@ -14,7 +14,6 @@
 #include <string.h>
 
 #include "esp_attr.h"
-#include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,6 +25,7 @@
 #include "solar_os_job_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
@@ -2944,12 +2944,10 @@ typedef struct {
 
 static shell_completion_parse_t *shell_alloc_completion_parse(void)
 {
-    shell_completion_parse_t *parse =
-        heap_caps_calloc(1, sizeof(*parse), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (parse == NULL) {
-        parse = heap_caps_calloc(1, sizeof(*parse), MALLOC_CAP_8BIT);
-    }
-    return parse;
+    return solar_os_memory_calloc(1,
+                                  sizeof(shell_completion_parse_t),
+                                  SOLAR_OS_MEMORY_TRANSIENT,
+                                  "shell.complete");
 }
 
 typedef struct {
@@ -3018,12 +3016,10 @@ typedef struct {
 
 static shell_path_completion_work_t *shell_alloc_path_completion_work(void)
 {
-    shell_path_completion_work_t *work =
-        heap_caps_calloc(1, sizeof(*work), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (work == NULL) {
-        work = heap_caps_calloc(1, sizeof(*work), MALLOC_CAP_8BIT);
-    }
-    return work;
+    return solar_os_memory_calloc(1,
+                                  sizeof(shell_path_completion_work_t),
+                                  SOLAR_OS_MEMORY_TRANSIENT,
+                                  "shell.path");
 }
 
 static void shell_update_common_prefix(char *common, size_t common_len, const char *name)
@@ -3103,7 +3099,7 @@ static void shell_complete_path(solar_os_context_t *ctx,
 
     const size_t token_len = shell_session(ctx)->input_len - token_start;
     if (token_len >= sizeof(work->token)) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
     memcpy(work->token, &shell_session(ctx)->input[token_start], token_len);
@@ -3131,13 +3127,13 @@ static void shell_complete_path(solar_os_context_t *ctx,
     }
 
     if (resolve_path(ctx, dir_to_resolve, work->dir_path, sizeof(work->dir_path)) != ESP_OK) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
 
     DIR *dir = opendir(work->dir_path);
     if (dir == NULL) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
 
@@ -3168,7 +3164,7 @@ static void shell_complete_path(solar_os_context_t *ctx,
     closedir(dir);
 
     if (match_count == 0) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
 
@@ -3190,7 +3186,7 @@ static void shell_complete_path(solar_os_context_t *ctx,
                  shell_session(ctx)->input,
                  work->completed_arg);
         shell_replace_input(ctx, work->completed_line);
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
 
@@ -3207,14 +3203,14 @@ static void shell_complete_path(solar_os_context_t *ctx,
                  shell_session(ctx)->input,
                  work->completed_arg);
         shell_replace_input(ctx, work->completed_line);
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return;
     }
 
     if (show_matches || prefix_has_wildcards) {
         shell_print_path_matches(ctx, work, prefix, prefix_has_wildcards, dirs_only);
     }
-    heap_caps_free(work);
+    solar_os_memory_free(work);
 }
 
 static bool shell_completion_path_matches(const shell_completion_rule_t *rule,
@@ -4156,7 +4152,7 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
         return;
     }
     if (!shell_completion_parse_input(ctx, parse) || parse->count == 0) {
-        heap_caps_free(parse);
+        solar_os_memory_free(parse);
         if (show_matches && shell_session(ctx)->input_len == 0) {
             shell_print_builtin_command_matches(ctx, NULL);
         }
@@ -4165,7 +4161,7 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
 
     const size_t current_index = parse->trailing_space ? parse->count : parse->count - 1;
     if (current_index == 0 && !parse->trailing_space) {
-        heap_caps_free(parse);
+        solar_os_memory_free(parse);
         shell_complete_builtin_command(ctx, show_matches);
         return;
     }
@@ -4179,17 +4175,17 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
     const size_t token_start =
         parse->trailing_space ? shell_session(ctx)->input_len : parse->starts[current_index];
     if (shell_complete_argument(ctx, parse, current_index, token_start, show_matches)) {
-        heap_caps_free(parse);
+        solar_os_memory_free(parse);
         return;
     }
 
     if (!shell_is_path_command(effective_command)) {
-        heap_caps_free(parse);
+        solar_os_memory_free(parse);
         return;
     }
     if (strcmp(effective_command, "scp") == 0 &&
         memchr(&shell_session(ctx)->input[token_start], ':', shell_session(ctx)->input_len - token_start) != NULL) {
-        heap_caps_free(parse);
+        solar_os_memory_free(parse);
         return;
     }
 
@@ -4197,7 +4193,7 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
                         token_start,
                         shell_path_completion_dirs_only(effective_command),
                         show_matches);
-    heap_caps_free(parse);
+    solar_os_memory_free(parse);
 }
 
 static void shell_script_discard_rest_of_line(FILE *file)
@@ -4626,18 +4622,16 @@ static void cmd_close(solar_os_context_t *ctx, int argc, char **argv)
 
 solar_os_shell_session_t *solar_os_shell_session_create(void)
 {
-    solar_os_shell_session_t *session =
-        heap_caps_calloc(1, sizeof(*session), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (session == NULL) {
-        session = heap_caps_calloc(1, sizeof(*session), MALLOC_CAP_8BIT);
-    }
-    return session;
+    return solar_os_memory_calloc(1,
+                                  sizeof(solar_os_shell_session_t),
+                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                  "shell.session");
 }
 
 void solar_os_shell_session_destroy(solar_os_shell_session_t *session)
 {
     if (session != NULL && session != &shell_display_session) {
-        heap_caps_free(session);
+        solar_os_memory_free(session);
     }
 }
 

@@ -7,11 +7,11 @@
 #include <string.h>
 
 #include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
 #include "esp_timer.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "freertos/FreeRTOS.h"
@@ -86,16 +86,12 @@ static void *ota_malloc(size_t size)
         size = 1;
     }
 
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size, SOLAR_OS_MEMORY_TRANSIENT, "ota");
 }
 
 static void ota_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 static bool ota_url_is_valid(const char *url)

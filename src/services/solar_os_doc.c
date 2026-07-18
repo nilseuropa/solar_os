@@ -11,9 +11,9 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_config.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 
 #if SOLAR_OS_PACKAGE_APP_READER || SOLAR_OS_PACKAGE_APP_WEB
 #include "solar_os_stb_image.h"
@@ -45,34 +45,28 @@ typedef struct {
 
 static void *doc_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "doc");
 }
 
 static void *doc_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                  "doc");
 }
 
 static void *doc_realloc(void *ptr, size_t size)
 {
-    void *next = heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (next == NULL) {
-        next = heap_caps_realloc(ptr, size, MALLOC_CAP_8BIT);
-    }
-    return next;
+    return solar_os_memory_realloc(ptr,
+                                   size,
+                                   SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                   "doc");
 }
 
 static void doc_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 void solar_os_doc_init(solar_os_doc_t *doc)

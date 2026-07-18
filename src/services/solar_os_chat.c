@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_task.h"
 
 #define CHAT_NVS_NAMESPACE "chat"
@@ -81,20 +82,17 @@ static int chat_last_io_errno;
 
 static void *chat_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "chat.service");
 }
 
 static void *chat_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                  "chat.service");
 }
 
 static void chat_lock(void)

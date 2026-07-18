@@ -8,9 +8,9 @@
 #include <string.h>
 #include <strings.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_html.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_xml.h"
 #include "solar_os_zip.h"
@@ -56,27 +56,17 @@ struct solar_os_epub_book {
     epub_package_t package;
 };
 
-static void *epub_malloc(size_t size)
-{
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
-}
-
 static void *epub_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                  "epub");
 }
 
 static void epub_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 static bool epub_path_has_scheme(const char *path)

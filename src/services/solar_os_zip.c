@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "miniz.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
 #define ZIP_LOCAL_FILE_HEADER_SIGNATURE 0x04034b50UL
@@ -127,20 +128,15 @@ static bool zip_tell_u32(FILE *file, uint32_t *position)
 
 static void *zip_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size, SOLAR_OS_MEMORY_TRANSIENT, "zip");
 }
 
 static void *zip_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_TRANSIENT,
+                                  "zip");
 }
 
 static const char *zip_path_basename(const char *path)

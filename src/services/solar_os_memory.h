@@ -52,6 +52,10 @@ void *solar_os_memory_calloc(size_t count,
                              size_t size,
                              solar_os_memory_class_t memory_class,
                              const char *tag);
+void *solar_os_memory_realloc(void *ptr,
+                              size_t size,
+                              solar_os_memory_class_t memory_class,
+                              const char *tag);
 void solar_os_memory_free(void *ptr);
 
 void solar_os_memory_get_status(solar_os_memory_status_t *status);

@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -26,6 +25,7 @@
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_ota.h"
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
@@ -1724,11 +1724,9 @@ static void log_cmd_show(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    solar_os_log_entry_t *entries =
-        heap_caps_malloc(sizeof(*entries) * count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (entries == NULL) {
-        entries = heap_caps_malloc(sizeof(*entries) * count, MALLOC_CAP_8BIT);
-    }
+    solar_os_log_entry_t *entries = solar_os_memory_alloc(sizeof(*entries) * count,
+                                                           SOLAR_OS_MEMORY_TRANSIENT,
+                                                           "shell.log");
     if (entries == NULL) {
         solar_os_shell_io_writeln(term, "log show: no memory");
         return;
@@ -1738,7 +1736,7 @@ static void log_cmd_show(solar_os_shell_io_t *term, int argc, char **argv)
     const size_t copied = solar_os_log_snapshot(entries, count, &total);
     if (copied == 0) {
         solar_os_shell_io_writeln(term, "logs: empty");
-        free(entries);
+        solar_os_memory_free(entries);
         return;
     }
 
@@ -1764,7 +1762,7 @@ static void log_cmd_show(solar_os_shell_io_t *term, int argc, char **argv)
                                  entry->truncated ? "..." : "");
     }
 
-    free(entries);
+    solar_os_memory_free(entries);
 }
 
 static void log_cmd_follow(solar_os_context_t *ctx, int argc, char **argv)

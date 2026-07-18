@@ -9,8 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_tui.h"
 
@@ -104,29 +104,28 @@ static void notes_set_message(const char *message)
 
 static void *notes_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                  "notes");
 }
 
 static void notes_free_buffers(void)
 {
     if (notes.categories != NULL) {
-        heap_caps_free(notes.categories);
+        solar_os_memory_free(notes.categories);
     }
     if (notes.items != NULL) {
-        heap_caps_free(notes.items);
+        solar_os_memory_free(notes.items);
     }
     if (notes.scratch != NULL) {
-        heap_caps_free(notes.scratch);
+        solar_os_memory_free(notes.scratch);
     }
     if (notes.view != NULL) {
-        heap_caps_free(notes.view);
+        solar_os_memory_free(notes.view);
     }
     if (notes.preamble != NULL) {
-        heap_caps_free(notes.preamble);
+        solar_os_memory_free(notes.preamble);
     }
     notes.categories = NULL;
     notes.items = NULL;

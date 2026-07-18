@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_clipboard.h"
+#include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_syntax.h"
@@ -926,7 +927,9 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
 {
     memset(&editor, 0, sizeof(editor));
 
-    editor.buffer = heap_caps_malloc(EDITOR_BUFFER_CAPACITY, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    editor.buffer = solar_os_memory_alloc(EDITOR_BUFFER_CAPACITY,
+                                           SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                           "edit.buffer");
     if (editor.buffer == NULL) {
         return ESP_ERR_NO_MEM;
     }

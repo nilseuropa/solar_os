@@ -7,12 +7,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "esp_heap_caps.h"
 #include "mbedtls/base64.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/rsa.h"
 #include "solar_os_crypto.h"
 #include "solar_os_identity.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
 #define SSH_KEYS_DIR ".ssh"
@@ -34,11 +34,10 @@ typedef struct {
 
 static void *ssh_keys_calloc(size_t size)
 {
-    void *ptr = heap_caps_calloc(1, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(1, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(1,
+                                  size,
+                                  SOLAR_OS_MEMORY_TRANSIENT,
+                                  "ssh.keys");
 }
 
 static bool file_exists(const char *path, uint32_t *size)
@@ -253,7 +252,7 @@ static esp_err_t write_public_key_file(const char *path, const mbedtls_pk_contex
     if (rc != 0) {
         mbedtls_mpi_free(&n);
         mbedtls_mpi_free(&e);
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return ESP_FAIL;
     }
 
@@ -275,7 +274,7 @@ static esp_err_t write_public_key_file(const char *path, const mbedtls_pk_contex
     mbedtls_mpi_free(&n);
     mbedtls_mpi_free(&e);
     if (!ok) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -286,7 +285,7 @@ static esp_err_t write_public_key_file(const char *path, const mbedtls_pk_contex
                                work->blob,
                                blob_len);
     if (rc != 0 || b64_len + 20 > SSH_KEYS_PUBLIC_B64_MAX) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return ESP_FAIL;
     }
 
@@ -298,12 +297,12 @@ static esp_err_t write_public_key_file(const char *path, const mbedtls_pk_contex
                                  (const char *)work->b64,
                                  work->comment);
     if (written < 0 || (size_t)written >= sizeof(work->line)) {
-        heap_caps_free(work);
+        solar_os_memory_free(work);
         return ESP_ERR_INVALID_SIZE;
     }
 
     const esp_err_t ret = write_file(path, work->line, (size_t)written);
-    heap_caps_free(work);
+    solar_os_memory_free(work);
     return ret;
 }
 
@@ -370,13 +369,13 @@ esp_err_t solar_os_ssh_keys_generate_rsa(uint32_t bits, bool overwrite)
 
     rc = mbedtls_pk_write_key_pem(&pk, private_pem, SSH_KEYS_PRIVATE_PEM_MAX);
     if (rc != 0) {
-        heap_caps_free(private_pem);
+        solar_os_memory_free(private_pem);
         ret = ESP_FAIL;
         goto cleanup;
     }
 
     ret = write_file(private_key_path, private_pem, strlen((const char *)private_pem));
-    heap_caps_free(private_pem);
+    solar_os_memory_free(private_pem);
     if (ret != ESP_OK) {
         (void)unlink(private_key_path);
         (void)unlink(public_key_path);

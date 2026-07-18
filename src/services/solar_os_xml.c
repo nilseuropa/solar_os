@@ -8,22 +8,20 @@
 #include <string.h>
 #include <strings.h>
 
-#include "esp_heap_caps.h"
+#include "solar_os_memory.h"
 
 #define XML_TAG_MAX 768U
 
 static void *xml_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "xml");
 }
 
 static void xml_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 const char *solar_os_xml_local_name(const char *name)

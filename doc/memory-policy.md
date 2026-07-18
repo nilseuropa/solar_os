@@ -24,7 +24,20 @@ short subsystem tag and a snapshot of free and largest blocks in the log. Use
 `mem policy` to inspect heap regions, class counters, fallback counts, the
 configured reserve, and the most recent tagged failure.
 
-New code should use `solar_os_memory_alloc()` or `solar_os_memory_calloc()` with
-an explicit class. The older `solar_os_psram_*()` helpers remain available for
-existing services and now route through `external-preferred`; they no longer
-silently use a large internal block after a PSRAM allocation failure.
+New code should use `solar_os_memory_alloc()`, `solar_os_memory_calloc()`, or
+`solar_os_memory_realloc()` with an explicit class. The older
+`solar_os_psram_*()` helpers remain available for existing services and now
+route through `external-preferred`; they no longer silently use a large internal
+block after a PSRAM allocation failure.
+
+Direct capability-heap allocations are reserved for low-level cases whose
+placement is intrinsic rather than a fallback preference. The RAMFS arena is
+PSRAM-required, and the optional ILI9341 shadow framebuffer disables its
+partial-update optimization when PSRAM is unavailable instead of consuming
+internal RAM.
+
+Direct capability-heap allocations are reserved for low-level cases whose
+placement is intrinsic rather than a fallback preference. The RAMFS arena is
+PSRAM-required, and the optional ILI9341 shadow framebuffer disables its
+partial-update optimization when PSRAM is unavailable instead of consuming
+internal RAM.

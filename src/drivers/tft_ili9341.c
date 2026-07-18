@@ -598,9 +598,6 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display)
     display->shadow_size = ILI9341_BUFFER_BYTES;
     display->shadow = heap_caps_malloc(display->shadow_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (display->shadow == NULL) {
-        display->shadow = heap_caps_malloc(display->shadow_size, MALLOC_CAP_8BIT);
-    }
-    if (display->shadow == NULL) {
         ESP_LOGW(TAG, "display shadow allocation failed, partial update skipping disabled");
         display->shadow_size = 0;
     } else {

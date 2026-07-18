@@ -11,11 +11,11 @@
 #include <sys/stat.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "solar_os_doc.h"
 #include "solar_os_epub.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 
 #define READER_HEADER_H 16
@@ -165,11 +165,9 @@ static bool reader_document_is_epub(const char *document_path)
 
 static void *reader_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "reader.asset");
 }
 
 static esp_err_t reader_normalize_asset_target(const char *target, char *out, size_t out_len)
@@ -272,7 +270,7 @@ static esp_err_t reader_doc_asset_read(void *user,
     const bool failed = ferror(file) || read_len != (size_t)st.st_size;
     fclose(file);
     if (failed) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return ESP_FAIL;
     }
 
@@ -284,7 +282,7 @@ static esp_err_t reader_doc_asset_read(void *user,
 static void reader_doc_asset_release(void *user, uint8_t *data)
 {
     (void)user;
-    heap_caps_free(data);
+    solar_os_memory_free(data);
 }
 
 static bool reader_path_is_markdown(const char *path)

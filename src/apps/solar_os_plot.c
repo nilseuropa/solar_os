@@ -10,10 +10,10 @@
 #include <string.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
@@ -87,17 +87,15 @@ static plot_state_t *plot_state;
 
 static plot_state_t *plot_alloc_state(void)
 {
-    plot_state_t *state =
-        heap_caps_calloc(1, sizeof(*state), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (state == NULL) {
-        state = heap_caps_calloc(1, sizeof(*state), MALLOC_CAP_8BIT);
-    }
-    return state;
+    return solar_os_memory_calloc(1,
+                                  sizeof(plot_state_t),
+                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                  "plot.state");
 }
 
 static void plot_free_state(void)
 {
-    heap_caps_free(plot_state);
+    solar_os_memory_free(plot_state);
     plot_state = NULL;
 }
 
@@ -129,21 +127,20 @@ static void plot_print_usage(solar_os_context_t *ctx, const char *reason)
 
 static void *plot_alloc(size_t bytes)
 {
-    void *ptr = heap_caps_calloc(1, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(1, bytes, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(1,
+                                  bytes,
+                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                  "plot.data");
 }
 
 static void plot_free_buffers(void)
 {
     if (plot.x != NULL) {
-        heap_caps_free(plot.x);
+        solar_os_memory_free(plot.x);
         plot.x = NULL;
     }
     if (plot.y != NULL) {
-        heap_caps_free(plot.y);
+        solar_os_memory_free(plot.y);
         plot.y = NULL;
     }
     plot.capacity = 0;

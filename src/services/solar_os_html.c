@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "esp_check.h"
-#include "esp_heap_caps.h"
+#include "solar_os_memory.h"
 #include "solar_os_xml.h"
 
 static const char *TAG = "solar_os_html";
@@ -31,16 +31,14 @@ typedef struct {
 
 static void *html_malloc(size_t size)
 {
-    void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_alloc(size,
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "html");
 }
 
 static void html_free(void *ptr)
 {
-    heap_caps_free(ptr);
+    solar_os_memory_free(ptr);
 }
 
 static esp_err_t html_reserve(html_ctx_t *ctx, size_t add_len)

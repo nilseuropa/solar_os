@@ -14,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "services/solar_os_chat.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_terminal.h"
 #include "solar_os_tui.h"
 
@@ -1354,10 +1355,9 @@ static void chat_submit_input(solar_os_context_t *ctx)
         return;
     }
 
-    char *line = heap_caps_malloc(CHAT_APP_INPUT_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (line == NULL) {
-        line = heap_caps_malloc(CHAT_APP_INPUT_MAX, MALLOC_CAP_8BIT);
-    }
+    char *line = solar_os_memory_alloc(CHAT_APP_INPUT_MAX,
+                                        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                        "chat.input");
     if (line == NULL) {
         chat_set_status("input alloc failed");
         return;
@@ -1545,11 +1545,10 @@ static void chat_handle_channel_key(uint8_t ch)
 
 static void *chat_app_calloc(size_t count, size_t size)
 {
-    void *ptr = heap_caps_calloc(count, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (ptr == NULL) {
-        ptr = heap_caps_calloc(count, size, MALLOC_CAP_8BIT);
-    }
-    return ptr;
+    return solar_os_memory_calloc(count,
+                                  size,
+                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                  "chat.app");
 }
 
 static chat_app_state_t *chat_app_alloc_state(void)
