@@ -459,9 +459,12 @@ static const char * const expansion_subcommands[] = {
     "scan",
     "drivers",
     "devices",
+    "bus",
     "attach",
     "detach",
 };
+static const char * const expansion_bus_subcommands[] = {"create", "remove"};
+static const char * const expansion_bus_protocols[] = {"spi"};
 static const char * const expansion_driver_values[] = {
     "manual",
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
@@ -1030,6 +1033,8 @@ static const char * const path_pwm_set_freq[] = {
 };
 static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_expansion[] = {"expansion"};
+static const char * const path_expansion_bus[] = {"expansion", "bus"};
+static const char * const path_expansion_bus_create[] = {"expansion", "bus", "create"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_radio[] = {"radio"};
 static const char * const path_radio_status[] = {"radio", "status"};
@@ -1392,6 +1397,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
+    SHELL_COMPLETION_STATIC(path_expansion_bus, expansion_bus_subcommands),
+    SHELL_COMPLETION_STATIC(path_expansion_bus_create, expansion_bus_protocols),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
