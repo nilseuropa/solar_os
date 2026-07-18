@@ -35,9 +35,3 @@ placement is intrinsic rather than a fallback preference. The RAMFS arena is
 PSRAM-required, and the optional ILI9341 shadow framebuffer disables its
 partial-update optimization when PSRAM is unavailable instead of consuming
 internal RAM.
-
-Direct capability-heap allocations are reserved for low-level cases whose
-placement is intrinsic rather than a fallback preference. The RAMFS arena is
-PSRAM-required, and the optional ILI9341 shadow framebuffer disables its
-partial-update optimization when PSRAM is unavailable instead of consuming
-internal RAM.
