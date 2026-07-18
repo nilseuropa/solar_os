@@ -43,7 +43,7 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
-| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/UART/GPIO/ADC/PWM, and runtime GPIO1/GPIO2/GPIO3/GPIO17. |
+| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/GPIO/ADC/PWM, and no display or onboard sensors. |
@@ -232,9 +232,11 @@ to ST7305, SDMMC, PCF85063, or any future driver.
 
 Expansion capabilities are compile-time gates for external hardware packages.
 Use them when a package needs connector resources rather than an internal board
-peripheral. For example, an SPI radio package should require `expansion_spi`
-and `expansion_gpio`, not plain `spi` and `gpio`, so it does not build for a
-board where SPI exists only for a display or storage device.
+peripheral. A driver that can use either a static expansion SPI descriptor or a
+runtime-routed bus may accept either `expansion_spi` or `expansion_gpio`; a
+driver that also requires independent control pins must still require
+`expansion_gpio`. Do not gate these packages on plain `spi` and `gpio`, because
+those capabilities can refer only to internal display or storage hardware.
 
 ## Board Header
 
@@ -323,6 +325,7 @@ Expansion bus example:
         }, \
     }, \
 }
+#define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
 #define SOLAR_OS_BOARD_EXPANSION_ADC_MASK ((1ULL << GPIO_NUM_1) | \
                                            (1ULL << GPIO_NUM_2))
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
@@ -335,12 +338,14 @@ shared logical leases; UART and future 1-Wire bus instances are exclusive.
 Attaching an expansion device acquires a lease under the device name and
 detaching it releases that lease.
 
-The registry distinguishes immutable board buses from future runtime-created
-buses. Board buses cannot be unregistered. A runtime bus can be removed only
-while it has no leases. Registry leases describe logical use only at this
-stage: the descriptors do not claim pins, remap the GPIO matrix, or initialize
-hardware by themselves. Dynamic routing will connect first-acquire and
-last-release to the protocol driver lifecycle in a later step.
+The registry distinguishes immutable board buses from runtime-created buses.
+Board buses cannot be unregistered. Runtime SPI creation is supported on hosts
+explicitly allowed by `SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`. Creating one
+atomically claims its SCLK, MOSI, and optional MISO pins; CS entries are allowed
+attachment slots and are claimed per device. The ESP32 GPIO matrix and SPI host
+are configured on the first lease and released on the last. An idle runtime bus
+can then be removed to release its signal-pin claims. Runtime I2C, UART, and
+1-Wire creation are intentionally not implemented yet.
 
 ## Board Selector
 
@@ -505,6 +510,9 @@ and also enables expansion GPIO, ADC, PWM, I2C, and SPI. The default I2C bus is
 GPIO8 SDA and GPIO9 SCL. The default SPI bus is FSPI on GPIO12 SCK, GPIO13
 MISO, and GPIO11 MOSI, with chip-select slots on GPIO10, GPIO5, GPIO6, and
 GPIO7.
+The board also permits runtime routing on the spare SPI3 host. Static `spi0`
+remains the usual choice; the runtime host is useful for isolated experiments
+on another set of routable expansion pins.
 Auxiliary SPI displays can use that expansion SPI bus through expansion
 drivers. For example, a PCD8544 84x48 LCD module can attach as `lcd0` with
 `expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5` and
@@ -515,6 +523,18 @@ address `0x3c` can attach with
 or `session create shell oled0` after attachment. Modules whose image is shifted
 two pixels left use the SH1106 profile instead:
 `expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c`.
+
+The Waveshare target has no static SPI bus on its expansion connector, but its
+spare SPI3 host may be routed over the four free header pins. A full-duplex bus
+using GPIO1/GPIO2/GPIO3 plus GPIO17 as its device-select slot is created with:
+
+```text
+expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
+```
+
+The bus remains idle until a device attaches. After detaching all devices,
+`expansion bus remove spi1` releases the three signal pins. The board-defined
+I2C bus on GPIO13/GPIO14 is fixed and is never remapped by this operation.
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves

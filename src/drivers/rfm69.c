@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "freertos/task.h"
+#include "solar_os_buses.h"
 #include "solar_os_spi.h"
 
 #define RFM69_FXOSC_HZ 32000000ULL
@@ -98,7 +99,13 @@ static esp_err_t rfm69_transfer(rfm69_t *dev,
                                 uint8_t *rx,
                                 size_t len)
 {
-    return solar_os_spi_transfer(dev->cs_pin, 0, dev->speed_hz, tx, rx, len);
+    return solar_os_bus_spi_transfer(dev->spi_bus,
+                                     dev->cs_pin,
+                                     0,
+                                     dev->speed_hz,
+                                     tx,
+                                     rx,
+                                     len);
 }
 
 static esp_err_t rfm69_read_reg_locked(rfm69_t *dev, uint8_t reg, uint8_t *value)
@@ -344,9 +351,14 @@ static bool rfm69_config_valid(const solar_os_radio_config_t *config)
     }
 }
 
-esp_err_t rfm69_init(rfm69_t *dev, int cs_pin, uint32_t speed_hz)
+esp_err_t rfm69_init(rfm69_t *dev,
+                     const char *spi_bus,
+                     int cs_pin,
+                     uint32_t speed_hz)
 {
-    if (dev == NULL || cs_pin < 0) {
+    if (dev == NULL || spi_bus == NULL || spi_bus[0] == '\0' ||
+        strnlen(spi_bus, sizeof(dev->spi_bus)) >= sizeof(dev->spi_bus) ||
+        cs_pin < 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -356,6 +368,7 @@ esp_err_t rfm69_init(rfm69_t *dev, int cs_pin, uint32_t speed_hz)
             return ESP_ERR_NO_MEM;
         }
     }
+    strlcpy(dev->spi_bus, spi_bus, sizeof(dev->spi_bus));
     dev->cs_pin = cs_pin;
     dev->speed_hz = speed_hz != 0 ? speed_hz : SOLAR_OS_SPI_DEFAULT_SPEED_HZ;
     dev->state = SOLAR_OS_RADIO_STATE_UNKNOWN;

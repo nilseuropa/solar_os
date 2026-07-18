@@ -23,11 +23,14 @@ typedef struct {
     int dc_pin;
     int reset_pin;
     esp_err_t last_error;
-    bool bus_acquired;
     bool pins_configured;
 } pcd8544_t;
 
-esp_err_t pcd8544_init(pcd8544_t *display, int cs_pin, int dc_pin, int reset_pin);
+esp_err_t pcd8544_init(pcd8544_t *display,
+                       const char *spi_bus,
+                       int cs_pin,
+                       int dc_pin,
+                       int reset_pin);
 void pcd8544_deinit(pcd8544_t *display);
 u8g2_t *pcd8544_get_u8g2(pcd8544_t *display);
 

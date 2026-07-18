@@ -247,10 +247,12 @@ capabilities = ["audio"]
 [packages.service_resources]
 label = "service.resources"
 sources = [
+  "drivers/routed_spi_bus.c",
   "services/solar_os_buses.c",
   "services/solar_os_resources.c",
   "services/solar_os_pins.c",
 ]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
 
 [packages.service_engines]
 label = "service.engines"
@@ -314,6 +316,7 @@ sources = [
   "shell/solar_os_shell_radio_tui.c",
 ]
 any_capabilities = [
+  "expansion_gpio",
   "expansion_spi",
   "expansion_uart",
 ]
@@ -325,7 +328,7 @@ sources = [
   "services/solar_os_rfm69.c",
 ]
 requires = ["esp_driver_gpio"]
-capabilities = ["expansion_spi"]
+any_capabilities = ["expansion_spi", "expansion_gpio"]
 
 [packages.expansion_pcd8544]
 label = "expansion.pcd8544"
@@ -334,7 +337,7 @@ sources = [
   "services/solar_os_pcd8544.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
-capabilities = ["expansion_spi", "expansion_gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.expansion_ssd1306]
 label = "expansion.ssd1306"
@@ -591,4 +594,4 @@ sources = [
   "jobs/solar_os_pocsag_job.c",
   "shell/solar_os_shell_pocsag.c",
 ]
-capabilities = ["expansion_spi"]
+any_capabilities = ["expansion_spi", "expansion_gpio"]

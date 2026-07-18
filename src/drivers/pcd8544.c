@@ -9,7 +9,7 @@
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "spi_bus.h"
+#include "solar_os_buses.h"
 #include "u8x8.h"
 
 #define PCD8544_SPI_CLOCK_HZ 4000000
@@ -139,9 +139,13 @@ static esp_err_t pcd8544_configure_pins(pcd8544_t *display)
     return ESP_OK;
 }
 
-esp_err_t pcd8544_init(pcd8544_t *display, int cs_pin, int dc_pin, int reset_pin)
+esp_err_t pcd8544_init(pcd8544_t *display,
+                       const char *spi_bus,
+                       int cs_pin,
+                       int dc_pin,
+                       int reset_pin)
 {
-    if (display == NULL ||
+    if (display == NULL || spi_bus == NULL || spi_bus[0] == '\0' ||
         cs_pin < 0 || cs_pin >= 64 ||
         dc_pin < 0 || dc_pin >= 64 ||
         reset_pin < 0 || reset_pin >= 64 ||
@@ -158,14 +162,10 @@ esp_err_t pcd8544_init(pcd8544_t *display, int cs_pin, int dc_pin, int reset_pin
     display->last_error = ESP_OK;
 
     esp_err_t ret = pcd8544_configure_pins(display);
-    if (ret == ESP_OK) {
-        ret = solar_os_spi_bus_acquire();
-    }
     if (ret != ESP_OK) {
         pcd8544_deinit(display);
         return ret;
     }
-    display->bus_acquired = true;
 
     const spi_device_interface_config_t device_config = {
         .clock_speed_hz = PCD8544_SPI_CLOCK_HZ,
@@ -173,7 +173,7 @@ esp_err_t pcd8544_init(pcd8544_t *display, int cs_pin, int dc_pin, int reset_pin
         .spics_io_num = -1,
         .queue_size = 1,
     };
-    ret = spi_bus_add_device(solar_os_spi_bus_host(), &device_config, &display->spi);
+    ret = solar_os_bus_spi_add_device(spi_bus, &device_config, &display->spi);
     if (ret != ESP_OK) {
         pcd8544_deinit(display);
         return ret;
@@ -211,10 +211,6 @@ void pcd8544_deinit(pcd8544_t *display)
         u8g2_SetPowerSave(&display->u8g2, 1);
         (void)spi_bus_remove_device(display->spi);
         display->spi = NULL;
-    }
-    if (display->bus_acquired) {
-        solar_os_spi_bus_release();
-        display->bus_acquired = false;
     }
     if (display->pins_configured && display->cs_pin >= 0 && display->cs_pin < 64) {
         (void)gpio_set_level((gpio_num_t)display->cs_pin, 1);

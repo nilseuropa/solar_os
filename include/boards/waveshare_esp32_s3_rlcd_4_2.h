@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c_types.h"
 #include "driver/i2s_types.h"
+#include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_expansion_types.h"
 #include "solar_os_pin_types.h"
@@ -97,6 +98,7 @@
                                        (1ULL << GPIO_NUM_17))
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 13 14 17 18 19 20 43 44"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2 3 17"
+#define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
     {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \

@@ -403,6 +403,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
 | `expansion` | `expansion drivers` | List compiled expansion drivers. |
 | `expansion` | `expansion devices` | List manually attached expansion devices. |
+| `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
+| `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
@@ -511,6 +513,23 @@ expansion attach manual sensor0 i2c0 addr=0x40
 expansion detach radio0
 ```
 
+Boards with an approved spare SPI host can create an SPI bus from routable
+expansion pins. Signal pins are claimed immediately, while the hardware host is
+initialized on the first device lease and freed on the last. Each `cs=` option
+adds an allowed device chip-select slot; the chip-select itself is claimed only
+when a device attaches. For the Waveshare RLCD expansion header:
+
+```text
+expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
+expansion attach rfm69 radio0 spi=spi1 cs=gpio17
+expansion detach radio0
+expansion bus remove spi1
+```
+
+Omit `miso` or use `miso=none` for output-only peripherals. Runtime routing is
+restricted by the board description; it cannot take fixed display, storage, or
+I2C pins.
+
 RFM69 433 MHz packet radios can be attached as active expansion devices. Only
 `spi` and `cs` are required; `irq` and `reset` are optional:
 
@@ -536,8 +555,8 @@ display test lcd0
 `ce=gpio10` is accepted as an alias for `cs=gpio10`, and `rst=gpio5` is
 accepted as an alias for `reset=gpio5`. If the module has an LED/backlight pin,
 wire it according to the module board; use suitable current limiting when tying
-it to 3V3. Boards without expansion SPI, such as the Waveshare RLCD target,
-will not compile the active `pcd8544` expansion driver.
+it to 3V3. On a board without a static expansion SPI descriptor, create a
+runtime SPI bus first if the board policy exposes a spare host and enough pins.
 
 Common 128x64 SSD1306 I2C OLED modules can be attached as auxiliary display
 targets with the `ssd1306` driver. The driver supports the usual `0x3c` and

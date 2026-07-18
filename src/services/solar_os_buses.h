@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "driver/spi_master.h"
 #include "esp_err.h"
 #include "solar_os_bus_types.h"
 
@@ -27,6 +28,17 @@ esp_err_t solar_os_bus_release(const char *name,
                                solar_os_bus_protocol_t protocol,
                                const char *owner);
 size_t solar_os_bus_release_owner(const char *owner);
+
+esp_err_t solar_os_bus_spi_add_device(const char *name,
+                                      const spi_device_interface_config_t *device_config,
+                                      spi_device_handle_t *device);
+esp_err_t solar_os_bus_spi_transfer(const char *name,
+                                    int cs_pin,
+                                    uint8_t mode,
+                                    uint32_t speed_hz,
+                                    const uint8_t *tx_data,
+                                    uint8_t *rx_data,
+                                    size_t len);
 
 const char *solar_os_bus_protocol_name(solar_os_bus_protocol_t protocol);
 const char *solar_os_bus_origin_name(solar_os_bus_origin_t origin);

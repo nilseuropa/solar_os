@@ -76,7 +76,7 @@ static bool mask_contains(uint64_t mask, int pin)
 
 static bool device_name_valid(const char *name)
 {
-    if (name == NULL || name[0] == '\0') {
+    if (name == NULL || name[0] == '\0' || strncmp(name, "bus:", 4) == 0) {
         return false;
     }
     return strnlen(name, SOLAR_OS_EXPANSION_DEVICE_NAME_MAX) < SOLAR_OS_EXPANSION_DEVICE_NAME_MAX;

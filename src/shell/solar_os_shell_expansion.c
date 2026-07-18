@@ -3,9 +3,11 @@
 #include "solar_os_shell_io.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "driver/spi_master.h"
 #include "esp_err.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
@@ -23,6 +25,8 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion scan");
     solar_os_shell_io_writeln(term, "  expansion drivers");
     solar_os_shell_io_writeln(term, "  expansion devices");
+    solar_os_shell_io_writeln(term, "  expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]");
+    solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
     solar_os_shell_io_writeln(term, "  expansion detach <name>");
 }
@@ -67,11 +71,32 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
     if (!solar_os_bus_find(name, protocol, &info)) {
         return;
     }
-    solar_os_shell_io_printf(term,
-                             " [%s %s leases=%u]",
-                             solar_os_bus_origin_name(info.origin),
-                             solar_os_bus_sharing_name(info.sharing),
-                             (unsigned)info.lease_count);
+    if (protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
+        solar_os_shell_io_printf(term,
+                                 " [%s %s %s leases=%u]",
+                                 solar_os_bus_origin_name(info.origin),
+                                 solar_os_bus_sharing_name(info.sharing),
+                                 info.ready ? "ready" : "idle",
+                                 (unsigned)info.lease_count);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 " [%s %s leases=%u]",
+                                 solar_os_bus_origin_name(info.origin),
+                                 solar_os_bus_sharing_name(info.sharing),
+                                 (unsigned)info.lease_count);
+    }
+}
+
+static const char *spi_host_name(int host)
+{
+    switch (host) {
+    case SPI2_HOST:
+        return "spi2";
+    case SPI3_HOST:
+        return "spi3";
+    default:
+        return "unknown";
+    }
 }
 
 static void expansion_print_resources(solar_os_shell_io_t *term)
@@ -109,12 +134,16 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
             continue;
         }
         solar_os_shell_io_printf(term,
-                                 "SPI %-6s host %d SCK GPIO%d MISO GPIO%d MOSI GPIO%d CS",
+                                 "SPI %-6s host %s SCK GPIO%d MISO ",
                                  bus.name,
-                                 bus.host,
-                                 bus.sclk_pin,
-                                 bus.miso_pin,
-                                 bus.mosi_pin);
+                                 spi_host_name(bus.host),
+                                 bus.sclk_pin);
+        if (bus.miso_pin >= 0) {
+            solar_os_shell_io_printf(term, "GPIO%d", bus.miso_pin);
+        } else {
+            solar_os_shell_io_write(term, "none");
+        }
+        solar_os_shell_io_printf(term, " MOSI GPIO%d CS", bus.mosi_pin);
         for (size_t cs = 0; cs < bus.cs_count && cs < SOLAR_OS_EXPANSION_SPI_CS_MAX; cs++) {
             solar_os_shell_io_printf(term, " %s(GPIO%d)", bus.cs[cs].name, bus.cs[cs].pin);
         }
@@ -464,6 +493,159 @@ static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **arg
     }
 }
 
+static bool parse_spi_host(const char *text, int *host)
+{
+    if (text == NULL || host == NULL) {
+        return false;
+    }
+    if (strcmp(text, "spi2") == 0) {
+        *host = SPI2_HOST;
+        return true;
+    }
+    if (strcmp(text, "spi3") == 0) {
+        *host = SPI3_HOST;
+        return true;
+    }
+    return false;
+}
+
+static void expansion_print_bus_error(solar_os_shell_io_t *term,
+                                      const char *operation,
+                                      esp_err_t err)
+{
+    switch (err) {
+    case ESP_ERR_NOT_SUPPORTED:
+        solar_os_shell_io_printf(term, "expansion bus %s: protocol is not runtime-routable yet\n", operation);
+        break;
+    case ESP_ERR_NOT_FOUND:
+        solar_os_shell_io_printf(term, "expansion bus %s: bus not found\n", operation);
+        break;
+    case ESP_ERR_NOT_ALLOWED:
+        solar_os_shell_io_printf(term, "expansion bus %s: board-defined buses cannot be removed\n", operation);
+        break;
+    case ESP_ERR_INVALID_STATE:
+        solar_os_shell_io_printf(term, "expansion bus %s: name, host, or pin is already in use\n", operation);
+        break;
+    case ESP_ERR_INVALID_ARG:
+        solar_os_shell_io_printf(term, "expansion bus %s: invalid host or expansion pin assignment\n", operation);
+        break;
+    case ESP_ERR_NO_MEM:
+        solar_os_shell_io_printf(term, "expansion bus %s: no free bus or resource slots\n", operation);
+        break;
+    default:
+        solar_os_shell_io_printf(term,
+                                 "expansion bus %s failed: %s\n",
+                                 operation,
+                                 esp_err_to_name(err));
+        break;
+    }
+}
+
+static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
+                                         int argc,
+                                         char **argv)
+{
+    if (argc < 6) {
+        expansion_print_usage(term);
+        return;
+    }
+
+    solar_os_bus_definition_t definition = {
+        .name = argv[4],
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_SHARED,
+        .config.spi = {
+            .host = -1,
+            .sclk_pin = -1,
+            .miso_pin = -1,
+            .mosi_pin = -1,
+            .max_transfer_size = 4096,
+        },
+    };
+
+    for (int i = 5; i < argc; i++) {
+        const char *eq = strchr(argv[i], '=');
+        if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
+            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            return;
+        }
+        const size_t key_len = (size_t)(eq - argv[i]);
+        const char *value = eq + 1;
+        int parsed = -1;
+
+        if (key_len == 4 && strncmp(argv[i], "host", key_len) == 0) {
+            if (!parse_spi_host(value, &definition.config.spi.host)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 4 && strncmp(argv[i], "sclk", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.spi.sclk_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 4 && strncmp(argv[i], "mosi", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.spi.mosi_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 4 && strncmp(argv[i], "miso", key_len) == 0) {
+            if (strcmp(value, "none") != 0 &&
+                !parse_int_arg(value, 0, 63, &definition.config.spi.miso_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 2 && strncmp(argv[i], "cs", key_len) == 0) {
+            if (definition.config.spi.cs_count >= SOLAR_OS_BUS_SPI_CS_MAX ||
+                !parse_int_arg(value, 0, 63, &parsed)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+            solar_os_bus_pin_t *cs =
+                &definition.config.spi.cs[definition.config.spi.cs_count++];
+            cs->pin = parsed;
+            (void)snprintf(cs->name, sizeof(cs->name), "gpio%d", parsed);
+        } else if (key_len == 3 && strncmp(argv[i], "max", key_len) == 0) {
+            if (!parse_int_arg(value, 1, 65536, &parsed)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+            definition.config.spi.max_transfer_size = (uint32_t)parsed;
+        } else {
+            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            return;
+        }
+    }
+
+    const esp_err_t err = solar_os_bus_register(&definition);
+    if (err != ESP_OK) {
+        expansion_print_bus_error(term, "create", err);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "created SPI bus %s on %s (idle until first device attaches)\n",
+                             definition.name,
+                             spi_host_name(definition.config.spi.host));
+}
+
+static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc >= 5 && strcmp(argv[2], "create") == 0 && strcmp(argv[3], "spi") == 0) {
+        expansion_cmd_bus_create_spi(term, argc, argv);
+        return;
+    }
+    if (argc == 4 && strcmp(argv[2], "remove") == 0) {
+        const esp_err_t err = solar_os_bus_unregister(argv[3]);
+        if (err != ESP_OK) {
+            expansion_print_bus_error(term, "remove", err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "removed bus %s\n", argv[3]);
+        return;
+    }
+    expansion_print_usage(term);
+}
+
 void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -483,6 +665,10 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
     }
     if (strcmp(argv[1], "devices") == 0) {
         expansion_print_devices(term);
+        return;
+    }
+    if (strcmp(argv[1], "bus") == 0) {
+        expansion_cmd_bus(term, argc, argv);
         return;
     }
     if (strcmp(argv[1], "attach") == 0) {

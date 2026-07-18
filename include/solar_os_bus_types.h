@@ -73,6 +73,7 @@ typedef struct {
 
 typedef struct {
     bool active;
+    bool ready;
     size_t id;
     char name[SOLAR_OS_BUS_NAME_MAX];
     solar_os_bus_protocol_t protocol;
