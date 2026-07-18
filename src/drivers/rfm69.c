@@ -49,6 +49,8 @@
 
 #define IRQ1_MODE_READY 0x80
 #define IRQ2_FIFO_OVERRUN 0x10
+#define IRQ2_FIFO_LEVEL 0x20
+#define IRQ2_FIFO_NOT_EMPTY 0x40
 #define IRQ2_PACKET_SENT 0x08
 #define IRQ2_PAYLOAD_READY 0x04
 #define IRQ2_CRC_OK 0x02
@@ -59,6 +61,15 @@
 
 #define FIFO_WRITE_BIT 0x80
 #define RFM69_MODE_WAIT_MS 100
+#define RFM69_FIFO_DRAIN_LEN 16
+#define RFM69_FIFO_CAPACITY 66
+
+static void rfm69_reset_receive(rfm69_t *dev)
+{
+    dev->rx_len = 0;
+    dev->rx_rssi_dbm = 0;
+    dev->rx_has_rssi = false;
+}
 
 static esp_err_t rfm69_lock(rfm69_t *dev)
 {
@@ -294,6 +305,9 @@ static esp_err_t rfm69_set_state_locked(rfm69_t *dev, solar_os_radio_state_t sta
             return ret;
         }
     }
+    if (state != SOLAR_OS_RADIO_STATE_RX || dev->state != SOLAR_OS_RADIO_STATE_RX) {
+        rfm69_reset_receive(dev);
+    }
     dev->state = state;
     return ESP_OK;
 }
@@ -306,8 +320,13 @@ static bool rfm69_config_valid(const solar_os_radio_config_t *config)
         config->bitrate_bps == 0 ||
         config->bitrate_bps > 300000U ||
         config->sync_word_len > SOLAR_OS_RADIO_SYNC_WORD_MAX ||
+        config->payload_length > RFM69_MAX_PACKET_LEN ||
         config->tx_power_dbm < -18 ||
         config->tx_power_dbm > 13) {
+        return false;
+    }
+    if (config->payload_length == 0 &&
+        (config->variable_length || config->crc_enabled || config->has_node_id)) {
         return false;
     }
 
@@ -377,7 +396,8 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
     const uint16_t fdev = rfm69_fdev_reg(config->deviation_hz);
     const uint32_t frf = rfm69_frf_reg(config->frequency_hz);
     const bool ook = config->modulation == SOLAR_OS_RADIO_MODULATION_OOK;
-    const uint8_t payload_max = config->has_node_id ? RFM69_MAX_PACKET_LEN + 1 : RFM69_MAX_PACKET_LEN;
+    const uint8_t payload_length = (uint8_t)(config->payload_length +
+                                             (config->has_node_id ? 1U : 0U));
     uint8_t packet_config1 = config->variable_length ? PACKET_CONFIG1_VARIABLE : 0x00;
     if (config->crc_enabled) {
         packet_config1 |= PACKET_CONFIG1_CRC_ON;
@@ -450,7 +470,7 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
         ret = rfm69_write_reg_locked(dev, REG_PACKET_CONFIG1, packet_config1);
     }
     if (ret == ESP_OK) {
-        ret = rfm69_write_reg_locked(dev, REG_PAYLOAD_LENGTH, payload_max);
+        ret = rfm69_write_reg_locked(dev, REG_PAYLOAD_LENGTH, payload_length);
     }
     if (ret == ESP_OK) {
         ret = rfm69_write_reg_locked(dev, REG_NODE_ADRS, config->has_node_id ? config->node_id : 0x00);
@@ -470,6 +490,7 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
     if (ret == ESP_OK) {
         dev->config = *config;
         dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+        rfm69_reset_receive(dev);
     }
 
     rfm69_unlock(dev);
@@ -578,6 +599,91 @@ esp_err_t rfm69_send(rfm69_t *dev, const solar_os_radio_packet_t *packet, uint32
     return ret;
 }
 
+esp_err_t rfm69_send_stream(rfm69_t *dev,
+                            const uint8_t *data,
+                            size_t len,
+                            uint32_t timeout_ms)
+{
+    if (data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t ret = rfm69_lock(dev);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (dev->config.variable_length || dev->config.payload_length != 0 ||
+        dev->config.crc_enabled || dev->config.has_node_id) {
+        rfm69_unlock(dev);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const int64_t start_us = esp_timer_get_time();
+    const int64_t timeout_us = (int64_t)timeout_ms * 1000;
+    size_t offset = 0;
+    bool tx_started = false;
+
+    ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+    if (ret == ESP_OK) {
+        ret = rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+    }
+    if (ret == ESP_OK) {
+        const size_t initial = len < RFM69_FIFO_CAPACITY ? len : RFM69_FIFO_CAPACITY;
+        ret = rfm69_write_burst_locked(dev, REG_FIFO, data, initial);
+        offset = ret == ESP_OK ? initial : 0;
+    }
+    if (ret == ESP_OK) {
+        ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_TX);
+        tx_started = ret == ESP_OK;
+    }
+
+    while (ret == ESP_OK && offset < len) {
+        uint8_t irq2 = 0;
+        ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+        if (ret != ESP_OK) {
+            break;
+        }
+        if ((irq2 & IRQ2_FIFO_LEVEL) == 0) {
+            size_t chunk = len - offset;
+            if (chunk > RFM69_FIFO_DRAIN_LEN) {
+                chunk = RFM69_FIFO_DRAIN_LEN;
+            }
+            ret = rfm69_write_burst_locked(dev, REG_FIFO, &data[offset], chunk);
+            if (ret == ESP_OK) {
+                offset += chunk;
+            }
+            continue;
+        }
+        if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+            ret = ESP_ERR_TIMEOUT;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    while (ret == ESP_OK) {
+        uint8_t irq2 = 0;
+        ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+        if (ret != ESP_OK || (irq2 & IRQ2_PACKET_SENT) != 0) {
+            break;
+        }
+        if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+            ret = ESP_ERR_TIMEOUT;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    if (tx_started) {
+        const esp_err_t standby_ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+        if (ret == ESP_OK) {
+            ret = standby_ret;
+        }
+    }
+    rfm69_unlock(dev);
+    return ret;
+}
+
 esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t timeout_ms)
 {
     if (packet == NULL) {
@@ -588,33 +694,130 @@ esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t 
     if (ret != ESP_OK) {
         return ret;
     }
-    if (!dev->config.variable_length) {
-        rfm69_unlock(dev);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
     if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
         ret = rfm69_set_state_locked(dev, SOLAR_OS_RADIO_STATE_RX);
     }
-    if (ret == ESP_OK) {
-        ret = rfm69_wait_flag_locked(dev, REG_IRQ_FLAGS2, IRQ2_PAYLOAD_READY, timeout_ms);
-    }
-    if (ret != ESP_OK) {
+
+    /* A zero fixed payload length selects the RFM69 unlimited-length mode.
+     * PayloadReady is not generated in this mode, so expose FIFO data as a
+     * byte stream in small receive chunks. */
+    if (ret == ESP_OK && !dev->config.variable_length && dev->config.payload_length == 0) {
+        const int64_t start_us = esp_timer_get_time();
+        const int64_t timeout_us = (int64_t)timeout_ms * 1000;
+        while (ret == ESP_OK) {
+            uint8_t irq2 = 0;
+            ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+            if (ret != ESP_OK) {
+                break;
+            }
+            if ((irq2 & IRQ2_FIFO_OVERRUN) != 0) {
+                (void)rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+                ret = ESP_ERR_INVALID_SIZE;
+                break;
+            }
+
+            size_t chunk_len = 0;
+            if ((irq2 & IRQ2_FIFO_LEVEL) != 0) {
+                chunk_len = RFM69_FIFO_DRAIN_LEN;
+            } else if ((irq2 & IRQ2_FIFO_NOT_EMPTY) != 0) {
+                chunk_len = 1;
+            }
+            if (chunk_len > 0) {
+                uint8_t rssi = 0;
+                memset(packet, 0, sizeof(*packet));
+                ret = rfm69_read_reg_locked(dev, REG_RSSI_VALUE, &rssi);
+                if (ret == ESP_OK) {
+                    ret = rfm69_read_burst_locked(dev, REG_FIFO, packet->data, chunk_len);
+                }
+                if (ret == ESP_OK) {
+                    packet->len = chunk_len;
+                    packet->has_rssi = true;
+                    packet->rssi_dbm = -(int16_t)(rssi / 2U);
+                    packet->crc_ok = true;
+                }
+                rfm69_unlock(dev);
+                return ret;
+            }
+
+            if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+                rfm69_unlock(dev);
+                return ESP_ERR_TIMEOUT;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
         rfm69_unlock(dev);
         return ret;
     }
 
     uint8_t irq2 = 0;
     uint8_t rssi = 0;
-    uint8_t radio_len = 0;
-    ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
-    if (ret == ESP_OK) {
-        ret = rfm69_read_reg_locked(dev, REG_RSSI_VALUE, &rssi);
+    uint8_t radio_len = (uint8_t)(dev->config.payload_length +
+                                  (dev->config.has_node_id ? 1U : 0U));
+    const int64_t start_us = esp_timer_get_time();
+    const int64_t timeout_us = (int64_t)timeout_ms * 1000;
+    while (ret == ESP_OK) {
+        ret = rfm69_read_reg_locked(dev, REG_IRQ_FLAGS2, &irq2);
+        if (ret != ESP_OK) {
+            break;
+        }
+        if ((irq2 & IRQ2_FIFO_OVERRUN) != 0) {
+            (void)rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+            rfm69_reset_receive(dev);
+            ret = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        if ((irq2 & IRQ2_PAYLOAD_READY) != 0) {
+            break;
+        }
+        if (!dev->config.variable_length && (irq2 & IRQ2_FIFO_LEVEL) != 0) {
+            if (dev->rx_len + RFM69_FIFO_DRAIN_LEN > radio_len) {
+                ret = ESP_ERR_INVALID_SIZE;
+                break;
+            }
+            if (!dev->rx_has_rssi) {
+                ret = rfm69_read_reg_locked(dev, REG_RSSI_VALUE, &rssi);
+                if (ret != ESP_OK) {
+                    break;
+                }
+                dev->rx_rssi_dbm = -(int16_t)(rssi / 2U);
+                dev->rx_has_rssi = true;
+            }
+            ret = rfm69_read_burst_locked(dev,
+                                          REG_FIFO,
+                                          &dev->rx_buffer[dev->rx_len],
+                                          RFM69_FIFO_DRAIN_LEN);
+            if (ret != ESP_OK) {
+                break;
+            }
+            dev->rx_len += RFM69_FIFO_DRAIN_LEN;
+            continue;
+        }
+        if (timeout_ms == 0 || esp_timer_get_time() - start_us >= timeout_us) {
+            ret = ESP_ERR_TIMEOUT;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
-    if (ret == ESP_OK) {
+    if (ret != ESP_OK) {
+        if (ret != ESP_ERR_TIMEOUT) {
+            rfm69_reset_receive(dev);
+        }
+        rfm69_unlock(dev);
+        return ret;
+    }
+
+    if (!dev->rx_has_rssi) {
+        ret = rfm69_read_reg_locked(dev, REG_RSSI_VALUE, &rssi);
+        if (ret == ESP_OK) {
+            dev->rx_rssi_dbm = -(int16_t)(rssi / 2U);
+            dev->rx_has_rssi = true;
+        }
+    }
+    if (ret == ESP_OK && dev->config.variable_length) {
         ret = rfm69_read_burst_locked(dev, REG_FIFO, &radio_len, 1);
     }
     if (ret != ESP_OK) {
+        rfm69_reset_receive(dev);
         rfm69_unlock(dev);
         return ret;
     }
@@ -622,18 +825,42 @@ esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t 
     const bool has_address = dev->config.has_node_id;
     if (radio_len == 0 || radio_len > RFM69_MAX_PACKET_LEN + (has_address ? 1U : 0U)) {
         (void)rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+        rfm69_reset_receive(dev);
         rfm69_unlock(dev);
         return ESP_ERR_INVALID_SIZE;
     }
 
-    memset(packet, 0, sizeof(*packet));
-    size_t data_len = radio_len;
-    if (has_address) {
-        uint8_t address = 0;
-        ret = rfm69_read_burst_locked(dev, REG_FIFO, &address, 1);
+    if (!dev->config.variable_length) {
+        const size_t remaining = radio_len - dev->rx_len;
+        if (remaining > 0) {
+            ret = rfm69_read_burst_locked(dev,
+                                          REG_FIFO,
+                                          &dev->rx_buffer[dev->rx_len],
+                                          remaining);
+        }
         if (ret != ESP_OK) {
+            rfm69_reset_receive(dev);
             rfm69_unlock(dev);
             return ret;
+        }
+        dev->rx_len = radio_len;
+    }
+
+    memset(packet, 0, sizeof(*packet));
+    size_t data_len = radio_len;
+    size_t data_offset = 0;
+    if (has_address) {
+        uint8_t address = 0;
+        if (dev->config.variable_length) {
+            ret = rfm69_read_burst_locked(dev, REG_FIFO, &address, 1);
+            if (ret != ESP_OK) {
+                rfm69_reset_receive(dev);
+                rfm69_unlock(dev);
+                return ret;
+            }
+        } else {
+            address = dev->rx_buffer[0];
+            data_offset = 1;
         }
         packet->has_destination = true;
         packet->destination = address;
@@ -641,18 +868,25 @@ esp_err_t rfm69_receive(rfm69_t *dev, solar_os_radio_packet_t *packet, uint32_t 
     }
     if (data_len > RFM69_MAX_PACKET_LEN) {
         (void)rfm69_write_reg_locked(dev, REG_IRQ_FLAGS2, IRQ2_FIFO_OVERRUN);
+        rfm69_reset_receive(dev);
         rfm69_unlock(dev);
         return ESP_ERR_INVALID_SIZE;
     }
     if (data_len > 0) {
-        ret = rfm69_read_burst_locked(dev, REG_FIFO, packet->data, data_len);
+        if (dev->config.variable_length) {
+            ret = rfm69_read_burst_locked(dev, REG_FIFO, packet->data, data_len);
+        } else {
+            memcpy(packet->data, &dev->rx_buffer[data_offset], data_len);
+        }
     }
     if (ret == ESP_OK) {
         packet->len = data_len;
         packet->has_rssi = true;
-        packet->rssi_dbm = -(int16_t)(rssi / 2U);
+        packet->rssi_dbm = dev->rx_rssi_dbm;
         packet->crc_ok = !dev->config.crc_enabled || ((irq2 & IRQ2_CRC_OK) != 0);
     }
+
+    rfm69_reset_receive(dev);
 
     rfm69_unlock(dev);
     return ret;

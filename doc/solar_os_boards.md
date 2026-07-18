@@ -492,6 +492,12 @@ Auxiliary SPI displays can use that expansion SPI bus through expansion
 drivers. For example, a PCD8544 84x48 LCD module can attach as `lcd0` with
 `expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5` and
 then be exercised with `display test lcd0`.
+Auxiliary I2C displays can use `i2c0` as well. A common 128x64 SSD1306 OLED at
+address `0x3c` can attach with
+`expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c`; use `display test oled0`
+or `session create shell oled0` after attachment. Modules whose image is shifted
+two pixels left use the SH1106 profile instead:
+`expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c`.
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves

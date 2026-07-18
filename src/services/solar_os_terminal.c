@@ -15,6 +15,8 @@
 #define TERM_MARGIN_X 4
 #define TERM_MARGIN_Y 3
 #define TERM_STATUS_BAR_HEIGHT 16
+#define TERM_STATUS_BAR_COMPACT_MAX_WIDTH 160
+#define TERM_STATUS_BAR_ICON_GAP 4
 #define TERM_NVS_NAMESPACE "terminal"
 #define TERM_NVS_ORIENTATION_KEY "orientation"
 #define TERM_NVS_FONT_KEY "font"
@@ -1221,7 +1223,8 @@ void solar_os_terminal_printf_bold(solar_os_terminal_t *terminal, const char *fm
 static bool terminal_status_bar_equal(const solar_os_status_bar_t *a,
                                       const solar_os_status_bar_t *b)
 {
-    return a->battery_valid == b->battery_valid &&
+    return a->inbox_unread == b->inbox_unread &&
+        a->battery_valid == b->battery_valid &&
         a->battery_percent == b->battery_percent &&
         a->battery_external_power == b->battery_external_power &&
         a->ble_connected == b->ble_connected &&
@@ -2078,6 +2081,31 @@ static void terminal_draw_battery_icon(u8g2_t *u8g2,
     }
 }
 
+static int terminal_inbox_icon_width(u8g2_t *u8g2, uint16_t unread, char count_text[4])
+{
+    if (unread > 99) {
+        strlcpy(count_text, "99+", 4);
+    } else {
+        snprintf(count_text, 4, "%u", (unsigned)unread);
+    }
+    return 16 + (int)u8g2_GetStrWidth(u8g2, count_text);
+}
+
+static void terminal_draw_inbox_icon(u8g2_t *u8g2,
+                                     int x,
+                                     int y,
+                                     int baseline,
+                                     const char *count_text)
+{
+    u8g2_DrawFrame(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)(y + 1), 14, 10);
+    terminal_draw_diag_down(u8g2, x + 1, y + 2, 6, 4);
+    terminal_draw_diag_up(u8g2, x + 7, y + 2, 6, 4);
+    u8g2_DrawStr(u8g2,
+                 (u8g2_uint_t)(x + 16),
+                 (u8g2_uint_t)baseline,
+                 count_text);
+}
+
 static void terminal_draw_plug_icon(u8g2_t *u8g2, int x, int y)
 {
     u8g2_DrawVLine(u8g2, (u8g2_uint_t)(x + 5), (u8g2_uint_t)y, 4);
@@ -2232,6 +2260,11 @@ static void terminal_draw_clock_icon(u8g2_t *u8g2, int x, int y, bool valid)
     }
 }
 
+static bool terminal_status_icon_fits(int x, int icon_width, int right_limit)
+{
+    return x + icon_width <= right_limit;
+}
+
 static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2)
 {
     const solar_os_status_bar_t *status = &terminal->status_bar;
@@ -2244,26 +2277,6 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
 
     terminal_set_draw_color(terminal, u8g2, 1);
     const int icon_y = height >= 16 ? 3 : 1;
-    int x = 4;
-
-    if (status->battery_external_power) {
-        terminal_draw_plug_icon(u8g2, x, icon_y);
-    } else {
-        terminal_draw_battery_icon(u8g2, x, icon_y, status->battery_valid, status->battery_percent);
-    }
-    x += 28;
-    terminal_draw_keyboard_icon(u8g2, x, icon_y, status->ble_connected, status->ble_scanning);
-    x += 26;
-    terminal_draw_wifi_icon(u8g2,
-                            x,
-                            icon_y,
-                            status->wifi_started,
-                            status->wifi_connected,
-                            status->wifi_has_ip,
-                            status->wifi_level);
-    x += 22;
-    terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
-    x += 24;
 
     u8g2_SetFont(u8g2, u8g2_font_solar_os_default_r_12_tf);
     u8g2_SetFontMode(u8g2, 1);
@@ -2283,12 +2296,84 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     const int time_width = (int)u8g2_GetStrWidth(u8g2, time_text);
     const int time_x = width - time_width - 4;
     const int clock_x = time_x - 12;
+    const bool compact = width <= TERM_STATUS_BAR_COMPACT_MAX_WIDTH;
+    const int icon_right_limit = compact && !status->time_valid ? time_x : clock_x;
+    char inbox_count_text[4] = {0};
+    const int inbox_width = status->inbox_unread > 0
+        ? terminal_inbox_icon_width(u8g2, status->inbox_unread, inbox_count_text)
+        : 0;
+    const int leading_icon_right_limit = compact && inbox_width > 0
+        ? icon_right_limit - inbox_width - TERM_STATUS_BAR_ICON_GAP
+        : icon_right_limit;
+    int x = 4;
 
-    if (x + 15 < clock_x) {
+    if (!compact) {
+        if (status->battery_external_power) {
+            terminal_draw_plug_icon(u8g2, x, icon_y);
+        } else {
+            terminal_draw_battery_icon(
+                u8g2, x, icon_y, status->battery_valid, status->battery_percent);
+        }
+        x += 28;
+        terminal_draw_keyboard_icon(u8g2, x, icon_y, status->ble_connected, status->ble_scanning);
+        x += 26;
+        terminal_draw_wifi_icon(u8g2,
+                                x,
+                                icon_y,
+                                status->wifi_started,
+                                status->wifi_connected,
+                                status->wifi_has_ip,
+                                status->wifi_level);
+        x += 22;
+        terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
+        x += 24;
+    } else {
+        if ((status->battery_external_power || status->battery_valid) &&
+            terminal_status_icon_fits(x, 20, leading_icon_right_limit)) {
+            if (status->battery_external_power) {
+                terminal_draw_plug_icon(u8g2, x, icon_y);
+            } else {
+                terminal_draw_battery_icon(
+                    u8g2, x, icon_y, true, status->battery_percent);
+            }
+            x += 20 + TERM_STATUS_BAR_ICON_GAP;
+        }
+
+        if ((status->ble_connected || status->ble_scanning) &&
+            terminal_status_icon_fits(x, 22, leading_icon_right_limit)) {
+            terminal_draw_keyboard_icon(
+                u8g2, x, icon_y, status->ble_connected, status->ble_scanning);
+            x += 22 + TERM_STATUS_BAR_ICON_GAP;
+        }
+
+        if (status->wifi_started &&
+            terminal_status_icon_fits(x, 13, leading_icon_right_limit)) {
+            terminal_draw_wifi_icon(u8g2,
+                                    x,
+                                    icon_y,
+                                    true,
+                                    status->wifi_connected,
+                                    status->wifi_has_ip,
+                                    status->wifi_level);
+            x += 13 + TERM_STATUS_BAR_ICON_GAP;
+        }
+
+        if (status->audio_enabled && status->audio_volume > 0 &&
+            terminal_status_icon_fits(x, 17, leading_icon_right_limit)) {
+            terminal_draw_speaker_icon(u8g2, x, icon_y, true, status->audio_volume);
+            x += 17 + TERM_STATUS_BAR_ICON_GAP;
+        }
+    }
+
+    if ((!compact || status->sd_mounted) && x + 15 < leading_icon_right_limit) {
         terminal_draw_sd_icon(u8g2, x, icon_y, status->sd_mounted);
         x += 20;
     }
-    if (x + 10 < clock_x) {
+    if (inbox_width > 0 && terminal_status_icon_fits(x, inbox_width, icon_right_limit)) {
+        terminal_draw_inbox_icon(u8g2, x, icon_y, height - 3, inbox_count_text);
+        x += inbox_width + TERM_STATUS_BAR_ICON_GAP;
+    }
+    if ((!compact && x + 10 < clock_x) || (compact && status->time_valid)) {
         terminal_draw_clock_icon(u8g2, clock_x, icon_y, status->time_valid);
     }
 

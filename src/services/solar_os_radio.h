@@ -37,6 +37,8 @@ typedef enum {
     SOLAR_OS_RADIO_FEATURE_ADDRESSING = 1U << 8,
     SOLAR_OS_RADIO_FEATURE_AES = 1U << 9,
     SOLAR_OS_RADIO_FEATURE_PROMISCUOUS = 1U << 10,
+    SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX = 1U << 11,
+    SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX = 1U << 12,
 } solar_os_radio_feature_t;
 
 typedef enum {
@@ -59,6 +61,7 @@ typedef struct {
     int8_t tx_power_dbm;
     bool crc_enabled;
     bool variable_length;
+    uint16_t payload_length;
     bool has_node_id;
     uint8_t node_id;
     bool has_network_id;
@@ -93,6 +96,10 @@ typedef struct {
     esp_err_t (*set_state)(void *ctx, solar_os_radio_state_t state);
     esp_err_t (*get_status)(void *ctx, solar_os_radio_status_t *status);
     esp_err_t (*send)(void *ctx, const solar_os_radio_packet_t *packet, uint32_t timeout_ms);
+    esp_err_t (*send_stream)(void *ctx,
+                             const uint8_t *data,
+                             size_t len,
+                             uint32_t timeout_ms);
     esp_err_t (*receive)(void *ctx, solar_os_radio_packet_t *packet, uint32_t timeout_ms);
 } solar_os_radio_ops_t;
 
@@ -132,6 +139,10 @@ esp_err_t solar_os_radio_set_state(const char *name, solar_os_radio_state_t stat
 esp_err_t solar_os_radio_send(const char *name,
                               const solar_os_radio_packet_t *packet,
                               uint32_t timeout_ms);
+esp_err_t solar_os_radio_send_stream(const char *name,
+                                     const uint8_t *data,
+                                     size_t len,
+                                     uint32_t timeout_ms);
 esp_err_t solar_os_radio_receive(const char *name,
                                  solar_os_radio_packet_t *packet,
                                  uint32_t timeout_ms);

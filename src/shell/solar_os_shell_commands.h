@@ -18,6 +18,9 @@ void solar_os_shell_cmd_daq(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_date(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv);
 #endif
@@ -27,6 +30,9 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_joystick(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv);
@@ -53,6 +59,9 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
 void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+void solar_os_shell_cmd_pocsag(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv);

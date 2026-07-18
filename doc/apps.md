@@ -160,6 +160,57 @@ Controls:
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
+## inbox
+
+Universal incoming-message browser for pages, chat notifications, mail, and
+other background producers. It reads the same shared inbox that supplies the
+status-bar unread count.
+
+Usage:
+
+```text
+inbox
+```
+
+Controls:
+
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`, and `End` navigate.
+- `Enter` or `Right` opens the selected message and marks it read.
+- `Left`, `Backspace`, or `Esc` returns from a message to the list.
+- `u` toggles the unread-only filter.
+- `m` toggles the selected message between read and unread.
+- `r` refreshes and `q` or the app-exit key exits.
+
+## email
+
+Receive-only IMAPS client for the configured mailbox. The app shows the
+provider-specific message list while every newly synchronized message is also
+published to the universal inbox and its shared status-bar unread counter.
+
+Configure and synchronize the account before opening the app:
+
+```text
+wifi on
+email configure imaps://imap.example.com user@example.com app-password INBOX
+email sync
+email
+```
+
+Controls:
+
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`, and `End` navigate.
+- `Enter` or `Right` opens the selected message and marks its universal inbox
+  notification read.
+- `Left`, `Backspace`, or `Esc` returns from a message to the list.
+- `u` toggles the unread-only filter.
+- `m` toggles the selected message between read and unread.
+- `r` refreshes and `q` or the app-exit key exits.
+
+The account configuration persists in NVS. The local message list is volatile
+and keeps the newest 32 synchronized messages. This first version displays a
+best-effort text preview; MIME attachments, encoded headers, sending, and
+server-side read flags are not implemented yet.
+
 ## invaders
 
 Graphical arcade shooter.

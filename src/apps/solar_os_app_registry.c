@@ -36,8 +36,14 @@
 #if SOLAR_OS_PACKAGE_APP_EDIT
 #include "solar_os_edit.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+#include "solar_os_email_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_FILES
 #include "solar_os_files.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+#include "solar_os_inbox_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS
 #include "solar_os_less.h"
@@ -104,8 +110,14 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_EDIT
     {"edit", "text editor", &solar_os_edit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+    {"email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+#endif
 #if SOLAR_OS_PACKAGE_APP_FILES
     {"files", "two-pane file manager", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    {"inbox", "universal incoming-message browser", &solar_os_inbox_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS
     {"less", "text file pager", &solar_os_less_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},

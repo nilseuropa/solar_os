@@ -28,6 +28,9 @@ available. Optional startup and alias files:
 /.shell/hostname
 ```
 
+`/.shell/startup` runs once per boot on the first startup-enabled shell. Shell
+sessions created by that script do not run it again.
+
 The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 ## Shell Control
@@ -42,6 +45,19 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `sessions` | `sessions` | List display app sessions, display shell sessions, and port shell sessions. |
 | `fg` | `fg <session-id>` | Resume a display app or display shell session. |
 | `close` | `close <session-id>` | Close a display app or display shell session, or stop a port shell session. |
+| `inbox` | `inbox` | Open the universal incoming-message browser. |
+| `inbox` | `inbox status` | Show universal incoming-message counts and storage status. |
+| `inbox` | `inbox list [all\|unread]` | List newest messages first. |
+| `inbox` | `inbox read <id>` | Print one message and mark it read. |
+| `inbox` | `inbox clear` | Remove every message. |
+| `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `email` | `email` | Open the receive-only email app. |
+| `email` | `email status` | Show saved account, local message counts, and last sync error. |
+| `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |
+| `email` | `email sync` | Start a one-shot mailbox synchronization. |
+| `email` | `email forget` | Remove the saved account and local email list. |
+| `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
+| `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 
 Sessions are foreground application state plus shell instances attached to a
 display target or byte-stream port. Background services such as log followers,
@@ -58,6 +74,22 @@ name command-or-app fixed-args...
 ```
 
 Arguments typed after the alias are appended.
+
+The inbox is a volatile, producer-neutral message sink. Radio decoders,
+background chat or mail jobs, and shell scripts publish messages with a source,
+optional topic/sender/title, priority, timestamp, and body. New messages are
+unread by default. The status bar shows an envelope and unread count; reading or
+clearing messages removes that count. The first implementation keeps the newest
+64 messages in PSRAM when available and falls back to internal RAM. The browser
+shows newest messages first; opening a message marks the shared entry read.
+
+Email configuration is saved in NVS and deliberately has no compiled remote
+server or account default. Only `imaps://` endpoints are accepted, with TLS
+certificate validation enabled. Use a provider-specific app password where
+available. The password is supplied as a shell argument and stored with the
+device configuration, so treat shell history and physical access to the device
+as sensitive. `email sync` performs one synchronization; use the `email-sync`
+job for periodic polling.
 
 ## System And Diagnostics
 
@@ -380,6 +412,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
+| `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
+| `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart status` | Show UART service state. |
 | `uart` | `uart baud [rate]` | Show or set UART baud rate. |
 | `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
@@ -505,6 +539,35 @@ wire it according to the module board; use suitable current limiting when tying
 it to 3V3. Boards without expansion SPI, such as the Waveshare RLCD target,
 will not compile the active `pcd8544` expansion driver.
 
+Common 128x64 SSD1306 I2C OLED modules can be attached as auxiliary display
+targets with the `ssd1306` driver. The driver supports the usual `0x3c` and
+`0x3d` addresses and requires both the expansion I2C bus and address so the
+resource can be claimed. On the Waveshare RLCD target, wire the module to the
+I2C pins on the expansion header:
+
+```text
+display pins: VCC->3V3 GND->GND SDA->SDA(GPIO13) SCL->SCL(GPIO14)
+expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
+display list
+display test oled0
+session create shell oled0
+```
+
+Use `i2c scan` to confirm whether a module responds at `0x3c` or `0x3d` before
+attaching it. The same driver is available on other boards with expansion I2C;
+use `expansion status` to see that board's bus name and pins.
+
+If the image is shifted two pixels left and two uninitialized columns appear on
+the right, the module uses an SH1106-compatible 132-column controller despite
+often being sold as SSD1306. Reattach it with the SH1106 profile, which applies
+the controller's two-column visible-window offset:
+
+```text
+expansion detach oled0
+expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c
+display test oled0
+```
+
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI
 and optional source/destination IDs. Radio frequency values are Hz by default
@@ -516,6 +579,31 @@ radio config radio0 frequency 433MHz
 radio config radio0 modulation gfsk
 radio send radio0 hello
 radio recv radio0 5000
+```
+
+The POCSAG job configures an attached packet radio for one paging channel,
+filters addresses to one RIC, corrects up to two bad bits per BCH codeword, and
+publishes decoded pages to the universal inbox. Consecutive POCSAG batches are
+kept in one message. For the 448.425 MHz test channel:
+
+```text
+job start pocsag radio 448425000 1200 1841525 alpha
+pocsag status
+inbox list unread
+```
+
+Use `inverted` as the final argument if the transmitter and receiver use
+opposite FSK mark/space polarity. Stopping the job restores the radio's previous
+configuration and state.
+
+To transmit a page, stop the receiver when it uses the same half-duplex radio,
+then send the message. Alphanumeric pages default to function 3; numeric pages
+default to function 0. The optional final argument selects function 0 through 3.
+The previous radio configuration and state are restored after transmission.
+
+```text
+job stop pocsag
+pocsag send radio 448425000 1200 1841525 "SolarOS calling" alpha inverted
 ```
 
 ## Quick Examples

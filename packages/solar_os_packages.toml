@@ -3,6 +3,7 @@ members = [
   "core_runtime",
   "core_shell",
   "core_fs_commands",
+  "service_inbox",
   "app_com",
   "app_edit",
   "app_less",
@@ -22,6 +23,7 @@ members = [
   "service_radio",
   "expansion_rfm69",
   "expansion_pcd8544",
+  "expansion_ssd1306",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -38,6 +40,7 @@ members = [
   "job_batmon",
   "job_daq",
   "job_sump",
+  "job_pocsag",
 ]
 
 [groups.audio]
@@ -54,8 +57,10 @@ members = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_email",
   "job_httpd",
   "job_chatd",
+  "job_email_sync",
   "job_slip",
   "job_ntp_sync",
 ]
@@ -66,20 +71,24 @@ triggers = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_email",
   "job_httpd",
   "job_chatd",
+  "job_email_sync",
   "job_slip",
   "job_ntp_sync",
 ]
 sources = [
   "shell/solar_os_shell_mqtt.c",
   "services/solar_os_chat.c",
+  "services/solar_os_email.c",
   "services/solar_os_mqtt.c",
   "services/solar_os_net.c",
   "services/solar_os_scp.c",
   "services/solar_os_ssh.c",
   "services/solar_os_ssh_keys.c",
   "services/solar_os_ssh_transport.c",
+  "shell/solar_os_shell_email.c",
 ]
 requires = [
   "esp-tls",
@@ -196,6 +205,15 @@ sources = [
   "services/solar_os_transfer.c",
   "services/solar_os_zmodem.c",
 ]
+
+[packages.service_inbox]
+label = "service.inbox"
+sources = [
+  "apps/solar_os_inbox_app.c",
+  "services/solar_os_inbox.c",
+  "shell/solar_os_shell_inbox.c",
+]
+requires = ["esp_timer", "heap"]
 
 [packages.core_fs_commands]
 label = "core.fs-commands"
@@ -314,6 +332,15 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["expansion_spi", "expansion_gpio"]
 
+[packages.expansion_ssd1306]
+label = "expansion.ssd1306"
+sources = [
+  "drivers/ssd1306.c",
+  "services/solar_os_ssd1306.c",
+]
+requires = ["esp_driver_i2c", "u8g2"]
+capabilities = ["expansion_i2c"]
+
 [packages.service_json]
 label = "service.json"
 sources = ["services/solar_os_json.c"]
@@ -420,6 +447,11 @@ label = "app.chat"
 sources = ["apps/solar_os_chat.c"]
 capabilities = ["psram", "wifi"]
 
+[packages.app_email]
+label = "app.email"
+sources = ["apps/solar_os_email_app.c"]
+capabilities = ["wifi"]
+
 [packages.app_view]
 label = "app.view"
 sources = ["apps/solar_os_view.c"]
@@ -510,6 +542,12 @@ label = "job.chatd"
 sources = ["jobs/solar_os_chatd_job.c"]
 capabilities = ["psram", "wifi"]
 
+[packages.job_email_sync]
+label = "job.email-sync"
+sources = ["jobs/solar_os_email_sync_job.c"]
+requires = ["esp-tls", "heap"]
+capabilities = ["wifi"]
+
 [packages.job_slip]
 label = "job.slip"
 sources = ["jobs/solar_os_slip_job.c"]
@@ -542,3 +580,12 @@ capabilities = ["cdc", "gpio"]
 label = "job.ntp-sync"
 sources = ["jobs/solar_os_ntp_sync_job.c"]
 capabilities = ["wifi"]
+
+[packages.job_pocsag]
+label = "job.pocsag"
+sources = [
+  "services/solar_os_pocsag.c",
+  "jobs/solar_os_pocsag_job.c",
+  "shell/solar_os_shell_pocsag.c",
+]
+capabilities = ["expansion_spi"]

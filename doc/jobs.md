@@ -39,6 +39,7 @@ job-specific inspection code in the shell.
 
 Jobs that use byte-stream ports claim those ports while running. If a port is
 already owned, SolarOS reports the owner, for example `job log owns cdc0`.
+Radio listeners expose their radio as a custom job resource.
 
 Compact list example:
 
@@ -350,6 +351,92 @@ Notes:
 - In `once` mode, the job retries at the interval until the first successful
   sync, then stops itself.
 - Without `once`, it keeps syncing periodically.
+
+## email-sync
+
+Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local
+`email` app and publishes each new message to the universal inbox.
+
+Usage:
+
+```text
+job start email-sync [interval-sec] [once]
+job stop email-sync
+job status email-sync
+```
+
+The default interval is 300 seconds; accepted values are 30 through 86400
+seconds. `once` stops the job after one attempt. The account must be configured
+first:
+
+```text
+wifi on
+email configure imaps://imap.example.com user@example.com app-password INBOX
+job start email-sync 300
+```
+
+To start polling after each reboot, add the following after `wifi on` in
+`/.shell/startup`:
+
+```text
+job start email-sync 300
+```
+
+Notes:
+
+- TLS certificate validation is mandatory; plaintext IMAP is not accepted.
+- The first synchronization imports up to the newest eight messages. Later
+  polls process new UIDs in batches of eight, so a busy mailbox catches up over
+  successive intervals without overflowing the response buffer.
+- The provider-local list keeps 32 messages in volatile memory. Universal inbox
+  notifications use the mailbox as topic, the `From` header as sender, and the
+  subject as title.
+- Body previews are best effort. Full MIME decoding, attachments, SMTP sending,
+  and server-side read-state synchronization remain future work.
+
+## pocsag
+
+POCSAG pager receiver job. It configures a registered packet radio for a
+continuous POCSAG byte stream, frames successive 64-byte batches, filters pages
+to one receiver identity code (RIC), decodes alphanumeric or numeric payloads,
+and publishes completed messages to the universal inbox.
+
+Usage:
+
+```text
+job start pocsag <radio> <frequency-hz> <baud> <ric> [alpha|numeric] [normal|inverted]
+job stop pocsag
+job status pocsag
+pocsag status
+pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha|numeric] [normal|inverted] [function]
+```
+
+Example:
+
+```text
+job start pocsag radio 448425000 1200 1841525 alpha
+inbox list unread
+
+job stop pocsag
+pocsag send radio 448425000 1200 1841525 "SolarOS calling" alpha inverted
+```
+
+Notes:
+
+- The decoder validates POCSAG parity and BCH and corrects up to two erroneous
+  bits per codeword.
+- Messages may continue across batch boundaries; the receiver follows the sync
+  words between batches until the page is complete.
+- Identical repeated pages received within 30 seconds produce one inbox entry.
+- The default FSK polarity is `normal`; retry with `inverted` if batches remain
+  at zero while the transmitter is active.
+- `pocsag status` shows batch/message counts, corrections, receive errors, and
+  the RSSI of the most recent batch.
+- Stopping the job restores the radio configuration and state that were active
+  when it started.
+- Sending supports messages spanning multiple batches and restores the radio's
+  previous configuration afterward. A receiver job using the same half-duplex
+  radio must be stopped first.
 
 ## slip
 

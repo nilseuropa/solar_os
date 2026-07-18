@@ -114,7 +114,6 @@ struct solar_os_shell_session {
     bool builtin_suppressed_prompt;
     bool prompt_on_resume;
     bool clear_on_resume;
-    bool startup_attempted;
     bool watch_active;
     bool watch_executing;
     bool log_follow_active;
@@ -131,6 +130,7 @@ struct solar_os_shell_session {
 };
 
 static EXT_RAM_BSS_ATTR solar_os_shell_session_t shell_display_session;
+static bool shell_startup_attempted;
 
 static void cmd_help(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
@@ -174,6 +174,15 @@ static const shell_command_t shell_builtin_commands[] = {
     {"stream", "list data streams", solar_os_shell_cmd_stream},
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
     {"log", "show SolarOS logs", solar_os_shell_cmd_log},
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+    {"email", "IMAP email client", solar_os_shell_cmd_email},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+    {"pocsag", "POCSAG pager send and receive", solar_os_shell_cmd_pocsag},
+#endif
     {"port", "show byte-stream ports", solar_os_shell_cmd_port},
     {"xfer", "transfer files over byte-stream ports", solar_os_shell_cmd_xfer},
     {"df", "show filesystem free space", solar_os_shell_cmd_df},
@@ -262,6 +271,19 @@ static const shell_command_t shell_builtin_commands[] = {
 
 static const size_t shell_builtin_command_count =
     sizeof(shell_builtin_commands) / sizeof(shell_builtin_commands[0]);
+
+static bool shell_builtin_command_exists(const char *name)
+{
+    if (name == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < shell_builtin_command_count; i++) {
+        if (strcmp(shell_builtin_commands[i].name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static const char * const setterm_subcommands[] = {
     "orientation",
@@ -382,6 +404,14 @@ static const char * const session_shell_size_values[] = {"80x24", "100x30", "132
 
 static const char * const job_log_values[] = {"file"};
 static const char * const ntp_sync_values[] = {"once"};
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+static const char * const email_sync_values[] = {"once", "30", "60", "300", "900", "3600"};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+static const char * const pocsag_subcommands[] = {"status", "send"};
+static const char * const pocsag_format_values[] = {"alpha", "numeric"};
+static const char * const pocsag_polarity_values[] = {"normal", "inverted"};
+#endif
 
 static const char * const sd_subcommands[] = {
     "status",
@@ -439,6 +469,10 @@ static const char * const expansion_driver_values[] = {
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
     "pcd8544",
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
+    "ssd1306",
+    "sh1106",
+#endif
 };
 
 static const char * const radio_subcommands[] = {
@@ -458,6 +492,7 @@ static const char * const radio_config_fields[] = {
     "power",
     "crc",
     "variable",
+    "length",
     "preamble",
     "sync",
     "node",
@@ -525,6 +560,14 @@ static const char * const log_subcommands[] = {
 static const char * const log_level_values[] = {"error", "warn", "info", "debug"};
 static const char * const log_sink_values[] = {"cdc"};
 static const char * const on_off_values[] = {"on", "off"};
+
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
+static const char * const inbox_list_values[] = {"all", "unread"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
+#endif
 
 static const char * const gpio_subcommands[] = {
     "status",
@@ -713,6 +756,13 @@ static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+static const char * const path_inbox[] = {"inbox"};
+static const char * const path_inbox_list[] = {"inbox", "list"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+static const char * const path_email[] = {"email"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
 #endif
@@ -728,6 +778,23 @@ static const char * const path_job_start_bridge[] = {"job", "start", "bridge"};
 static const char * const path_job_start_bridge_port[] = {"job", "start", "bridge", SHELL_COMPLETION_ANY};
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
 static const char * const path_job_start_ntp_sync[] = {"job", "start", "ntp-sync"};
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+static const char * const path_job_start_email_sync[] = {"job", "start", "email-sync"};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+static const char * const path_job_start_pocsag[] = {"job", "start", "pocsag"};
+static const char * const path_pocsag[] = {"pocsag"};
+static const char * const path_pocsag_send[] = {"pocsag", "send"};
+static const char * const path_pocsag_send_message[] = {
+    "pocsag", "send", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+};
+static const char * const path_pocsag_send_format[] = {
+    "pocsag", "send", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+#endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
 static const char * const path_job_start_daq[] = {"job", "start", "daq"};
 static const char * const path_job_start_daq_stream[] = {"job", "start", "daq", SHELL_COMPLETION_ANY};
@@ -1181,6 +1248,16 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PORTS(path_job_start_bridge_port),
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
     SHELL_COMPLETION_STATIC(path_job_start_ntp_sync, ntp_sync_values),
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+    SHELL_COMPLETION_STATIC(path_job_start_email_sync, email_sync_values),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_POCSAG
+    SHELL_COMPLETION_RADIOS(path_job_start_pocsag),
+    SHELL_COMPLETION_STATIC(path_pocsag, pocsag_subcommands),
+    SHELL_COMPLETION_RADIOS(path_pocsag_send),
+    SHELL_COMPLETION_STATIC(path_pocsag_send_message, pocsag_format_values),
+    SHELL_COMPLETION_STATIC(path_pocsag_send_format, pocsag_polarity_values),
+#endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
     SHELL_COMPLETION_STREAMS(path_job_start_daq),
     SHELL_COMPLETION_PATH(path_job_start_daq, false),
@@ -1276,6 +1353,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_log_level, log_level_values),
     SHELL_COMPLETION_STATIC(path_log_sink, log_sink_values),
     SHELL_COMPLETION_STATIC(path_log_sink_cdc, on_off_values),
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
+    SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+    SHELL_COMPLETION_STATIC(path_email, email_subcommands),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),
 #endif
@@ -2779,6 +2863,7 @@ static void shell_print_builtin_command_matches(solar_os_context_t *ctx, const c
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
         if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name) &&
             (prefix == NULL || starts_with(app->name, prefix))) {
             solar_os_shell_io_writeln(io, app->name);
         }
@@ -2804,7 +2889,9 @@ static void shell_complete_builtin_command(solar_os_context_t *ctx, bool show_ma
     }
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
-        if (app != NULL && app->name != NULL && starts_with(app->name, shell_session(ctx)->input)) {
+        if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name) &&
+            starts_with(app->name, shell_session(ctx)->input)) {
             shell_note_completion_match(match, sizeof(match), &match_count, app->name);
         }
     }
@@ -3191,7 +3278,8 @@ static void shell_completion_emit_commands(shell_completion_match_t *state)
     }
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
-        if (app != NULL && app->name != NULL) {
+        if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name)) {
             shell_completion_emit(state, app->name);
         }
     }
@@ -4887,10 +4975,10 @@ static bool shell_run_startup_script(solar_os_context_t *ctx)
 {
     char path[SHELL_PATH_MAX];
 
-    if (shell_session(ctx)->startup_attempted) {
+    if (shell_startup_attempted) {
         return true;
     }
-    shell_session(ctx)->startup_attempted = true;
+    shell_startup_attempted = true;
 
     if (!solar_os_storage_is_mounted() ||
         !shell_make_state_path(path, sizeof(path), SHELL_STARTUP_FILE)) {

@@ -11,6 +11,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 #include "solar_os_rfm69.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
+#include "solar_os_ssd1306.h"
+#endif
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
@@ -45,6 +48,24 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .probe_supported = false,
         .attach = solar_os_pcd8544_attach,
         .detach = solar_os_pcd8544_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
+    {
+        .name = "ssd1306",
+        .summary = "SSD1306 128x64 I2C OLED",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+        .probe_supported = true,
+        .attach = solar_os_ssd1306_attach,
+        .detach = solar_os_ssd1306_detach,
+    },
+    {
+        .name = "sh1106",
+        .summary = "SH1106 128x64 I2C OLED",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+        .probe_supported = true,
+        .attach = solar_os_sh1106_attach,
+        .detach = solar_os_ssd1306_detach,
     },
 #endif
 };

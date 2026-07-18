@@ -260,7 +260,7 @@ static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_c
     solar_os_shell_io_printf(term,
                              "frequency=%" PRIu32 " modulation=%s bitrate=%" PRIu32
                              " deviation=%" PRIu32 " bandwidth=%" PRIu32
-                             " power=%d crc=%s preamble=%u variable=%s ",
+                             " power=%d crc=%s preamble=%u variable=%s length=%u ",
                              config->frequency_hz,
                              solar_os_radio_modulation_name(config->modulation),
                              config->bitrate_bps,
@@ -269,7 +269,8 @@ static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_c
                              config->tx_power_dbm,
                              config->crc_enabled ? "on" : "off",
                              config->preamble_len,
-                             config->variable_length ? "on" : "off");
+                             config->variable_length ? "on" : "off",
+                             config->payload_length);
     radio_print_sync_word(term, config);
     if (config->has_node_id) {
         solar_os_shell_io_printf(term, " node=%u", config->node_id);
@@ -465,6 +466,12 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
         config.variable_length = bit;
+    } else if (strcmp(field, "length") == 0) {
+        if (!parse_u32_arg(argv[4], 0, SOLAR_OS_RADIO_PACKET_MAX, &u32)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
+        config.payload_length = (uint16_t)u32;
     } else if (strcmp(field, "preamble") == 0) {
         if (!parse_u32_arg(argv[4], 0, UINT16_MAX, &u32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
