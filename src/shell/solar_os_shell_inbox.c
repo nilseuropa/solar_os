@@ -7,7 +7,9 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "solar_os_inbox_app.h"
 #include "solar_os_inbox.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 
 #define INBOX_LIST_MAX 16
@@ -20,6 +22,7 @@ static solar_os_shell_io_t *inbox_terminal(solar_os_context_t *ctx)
 static void inbox_print_usage(solar_os_shell_io_t *io)
 {
     solar_os_shell_io_writeln(io, "usage:");
+    solar_os_shell_io_writeln(io, "  inbox");
     solar_os_shell_io_writeln(io, "  inbox status");
     solar_os_shell_io_writeln(io, "  inbox list [all|unread]");
     solar_os_shell_io_writeln(io, "  inbox read <id>");
@@ -204,7 +207,16 @@ void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+    if (argc == 1) {
+        const esp_err_t err = solar_os_context_request_launch(ctx, &solar_os_inbox_app, 0, NULL);
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(io, "inbox: launch failed: %s\n", esp_err_to_name(err));
+        } else {
+            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+        }
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
         inbox_cmd_status(io);
         return;
     }

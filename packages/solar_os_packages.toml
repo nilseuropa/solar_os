@@ -203,6 +203,7 @@ sources = [
 [packages.service_inbox]
 label = "service.inbox"
 sources = [
+  "apps/solar_os_inbox_app.c",
   "services/solar_os_inbox.c",
   "shell/solar_os_shell_inbox.c",
 ]

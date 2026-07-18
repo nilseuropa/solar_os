@@ -160,6 +160,27 @@ Controls:
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
+## inbox
+
+Universal incoming-message browser for pages, chat notifications, mail, and
+other background producers. It reads the same shared inbox that supplies the
+status-bar unread count.
+
+Usage:
+
+```text
+inbox
+```
+
+Controls:
+
+- `Up`/`Down`, `Page Up`/`Page Down`, `Home`, and `End` navigate.
+- `Enter` or `Right` opens the selected message and marks it read.
+- `Left`, `Backspace`, or `Esc` returns from a message to the list.
+- `u` toggles the unread-only filter.
+- `m` toggles the selected message between read and unread.
+- `r` refreshes and `q` or the app-exit key exits.
+
 ## invaders
 
 Graphical arcade shooter.
