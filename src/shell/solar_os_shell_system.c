@@ -21,6 +21,7 @@
 #include "solar_os_config.h"
 #include "solar_os_engines.h"
 #include "solar_os_i2c.h"
+#include "solar_os_memory.h"
 #include "solar_os_power.h"
 #include "solar_os_ramfs.h"
 #include "solar_os_shell_common.h"
@@ -787,17 +788,19 @@ void solar_os_shell_cmd_uptime(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_printf(term, "up %s\n", uptime);
 }
 
-static void mem_print_region(solar_os_shell_io_t *term, const char *label, uint32_t caps)
+static void mem_print_region(solar_os_shell_io_t *term,
+                             const char *label,
+                             const solar_os_memory_region_status_t *region)
 {
     char total[16];
     char free_now[16];
     char low[16];
     char largest[16];
 
-    format_bytes(heap_caps_get_total_size(caps), total, sizeof(total));
-    format_bytes(heap_caps_get_free_size(caps), free_now, sizeof(free_now));
-    format_bytes(heap_caps_get_minimum_free_size(caps), low, sizeof(low));
-    format_bytes(heap_caps_get_largest_free_block(caps), largest, sizeof(largest));
+    format_bytes(region->total, total, sizeof(total));
+    format_bytes(region->free, free_now, sizeof(free_now));
+    format_bytes(region->minimum_free, low, sizeof(low));
+    format_bytes(region->largest_free, largest, sizeof(largest));
     solar_os_shell_io_printf(term,
                              "%s: total %s free %s low %s max %s\n",
                              label,
@@ -892,17 +895,56 @@ void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv)
 void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+    solar_os_memory_status_t status;
 
-    (void)argv;
-
-    if (argc != 1) {
-        solar_os_shell_io_writeln(term, "usage: mem");
+    if (argc > 2 || (argc == 2 && strcmp(argv[1], "policy") != 0)) {
+        solar_os_shell_io_writeln(term, "usage: mem [policy]");
         return;
     }
 
-    mem_print_region(term, "Internal", MALLOC_CAP_INTERNAL);
-    mem_print_region(term, "PSRAM", MALLOC_CAP_SPIRAM);
-    mem_print_region(term, "DMA", MALLOC_CAP_DMA);
+    solar_os_memory_get_status(&status);
+    mem_print_region(term, "Internal", &status.internal);
+    mem_print_region(term, "PSRAM", &status.external);
+    mem_print_region(term, "DMA", &status.dma);
+
+    if (argc == 1) {
+        return;
+    }
+
+    char reserve[16];
+    char fallback_max[16];
+    format_bytes(status.internal_reserve, reserve, sizeof(reserve));
+    format_bytes(status.internal_fallback_max, fallback_max, sizeof(fallback_max));
+    solar_os_shell_io_printf(term,
+                             "Policy: internal reserve %s, fallback max %s\n",
+                             reserve,
+                             fallback_max);
+
+    for (size_t i = 0; i < SOLAR_OS_MEMORY_CLASS_COUNT; i++) {
+        const solar_os_memory_class_stats_t *stats = &status.classes[i];
+        char requested[16];
+        format_bytes(stats->requested_bytes, requested, sizeof(requested));
+        solar_os_shell_io_printf(term,
+                                 "%-18s req=%" PRIu32 " ok=%" PRIu32
+                                 " fail=%" PRIu32 " fallback=%" PRIu32
+                                 " bytes=%s\n",
+                                 solar_os_memory_class_name((solar_os_memory_class_t)i),
+                                 stats->requests,
+                                 stats->successes,
+                                 stats->failures,
+                                 stats->fallbacks,
+                                 requested);
+    }
+
+    if (status.last_failure_valid) {
+        char failed_size[16];
+        format_bytes(status.last_failure_size, failed_size, sizeof(failed_size));
+        solar_os_shell_io_printf(term,
+                                 "Last failure: %s tag=%s size=%s\n",
+                                 solar_os_memory_class_name(status.last_failure_class),
+                                 status.last_failure_tag,
+                                 failed_size);
+    }
 }
 
 static bool ramfs_parse_size(const char *text, size_t *bytes)
