@@ -272,6 +272,19 @@ static const shell_command_t shell_builtin_commands[] = {
 static const size_t shell_builtin_command_count =
     sizeof(shell_builtin_commands) / sizeof(shell_builtin_commands[0]);
 
+static bool shell_builtin_command_exists(const char *name)
+{
+    if (name == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < shell_builtin_command_count; i++) {
+        if (strcmp(shell_builtin_commands[i].name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static const char * const setterm_subcommands[] = {
     "orientation",
     "font",
@@ -2850,6 +2863,7 @@ static void shell_print_builtin_command_matches(solar_os_context_t *ctx, const c
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
         if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name) &&
             (prefix == NULL || starts_with(app->name, prefix))) {
             solar_os_shell_io_writeln(io, app->name);
         }
@@ -2875,7 +2889,9 @@ static void shell_complete_builtin_command(solar_os_context_t *ctx, bool show_ma
     }
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
-        if (app != NULL && app->name != NULL && starts_with(app->name, shell_session(ctx)->input)) {
+        if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name) &&
+            starts_with(app->name, shell_session(ctx)->input)) {
             shell_note_completion_match(match, sizeof(match), &match_count, app->name);
         }
     }
@@ -3262,7 +3278,8 @@ static void shell_completion_emit_commands(shell_completion_match_t *state)
     }
     for (size_t i = 0; i < solar_os_app_registry_count(); i++) {
         const solar_os_app_registry_entry_t *app = solar_os_app_registry_get(i);
-        if (app != NULL && app->name != NULL) {
+        if (app != NULL && app->name != NULL &&
+            !shell_builtin_command_exists(app->name)) {
             shell_completion_emit(state, app->name);
         }
     }
