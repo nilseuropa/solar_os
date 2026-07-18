@@ -124,7 +124,8 @@ Controls:
 
 Text editor for files on mounted storage. It supports cursor navigation,
 selection, clipboard operations, text-size changes, and syntax highlighting for
-known source files.
+known source files. The editor supports files up to 256 KiB on boards with
+PSRAM and 32 KiB on boards without PSRAM.
 
 Usage:
 
