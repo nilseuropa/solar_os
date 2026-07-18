@@ -352,6 +352,48 @@ Notes:
   sync, then stops itself.
 - Without `once`, it keeps syncing periodically.
 
+## email-sync
+
+Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local
+`email` app and publishes each new message to the universal inbox.
+
+Usage:
+
+```text
+job start email-sync [interval-sec] [once]
+job stop email-sync
+job status email-sync
+```
+
+The default interval is 300 seconds; accepted values are 30 through 86400
+seconds. `once` stops the job after one attempt. The account must be configured
+first:
+
+```text
+wifi on
+email configure imaps://imap.example.com user@example.com app-password INBOX
+job start email-sync 300
+```
+
+To start polling after each reboot, add the following after `wifi on` in
+`/.shell/startup`:
+
+```text
+job start email-sync 300
+```
+
+Notes:
+
+- TLS certificate validation is mandatory; plaintext IMAP is not accepted.
+- The first synchronization imports up to the newest eight messages. Later
+  polls process new UIDs in batches of eight, so a busy mailbox catches up over
+  successive intervals without overflowing the response buffer.
+- The provider-local list keeps 32 messages in volatile memory. Universal inbox
+  notifications use the mailbox as topic, the `From` header as sender, and the
+  subject as title.
+- Body previews are best effort. Full MIME decoding, attachments, SMTP sending,
+  and server-side read-state synchronization remain future work.
+
 ## pocsag
 
 POCSAG pager receiver job. It configures a registered packet radio for a

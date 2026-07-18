@@ -51,6 +51,11 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `inbox` | `inbox read <id>` | Print one message and mark it read. |
 | `inbox` | `inbox clear` | Remove every message. |
 | `inbox` | `inbox post <source> <message>` | Post a message from a shell script or for testing. |
+| `email` | `email` | Open the receive-only email app. |
+| `email` | `email status` | Show saved account, local message counts, and last sync error. |
+| `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |
+| `email` | `email sync` | Start a one-shot mailbox synchronization. |
+| `email` | `email forget` | Remove the saved account and local email list. |
 | `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 
@@ -77,6 +82,14 @@ unread by default. The status bar shows an envelope and unread count; reading or
 clearing messages removes that count. The first implementation keeps the newest
 64 messages in PSRAM when available and falls back to internal RAM. The browser
 shows newest messages first; opening a message marks the shared entry read.
+
+Email configuration is saved in NVS and deliberately has no compiled remote
+server or account default. Only `imaps://` endpoints are accepted, with TLS
+certificate validation enabled. Use a provider-specific app password where
+available. The password is supplied as a shell argument and stored with the
+device configuration, so treat shell history and physical access to the device
+as sensitive. `email sync` performs one synchronization; use the `email-sync`
+job for periodic polling.
 
 ## System And Diagnostics
 

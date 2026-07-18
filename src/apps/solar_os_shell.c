@@ -177,6 +177,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
 #endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+    {"email", "IMAP email client", solar_os_shell_cmd_email},
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     {"pocsag", "POCSAG pager send and receive", solar_os_shell_cmd_pocsag},
 #endif
@@ -388,6 +391,9 @@ static const char * const session_shell_size_values[] = {"80x24", "100x30", "132
 
 static const char * const job_log_values[] = {"file"};
 static const char * const ntp_sync_values[] = {"once"};
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+static const char * const email_sync_values[] = {"once", "30", "60", "300", "900", "3600"};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 static const char * const pocsag_subcommands[] = {"status", "send"};
 static const char * const pocsag_format_values[] = {"alpha", "numeric"};
@@ -545,6 +551,9 @@ static const char * const on_off_values[] = {"on", "off"};
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 static const char * const inbox_subcommands[] = {"status", "list", "read", "clear", "post"};
 static const char * const inbox_list_values[] = {"all", "unread"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+static const char * const email_subcommands[] = {"status", "configure", "sync", "forget"};
 #endif
 
 static const char * const gpio_subcommands[] = {
@@ -738,6 +747,9 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+static const char * const path_email[] = {"email"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const path_engine[] = {"engine"};
 #endif
@@ -753,6 +765,9 @@ static const char * const path_job_start_bridge[] = {"job", "start", "bridge"};
 static const char * const path_job_start_bridge_port[] = {"job", "start", "bridge", SHELL_COMPLETION_ANY};
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
 static const char * const path_job_start_ntp_sync[] = {"job", "start", "ntp-sync"};
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+static const char * const path_job_start_email_sync[] = {"job", "start", "email-sync"};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 static const char * const path_job_start_pocsag[] = {"job", "start", "pocsag"};
 static const char * const path_pocsag[] = {"pocsag"};
@@ -1220,6 +1235,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PORTS(path_job_start_bridge_port),
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
     SHELL_COMPLETION_STATIC(path_job_start_ntp_sync, ntp_sync_values),
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+    SHELL_COMPLETION_STATIC(path_job_start_email_sync, email_sync_values),
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     SHELL_COMPLETION_RADIOS(path_job_start_pocsag),
     SHELL_COMPLETION_STATIC(path_pocsag, pocsag_subcommands),
@@ -1325,6 +1343,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     SHELL_COMPLETION_STATIC(path_inbox, inbox_subcommands),
     SHELL_COMPLETION_STATIC(path_inbox_list, inbox_list_values),
+#endif
+#if SOLAR_OS_PACKAGE_APP_EMAIL
+    SHELL_COMPLETION_STATIC(path_email, email_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
     SHELL_COMPLETION_STATIC(path_led, led_subcommands),

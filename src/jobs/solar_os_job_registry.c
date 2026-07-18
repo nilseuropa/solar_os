@@ -13,6 +13,9 @@
 #if SOLAR_OS_PACKAGE_JOB_DAQ
 #include "solar_os_daq_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+#include "solar_os_email_sync_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
 #include "solar_os_httpd_job.h"
 #endif
@@ -44,6 +47,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_DAQ
     {"daq", "capture data streams to CSV", &solar_os_daq_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_EMAIL_SYNC
+    {"email-sync", "periodic IMAP email synchronization", &solar_os_email_sync_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
     {"httpd", "static HTTP file server", &solar_os_httpd_job},

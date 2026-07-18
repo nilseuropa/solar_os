@@ -57,8 +57,10 @@ members = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_email",
   "job_httpd",
   "job_chatd",
+  "job_email_sync",
   "job_slip",
   "job_ntp_sync",
 ]
@@ -69,20 +71,24 @@ triggers = [
   "app_telnet",
   "app_web",
   "app_chat",
+  "app_email",
   "job_httpd",
   "job_chatd",
+  "job_email_sync",
   "job_slip",
   "job_ntp_sync",
 ]
 sources = [
   "shell/solar_os_shell_mqtt.c",
   "services/solar_os_chat.c",
+  "services/solar_os_email.c",
   "services/solar_os_mqtt.c",
   "services/solar_os_net.c",
   "services/solar_os_scp.c",
   "services/solar_os_ssh.c",
   "services/solar_os_ssh_keys.c",
   "services/solar_os_ssh_transport.c",
+  "shell/solar_os_shell_email.c",
 ]
 requires = [
   "esp-tls",
@@ -441,6 +447,11 @@ label = "app.chat"
 sources = ["apps/solar_os_chat.c"]
 capabilities = ["psram", "wifi"]
 
+[packages.app_email]
+label = "app.email"
+sources = ["apps/solar_os_email_app.c"]
+capabilities = ["wifi"]
+
 [packages.app_view]
 label = "app.view"
 sources = ["apps/solar_os_view.c"]
@@ -530,6 +541,12 @@ capabilities = ["wifi"]
 label = "job.chatd"
 sources = ["jobs/solar_os_chatd_job.c"]
 capabilities = ["psram", "wifi"]
+
+[packages.job_email_sync]
+label = "job.email-sync"
+sources = ["jobs/solar_os_email_sync_job.c"]
+requires = ["esp-tls", "heap"]
+capabilities = ["wifi"]
 
 [packages.job_slip]
 label = "job.slip"
