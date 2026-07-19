@@ -90,6 +90,9 @@ static esp_err_t i2c_bus_start_config_locked(const i2c_bus_config_t *config,
 
 esp_err_t i2c_bus_init(void)
 {
+#if defined(SOLAR_OS_BOARD_I2C_PORT) && \
+    defined(SOLAR_OS_BOARD_PIN_I2C_SDA) && \
+    defined(SOLAR_OS_BOARD_PIN_I2C_SCL)
     const i2c_bus_config_t config = {
         .port = SOLAR_OS_BOARD_I2C_PORT,
         .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA,
@@ -97,6 +100,9 @@ esp_err_t i2c_bus_init(void)
         .speed_hz = SOLAR_I2C_SPEED_HZ,
     };
     return i2c_bus_init_config(&config);
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t i2c_bus_init_config(const i2c_bus_config_t *config)
@@ -212,12 +218,26 @@ uint32_t i2c_bus_get_speed_hz(void)
 
 gpio_num_t i2c_bus_get_sda_pin(void)
 {
-    return bus_handle != NULL ? active_config.sda_pin : SOLAR_OS_BOARD_PIN_I2C_SDA;
+    if (bus_handle != NULL) {
+        return active_config.sda_pin;
+    }
+#ifdef SOLAR_OS_BOARD_PIN_I2C_SDA
+    return SOLAR_OS_BOARD_PIN_I2C_SDA;
+#else
+    return GPIO_NUM_NC;
+#endif
 }
 
 gpio_num_t i2c_bus_get_scl_pin(void)
 {
-    return bus_handle != NULL ? active_config.scl_pin : SOLAR_OS_BOARD_PIN_I2C_SCL;
+    if (bus_handle != NULL) {
+        return active_config.scl_pin;
+    }
+#ifdef SOLAR_OS_BOARD_PIN_I2C_SCL
+    return SOLAR_OS_BOARD_PIN_I2C_SCL;
+#else
+    return GPIO_NUM_NC;
+#endif
 }
 
 esp_err_t i2c_bus_probe(uint8_t address)

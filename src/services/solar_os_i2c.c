@@ -29,6 +29,11 @@ static esp_err_t i2c_finish_operation(const char *name, esp_err_t operation_err)
 esp_err_t solar_os_i2c_init(void)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (!solar_os_bus_find(SOLAR_OS_I2C_DEFAULT_BUS,
+                           SOLAR_OS_BUS_PROTOCOL_I2C,
+                           NULL)) {
+        return SOLAR_OS_BOARD_HAS_EXPANSION_I2C ? ESP_OK : ESP_ERR_NOT_FOUND;
+    }
     esp_err_t ret = solar_os_bus_acquire(SOLAR_OS_I2C_DEFAULT_BUS,
                                          SOLAR_OS_BUS_PROTOCOL_I2C,
                                          I2C_SERVICE_OWNER);

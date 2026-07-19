@@ -6,6 +6,9 @@
 
 #include "driver/gpio.h"
 #include "solar_os_board.h"
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+#include "solar_os_resources.h"
+#endif
 
 #ifndef SOLAR_OS_BOARD_SPI_DMA_CH
 #define SOLAR_OS_BOARD_SPI_DMA_CH SPI_DMA_CH_AUTO
@@ -17,6 +20,9 @@
 
 static size_t spi_bus_ref_count;
 static bool spi_bus_initialized_by_us;
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+static bool spi_bus_resource_claimed;
+#endif
 
 spi_host_device_t solar_os_spi_bus_host(void)
 {
@@ -50,6 +56,18 @@ esp_err_t solar_os_spi_bus_acquire(void)
         return ESP_OK;
     }
 
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+    const esp_err_t claim_ret = solar_os_resource_claim(SOLAR_OS_RESOURCE_SPI_HOST,
+                                                        SOLAR_OS_BOARD_SPI_HOST,
+                                                        -1,
+                                                        SOLAR_OS_BOARD_SPI_RESOURCE_OWNER,
+                                                        "spi-host");
+    if (claim_ret != ESP_OK) {
+        return claim_ret;
+    }
+    spi_bus_resource_claimed = true;
+#endif
+
     const spi_bus_config_t bus_config = {
         .mosi_io_num = SOLAR_OS_BOARD_PIN_SPI_MOSI,
         .miso_io_num = SOLAR_OS_BOARD_PIN_SPI_MISO,
@@ -61,7 +79,24 @@ esp_err_t solar_os_spi_bus_acquire(void)
     const esp_err_t err = spi_bus_initialize(SOLAR_OS_BOARD_SPI_HOST,
                                              &bus_config,
                                              SOLAR_OS_BOARD_SPI_DMA_CH);
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+    if (err == ESP_ERR_INVALID_STATE) {
+        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_HOST,
+                                        SOLAR_OS_BOARD_SPI_HOST,
+                                        -1,
+                                        SOLAR_OS_BOARD_SPI_RESOURCE_OWNER);
+        spi_bus_resource_claimed = false;
+        return err;
+    }
+#endif
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_HOST,
+                                        SOLAR_OS_BOARD_SPI_HOST,
+                                        -1,
+                                        SOLAR_OS_BOARD_SPI_RESOURCE_OWNER);
+        spi_bus_resource_claimed = false;
+#endif
         return err;
     }
 
@@ -85,6 +120,15 @@ void solar_os_spi_bus_release(void)
         (void)spi_bus_free(SOLAR_OS_BOARD_SPI_HOST);
     }
     spi_bus_initialized_by_us = false;
+#ifdef SOLAR_OS_BOARD_SPI_RESOURCE_OWNER
+    if (spi_bus_resource_claimed) {
+        (void)solar_os_resource_release(SOLAR_OS_RESOURCE_SPI_HOST,
+                                        SOLAR_OS_BOARD_SPI_HOST,
+                                        -1,
+                                        SOLAR_OS_BOARD_SPI_RESOURCE_OWNER);
+        spi_bus_resource_claimed = false;
+    }
+#endif
 }
 
 esp_err_t solar_os_spi_bus_transfer(int cs_pin,

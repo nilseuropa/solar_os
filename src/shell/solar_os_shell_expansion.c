@@ -82,14 +82,19 @@ static void print_cap(solar_os_shell_io_t *term, solar_os_board_capability_t cap
     solar_os_shell_io_printf(term, "%s%s", solar_os_board_has(cap) ? " " : "", solar_os_board_has(cap) ? name : "");
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C || SOLAR_OS_PACKAGE_SERVICE_SPI || \
+    SOLAR_OS_PACKAGE_SERVICE_UART || SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 static void print_bus_cap(solar_os_shell_io_t *term,
+                          solar_os_board_capability_t runtime_capability,
                           solar_os_bus_protocol_t protocol,
                           const char *name)
 {
-    if (solar_os_bus_count_protocol(protocol) > 0) {
+    if (solar_os_board_has(runtime_capability) ||
+        solar_os_bus_count_protocol(protocol) > 0) {
         solar_os_shell_io_printf(term, " %s", name);
     }
 }
+#endif
 
 static void expansion_print_bus_meta(solar_os_shell_io_t *term,
                                      const char *name,
@@ -125,10 +130,30 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_write(term, "Capabilities:");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_GPIO, "gpio");
-    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_I2C, "i2c");
-    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_SPI, "spi");
-    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_UART, "uart");
-    print_bus_cap(term, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, "onewire");
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    print_bus_cap(term,
+                  SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+                  SOLAR_OS_BUS_PROTOCOL_I2C,
+                  "i2c");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
+    print_bus_cap(term,
+                  SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
+                  SOLAR_OS_BUS_PROTOCOL_SPI,
+                  "spi");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    print_bus_cap(term,
+                  SOLAR_OS_BOARD_CAP_EXPANSION_UART,
+                  SOLAR_OS_BUS_PROTOCOL_UART,
+                  "uart");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    print_bus_cap(term,
+                  SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+                  SOLAR_OS_BUS_PROTOCOL_ONEWIRE,
+                  "onewire");
+#endif
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_ADC, "adc");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_PWM, "pwm");
     if (!solar_os_expansion_available()) {

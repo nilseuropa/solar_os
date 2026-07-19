@@ -44,7 +44,7 @@ The current tree includes these board targets:
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
-| `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion UART/GPIO/ADC/PWM. |
+| `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
@@ -507,7 +507,14 @@ from runtime control. Runtime GPIO/PWM is allowed on GPIO8, GPIO9, GPIO14-GPIO21
 and GPIO38. ADC is available on the ADC-capable subset GPIO8, GPIO9, and
 GPIO14-GPIO20.
 
-The panel and storage buses are internal board resources, not expansion SPI:
+The same runtime-safe pins can be routed to named I2C buses on `i2c0` or
+`i2c1`, named UART buses on `uart1` or `uart2`, and named 1-Wire buses. They can
+also be routed to a named SPI bus on `spi3` after the SD card is unmounted.
+SPI3 is arbitrated as one resource: mounting the SD card while an expansion SPI
+bus is attached, or creating an expansion SPI bus while SD is mounted, is
+rejected.
+
+The panel and storage wiring remains internal board wiring:
 
 - SSD1683: GPIO12 SCK, GPIO11 MOSI, GPIO47 reset, GPIO46 D/C, GPIO45 chip
   select, GPIO48 BUSY, and GPIO7 display-power enable.

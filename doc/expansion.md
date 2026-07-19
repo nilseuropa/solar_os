@@ -52,7 +52,7 @@ voltage and current requirements before connecting it.
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
-| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | The SSD1683 and microSD buses are internal board resources, not expansion buses. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
@@ -125,7 +125,7 @@ expansion bus attach uart0
 Detaching the port that carries the current shell fails as busy, so the shell
 cannot disconnect itself accidentally.
 
-On a board with an approved spare SPI host, create a bus before attaching the
+On a board with an approved available SPI host, create a bus before attaching the
 device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
 `cs=` option declares and reserves a chip-select pin for the lifetime of
 the attached bus. Devices and one-shot transfers additionally claim the
@@ -137,6 +137,9 @@ expansion attach rfm69 radio0 spi=spi1 cs=gpio17
 expansion detach radio0
 expansion bus remove spi1
 ```
+
+On the Elecrow CrowPanel, run `sd umount` before creating the runtime SPI3 bus.
+Remove that bus before using `sd mount` to make SPI3 available to microSD again.
 
 The `spi` command addresses board-defined and runtime buses by name. This makes
 the same transfer tools available for `spi0`, `spi1`, or any other registered
