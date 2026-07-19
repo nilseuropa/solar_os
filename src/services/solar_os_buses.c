@@ -13,6 +13,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
 #include "i2c_bus.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+#include "solar_os_onewire.h"
+#endif
 
 #define SOLAR_OS_BUS_MAX 8
 #define SOLAR_OS_BUS_LEASE_MAX 16
@@ -258,6 +261,20 @@ static esp_err_t start_i2c_locked(size_t bus_index)
         .speed_hz = config->speed_hz,
     };
     const esp_err_t ret = i2c_bus_init_config(&driver_config);
+    if (ret == ESP_OK) {
+        buses[bus_index].ready = true;
+    }
+    return ret;
+#else
+    (void)bus_index;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+static esp_err_t start_onewire_locked(size_t bus_index)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    const esp_err_t ret = solar_os_onewire_init();
     if (ret == ESP_OK) {
         buses[bus_index].ready = true;
     }
@@ -540,6 +557,8 @@ esp_err_t solar_os_bus_acquire(const char *name,
                 buses[bus_index].ready = true;
                 buses_initialized_here[bus_index] = initialized_here;
             }
+        } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
+            ret = start_onewire_locked((size_t)bus_index);
         }
         if (ret != ESP_OK) {
             xSemaphoreGive(buses_mutex);
@@ -593,6 +612,9 @@ esp_err_t solar_os_bus_release(const char *name,
                 }
                 buses[bus_index].ready = false;
                 buses_initialized_here[bus_index] = false;
+            } else if (lease_count_locked((size_t)bus_index) == 0 &&
+                       buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
+                buses[bus_index].ready = false;
             }
             memset(lease, 0, sizeof(*lease));
         }
@@ -624,6 +646,9 @@ size_t solar_os_bus_release_owner(const char *owner)
             }
             buses[bus_index].ready = false;
             buses_initialized_here[bus_index] = false;
+        } else if (lease_count_locked(bus_index) == leases[i].ref_count &&
+                   buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
+            buses[bus_index].ready = false;
         }
         released += leases[i].ref_count;
         memset(&leases[i], 0, sizeof(leases[i]));
@@ -728,6 +753,102 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
 #endif
     xSemaphoreGive(buses_mutex);
     return ret;
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static esp_err_t find_ready_onewire_pin(const char *name, int *pin)
+{
+    if (!name_valid(name) || pin == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    const int index = find_bus_index_locked(name);
+    if (index < 0 || buses[index].protocol != SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
+        ret = ESP_ERR_NOT_FOUND;
+    } else if (!buses[index].ready || lease_count_locked((size_t)index) == 0) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        *pin = buses[index].config.onewire.pin;
+        ret = ESP_OK;
+    }
+    xSemaphoreGive(buses_mutex);
+    return ret;
+}
+#endif
+
+esp_err_t solar_os_bus_onewire_reset(const char *name, bool *present)
+{
+    if (present == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    int pin = -1;
+    esp_err_t ret = find_ready_onewire_pin(name, &pin);
+    return ret == ESP_OK
+        ? solar_os_onewire_reset_configured(pin, present)
+        : ret;
+#else
+    (void)name;
+    *present = false;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+esp_err_t solar_os_bus_onewire_scan(const char *name,
+                                    uint64_t *addresses,
+                                    size_t max_addresses,
+                                    size_t *address_count)
+{
+    if (address_count == NULL || (addresses == NULL && max_addresses > 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    int pin = -1;
+    esp_err_t ret = find_ready_onewire_pin(name, &pin);
+    return ret == ESP_OK
+        ? solar_os_onewire_scan_configured(pin,
+                                           addresses,
+                                           max_addresses,
+                                           address_count)
+        : ret;
+#else
+    (void)name;
+    (void)addresses;
+    (void)max_addresses;
+    *address_count = 0;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+esp_err_t solar_os_bus_onewire_transfer(const char *name,
+                                        const uint8_t *tx_data,
+                                        size_t tx_len,
+                                        uint8_t *rx_data,
+                                        size_t rx_len)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    int pin = -1;
+    esp_err_t ret = find_ready_onewire_pin(name, &pin);
+    return ret == ESP_OK
+        ? solar_os_onewire_transfer_configured(pin,
+                                               tx_data,
+                                               tx_len,
+                                               rx_data,
+                                               rx_len)
+        : ret;
+#else
+    (void)name;
+    (void)tx_data;
+    (void)tx_len;
+    (void)rx_data;
+    (void)rx_len;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_bus_spi_add_device(const char *name,

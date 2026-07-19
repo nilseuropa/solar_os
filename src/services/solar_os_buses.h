@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "driver/spi_master.h"
 #include "esp_err.h"
@@ -40,6 +41,17 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
                                      uint8_t reg,
                                      const uint8_t *data,
                                      size_t len);
+
+esp_err_t solar_os_bus_onewire_reset(const char *name, bool *present);
+esp_err_t solar_os_bus_onewire_scan(const char *name,
+                                    uint64_t *addresses,
+                                    size_t max_addresses,
+                                    size_t *address_count);
+esp_err_t solar_os_bus_onewire_transfer(const char *name,
+                                        const uint8_t *tx_data,
+                                        size_t tx_len,
+                                        uint8_t *rx_data,
+                                        size_t rx_len);
 
 esp_err_t solar_os_bus_spi_add_device(const char *name,
                                       const spi_device_interface_config_t *device_config,

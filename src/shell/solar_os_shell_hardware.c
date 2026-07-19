@@ -2025,12 +2025,66 @@ void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+typedef struct {
+    bool named;
+    int pin;
+    const char *name;
+} onewire_target_t;
+
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+static void onewire_print_bus_status(solar_os_shell_io_t *term,
+                                     const solar_os_bus_info_t *info)
+{
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s GPIO%d ready=%s leases=%u\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             info->config.onewire.pin,
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count);
+}
+#endif
+
+static void onewire_print_status(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+            solar_os_shell_io_printf(term, "onewire status: bus '%s' not found\n", name);
+            return;
+        }
+        onewire_print_bus_status(term, &info);
+        return;
+    }
+
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term,
+                                  "1-Wire: no registered buses; direct GPIO targets are available");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE, i, &info)) {
+            onewire_print_bus_status(term, &info);
+        }
+    }
+#else
+    (void)name;
+    solar_os_shell_io_writeln(term,
+                              "1-Wire: named buses unavailable; direct GPIO targets are available");
+#endif
+}
+
 static void onewire_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  onewire reset <pin>");
-    solar_os_shell_io_writeln(term, "  onewire scan <pin>");
-    solar_os_shell_io_writeln(term, "  onewire xfer <pin> <read-len> [byte ...]");
+    solar_os_shell_io_writeln(term, "  onewire [status [bus]]");
+    solar_os_shell_io_writeln(term, "  onewire reset <bus|pin>");
+    solar_os_shell_io_writeln(term, "  onewire scan <bus|pin>");
+    solar_os_shell_io_writeln(term, "  onewire xfer <bus|pin> <read-len> [byte ...]");
 }
 
 static bool onewire_parse_pin(const char *text, int *pin)
@@ -2043,60 +2097,116 @@ static bool onewire_parse_pin(const char *text, int *pin)
     return true;
 }
 
+static bool onewire_parse_target(solar_os_shell_io_t *term,
+                                 const char *text,
+                                 onewire_target_t *target)
+{
+    if (text == NULL || target == NULL) {
+        return false;
+    }
+    int pin = -1;
+    if (onewire_parse_pin(text, &pin)) {
+        *target = (onewire_target_t) {
+            .pin = pin,
+        };
+        return true;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_bus_info_t info;
+    if (solar_os_bus_find(text, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+        *target = (onewire_target_t) {
+            .named = true,
+            .pin = info.config.onewire.pin,
+            .name = text,
+        };
+        return true;
+    }
+#endif
+    solar_os_shell_io_printf(term, "onewire: bus '%s' not found\n", text);
+    return false;
+}
+
+static void onewire_target_label(const onewire_target_t *target,
+                                 char *label,
+                                 size_t label_size)
+{
+    if (target->named) {
+        strlcpy(label, target->name, label_size);
+    } else {
+        (void)snprintf(label, label_size, "GPIO%d", target->pin);
+    }
+}
+
 static void onewire_print_error(solar_os_shell_io_t *term,
                                 const char *action,
-                                int pin,
+                                const onewire_target_t *target,
                                 esp_err_t err)
 {
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(target, label, sizeof(label));
     if (err == ESP_ERR_NOT_ALLOWED) {
-        solar_os_shell_io_printf(term, "onewire %s: GPIO%d is reserved\n", action, pin);
+        solar_os_shell_io_printf(term, "onewire %s: %s is reserved\n", action, label);
     } else if (err == ESP_ERR_NOT_FOUND) {
-        solar_os_shell_io_printf(term, "onewire %s: no device on GPIO%d\n", action, pin);
+        solar_os_shell_io_printf(term, "onewire %s: no device on %s\n", action, label);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term, "onewire %s: bus '%s' is busy\n", action, label);
     } else {
         solar_os_shell_io_printf(term,
-                                 "onewire %s GPIO%d failed: %s\n",
+                                 "onewire %s on %s failed: %s\n",
                                  action,
-                                 pin,
+                                 label,
                                  esp_err_to_name(err));
     }
 }
 
 static void onewire_cmd_reset(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
-    if (argc != 3 || !onewire_parse_pin(argv[2], &pin)) {
-        solar_os_shell_io_writeln(term, "usage: onewire reset <pin>");
+    onewire_target_t target;
+    if (argc != 3) {
+        solar_os_shell_io_writeln(term, "usage: onewire reset <bus|pin>");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
 
     bool present = false;
-    const esp_err_t err = solar_os_onewire_reset(pin, &present);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_reset(target.name, &present)
+        : solar_os_onewire_reset(target.pin, &present);
     if (err != ESP_OK) {
-        onewire_print_error(term, "reset", pin, err);
+        onewire_print_error(term, "reset", &target, err);
         return;
     }
-    solar_os_shell_io_printf(term,
-                             "GPIO%d: %s\n",
-                             pin,
-                             present ? "presence detected" : "no presence");
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
+    solar_os_shell_io_printf(term, "%s: %s\n", label, present ? "presence detected" : "no presence");
 }
 
 static void onewire_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
-    if (argc != 3 || !onewire_parse_pin(argv[2], &pin)) {
-        solar_os_shell_io_writeln(term, "usage: onewire scan <pin>");
+    onewire_target_t target;
+    if (argc != 3) {
+        solar_os_shell_io_writeln(term, "usage: onewire scan <bus|pin>");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
 
     uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
     size_t count = 0;
-    const esp_err_t err = solar_os_onewire_scan(pin,
-                                                addresses,
-                                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
-                                                &count);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_scan(target.name,
+                                    addresses,
+                                    SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                    &count)
+        : solar_os_onewire_scan(target.pin,
+                                addresses,
+                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                &count);
     if (err != ESP_OK) {
-        onewire_print_error(term, "scan", pin, err);
+        onewire_print_error(term, "scan", &target, err);
         return;
     }
 
@@ -2106,28 +2216,32 @@ static void onewire_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
                                  addresses[i],
                                  (unsigned)(addresses[i] & 0xffU));
     }
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
     solar_os_shell_io_printf(term,
-                             "%u device%s found on GPIO%d\n",
+                             "%u device%s found on %s\n",
                              (unsigned)count,
                              count == 1 ? "" : "s",
-                             pin);
+                             label);
 }
 
 static void onewire_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
+    onewire_target_t target;
     size_t read_len = 0;
     const size_t write_len = argc >= 4 ? (size_t)(argc - 4) : 0;
     uint8_t tx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
     uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
 
     if (argc < 4 ||
-        !onewire_parse_pin(argv[2], &pin) ||
         !parse_size_arg(argv[3], 0, SOLAR_OS_ONEWIRE_MAX_TRANSFER, &read_len) ||
         write_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER ||
         (read_len == 0 && write_len == 0)) {
         solar_os_shell_io_writeln(term,
-                                  "usage: onewire xfer <pin> <read-len> [byte ...]");
+                                  "usage: onewire xfer <bus|pin> <read-len> [byte ...]");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
     for (size_t i = 0; i < write_len; i++) {
@@ -2137,21 +2251,29 @@ static void onewire_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
         }
     }
 
-    const esp_err_t err = solar_os_onewire_transfer(pin,
-                                                     tx_data,
-                                                     write_len,
-                                                     rx_data,
-                                                     read_len);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_transfer(target.name,
+                                        tx_data,
+                                        write_len,
+                                        rx_data,
+                                        read_len)
+        : solar_os_onewire_transfer(target.pin,
+                                    tx_data,
+                                    write_len,
+                                    rx_data,
+                                    read_len);
     if (err != ESP_OK) {
-        onewire_print_error(term, "xfer", pin, err);
+        onewire_print_error(term, "xfer", &target, err);
         return;
     }
 
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
     if (read_len == 0) {
-        solar_os_shell_io_printf(term, "wrote %u byte%s on GPIO%d\n",
+        solar_os_shell_io_printf(term, "wrote %u byte%s on %s\n",
                                  (unsigned)write_len,
                                  write_len == 1 ? "" : "s",
-                                 pin);
+                                 label);
         return;
     }
     solar_os_shell_io_write(term, "rx:");
@@ -2165,8 +2287,12 @@ void solar_os_shell_cmd_onewire(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc < 2) {
-        onewire_print_usage(term);
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 3) {
+            onewire_print_usage(term);
+            return;
+        }
+        onewire_print_status(term, argc == 3 ? argv[2] : NULL);
     } else if (strcmp(argv[1], "reset") == 0) {
         onewire_cmd_reset(term, argc, argv);
     } else if (strcmp(argv[1], "scan") == 0) {

@@ -8,3 +8,4 @@ typedef solar_os_bus_pin_t solar_os_expansion_pin_t;
 typedef solar_os_i2c_bus_descriptor_t solar_os_expansion_i2c_bus_t;
 typedef solar_os_spi_bus_descriptor_t solar_os_expansion_spi_bus_t;
 typedef solar_os_uart_bus_descriptor_t solar_os_expansion_uart_port_t;
+typedef solar_os_onewire_bus_descriptor_t solar_os_expansion_onewire_bus_t;

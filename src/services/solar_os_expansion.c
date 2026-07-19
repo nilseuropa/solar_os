@@ -601,6 +601,47 @@ bool solar_os_expansion_find_uart_port(const char *name, solar_os_expansion_uart
     return true;
 }
 
+size_t solar_os_expansion_onewire_bus_count(void)
+{
+    return solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+}
+
+bool solar_os_expansion_get_onewire_bus(size_t index, solar_os_expansion_onewire_bus_t *bus)
+{
+    if (bus == NULL) {
+        return false;
+    }
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE, index, &info)) {
+        return false;
+    }
+    *bus = (solar_os_expansion_onewire_bus_t) {
+        .pin = info.config.onewire.pin,
+    };
+    strlcpy(bus->name, info.name, sizeof(bus->name));
+    return true;
+}
+
+bool solar_os_expansion_find_onewire_bus(const char *name,
+                                         solar_os_expansion_onewire_bus_t *bus,
+                                         size_t *index)
+{
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+        return false;
+    }
+    if (bus != NULL) {
+        *bus = (solar_os_expansion_onewire_bus_t) {
+            .pin = info.config.onewire.pin,
+        };
+        strlcpy(bus->name, info.name, sizeof(bus->name));
+    }
+    if (index != NULL) {
+        *index = info.id;
+    }
+    return true;
+}
+
 esp_err_t solar_os_expansion_attach(const char *driver,
                                     const char *name,
                                     const solar_os_expansion_binding_t *bindings,

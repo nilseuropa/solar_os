@@ -112,3 +112,8 @@ typedef struct {
     int tx_pin;
     int rx_pin;
 } solar_os_uart_bus_descriptor_t;
+
+typedef struct {
+    char name[SOLAR_OS_BUS_NAME_MAX];
+    int pin;
+} solar_os_onewire_bus_descriptor_t;

@@ -1973,6 +1973,82 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_i2c_write_reg_obj,
                                     solaros_buses_i2c_write_reg);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static const char *python_bus_onewire_name(mp_obj_t name_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, NULL)) {
+        python_raise_esp(ESP_ERR_NOT_FOUND);
+    }
+    return name;
+}
+
+static mp_obj_t solaros_buses_onewire_reset(mp_obj_t name_obj)
+{
+    bool present = false;
+    python_check_esp(solar_os_onewire_bus_reset(python_bus_onewire_name(name_obj),
+                                                 &present));
+    return mp_obj_new_bool(present);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_onewire_reset_obj,
+                          solaros_buses_onewire_reset);
+
+static mp_obj_t solaros_buses_onewire_scan(mp_obj_t name_obj)
+{
+    uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
+    size_t count = 0;
+    python_check_esp(solar_os_onewire_bus_scan(python_bus_onewire_name(name_obj),
+                                                addresses,
+                                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                                &count));
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0; i < count; i++) {
+        char address[17];
+        snprintf(address, sizeof(address), "%016" PRIx64, addresses[i]);
+        mp_obj_t device = mp_obj_new_dict(2);
+        python_dict_store_cstr(device, "address", address);
+        python_dict_store_int(device, "family", (uint8_t)addresses[i]);
+        mp_obj_list_append(list, device);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_onewire_scan_obj,
+                          solaros_buses_onewire_scan);
+
+static mp_obj_t solaros_buses_onewire_xfer(size_t n_args, const mp_obj_t *args)
+{
+    const char *name = python_bus_onewire_name(args[0]);
+    const size_t read_len = python_size_from_obj(args[1]);
+    if (read_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        mp_raise_ValueError(MP_ERROR_TEXT("read length exceeds 64 bytes"));
+    }
+
+    mp_buffer_info_t tx = {0};
+    if (n_args >= 3 && args[2] != mp_const_none) {
+        mp_get_buffer_raise(args[2], &tx, MP_BUFFER_READ);
+    }
+    if (tx.len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        mp_raise_ValueError(MP_ERROR_TEXT("write data exceeds 64 bytes"));
+    }
+    if (read_len == 0 && tx.len == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("empty transfer"));
+    }
+
+    uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
+    python_check_esp(solar_os_onewire_bus_transfer(name,
+                                                    tx.buf,
+                                                    tx.len,
+                                                    rx_data,
+                                                    read_len));
+    return mp_obj_new_bytes(rx_data, read_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_onewire_xfer_obj,
+                                    2,
+                                    3,
+                                    solaros_buses_onewire_xfer);
+#endif
+
 static int python_bus_spi_cs_from_obj(const solar_os_bus_info_t *info, mp_obj_t obj)
 {
     int pin = -1;
@@ -3965,6 +4041,17 @@ static void python_register_solaros_module(void)
     python_module_store(buses,
                         "i2c_write_reg",
                         MP_OBJ_FROM_PTR(&solaros_buses_i2c_write_reg_obj));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    python_module_store(buses,
+                        "onewire_reset",
+                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_reset_obj));
+    python_module_store(buses,
+                        "onewire_scan",
+                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_scan_obj));
+    python_module_store(buses,
+                        "onewire_xfer",
+                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_xfer_obj));
 #endif
     python_module_store(buses,
                         "spi_xfer",

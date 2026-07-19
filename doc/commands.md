@@ -425,9 +425,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
 | `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |
-| `onewire` | `onewire reset <pin>` | Reset a 1-Wire bus and report device presence. |
-| `onewire` | `onewire scan <pin>` | Discover and list 1-Wire ROM addresses. |
-| `onewire` | `onewire xfer <pin> <read-len> [byte...]` | Reset, write bytes, then read bytes on a 1-Wire bus. |
+| `onewire` | `onewire [status [bus]]` | Show every registered named 1-Wire bus, or one selected bus. |
+| `onewire` | `onewire reset <bus\|pin>` | Reset a named bus or direct runtime GPIO and report presence. |
+| `onewire` | `onewire scan <bus\|pin>` | Discover and list 1-Wire ROM addresses. |
+| `onewire` | `onewire xfer <bus\|pin> <read-len> [byte...]` | Reset, write bytes, then read bytes on a 1-Wire target. |
 | `adc` | `adc status` | Show ADC service status. |
 | `adc` | `adc read <pin>` | Read an ADC-capable runtime pin. |
 | `pwm` | `pwm status` | Show PWM state. |
@@ -453,10 +454,13 @@ and attachment examples are documented in [Expansion Ports](expansion.md).
 Use `expansion status` and `gpio list` for the authoritative view on a running
 device.
 
-The `onewire` command accepts any runtime-accessible GPIO. Every `xfer` starts
-with a 1-Wire reset, writes the supplied bytes, and then reads `read-len` bytes.
-For example, `onewire xfer 1 9 0xcc 0xbe` issues Skip ROM and Read Scratchpad,
-then reads a nine-byte scratchpad. ROM address bytes supplied to `xfer` use
+The `onewire` command accepts a registered bus name or any runtime-accessible
+GPIO. `onewire status` discovers named buses, while the numeric form preserves
+the direct-pin workflow. Every `xfer` starts with a 1-Wire reset, writes the
+supplied bytes, and then reads `read-len` bytes. For example,
+`onewire xfer 1 9 0xcc 0xbe` issues Skip ROM and Read Scratchpad, then reads a
+nine-byte scratchpad. The equivalent named form starts with
+`onewire xfer onewire0`. ROM address bytes supplied to `xfer` use
 least-significant-byte-first wire order. The service enables the ESP32 internal
 pull-up, but a 4.7 kohm external pull-up from the data line to 3.3 V is strongly
 recommended. The internal pull-up is not a parasite-power supply.

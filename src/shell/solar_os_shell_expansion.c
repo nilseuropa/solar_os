@@ -166,6 +166,18 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
             solar_os_shell_io_put_char(term, '\n');
         }
     }
+
+    for (size_t i = 0; i < solar_os_expansion_onewire_bus_count(); i++) {
+        solar_os_expansion_onewire_bus_t bus;
+        if (solar_os_expansion_get_onewire_bus(i, &bus)) {
+            solar_os_shell_io_printf(term,
+                                     "1WIRE %-4s GPIO%d",
+                                     bus.name,
+                                     bus.pin);
+            expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+            solar_os_shell_io_put_char(term, '\n');
+        }
+    }
 }
 
 static void expansion_print_drivers(solar_os_shell_io_t *term)

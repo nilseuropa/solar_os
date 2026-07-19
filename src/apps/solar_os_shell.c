@@ -92,6 +92,7 @@ typedef struct {
     bool complete_display_modes;
     bool complete_gpio_pins;
     bool complete_i2c_arguments;
+    bool complete_onewire_buses;
     bool complete_spi_buses;
     bool complete_spi_cs;
     bool complete_streams;
@@ -596,7 +597,7 @@ static const char * const gpio_mode_values[] = {"in", "out"};
 static const char * const gpio_pull_values[] = {"none", "up", "down"};
 static const char * const bit_values[] = {"0", "1"};
 
-static const char * const onewire_subcommands[] = {"reset", "scan", "xfer"};
+static const char * const onewire_subcommands[] = {"status", "reset", "scan", "xfer"};
 static const char * const onewire_read_lengths[] = {"0", "1", "2", "8", "9", "16", "32"};
 
 static const char * const adc_subcommands[] = {
@@ -1047,6 +1048,7 @@ static const char * const path_gpio_read[] = {"gpio", "read"};
 static const char * const path_gpio_write[] = {"gpio", "write"};
 static const char * const path_gpio_write_pin[] = {"gpio", "write", SHELL_COMPLETION_ANY};
 static const char * const path_onewire[] = {"onewire"};
+static const char * const path_onewire_status[] = {"onewire", "status"};
 static const char * const path_onewire_reset[] = {"onewire", "reset"};
 static const char * const path_onewire_scan[] = {"onewire", "scan"};
 static const char * const path_onewire_xfer[] = {"onewire", "xfer"};
@@ -1214,6 +1216,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_i2c_arguments = true, \
+    }
+#define SHELL_COMPLETION_ONEWIRE_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_onewire_buses = true, \
     }
 #define SHELL_COMPLETION_SPI_BUSES(path_array) \
     { \
@@ -1446,9 +1454,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_gpio_write),
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
     SHELL_COMPLETION_STATIC(path_onewire, onewire_subcommands),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_status),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_reset),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_reset),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_scan),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_scan),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_xfer),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_xfer),
     SHELL_COMPLETION_STATIC(path_onewire_xfer_pin, onewire_read_lengths),
     SHELL_COMPLETION_STATIC(path_onewire_xfer_len, byte_values),
     SHELL_COMPLETION_STATIC(path_adc, adc_subcommands),
@@ -3628,6 +3640,21 @@ static void shell_completion_emit_i2c_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_onewire_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_i2c_values(shell_completion_match_t *state,
                                              const char * const *values,
                                              size_t count)
@@ -4188,6 +4215,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_i2c_arguments) {
             shell_completion_emit_i2c_arguments(state, tokens, token_count);
+        }
+        if (rule->complete_onewire_buses) {
+            shell_completion_emit_onewire_buses(state);
         }
         if (rule->complete_spi_buses) {
             shell_completion_emit_spi_buses(state);

@@ -272,8 +272,9 @@ solaros.gpio.write(1, 1)
 ## `solaros.onewire`
 
 OneWire functions operate on runtime-safe expansion GPIOs when the OneWire
-service is included in the active flavor. Transfers reset the bus before writing
-and reading, and are limited to 64 bytes in each direction.
+service is included in the active flavor. Use `solaros.buses.onewire_*` for a
+registered named bus. Transfers reset the bus before writing and reading, and
+are limited to 64 bytes in each direction.
 
 - `allowed(pin)`: return whether the pin is available for OneWire operations.
 - `reset(pin)`: reset the bus and return whether a presence pulse was detected.
@@ -365,6 +366,9 @@ single-board-bus `solaros.spi` module.
 - `i2c_scan(bus)`: return detected addresses on a named I2C bus.
 - `i2c_read_reg(bus, address, reg, length)`: read bytes from an 8-bit register.
 - `i2c_write_reg(bus, address, reg, data)`: write bytes to an 8-bit register.
+- `onewire_reset(bus)`: reset a named 1-Wire bus and return device presence.
+- `onewire_scan(bus)`: return ROM-address dictionaries found on a named bus.
+- `onewire_xfer(bus, read_length[, data])`: reset, write, and read a named bus.
 - `spi_xfer(bus, cs, data[, mode[, speed_hz]])`: perform a full-duplex named-bus
   transfer and return received bytes.
 - `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`: clock in bytes using
@@ -381,6 +385,11 @@ buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
 Named I2C operations are present when both the resource and I2C services are
 compiled. They take and release a shared bus lease automatically. The legacy
 `solaros.i2c` module remains an `i2c0` shortcut.
+
+Named OneWire operations are present when both the resource and OneWire
+services are compiled. They take and release an exclusive bus lease
+automatically. OneWire bus dictionaries include `pin`; the legacy
+`solaros.onewire` module continues to accept a direct runtime-safe GPIO.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
@@ -417,6 +426,17 @@ import solaros
 print(solaros.buses.get("i2c0"))
 print([hex(addr) for addr in solaros.buses.i2c_scan("i2c0")])
 solaros.buses.i2c_probe("i2c0", 0x3c)
+```
+
+Named OneWire example for a board-defined bus:
+
+```python
+import solaros
+
+print(solaros.buses.get("onewire0"))
+print(solaros.buses.onewire_reset("onewire0"))
+for device in solaros.buses.onewire_scan("onewire0"):
+    print(device["address"], device["family"])
 ```
 
 ## `solaros.expansion`

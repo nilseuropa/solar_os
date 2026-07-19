@@ -56,12 +56,14 @@ voltage and current requirements before connecting it.
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7 | SPI on spare host `spi3`, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4 | None | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
-I2C and SPI buses accept shared logical leases. UART and future 1-Wire bus
-instances are exclusive. Bus names are unique across protocols.
+I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
+instances are exclusive. Registered 1-Wire buses appear in expansion status
+and can be addressed by name. Bus names are unique across protocols.
 
 Only SPI buses can currently be created at runtime. Runtime I2C, UART, and
-1-Wire bus creation is not implemented. The direct `onewire` command can use a
-runtime-safe GPIO without creating a named expansion bus.
+1-Wire bus creation is not implemented. Board-defined 1-Wire buses use the
+common registry; the direct numeric form of the `onewire` command remains
+available for runtime-safe GPIOs without creating a named expansion bus.
 
 ## Typical Workflow
 

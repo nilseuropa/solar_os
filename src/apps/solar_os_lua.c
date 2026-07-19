@@ -1833,6 +1833,81 @@ static int solua_buses_i2c_write_reg(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static const char *solua_bus_onewire_name(lua_State *L, int index)
+{
+    const char *name = luaL_checkstring(L, index);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, NULL)) {
+        luaL_error(L, "%s", esp_err_to_name(ESP_ERR_NOT_FOUND));
+    }
+    return name;
+}
+
+static int solua_buses_onewire_reset(lua_State *L)
+{
+    bool present = false;
+    (void)solua_check_esp(L,
+                          solar_os_onewire_bus_reset(solua_bus_onewire_name(L, 1),
+                                                     &present));
+    lua_pushboolean(L, present);
+    return 1;
+}
+
+static int solua_buses_onewire_scan(lua_State *L)
+{
+    uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
+    size_t count = 0;
+    (void)solua_check_esp(L,
+                          solar_os_onewire_bus_scan(solua_bus_onewire_name(L, 1),
+                                                    addresses,
+                                                    SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                                    &count));
+
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    for (size_t i = 0; i < count; i++) {
+        char address[17];
+        snprintf(address, sizeof(address), "%016" PRIx64, addresses[i]);
+        lua_newtable(L);
+        solua_set_str(L, -1, "address", address);
+        solua_set_int(L, -1, "family", (uint8_t)addresses[i]);
+        lua_rawseti(L, list, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_buses_onewire_xfer(lua_State *L)
+{
+    const char *name = solua_bus_onewire_name(L, 1);
+    const size_t read_len = solua_check_size(L, 2);
+    if (read_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        return luaL_error(L, "read length exceeds 64 bytes");
+    }
+
+    size_t write_len = 0;
+    const char *write_data = "";
+    if (!lua_isnoneornil(L, 3)) {
+        write_data = luaL_checklstring(L, 3, &write_len);
+    }
+    if (write_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER) {
+        return luaL_error(L, "write data exceeds 64 bytes");
+    }
+    if (read_len == 0 && write_len == 0) {
+        return luaL_error(L, "empty transfer");
+    }
+
+    uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
+    (void)solua_check_esp(L,
+                          solar_os_onewire_bus_transfer(name,
+                                                        (const uint8_t *)write_data,
+                                                        write_len,
+                                                        rx_data,
+                                                        read_len));
+    lua_pushlstring(L, (const char *)rx_data, read_len);
+    return 1;
+}
+#endif
+
 static int solua_bus_spi_cs_from_arg(lua_State *L,
                                      const solar_os_bus_info_t *info,
                                      int index)
@@ -3717,6 +3792,11 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "i2c_scan", solua_buses_i2c_scan);
     solua_set_func(L, mod, "i2c_read_reg", solua_buses_i2c_read_reg);
     solua_set_func(L, mod, "i2c_write_reg", solua_buses_i2c_write_reg);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    solua_set_func(L, mod, "onewire_reset", solua_buses_onewire_reset);
+    solua_set_func(L, mod, "onewire_scan", solua_buses_onewire_scan);
+    solua_set_func(L, mod, "onewire_xfer", solua_buses_onewire_xfer);
 #endif
     solua_set_func(L, mod, "spi_xfer", solua_buses_spi_xfer);
     solua_set_func(L, mod, "spi_read", solua_buses_spi_read);
