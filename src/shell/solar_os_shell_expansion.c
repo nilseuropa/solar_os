@@ -101,7 +101,7 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
     }
     const char *state = !info.attached ? "detached" : info.ready ? "ready" : "attached";
     solar_os_shell_io_printf(term,
-                             " [%s %s %s %s leases=%u]",
+                             "\n  [%s %s %s %s leases=%u]\n",
                              solar_os_bus_origin_name(info.origin),
                              solar_os_bus_sharing_name(info.sharing),
                              info.detachable ? "detachable" : "fixed",
@@ -134,6 +134,7 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
     if (!solar_os_expansion_available()) {
         solar_os_shell_io_write(term, " none");
     }
+    solar_os_shell_io_put_char(term, '\n');
     solar_os_shell_io_put_char(term, '\n');
 
     for (size_t i = 0; i < solar_os_expansion_i2c_bus_count(); i++) {
@@ -287,17 +288,22 @@ static void expansion_print_claims(solar_os_shell_io_t *term)
         if (!solar_os_resource_get_claim(i, &claim)) {
             continue;
         }
-        solar_os_shell_io_printf(term,
-                                 "  %-8s %d",
-                                 solar_os_resource_kind_name(claim.kind),
-                                 claim.primary);
+        char resource[20];
         if (claim.secondary >= 0) {
-            solar_os_shell_io_printf(term, ".%d", claim.secondary);
+            (void)snprintf(resource,
+                           sizeof(resource),
+                           "%d.%d",
+                           claim.primary,
+                           claim.secondary);
+        } else {
+            (void)snprintf(resource, sizeof(resource), "%d", claim.primary);
         }
         solar_os_shell_io_printf(term,
-                                 " owner=%s%s%s\n",
+                                 "  %-10s %-8s %-24s%s%s\n",
+                                 solar_os_resource_kind_name(claim.kind),
+                                 resource,
                                  claim.owner,
-                                 claim.label[0] != '\0' ? " label=" : "",
+                                 claim.label[0] != '\0' ? " " : "",
                                  claim.label);
     }
 }
@@ -331,6 +337,7 @@ static void expansion_cmd_status(solar_os_shell_io_t *term)
     }
     expansion_print_resources(term);
     expansion_print_devices(term);
+    solar_os_shell_io_put_char(term, '\n');
     expansion_print_claims(term);
 }
 

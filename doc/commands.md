@@ -95,7 +95,7 @@ job for periodic polling.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `version` | `version` | Print SolarOS version, board, flavor, and package information. |
+| `version` | `version` | Print the SolarOS version and firmware flavor. |
 | `pkg` | `pkg` | Print compiled package groups and build units. |
 | `board` | `board` | Print board ID, name, and capabilities. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |

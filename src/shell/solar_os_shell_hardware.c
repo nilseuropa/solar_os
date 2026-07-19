@@ -2015,15 +2015,20 @@ static void gpio_print_error(solar_os_shell_io_t *term, const char *action, int 
 
 static void gpio_print_pin_info(solar_os_shell_io_t *term, const solar_os_gpio_pin_info_t *info)
 {
+    const char *role = info->role != NULL ? info->role : "";
+    const bool has_state = info->configured || info->claimed || info->runtime_allowed;
+
     solar_os_shell_io_printf(term,
-                             "GPIO%-2d %-10s %-6s %-6s pull %-4s",
+                             has_state ? "GPIO%-2d %-10s %-24s" : "GPIO%-2d %-10s %s",
                              info->pin,
                              solar_os_pin_policy_name(info->policy),
-                             info->configured ? solar_os_gpio_mode_name(info->mode) : "-",
-                             info->level_valid ? (info->level ? "high" : "low") : "-",
-                             info->configured ? solar_os_gpio_pull_name(info->pull) : "-");
-    if (info->role != NULL && info->role[0] != '\0') {
-        solar_os_shell_io_printf(term, " %s", info->role);
+                             role);
+    if (info->configured) {
+        solar_os_shell_io_printf(term,
+                                 " %s%s pull=%s",
+                                 solar_os_gpio_mode_name(info->mode),
+                                 info->level_valid ? (info->level ? ":high" : ":low") : "",
+                                 solar_os_gpio_pull_name(info->pull));
     }
     if (info->claimed) {
         solar_os_shell_io_printf(term, " owner=%s", info->owner);
