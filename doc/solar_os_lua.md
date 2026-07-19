@@ -192,12 +192,16 @@ print(#solaros.expansion.devices())
 solaros.expansion.detach("lcd0")
 ```
 
-`solaros.spi.status()` reports the bus pins, transfer limit, and configured chip
-select slots. `xfer(cs, data[, mode[, speed_hz]])` performs a full-duplex
-transaction. `read(cs, length[, fill[, mode[, speed_hz]]])` and
+`solaros.spi` is a compatibility table that selects `spi0` when present,
+otherwise the first registered named SPI bus. On a dynamic-only board its
+`status().available` value remains false until a bus is created. `status()`
+reports the selected bus pins, transfer limit, and configured chip-select
+slots. `xfer(cs, data[, mode[, speed_hz]])` performs a full-duplex transaction.
+`read(cs, length[, fill[, mode[, speed_hz]]])` and
 `write(cs, data[, mode[, speed_hz]])` provide one-direction convenience forms.
 The `cs` argument accepts a configured slot name or its numeric GPIO. Lua data
-and return values are binary-safe strings.
+and return values are binary-safe strings. New code should address buses
+explicitly through `solaros.buses.spi_*`.
 
 `solaros.uart` is the default `uart0` compatibility table; use
 `solaros.buses.uart_*` for another named UART. `solaros.uart.status()` includes

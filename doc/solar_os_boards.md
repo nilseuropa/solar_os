@@ -43,10 +43,10 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
-| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
-| `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion GPIO/ADC/PWM. |
-| `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/GPIO/PWM, and runtime GPIO4/GPIO15. |
-| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/GPIO/ADC/PWM, and no display or onboard sensors. |
+| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
+| `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion UART/GPIO/ADC/PWM. |
+| `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
+| `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
 
@@ -66,6 +66,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 set(SOLAR_OS_BOARD_HAS_PSRAM ON)
 set(SOLAR_OS_BOARD_PSRAM_BYTES 8388608)
 set(SOLAR_OS_BOARD_HAS_SIMD ON)
+set(SOLAR_OS_BOARD_HAS_GFX ON)
 set(SOLAR_OS_BOARD_HAS_CDC ON)
 set(SOLAR_OS_BOARD_HAS_UART ON)
 set(SOLAR_OS_BOARD_HAS_WIFI ON)
@@ -84,6 +85,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdmmc.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/i2c_esp_idf.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/spi_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_pcf85063.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/sensors_shtc3.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/audio_es8311_es7210.cmake")
@@ -101,6 +103,7 @@ set(SOLAR_OS_BOARD_HAS_CDC ON)
 set(SOLAR_OS_BOARD_HAS_UART ON)
 set(SOLAR_OS_BOARD_HAS_SD ON)
 set(SOLAR_OS_BOARD_HAS_I2C ON)
+set(SOLAR_OS_BOARD_HAS_SPI ON)
 set(SOLAR_OS_BOARD_HAS_RTC ON)
 set(SOLAR_OS_BOARD_HAS_BATTERY ON)
 set(SOLAR_OS_BOARD_HAS_AUDIO ON)
@@ -150,9 +153,10 @@ set(SOLAR_OS_BOARD_HAS_PWM ON)
 set(SOLAR_OS_BOARD_HAS_DISPLAY_BRIGHTNESS ON)
 ```
 
-Only enable a capability when the hardware has been checked and, for pin-backed
-peripherals, the board header provides the required pin macros. Unsupported
-services still compile, but their runtime calls return `ESP_ERR_NOT_SUPPORTED`.
+Enable a capability when the target can provide that service, either through
+built-in hardware or an explicitly supported expansion path. For pin-backed
+peripherals, the board header must provide the corresponding static definitions
+or runtime routing policy. Packages requiring absent capabilities are pruned.
 
 Capabilities describe what services should exist. Driver fragments describe how
 this board implements those capabilities. For example, a board with
@@ -194,13 +198,13 @@ The current capability flags are:
 | --- | --- |
 | `PSRAM` | External PSRAM is present and configured. `SOLAR_OS_BOARD_PSRAM_BYTES` gives the expected capacity. |
 | `SIMD` | CPU vector/SIMD instructions are available for bulk data engines such as image, audio, DSP, or accelerated math paths. |
-| `DISPLAY` | Physical display driver is available. |
-| `GFX` | Foreground graphics service can draw to a display. Usually paired with `DISPLAY`. |
+| `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
+| `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
 | `CDC` | USB serial/JTAG CDC byte-stream port `cdc0`. |
-| `UART` | Hardware UART byte-stream port `uart0`. |
+| `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
-| `I2C` | Board I2C bus is available. |
-| `SPI` | Board SPI bus is available. |
+| `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |
+| `SPI` | Hardware SPI service is supported. Named SPI buses may be board-defined or created at runtime. |
 | `RTC` | RTC attached to the board I2C bus. |
 | `BATTERY` | Battery voltage monitor is available. |
 | `AUDIO` | Speaker/audio-output path is available. |
@@ -211,9 +215,9 @@ The current capability flags are:
 | `ADC` | Runtime-safe ADC service. |
 | `PWM` | Runtime-safe PWM service. |
 | `EXPANSION_GPIO` | Expansion connector has runtime-safe GPIO pins for external hardware. |
-| `EXPANSION_I2C` | Expansion connector exposes a usable I2C bus. |
-| `EXPANSION_SPI` | Expansion connector exposes a usable SPI bus and chip-select slots. |
-| `EXPANSION_UART` | Expansion connector exposes a UART port usable by external hardware. |
+| `EXPANSION_I2C` | Expansion hardware may use a static or runtime-created named I2C bus. Requires `I2C`. |
+| `EXPANSION_SPI` | Expansion hardware may use a static or runtime-created named SPI bus. Requires `SPI`. |
+| `EXPANSION_UART` | Expansion hardware may use a static or runtime-created named UART bus. Requires `UART`. |
 | `EXPANSION_ADC` | Expansion connector has ADC-capable runtime pins. |
 | `EXPANSION_PWM` | Expansion connector has PWM-capable runtime pins. |
 | `KEY` | Built-in board key for sleep/pairing control. |
@@ -354,6 +358,15 @@ unique across protocols. I2C and SPI buses accept shared logical leases; UART
 and 1-Wire bus instances are exclusive.
 Attaching an expansion device acquires a lease under the device name and
 detaching it releases that lease.
+
+Protocol capabilities describe whether the service can exist; they do not
+imply a static bus. A board may therefore enable `UART`, `SPI`, or `I2C` with no
+matching entry in `SOLAR_OS_BOARD_BUSES` when it supports only runtime-created
+buses. Expansion capability flags authorize that runtime-facing path, while
+the runtime controller masks and pin policy constrain the instances that may
+be created. Configuration checks reject expansion capabilities without their
+base protocol and non-empty SPI/UART runtime masks without matching base and
+expansion capabilities.
 
 The registry distinguishes immutable board buses from runtime-created buses.
 Board buses cannot be unregistered. Runtime I2C uses an unregistered hardware
@@ -570,14 +583,19 @@ Use a revision-specific board profile if one of those pins must be exposed.
 
 ## Display Boards
 
-For a display board, enable both `DISPLAY` and `GFX`, include the display
-fragment, and provide the controller pin macros expected by the selected driver:
+For a board-integrated primary display, enable both `DISPLAY` and `GFX`, include
+the display fragment, and provide the controller pin macros expected by the
+selected driver:
 
 ```cmake
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
 set(SOLAR_OS_BOARD_HAS_DISPLAY ON)
 set(SOLAR_OS_BOARD_HAS_GFX ON)
 ```
+
+A headless board that supports attachable graphical displays enables `GFX`
+without enabling `DISPLAY`. Its graphics applications are compiled, but they
+require a ready named display target at runtime.
 
 The board header then provides metadata and pins. The built-in Waveshare target
 uses the ST7305 reflective LCD driver:

@@ -5,20 +5,21 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_bus_types.h"
 
-#define SOLAR_OS_SPI_MAX_CS 4
-#define SOLAR_OS_SPI_DEFAULT_SPEED_HZ 1000000U
-#define SOLAR_OS_SPI_MAX_SPEED_HZ 20000000U
+#define SOLAR_OS_SPI_MAX_CS SOLAR_OS_BUS_SPI_CS_MAX
+#define SOLAR_OS_SPI_DEFAULT_SPEED_HZ SOLAR_OS_BUS_SPI_DEFAULT_SPEED_HZ
+#define SOLAR_OS_SPI_MAX_SPEED_HZ SOLAR_OS_BUS_SPI_MAX_SPEED_HZ
 
 typedef struct {
     int pin;
-    const char *name;
+    char name[SOLAR_OS_BUS_NAME_MAX];
 } solar_os_spi_cs_t;
 
 typedef struct {
     bool available;
     int host;
-    const char *name;
+    char name[SOLAR_OS_BUS_NAME_MAX];
     int sclk_pin;
     int miso_pin;
     int mosi_pin;

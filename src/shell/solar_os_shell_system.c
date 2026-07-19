@@ -706,7 +706,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
     if (solar_os_spi_get_status(&spi_status) == ESP_OK && spi_status.available) {
         solar_os_shell_io_printf(term,
                                  "%s: SCK %d, MISO %d, MOSI %d, CS",
-                                 spi_status.name != NULL ? spi_status.name : "SPI",
+                                 spi_status.name[0] != '\0' ? spi_status.name : "SPI",
                                  spi_status.sclk_pin,
                                  spi_status.miso_pin,
                                  spi_status.mosi_pin);

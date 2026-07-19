@@ -262,6 +262,57 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
     }
 }
 
+static bool protocol_service_available(solar_os_bus_protocol_t protocol)
+{
+    switch (protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        return true;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+#if SOLAR_OS_PACKAGE_SERVICE_SPI && SOLAR_OS_BOARD_HAS_SPI
+        return true;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        return true;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE && SOLAR_OS_BOARD_HAS_GPIO
+        return true;
+#else
+        return false;
+#endif
+    default:
+        return false;
+    }
+}
+
+static bool protocol_runtime_available(solar_os_bus_protocol_t protocol)
+{
+    if (!protocol_service_available(protocol)) {
+        return false;
+    }
+    switch (protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+        return SOLAR_OS_BOARD_HAS_EXPANSION_I2C;
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+        return SOLAR_OS_BOARD_HAS_EXPANSION_SPI;
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+        return SOLAR_OS_BOARD_HAS_EXPANSION_UART;
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+        return SOLAR_OS_BOARD_HAS_EXPANSION_GPIO;
+    default:
+        return false;
+    }
+}
+
 static esp_err_t register_locked(const solar_os_bus_definition_t *definition)
 {
     if (!definition_valid(definition)) {
@@ -293,6 +344,9 @@ static esp_err_t register_board_bus_locked(const solar_os_bus_definition_t *defi
 {
     if (definition == NULL || definition->name == NULL || definition->name[0] == '\0') {
         return ESP_OK;
+    }
+    if (!protocol_service_available(definition->protocol)) {
+        return ESP_ERR_NOT_SUPPORTED;
     }
     return definition->origin == SOLAR_OS_BUS_ORIGIN_BOARD
         ? register_locked(definition)
@@ -414,28 +468,7 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
         return ESP_ERR_INVALID_ARG;
     }
 
-    switch (definition->protocol) {
-    case SOLAR_OS_BUS_PROTOCOL_SPI:
-        break;
-    case SOLAR_OS_BUS_PROTOCOL_I2C:
-#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
-        break;
-#else
-        return ESP_ERR_NOT_SUPPORTED;
-#endif
-    case SOLAR_OS_BUS_PROTOCOL_UART:
-#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
-        break;
-#else
-        return ESP_ERR_NOT_SUPPORTED;
-#endif
-    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
-#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
-        break;
-#else
-        return ESP_ERR_NOT_SUPPORTED;
-#endif
-    default:
+    if (!protocol_runtime_available(definition->protocol)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
 

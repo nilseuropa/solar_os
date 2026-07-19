@@ -532,9 +532,13 @@ print([hex(addr) for addr in solaros.i2c.scan()])
 
 ## `solaros.spi`
 
-Available when the board and flavor include the SPI service. Chip select may be
-a configured CS name from `status()["cs"]` or its configured numeric GPIO.
-Transfers are limited to the board's reported `max_transfer_size`.
+Available when the board and flavor include the SPI service. This compatibility
+module selects `spi0` when present, otherwise the first registered named SPI
+bus. On a dynamic-only board, `status()["available"]` remains `False` until a
+bus is created. Chip select may be a configured CS name from `status()["cs"]`
+or its configured numeric GPIO. Transfers are limited to the selected bus's
+reported `max_transfer_size`; new code should address buses explicitly through
+`solaros.buses.spi_*`.
 
 - Constants: `MODE0`, `MODE1`, `MODE2`, `MODE3`, `DEFAULT_SPEED`, `MAX_SPEED`.
 - `status()`: return the bus name, host, pins, speed, transfer limit, and configured CS slots.
