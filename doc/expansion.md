@@ -62,8 +62,10 @@ and can be addressed by name. Bus names are unique across protocols.
 
 I2C, SPI, UART, and 1-Wire buses can be created at runtime. Runtime hardware
 buses require an unused board-approved controller or host; all signal pins must
-be approved by the board's runtime pin policy. Runtime UART hardware is started
-on its first lease and stopped after its final lease is released.
+be approved by the board's runtime pin policy. Named UART hardware is started
+on its first consumer claim and stopped after its final claim is released. A
+board-defined UART remains registered and cannot be removed, but its releasable
+signal pins are only claimed while the UART is active.
 The direct numeric form of the `onewire` command remains available without
 creating a named expansion bus.
 

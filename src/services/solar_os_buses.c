@@ -883,9 +883,7 @@ esp_err_t solar_os_bus_release(const char *name,
                     xSemaphoreGive(buses_mutex);
                     return ret;
                 }
-                if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
-                    buses[bus_index].ready = false;
-                }
+                buses[bus_index].ready = false;
             }
 #endif
             if (lease_count_locked((size_t)bus_index) == 0 &&
@@ -930,9 +928,7 @@ size_t solar_os_bus_release_owner(const char *owner)
             if (solar_os_port_release(&leases[i].port) != ESP_OK) {
                 continue;
             }
-            if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
-                buses[bus_index].ready = false;
-            }
+            buses[bus_index].ready = false;
         }
 #endif
         if (lease_count_locked(bus_index) == leases[i].ref_count &&

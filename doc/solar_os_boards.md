@@ -301,7 +301,8 @@ Pin policy is separate from physical connector membership:
 
 - `SOLAR_OS_PIN_POLICY_FREE`: available for direct GPIO and future routed buses.
 - `SOLAR_OS_PIN_POLICY_RELEASABLE`: has a default board role but may be routed
-  after its current service releases it.
+  after its current service releases it. The board bus descriptor remains
+  registered; releasing the service only stops the hardware and frees its pins.
 - `SOLAR_OS_PIN_POLICY_FIXED`: never available to runtime pin routing.
 
 Keep the user GPIO list conservative. Do not mark boot strapping, flash/PSRAM,
