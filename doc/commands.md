@@ -433,12 +433,12 @@ and writes the inactive ESP-IDF OTA partition.
 | `pwm` | `pwm status` | Show PWM state. |
 | `pwm` | `pwm set <pin> <freq-hz> <duty-percent>` | Start LEDC PWM on a runtime pin. |
 | `pwm` | `pwm off <pin>` | Stop PWM on a pin. |
-| `i2c` | `i2c status` | Show I2C bus state. |
-| `i2c` | `i2c speed [hz]` | Show or set bus speed. |
-| `i2c` | `i2c scan` | Scan the I2C bus. |
-| `i2c` | `i2c probe <addr>` | Probe one address. |
-| `i2c` | `i2c read <addr> <reg> [len]` | Read bytes from a register. |
-| `i2c` | `i2c write <addr> <reg> <byte...>` | Write bytes to a register. |
+| `i2c` | `i2c [status [bus]]` | Show every named I2C bus, or one selected bus. |
+| `i2c` | `i2c speed [bus]` | Show named-bus configuration; retained as a status alias. |
+| `i2c` | `i2c scan [bus]` | Scan a named bus; defaults to `i2c0`. |
+| `i2c` | `i2c probe [bus] <addr>` | Probe one address; defaults to `i2c0`. |
+| `i2c` | `i2c read [bus] <addr> <reg> [len]` | Read register bytes; defaults to `i2c0`. |
+| `i2c` | `i2c write [bus] <addr> <reg> <byte...>` | Write register bytes; defaults to `i2c0`. |
 | `spi` | `spi [status [bus]]` | Show every named SPI bus, or one selected bus. |
 | `spi` | `spi xfer <bus> <cs> <mode> <hz> <byte...>` | Full-duplex transfer over a named SPI bus. |
 | `spi` | `spi read <bus> <cs> <mode> <hz> <len> [fill]` | Read bytes over a named SPI bus. |

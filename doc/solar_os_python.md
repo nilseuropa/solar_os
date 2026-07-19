@@ -361,6 +361,10 @@ single-board-bus `solaros.spi` module.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
   cannot be removed.
+- `i2c_probe(bus, address)`: probe an address on a named I2C bus.
+- `i2c_scan(bus)`: return detected addresses on a named I2C bus.
+- `i2c_read_reg(bus, address, reg, length)`: read bytes from an 8-bit register.
+- `i2c_write_reg(bus, address, reg, data)`: write bytes to an 8-bit register.
 - `spi_xfer(bus, cs, data[, mode[, speed_hz]])`: perform a full-duplex named-bus
   transfer and return received bytes.
 - `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`: clock in bytes using
@@ -371,7 +375,12 @@ single-board-bus `solaros.spi` module.
 Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
 `ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
 buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
-`max_transfer_size`, and `cs` slot dictionaries.
+`max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
+`sda_pin`, `scl_pin`, and `speed_hz`.
+
+Named I2C operations are present when both the resource and I2C services are
+compiled. They take and release a shared bus lease automatically. The legacy
+`solaros.i2c` module remains an `i2c0` shortcut.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
@@ -398,6 +407,16 @@ reply = solaros.buses.spi_xfer("spi1", "gpio17", b"\x9f\x00\x00\x00")
 print(reply)
 
 solaros.buses.remove("spi1")
+```
+
+Named I2C example:
+
+```python
+import solaros
+
+print(solaros.buses.get("i2c0"))
+print([hex(addr) for addr in solaros.buses.i2c_scan("i2c0")])
+solaros.buses.i2c_probe("i2c0", 0x3c)
 ```
 
 ## `solaros.expansion`
@@ -431,7 +450,8 @@ solaros.expansion.detach("lcd0")
 
 ## `solaros.i2c`
 
-I2C functions expose the board I2C service for diagnostics and add-ons.
+I2C functions expose `i2c0` for diagnostics and compatibility. Use
+`solaros.buses.i2c_*` to select a named bus.
 
 - `info()`: return bus speed and SDA/SCL pins.
 - `probe(address)`: raise on missing device, return `None` on success.

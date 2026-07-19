@@ -1775,6 +1775,7 @@ static mp_obj_t python_bus_info_to_dict(const solar_os_bus_info_t *info)
         python_dict_store_int(dict, "port", info->config.i2c.port);
         python_dict_store_int(dict, "sda_pin", info->config.i2c.sda_pin);
         python_dict_store_int(dict, "scl_pin", info->config.i2c.scl_pin);
+        python_dict_store_uint(dict, "speed_hz", info->config.i2c.speed_hz);
         break;
     case SOLAR_OS_BUS_PROTOCOL_SPI: {
         python_dict_store_int(dict, "host", info->config.spi.host);
@@ -1893,6 +1894,84 @@ static mp_obj_t solaros_buses_remove(mp_obj_t name_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_remove_obj, solaros_buses_remove);
+
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+static const char *python_bus_i2c_name(mp_obj_t name_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, NULL)) {
+        python_raise_esp(ESP_ERR_NOT_FOUND);
+    }
+    return name;
+}
+
+static mp_obj_t solaros_buses_i2c_probe(mp_obj_t name_obj, mp_obj_t address_obj)
+{
+    python_check_esp(solar_os_i2c_bus_probe(python_bus_i2c_name(name_obj),
+                                             python_u8_from_obj(address_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_i2c_probe_obj, solaros_buses_i2c_probe);
+
+static mp_obj_t solaros_buses_i2c_scan(mp_obj_t name_obj)
+{
+    const char *name = python_bus_i2c_name(name_obj);
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (uint8_t address = SOLAR_OS_I2C_SCAN_MIN_ADDR;
+         address <= SOLAR_OS_I2C_SCAN_MAX_ADDR;
+         address++) {
+        if (solar_os_i2c_bus_probe(name, address) == ESP_OK) {
+            mp_obj_list_append(list, mp_obj_new_int(address));
+        }
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_i2c_scan_obj, solaros_buses_i2c_scan);
+
+static mp_obj_t solaros_buses_i2c_read_reg(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    const char *name = python_bus_i2c_name(args[0]);
+    const uint8_t address = python_u8_from_obj(args[1]);
+    const uint8_t reg = python_u8_from_obj(args[2]);
+    const mp_int_t len = mp_obj_get_int(args[3]);
+    if (len <= 0 || len > 256) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected length 1..256"));
+    }
+
+    uint8_t data[256];
+    python_check_esp(solar_os_i2c_bus_read_reg(name,
+                                                address,
+                                                reg,
+                                                data,
+                                                (size_t)len));
+    return mp_obj_new_bytes(data, (size_t)len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_i2c_read_reg_obj,
+                                    4,
+                                    4,
+                                    solaros_buses_i2c_read_reg);
+
+static mp_obj_t solaros_buses_i2c_write_reg(size_t n_args, const mp_obj_t *args)
+{
+    (void)n_args;
+    const char *name = python_bus_i2c_name(args[0]);
+    const uint8_t address = python_u8_from_obj(args[1]);
+    const uint8_t reg = python_u8_from_obj(args[2]);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[3], &bufinfo, MP_BUFFER_READ);
+    python_check_esp(solar_os_i2c_bus_write_reg(name,
+                                                 address,
+                                                 reg,
+                                                 bufinfo.buf,
+                                                 bufinfo.len));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_i2c_write_reg_obj,
+                                    4,
+                                    4,
+                                    solaros_buses_i2c_write_reg);
+#endif
 
 static int python_bus_spi_cs_from_obj(const solar_os_bus_info_t *info, mp_obj_t obj)
 {
@@ -3873,6 +3952,20 @@ static void python_register_solaros_module(void)
                         "create_spi",
                         MP_OBJ_FROM_PTR(&solaros_buses_create_spi_obj));
     python_module_store(buses, "remove", MP_OBJ_FROM_PTR(&solaros_buses_remove_obj));
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    python_module_store(buses,
+                        "i2c_probe",
+                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_probe_obj));
+    python_module_store(buses,
+                        "i2c_scan",
+                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_scan_obj));
+    python_module_store(buses,
+                        "i2c_read_reg",
+                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_read_reg_obj));
+    python_module_store(buses,
+                        "i2c_write_reg",
+                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_write_reg_obj));
+#endif
     python_module_store(buses,
                         "spi_xfer",
                         MP_OBJ_FROM_PTR(&solaros_buses_spi_xfer_obj));

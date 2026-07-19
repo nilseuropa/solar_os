@@ -1643,6 +1643,7 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         solua_set_int(L, -1, "port", info->config.i2c.port);
         solua_set_int(L, -1, "sda_pin", info->config.i2c.sda_pin);
         solua_set_int(L, -1, "scl_pin", info->config.i2c.scl_pin);
+        solua_set_int(L, -1, "speed_hz", info->config.i2c.speed_hz);
         break;
     case SOLAR_OS_BUS_PROTOCOL_SPI:
         solua_set_int(L, -1, "host", info->config.spi.host);
@@ -1760,6 +1761,77 @@ static int solua_buses_remove(lua_State *L)
 {
     return solua_check_esp(L, solar_os_bus_unregister(luaL_checkstring(L, 1)));
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+static const char *solua_bus_i2c_name(lua_State *L, int index)
+{
+    const char *name = luaL_checkstring(L, index);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, NULL)) {
+        luaL_error(L, "%s", esp_err_to_name(ESP_ERR_NOT_FOUND));
+    }
+    return name;
+}
+
+static int solua_buses_i2c_probe(lua_State *L)
+{
+    const char *name = solua_bus_i2c_name(L, 1);
+    return solua_check_esp(L,
+                           solar_os_i2c_bus_probe(name, solua_check_u8(L, 2)));
+}
+
+static int solua_buses_i2c_scan(lua_State *L)
+{
+    const char *name = solua_bus_i2c_name(L, 1);
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    for (uint8_t address = SOLAR_OS_I2C_SCAN_MIN_ADDR;
+         address <= SOLAR_OS_I2C_SCAN_MAX_ADDR;
+         address++) {
+        if (solar_os_i2c_bus_probe(name, address) == ESP_OK) {
+            lua_pushinteger(L, address);
+            lua_rawseti(L, list, out++);
+        }
+    }
+    return 1;
+}
+
+static int solua_buses_i2c_read_reg(lua_State *L)
+{
+    const char *name = solua_bus_i2c_name(L, 1);
+    const uint8_t address = solua_check_u8(L, 2);
+    const uint8_t reg = solua_check_u8(L, 3);
+    const lua_Integer len = luaL_checkinteger(L, 4);
+    if (len <= 0 || len > 256) {
+        return luaL_error(L, "expected length 1..256");
+    }
+
+    uint8_t data[256];
+    (void)solua_check_esp(L,
+                          solar_os_i2c_bus_read_reg(name,
+                                                    address,
+                                                    reg,
+                                                    data,
+                                                    (size_t)len));
+    lua_pushlstring(L, (const char *)data, (size_t)len);
+    return 1;
+}
+
+static int solua_buses_i2c_write_reg(lua_State *L)
+{
+    const char *name = solua_bus_i2c_name(L, 1);
+    const uint8_t address = solua_check_u8(L, 2);
+    const uint8_t reg = solua_check_u8(L, 3);
+    size_t len = 0;
+    const char *data = luaL_checklstring(L, 4, &len);
+    return solua_check_esp(L,
+                           solar_os_i2c_bus_write_reg(name,
+                                                      address,
+                                                      reg,
+                                                      (const uint8_t *)data,
+                                                      len));
+}
+#endif
 
 static int solua_bus_spi_cs_from_arg(lua_State *L,
                                      const solar_os_bus_info_t *info,
@@ -3640,6 +3712,12 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "get", solua_buses_get);
     solua_set_func(L, mod, "create_spi", solua_buses_create_spi);
     solua_set_func(L, mod, "remove", solua_buses_remove);
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    solua_set_func(L, mod, "i2c_probe", solua_buses_i2c_probe);
+    solua_set_func(L, mod, "i2c_scan", solua_buses_i2c_scan);
+    solua_set_func(L, mod, "i2c_read_reg", solua_buses_i2c_read_reg);
+    solua_set_func(L, mod, "i2c_write_reg", solua_buses_i2c_write_reg);
+#endif
     solua_set_func(L, mod, "spi_xfer", solua_buses_spi_xfer);
     solua_set_func(L, mod, "spi_read", solua_buses_spi_read);
     solua_set_func(L, mod, "spi_write", solua_buses_spi_write);

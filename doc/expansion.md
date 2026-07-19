@@ -112,6 +112,17 @@ The bus name and chip-select are always explicit. Transfers temporarily claim
 the selected chip-select and lease the bus, so they fail cleanly when an
 attached device already owns that chip-select.
 
+The `i2c` command also accepts a named bus. Omitting it retains the `i2c0`
+shortcut used by existing scripts:
+
+```text
+i2c status i2c0
+i2c scan i2c0
+i2c probe i2c0 0x3c
+i2c read i2c0 0x50 0x00 8
+i2c write i2c0 0x50 0x00 0xaa 0x55
+```
+
 Omit `miso` or use `miso=none` for output-only peripherals. A runtime bus can
 only use a host and pins approved by the board profile. It cannot take fixed
 display, storage, I2C, USB, or strapping pins. A bus cannot be removed while it
@@ -165,7 +176,7 @@ limiting when connecting it to 3V3.
 VCC -> 3V3        GND -> GND
 SDA -> GPIO13     SCL -> GPIO14
 
-i2c scan
+i2c scan i2c0
 expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
 display test oled0
 ```

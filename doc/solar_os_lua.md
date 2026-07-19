@@ -43,7 +43,7 @@ service packages are not available on that board.
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
-- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled
+- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
@@ -76,6 +76,10 @@ of the legacy single-board-bus `solaros.spi` table.
 - `get(name)` returns one bus table.
 - `create_spi(name, config)` creates a runtime SPI bus and returns its table.
 - `remove(name)` removes an idle runtime bus.
+- `i2c_probe(bus, address)`, `i2c_scan(bus)`,
+  `i2c_read_reg(bus, address, reg, length)`, and
+  `i2c_write_reg(bus, address, reg, data)` operate on a selected named I2C bus
+  when both the resource and I2C services are compiled.
 - `spi_xfer(bus, cs, data[, mode[, speed_hz]])`,
   `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`, and
   `spi_write(bus, cs, data[, mode[, speed_hz]])` transfer on a selected named
@@ -84,7 +88,9 @@ of the legacy single-board-bus `solaros.spi` table.
 Bus tables contain `id`, `name`, `protocol`, `origin`, `sharing`, `ready`, and
 `lease_count`, plus protocol-specific pins and configuration. `create_spi`
 requires `host`, `sclk`, `mosi`, and a one-to-four-element `cs` array. `miso`
-and `max_transfer_size` are optional.
+and `max_transfer_size` are optional. I2C bus tables include `port`, `sda_pin`,
+`scl_pin`, and `speed_hz`. Named I2C operations take and release a shared lease
+automatically; the legacy `solaros.i2c` table remains an `i2c0` shortcut.
 
 ```lua
 local solaros = require("solaros")
@@ -101,6 +107,15 @@ print(bus.name, bus.origin)
 local reply = solaros.buses.spi_xfer("spi1", "gpio17", "\x9f\x00\x00\x00")
 print(#reply)
 solaros.buses.remove("spi1")
+```
+
+```lua
+local solaros = require("solaros")
+
+local bus = solaros.buses.get("i2c0")
+print(bus.name, bus.speed_hz)
+local addresses = solaros.buses.i2c_scan("i2c0")
+solaros.buses.i2c_probe("i2c0", 0x3c)
 ```
 
 `solaros.expansion.drivers()` lists compiled drivers, and `devices()` lists

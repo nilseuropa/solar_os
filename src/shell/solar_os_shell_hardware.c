@@ -2663,8 +2663,54 @@ void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
-static void i2c_print_status(solar_os_shell_io_t *term)
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+static void i2c_print_bus_status(solar_os_shell_io_t *term,
+                                 const solar_os_bus_info_t *info)
 {
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s port=%d SDA=%d SCL=%d speed=%" PRIu32
+                             " ready=%s leases=%u\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             info->config.i2c.port,
+                             info->config.i2c.sda_pin,
+                             info->config.i2c.scl_pin,
+                             info->config.i2c.speed_hz,
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count);
+}
+#endif
+
+static void i2c_print_status(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
+            solar_os_shell_io_printf(term, "i2c status: bus '%s' not found\n", name);
+            return;
+        }
+        i2c_print_bus_status(term, &info);
+        return;
+    }
+
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "I2C: no registered buses");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_I2C, i, &info)) {
+            i2c_print_bus_status(term, &info);
+        }
+    }
+#else
+    if (name != NULL && strcmp(name, SOLAR_OS_I2C_DEFAULT_BUS) != 0) {
+        solar_os_shell_io_printf(term, "i2c status: bus '%s' not found\n", name);
+        return;
+    }
     if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
         solar_os_shell_io_writeln(term, "I2C: not available on this board");
         return;
@@ -2674,26 +2720,47 @@ static void i2c_print_status(solar_os_shell_io_t *term)
                              solar_os_i2c_get_sda_pin(),
                              solar_os_i2c_get_scl_pin(),
                              solar_os_i2c_get_speed_hz());
+#endif
+}
+
+static bool i2c_bus_exists(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, NULL)) {
+        solar_os_shell_io_printf(term, "i2c: bus '%s' not found\n", name);
+        return false;
+    }
+    return true;
+#else
+    if (strcmp(name, SOLAR_OS_I2C_DEFAULT_BUS) == 0) {
+        return true;
+    }
+    solar_os_shell_io_printf(term, "i2c: bus '%s' not found\n", name);
+    return false;
+#endif
 }
 
 static void i2c_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  i2c scan");
-    solar_os_shell_io_writeln(term, "  i2c probe <addr>");
-    solar_os_shell_io_writeln(term, "  i2c read <addr> <reg> [len]");
-    solar_os_shell_io_writeln(term, "  i2c write <addr> <reg> <byte...>");
-    solar_os_shell_io_writeln(term, "  i2c status");
+    solar_os_shell_io_writeln(term, "  i2c [status [bus]]");
+    solar_os_shell_io_writeln(term, "  i2c scan [bus]");
+    solar_os_shell_io_writeln(term, "  i2c probe [bus] <addr>");
+    solar_os_shell_io_writeln(term, "  i2c read [bus] <addr> <reg> [len]");
+    solar_os_shell_io_writeln(term, "  i2c write [bus] <addr> <reg> <byte...>");
 }
 
-static void i2c_cmd_scan(solar_os_shell_io_t *term)
+static void i2c_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    size_t found = 0;
-
-    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
-        solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
+    if (argc > 3) {
+        solar_os_shell_io_writeln(term, "usage: i2c scan [bus]");
         return;
     }
+    const char *bus = argc == 3 ? argv[2] : SOLAR_OS_I2C_DEFAULT_BUS;
+    if (!i2c_bus_exists(term, bus)) {
+        return;
+    }
+    size_t found = 0;
 
     solar_os_shell_io_writeln(term, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
     for (uint8_t row = 0; row < 0x80; row += 0x10) {
@@ -2705,7 +2772,7 @@ static void i2c_cmd_scan(solar_os_shell_io_t *term)
                 continue;
             }
 
-            const esp_err_t err = solar_os_i2c_probe(address);
+            const esp_err_t err = solar_os_i2c_bus_probe(bus, address);
             if (err == ESP_OK) {
                 solar_os_shell_io_printf(term, "%02x ", address);
                 found++;
@@ -2723,47 +2790,74 @@ static void i2c_cmd_scan(solar_os_shell_io_t *term)
 
 static void i2c_cmd_probe(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int address_arg = 2;
+    if (argc == 4) {
+        bus = argv[2];
+        address_arg = 3;
+    }
     uint8_t address;
-    if (argc != 3 || !parse_u8(argv[2], &address) ||
+    if ((argc != 3 && argc != 4) || !parse_u8(argv[address_arg], &address) ||
         address < SOLAR_OS_I2C_SCAN_MIN_ADDR || address > SOLAR_OS_I2C_SCAN_MAX_ADDR) {
-        solar_os_shell_io_writeln(term, "usage: i2c probe <addr>");
+        solar_os_shell_io_writeln(term, "usage: i2c probe [bus] <addr>");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
-    const esp_err_t err = solar_os_i2c_probe(address);
+    const esp_err_t err = solar_os_i2c_bus_probe(bus, address);
     if (err == ESP_OK) {
-        solar_os_shell_io_printf(term, "0x%02x: ACK\n", address);
+        solar_os_shell_io_printf(term, "%s 0x%02x: ACK\n", bus, address);
     } else if (err == ESP_ERR_NOT_SUPPORTED) {
         solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
     } else if (err == ESP_ERR_TIMEOUT) {
-        solar_os_shell_io_printf(term, "0x%02x: bus busy\n", address);
+        solar_os_shell_io_printf(term, "%s 0x%02x: bus busy\n", bus, address);
     } else {
-        solar_os_shell_io_printf(term, "0x%02x: no response (%s)\n", address, esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "%s 0x%02x: no response (%s)\n",
+                                 bus,
+                                 address,
+                                 esp_err_to_name(err));
     }
 }
 
 static void i2c_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int value_arg = 2;
+    uint8_t legacy_address;
+    if (argc >= 5 && !parse_u8(argv[2], &legacy_address)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
     uint8_t address;
     uint8_t reg;
     size_t len = 1;
 
-    if (argc < 4 ||
-        argc > 5 ||
-        !parse_u8(argv[2], &address) ||
-        !parse_u8(argv[3], &reg) ||
-        (argc == 5 && !parse_size_arg(argv[4], 1, I2C_READ_MAX_LEN, &len))) {
-        solar_os_shell_io_writeln(term, "usage: i2c read <addr> <reg> [len]");
+    if (argc < value_arg + 2 ||
+        argc > value_arg + 3 ||
+        !parse_u8(argv[value_arg], &address) ||
+        !parse_u8(argv[value_arg + 1], &reg) ||
+        (argc == value_arg + 3 &&
+         !parse_size_arg(argv[value_arg + 2], 1, I2C_READ_MAX_LEN, &len))) {
+        solar_os_shell_io_writeln(term, "usage: i2c read [bus] <addr> <reg> [len]");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
     uint8_t data[I2C_READ_MAX_LEN];
-    const esp_err_t err = solar_os_i2c_read_reg(address, reg, data, len);
+    const esp_err_t err = solar_os_i2c_bus_read_reg(bus, address, reg, data, len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
             return;
         }
-        solar_os_shell_io_printf(term, "i2c read failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "i2c read failed on %s: %s\n",
+                                 bus,
+                                 esp_err_to_name(err));
         return;
     }
 
@@ -2776,31 +2870,45 @@ static void i2c_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 
 static void i2c_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int value_arg = 2;
+    uint8_t legacy_address;
+    if (argc >= 6 && !parse_u8(argv[2], &legacy_address)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
     uint8_t address;
     uint8_t reg;
-    uint8_t data[SOLAR_OS_SHELL_ARG_MAX - 3];
+    uint8_t data[SOLAR_OS_SHELL_ARG_MAX];
 
-    if (argc < 5 ||
-        !parse_u8(argv[2], &address) ||
-        !parse_u8(argv[3], &reg)) {
-        solar_os_shell_io_writeln(term, "usage: i2c write <addr> <reg> <byte...>");
+    if (argc < value_arg + 3 ||
+        !parse_u8(argv[value_arg], &address) ||
+        !parse_u8(argv[value_arg + 1], &reg)) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: i2c write [bus] <addr> <reg> <byte...>");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
-    const size_t len = (size_t)(argc - 4);
+    const size_t len = (size_t)(argc - value_arg - 2);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 4], &data[i])) {
+        if (!parse_u8(argv[i + value_arg + 2], &data[i])) {
             solar_os_shell_io_writeln(term, "i2c write: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_i2c_write_reg(address, reg, data, len);
+    const esp_err_t err = solar_os_i2c_bus_write_reg(bus, address, reg, data, len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
             return;
         }
-        solar_os_shell_io_printf(term, "i2c write failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "i2c write failed on %s: %s\n",
+                                 bus,
+                                 esp_err_to_name(err));
         return;
     }
 
@@ -2816,12 +2924,16 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0 || strcmp(argv[1], "speed") == 0) {
-        i2c_print_status(term);
+        if (argc > 3) {
+            i2c_print_usage(term);
+            return;
+        }
+        i2c_print_status(term, argc == 3 ? argv[2] : NULL);
         return;
     }
 
     if (strcmp(argv[1], "scan") == 0) {
-        i2c_cmd_scan(term);
+        i2c_cmd_scan(term, argc, argv);
     } else if (strcmp(argv[1], "probe") == 0) {
         i2c_cmd_probe(term, argc, argv);
     } else if (strcmp(argv[1], "read") == 0) {
