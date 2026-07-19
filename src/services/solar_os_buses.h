@@ -29,6 +29,18 @@ esp_err_t solar_os_bus_release(const char *name,
                                const char *owner);
 size_t solar_os_bus_release_owner(const char *owner);
 
+esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address);
+esp_err_t solar_os_bus_i2c_read_reg(const char *name,
+                                    uint8_t address,
+                                    uint8_t reg,
+                                    uint8_t *data,
+                                    size_t len);
+esp_err_t solar_os_bus_i2c_write_reg(const char *name,
+                                     uint8_t address,
+                                     uint8_t reg,
+                                     const uint8_t *data,
+                                     size_t len);
+
 esp_err_t solar_os_bus_spi_add_device(const char *name,
                                       const spi_device_interface_config_t *device_config,
                                       spi_device_handle_t *device);

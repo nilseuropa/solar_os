@@ -319,6 +319,7 @@ Static board bus example:
             .port = I2C_NUM_0, \
             .sda_pin = GPIO_NUM_8, \
             .scl_pin = GPIO_NUM_9, \
+            .speed_hz = SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ, \
         }, \
     }, \
     { \

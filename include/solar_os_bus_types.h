@@ -7,6 +7,7 @@
 #define SOLAR_OS_BUS_NAME_MAX 16
 #define SOLAR_OS_BUS_OWNER_MAX 24
 #define SOLAR_OS_BUS_SPI_CS_MAX 4
+#define SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ 100000U
 #define SOLAR_OS_BUS_SPI_DEFAULT_SPEED_HZ 1000000U
 #define SOLAR_OS_BUS_SPI_MAX_SPEED_HZ 20000000U
 
@@ -36,6 +37,7 @@ typedef struct {
     int port;
     int sda_pin;
     int scl_pin;
+    uint32_t speed_hz;
 } solar_os_bus_i2c_config_t;
 
 typedef struct {
@@ -90,6 +92,7 @@ typedef struct {
     int port;
     int sda_pin;
     int scl_pin;
+    uint32_t speed_hz;
 } solar_os_i2c_bus_descriptor_t;
 
 typedef struct {

@@ -3,6 +3,7 @@
 #include "solar_os_shell_io.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,11 +119,12 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         solar_os_expansion_i2c_bus_t bus;
         if (solar_os_expansion_get_i2c_bus(i, &bus)) {
             solar_os_shell_io_printf(term,
-                                     "I2C %-6s port %d SDA GPIO%d SCL GPIO%d",
+                                     "I2C %-6s port %d SDA GPIO%d SCL GPIO%d speed=%" PRIu32,
                                      bus.name,
                                      bus.port,
                                      bus.sda_pin,
-                                     bus.scl_pin);
+                                     bus.scl_pin,
+                                     bus.speed_hz);
             expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_I2C);
             solar_os_shell_io_put_char(term, '\n');
         }

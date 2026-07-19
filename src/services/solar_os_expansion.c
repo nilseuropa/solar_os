@@ -457,6 +457,7 @@ bool solar_os_expansion_get_i2c_bus(size_t index, solar_os_expansion_i2c_bus_t *
         .port = info.config.i2c.port,
         .sda_pin = info.config.i2c.sda_pin,
         .scl_pin = info.config.i2c.scl_pin,
+        .speed_hz = info.config.i2c.speed_hz,
     };
     strlcpy(bus->name, info.name, sizeof(bus->name));
     return true;
@@ -473,6 +474,7 @@ bool solar_os_expansion_find_i2c_bus(const char *name, solar_os_expansion_i2c_bu
             .port = info.config.i2c.port,
             .sda_pin = info.config.i2c.sda_pin,
             .scl_pin = info.config.i2c.scl_pin,
+            .speed_hz = info.config.i2c.speed_hz,
         };
         strlcpy(bus->name, info.name, sizeof(bus->name));
     }

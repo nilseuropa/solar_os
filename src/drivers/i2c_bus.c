@@ -14,13 +14,35 @@ static const char *TAG = "i2c_bus";
 
 static i2c_master_bus_handle_t bus_handle;
 static SemaphoreHandle_t bus_mutex;
+static i2c_bus_config_t active_config;
+
+static bool i2c_bus_config_valid(const i2c_bus_config_t *config)
+{
+    return config != NULL &&
+        config->port >= 0 &&
+        config->port < I2C_NUM_MAX &&
+        GPIO_IS_VALID_GPIO(config->sda_pin) &&
+        GPIO_IS_VALID_GPIO(config->scl_pin) &&
+        config->sda_pin != config->scl_pin &&
+        config->speed_hz > 0;
+}
+
+static bool i2c_bus_config_equal(const i2c_bus_config_t *left,
+                                 const i2c_bus_config_t *right)
+{
+    return left != NULL && right != NULL &&
+        left->port == right->port &&
+        left->sda_pin == right->sda_pin &&
+        left->scl_pin == right->scl_pin &&
+        left->speed_hz == right->speed_hz;
+}
 
 static esp_err_t i2c_bus_device(uint8_t address, i2c_master_dev_handle_t *dev_handle)
 {
     i2c_device_config_t dev_config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = address,
-        .scl_speed_hz = SOLAR_I2C_SPEED_HZ,
+        .scl_speed_hz = active_config.speed_hz,
     };
 
     return i2c_master_bus_add_device(bus_handle, &dev_config, dev_handle);
@@ -28,32 +50,59 @@ static esp_err_t i2c_bus_device(uint8_t address, i2c_master_dev_handle_t *dev_ha
 
 esp_err_t i2c_bus_init(void)
 {
-    if (bus_handle != NULL) {
-        return ESP_OK;
-    }
+    const i2c_bus_config_t config = {
+        .port = SOLAR_OS_BOARD_I2C_PORT,
+        .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA,
+        .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL,
+        .speed_hz = SOLAR_I2C_SPEED_HZ,
+    };
+    return i2c_bus_init_config(&config);
+}
 
-    bus_mutex = xSemaphoreCreateMutex();
+esp_err_t i2c_bus_init_config(const i2c_bus_config_t *config)
+{
+    if (!i2c_bus_config_valid(config)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (bus_mutex == NULL) {
+        bus_mutex = xSemaphoreCreateMutex();
+    }
     if (bus_mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    if (bus_handle != NULL) {
+        const esp_err_t ret = i2c_bus_config_equal(config, &active_config)
+            ? ESP_OK
+            : ESP_ERR_INVALID_STATE;
+        xSemaphoreGive(bus_mutex);
+        return ret;
+    }
+
     i2c_master_bus_config_t bus_config = {
-        .i2c_port = SOLAR_OS_BOARD_I2C_PORT,
-        .sda_io_num = SOLAR_OS_BOARD_PIN_I2C_SDA,
-        .scl_io_num = SOLAR_OS_BOARD_PIN_I2C_SCL,
+        .i2c_port = config->port,
+        .sda_io_num = config->sda_pin,
+        .scl_io_num = config->scl_pin,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
 
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_config, &bus_handle), TAG, "new I2C bus failed");
+    const esp_err_t ret = i2c_new_master_bus(&bus_config, &bus_handle);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(bus_mutex);
+        ESP_RETURN_ON_ERROR(ret, TAG, "new I2C bus failed");
+    }
+    active_config = *config;
     ESP_LOGI(TAG,
              "I2C bus ready: port=%d SDA=%d SCL=%d speed=%" PRIu32,
-             (int)SOLAR_OS_BOARD_I2C_PORT,
-             SOLAR_OS_BOARD_PIN_I2C_SDA,
-             SOLAR_OS_BOARD_PIN_I2C_SCL,
-             SOLAR_I2C_SPEED_HZ);
+             config->port,
+             config->sda_pin,
+             config->scl_pin,
+             config->speed_hz);
 
+    xSemaphoreGive(bus_mutex);
     return ESP_OK;
 }
 
@@ -78,17 +127,17 @@ void i2c_bus_unlock(void)
 
 uint32_t i2c_bus_get_speed_hz(void)
 {
-    return SOLAR_I2C_SPEED_HZ;
+    return bus_handle != NULL ? active_config.speed_hz : SOLAR_I2C_SPEED_HZ;
 }
 
 gpio_num_t i2c_bus_get_sda_pin(void)
 {
-    return SOLAR_OS_BOARD_PIN_I2C_SDA;
+    return bus_handle != NULL ? active_config.sda_pin : SOLAR_OS_BOARD_PIN_I2C_SDA;
 }
 
 gpio_num_t i2c_bus_get_scl_pin(void)
 {
-    return SOLAR_OS_BOARD_PIN_I2C_SCL;
+    return bus_handle != NULL ? active_config.scl_pin : SOLAR_OS_BOARD_PIN_I2C_SCL;
 }
 
 esp_err_t i2c_bus_probe(uint8_t address)

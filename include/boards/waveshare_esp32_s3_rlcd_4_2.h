@@ -124,6 +124,7 @@
             .port = SOLAR_OS_BOARD_I2C_PORT, \
             .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, \
             .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL, \
+            .speed_hz = SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ, \
         }, \
     }, \
     { \

@@ -12,7 +12,15 @@
 #define SOLAR_I2C_SCAN_MIN_ADDR 0x03
 #define SOLAR_I2C_SCAN_MAX_ADDR 0x77
 
+typedef struct {
+    int port;
+    gpio_num_t sda_pin;
+    gpio_num_t scl_pin;
+    uint32_t speed_hz;
+} i2c_bus_config_t;
+
 esp_err_t i2c_bus_init(void);
+esp_err_t i2c_bus_init_config(const i2c_bus_config_t *config);
 i2c_master_bus_handle_t i2c_bus_get_handle(void);
 void i2c_bus_lock(void);
 void i2c_bus_unlock(void);
