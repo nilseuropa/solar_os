@@ -29,6 +29,7 @@
 #include "py/qstr.h"
 #include "py/repl.h"
 #include "py/runtime.h"
+#include "py/smallint.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_memory.h"
 #include "solar_os_config.h"
@@ -403,7 +404,10 @@ static void python_dict_store_uint(mp_obj_t dict, const char *key, mp_uint_t val
 
 static void python_dict_store_u64(mp_obj_t dict, const char *key, uint64_t value)
 {
-    mp_obj_dict_store(dict, python_key(key), mp_obj_new_int_from_ull(value));
+    mp_obj_t object = value <= (uint64_t)MP_SMALL_INT_MAX
+        ? mp_obj_new_int_from_uint((mp_uint_t)value)
+        : mp_obj_new_int_from_ull(value);
+    mp_obj_dict_store(dict, python_key(key), object);
 }
 
 static void python_dict_store_float(mp_obj_t dict, const char *key, float value)
