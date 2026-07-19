@@ -795,6 +795,7 @@ static void solua_push_pwm_info(lua_State *L, const solar_os_pwm_pin_info_t *inf
 static void solua_push_uart_status(lua_State *L, const solar_os_uart_status_t *status)
 {
     lua_newtable(L);
+    solua_set_str(L, -1, "name", status->name);
     solua_set_bool(L, -1, "initialized", status->initialized);
     solua_set_int(L, -1, "port_num", status->port_num);
     solua_set_int(L, -1, "tx_pin", status->tx_pin);
@@ -1669,6 +1670,7 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         solua_set_int(L, -1, "port", info->config.uart.port);
         solua_set_int(L, -1, "tx_pin", info->config.uart.tx_pin);
         solua_set_int(L, -1, "rx_pin", info->config.uart.rx_pin);
+        solua_set_int(L, -1, "baud_rate", info->config.uart.baud_rate);
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         solua_set_int(L, -1, "pin", info->config.onewire.pin);
@@ -1818,10 +1820,95 @@ static int solua_buses_create_onewire(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static int solua_buses_create_uart(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = solua_table_int(L, 2, "port", true, -1),
+            .tx_pin = solua_table_int(L, 2, "tx", true, -1),
+            .rx_pin = solua_table_int(L, 2, "rx", true, -1),
+            .baud_rate = (uint32_t)solua_table_int(L,
+                                                   2,
+                                                   "baud_rate",
+                                                   false,
+                                                   SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE),
+        },
+    };
+    if (definition.config.uart.baud_rate < SOLAR_OS_BUS_UART_MIN_BAUD_RATE ||
+        definition.config.uart.baud_rate > SOLAR_OS_BUS_UART_MAX_BAUD_RATE) {
+        return luaL_error(L, "expected baud_rate 300..921600");
+    }
+
+    (void)solua_check_esp(L, solar_os_bus_register(&definition));
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &info)) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solua_push_bus_info(L, &info);
+    return 1;
+}
+#endif
+
 static int solua_buses_remove(lua_State *L)
 {
     return solua_check_esp(L, solar_os_bus_unregister(luaL_checkstring(L, 1)));
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static const char *solua_bus_uart_name(lua_State *L, int index)
+{
+    const char *name = luaL_checkstring(L, index);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        luaL_error(L, "%s", esp_err_to_name(ESP_ERR_NOT_FOUND));
+    }
+    return name;
+}
+
+static int solua_buses_uart_write(lua_State *L)
+{
+    const char *name = solua_bus_uart_name(L, 1);
+    size_t len = 0;
+    const char *data = luaL_checklstring(L, 2, &len);
+    size_t written = 0;
+    (void)solua_check_esp(L,
+                          solar_os_bus_uart_write_once(name,
+                                                       (const uint8_t *)data,
+                                                       len,
+                                                       &written,
+                                                       "lua.buses"));
+    lua_pushinteger(L, (lua_Integer)written);
+    return 1;
+}
+
+static int solua_buses_uart_read(lua_State *L)
+{
+    const char *name = solua_bus_uart_name(L, 1);
+    const uint32_t len = solua_optional_u32(L, 2, 64);
+    const uint32_t timeout_ms = solua_optional_u32(L, 3, 0);
+    if (len == 0 || len > 512) {
+        return luaL_error(L, "expected length 1..512");
+    }
+
+    uint8_t data[512];
+    size_t read_len = 0;
+    (void)solua_check_esp(L,
+                          solar_os_bus_uart_read_once(name,
+                                                      data,
+                                                      len,
+                                                      timeout_ms,
+                                                      &read_len,
+                                                      "lua.buses"));
+    lua_pushlstring(L, (const char *)data, read_len);
+    return 1;
+}
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 static const char *solua_bus_i2c_name(lua_State *L, int index)
@@ -3853,6 +3940,9 @@ static void solua_open_solaros(lua_State *L)
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
     solua_set_func(L, mod, "create_onewire", solua_buses_create_onewire);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    solua_set_func(L, mod, "create_uart", solua_buses_create_uart);
+#endif
     solua_set_func(L, mod, "remove", solua_buses_remove);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     solua_set_func(L, mod, "i2c_probe", solua_buses_i2c_probe);
@@ -3864,6 +3954,10 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "onewire_reset", solua_buses_onewire_reset);
     solua_set_func(L, mod, "onewire_scan", solua_buses_onewire_scan);
     solua_set_func(L, mod, "onewire_xfer", solua_buses_onewire_xfer);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    solua_set_func(L, mod, "uart_write", solua_buses_uart_write);
+    solua_set_func(L, mod, "uart_read", solua_buses_uart_read);
 #endif
     solua_set_func(L, mod, "spi_xfer", solua_buses_spi_xfer);
     solua_set_func(L, mod, "spi_read", solua_buses_spi_read);

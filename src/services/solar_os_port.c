@@ -17,6 +17,8 @@ typedef struct {
     uint32_t capabilities;
     solar_os_port_read_fn read;
     solar_os_port_write_fn write;
+    solar_os_port_open_fn open;
+    solar_os_port_close_fn close;
     void *user;
     bool claimed;
     char owner[SOLAR_OS_PORT_OWNER_MAX];
@@ -146,7 +148,35 @@ esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver)
     slot->capabilities = driver->capabilities;
     slot->read = driver->read;
     slot->write = driver->write;
+    slot->open = driver->open;
+    slot->close = driver->close;
     slot->user = driver->user;
+    port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_port_unregister(const char *name)
+{
+    if (!port_valid_name(name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t ret = port_ensure_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    port_lock();
+    const int index = port_find_locked(name);
+    if (index < 0) {
+        port_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (ports[index].claimed) {
+        port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    memset(&ports[index], 0, sizeof(ports[index]));
     port_unlock();
     return ESP_OK;
 }
@@ -189,7 +219,26 @@ esp_err_t solar_os_port_claim(const char *name,
     }
     handle->index = index;
     handle->token = entry->token;
+    const solar_os_port_open_fn open_fn = entry->open;
+    void *user = entry->user;
+    const uint32_t token = entry->token;
     port_unlock();
+
+    if (open_fn != NULL) {
+        ret = open_fn(user);
+        if (ret != ESP_OK) {
+            port_lock();
+            if (entry->registered && entry->claimed && entry->token == token) {
+                entry->claimed = false;
+                entry->owner[0] = '\0';
+                entry->token = 0;
+            }
+            port_unlock();
+            handle->index = -1;
+            handle->token = 0;
+            return ret;
+        }
+    }
     return ESP_OK;
 }
 
@@ -207,6 +256,25 @@ esp_err_t solar_os_port_release(solar_os_port_handle_t *handle)
     }
 
     solar_os_port_entry_t *entry = &ports[handle->index];
+    const solar_os_port_close_fn close_fn = entry->close;
+    void *user = entry->user;
+    const int index = handle->index;
+    const uint32_t token = handle->token;
+    port_unlock();
+
+    if (close_fn != NULL) {
+        ret = close_fn(user);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    port_lock();
+    entry = &ports[index];
+    if (!entry->registered || !entry->claimed || entry->token != token) {
+        port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     entry->claimed = false;
     entry->owner[0] = '\0';
     entry->token = 0;

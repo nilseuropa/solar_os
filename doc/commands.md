@@ -406,6 +406,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
 | `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
+| `expansion` | `expansion bus create uart <name> port=<uart1\|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define a lazy runtime UART on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
@@ -418,11 +419,11 @@ and writes the inactive ESP-IDF OTA partition.
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
-| `uart` | `uart status` | Show UART service state. |
-| `uart` | `uart baud [rate]` | Show or set UART baud rate. |
-| `uart` | `uart mode [raw|line]` | Show or set UART service mode. |
-| `uart` | `uart write <text>` | Write text to `uart0` for diagnostics. |
-| `uart` | `uart read [ms]` | Read UART bytes for diagnostics. |
+| `uart` | `uart [status [bus]]` | Show the default `uart0` or a selected named UART bus. |
+| `uart` | `uart baud [bus] [rate]` | Show or set a named UART bus baud rate. |
+| `uart` | `uart mode [bus] [raw\|line]` | Show or set a named UART bus service mode. |
+| `uart` | `uart write [bus] <text>` | Write text through the default or selected named UART bus. |
+| `uart` | `uart read [bus] [ms]` | Read bytes from the default or selected named UART bus. |
 | `gpio` | `gpio status` or `gpio list` | List board GPIOs with free, releasable, or fixed pin policy. |
 | `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |

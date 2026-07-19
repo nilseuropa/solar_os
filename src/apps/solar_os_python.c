@@ -1801,6 +1801,7 @@ static mp_obj_t python_bus_info_to_dict(const solar_os_bus_info_t *info)
         python_dict_store_int(dict, "port", info->config.uart.port);
         python_dict_store_int(dict, "tx_pin", info->config.uart.tx_pin);
         python_dict_store_int(dict, "rx_pin", info->config.uart.rx_pin);
+        python_dict_store_uint(dict, "baud_rate", info->config.uart.baud_rate);
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         python_dict_store_int(dict, "pin", info->config.onewire.pin);
@@ -1944,12 +1945,96 @@ MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_onewire_obj,
                           solaros_buses_create_onewire);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static mp_obj_t solaros_buses_create_uart(mp_obj_t name_obj, mp_obj_t config_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = -1,
+            .tx_pin = -1,
+            .rx_pin = -1,
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE,
+        },
+    };
+
+    python_get_dict_int(config_obj, "port", &definition.config.uart.port, true);
+    python_get_dict_int(config_obj, "tx", &definition.config.uart.tx_pin, true);
+    python_get_dict_int(config_obj, "rx", &definition.config.uart.rx_pin, true);
+    int baud_rate = 0;
+    if (python_get_dict_int(config_obj, "baud_rate", &baud_rate, false)) {
+        if (baud_rate < (int)SOLAR_OS_BUS_UART_MIN_BAUD_RATE ||
+            baud_rate > (int)SOLAR_OS_BUS_UART_MAX_BAUD_RATE) {
+            mp_raise_ValueError(MP_ERROR_TEXT("expected baud_rate 300..921600"));
+        }
+        definition.config.uart.baud_rate = (uint32_t)baud_rate;
+    }
+
+    python_check_esp(solar_os_bus_register(&definition));
+    return solaros_buses_get(name_obj);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_uart_obj, solaros_buses_create_uart);
+#endif
+
 static mp_obj_t solaros_buses_remove(mp_obj_t name_obj)
 {
     python_check_esp(solar_os_bus_unregister(mp_obj_str_get_str(name_obj)));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_remove_obj, solaros_buses_remove);
+
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static const char *python_bus_uart_name(mp_obj_t name_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        python_raise_esp(ESP_ERR_NOT_FOUND);
+    }
+    return name;
+}
+
+static mp_obj_t solaros_buses_uart_write(mp_obj_t name_obj, mp_obj_t data_obj)
+{
+    mp_buffer_info_t data;
+    mp_get_buffer_raise(data_obj, &data, MP_BUFFER_READ);
+    size_t written = 0;
+    python_check_esp(solar_os_bus_uart_write_once(python_bus_uart_name(name_obj),
+                                                  data.buf,
+                                                  data.len,
+                                                  &written,
+                                                  "python.buses"));
+    return mp_obj_new_int_from_uint(written);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_uart_write_obj, solaros_buses_uart_write);
+
+static mp_obj_t solaros_buses_uart_read(size_t n_args, const mp_obj_t *args)
+{
+    const char *name = python_bus_uart_name(args[0]);
+    const uint32_t len = python_optional_u32(n_args, args, 1, 64);
+    const uint32_t timeout_ms = python_optional_u32(n_args, args, 2, 0);
+    if (len == 0 || len > 512) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected length 1..512"));
+    }
+
+    uint8_t data[512];
+    size_t read_len = 0;
+    python_check_esp(solar_os_bus_uart_read_once(name,
+                                                 data,
+                                                 len,
+                                                 timeout_ms,
+                                                 &read_len,
+                                                 "python.buses"));
+    return mp_obj_new_bytes(data, read_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_uart_read_obj,
+                                    1,
+                                    3,
+                                    solaros_buses_uart_read);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 static const char *python_bus_i2c_name(mp_obj_t name_obj)
@@ -2715,7 +2800,8 @@ static mp_obj_t solaros_uart_status(void)
     solar_os_uart_status_t status;
     solar_os_uart_get_status(&status);
 
-    mp_obj_t dict = mp_obj_new_dict(8);
+    mp_obj_t dict = mp_obj_new_dict(9);
+    python_dict_store_cstr(dict, "name", status.name);
     python_dict_store_bool(dict, "initialized", status.initialized);
     python_dict_store_int(dict, "port_num", status.port_num);
     python_dict_store_int(dict, "tx_pin", status.tx_pin);
@@ -4093,6 +4179,11 @@ static void python_register_solaros_module(void)
                         "create_onewire",
                         MP_OBJ_FROM_PTR(&solaros_buses_create_onewire_obj));
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    python_module_store(buses,
+                        "create_uart",
+                        MP_OBJ_FROM_PTR(&solaros_buses_create_uart_obj));
+#endif
     python_module_store(buses, "remove", MP_OBJ_FROM_PTR(&solaros_buses_remove_obj));
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     python_module_store(buses,
@@ -4118,6 +4209,14 @@ static void python_register_solaros_module(void)
     python_module_store(buses,
                         "onewire_xfer",
                         MP_OBJ_FROM_PTR(&solaros_buses_onewire_xfer_obj));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    python_module_store(buses,
+                        "uart_write",
+                        MP_OBJ_FROM_PTR(&solaros_buses_uart_write_obj));
+    python_module_store(buses,
+                        "uart_read",
+                        MP_OBJ_FROM_PTR(&solaros_buses_uart_read_obj));
 #endif
     python_module_store(buses,
                         "spi_xfer",

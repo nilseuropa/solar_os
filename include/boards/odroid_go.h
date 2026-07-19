@@ -18,6 +18,7 @@
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_1
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_3
+#define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ILI9341"
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 320
@@ -55,6 +56,18 @@
                 {.name = "io15", .pin = GPIO_NUM_15}, \
                 {.name = "io4", .pin = GPIO_NUM_4}, \
             }, \
+        }, \
+    }, \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
         }, \
     }, \
 }

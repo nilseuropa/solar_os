@@ -1526,19 +1526,44 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_UART
-static void uart_print_status(solar_os_shell_io_t *term)
+static bool uart_bus_exists(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' not found\n", name);
+        return false;
+    }
+#else
+    if (strcmp(name, SOLAR_OS_UART_PORT_NAME) != 0) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' not found\n", name);
+        return false;
+    }
+#endif
+    return true;
+}
+
+static void uart_print_status(solar_os_shell_io_t *term, const char *name)
 {
     solar_os_uart_status_t status;
-    solar_os_uart_get_status(&status);
+    if (!uart_bus_exists(term, name)) {
+        return;
+    }
+    if (strcmp(name, SOLAR_OS_UART_PORT_NAME) == 0) {
+        (void)solar_os_uart_init();
+    }
+    if (!solar_os_uart_get_bus_status(name, &status)) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", name);
+        return;
+    }
 
     if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_UART)) {
         solar_os_shell_io_writeln(term, "UART: not available on this board");
         return;
     }
 
-    solar_os_shell_io_printf(term,
-                             "UART: %s\n",
-                             status.initialized ? "ready" : "unavailable");
+    solar_os_shell_io_printf(term, "Bus: %s\n", name);
+    solar_os_shell_io_printf(term, "UART: %s\n",
+                             status.initialized ? "ready" : "idle");
     solar_os_shell_io_printf(term, "Port: UART%d\n", status.port_num);
     solar_os_shell_io_printf(term, "Pins: TX %d, RX %d\n", status.tx_pin, status.rx_pin);
     solar_os_shell_io_printf(term, "Baud: %" PRIu32 "\n", status.baud_rate);
@@ -1548,7 +1573,7 @@ static void uart_print_status(solar_os_shell_io_t *term)
     } else {
         solar_os_shell_io_printf(term,
                                  "RX buffered: %s\n",
-                                 status.initialized ? "busy" : "unavailable");
+                                 status.initialized ? "busy" : "idle");
     }
     solar_os_shell_io_printf(term,
                              "Owner: %s\n",
@@ -1558,11 +1583,11 @@ static void uart_print_status(solar_os_shell_io_t *term)
 static void uart_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  uart status");
-    solar_os_shell_io_writeln(term, "  uart baud [rate]");
-    solar_os_shell_io_writeln(term, "  uart mode [raw|line]");
-    solar_os_shell_io_writeln(term, "  uart write <text>");
-    solar_os_shell_io_writeln(term, "  uart read [ms]");
+    solar_os_shell_io_writeln(term, "  uart [status [bus]]");
+    solar_os_shell_io_writeln(term, "  uart baud [bus] [rate]");
+    solar_os_shell_io_writeln(term, "  uart mode [bus] [raw|line]");
+    solar_os_shell_io_writeln(term, "  uart write [bus] <text>");
+    solar_os_shell_io_writeln(term, "  uart read [bus] [ms]");
 }
 
 static void uart_print_apply_result(solar_os_shell_io_t *term,
@@ -1594,10 +1619,18 @@ static void uart_print_apply_result(solar_os_shell_io_t *term,
 
 static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int value_arg = 2;
     solar_os_uart_status_t status;
 
     if (argc == 2) {
-        solar_os_uart_get_status(&status);
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            (void)solar_os_uart_init();
+            if (!solar_os_uart_get_bus_status(bus, &status)) {
+                solar_os_shell_io_writeln(term, "uart: default bus unavailable");
+                return;
+            }
+        }
         solar_os_shell_io_printf(term, "baud: %" PRIu32 "\n", status.baud_rate);
         solar_os_shell_io_printf(term,
                                  "values: %u..%u\n",
@@ -1605,13 +1638,25 @@ static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
                                  (unsigned)SOLAR_OS_UART_MAX_BAUD_RATE);
         return;
     }
-    if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: uart baud [rate]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
+    if (argc == value_arg) {
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", bus);
+            return;
+        }
+        solar_os_shell_io_printf(term, "%s baud: %" PRIu32 "\n", bus, status.baud_rate);
+        return;
+    }
+    if (argc != value_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart baud [bus] [rate]");
         return;
     }
 
     size_t baud_rate = 0;
-    if (!parse_size_arg(argv[2],
+    if (!parse_size_arg(argv[value_arg],
                         SOLAR_OS_UART_MIN_BAUD_RATE,
                         SOLAR_OS_UART_MAX_BAUD_RATE,
                         &baud_rate)) {
@@ -1622,14 +1667,16 @@ static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    const esp_err_t err = solar_os_uart_set_baud_rate((uint32_t)baud_rate);
-    solar_os_uart_get_status(&status);
+    const esp_err_t err = solar_os_uart_bus_set_baud_rate(bus, (uint32_t)baud_rate);
+    (void)solar_os_uart_get_bus_status(bus, &status);
     const bool applied = status.initialized && status.baud_rate == (uint32_t)baud_rate;
-    uart_print_apply_result(term, "baud", argv[2], err, applied);
+    uart_print_apply_result(term, "baud", argv[value_arg], err, applied);
 }
 
 static void uart_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int value_arg = 2;
     solar_os_uart_status_t status;
 
     if (argc == 2) {
@@ -1638,34 +1685,50 @@ static void uart_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_writeln(term, "values: raw line");
         return;
     }
-    if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: uart mode [raw|line]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
+    if (argc == value_arg) {
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", bus);
+            return;
+        }
+        solar_os_shell_io_printf(term,
+                                 "%s mode: %s\n",
+                                 bus,
+                                 solar_os_uart_mode_name(status.mode));
+        return;
+    }
+    if (argc != value_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart mode [bus] [raw|line]");
         return;
     }
 
     solar_os_uart_mode_t mode;
-    if (!solar_os_uart_parse_mode(argv[2], &mode)) {
+    if (!solar_os_uart_parse_mode(argv[value_arg], &mode)) {
         solar_os_shell_io_writeln(term, "mode values: raw line");
         return;
     }
 
-    const esp_err_t err = solar_os_uart_set_mode(mode);
-    solar_os_uart_get_status(&status);
+    const esp_err_t err = solar_os_uart_bus_set_mode(bus, mode);
+    (void)solar_os_uart_get_bus_status(bus, &status);
     const bool applied = status.initialized && status.mode == mode;
-    uart_print_apply_result(term, "mode", argv[2], err, applied);
+    uart_print_apply_result(term, "mode", argv[value_arg], err, applied);
 }
 
 static bool uart_build_write_payload(int argc,
                                      char **argv,
+                                     int first_arg,
                                      uint8_t *buffer,
                                      size_t buffer_len,
                                      size_t *payload_len)
 {
     size_t len = 0;
 
-    for (int i = 2; i < argc; i++) {
+    for (int i = first_arg; i < argc; i++) {
         const size_t arg_len = strlen(argv[i]);
-        const size_t extra_space = i > 2 ? 1 : 0;
+        const size_t extra_space = i > first_arg ? 1 : 0;
         if (len + extra_space + arg_len > buffer_len) {
             return false;
         }
@@ -1682,20 +1745,26 @@ static bool uart_build_write_payload(int argc,
 
 static void uart_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int first_arg = 2;
+    if (argc >= 4 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        first_arg = 3;
+    }
     if (argc < 3) {
-        solar_os_shell_io_writeln(term, "usage: uart write <text>");
+        solar_os_shell_io_writeln(term, "usage: uart write [bus] <text>");
         return;
     }
 
     uint8_t buffer[UART_WRITE_MAX_LEN];
     size_t len = 0;
-    if (!uart_build_write_payload(argc, argv, buffer, sizeof(buffer), &len)) {
+    if (!uart_build_write_payload(argc, argv, first_arg, buffer, sizeof(buffer), &len)) {
         solar_os_shell_io_writeln(term, "uart write: text too long");
         return;
     }
 
     size_t written = 0;
-    const esp_err_t err = solar_os_uart_write(buffer, len, &written);
+    const esp_err_t err = solar_os_uart_bus_write(bus, buffer, len, &written);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
             return;
@@ -1732,20 +1801,31 @@ static void uart_print_read_data(solar_os_shell_io_t *term, const uint8_t *data,
 
 static void uart_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int timeout_arg = 2;
     size_t timeout_ms = 100;
 
-    if (argc > 3) {
-        solar_os_shell_io_writeln(term, "usage: uart read [ms]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        timeout_arg = 3;
+    }
+    if (argc > timeout_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart read [bus] [ms]");
         return;
     }
-    if (argc == 3 && !parse_size_arg(argv[2], 0, 10000, &timeout_ms)) {
+    if (argc == timeout_arg + 1 &&
+        !parse_size_arg(argv[timeout_arg], 0, 10000, &timeout_ms)) {
         solar_os_shell_io_writeln(term, "read timeout: 0..10000 ms");
         return;
     }
 
     uint8_t buffer[UART_READ_MAX_LEN];
     size_t read_len = 0;
-    const esp_err_t err = solar_os_uart_read(buffer, sizeof(buffer), (uint32_t)timeout_ms, &read_len);
+    const esp_err_t err = solar_os_uart_bus_read(bus,
+                                                 buffer,
+                                                 sizeof(buffer),
+                                                 (uint32_t)timeout_ms,
+                                                 &read_len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
             return;
@@ -1767,11 +1847,11 @@ void solar_os_shell_cmd_uart(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
-        if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: uart status");
+        if (argc > 3) {
+            solar_os_shell_io_writeln(term, "usage: uart status [bus]");
             return;
         }
-        uart_print_status(term);
+        uart_print_status(term, argc == 3 ? argv[2] : SOLAR_OS_UART_PORT_NAME);
         return;
     }
 

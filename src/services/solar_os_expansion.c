@@ -260,12 +260,8 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             binding->target[0] != '\0' ? binding->target : "i2c");
     }
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
-        return append_claim(requests,
-                            request_count,
-                            SOLAR_OS_RESOURCE_UART_PORT,
-                            binding->value,
-                            -1,
-                            binding->target);
+        /* The named UART bus owns its controller; the device owns a bus lease. */
+        return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     default:
@@ -576,6 +572,7 @@ bool solar_os_expansion_get_uart_port(size_t index, solar_os_expansion_uart_port
         .port = info.config.uart.port,
         .tx_pin = info.config.uart.tx_pin,
         .rx_pin = info.config.uart.rx_pin,
+        .baud_rate = info.config.uart.baud_rate,
     };
     strlcpy(port->name, info.name, sizeof(port->name));
     return true;
@@ -592,6 +589,7 @@ bool solar_os_expansion_find_uart_port(const char *name, solar_os_expansion_uart
             .port = info.config.uart.port,
             .tx_pin = info.config.uart.tx_pin,
             .rx_pin = info.config.uart.rx_pin,
+            .baud_rate = info.config.uart.baud_rate,
         };
         strlcpy(port->name, info.name, sizeof(port->name));
     }

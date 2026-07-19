@@ -51,18 +51,19 @@ voltage and current requirements before connecting it.
 
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
-| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on unused controller `i2c1`, SPI on spare host `spi3`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
-| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | None | Named 1-Wire on approved free pins | The SSD1683 and microSD buses are internal board resources, not expansion buses. |
-| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7 | I2C on unused controller `i2c1`, SPI on spare host `spi3`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
-| ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4 | None | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
+| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | The SSD1683 and microSD buses are internal board resources, not expansion buses. |
+| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
+| ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
 I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
 instances are exclusive. Registered 1-Wire buses appear in expansion status
 and can be addressed by name. Bus names are unique across protocols.
 
-I2C, SPI, and 1-Wire buses can be created at runtime. Runtime I2C requires an
-unused hardware controller and I2C service support; all signal pins must be
-approved by the board's runtime pin policy. UART creation is not implemented.
+I2C, SPI, UART, and 1-Wire buses can be created at runtime. Runtime hardware
+buses require an unused board-approved controller or host; all signal pins must
+be approved by the board's runtime pin policy. Runtime UART hardware is started
+on its first lease and stopped after its final lease is released.
 The direct numeric form of the `onewire` command remains available without
 creating a named expansion bus.
 
@@ -97,6 +98,11 @@ expansion bus remove i2c1
 expansion bus create onewire onewire0 pin=gpio16
 onewire scan onewire0
 expansion bus remove onewire0
+
+expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
+uart status uart1
+uart write uart1 AT
+expansion bus remove uart1
 ```
 
 On a board with an approved spare SPI host, create a bus before attaching the

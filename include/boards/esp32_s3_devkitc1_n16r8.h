@@ -27,6 +27,7 @@
 #define SOLAR_OS_BOARD_PIN_SPI_MOSI GPIO_NUM_11
 #define SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ 4096
 #define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
+#define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 #define SOLAR_OS_BOARD_SPI_CS_SLOTS { \
     {.pin = GPIO_NUM_10, .name = "gpio10"}, \
     {.pin = GPIO_NUM_5, .name = "gpio5"}, \
@@ -64,6 +65,18 @@
                 {.name = "gpio6", .pin = GPIO_NUM_6}, \
                 {.name = "gpio7", .pin = GPIO_NUM_7}, \
             }, \
+        }, \
+    }, \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
         }, \
     }, \
 }

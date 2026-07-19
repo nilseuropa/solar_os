@@ -94,6 +94,7 @@ typedef struct {
     bool complete_i2c_arguments;
     bool complete_onewire_buses;
     bool complete_spi_buses;
+    bool complete_uart_arguments;
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
@@ -477,6 +478,9 @@ static const char * const expansion_bus_protocols[] = {
     "onewire",
 #endif
     "spi",
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    "uart",
+#endif
 };
 static const char * const expansion_driver_values[] = {
     "manual",
@@ -1001,8 +1005,10 @@ static const char * const path_spi_write_mode[] = {
     SHELL_COMPLETION_ANY,
 };
 static const char * const path_uart[] = {"uart"};
+static const char * const path_uart_status[] = {"uart", "status"};
 static const char * const path_uart_baud[] = {"uart", "baud"};
 static const char * const path_uart_mode[] = {"uart", "mode"};
+static const char * const path_uart_write[] = {"uart", "write"};
 static const char * const path_uart_read[] = {"uart", "read"};
 static const char * const path_port[] = {"port"};
 static const char * const path_port_status[] = {"port", "status"};
@@ -1237,6 +1243,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_spi_buses = true, \
     }
+#define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_uart_arguments = true, \
+    }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
         .path = path_array, \
@@ -1425,9 +1437,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
-    SHELL_COMPLETION_STATIC(path_uart_baud, uart_baud_values),
-    SHELL_COMPLETION_STATIC(path_uart_mode, uart_mode_values),
-    SHELL_COMPLETION_STATIC(path_uart_read, uart_read_ms_values),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_baud),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_mode),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_read),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_status),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_write),
     SHELL_COMPLETION_STATIC(path_port, port_subcommands),
     SHELL_COMPLETION_PORTS(path_port_status),
     SHELL_COMPLETION_STATIC(path_xfer, xfer_subcommands),
@@ -1538,6 +1552,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
 #undef SHELL_COMPLETION_SPI_CS
+#undef SHELL_COMPLETION_UART_ARGUMENTS
 #undef SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS
 #undef SHELL_COMPLETION_STORAGE_MOUNTABLES
 #undef SHELL_COMPLETION_SESSION_IDS
@@ -3663,6 +3678,86 @@ static void shell_completion_emit_onewire_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static bool shell_completion_uart_named(const char * const *tokens, size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
+    return tokens != NULL && token_count >= 3 &&
+        solar_os_bus_find(tokens[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL);
+#else
+    (void)tokens;
+    (void)token_count;
+    return false;
+#endif
+}
+
+static void shell_completion_emit_uart_values(shell_completion_match_t *state,
+                                              const char * const *values,
+                                              size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        shell_completion_emit(state, values[i]);
+    }
+}
+
+static void shell_completion_emit_uart_arguments(shell_completion_match_t *state,
+                                                 const char * const *tokens,
+                                                 size_t token_count)
+{
+    if (tokens == NULL || token_count < 2) {
+        return;
+    }
+
+    const char *operation = tokens[1];
+    if (token_count == 2) {
+        shell_completion_emit_uart_buses(state);
+        if (strcmp(operation, "baud") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_baud_values,
+                                              SHELL_ARRAY_COUNT(uart_baud_values));
+        } else if (strcmp(operation, "mode") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_mode_values,
+                                              SHELL_ARRAY_COUNT(uart_mode_values));
+        } else if (strcmp(operation, "read") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_read_ms_values,
+                                              SHELL_ARRAY_COUNT(uart_read_ms_values));
+        }
+        return;
+    }
+
+    if (token_count == 3 && shell_completion_uart_named(tokens, token_count)) {
+        if (strcmp(operation, "baud") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_baud_values,
+                                              SHELL_ARRAY_COUNT(uart_baud_values));
+        } else if (strcmp(operation, "mode") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_mode_values,
+                                              SHELL_ARRAY_COUNT(uart_mode_values));
+        } else if (strcmp(operation, "read") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_read_ms_values,
+                                              SHELL_ARRAY_COUNT(uart_read_ms_values));
+        }
+    }
+}
+
 static void shell_completion_emit_i2c_values(shell_completion_match_t *state,
                                              const char * const *values,
                                              size_t count)
@@ -4229,6 +4324,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_spi_buses) {
             shell_completion_emit_spi_buses(state);
+        }
+        if (rule->complete_uart_arguments) {
+            shell_completion_emit_uart_arguments(state, tokens, token_count);
         }
         if (rule->complete_spi_cs) {
             shell_completion_emit_spi_cs(state, tokens, token_count);

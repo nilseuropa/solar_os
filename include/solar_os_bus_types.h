@@ -8,6 +8,9 @@
 #define SOLAR_OS_BUS_OWNER_MAX 24
 #define SOLAR_OS_BUS_SPI_CS_MAX 4
 #define SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ 100000U
+#define SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE 115200U
+#define SOLAR_OS_BUS_UART_MIN_BAUD_RATE 300U
+#define SOLAR_OS_BUS_UART_MAX_BAUD_RATE 921600U
 #define SOLAR_OS_BUS_SPI_DEFAULT_SPEED_HZ 1000000U
 #define SOLAR_OS_BUS_SPI_MAX_SPEED_HZ 20000000U
 
@@ -54,6 +57,7 @@ typedef struct {
     int port;
     int tx_pin;
     int rx_pin;
+    uint32_t baud_rate;
 } solar_os_bus_uart_config_t;
 
 typedef struct {
@@ -111,6 +115,7 @@ typedef struct {
     int port;
     int tx_pin;
     int rx_pin;
+    uint32_t baud_rate;
 } solar_os_uart_bus_descriptor_t;
 
 typedef struct {

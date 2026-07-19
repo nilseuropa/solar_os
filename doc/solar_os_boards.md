@@ -360,8 +360,10 @@ Board buses cannot be unregistered. Runtime I2C uses an unregistered hardware
 controller plus approved SDA/SCL pins. Runtime 1-Wire uses one approved pin.
 Runtime SPI is supported on hosts explicitly allowed by
 `SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`; CS entries are allowed attachment slots
-and are claimed per device. Runtime bus signal pins are claimed atomically and
-released when an idle bus is removed. Runtime UART creation is not implemented.
+and are claimed per device. Runtime bus signal pins and hardware endpoints are
+claimed atomically and released when an idle bus is removed. Runtime UART
+controllers are limited by `SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK`; their
+drivers start on first lease and stop on final release.
 
 ## Board Selector
 
@@ -552,12 +554,13 @@ The bus remains idle until a device attaches. After detaching all devices,
 `expansion bus remove spi1` releases the three signal pins. The board-defined
 I2C bus on GPIO13/GPIO14 is fixed and is never remapped by this operation.
 
-The spare I2C controller and free pins can instead form runtime I2C or named
-1-Wire buses:
+The spare I2C/UART controllers and free pins can instead form runtime I2C,
+UART, or named 1-Wire buses:
 
 ```text
 expansion bus create i2c i2c1 port=i2c1 sda=gpio1 scl=gpio2
 expansion bus create onewire onewire0 pin=gpio3
+expansion bus create uart uart1 port=uart1 tx=gpio1 rx=gpio2
 ```
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and

@@ -16,6 +16,10 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 #include "solar_os_onewire.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+#include "solar_os_port.h"
+#include "solar_os_uart.h"
+#endif
 
 #define SOLAR_OS_BUS_MAX 8
 #define SOLAR_OS_BUS_LEASE_MAX 16
@@ -25,6 +29,9 @@ typedef struct {
     size_t bus_index;
     char owner[SOLAR_OS_BUS_OWNER_MAX];
     size_t ref_count;
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    solar_os_port_handle_t port;
+#endif
 } solar_os_bus_lease_t;
 
 static solar_os_bus_info_t buses[SOLAR_OS_BUS_MAX];
@@ -94,6 +101,12 @@ static bool runtime_spi_host_allowed(int host)
         (SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK & (1U << (unsigned)host)) != 0;
 }
 
+static bool runtime_uart_port_allowed(int port)
+{
+    return port >= 0 && port < 32 &&
+        (SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK & (1U << (unsigned)port)) != 0;
+}
+
 static bool spi_host_registered_locked(int host)
 {
     for (size_t i = 0; i < SOLAR_OS_BUS_MAX; i++) {
@@ -112,6 +125,18 @@ static bool i2c_port_registered_locked(int port)
         if (buses[i].active &&
             buses[i].protocol == SOLAR_OS_BUS_PROTOCOL_I2C &&
             buses[i].config.i2c.port == port) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool uart_port_registered_locked(int port)
+{
+    for (size_t i = 0; i < SOLAR_OS_BUS_MAX; i++) {
+        if (buses[i].active &&
+            buses[i].protocol == SOLAR_OS_BUS_PROTOCOL_UART &&
+            buses[i].config.uart.port == port) {
             return true;
         }
     }
@@ -188,9 +213,14 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
         break;
     case SOLAR_OS_BUS_PROTOCOL_UART:
         config_valid = definition->config.uart.port >= 0 &&
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+            definition->config.uart.port < UART_NUM_MAX &&
+#endif
             definition->config.uart.tx_pin >= 0 &&
             definition->config.uart.rx_pin >= 0 &&
-            definition->config.uart.tx_pin != definition->config.uart.rx_pin;
+            definition->config.uart.tx_pin != definition->config.uart.rx_pin &&
+            definition->config.uart.baud_rate >= SOLAR_OS_BUS_UART_MIN_BAUD_RATE &&
+            definition->config.uart.baud_rate <= SOLAR_OS_BUS_UART_MAX_BAUD_RATE;
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         config_valid = definition->config.onewire.pin >= 0;
@@ -222,7 +252,8 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
         }
         return true;
     case SOLAR_OS_BUS_PROTOCOL_UART:
-        return solar_os_pin_is_routable(definition->config.uart.tx_pin) &&
+        return runtime_uart_port_allowed(definition->config.uart.port) &&
+            solar_os_pin_is_routable(definition->config.uart.tx_pin) &&
             solar_os_pin_is_routable(definition->config.uart.rx_pin);
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         return solar_os_pin_is_routable(definition->config.onewire.pin);
@@ -392,6 +423,12 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
 #else
         return ESP_ERR_NOT_SUPPORTED;
 #endif
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        break;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
         break;
@@ -443,6 +480,26 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
             .label = "i2c-scl",
         };
         break;
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+        requests[request_count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_UART_PORT,
+            .primary = definition->config.uart.port,
+            .secondary = -1,
+            .label = "uart-port",
+        };
+        requests[request_count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = definition->config.uart.tx_pin,
+            .secondary = -1,
+            .label = "uart-tx",
+        };
+        requests[request_count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = definition->config.uart.rx_pin,
+            .secondary = -1,
+            .label = "uart-rx",
+        };
+        break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         requests[request_count++] = (solar_os_resource_request_t) {
             .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
@@ -461,7 +518,9 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
         ? spi_host_registered_locked(definition->config.spi.host)
         : definition->protocol == SOLAR_OS_BUS_PROTOCOL_I2C
             ? i2c_port_registered_locked(definition->config.i2c.port)
-            : false;
+            : definition->protocol == SOLAR_OS_BUS_PROTOCOL_UART
+                ? uart_port_registered_locked(definition->config.uart.port)
+                : false;
     if (find_bus_index_locked(definition->name) >= 0 || endpoint_registered) {
         ret = ESP_ERR_INVALID_STATE;
     } else {
@@ -469,6 +528,19 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
         if (ret == ESP_OK) {
             pins_claimed = true;
             ret = register_locked(definition);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+            if (ret == ESP_OK && definition->protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
+                ret = solar_os_uart_register_bus(definition->name,
+                                                 &definition->config.uart,
+                                                 false);
+                if (ret != ESP_OK) {
+                    const int index = find_bus_index_locked(definition->name);
+                    if (index >= 0) {
+                        memset(&buses[index], 0, sizeof(buses[index]));
+                    }
+                }
+            }
+#endif
         }
     }
     if (ret != ESP_OK && pins_claimed) {
@@ -497,6 +569,15 @@ esp_err_t solar_os_bus_unregister(const char *name)
     } else if (lease_count_locked((size_t)index) > 0) {
         ret = ESP_ERR_INVALID_STATE;
     } else {
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        if (buses[index].protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
+            ret = solar_os_uart_unregister_bus(buses[index].name);
+            if (ret != ESP_OK) {
+                xSemaphoreGive(buses_mutex);
+                return ret;
+            }
+        }
+#endif
         if (buses[index].protocol == SOLAR_OS_BUS_PROTOCOL_I2C && buses[index].ready) {
             ret = stop_i2c_locked((size_t)index);
             if (ret != ESP_OK) {
@@ -550,6 +631,21 @@ size_t solar_os_bus_count_protocol(solar_os_bus_protocol_t protocol)
     return count;
 }
 
+static void refresh_uart_config(solar_os_bus_info_t *info)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (info != NULL && info->protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
+        solar_os_uart_status_t status;
+        if (solar_os_uart_get_bus_status(info->name, &status)) {
+            info->config.uart.baud_rate = status.baud_rate;
+            info->ready = status.initialized;
+        }
+    }
+#else
+    (void)info;
+#endif
+}
+
 bool solar_os_bus_get(size_t index, solar_os_bus_info_t *info)
 {
     if (info == NULL || solar_os_buses_init() != ESP_OK) {
@@ -570,6 +666,9 @@ bool solar_os_bus_get(size_t index, solar_os_bus_info_t *info)
         }
     }
     xSemaphoreGive(buses_mutex);
+    if (found) {
+        refresh_uart_config(info);
+    }
     return found;
 }
 
@@ -595,6 +694,9 @@ bool solar_os_bus_get_protocol(solar_os_bus_protocol_t protocol,
         }
     }
     xSemaphoreGive(buses_mutex);
+    if (found) {
+        refresh_uart_config(info);
+    }
     return found;
 }
 
@@ -616,6 +718,9 @@ bool solar_os_bus_find(const char *name,
         found = true;
     }
     xSemaphoreGive(buses_mutex);
+    if (found && info != NULL) {
+        refresh_uart_config(info);
+    }
     return found;
 }
 
@@ -665,6 +770,9 @@ esp_err_t solar_os_bus_acquire(const char *name,
         xSemaphoreGive(buses_mutex);
         return ESP_ERR_NO_MEM;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    solar_os_port_handle_t uart_port = SOLAR_OS_PORT_HANDLE_INIT;
+#endif
     if (lease_count_locked((size_t)bus_index) == 0) {
         if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_I2C) {
             if (!buses[bus_index].ready) {
@@ -681,6 +789,13 @@ esp_err_t solar_os_bus_acquire(const char *name,
             }
         } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_ONEWIRE) {
             ret = start_onewire_locked((size_t)bus_index);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
+            ret = solar_os_port_claim(buses[bus_index].name, owner, &uart_port);
+            if (ret == ESP_OK) {
+                buses[bus_index].ready = true;
+            }
+#endif
         }
         if (ret != ESP_OK) {
             xSemaphoreGive(buses_mutex);
@@ -691,6 +806,9 @@ esp_err_t solar_os_bus_acquire(const char *name,
         .active = true,
         .bus_index = (size_t)bus_index,
         .ref_count = 1,
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        .port = uart_port,
+#endif
     };
     strlcpy(free_lease->owner, owner, sizeof(free_lease->owner));
     xSemaphoreGive(buses_mutex);
@@ -723,6 +841,20 @@ esp_err_t solar_os_bus_release(const char *name,
             continue;
         }
         if (--lease->ref_count == 0) {
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+            if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_UART &&
+                solar_os_port_handle_valid(&lease->port)) {
+                ret = solar_os_port_release(&lease->port);
+                if (ret != ESP_OK) {
+                    lease->ref_count = 1;
+                    xSemaphoreGive(buses_mutex);
+                    return ret;
+                }
+                if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
+                    buses[bus_index].ready = false;
+                }
+            }
+#endif
             if (lease_count_locked((size_t)bus_index) == 0 &&
                 buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
                 ret = solar_os_routed_spi_stop(&buses[bus_index].config.spi,
@@ -759,6 +891,17 @@ size_t solar_os_bus_release_owner(const char *owner)
             continue;
         }
         const size_t bus_index = leases[i].bus_index;
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_UART &&
+            solar_os_port_handle_valid(&leases[i].port)) {
+            if (solar_os_port_release(&leases[i].port) != ESP_OK) {
+                continue;
+            }
+            if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
+                buses[bus_index].ready = false;
+            }
+        }
+#endif
         if (lease_count_locked(bus_index) == leases[i].ref_count &&
             buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
             const esp_err_t ret = solar_os_routed_spi_stop(&buses[bus_index].config.spi,
@@ -888,6 +1031,133 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
 #endif
     xSemaphoreGive(buses_mutex);
     return ret;
+}
+
+static esp_err_t find_ready_uart_locked(const char *name,
+                                        solar_os_bus_lease_t **bus_lease)
+{
+    const int index = find_bus_index_locked(name);
+    if (index < 0 || buses[index].protocol != SOLAR_OS_BUS_PROTOCOL_UART) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (!buses[index].ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    for (size_t i = 0; i < SOLAR_OS_BUS_LEASE_MAX; i++) {
+        if (leases[i].active && leases[i].bus_index == (size_t)index) {
+            if (bus_lease != NULL) {
+                *bus_lease = &leases[i];
+            }
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t solar_os_bus_uart_write(const char *name,
+                                  const uint8_t *data,
+                                  size_t len,
+                                  size_t *written)
+{
+    if (written != NULL) {
+        *written = 0;
+    }
+    if (!name_valid(name) || (data == NULL && len > 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (len == 0) {
+        return ESP_OK;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    solar_os_bus_lease_t *lease = NULL;
+    ret = find_ready_uart_locked(name, &lease);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) {
+        ret = solar_os_port_write(&lease->port, data, len, written);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    xSemaphoreGive(buses_mutex);
+    return ret;
+}
+
+esp_err_t solar_os_bus_uart_read(const char *name,
+                                 uint8_t *data,
+                                 size_t len,
+                                 uint32_t timeout_ms,
+                                 size_t *read_len)
+{
+    if (read_len != NULL) {
+        *read_len = 0;
+    }
+    if (!name_valid(name) || (data == NULL && len > 0)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (len == 0) {
+        return ESP_OK;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    solar_os_bus_lease_t *lease = NULL;
+    ret = find_ready_uart_locked(name, &lease);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) {
+        ret = solar_os_port_read(&lease->port, data, len, timeout_ms, read_len);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    xSemaphoreGive(buses_mutex);
+    return ret;
+}
+
+esp_err_t solar_os_bus_uart_write_once(const char *name,
+                                       const uint8_t *data,
+                                       size_t len,
+                                       size_t *written,
+                                       const char *owner)
+{
+    esp_err_t ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_UART, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_bus_uart_write(name, data, len, written);
+    const esp_err_t release_ret = solar_os_bus_release(name,
+                                                       SOLAR_OS_BUS_PROTOCOL_UART,
+                                                       owner);
+    return ret == ESP_OK ? release_ret : ret;
+}
+
+esp_err_t solar_os_bus_uart_read_once(const char *name,
+                                      uint8_t *data,
+                                      size_t len,
+                                      uint32_t timeout_ms,
+                                      size_t *read_len,
+                                      const char *owner)
+{
+    esp_err_t ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_UART, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_bus_uart_read(name, data, len, timeout_ms, read_len);
+    const esp_err_t release_ret = solar_os_bus_release(name,
+                                                       SOLAR_OS_BUS_PROTOCOL_UART,
+                                                       owner);
+    return ret == ESP_OK ? release_ret : ret;
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE

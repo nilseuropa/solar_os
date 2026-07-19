@@ -362,6 +362,7 @@ single-board-bus `solaros.spi` module.
 - `create_i2c(name, config)`: create a runtime I2C bus and return its dictionary.
 - `create_onewire(name, config)`: create a runtime 1-Wire bus and return its dictionary.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
+- `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
   cannot be removed.
 - `i2c_probe(bus, address)`: probe an address on a named I2C bus.
@@ -371,6 +372,8 @@ single-board-bus `solaros.spi` module.
 - `onewire_reset(bus)`: reset a named 1-Wire bus and return device presence.
 - `onewire_scan(bus)`: return ROM-address dictionaries found on a named bus.
 - `onewire_xfer(bus, read_length[, data])`: reset, write, and read a named bus.
+- `uart_write(bus, data)`: write bytes through a named UART and return the number written.
+- `uart_read(bus[, length[, timeout_ms]])`: read bytes from a named UART.
 - `spi_xfer(bus, cs, data[, mode[, speed_hz]])`: perform a full-duplex named-bus
   transfer and return received bytes.
 - `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`: clock in bytes using
@@ -382,7 +385,8 @@ Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
 `ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
 buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
 `max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
-`sda_pin`, `scl_pin`, and `speed_hz`.
+`sda_pin`, `scl_pin`, and `speed_hz`. UART buses include `port`, `tx_pin`,
+`rx_pin`, and `baud_rate`.
 
 Named I2C operations are present when both the resource and I2C services are
 compiled. They take and release a shared bus lease automatically. The legacy
@@ -396,6 +400,11 @@ automatically. OneWire bus dictionaries include `pin`; the legacy
 `create_i2c` requires `port`, `sda`, and `scl`; optional `speed_hz` defaults to
 100000. `create_onewire` requires `pin`. Both validate the board runtime pin
 policy and claim their signal pins until `remove(name)`.
+
+`create_uart` requires `port`, `tx`, and `rx`; optional `baud_rate` defaults to
+115200. Named UART reads and writes take an exclusive lease automatically. The
+UART driver is started for the lease and stopped after the final runtime-bus
+lease is released.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
@@ -439,6 +448,16 @@ solaros.buses.remove(i2c1["name"])
 onewire0 = solaros.buses.create_onewire("onewire0", {"pin": 16})
 print(solaros.buses.onewire_scan(onewire0["name"]))
 solaros.buses.remove(onewire0["name"])
+
+uart1 = solaros.buses.create_uart("uart1", {
+    "port": 1,
+    "tx": 14,
+    "rx": 15,
+    "baud_rate": 115200,
+})
+solaros.buses.uart_write(uart1["name"], b"AT\r\n")
+print(solaros.buses.uart_read(uart1["name"], 64, 500))
+solaros.buses.remove(uart1["name"])
 ```
 
 Named I2C example:
@@ -538,9 +557,10 @@ print(response[1:])
 
 ## `solaros.uart`
 
-UART functions expose the external UART service.
+UART functions expose the default `uart0` compatibility service. Use
+`solaros.buses.uart_*` to address another named UART bus.
 
-- `status()`: return UART port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
+- `status()`: return UART name, port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
 - `baud([rate])`: get or set baud rate.
 - `is_valid_baud(rate)`: return whether a baud rate is accepted.
 - `mode([name])`: get or set `raw` or `line` mode.

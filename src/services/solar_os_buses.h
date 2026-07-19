@@ -42,6 +42,27 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
                                      const uint8_t *data,
                                      size_t len);
 
+esp_err_t solar_os_bus_uart_write(const char *name,
+                                  const uint8_t *data,
+                                  size_t len,
+                                  size_t *written);
+esp_err_t solar_os_bus_uart_read(const char *name,
+                                 uint8_t *data,
+                                 size_t len,
+                                 uint32_t timeout_ms,
+                                 size_t *read_len);
+esp_err_t solar_os_bus_uart_write_once(const char *name,
+                                       const uint8_t *data,
+                                       size_t len,
+                                       size_t *written,
+                                       const char *owner);
+esp_err_t solar_os_bus_uart_read_once(const char *name,
+                                      uint8_t *data,
+                                      size_t len,
+                                      uint32_t timeout_ms,
+                                      size_t *read_len,
+                                      const char *owner);
+
 esp_err_t solar_os_bus_onewire_reset(const char *name, bool *present);
 esp_err_t solar_os_bus_onewire_scan(const char *name,
                                     uint64_t *addresses,

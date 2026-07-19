@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "driver/spi_master.h"
+#include "driver/uart.h"
 #include "esp_err.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
@@ -29,6 +30,7 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion bus create i2c <name> port=<i2c0|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]");
     solar_os_shell_io_writeln(term, "  expansion bus create onewire <name> pin=<gpio>");
     solar_os_shell_io_writeln(term, "  expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]");
+    solar_os_shell_io_writeln(term, "  expansion bus create uart <name> port=<uart1|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]");
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
     solar_os_shell_io_writeln(term, "  expansion detach <name>");
@@ -60,6 +62,16 @@ static bool parse_i2c_port(const char *text, int *port)
     return parse_int_arg(text, 0, 1, port);
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static bool parse_uart_port(const char *text, int *port)
+{
+    if (text != NULL && strncmp(text, "uart", 4) == 0) {
+        text += 4;
+    }
+    return parse_int_arg(text, 0, UART_NUM_MAX - 1, port);
+}
+#endif
+
 static void print_cap(solar_os_shell_io_t *term, solar_os_board_capability_t cap, const char *name)
 {
     solar_os_shell_io_printf(term, "%s%s", solar_os_board_has(cap) ? " " : "", solar_os_board_has(cap) ? name : "");
@@ -82,20 +94,12 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
     if (!solar_os_bus_find(name, protocol, &info)) {
         return;
     }
-    if (protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
-        solar_os_shell_io_printf(term,
-                                 " [%s %s %s leases=%u]",
-                                 solar_os_bus_origin_name(info.origin),
-                                 solar_os_bus_sharing_name(info.sharing),
-                                 info.ready ? "ready" : "idle",
-                                 (unsigned)info.lease_count);
-    } else {
-        solar_os_shell_io_printf(term,
-                                 " [%s %s leases=%u]",
-                                 solar_os_bus_origin_name(info.origin),
-                                 solar_os_bus_sharing_name(info.sharing),
-                                 (unsigned)info.lease_count);
-    }
+    solar_os_shell_io_printf(term,
+                             " [%s %s %s leases=%u]",
+                             solar_os_bus_origin_name(info.origin),
+                             solar_os_bus_sharing_name(info.sharing),
+                             info.ready ? "ready" : "idle",
+                             (unsigned)info.lease_count);
 }
 
 static const char *spi_host_name(int host)
@@ -167,11 +171,12 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         solar_os_expansion_uart_port_t port;
         if (solar_os_expansion_get_uart_port(i, &port)) {
             solar_os_shell_io_printf(term,
-                                     "UART %-5s port %d TX GPIO%d RX GPIO%d",
+                                     "UART %-5s port %d TX GPIO%d RX GPIO%d baud=%" PRIu32,
                                      port.name,
                                      port.port,
                                      port.tx_pin,
-                                     port.rx_pin);
+                                     port.rx_pin,
+                                     port.baud_rate);
             expansion_print_bus_meta(term, port.name, SOLAR_OS_BUS_PROTOCOL_UART);
             solar_os_shell_io_put_char(term, '\n');
         }
@@ -672,6 +677,81 @@ static void expansion_cmd_bus_create_onewire(solar_os_shell_io_t *term,
                              definition.config.onewire.pin);
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
+                                          int argc,
+                                          char **argv)
+{
+    if (argc < 8) {
+        expansion_print_usage(term);
+        return;
+    }
+
+    solar_os_bus_definition_t definition = {
+        .name = argv[4],
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.uart = {
+            .port = -1,
+            .tx_pin = -1,
+            .rx_pin = -1,
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE,
+        },
+    };
+
+    for (int i = 5; i < argc; i++) {
+        const char *eq = strchr(argv[i], '=');
+        if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
+            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            return;
+        }
+        const size_t key_len = (size_t)(eq - argv[i]);
+        const char *value = eq + 1;
+        int parsed = -1;
+
+        if (key_len == 4 && strncmp(argv[i], "port", key_len) == 0) {
+            if (!parse_uart_port(value, &definition.config.uart.port)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 2 && strncmp(argv[i], "tx", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.uart.tx_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 2 && strncmp(argv[i], "rx", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.uart.rx_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 4 && strncmp(argv[i], "baud", key_len) == 0) {
+            if (!parse_int_arg(value,
+                               SOLAR_OS_BUS_UART_MIN_BAUD_RATE,
+                               SOLAR_OS_BUS_UART_MAX_BAUD_RATE,
+                               &parsed)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+            definition.config.uart.baud_rate = (uint32_t)parsed;
+        } else {
+            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            return;
+        }
+    }
+
+    const esp_err_t err = solar_os_bus_register(&definition);
+    if (err != ESP_OK) {
+        expansion_print_bus_error(term, "create", err);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "created UART bus %s on uart%d (idle until first use)\n",
+                             definition.name,
+                             definition.config.uart.port);
+}
+#endif
+
 static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
                                          int argc,
                                          char **argv)
@@ -774,6 +854,12 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
             expansion_cmd_bus_create_spi(term, argc, argv);
             return;
         }
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+        if (strcmp(argv[3], "uart") == 0) {
+            expansion_cmd_bus_create_uart(term, argc, argv);
+            return;
+        }
+#endif
     }
     if (argc == 4 && strcmp(argv[2], "remove") == 0) {
         const esp_err_t err = solar_os_bus_unregister(argv[3]);
