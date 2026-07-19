@@ -34,8 +34,10 @@ bool solar_os_pin_get_info(size_t index, solar_os_pin_info_t *info)
     *info = (solar_os_pin_info_t) {
         .pin = pin->pin,
         .expansion = mask_contains(SOLAR_OS_BOARD_EXPANSION_GPIO_MASK, pin->pin),
-        .direct_gpio = pin->policy == SOLAR_OS_PIN_POLICY_FREE &&
-            mask_contains(SOLAR_OS_BOARD_USER_GPIO_MASK, pin->pin),
+        .direct_gpio = (pin->policy == SOLAR_OS_PIN_POLICY_FREE &&
+                        mask_contains(SOLAR_OS_BOARD_USER_GPIO_MASK, pin->pin)) ||
+            (pin->policy == SOLAR_OS_PIN_POLICY_RELEASABLE &&
+             mask_contains(SOLAR_OS_BOARD_EXPANSION_GPIO_MASK, pin->pin)),
         .policy = pin->policy,
         .role = pin->role,
     };

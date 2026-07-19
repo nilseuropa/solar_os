@@ -40,8 +40,6 @@ esp_err_t solar_os_uart_register_bus(const char *name,
 esp_err_t solar_os_uart_unregister_bus(const char *name);
 esp_err_t solar_os_uart_bus_attach(const char *name);
 esp_err_t solar_os_uart_bus_detach(const char *name);
-esp_err_t solar_os_uart_attach(void);
-esp_err_t solar_os_uart_detach(void);
 esp_err_t solar_os_uart_start_bus(const char *name);
 esp_err_t solar_os_uart_stop_bus(const char *name);
 bool solar_os_uart_is_valid_baud_rate(uint32_t baud_rate);

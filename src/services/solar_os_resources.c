@@ -290,6 +290,10 @@ const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind)
         return "adc";
     case SOLAR_OS_RESOURCE_PWM_PIN:
         return "pwm";
+    case SOLAR_OS_RESOURCE_I2C_PORT:
+        return "i2c_port";
+    case SOLAR_OS_RESOURCE_SPI_HOST:
+        return "spi_host";
     case SOLAR_OS_RESOURCE_I2C_ADDRESS:
         return "i2c_addr";
     case SOLAR_OS_RESOURCE_SPI_CS:

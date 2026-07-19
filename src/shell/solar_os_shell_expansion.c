@@ -34,6 +34,8 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion bus create onewire <name> pin=<gpio>");
     solar_os_shell_io_writeln(term, "  expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]");
     solar_os_shell_io_writeln(term, "  expansion bus create uart <name> port=<uart1|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]");
+    solar_os_shell_io_writeln(term, "  expansion bus attach <name>");
+    solar_os_shell_io_writeln(term, "  expansion bus detach <name>");
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
     solar_os_shell_io_writeln(term, "  expansion detach <name>");
@@ -97,19 +99,12 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
     if (!solar_os_bus_find(name, protocol, &info)) {
         return;
     }
-    const char *state = info.ready ? "ready" : "idle";
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-    if (protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
-        solar_os_uart_status_t status;
-        if (solar_os_uart_get_bus_status(name, &status)) {
-            state = !status.attached ? "detached" : info.ready ? "ready" : "attached";
-        }
-    }
-#endif
+    const char *state = !info.attached ? "detached" : info.ready ? "ready" : "attached";
     solar_os_shell_io_printf(term,
-                             " [%s %s %s leases=%u]",
+                             " [%s %s %s %s leases=%u]",
                              solar_os_bus_origin_name(info.origin),
                              solar_os_bus_sharing_name(info.sharing),
+                             info.detachable ? "detachable" : "fixed",
                              state,
                              (unsigned)info.lease_count);
 }
@@ -562,7 +557,9 @@ static void expansion_print_bus_error(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term, "expansion bus %s: bus not found\n", operation);
         break;
     case ESP_ERR_NOT_ALLOWED:
-        solar_os_shell_io_printf(term, "expansion bus %s: board-defined buses cannot be removed\n", operation);
+        solar_os_shell_io_printf(term,
+                                 "expansion bus %s: bus is board-defined or uses fixed pins\n",
+                                 operation);
         break;
     case ESP_ERR_INVALID_STATE:
         solar_os_shell_io_printf(term, "expansion bus %s: name, controller, host, or pin is already in use\n", operation);
@@ -580,6 +577,150 @@ static void expansion_print_bus_error(solar_os_shell_io_t *term,
                                  esp_err_to_name(err));
         break;
     }
+}
+
+static bool expansion_print_resource_conflict(solar_os_shell_io_t *term,
+                                              const char *operation,
+                                              solar_os_resource_kind_t kind,
+                                              int primary,
+                                              const char *resource)
+{
+    solar_os_resource_claim_t claim;
+    if (!solar_os_resource_find_claim(kind, primary, -1, &claim)) {
+        return false;
+    }
+    solar_os_shell_io_printf(term,
+                             "expansion bus %s: %s is in use by %s\n",
+                             operation,
+                             resource,
+                             claim.owner);
+    return true;
+}
+
+static bool expansion_print_gpio_conflict(solar_os_shell_io_t *term,
+                                          const char *operation,
+                                          int pin)
+{
+    char resource[12];
+    (void)snprintf(resource, sizeof(resource), "GPIO%d", pin);
+    return expansion_print_resource_conflict(term,
+                                             operation,
+                                             SOLAR_OS_RESOURCE_GPIO_PIN,
+                                             pin,
+                                             resource);
+}
+
+static bool expansion_print_bus_resource_conflict(solar_os_shell_io_t *term,
+                                                  const char *operation,
+                                                  solar_os_bus_protocol_t protocol,
+                                                  const solar_os_bus_config_t *config)
+{
+    char endpoint[12];
+    switch (protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+        (void)snprintf(endpoint, sizeof(endpoint), "i2c%d", config->i2c.port);
+        if (expansion_print_resource_conflict(term,
+                                              operation,
+                                              SOLAR_OS_RESOURCE_I2C_PORT,
+                                              config->i2c.port,
+                                              endpoint) ||
+            expansion_print_gpio_conflict(term, operation, config->i2c.sda_pin) ||
+            expansion_print_gpio_conflict(term, operation, config->i2c.scl_pin)) {
+            return true;
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+        strlcpy(endpoint,
+                spi_host_name(config->spi.host),
+                sizeof(endpoint));
+        if (expansion_print_resource_conflict(term,
+                                              operation,
+                                              SOLAR_OS_RESOURCE_SPI_HOST,
+                                              config->spi.host,
+                                              endpoint) ||
+            expansion_print_gpio_conflict(term, operation, config->spi.sclk_pin) ||
+            expansion_print_gpio_conflict(term, operation, config->spi.mosi_pin) ||
+            (config->spi.miso_pin >= 0 &&
+             expansion_print_gpio_conflict(term, operation, config->spi.miso_pin))) {
+            return true;
+        }
+        for (size_t i = 0; i < config->spi.cs_count; i++) {
+            if (expansion_print_gpio_conflict(term, operation, config->spi.cs[i].pin)) {
+                return true;
+            }
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+        (void)snprintf(endpoint, sizeof(endpoint), "uart%d", config->uart.port);
+        if (expansion_print_resource_conflict(term,
+                                              operation,
+                                              SOLAR_OS_RESOURCE_UART_PORT,
+                                              config->uart.port,
+                                              endpoint) ||
+            expansion_print_gpio_conflict(term, operation, config->uart.tx_pin) ||
+            expansion_print_gpio_conflict(term, operation, config->uart.rx_pin)) {
+            return true;
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+        if (expansion_print_gpio_conflict(term, operation, config->onewire.pin)) {
+            return true;
+        }
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
+static void expansion_print_bus_create_error(solar_os_shell_io_t *term,
+                                             const solar_os_bus_definition_t *definition,
+                                             esp_err_t err)
+{
+    if (err != ESP_ERR_INVALID_STATE || definition == NULL) {
+        expansion_print_bus_error(term, "create", err);
+        return;
+    }
+
+    for (size_t i = 0; i < solar_os_bus_count(); i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get(i, &info) && strcmp(info.name, definition->name) == 0) {
+            solar_os_shell_io_printf(term,
+                                     "expansion bus create: bus name %s already exists\n",
+                                     definition->name);
+            return;
+        }
+    }
+    if (expansion_print_bus_resource_conflict(term,
+                                              "create",
+                                              definition->protocol,
+                                              &definition->config)) {
+        return;
+    }
+    expansion_print_bus_error(term, "create", err);
+}
+
+static void expansion_print_bus_attach_error(solar_os_shell_io_t *term,
+                                             const char *name,
+                                             esp_err_t err)
+{
+    solar_os_bus_info_t info;
+    if (err == ESP_ERR_INVALID_STATE &&
+        solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info) == false &&
+        solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info) == false &&
+        solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &info) == false &&
+        solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info) == false) {
+        expansion_print_bus_error(term, "attach", err);
+        return;
+    }
+    if (err == ESP_ERR_INVALID_STATE &&
+        expansion_print_bus_resource_conflict(term,
+                                              "attach",
+                                              info.protocol,
+                                              &info.config)) {
+        return;
+    }
+    expansion_print_bus_error(term, "attach", err);
 }
 
 static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
@@ -643,7 +784,7 @@ static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
 
     const esp_err_t err = solar_os_bus_register(&definition);
     if (err != ESP_OK) {
-        expansion_print_bus_error(term, "create", err);
+        expansion_print_bus_create_error(term, &definition, err);
         return;
     }
     solar_os_shell_io_printf(term,
@@ -680,7 +821,7 @@ static void expansion_cmd_bus_create_onewire(solar_os_shell_io_t *term,
 
     const esp_err_t err = solar_os_bus_register(&definition);
     if (err != ESP_OK) {
-        expansion_print_bus_error(term, "create", err);
+        expansion_print_bus_create_error(term, &definition, err);
         return;
     }
     solar_os_shell_io_printf(term,
@@ -754,7 +895,7 @@ static void expansion_cmd_bus_create_uart(solar_os_shell_io_t *term,
 
     const esp_err_t err = solar_os_bus_register(&definition);
     if (err != ESP_OK) {
-        expansion_print_bus_error(term, "create", err);
+        expansion_print_bus_create_error(term, &definition, err);
         return;
     }
     solar_os_shell_io_printf(term,
@@ -842,7 +983,7 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
 
     const esp_err_t err = solar_os_bus_register(&definition);
     if (err != ESP_OK) {
-        expansion_print_bus_error(term, "create", err);
+        expansion_print_bus_create_error(term, &definition, err);
         return;
     }
     solar_os_shell_io_printf(term,
@@ -872,6 +1013,24 @@ static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
             return;
         }
 #endif
+    }
+    if (argc == 4 && strcmp(argv[2], "attach") == 0) {
+        const esp_err_t err = solar_os_bus_attach(argv[3]);
+        if (err != ESP_OK) {
+            expansion_print_bus_attach_error(term, argv[3], err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "attached bus %s\n", argv[3]);
+        return;
+    }
+    if (argc == 4 && strcmp(argv[2], "detach") == 0) {
+        const esp_err_t err = solar_os_bus_detach(argv[3]);
+        if (err != ESP_OK) {
+            expansion_print_bus_error(term, "detach", err);
+            return;
+        }
+        solar_os_shell_io_printf(term, "detached bus %s\n", argv[3]);
+        return;
     }
     if (argc == 4 && strcmp(argv[2], "remove") == 0) {
         const esp_err_t err = solar_os_bus_unregister(argv[3]);

@@ -11,6 +11,8 @@
 esp_err_t solar_os_buses_init(void);
 esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition);
 esp_err_t solar_os_bus_unregister(const char *name);
+esp_err_t solar_os_bus_attach(const char *name);
+esp_err_t solar_os_bus_detach(const char *name);
 
 size_t solar_os_bus_count(void);
 size_t solar_os_bus_count_protocol(solar_os_bus_protocol_t protocol);

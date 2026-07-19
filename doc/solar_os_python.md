@@ -236,7 +236,7 @@ while not solaros.should_exit():
 
 GPIO functions expose only runtime-safe expansion pins. Use `solaros.gpio.pins()`
 to inspect the active board. On the Waveshare ESP32-S3-RLCD-4.2 this is GPIO1,
-GPIO2, GPIO3, and GPIO17. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
+GPIO2, GPIO3, GPIO17, plus releasable GPIO43/GPIO44 while `uart0` is detached. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
 GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16, GPIO17,
 GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. On ODROID-GO this
 is GPIO4 and GPIO15. On the Elecrow CrowPanel ESP32-S3 4.2-inch E-paper this is
@@ -245,15 +245,17 @@ and GPIO38.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
 - `pins()`: return board GPIO dictionaries with `pin`, `expansion`, `allowed`,
-  `policy`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.
-  Pin policy is `free`, `releasable`, or `fixed`; only free pins in the board's
-  direct-GPIO mask report `allowed=True`.
+  `available`, `claimed`, `owner`, `policy`, `role`, `configured`, `mode`,
+  `pull`, `level`, and `level_valid`. Pin policy is `free`, `releasable`, or
+  `fixed`; releasable pins report `allowed=True` but become available only when
+  their board bus is detached.
 - `allowed(pin)`: return whether a pin can be controlled by runtime apps.
 - `mode(pin)`: return one pin dictionary.
 - `mode(pin, mode[, pull])`: configure an allowed pin. `mode` may be `INPUT`, `OUTPUT`, `"in"`, `"input"`, `"out"`, or `"output"`.
 - `configure(pin, mode[, pull])`: alias for `mode(pin, mode[, pull])`.
 - `read(pin)`: read an allowed pin and return `0` or `1`.
 - `write(pin, value)`: set an allowed pin low or high. If needed, the pin is configured as output first.
+- `release(pin)`: reset the pin and release its direct-GPIO claim.
 
 Example:
 
@@ -363,11 +365,10 @@ single-board-bus `solaros.spi` module.
 - `create_onewire(name, config)`: create a runtime 1-Wire bus and return its dictionary.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
 - `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
+- `attach(name)`: attach a named detachable bus and reserve its endpoint and pins.
+- `detach(name)`: detach an idle named bus without deleting its descriptor.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
   cannot be removed.
-- `uart_attach(bus)`: attach a named UART and reserve its controller and pins.
-- `uart_detach(bus)`: detach an idle named UART and release its controller and
-  pins without deleting the descriptor.
 - `i2c_probe(bus, address)`: probe an address on a named I2C bus.
 - `i2c_scan(bus)`: return detected addresses on a named I2C bus.
 - `i2c_read_reg(bus, address, reg, length)`: read bytes from an 8-bit register.
@@ -385,11 +386,11 @@ single-board-bus `solaros.spi` module.
   number written.
 
 Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
-`ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
+`attached`, `detachable`, `ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
 buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
 `max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
 `sda_pin`, `scl_pin`, and `speed_hz`. UART buses include `port`, `tx_pin`,
-`rx_pin`, `baud_rate`, and `attached`.
+`rx_pin`, and `baud_rate`.
 
 Named I2C operations are present when both the resource and I2C services are
 compiled. They take and release a shared bus lease automatically. The legacy
@@ -406,10 +407,10 @@ policy and claim their signal pins until `remove(name)`.
 
 `create_uart` requires `port`, `tx`, and `rx`; optional `baud_rate` defaults to
 115200. Named UART reads and writes take an exclusive lease automatically.
-Every board-defined or runtime UART descriptor supports `uart_attach` and
-`uart_detach`; only runtime descriptors support `remove`. An attached UART owns
-its controller and pins, while the hardware driver starts for the first lease
-and stops after the final lease is released.
+Runtime descriptors are detachable and removable. Board descriptors whose
+signal pins are marked releasable are detachable but never removable;
+fixed-pin board descriptors reject detach. Attached buses own their hardware
+endpoint and signal pins, while protocol hardware starts for the first lease.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
@@ -462,8 +463,8 @@ uart1 = solaros.buses.create_uart("uart1", {
 })
 solaros.buses.uart_write(uart1["name"], b"AT\r\n")
 print(solaros.buses.uart_read(uart1["name"], 64, 500))
-solaros.buses.uart_detach(uart1["name"])
-solaros.buses.uart_attach(uart1["name"])
+solaros.buses.detach(uart1["name"])
+solaros.buses.attach(uart1["name"])
 solaros.buses.remove(uart1["name"])
 ```
 
@@ -572,8 +573,6 @@ UART functions expose the default `uart0` compatibility service. Use
 `solaros.buses.uart_*` to address another named UART bus.
 
 - `status()`: return UART name, `attached`, port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
-- `attach()`: attach `uart0` and reserve its controller and pins.
-- `detach()`: detach idle `uart0` and release its controller and pins while preserving its descriptor.
 - `baud([rate])`: get or set baud rate.
 - `is_valid_baud(rate)`: return whether a baud rate is accepted.
 - `mode([name])`: get or set `raw` or `line` mode.

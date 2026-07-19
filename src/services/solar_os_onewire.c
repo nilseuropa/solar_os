@@ -1,13 +1,18 @@
 #include "solar_os_onewire.h"
 
+#include <stdio.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
 #include "onewire_bus.h"
 #include "onewire_device.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
 #endif
+#include "solar_os_resources.h"
 #include "solar_os_gpio.h"
 
 #define ONEWIRE_SERVICE_OWNER "service-onewire"
@@ -39,6 +44,45 @@ static esp_err_t onewire_ensure_init(void)
 static esp_err_t onewire_validate_pin(int pin)
 {
     return solar_os_gpio_is_runtime_allowed(pin) ? ESP_OK : ESP_ERR_NOT_ALLOWED;
+}
+
+static esp_err_t onewire_claim_direct_pin(int pin, char *owner, size_t owner_size)
+{
+    const esp_err_t validation = onewire_validate_pin(pin);
+    if (validation != ESP_OK) {
+        return validation;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    snprintf(owner, owner_size, "onewire:%p", xTaskGetCurrentTaskHandle());
+    return solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                   pin,
+                                   -1,
+                                   owner,
+                                   "onewire-direct");
+#else
+    (void)owner;
+    (void)owner_size;
+    return ESP_OK;
+#endif
+}
+
+static esp_err_t onewire_release_direct_pin(int pin,
+                                           const char *owner,
+                                           esp_err_t operation_err)
+{
+    const esp_err_t reset_err = gpio_reset_pin((gpio_num_t)pin);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const esp_err_t release_err = solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                                            pin,
+                                                            -1,
+                                                            owner);
+#else
+    const esp_err_t release_err = ESP_OK;
+#endif
+    if (operation_err != ESP_OK) {
+        return operation_err;
+    }
+    return reset_err != ESP_OK ? reset_err : release_err;
 }
 
 static esp_err_t onewire_open(int pin, onewire_bus_handle_t *bus)
@@ -119,7 +163,13 @@ static esp_err_t onewire_reset(int pin, bool restore_runtime_pin, bool *present)
 
 esp_err_t solar_os_onewire_reset(int pin, bool *present)
 {
-    return onewire_reset(pin, true, present);
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX] = {0};
+    esp_err_t ret = onewire_claim_direct_pin(pin, owner, sizeof(owner));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = onewire_reset(pin, false, present);
+    return onewire_release_direct_pin(pin, owner, ret);
 }
 
 esp_err_t solar_os_onewire_reset_configured(int pin, bool *present)
@@ -185,7 +235,13 @@ esp_err_t solar_os_onewire_scan(int pin,
                                 size_t max_addresses,
                                 size_t *address_count)
 {
-    return onewire_scan(pin, true, addresses, max_addresses, address_count);
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX] = {0};
+    esp_err_t ret = onewire_claim_direct_pin(pin, owner, sizeof(owner));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = onewire_scan(pin, false, addresses, max_addresses, address_count);
+    return onewire_release_direct_pin(pin, owner, ret);
 }
 
 esp_err_t solar_os_onewire_scan_configured(int pin,
@@ -245,7 +301,13 @@ esp_err_t solar_os_onewire_transfer(int pin,
                                     uint8_t *rx_data,
                                     size_t rx_len)
 {
-    return onewire_transfer(pin, true, tx_data, tx_len, rx_data, rx_len);
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX] = {0};
+    esp_err_t ret = onewire_claim_direct_pin(pin, owner, sizeof(owner));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = onewire_transfer(pin, false, tx_data, tx_len, rx_data, rx_len);
+    return onewire_release_direct_pin(pin, owner, ret);
 }
 
 esp_err_t solar_os_onewire_transfer_configured(int pin,

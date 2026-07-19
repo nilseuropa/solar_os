@@ -739,6 +739,9 @@ static void solua_push_gpio_info(lua_State *L, const solar_os_gpio_pin_info_t *i
     solua_set_int(L, -1, "pin", info->pin);
     solua_set_bool(L, -1, "expansion", info->expansion);
     solua_set_bool(L, -1, "allowed", info->runtime_allowed);
+    solua_set_bool(L, -1, "available", info->available);
+    solua_set_bool(L, -1, "claimed", info->claimed);
+    solua_set_str(L, -1, "owner", info->claimed ? info->owner : NULL);
     solua_set_str(L, -1, "policy", solar_os_pin_policy_name(info->policy));
     solua_set_str(L, -1, "role", info->role);
     solua_set_bool(L, -1, "configured", info->configured);
@@ -1443,6 +1446,11 @@ static int solua_gpio_write(lua_State *L)
                            solar_os_gpio_write(solua_check_gpio_pin(L, 1),
                                                lua_toboolean(L, 2)));
 }
+
+static int solua_gpio_release(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_gpio_release(solua_check_gpio_pin(L, 1)));
+}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -1637,6 +1645,8 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
     solua_set_str(L, -1, "protocol", solar_os_bus_protocol_name(info->protocol));
     solua_set_str(L, -1, "origin", solar_os_bus_origin_name(info->origin));
     solua_set_str(L, -1, "sharing", solar_os_bus_sharing_name(info->sharing));
+    solua_set_bool(L, -1, "attached", info->attached);
+    solua_set_bool(L, -1, "detachable", info->detachable);
     solua_set_bool(L, -1, "ready", info->ready);
     solua_set_int(L, -1, "lease_count", (lua_Integer)info->lease_count);
 
@@ -1672,12 +1682,6 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         solua_set_int(L, -1, "tx_pin", info->config.uart.tx_pin);
         solua_set_int(L, -1, "rx_pin", info->config.uart.rx_pin);
         solua_set_int(L, -1, "baud_rate", info->config.uart.baud_rate);
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-        solar_os_uart_status_t uart_status;
-        if (solar_os_uart_get_bus_status(info->name, &uart_status)) {
-            solua_set_bool(L, -1, "attached", uart_status.attached);
-        }
-#endif
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         solua_set_int(L, -1, "pin", info->config.onewire.pin);
@@ -1868,6 +1872,16 @@ static int solua_buses_remove(lua_State *L)
     return solua_check_esp(L, solar_os_bus_unregister(luaL_checkstring(L, 1)));
 }
 
+static int solua_buses_attach(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_bus_attach(luaL_checkstring(L, 1)));
+}
+
+static int solua_buses_detach(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_bus_detach(luaL_checkstring(L, 1)));
+}
+
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 static const char *solua_bus_uart_name(lua_State *L, int index)
 {
@@ -1876,18 +1890,6 @@ static const char *solua_bus_uart_name(lua_State *L, int index)
         luaL_error(L, "%s", esp_err_to_name(ESP_ERR_NOT_FOUND));
     }
     return name;
-}
-
-static int solua_buses_uart_attach(lua_State *L)
-{
-    return solua_check_esp(L,
-                           solar_os_uart_bus_attach(solua_bus_uart_name(L, 1)));
-}
-
-static int solua_buses_uart_detach(lua_State *L)
-{
-    return solua_check_esp(L,
-                           solar_os_uart_bus_detach(solua_bus_uart_name(L, 1)));
 }
 
 static int solua_buses_uart_write(lua_State *L)
@@ -2716,16 +2718,6 @@ static int solua_uart_status(lua_State *L)
     solar_os_uart_get_status(&status);
     solua_push_uart_status(L, &status);
     return 1;
-}
-
-static int solua_uart_attach(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_uart_attach());
-}
-
-static int solua_uart_detach(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_uart_detach());
 }
 
 static int solua_uart_baud(lua_State *L)
@@ -3906,6 +3898,7 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "configure", solua_gpio_mode);
     solua_set_func(L, mod, "read", solua_gpio_read);
     solua_set_func(L, mod, "write", solua_gpio_write);
+    solua_set_func(L, mod, "release", solua_gpio_release);
     lua_pop(L, 1);
 #endif
 
@@ -3973,6 +3966,8 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "create_uart", solua_buses_create_uart);
 #endif
     solua_set_func(L, mod, "remove", solua_buses_remove);
+    solua_set_func(L, mod, "attach", solua_buses_attach);
+    solua_set_func(L, mod, "detach", solua_buses_detach);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     solua_set_func(L, mod, "i2c_probe", solua_buses_i2c_probe);
     solua_set_func(L, mod, "i2c_scan", solua_buses_i2c_scan);
@@ -3985,8 +3980,6 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "onewire_xfer", solua_buses_onewire_xfer);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
-    solua_set_func(L, mod, "uart_attach", solua_buses_uart_attach);
-    solua_set_func(L, mod, "uart_detach", solua_buses_uart_detach);
     solua_set_func(L, mod, "uart_write", solua_buses_uart_write);
     solua_set_func(L, mod, "uart_read", solua_buses_uart_read);
 #endif
@@ -4037,8 +4030,6 @@ static void solua_open_solaros(lua_State *L)
     solua_new_submodule(L, solaros, "uart");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_uart_status);
-    solua_set_func(L, mod, "attach", solua_uart_attach);
-    solua_set_func(L, mod, "detach", solua_uart_detach);
     solua_set_func(L, mod, "baud", solua_uart_baud);
     solua_set_func(L, mod, "is_valid_baud", solua_uart_is_valid_baud);
     solua_set_func(L, mod, "mode", solua_uart_mode);

@@ -81,6 +81,8 @@ typedef struct {
 
 typedef struct {
     bool active;
+    bool attached;
+    bool detachable;
     bool ready;
     size_t id;
     char name[SOLAR_OS_BUS_NAME_MAX];

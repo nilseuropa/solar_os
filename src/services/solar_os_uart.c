@@ -15,7 +15,6 @@
 #include "solar_os_port.h"
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
-#include "solar_os_resources.h"
 #endif
 
 #if SOLAR_OS_BOARD_HAS_UART
@@ -33,9 +32,6 @@ typedef struct {
     bool attached;
     bool initialized;
     bool persistent;
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-    bool resources_claimed;
-#endif
     char name[SOLAR_OS_BUS_NAME_MAX];
     solar_os_bus_uart_config_t config;
     solar_os_uart_mode_t mode;
@@ -74,73 +70,6 @@ static esp_err_t uart_register_port(solar_os_uart_instance_t *instance)
     };
     return solar_os_port_register(&driver);
 }
-
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-static void uart_resource_owner(const solar_os_uart_instance_t *instance,
-                                char *owner,
-                                size_t owner_size)
-{
-    if (owner == NULL || owner_size == 0) {
-        return;
-    }
-    owner[0] = '\0';
-    if (instance != NULL) {
-        strlcpy(owner, "bus:", owner_size);
-        strlcat(owner, instance->name, owner_size);
-    }
-}
-
-static esp_err_t uart_claim_resources(solar_os_uart_instance_t *instance)
-{
-    if (instance == NULL || instance->resources_claimed) {
-        return ESP_OK;
-    }
-
-    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
-    uart_resource_owner(instance, owner, sizeof(owner));
-    const solar_os_resource_request_t requests[] = {
-        {
-            .kind = SOLAR_OS_RESOURCE_UART_PORT,
-            .primary = instance->config.port,
-            .secondary = -1,
-            .label = "uart-port",
-        },
-        {
-            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-            .primary = instance->config.tx_pin,
-            .secondary = -1,
-            .label = "uart-tx",
-        },
-        {
-            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-            .primary = instance->config.rx_pin,
-            .secondary = -1,
-            .label = "uart-rx",
-        },
-    };
-    const esp_err_t ret = solar_os_resource_claim_bundle(
-        requests,
-        sizeof(requests) / sizeof(requests[0]),
-        owner,
-        NULL);
-    if (ret == ESP_OK) {
-        instance->resources_claimed = true;
-    }
-    return ret;
-}
-
-static void uart_release_resources(solar_os_uart_instance_t *instance)
-{
-    if (instance == NULL || !instance->resources_claimed) {
-        return;
-    }
-
-    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
-    uart_resource_owner(instance, owner, sizeof(owner));
-    (void)solar_os_resource_release_owner(owner);
-    instance->resources_claimed = false;
-}
-#endif
 
 static esp_err_t uart_stop_instance_locked(solar_os_uart_instance_t *instance)
 {
@@ -325,17 +254,8 @@ esp_err_t solar_os_uart_register_bus(const char *name,
     instance->mutex = instance_mutex;
     strlcpy(instance->name, name, sizeof(instance->name));
 
-    esp_err_t ret = ESP_OK;
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-    ret = uart_claim_resources(instance);
-#endif
-    if (ret == ESP_OK) {
-        ret = uart_register_port(instance);
-    }
+    esp_err_t ret = uart_register_port(instance);
     if (ret != ESP_OK) {
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-        uart_release_resources(instance);
-#endif
         vSemaphoreDelete(instance_mutex);
         memset(instance, 0, sizeof(*instance));
         xSemaphoreGive(uart_manager_mutex);
@@ -450,9 +370,6 @@ esp_err_t solar_os_uart_unregister_bus(const char *name)
         ret = solar_os_port_unregister(name);
     }
     if (ret == ESP_OK) {
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-        uart_release_resources(instance);
-#endif
         SemaphoreHandle_t instance_mutex = instance->mutex;
         memset(instance, 0, sizeof(*instance));
         vSemaphoreDelete(instance_mutex);
@@ -478,20 +395,10 @@ esp_err_t solar_os_uart_bus_attach(const char *name)
         return ESP_OK;
     }
 
-    esp_err_t ret = ESP_OK;
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-    ret = uart_claim_resources(instance);
-#endif
-    if (ret == ESP_OK) {
-        ret = uart_register_port(instance);
-    }
+    esp_err_t ret = uart_register_port(instance);
     if (ret == ESP_OK) {
         instance->attached = true;
         SOLAR_OS_LOGI(TAG, "%s attached", instance->name);
-    } else {
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-        uart_release_resources(instance);
-#endif
     }
     xSemaphoreGive(instance->mutex);
     return ret;
@@ -523,26 +430,11 @@ esp_err_t solar_os_uart_bus_detach(const char *name)
     }
     if (ret == ESP_OK) {
         instance->attached = false;
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-        uart_release_resources(instance);
-#endif
         SOLAR_OS_LOGI(TAG, "%s detached", instance->name);
     }
     xSemaphoreGive(instance->mutex);
     return ret;
 #endif
-}
-
-esp_err_t solar_os_uart_attach(void)
-{
-    ESP_RETURN_ON_ERROR(solar_os_uart_init(), TAG, "initialize default UART failed");
-    return solar_os_uart_bus_attach(SOLAR_OS_UART_PORT_NAME);
-}
-
-esp_err_t solar_os_uart_detach(void)
-{
-    ESP_RETURN_ON_ERROR(solar_os_uart_init(), TAG, "initialize default UART failed");
-    return solar_os_uart_bus_detach(SOLAR_OS_UART_PORT_NAME);
 }
 
 esp_err_t solar_os_uart_init(void)

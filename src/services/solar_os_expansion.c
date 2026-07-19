@@ -6,6 +6,7 @@
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
+#include "solar_os_pins.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
 #include "solar_os_pcd8544.h"
 #endif
@@ -121,7 +122,7 @@ static const solar_os_expansion_driver_t *find_driver(const char *name)
 static bool pin_is_expansion_gpio(int pin)
 {
     return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO) &&
-        mask_contains(SOLAR_OS_BOARD_USER_GPIO_MASK, pin);
+        solar_os_pin_is_direct_gpio(pin);
 }
 
 static bool pin_is_expansion_adc(int pin)
@@ -228,20 +229,12 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             -1,
                             "pwm");
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-        ESP_RETURN_ON_ERROR(append_claim(requests,
-                                         request_count,
-                                         SOLAR_OS_RESOURCE_SPI_CS,
-                                         binding->value,
-                                         -1,
-                                         binding->target),
-                            "expansion",
-                            "append spi cs claim failed");
         return append_claim(requests,
                             request_count,
-                            SOLAR_OS_RESOURCE_GPIO_PIN,
+                            SOLAR_OS_RESOURCE_SPI_CS,
                             binding->value,
                             -1,
-                            "spi-cs");
+                            binding->target);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS: {
         char target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
         size_t bus_index = 0;

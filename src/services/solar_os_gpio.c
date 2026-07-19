@@ -1,10 +1,13 @@
 #include "solar_os_gpio.h"
 
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "solar_os_board_caps.h"
+#include "solar_os_config.h"
 #include "solar_os_pins.h"
+#include "solar_os_resources.h"
 
 #if SOLAR_OS_BOARD_HAS_GPIO
 #include "driver/gpio.h"
@@ -56,6 +59,69 @@ static gpio_port_pull_t to_port_pull(solar_os_gpio_pull_t pull)
         return GPIO_PORT_PULL_NONE;
     }
 }
+
+static void gpio_resource_owner(int pin, char *owner, size_t owner_size)
+{
+    snprintf(owner, owner_size, "gpio:%d", pin);
+}
+
+static bool gpio_claim_is_ours(int pin, solar_os_resource_claim_t *claim)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_resource_claim_t existing;
+    if (!solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &existing)) {
+        return false;
+    }
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    gpio_resource_owner(pin, owner, sizeof(owner));
+    if (claim != NULL) {
+        *claim = existing;
+    }
+    return strcmp(existing.owner, owner) == 0;
+#else
+    (void)pin;
+    (void)claim;
+    return false;
+#endif
+}
+
+static esp_err_t gpio_claim(int pin, bool *claimed_here)
+{
+    if (claimed_here != NULL) {
+        *claimed_here = false;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_resource_claim_t existing;
+    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &existing)) {
+        return gpio_claim_is_ours(pin, NULL) ? ESP_OK : ESP_ERR_INVALID_STATE;
+    }
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    gpio_resource_owner(pin, owner, sizeof(owner));
+    const esp_err_t ret = solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                                  pin,
+                                                  -1,
+                                                  owner,
+                                                  "direct-gpio");
+    if (ret == ESP_OK && claimed_here != NULL) {
+        *claimed_here = true;
+    }
+    return ret;
+#else
+    (void)pin;
+    return ESP_OK;
+#endif
+}
+
+static void gpio_release_claim(int pin)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    gpio_resource_owner(pin, owner, sizeof(owner));
+    (void)solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, owner);
+#else
+    (void)pin;
+#endif
+}
 #endif
 
 esp_err_t solar_os_gpio_init(void)
@@ -88,13 +154,27 @@ bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *info)
     }
 
     const gpio_slot_t *slot = &gpio_slots[index];
+    solar_os_resource_claim_t claim = {0};
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const bool claimed = solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                                       slot->pin,
+                                                       -1,
+                                                       &claim);
+#else
+    const bool claimed = false;
+#endif
+    const bool ours = claimed && gpio_claim_is_ours(slot->pin, NULL);
     bool level = false;
-    const esp_err_t level_err = gpio_port_read((gpio_num_t)slot->pin, &level);
+    const esp_err_t level_err = slot->configured && (!claimed || ours)
+        ? gpio_port_read((gpio_num_t)slot->pin, &level)
+        : ESP_ERR_INVALID_STATE;
 
     *info = (solar_os_gpio_pin_info_t) {
         .pin = slot->pin,
         .expansion = solar_os_pin_is_expansion(slot->pin),
         .runtime_allowed = solar_os_pin_is_direct_gpio(slot->pin),
+        .available = solar_os_pin_is_direct_gpio(slot->pin) && (!claimed || ours),
+        .claimed = claimed,
         .policy = slot->policy,
         .role = slot->role,
         .configured = slot->configured,
@@ -103,6 +183,9 @@ bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *info)
         .level = level,
         .level_valid = level_err == ESP_OK,
     };
+    if (claimed) {
+        strlcpy(info->owner, claim.owner, sizeof(info->owner));
+    }
     return true;
 #endif
 }
@@ -157,11 +240,19 @@ esp_err_t solar_os_gpio_configure(int pin, solar_os_gpio_mode_t mode, solar_os_g
         return ESP_ERR_INVALID_ARG;
     }
 
-    const esp_err_t err = gpio_port_configure((gpio_num_t)pin, to_port_mode(mode), to_port_pull(pull));
+    bool claimed_here = false;
+    esp_err_t err = gpio_claim(pin, &claimed_here);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = gpio_port_configure((gpio_num_t)pin, to_port_mode(mode), to_port_pull(pull));
     if (err == ESP_OK) {
         slot->configured = true;
         slot->mode = mode;
         slot->pull = pull;
+    }
+    if (err != ESP_OK && claimed_here) {
+        gpio_release_claim(pin);
     }
     return err;
 #endif
@@ -211,11 +302,6 @@ esp_err_t solar_os_gpio_write(int pin, bool level)
         return ESP_ERR_NOT_ALLOWED;
     }
 
-    const esp_err_t prewrite_err = gpio_port_write((gpio_num_t)pin, level);
-    if (prewrite_err != ESP_OK) {
-        return prewrite_err;
-    }
-
     if (!slot->configured || slot->mode != SOLAR_OS_GPIO_MODE_OUTPUT) {
         const esp_err_t config_err =
             solar_os_gpio_configure(pin, SOLAR_OS_GPIO_MODE_OUTPUT, SOLAR_OS_GPIO_PULL_NONE);
@@ -225,6 +311,37 @@ esp_err_t solar_os_gpio_write(int pin, bool level)
     }
 
     return gpio_port_write((gpio_num_t)pin, level);
+#endif
+}
+
+esp_err_t solar_os_gpio_release(int pin)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    gpio_slot_t *slot = find_slot(pin);
+    if (slot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!solar_os_gpio_is_runtime_allowed(pin)) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_resource_claim_t claim;
+    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim) &&
+        !gpio_claim_is_ours(pin, NULL)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+    const esp_err_t ret = gpio_reset_pin((gpio_num_t)pin);
+    if (ret == ESP_OK) {
+        slot->configured = false;
+        slot->mode = SOLAR_OS_GPIO_MODE_INPUT;
+        slot->pull = SOLAR_OS_GPIO_PULL_NONE;
+        gpio_release_claim(pin);
+    }
+    return ret;
 #endif
 }
 

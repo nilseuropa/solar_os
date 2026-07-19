@@ -407,6 +407,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
 | `expansion` | `expansion bus create spi <name> host=<spi2\|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio\|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]` | Define a runtime-routed SPI bus on a board-approved host and expansion pins. |
 | `expansion` | `expansion bus create uart <name> port=<uart1\|uart2> tx=<gpio> rx=<gpio> [baud=<rate>]` | Define a lazy runtime UART on an unused controller and approved expansion pins. |
+| `expansion` | `expansion bus attach <name>` | Attach a named detachable bus and reserve its endpoint and signal pins. |
+| `expansion` | `expansion bus detach <name>` | Detach an idle named bus, preserving its descriptor while releasing its endpoint and signal pins. |
 | `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
@@ -420,8 +422,6 @@ and writes the inactive ESP-IDF OTA partition.
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart [status [bus]]` | Show the default `uart0` or a selected named UART bus. |
-| `uart` | `uart attach [bus]` | Attach a named UART descriptor, reserving its controller and pins. Defaults to `uart0`. |
-| `uart` | `uart detach [bus]` | Detach an idle named UART and release its controller and pins without deleting its descriptor. Defaults to `uart0`. |
 | `uart` | `uart baud [bus] [rate]` | Show or set a named UART bus baud rate. |
 | `uart` | `uart mode [bus] [raw\|line]` | Show or set a named UART bus service mode. |
 | `uart` | `uart write [bus] <text>` | Write text through the default or selected named UART bus. |
@@ -430,6 +430,7 @@ and writes the inactive ESP-IDF OTA partition.
 | `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
 | `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |
+| `gpio` | `gpio release <pin>` | Reset a direct GPIO and release its resource claim for a bus or another service. |
 | `onewire` | `onewire [status [bus]]` | Show every registered named 1-Wire bus, or one selected bus. |
 | `onewire` | `onewire reset <bus\|pin>` | Reset a named bus or direct runtime GPIO and report presence. |
 | `onewire` | `onewire scan <bus\|pin>` | Discover and list 1-Wire ROM addresses. |

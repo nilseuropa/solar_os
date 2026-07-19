@@ -95,6 +95,7 @@ typedef struct {
     bool complete_onewire_buses;
     bool complete_spi_buses;
     bool complete_uart_arguments;
+    bool complete_buses;
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
@@ -345,6 +346,7 @@ static const char * const ble_gatt_subcommands[] = {
     "chars",
     "read",
     "write",
+    "release",
     "write-nr",
 };
 
@@ -469,7 +471,7 @@ static const char * const expansion_subcommands[] = {
     "attach",
     "detach",
 };
-static const char * const expansion_bus_subcommands[] = {"create", "remove"};
+static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
 static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     "i2c",
@@ -536,8 +538,6 @@ static const char * const radio_state_values[] = {
 
 static const char * const uart_subcommands[] = {
     "status",
-    "attach",
-    "detach",
     "baud",
     "mode",
     "write",
@@ -1008,8 +1008,6 @@ static const char * const path_spi_write_mode[] = {
 };
 static const char * const path_uart[] = {"uart"};
 static const char * const path_uart_status[] = {"uart", "status"};
-static const char * const path_uart_attach[] = {"uart", "attach"};
-static const char * const path_uart_detach[] = {"uart", "detach"};
 static const char * const path_uart_baud[] = {"uart", "baud"};
 static const char * const path_uart_mode[] = {"uart", "mode"};
 static const char * const path_uart_write[] = {"uart", "write"};
@@ -1065,6 +1063,7 @@ static const char * const path_gpio_mode_pin_mode[] = {
 static const char * const path_gpio_read[] = {"gpio", "read"};
 static const char * const path_gpio_write[] = {"gpio", "write"};
 static const char * const path_gpio_write_pin[] = {"gpio", "write", SHELL_COMPLETION_ANY};
+static const char * const path_gpio_release[] = {"gpio", "release"};
 static const char * const path_onewire[] = {"onewire"};
 static const char * const path_onewire_status[] = {"onewire", "status"};
 static const char * const path_onewire_reset[] = {"onewire", "reset"};
@@ -1100,6 +1099,9 @@ static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_expansion[] = {"expansion"};
 static const char * const path_expansion_bus[] = {"expansion", "bus"};
 static const char * const path_expansion_bus_create[] = {"expansion", "bus", "create"};
+static const char * const path_expansion_bus_attach[] = {"expansion", "bus", "attach"};
+static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "detach"};
+static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_radio[] = {"radio"};
 static const char * const path_radio_status[] = {"radio", "status"};
@@ -1252,6 +1254,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_uart_arguments = true, \
+    }
+#define SHELL_COMPLETION_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_buses = true, \
     }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
@@ -1441,9 +1449,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
-    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_attach),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_baud),
-    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_detach),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_mode),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_read),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_status),
@@ -1481,6 +1487,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_gpio_read),
     SHELL_COMPLETION_GPIO_PINS(path_gpio_write),
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
+    SHELL_COMPLETION_GPIO_PINS(path_gpio_release),
     SHELL_COMPLETION_STATIC(path_onewire, onewire_subcommands),
     SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_status),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_reset),
@@ -1506,6 +1513,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
     SHELL_COMPLETION_STATIC(path_expansion_bus, expansion_bus_subcommands),
     SHELL_COMPLETION_STATIC(path_expansion_bus_create, expansion_bus_protocols),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_attach),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_detach),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
@@ -3699,6 +3709,21 @@ static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const size_t count = solar_os_bus_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get(i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static bool shell_completion_uart_named(const char * const *tokens, size_t token_count)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
@@ -4333,6 +4358,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_uart_arguments) {
             shell_completion_emit_uart_arguments(state, tokens, token_count);
+        }
+        if (rule->complete_buses) {
+            shell_completion_emit_buses(state);
         }
         if (rule->complete_spi_cs) {
             shell_completion_emit_spi_cs(state, tokens, token_count);

@@ -370,15 +370,16 @@ base protocol and non-empty SPI/UART runtime masks without matching base and
 expansion capabilities.
 
 The registry distinguishes immutable board descriptors from runtime-created
-buses. Board buses cannot be unregistered. Every UART descriptor can be
-attached or detached; detachment releases its controller and signal pins while
-preserving its name and configuration. Runtime UART descriptors can additionally
-be removed. Runtime I2C uses an unregistered hardware
+buses. Board buses cannot be unregistered. Every protocol uses the same named
+bus attach/detach lifecycle. Runtime descriptors are detachable and removable;
+board descriptors are detachable only when all signal pins are marked
+releasable, and otherwise remain fixed. Detachment releases the hardware
+endpoint and signal pins while preserving the name and configuration. Runtime I2C uses an unregistered hardware
 controller plus approved SDA/SCL pins. Runtime 1-Wire uses one approved pin.
 Runtime SPI is supported on hosts explicitly allowed by
-`SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`; CS entries are allowed attachment slots
-and are claimed per device. Runtime bus signal pins and hardware endpoints are
-claimed atomically and released when an idle bus is removed. Runtime UART
+`SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`; CS entries are bus-owned GPIO slots,
+while their logical chip-select use is claimed per device. Runtime bus signal pins and hardware endpoints are
+claimed atomically and released when an idle bus is detached or removed. Runtime UART
 controllers are limited by `SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK`. An attached
 UART reserves its controller and pins, while its driver starts on first lease
 and stops on final release.
@@ -569,7 +570,8 @@ expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio
 ```
 
 The bus remains idle until a device attaches. After detaching all devices,
-`expansion bus remove spi1` releases the three signal pins. The board-defined
+`expansion bus remove spi1` releases the three data/clock pins and its configured
+chip-select pins. The board-defined
 I2C bus on GPIO13/GPIO14 is fixed and is never remapped by this operation.
 
 The spare I2C/UART controllers and free pins can instead form runtime I2C,
@@ -582,9 +584,9 @@ expansion bus create uart uart1 port=uart1 tx=gpio1 rx=gpio2
 ```
 
 The board-defined `uart0` on GPIO43/GPIO44 is non-removable but detachable.
-From a display or other non-`uart0` shell, `uart detach uart0` releases those
+From a display or other non-`uart0` shell, `expansion bus detach uart0` releases those
 pins for a temporary runtime bus. Remove the temporary descriptor and run
-`uart attach uart0` to restore the board UART. A UART carrying an active port
+`expansion bus attach uart0` to restore the board UART. A UART carrying an active port
 owner cannot be detached.
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and

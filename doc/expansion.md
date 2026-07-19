@@ -106,8 +106,8 @@ expansion bus remove onewire0
 expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
 uart status uart1
 uart write uart1 AT
-uart detach uart1
-uart attach uart1
+expansion bus detach uart1
+expansion bus attach uart1
 expansion bus remove uart1
 ```
 
@@ -116,10 +116,10 @@ is attached. From a display or other non-`uart0` shell, detach it before reusing
 those pins and attach it again after the temporary bus is removed:
 
 ```text
-uart detach uart0
+expansion bus detach uart0
 expansion bus create uart uart1 port=uart1 tx=gpio43 rx=gpio44
 expansion bus remove uart1
-uart attach uart0
+expansion bus attach uart0
 ```
 
 Detaching the port that carries the current shell fails as busy, so the shell
@@ -127,8 +127,9 @@ cannot disconnect itself accidentally.
 
 On a board with an approved spare SPI host, create a bus before attaching the
 device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
-`cs=` option declares an allowed chip-select slot, which is claimed only when a
-device attaches:
+`cs=` option declares and reserves a chip-select pin for the lifetime of
+the attached bus. Devices and one-shot transfers additionally claim the
+logical chip-select slot, preventing two users from driving it concurrently:
 
 ```text
 expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
@@ -166,10 +167,11 @@ i2c write i2c0 0x50 0x00 0xaa 0x55
 
 Omit `miso` or use `miso=none` for output-only peripherals. A runtime bus can
 only use a host and pins approved by the board profile. It cannot take fixed
-display, storage, I2C, USB, or strapping pins. A bus cannot be removed while it
-has device leases, and board-defined buses can never be removed. `uart detach`
-is different from removal: it works for either origin and preserves the named
-descriptor.
+display, storage, I2C, USB, or strapping pins. A bus cannot be detached or
+removed while it has device leases, and board-defined buses can never be
+removed. `expansion bus detach` preserves the named descriptor and works for
+every runtime bus plus board buses whose owned pins are marked releasable.
+Fixed-pin board buses reject detach.
 
 ## Drivers and Bindings
 
