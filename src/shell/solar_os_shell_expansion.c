@@ -14,6 +14,9 @@
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
 #include "solar_os_resources.h"
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+#include "solar_os_uart.h"
+#endif
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
@@ -94,11 +97,20 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
     if (!solar_os_bus_find(name, protocol, &info)) {
         return;
     }
+    const char *state = info.ready ? "ready" : "idle";
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    if (protocol == SOLAR_OS_BUS_PROTOCOL_UART) {
+        solar_os_uart_status_t status;
+        if (solar_os_uart_get_bus_status(name, &status)) {
+            state = !status.attached ? "detached" : info.ready ? "ready" : "attached";
+        }
+    }
+#endif
     solar_os_shell_io_printf(term,
                              " [%s %s %s leases=%u]",
                              solar_os_bus_origin_name(info.origin),
                              solar_os_bus_sharing_name(info.sharing),
-                             info.ready ? "ready" : "idle",
+                             state,
                              (unsigned)info.lease_count);
 }
 

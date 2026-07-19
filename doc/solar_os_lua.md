@@ -43,11 +43,11 @@ service packages are not available on that board.
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
-- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_uart`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
+- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_uart`, `uart_attach`, `uart_detach`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
-- `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
+- `solaros.uart`: `status`, `attach`, `detach`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `level`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
@@ -79,6 +79,9 @@ of the legacy single-board-bus and direct-pin service tables.
 - `create_spi(name, config)` creates a runtime SPI bus and returns its table.
 - `create_uart(name, config)` creates a lazy runtime UART bus and returns its table.
 - `remove(name)` removes an idle runtime bus.
+- `uart_attach(bus)` attaches a named UART and reserves its controller and pins.
+- `uart_detach(bus)` detaches an idle named UART and releases its controller and
+  pins without deleting its descriptor.
 - `i2c_probe(bus, address)`, `i2c_scan(bus)`,
   `i2c_read_reg(bus, address, reg, length)`, and
   `i2c_write_reg(bus, address, reg, data)` operate on a selected named I2C bus
@@ -101,16 +104,19 @@ and `max_transfer_size` are optional. I2C bus tables include `port`, `sda_pin`,
 automatically; the legacy `solaros.i2c` table remains an `i2c0` shortcut.
 OneWire bus tables include `pin`. Named OneWire operations take and release an
 exclusive lease automatically; `solaros.onewire` remains the direct-pin
-compatibility API. UART bus tables include `port`, `tx_pin`, `rx_pin`, and
-`baud_rate`; named UART I/O takes and releases an exclusive lease automatically.
+compatibility API. UART bus tables include `port`, `tx_pin`, `rx_pin`,
+`baud_rate`, and `attached`; named UART I/O takes and releases an exclusive
+lease automatically.
 
 `create_i2c` requires `port`, `sda`, and `scl`; optional `speed_hz` defaults to
 100000. `create_onewire` requires `pin`. Both claim their approved runtime pins
 until `remove(name)`.
 
 `create_uart` requires `port`, `tx`, and `rx`; optional `baud_rate` defaults to
-115200. Its driver starts on first lease and stops after the final runtime-bus
-lease is released.
+115200. Every board-defined or runtime UART descriptor supports `uart_attach`
+and `uart_detach`; only runtime descriptors support `remove`. An attached UART
+owns its controller and pins, while its driver starts on first lease and stops
+after the final lease is released.
 
 ```lua
 local solaros = require("solaros")
@@ -153,6 +159,8 @@ local uart1 = solaros.buses.create_uart("uart1", {
 })
 solaros.buses.uart_write(uart1.name, "AT\r\n")
 print(solaros.buses.uart_read(uart1.name, 64, 500))
+solaros.buses.uart_detach(uart1.name)
+solaros.buses.uart_attach(uart1.name)
 solaros.buses.remove(uart1.name)
 ```
 
@@ -204,8 +212,10 @@ and return values are binary-safe strings. New code should address buses
 explicitly through `solaros.buses.spi_*`.
 
 `solaros.uart` is the default `uart0` compatibility table; use
-`solaros.buses.uart_*` for another named UART. `solaros.uart.status()` includes
-the bus `name`, `rx_buffered`, and `rx_buffered_valid`. When another owner is
+`solaros.buses.uart_*` for another named UART. `solaros.uart.attach()` and
+`solaros.uart.detach()` control the default descriptor. `solaros.uart.status()`
+includes the bus `name`, `attached`, `rx_buffered`, and `rx_buffered_valid`.
+When another owner is
 actively using the UART, `rx_buffered_valid` is `false` because the live RX
 count is not sampled.
 

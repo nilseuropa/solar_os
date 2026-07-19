@@ -1562,6 +1562,9 @@ static void uart_print_status(solar_os_shell_io_t *term, const char *name)
     }
 
     solar_os_shell_io_printf(term, "Bus: %s\n", name);
+    solar_os_shell_io_printf(term,
+                             "Attachment: %s\n",
+                             status.attached ? "attached" : "detached");
     solar_os_shell_io_printf(term, "UART: %s\n",
                              status.initialized ? "ready" : "idle");
     solar_os_shell_io_printf(term, "Port: UART%d\n", status.port_num);
@@ -1584,10 +1587,52 @@ static void uart_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  uart [status [bus]]");
+    solar_os_shell_io_writeln(term, "  uart attach [bus]");
+    solar_os_shell_io_writeln(term, "  uart detach [bus]");
     solar_os_shell_io_writeln(term, "  uart baud [bus] [rate]");
     solar_os_shell_io_writeln(term, "  uart mode [bus] [raw|line]");
     solar_os_shell_io_writeln(term, "  uart write [bus] <text>");
     solar_os_shell_io_writeln(term, "  uart read [bus] [ms]");
+}
+
+static void uart_cmd_attachment(solar_os_shell_io_t *term,
+                                int argc,
+                                char **argv,
+                                bool attach)
+{
+    if (argc > 3) {
+        solar_os_shell_io_printf(term,
+                                 "usage: uart %s [bus]\n",
+                                 attach ? "attach" : "detach");
+        return;
+    }
+    const char *bus = argc == 3 ? argv[2] : SOLAR_OS_UART_PORT_NAME;
+    if (!uart_bus_exists(term, bus)) {
+        return;
+    }
+    if (strcmp(bus, SOLAR_OS_UART_PORT_NAME) == 0) {
+        (void)solar_os_uart_init();
+    }
+
+    const esp_err_t err = attach
+        ? solar_os_uart_bus_attach(bus)
+        : solar_os_uart_bus_detach(bus);
+    if (err == ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "%s: %s\n",
+                                 bus,
+                                 attach ? "attached" : "detached");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "uart %s failed: %s\n",
+                                 attach ? "attach" : "detach",
+                                 attach ? "UART resources are in use" : "port is busy");
+    } else {
+        solar_os_shell_io_printf(term,
+                                 "uart %s failed: %s\n",
+                                 attach ? "attach" : "detach",
+                                 esp_err_to_name(err));
+    }
 }
 
 static void uart_print_apply_result(solar_os_shell_io_t *term,
@@ -1855,7 +1900,11 @@ void solar_os_shell_cmd_uart(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    if (strcmp(argv[1], "baud") == 0) {
+    if (strcmp(argv[1], "attach") == 0) {
+        uart_cmd_attachment(term, argc, argv, true);
+    } else if (strcmp(argv[1], "detach") == 0) {
+        uart_cmd_attachment(term, argc, argv, false);
+    } else if (strcmp(argv[1], "baud") == 0) {
         uart_cmd_baud(term, argc, argv);
     } else if (strcmp(argv[1], "mode") == 0) {
         uart_cmd_mode(term, argc, argv);

@@ -1802,6 +1802,12 @@ static mp_obj_t python_bus_info_to_dict(const solar_os_bus_info_t *info)
         python_dict_store_int(dict, "tx_pin", info->config.uart.tx_pin);
         python_dict_store_int(dict, "rx_pin", info->config.uart.rx_pin);
         python_dict_store_uint(dict, "baud_rate", info->config.uart.baud_rate);
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+        solar_os_uart_status_t uart_status;
+        if (solar_os_uart_get_bus_status(info->name, &uart_status)) {
+            python_dict_store_bool(dict, "attached", uart_status.attached);
+        }
+#endif
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         python_dict_store_int(dict, "pin", info->config.onewire.pin);
@@ -1996,6 +2002,20 @@ static const char *python_bus_uart_name(mp_obj_t name_obj)
     }
     return name;
 }
+
+static mp_obj_t solaros_buses_uart_attach(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_uart_bus_attach(python_bus_uart_name(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_uart_attach_obj, solaros_buses_uart_attach);
+
+static mp_obj_t solaros_buses_uart_detach(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_uart_bus_detach(python_bus_uart_name(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_uart_detach_obj, solaros_buses_uart_detach);
 
 static mp_obj_t solaros_buses_uart_write(mp_obj_t name_obj, mp_obj_t data_obj)
 {
@@ -2800,8 +2820,9 @@ static mp_obj_t solaros_uart_status(void)
     solar_os_uart_status_t status;
     solar_os_uart_get_status(&status);
 
-    mp_obj_t dict = mp_obj_new_dict(9);
+    mp_obj_t dict = mp_obj_new_dict(10);
     python_dict_store_cstr(dict, "name", status.name);
+    python_dict_store_bool(dict, "attached", status.attached);
     python_dict_store_bool(dict, "initialized", status.initialized);
     python_dict_store_int(dict, "port_num", status.port_num);
     python_dict_store_int(dict, "tx_pin", status.tx_pin);
@@ -2813,6 +2834,20 @@ static mp_obj_t solaros_uart_status(void)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_uart_status_obj, solaros_uart_status);
+
+static mp_obj_t solaros_uart_attach(void)
+{
+    python_check_esp(solar_os_uart_attach());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_uart_attach_obj, solaros_uart_attach);
+
+static mp_obj_t solaros_uart_detach(void)
+{
+    python_check_esp(solar_os_uart_detach());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_uart_detach_obj, solaros_uart_detach);
 
 static mp_obj_t solaros_uart_baud(size_t n_args, const mp_obj_t *args)
 {
@@ -4212,6 +4247,12 @@ static void python_register_solaros_module(void)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     python_module_store(buses,
+                        "uart_attach",
+                        MP_OBJ_FROM_PTR(&solaros_buses_uart_attach_obj));
+    python_module_store(buses,
+                        "uart_detach",
+                        MP_OBJ_FROM_PTR(&solaros_buses_uart_detach_obj));
+    python_module_store(buses,
                         "uart_write",
                         MP_OBJ_FROM_PTR(&solaros_buses_uart_write_obj));
     python_module_store(buses,
@@ -4275,6 +4316,8 @@ static void python_register_solaros_module(void)
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     mp_obj_t uart = python_new_submodule(module, "uart");
     python_module_store(uart, "status", MP_OBJ_FROM_PTR(&solaros_uart_status_obj));
+    python_module_store(uart, "attach", MP_OBJ_FROM_PTR(&solaros_uart_attach_obj));
+    python_module_store(uart, "detach", MP_OBJ_FROM_PTR(&solaros_uart_detach_obj));
     python_module_store(uart, "baud", MP_OBJ_FROM_PTR(&solaros_uart_baud_obj));
     python_module_store(uart, "is_valid_baud", MP_OBJ_FROM_PTR(&solaros_uart_is_valid_baud_obj));
     python_module_store(uart, "mode", MP_OBJ_FROM_PTR(&solaros_uart_mode_obj));

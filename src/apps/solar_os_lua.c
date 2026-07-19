@@ -796,6 +796,7 @@ static void solua_push_uart_status(lua_State *L, const solar_os_uart_status_t *s
 {
     lua_newtable(L);
     solua_set_str(L, -1, "name", status->name);
+    solua_set_bool(L, -1, "attached", status->attached);
     solua_set_bool(L, -1, "initialized", status->initialized);
     solua_set_int(L, -1, "port_num", status->port_num);
     solua_set_int(L, -1, "tx_pin", status->tx_pin);
@@ -1671,6 +1672,12 @@ static void solua_push_bus_info(lua_State *L, const solar_os_bus_info_t *info)
         solua_set_int(L, -1, "tx_pin", info->config.uart.tx_pin);
         solua_set_int(L, -1, "rx_pin", info->config.uart.rx_pin);
         solua_set_int(L, -1, "baud_rate", info->config.uart.baud_rate);
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+        solar_os_uart_status_t uart_status;
+        if (solar_os_uart_get_bus_status(info->name, &uart_status)) {
+            solua_set_bool(L, -1, "attached", uart_status.attached);
+        }
+#endif
         break;
     case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
         solua_set_int(L, -1, "pin", info->config.onewire.pin);
@@ -1869,6 +1876,18 @@ static const char *solua_bus_uart_name(lua_State *L, int index)
         luaL_error(L, "%s", esp_err_to_name(ESP_ERR_NOT_FOUND));
     }
     return name;
+}
+
+static int solua_buses_uart_attach(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_uart_bus_attach(solua_bus_uart_name(L, 1)));
+}
+
+static int solua_buses_uart_detach(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_uart_bus_detach(solua_bus_uart_name(L, 1)));
 }
 
 static int solua_buses_uart_write(lua_State *L)
@@ -2697,6 +2716,16 @@ static int solua_uart_status(lua_State *L)
     solar_os_uart_get_status(&status);
     solua_push_uart_status(L, &status);
     return 1;
+}
+
+static int solua_uart_attach(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_uart_attach());
+}
+
+static int solua_uart_detach(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_uart_detach());
 }
 
 static int solua_uart_baud(lua_State *L)
@@ -3956,6 +3985,8 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "onewire_xfer", solua_buses_onewire_xfer);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
+    solua_set_func(L, mod, "uart_attach", solua_buses_uart_attach);
+    solua_set_func(L, mod, "uart_detach", solua_buses_uart_detach);
     solua_set_func(L, mod, "uart_write", solua_buses_uart_write);
     solua_set_func(L, mod, "uart_read", solua_buses_uart_read);
 #endif
@@ -4006,6 +4037,8 @@ static void solua_open_solaros(lua_State *L)
     solua_new_submodule(L, solaros, "uart");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_uart_status);
+    solua_set_func(L, mod, "attach", solua_uart_attach);
+    solua_set_func(L, mod, "detach", solua_uart_detach);
     solua_set_func(L, mod, "baud", solua_uart_baud);
     solua_set_func(L, mod, "is_valid_baud", solua_uart_is_valid_baud);
     solua_set_func(L, mod, "mode", solua_uart_mode);

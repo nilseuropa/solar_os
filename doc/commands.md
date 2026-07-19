@@ -420,6 +420,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `pocsag` | `pocsag status` | Show detailed status for the POCSAG background receiver. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 | `uart` | `uart [status [bus]]` | Show the default `uart0` or a selected named UART bus. |
+| `uart` | `uart attach [bus]` | Attach a named UART descriptor, reserving its controller and pins. Defaults to `uart0`. |
+| `uart` | `uart detach [bus]` | Detach an idle named UART and release its controller and pins without deleting its descriptor. Defaults to `uart0`. |
 | `uart` | `uart baud [bus] [rate]` | Show or set a named UART bus baud rate. |
 | `uart` | `uart mode [bus] [raw\|line]` | Show or set a named UART bus service mode. |
 | `uart` | `uart write [bus] <text>` | Write text through the default or selected named UART bus. |

@@ -369,15 +369,19 @@ be created. Configuration checks reject expansion capabilities without their
 base protocol and non-empty SPI/UART runtime masks without matching base and
 expansion capabilities.
 
-The registry distinguishes immutable board buses from runtime-created buses.
-Board buses cannot be unregistered. Runtime I2C uses an unregistered hardware
+The registry distinguishes immutable board descriptors from runtime-created
+buses. Board buses cannot be unregistered. Every UART descriptor can be
+attached or detached; detachment releases its controller and signal pins while
+preserving its name and configuration. Runtime UART descriptors can additionally
+be removed. Runtime I2C uses an unregistered hardware
 controller plus approved SDA/SCL pins. Runtime 1-Wire uses one approved pin.
 Runtime SPI is supported on hosts explicitly allowed by
 `SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`; CS entries are allowed attachment slots
 and are claimed per device. Runtime bus signal pins and hardware endpoints are
 claimed atomically and released when an idle bus is removed. Runtime UART
-controllers are limited by `SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK`; their
-drivers start on first lease and stop on final release.
+controllers are limited by `SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK`. An attached
+UART reserves its controller and pins, while its driver starts on first lease
+and stops on final release.
 
 ## Board Selector
 
@@ -576,6 +580,12 @@ expansion bus create i2c i2c1 port=i2c1 sda=gpio1 scl=gpio2
 expansion bus create onewire onewire0 pin=gpio3
 expansion bus create uart uart1 port=uart1 tx=gpio1 rx=gpio2
 ```
+
+The board-defined `uart0` on GPIO43/GPIO44 is non-removable but detachable.
+From a display or other non-`uart0` shell, `uart detach uart0` releases those
+pins for a temporary runtime bus. Remove the temporary descriptor and run
+`uart attach uart0` to restore the board UART. A UART carrying an active port
+owner cannot be detached.
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves

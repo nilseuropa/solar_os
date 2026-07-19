@@ -365,6 +365,9 @@ single-board-bus `solaros.spi` module.
 - `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
   cannot be removed.
+- `uart_attach(bus)`: attach a named UART and reserve its controller and pins.
+- `uart_detach(bus)`: detach an idle named UART and release its controller and
+  pins without deleting the descriptor.
 - `i2c_probe(bus, address)`: probe an address on a named I2C bus.
 - `i2c_scan(bus)`: return detected addresses on a named I2C bus.
 - `i2c_read_reg(bus, address, reg, length)`: read bytes from an 8-bit register.
@@ -386,7 +389,7 @@ Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
 buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
 `max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
 `sda_pin`, `scl_pin`, and `speed_hz`. UART buses include `port`, `tx_pin`,
-`rx_pin`, and `baud_rate`.
+`rx_pin`, `baud_rate`, and `attached`.
 
 Named I2C operations are present when both the resource and I2C services are
 compiled. They take and release a shared bus lease automatically. The legacy
@@ -402,9 +405,11 @@ automatically. OneWire bus dictionaries include `pin`; the legacy
 policy and claim their signal pins until `remove(name)`.
 
 `create_uart` requires `port`, `tx`, and `rx`; optional `baud_rate` defaults to
-115200. Named UART reads and writes take an exclusive lease automatically. The
-UART driver is started for the lease and stopped after the final runtime-bus
-lease is released.
+115200. Named UART reads and writes take an exclusive lease automatically.
+Every board-defined or runtime UART descriptor supports `uart_attach` and
+`uart_detach`; only runtime descriptors support `remove`. An attached UART owns
+its controller and pins, while the hardware driver starts for the first lease
+and stops after the final lease is released.
 
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
@@ -457,6 +462,8 @@ uart1 = solaros.buses.create_uart("uart1", {
 })
 solaros.buses.uart_write(uart1["name"], b"AT\r\n")
 print(solaros.buses.uart_read(uart1["name"], 64, 500))
+solaros.buses.uart_detach(uart1["name"])
+solaros.buses.uart_attach(uart1["name"])
 solaros.buses.remove(uart1["name"])
 ```
 
@@ -564,7 +571,9 @@ print(response[1:])
 UART functions expose the default `uart0` compatibility service. Use
 `solaros.buses.uart_*` to address another named UART bus.
 
-- `status()`: return UART name, port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
+- `status()`: return UART name, `attached`, port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
+- `attach()`: attach `uart0` and reserve its controller and pins.
+- `detach()`: detach idle `uart0` and release its controller and pins while preserving its descriptor.
 - `baud([rate])`: get or set baud rate.
 - `is_valid_baud(rate)`: return whether a baud rate is accepted.
 - `mode([name])`: get or set `raw` or `line` mode.

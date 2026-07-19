@@ -536,6 +536,8 @@ static const char * const radio_state_values[] = {
 
 static const char * const uart_subcommands[] = {
     "status",
+    "attach",
+    "detach",
     "baud",
     "mode",
     "write",
@@ -1006,6 +1008,8 @@ static const char * const path_spi_write_mode[] = {
 };
 static const char * const path_uart[] = {"uart"};
 static const char * const path_uart_status[] = {"uart", "status"};
+static const char * const path_uart_attach[] = {"uart", "attach"};
+static const char * const path_uart_detach[] = {"uart", "detach"};
 static const char * const path_uart_baud[] = {"uart", "baud"};
 static const char * const path_uart_mode[] = {"uart", "mode"};
 static const char * const path_uart_write[] = {"uart", "write"};
@@ -1437,7 +1441,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_attach),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_baud),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_detach),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_mode),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_read),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_status),

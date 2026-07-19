@@ -15,8 +15,8 @@ flavor.
 | --- | --- | --- |
 | Connector pin | A signal physically present on an expansion header or breakout. Physical presence does not make a pin safe for runtime control. | Described by the board profile. |
 | Runtime GPIO | A connector pin approved for direct `gpio` and 1-Wire use, and for `adc` or `pwm` where the board tables allow it. | Claimed while a service or attached device uses it. |
-| Board-defined bus | A named bus with fixed pins, such as `i2c0` or `spi0`. | Registered at boot and cannot be removed. |
-| Runtime bus | A named bus routed onto approved free pins and a spare hardware host. | Signal pins are claimed when the bus is created; the bus can be removed when idle. |
+| Board-defined bus | A named bus with fixed pins, such as `i2c0` or `spi0`. | Registered at boot and cannot be removed. A named UART can still be detached and reattached. |
+| Runtime bus | A named bus routed onto approved free pins and a spare hardware host. | It can be removed when idle. UART controller and pin claims follow attach/detach; other bus signals remain claimed for the descriptor lifetime. |
 | Expansion driver | Code that knows how to initialize and operate a supported external device. | Listed by `expansion drivers`; availability is package- and capability-filtered. |
 | Attached device | A named driver instance bound to buses, addresses, chip-selects, or GPIO roles. | Acquires resource leases on attach and releases them on detach. |
 
@@ -62,10 +62,12 @@ and can be addressed by name. Bus names are unique across protocols.
 
 I2C, SPI, UART, and 1-Wire buses can be created at runtime. Runtime hardware
 buses require an unused board-approved controller or host; all signal pins must
-be approved by the board's runtime pin policy. Named UART hardware is started
-on its first consumer claim and stopped after its final claim is released. A
-board-defined UART remains registered and cannot be removed, but its releasable
-signal pins are only claimed while the UART is active.
+be approved by the board's runtime pin policy. Every named UART has an explicit
+attached state. Attaching reserves its controller and pins; the hardware driver
+still starts lazily on the first consumer claim and stops after the final claim.
+Detaching an idle UART releases the controller and pins but preserves its name
+and configuration. Runtime UART descriptors may additionally be removed;
+board-defined UART descriptors cannot.
 The direct numeric form of the `onewire` command remains available without
 creating a named expansion bus.
 
@@ -104,8 +106,24 @@ expansion bus remove onewire0
 expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
 uart status uart1
 uart write uart1 AT
+uart detach uart1
+uart attach uart1
 expansion bus remove uart1
 ```
+
+On the Waveshare board, `uart0` owns the releasable GPIO43/GPIO44 pair while it
+is attached. From a display or other non-`uart0` shell, detach it before reusing
+those pins and attach it again after the temporary bus is removed:
+
+```text
+uart detach uart0
+expansion bus create uart uart1 port=uart1 tx=gpio43 rx=gpio44
+expansion bus remove uart1
+uart attach uart0
+```
+
+Detaching the port that carries the current shell fails as busy, so the shell
+cannot disconnect itself accidentally.
 
 On a board with an approved spare SPI host, create a bus before attaching the
 device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
@@ -149,7 +167,9 @@ i2c write i2c0 0x50 0x00 0xaa 0x55
 Omit `miso` or use `miso=none` for output-only peripherals. A runtime bus can
 only use a host and pins approved by the board profile. It cannot take fixed
 display, storage, I2C, USB, or strapping pins. A bus cannot be removed while it
-has device leases, and board-defined buses can never be removed.
+has device leases, and board-defined buses can never be removed. `uart detach`
+is different from removal: it works for either origin and preserves the named
+descriptor.
 
 ## Drivers and Bindings
 
