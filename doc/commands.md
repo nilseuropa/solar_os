@@ -448,28 +448,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `temperature` | `temperature` | Read the board temperature sensor when available. |
 | `humidity` | `humidity` | Read the board humidity sensor when available. |
 
-Runtime GPIO access is board-filtered. On the Waveshare ESP32-S3-RLCD-4.2,
-runtime user GPIO access is intentionally limited to GPIO1, GPIO2, GPIO3, and
-GPIO17. On the Elecrow CrowPanel ESP32-S3 4.2-inch E-paper, runtime GPIO access
-is available on GPIO8, GPIO9, GPIO14, GPIO15, GPIO16, GPIO17, GPIO18, GPIO19,
-GPIO20, GPIO21, and GPIO38. GPIO3 is present on the expansion header but is
-blocked as a strapping pin. GPIO1/GPIO2/GPIO4/GPIO5/GPIO6 are controls,
-GPIO7/GPIO11/GPIO12/GPIO45-GPIO48 are display signals, GPIO10/GPIO13/
-GPIO39/GPIO40/GPIO42 are SD signals, GPIO41 is the status LED, and
-GPIO43/GPIO44 are `uart0` through the CH340C USB bridge. On the
-ESP32-S3-DevKitC-1-N16R8, runtime GPIO access is available on
-GPIO1, GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16,
-GPIO17, GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. The
-DevKitC I2C bus uses GPIO8/GPIO9, SPI uses GPIO12/GPIO13/GPIO11 with
-GPIO10/GPIO5/GPIO6/GPIO7 chip-select slots, GPIO19/GPIO20 are native USB,
-GPIO35-GPIO37 are reserved by N16R8 Octal PSRAM, GPIO43/GPIO44 are `uart0`,
-and GPIO0/GPIO3/GPIO45/GPIO46 are boot strapping pins. On ODROID-GO, runtime
-GPIO access is limited to GPIO4 and GPIO15; both are external IO pins and SPI
-chip-select slots. GPIO2 is the status LED, GPIO14 is the LCD backlight,
-GPIO25/GPIO26 are speaker amplifier/DAC pins, GPIO18/GPIO19/GPIO23 are VSPI,
-GPIO5/GPIO21 are TFT control pins, GPIO22 is SD card chip select, GPIO34/GPIO35
-are ADC D-pad axes, GPIO36 is battery ADC, GPIO39 is the board key input, and
-GPIO32/GPIO33/GPIO13/GPIO27/GPIO0 are built-in buttons.
+Board-specific connector resources, runtime GPIO policy, named buses, leases,
+and attachment examples are documented in [Expansion Ports](expansion.md).
+Use `expansion status` and `gpio list` for the authoritative view on a running
+device.
 
 The `onewire` command accepts any runtime-accessible GPIO. Every `xfer` starts
 with a 1-Wire reset, writes the supplied bytes, and then reads `read-len` bytes.
@@ -503,89 +485,6 @@ On the CrowPanel SSD1683 path, `refresh=auto` uses a full waveform for the first
 changed frame and after every 19 fast updates, while unchanged frames are
 skipped. `refresh=fast` forces the faster waveform and `refresh=full` forces the
 full waveform on every changed frame.
-
-Manual expansion profiles claim resources without initializing external
-hardware:
-
-```text
-expansion attach manual radio0 spi0 cs=gpio10 irq=gpio4 reset=gpio5
-expansion attach manual sensor0 i2c0 addr=0x40
-expansion detach radio0
-```
-
-Boards with an approved spare SPI host can create an SPI bus from routable
-expansion pins. Signal pins are claimed immediately, while the hardware host is
-initialized on the first device lease and freed on the last. Each `cs=` option
-adds an allowed device chip-select slot; the chip-select itself is claimed only
-when a device attaches. For the Waveshare RLCD expansion header:
-
-```text
-expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
-expansion attach rfm69 radio0 spi=spi1 cs=gpio17
-expansion detach radio0
-expansion bus remove spi1
-```
-
-Omit `miso` or use `miso=none` for output-only peripherals. Runtime routing is
-restricted by the board description; it cannot take fixed display, storage, or
-I2C pins.
-
-RFM69 433 MHz packet radios can be attached as active expansion devices. Only
-`spi` and `cs` are required; `irq` and `reset` are optional:
-
-```text
-expansion attach rfm69 radio0 spi=spi0 cs=gpio10
-expansion attach rfm69 radio0 spi=spi0 cs=gpio10 irq=gpio4 reset=gpio5
-expansion detach radio0
-```
-
-PCD8544 84x48 SPI LCD modules can be attached as auxiliary display targets with
-the `pcd8544` driver. The driver
-requires an expansion SPI bus, a CS/CE pin, a DC pin, and a reset/RST pin. On
-the ESP32-S3 DevKitC-1 target:
-
-```text
-display pins: VCC->3V3 GND->GND CLK/SCLK->GPIO12 DIN/MOSI->GPIO11
-display pins: CE/CS->GPIO10 DC->GPIO4 RST->GPIO5
-expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5
-display list
-display test lcd0
-```
-
-`ce=gpio10` is accepted as an alias for `cs=gpio10`, and `rst=gpio5` is
-accepted as an alias for `reset=gpio5`. If the module has an LED/backlight pin,
-wire it according to the module board; use suitable current limiting when tying
-it to 3V3. On a board without a static expansion SPI descriptor, create a
-runtime SPI bus first if the board policy exposes a spare host and enough pins.
-
-Common 128x64 SSD1306 I2C OLED modules can be attached as auxiliary display
-targets with the `ssd1306` driver. The driver supports the usual `0x3c` and
-`0x3d` addresses and requires both the expansion I2C bus and address so the
-resource can be claimed. On the Waveshare RLCD target, wire the module to the
-I2C pins on the expansion header:
-
-```text
-display pins: VCC->3V3 GND->GND SDA->SDA(GPIO13) SCL->SCL(GPIO14)
-expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
-display list
-display test oled0
-session create shell oled0
-```
-
-Use `i2c scan` to confirm whether a module responds at `0x3c` or `0x3d` before
-attaching it. The same driver is available on other boards with expansion I2C;
-use `expansion status` to see that board's bus name and pins.
-
-If the image is shifted two pixels left and two uninitialized columns appear on
-the right, the module uses an SH1106-compatible 132-column controller despite
-often being sold as SSD1306. Reattach it with the SH1106 profile, which applies
-the controller's two-column visible-window offset:
-
-```text
-expansion detach oled0
-expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c
-display test oled0
-```
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI

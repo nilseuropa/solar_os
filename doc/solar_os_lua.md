@@ -43,6 +43,8 @@ service packages are not available on that board.
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
+- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled
+- `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
 - `solaros.uart`: `status`, `baud`, `is_valid_baud`, `mode`, `write`, `read` when UART support is compiled
@@ -64,6 +66,60 @@ Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.rea
 `address` and numeric `family` code. `solaros.onewire.xfer(pin, read_len[, data])`
 resets the bus, writes the binary-safe `data` string, and returns `read_len`
 bytes. Reads and writes are each limited to 64 bytes.
+
+## Named buses and expansion devices
+
+`solaros.buses` discovers board-defined and runtime-created buses independently
+of the legacy single-board-bus `solaros.spi` table.
+
+- `list()` returns every bus table.
+- `get(name)` returns one bus table.
+- `create_spi(name, config)` creates a runtime SPI bus and returns its table.
+- `remove(name)` removes an idle runtime bus.
+- `spi_xfer(bus, cs, data[, mode[, speed_hz]])`,
+  `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`, and
+  `spi_write(bus, cs, data[, mode[, speed_hz]])` transfer on a selected named
+  bus. Each raw transfer takes and releases a temporary lease automatically.
+
+Bus tables contain `id`, `name`, `protocol`, `origin`, `sharing`, `ready`, and
+`lease_count`, plus protocol-specific pins and configuration. `create_spi`
+requires `host`, `sclk`, `mosi`, and a one-to-four-element `cs` array. `miso`
+and `max_transfer_size` are optional.
+
+```lua
+local solaros = require("solaros")
+
+local bus = solaros.buses.create_spi("spi1", {
+    host = solaros.buses.SPI3_HOST,
+    sclk = 1,
+    mosi = 2,
+    miso = 3,
+    cs = {17},
+})
+print(bus.name, bus.origin)
+
+local reply = solaros.buses.spi_xfer("spi1", "gpio17", "\x9f\x00\x00\x00")
+print(#reply)
+solaros.buses.remove("spi1")
+```
+
+`solaros.expansion.drivers()` lists compiled drivers, and `devices()` lists
+active devices with normalized bindings. `attach(driver, name, bindings)` and
+`detach(name)` mirror the shell lifecycle. Binding tables accept `spi`, `cs`
+(or `ce`), `i2c`, `addr`, `uart`, `gpio`, `irq`, `reset` (or `rst`), `dc`,
+`busy`, `adc`, and `pwm`. `cs` requires `spi`, `addr` requires `i2c`, and
+unknown fields are rejected.
+
+```lua
+solaros.expansion.attach("pcd8544", "lcd0", {
+    spi = "spi0",
+    cs = 10,
+    dc = 4,
+    reset = 5,
+})
+print(#solaros.expansion.devices())
+solaros.expansion.detach("lcd0")
+```
 
 `solaros.spi.status()` reports the bus pins, transfer limit, and configured chip
 select slots. `xfer(cs, data[, mode[, speed_hz]])` performs a full-duplex

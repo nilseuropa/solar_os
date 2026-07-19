@@ -237,6 +237,8 @@ runtime-routed bus may accept either `expansion_spi` or `expansion_gpio`; a
 driver that also requires independent control pins must still require
 `expansion_gpio`. Do not gate these packages on plain `spi` and `gpio`, because
 those capabilities can refer only to internal display or storage hardware.
+The user-facing connector tables and attachment workflow live in
+[Expansion Ports](expansion.md).
 
 ## Board Header
 

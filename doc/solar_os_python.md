@@ -348,6 +348,87 @@ print(solaros.pwm.status())
 solaros.pwm.off(1)
 ```
 
+## `solaros.buses`
+
+The named-bus API discovers board-defined and runtime-created buses. It is
+available when the resource service is compiled, independently of the legacy
+single-board-bus `solaros.spi` module.
+
+- Constants: `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`,
+  `DEFAULT_SPEED`, and `MAX_SPEED`.
+- `list()`: return all named bus dictionaries.
+- `get(name)`: return one named bus dictionary or raise `OSError` when absent.
+- `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
+- `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
+  cannot be removed.
+- `spi_xfer(bus, cs, data[, mode[, speed_hz]])`: perform a full-duplex named-bus
+  transfer and return received bytes.
+- `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`: clock in bytes using
+  the optional fill byte.
+- `spi_write(bus, cs, data[, mode[, speed_hz]])`: write bytes and return the
+  number written.
+
+Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
+`ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
+buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
+`max_transfer_size`, and `cs` slot dictionaries.
+
+`create_spi` accepts a configuration dictionary with required `host`, `sclk`,
+`mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
+Optional fields are `miso` (`None` for transmit-only) and
+`max_transfer_size` (default 4096 bytes). The board validates the selected host
+and all signal pins. Raw named-bus transfers take and release a temporary bus
+lease automatically.
+
+Example for a runtime-routed Waveshare SPI bus:
+
+```python
+import solaros
+
+bus = solaros.buses.create_spi("spi1", {
+    "host": solaros.buses.SPI3_HOST,
+    "sclk": 1,
+    "mosi": 2,
+    "miso": 3,
+    "cs": [17],
+})
+print(bus)
+
+reply = solaros.buses.spi_xfer("spi1", "gpio17", b"\x9f\x00\x00\x00")
+print(reply)
+
+solaros.buses.remove("spi1")
+```
+
+## `solaros.expansion`
+
+The expansion API mirrors the `expansion` shell lifecycle when the expansion
+service is compiled.
+
+- `drivers()`: return compiled driver dictionaries with `name`, `summary`,
+  `required_capabilities`, `probe_supported`, and `supported`.
+- `devices()`: return active device dictionaries and their normalized binding
+  lists.
+- `attach(driver, name, bindings)`: attach a driver using a binding dictionary.
+- `detach(name)`: detach a device and release its resource claims and bus leases.
+
+Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
+`gpio`, `irq`, `reset` (or `rst`), `dc`, `busy`, `adc`, and `pwm`. `cs`
+requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
+
+```python
+import solaros
+
+solaros.expansion.attach("pcd8544", "lcd0", {
+    "spi": "spi0",
+    "cs": 10,
+    "dc": 4,
+    "reset": 5,
+})
+print(solaros.expansion.devices())
+solaros.expansion.detach("lcd0")
+```
+
 ## `solaros.i2c`
 
 I2C functions expose the board I2C service for diagnostics and add-ons.
