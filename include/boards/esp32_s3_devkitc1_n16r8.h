@@ -4,7 +4,7 @@
 #include "driver/i2c_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "esp32_s3_devkitc1_n16r8"
@@ -19,9 +19,6 @@
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
 #define SOLAR_OS_BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_9
-#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
-    {.name = "i2c0", .port = SOLAR_OS_BOARD_I2C_PORT, .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL}, \
-}
 
 #define SOLAR_OS_BOARD_SPI_HOST SPI2_HOST
 #define SOLAR_OS_BOARD_SPI_NAME "FSPI"
@@ -36,20 +33,36 @@
     {.pin = GPIO_NUM_6, .name = "gpio6"}, \
     {.pin = GPIO_NUM_7, .name = "gpio7"}, \
 }
-#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+#define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "i2c0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.i2c = { \
+            .port = SOLAR_OS_BOARD_I2C_PORT, \
+            .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, \
+            .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL, \
+        }, \
+    }, \
     { \
         .name = "spi0", \
-        .host = SOLAR_OS_BOARD_SPI_HOST, \
-        .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
-        .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
-        .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
-        .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
-        .cs_count = 4, \
-        .cs = { \
-            {.name = "gpio10", .pin = GPIO_NUM_10}, \
-            {.name = "gpio5", .pin = GPIO_NUM_5}, \
-            {.name = "gpio6", .pin = GPIO_NUM_6}, \
-            {.name = "gpio7", .pin = GPIO_NUM_7}, \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SOLAR_OS_BOARD_SPI_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
+            .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
+            .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
+            .cs_count = 4, \
+            .cs = { \
+                {.name = "gpio10", .pin = GPIO_NUM_10}, \
+                {.name = "gpio5", .pin = GPIO_NUM_5}, \
+                {.name = "gpio6", .pin = GPIO_NUM_6}, \
+                {.name = "gpio7", .pin = GPIO_NUM_7}, \
+            }, \
         }, \
     }, \
 }

@@ -5,7 +5,7 @@
 #include "driver/i2s_types.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2"
@@ -54,9 +54,6 @@
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
 #define SOLAR_OS_BOARD_PIN_I2C_SDA GPIO_NUM_13
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_14
-#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
-    {.name = "i2c0", .port = SOLAR_OS_BOARD_I2C_PORT, .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL}, \
-}
 
 #define SOLAR_OS_BOARD_PIN_SDMMC_CLK GPIO_NUM_38
 #define SOLAR_OS_BOARD_PIN_SDMMC_CMD GPIO_NUM_21
@@ -117,8 +114,29 @@
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_43
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
-#define SOLAR_OS_BOARD_EXPANSION_UART_PORTS { \
-    {.name = "uart0", .port = SOLAR_OS_BOARD_UART_PORT, .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX}, \
+#define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "i2c0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.i2c = { \
+            .port = SOLAR_OS_BOARD_I2C_PORT, \
+            .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, \
+            .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL, \
+        }, \
+    }, \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+        }, \
+    }, \
 }
 
 #define SOLAR_OS_BOARD_EXPANSION_ADC_MASK SOLAR_OS_BOARD_USER_GPIO_MASK

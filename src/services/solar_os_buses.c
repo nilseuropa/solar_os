@@ -6,7 +6,6 @@
 #include "freertos/semphr.h"
 #include "routed_spi_bus.h"
 #include "solar_os_board.h"
-#include "solar_os_expansion_types.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
 
@@ -27,12 +26,7 @@ static SemaphoreHandle_t buses_mutex;
 static StaticSemaphore_t buses_mutex_buffer;
 static bool buses_initialized;
 
-static const solar_os_expansion_i2c_bus_t board_i2c_buses[] =
-    SOLAR_OS_BOARD_EXPANSION_I2C_BUSES;
-static const solar_os_expansion_spi_bus_t board_spi_buses[] =
-    SOLAR_OS_BOARD_EXPANSION_SPI_BUSES;
-static const solar_os_expansion_uart_port_t board_uart_buses[] =
-    SOLAR_OS_BOARD_EXPANSION_UART_PORTS;
+static const solar_os_bus_definition_t board_buses[] = SOLAR_OS_BOARD_BUSES;
 
 static bool protocol_valid(solar_os_bus_protocol_t protocol)
 {
@@ -237,67 +231,14 @@ static esp_err_t register_locked(const solar_os_bus_definition_t *definition)
     return ESP_ERR_NO_MEM;
 }
 
-static esp_err_t register_board_i2c_locked(const solar_os_expansion_i2c_bus_t *bus)
+static esp_err_t register_board_bus_locked(const solar_os_bus_definition_t *definition)
 {
-    if (bus == NULL || bus->name[0] == '\0') {
+    if (definition == NULL || definition->name == NULL || definition->name[0] == '\0') {
         return ESP_OK;
     }
-    const solar_os_bus_definition_t definition = {
-        .name = bus->name,
-        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
-        .origin = SOLAR_OS_BUS_ORIGIN_BOARD,
-        .sharing = SOLAR_OS_BUS_SHARED,
-        .config.i2c = {
-            .port = bus->port,
-            .sda_pin = bus->sda_pin,
-            .scl_pin = bus->scl_pin,
-        },
-    };
-    return register_locked(&definition);
-}
-
-static esp_err_t register_board_spi_locked(const solar_os_expansion_spi_bus_t *bus)
-{
-    if (bus == NULL || bus->name[0] == '\0') {
-        return ESP_OK;
-    }
-    solar_os_bus_definition_t definition = {
-        .name = bus->name,
-        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI,
-        .origin = SOLAR_OS_BUS_ORIGIN_BOARD,
-        .sharing = SOLAR_OS_BUS_SHARED,
-        .config.spi = {
-            .host = bus->host,
-            .sclk_pin = bus->sclk_pin,
-            .miso_pin = bus->miso_pin,
-            .mosi_pin = bus->mosi_pin,
-            .max_transfer_size = bus->max_transfer_size,
-            .cs_count = bus->cs_count,
-        },
-    };
-    for (size_t i = 0; i < bus->cs_count && i < SOLAR_OS_BUS_SPI_CS_MAX; i++) {
-        definition.config.spi.cs[i] = bus->cs[i];
-    }
-    return register_locked(&definition);
-}
-
-static esp_err_t register_board_uart_locked(const solar_os_expansion_uart_port_t *bus)
-{
-    if (bus == NULL || bus->name[0] == '\0') {
-        return ESP_OK;
-    }
-    const solar_os_bus_definition_t definition = {
-        .name = bus->name,
-        .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
-        .origin = SOLAR_OS_BUS_ORIGIN_BOARD,
-        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
-        .config.uart = {
-            .port = bus->port,
-            .tx_pin = bus->tx_pin,
-            .rx_pin = bus->rx_pin,
-        },
-    };
-    return register_locked(&definition);
+    return definition->origin == SOLAR_OS_BUS_ORIGIN_BOARD
+        ? register_locked(definition)
+        : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t solar_os_buses_init(void)
@@ -313,14 +254,8 @@ esp_err_t solar_os_buses_init(void)
         return ESP_OK;
     }
 
-    for (size_t i = 0; ret == ESP_OK && i < sizeof(board_i2c_buses) / sizeof(board_i2c_buses[0]); i++) {
-        ret = register_board_i2c_locked(&board_i2c_buses[i]);
-    }
-    for (size_t i = 0; ret == ESP_OK && i < sizeof(board_spi_buses) / sizeof(board_spi_buses[0]); i++) {
-        ret = register_board_spi_locked(&board_spi_buses[i]);
-    }
-    for (size_t i = 0; ret == ESP_OK && i < sizeof(board_uart_buses) / sizeof(board_uart_buses[0]); i++) {
-        ret = register_board_uart_locked(&board_uart_buses[i]);
+    for (size_t i = 0; ret == ESP_OK && i < sizeof(board_buses) / sizeof(board_buses[0]); i++) {
+        ret = register_board_bus_locked(&board_buses[i]);
     }
     if (ret == ESP_OK) {
         buses_initialized = true;

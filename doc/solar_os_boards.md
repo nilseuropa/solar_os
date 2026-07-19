@@ -304,26 +304,39 @@ Keep the user GPIO list conservative. Do not mark boot strapping, flash/PSRAM,
 display, SD, system I2C, or key pins free. A releasable pin remains unavailable
 to direct GPIO until a resource-aware service explicitly takes ownership.
 
-Expansion bus example:
+Static board bus example:
 
 ```c
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 
-#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
-    {.name = "i2c0", .port = I2C_NUM_0, .sda_pin = GPIO_NUM_8, .scl_pin = GPIO_NUM_9}, \
-}
-#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+#define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "i2c0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.i2c = { \
+            .port = I2C_NUM_0, \
+            .sda_pin = GPIO_NUM_8, \
+            .scl_pin = GPIO_NUM_9, \
+        }, \
+    }, \
     { \
         .name = "spi0", \
-        .host = SPI2_HOST, \
-        .sclk_pin = GPIO_NUM_12, \
-        .miso_pin = GPIO_NUM_13, \
-        .mosi_pin = GPIO_NUM_11, \
-        .max_transfer_size = 4096, \
-        .cs_count = 2, \
-        .cs = { \
-            {.name = "gpio10", .pin = GPIO_NUM_10}, \
-            {.name = "gpio5", .pin = GPIO_NUM_5}, \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SPI2_HOST, \
+            .sclk_pin = GPIO_NUM_12, \
+            .miso_pin = GPIO_NUM_13, \
+            .mosi_pin = GPIO_NUM_11, \
+            .max_transfer_size = 4096, \
+            .cs_count = 2, \
+            .cs = { \
+                {.name = "gpio10", .pin = GPIO_NUM_10}, \
+                {.name = "gpio5", .pin = GPIO_NUM_5}, \
+            }, \
         }, \
     }, \
 }
@@ -333,10 +346,11 @@ Expansion bus example:
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 ```
 
-The expansion descriptors describe connector resources available to runtime
-expansion management. At boot they are copied into the protocol-neutral named
-bus registry. Bus names are unique across protocols. I2C and SPI buses accept
-shared logical leases; UART and future 1-Wire bus instances are exclusive.
+`SOLAR_OS_BOARD_BUSES` is the canonical static-bus table consumed directly by
+the protocol-neutral named bus registry. It includes board buses exposed to OS
+services and expansion management, such as the Waveshare `i2c0`. Bus names are
+unique across protocols. I2C and SPI buses accept shared logical leases; UART
+and future 1-Wire bus instances are exclusive.
 Attaching an expansion device acquires a lease under the device name and
 detaching it releases that lease.
 

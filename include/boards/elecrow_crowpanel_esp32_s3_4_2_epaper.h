@@ -4,7 +4,7 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_buttons.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_keys.h"
 #include "solar_os_pin_types.h"
 

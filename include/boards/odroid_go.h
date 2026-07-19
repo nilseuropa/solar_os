@@ -5,7 +5,7 @@
 #include "driver/uart.h"
 #include "solar_os_adc_dpad.h"
 #include "solar_os_buttons.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_keys.h"
 #include "solar_os_pin_types.h"
 #include "solar_os_spi.h"
@@ -38,18 +38,23 @@
     {.pin = GPIO_NUM_15, .name = "io15"}, \
     {.pin = GPIO_NUM_4, .name = "io4"}, \
 }
-#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+#define SOLAR_OS_BOARD_BUSES { \
     { \
         .name = "spi0", \
-        .host = SOLAR_OS_BOARD_SPI_HOST, \
-        .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
-        .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
-        .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
-        .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
-        .cs_count = 2, \
-        .cs = { \
-            {.name = "io15", .pin = GPIO_NUM_15}, \
-            {.name = "io4", .pin = GPIO_NUM_4}, \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SOLAR_OS_BOARD_SPI_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
+            .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
+            .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
+            .cs_count = 2, \
+            .cs = { \
+                {.name = "io15", .pin = GPIO_NUM_15}, \
+                {.name = "io4", .pin = GPIO_NUM_4}, \
+            }, \
         }, \
     }, \
 }
