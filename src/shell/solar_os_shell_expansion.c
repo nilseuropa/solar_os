@@ -26,6 +26,8 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion scan");
     solar_os_shell_io_writeln(term, "  expansion drivers");
     solar_os_shell_io_writeln(term, "  expansion devices");
+    solar_os_shell_io_writeln(term, "  expansion bus create i2c <name> port=<i2c0|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]");
+    solar_os_shell_io_writeln(term, "  expansion bus create onewire <name> pin=<gpio>");
     solar_os_shell_io_writeln(term, "  expansion bus create spi <name> host=<spi2|spi3> sclk=<gpio> mosi=<gpio> [miso=<gpio|none>] cs=<gpio> [cs=<gpio> ...] [max=<bytes>]");
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
@@ -48,6 +50,14 @@ static bool parse_int_arg(const char *text, int min, int max, int *value)
     }
     *value = (int)parsed;
     return true;
+}
+
+static bool parse_i2c_port(const char *text, int *port)
+{
+    if (text != NULL && strncmp(text, "i2c", 3) == 0) {
+        text += 3;
+    }
+    return parse_int_arg(text, 0, 1, port);
 }
 
 static void print_cap(solar_os_shell_io_t *term, solar_os_board_capability_t cap, const char *name)
@@ -538,10 +548,10 @@ static void expansion_print_bus_error(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term, "expansion bus %s: board-defined buses cannot be removed\n", operation);
         break;
     case ESP_ERR_INVALID_STATE:
-        solar_os_shell_io_printf(term, "expansion bus %s: name, host, or pin is already in use\n", operation);
+        solar_os_shell_io_printf(term, "expansion bus %s: name, controller, host, or pin is already in use\n", operation);
         break;
     case ESP_ERR_INVALID_ARG:
-        solar_os_shell_io_printf(term, "expansion bus %s: invalid host or expansion pin assignment\n", operation);
+        solar_os_shell_io_printf(term, "expansion bus %s: invalid port, host, or expansion pin assignment\n", operation);
         break;
     case ESP_ERR_NO_MEM:
         solar_os_shell_io_printf(term, "expansion bus %s: no free bus or resource slots\n", operation);
@@ -553,6 +563,113 @@ static void expansion_print_bus_error(solar_os_shell_io_t *term,
                                  esp_err_to_name(err));
         break;
     }
+}
+
+static void expansion_cmd_bus_create_i2c(solar_os_shell_io_t *term,
+                                         int argc,
+                                         char **argv)
+{
+    if (argc < 8) {
+        expansion_print_usage(term);
+        return;
+    }
+
+    solar_os_bus_definition_t definition = {
+        .name = argv[4],
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_SHARED,
+        .config.i2c = {
+            .port = -1,
+            .sda_pin = -1,
+            .scl_pin = -1,
+            .speed_hz = SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ,
+        },
+    };
+
+    for (int i = 5; i < argc; i++) {
+        const char *eq = strchr(argv[i], '=');
+        if (eq == NULL || eq == argv[i] || eq[1] == '\0') {
+            solar_os_shell_io_printf(term, "expansion bus create: invalid option '%s'\n", argv[i]);
+            return;
+        }
+        const size_t key_len = (size_t)(eq - argv[i]);
+        const char *value = eq + 1;
+        int parsed = -1;
+
+        if (key_len == 4 && strncmp(argv[i], "port", key_len) == 0) {
+            if (!parse_i2c_port(value, &definition.config.i2c.port)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 3 && strncmp(argv[i], "sda", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.i2c.sda_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 3 && strncmp(argv[i], "scl", key_len) == 0) {
+            if (!parse_int_arg(value, 0, 63, &definition.config.i2c.scl_pin)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+        } else if (key_len == 5 && strncmp(argv[i], "speed", key_len) == 0) {
+            if (!parse_int_arg(value, 1, 1000000, &parsed)) {
+                expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+                return;
+            }
+            definition.config.i2c.speed_hz = (uint32_t)parsed;
+        } else {
+            solar_os_shell_io_printf(term, "expansion bus create: unknown option '%s'\n", argv[i]);
+            return;
+        }
+    }
+
+    const esp_err_t err = solar_os_bus_register(&definition);
+    if (err != ESP_OK) {
+        expansion_print_bus_error(term, "create", err);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "created I2C bus %s on i2c%d (idle until first transfer)\n",
+                             definition.name,
+                             definition.config.i2c.port);
+}
+
+static void expansion_cmd_bus_create_onewire(solar_os_shell_io_t *term,
+                                             int argc,
+                                             char **argv)
+{
+    if (argc != 6) {
+        expansion_print_usage(term);
+        return;
+    }
+
+    solar_os_bus_definition_t definition = {
+        .name = argv[4],
+        .protocol = SOLAR_OS_BUS_PROTOCOL_ONEWIRE,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.onewire = {
+            .pin = -1,
+        },
+    };
+    const char *eq = strchr(argv[5], '=');
+    if (eq == NULL || (size_t)(eq - argv[5]) != 3 ||
+        strncmp(argv[5], "pin", 3) != 0 ||
+        !parse_int_arg(eq + 1, 0, 63, &definition.config.onewire.pin)) {
+        expansion_print_bus_error(term, "create", ESP_ERR_INVALID_ARG);
+        return;
+    }
+
+    const esp_err_t err = solar_os_bus_register(&definition);
+    if (err != ESP_OK) {
+        expansion_print_bus_error(term, "create", err);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "created 1-Wire bus %s on GPIO%d\n",
+                             definition.name,
+                             definition.config.onewire.pin);
 }
 
 static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
@@ -644,9 +761,19 @@ static void expansion_cmd_bus_create_spi(solar_os_shell_io_t *term,
 
 static void expansion_cmd_bus(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    if (argc >= 5 && strcmp(argv[2], "create") == 0 && strcmp(argv[3], "spi") == 0) {
-        expansion_cmd_bus_create_spi(term, argc, argv);
-        return;
+    if (argc >= 5 && strcmp(argv[2], "create") == 0) {
+        if (strcmp(argv[3], "i2c") == 0) {
+            expansion_cmd_bus_create_i2c(term, argc, argv);
+            return;
+        }
+        if (strcmp(argv[3], "onewire") == 0) {
+            expansion_cmd_bus_create_onewire(term, argc, argv);
+            return;
+        }
+        if (strcmp(argv[3], "spi") == 0) {
+            expansion_cmd_bus_create_spi(term, argc, argv);
+            return;
+        }
     }
     if (argc == 4 && strcmp(argv[2], "remove") == 0) {
         const esp_err_t err = solar_os_bus_unregister(argv[3]);

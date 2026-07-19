@@ -351,18 +351,17 @@ Static board bus example:
 the protocol-neutral named bus registry. It includes board buses exposed to OS
 services and expansion management, such as the Waveshare `i2c0`. Bus names are
 unique across protocols. I2C and SPI buses accept shared logical leases; UART
-and future 1-Wire bus instances are exclusive.
+and 1-Wire bus instances are exclusive.
 Attaching an expansion device acquires a lease under the device name and
 detaching it releases that lease.
 
 The registry distinguishes immutable board buses from runtime-created buses.
-Board buses cannot be unregistered. Runtime SPI creation is supported on hosts
-explicitly allowed by `SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`. Creating one
-atomically claims its SCLK, MOSI, and optional MISO pins; CS entries are allowed
-attachment slots and are claimed per device. The ESP32 GPIO matrix and SPI host
-are configured on the first lease and released on the last. An idle runtime bus
-can then be removed to release its signal-pin claims. Runtime I2C, UART, and
-1-Wire creation are intentionally not implemented yet.
+Board buses cannot be unregistered. Runtime I2C uses an unregistered hardware
+controller plus approved SDA/SCL pins. Runtime 1-Wire uses one approved pin.
+Runtime SPI is supported on hosts explicitly allowed by
+`SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK`; CS entries are allowed attachment slots
+and are claimed per device. Runtime bus signal pins are claimed atomically and
+released when an idle bus is removed. Runtime UART creation is not implemented.
 
 ## Board Selector
 
@@ -552,6 +551,14 @@ expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio
 The bus remains idle until a device attaches. After detaching all devices,
 `expansion bus remove spi1` releases the three signal pins. The board-defined
 I2C bus on GPIO13/GPIO14 is fixed and is never remapped by this operation.
+
+The spare I2C controller and free pins can instead form runtime I2C or named
+1-Wire buses:
+
+```text
+expansion bus create i2c i2c1 port=i2c1 sda=gpio1 scl=gpio2
+expansion bus create onewire onewire0 pin=gpio3
+```
 
 For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves

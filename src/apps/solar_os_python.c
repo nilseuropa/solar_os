@@ -1888,6 +1888,62 @@ static mp_obj_t solaros_buses_create_spi(mp_obj_t name_obj, mp_obj_t config_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_spi_obj, solaros_buses_create_spi);
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+static mp_obj_t solaros_buses_create_i2c(mp_obj_t name_obj, mp_obj_t config_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_SHARED,
+        .config.i2c = {
+            .port = -1,
+            .sda_pin = -1,
+            .scl_pin = -1,
+            .speed_hz = SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ,
+        },
+    };
+
+    python_get_dict_int(config_obj, "port", &definition.config.i2c.port, true);
+    python_get_dict_int(config_obj, "sda", &definition.config.i2c.sda_pin, true);
+    python_get_dict_int(config_obj, "scl", &definition.config.i2c.scl_pin, true);
+    int speed_hz = 0;
+    if (python_get_dict_int(config_obj, "speed_hz", &speed_hz, false)) {
+        if (speed_hz < 1 || speed_hz > 1000000) {
+            mp_raise_ValueError(MP_ERROR_TEXT("expected speed_hz 1..1000000"));
+        }
+        definition.config.i2c.speed_hz = (uint32_t)speed_hz;
+    }
+
+    python_check_esp(solar_os_bus_register(&definition));
+    return solaros_buses_get(name_obj);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_i2c_obj, solaros_buses_create_i2c);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static mp_obj_t solaros_buses_create_onewire(mp_obj_t name_obj, mp_obj_t config_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_ONEWIRE,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.onewire = {
+            .pin = -1,
+        },
+    };
+    python_get_dict_int(config_obj, "pin", &definition.config.onewire.pin, true);
+
+    python_check_esp(solar_os_bus_register(&definition));
+    return solaros_buses_get(name_obj);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_onewire_obj,
+                          solaros_buses_create_onewire);
+#endif
+
 static mp_obj_t solaros_buses_remove(mp_obj_t name_obj)
 {
     python_check_esp(solar_os_bus_unregister(mp_obj_str_get_str(name_obj)));
@@ -4027,6 +4083,16 @@ static void python_register_solaros_module(void)
     python_module_store(buses,
                         "create_spi",
                         MP_OBJ_FROM_PTR(&solaros_buses_create_spi_obj));
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    python_module_store(buses,
+                        "create_i2c",
+                        MP_OBJ_FROM_PTR(&solaros_buses_create_i2c_obj));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    python_module_store(buses,
+                        "create_onewire",
+                        MP_OBJ_FROM_PTR(&solaros_buses_create_onewire_obj));
+#endif
     python_module_store(buses, "remove", MP_OBJ_FROM_PTR(&solaros_buses_remove_obj));
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     python_module_store(buses,

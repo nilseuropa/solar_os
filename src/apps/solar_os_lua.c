@@ -1757,6 +1757,67 @@ static int solua_buses_create_spi(lua_State *L)
     return 1;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+static int solua_buses_create_i2c(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_SHARED,
+        .config.i2c = {
+            .port = solua_table_int(L, 2, "port", true, -1),
+            .sda_pin = solua_table_int(L, 2, "sda", true, -1),
+            .scl_pin = solua_table_int(L, 2, "scl", true, -1),
+            .speed_hz = (uint32_t)solua_table_int(L,
+                                                  2,
+                                                  "speed_hz",
+                                                  false,
+                                                  SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ),
+        },
+    };
+    if (definition.config.i2c.speed_hz < 1 ||
+        definition.config.i2c.speed_hz > 1000000) {
+        return luaL_error(L, "expected speed_hz 1..1000000");
+    }
+
+    (void)solua_check_esp(L, solar_os_bus_register(&definition));
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solua_push_bus_info(L, &info);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+static int solua_buses_create_onewire(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    solar_os_bus_definition_t definition = {
+        .name = name,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_ONEWIRE,
+        .origin = SOLAR_OS_BUS_ORIGIN_RUNTIME,
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE,
+        .config.onewire = {
+            .pin = solua_table_int(L, 2, "pin", true, -1),
+        },
+    };
+
+    (void)solua_check_esp(L, solar_os_bus_register(&definition));
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solua_push_bus_info(L, &info);
+    return 1;
+}
+#endif
+
 static int solua_buses_remove(lua_State *L)
 {
     return solua_check_esp(L, solar_os_bus_unregister(luaL_checkstring(L, 1)));
@@ -3786,6 +3847,12 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "list", solua_buses_list);
     solua_set_func(L, mod, "get", solua_buses_get);
     solua_set_func(L, mod, "create_spi", solua_buses_create_spi);
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    solua_set_func(L, mod, "create_i2c", solua_buses_create_i2c);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    solua_set_func(L, mod, "create_onewire", solua_buses_create_onewire);
+#endif
     solua_set_func(L, mod, "remove", solua_buses_remove);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     solua_set_func(L, mod, "i2c_probe", solua_buses_i2c_probe);

@@ -359,6 +359,8 @@ single-board-bus `solaros.spi` module.
   `DEFAULT_SPEED`, and `MAX_SPEED`.
 - `list()`: return all named bus dictionaries.
 - `get(name)`: return one named bus dictionary or raise `OSError` when absent.
+- `create_i2c(name, config)`: create a runtime I2C bus and return its dictionary.
+- `create_onewire(name, config)`: create a runtime 1-Wire bus and return its dictionary.
 - `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
 - `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
   cannot be removed.
@@ -391,6 +393,10 @@ services are compiled. They take and release an exclusive bus lease
 automatically. OneWire bus dictionaries include `pin`; the legacy
 `solaros.onewire` module continues to accept a direct runtime-safe GPIO.
 
+`create_i2c` requires `port`, `sda`, and `scl`; optional `speed_hz` defaults to
+100000. `create_onewire` requires `pin`. Both validate the board runtime pin
+policy and claim their signal pins until `remove(name)`.
+
 `create_spi` accepts a configuration dictionary with required `host`, `sclk`,
 `mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
 Optional fields are `miso` (`None` for transmit-only) and
@@ -416,6 +422,23 @@ reply = solaros.buses.spi_xfer("spi1", "gpio17", b"\x9f\x00\x00\x00")
 print(reply)
 
 solaros.buses.remove("spi1")
+```
+
+Runtime I2C and 1-Wire examples:
+
+```python
+i2c1 = solaros.buses.create_i2c("i2c1", {
+    "port": 1,
+    "sda": 14,
+    "scl": 15,
+    "speed_hz": 100000,
+})
+print(solaros.buses.i2c_scan(i2c1["name"]))
+solaros.buses.remove(i2c1["name"])
+
+onewire0 = solaros.buses.create_onewire("onewire0", {"pin": 16})
+print(solaros.buses.onewire_scan(onewire0["name"]))
+solaros.buses.remove(onewire0["name"])
 ```
 
 Named I2C example:

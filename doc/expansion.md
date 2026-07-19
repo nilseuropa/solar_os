@@ -51,19 +51,20 @@ voltage and current requirements before connecting it.
 
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
-| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | SPI on spare host `spi3`, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
-| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | None | None | The SSD1683 and microSD buses are internal board resources, not expansion buses. External modules currently use direct GPIO, ADC, PWM, or 1-Wire. |
-| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7 | SPI on spare host `spi3`, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
+| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on unused controller `i2c1`, SPI on spare host `spi3`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | None | Named 1-Wire on approved free pins | The SSD1683 and microSD buses are internal board resources, not expansion buses. |
+| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7 | I2C on unused controller `i2c1`, SPI on spare host `spi3`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4 | None | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 
 I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
 instances are exclusive. Registered 1-Wire buses appear in expansion status
 and can be addressed by name. Bus names are unique across protocols.
 
-Only SPI buses can currently be created at runtime. Runtime I2C, UART, and
-1-Wire bus creation is not implemented. Board-defined 1-Wire buses use the
-common registry; the direct numeric form of the `onewire` command remains
-available for runtime-safe GPIOs without creating a named expansion bus.
+I2C, SPI, and 1-Wire buses can be created at runtime. Runtime I2C requires an
+unused hardware controller and I2C service support; all signal pins must be
+approved by the board's runtime pin policy. UART creation is not implemented.
+The direct numeric form of the `onewire` command remains available without
+creating a named expansion bus.
 
 ## Typical Workflow
 
@@ -84,6 +85,18 @@ expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
 expansion devices
 display test oled0
 expansion detach oled0
+```
+
+Runtime I2C and 1-Wire buses use the same lifecycle:
+
+```text
+expansion bus create i2c i2c1 port=i2c1 sda=gpio14 scl=gpio15 speed=100000
+i2c scan i2c1
+expansion bus remove i2c1
+
+expansion bus create onewire onewire0 pin=gpio16
+onewire scan onewire0
+expansion bus remove onewire0
 ```
 
 On a board with an approved spare SPI host, create a bus before attaching the

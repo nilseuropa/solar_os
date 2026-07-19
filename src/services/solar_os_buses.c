@@ -30,6 +30,9 @@ typedef struct {
 static solar_os_bus_info_t buses[SOLAR_OS_BUS_MAX];
 static solar_os_bus_lease_t leases[SOLAR_OS_BUS_LEASE_MAX];
 static bool buses_initialized_here[SOLAR_OS_BUS_MAX];
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+static i2c_master_bus_handle_t buses_i2c_handles[SOLAR_OS_BUS_MAX];
+#endif
 static SemaphoreHandle_t buses_mutex;
 static StaticSemaphore_t buses_mutex_buffer;
 static bool buses_initialized;
@@ -103,6 +106,18 @@ static bool spi_host_registered_locked(int host)
     return false;
 }
 
+static bool i2c_port_registered_locked(int port)
+{
+    for (size_t i = 0; i < SOLAR_OS_BUS_MAX; i++) {
+        if (buses[i].active &&
+            buses[i].protocol == SOLAR_OS_BUS_PROTOCOL_I2C &&
+            buses[i].config.i2c.port == port) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool spi_cs_allowed(const solar_os_bus_spi_config_t *config, int pin)
 {
     for (size_t i = 0; config != NULL && i < config->cs_count; i++) {
@@ -139,6 +154,9 @@ static bool definition_valid(const solar_os_bus_definition_t *definition)
     switch (definition->protocol) {
     case SOLAR_OS_BUS_PROTOCOL_I2C:
         config_valid = definition->config.i2c.port >= 0 &&
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+            definition->config.i2c.port < I2C_NUM_MAX &&
+#endif
             definition->config.i2c.sda_pin >= 0 &&
             definition->config.i2c.scl_pin >= 0 &&
             definition->config.i2c.sda_pin != definition->config.i2c.scl_pin &&
@@ -260,9 +278,51 @@ static esp_err_t start_i2c_locked(size_t bus_index)
         .scl_pin = (gpio_num_t)config->scl_pin,
         .speed_hz = config->speed_hz,
     };
-    const esp_err_t ret = i2c_bus_init_config(&driver_config);
+    esp_err_t ret;
+    if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_BOARD) {
+        ret = i2c_bus_init_config(&driver_config);
+        if (ret == ESP_OK) {
+            buses_i2c_handles[bus_index] = i2c_bus_get_handle();
+            buses_initialized_here[bus_index] = false;
+        }
+    } else {
+        ret = i2c_bus_start_config(&driver_config,
+                                   false,
+                                   &buses_i2c_handles[bus_index],
+                                   &buses_initialized_here[bus_index]);
+    }
     if (ret == ESP_OK) {
         buses[bus_index].ready = true;
+    }
+    return ret;
+#else
+    (void)bus_index;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+static esp_err_t stop_i2c_locked(size_t bus_index)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+    if (buses_i2c_handles[bus_index] == NULL) {
+        buses[bus_index].ready = false;
+        buses_initialized_here[bus_index] = false;
+        return ESP_OK;
+    }
+    const solar_os_bus_i2c_config_t *config = &buses[bus_index].config.i2c;
+    const i2c_bus_config_t driver_config = {
+        .port = config->port,
+        .sda_pin = (gpio_num_t)config->sda_pin,
+        .scl_pin = (gpio_num_t)config->scl_pin,
+        .speed_hz = config->speed_hz,
+    };
+    const esp_err_t ret = i2c_bus_stop_config(&driver_config,
+                                               buses_i2c_handles[bus_index],
+                                               buses_initialized_here[bus_index]);
+    if (ret == ESP_OK) {
+        buses_i2c_handles[bus_index] = NULL;
+        buses[bus_index].ready = false;
+        buses_initialized_here[bus_index] = false;
     }
     return ret;
 #else
@@ -319,40 +379,90 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
     if (definition == NULL || definition->origin != SOLAR_OS_BUS_ORIGIN_RUNTIME) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (definition->protocol != SOLAR_OS_BUS_PROTOCOL_SPI) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
     if (!definition_valid(definition)) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    switch (definition->protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        break;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+        break;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    default:
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
     char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
     runtime_bus_owner(definition->name, owner, sizeof(owner));
-    solar_os_resource_request_t requests[3] = {
-        {
+    solar_os_resource_request_t requests[3];
+    size_t request_count = 0;
+    switch (definition->protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+        requests[request_count++] = (solar_os_resource_request_t) {
             .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
             .primary = definition->config.spi.sclk_pin,
             .secondary = -1,
             .label = "spi-sclk",
-        },
-        {
+        };
+        requests[request_count++] = (solar_os_resource_request_t) {
             .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
             .primary = definition->config.spi.mosi_pin,
             .secondary = -1,
             .label = "spi-mosi",
-        },
-        {
+        };
+        if (definition->config.spi.miso_pin >= 0) {
+            requests[request_count++] = (solar_os_resource_request_t) {
+                .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+                .primary = definition->config.spi.miso_pin,
+                .secondary = -1,
+                .label = "spi-miso",
+            };
+        }
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+        requests[request_count++] = (solar_os_resource_request_t) {
             .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-            .primary = definition->config.spi.miso_pin,
+            .primary = definition->config.i2c.sda_pin,
             .secondary = -1,
-            .label = "spi-miso",
-        },
-    };
-    const size_t request_count = definition->config.spi.miso_pin >= 0 ? 3 : 2;
+            .label = "i2c-sda",
+        };
+        requests[request_count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = definition->config.i2c.scl_pin,
+            .secondary = -1,
+            .label = "i2c-scl",
+        };
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+        requests[request_count++] = (solar_os_resource_request_t) {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = definition->config.onewire.pin,
+            .secondary = -1,
+            .label = "onewire",
+        };
+        break;
+    default:
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
     bool pins_claimed = false;
     xSemaphoreTake(buses_mutex, portMAX_DELAY);
-    if (find_bus_index_locked(definition->name) >= 0 ||
-        spi_host_registered_locked(definition->config.spi.host)) {
+    const bool endpoint_registered = definition->protocol == SOLAR_OS_BUS_PROTOCOL_SPI
+        ? spi_host_registered_locked(definition->config.spi.host)
+        : definition->protocol == SOLAR_OS_BUS_PROTOCOL_I2C
+            ? i2c_port_registered_locked(definition->config.i2c.port)
+            : false;
+    if (find_bus_index_locked(definition->name) >= 0 || endpoint_registered) {
         ret = ESP_ERR_INVALID_STATE;
     } else {
         ret = solar_os_resource_claim_bundle(requests, request_count, owner, NULL);
@@ -387,9 +497,19 @@ esp_err_t solar_os_bus_unregister(const char *name)
     } else if (lease_count_locked((size_t)index) > 0) {
         ret = ESP_ERR_INVALID_STATE;
     } else {
+        if (buses[index].protocol == SOLAR_OS_BUS_PROTOCOL_I2C && buses[index].ready) {
+            ret = stop_i2c_locked((size_t)index);
+            if (ret != ESP_OK) {
+                xSemaphoreGive(buses_mutex);
+                return ret;
+            }
+        }
         char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
         runtime_bus_owner(buses[index].name, owner, sizeof(owner));
         memset(&buses[index], 0, sizeof(buses[index]));
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        buses_i2c_handles[index] = NULL;
+#endif
         buses_initialized_here[index] = false;
         (void)solar_os_resource_release_owner(owner);
         ret = ESP_OK;
@@ -547,7 +667,9 @@ esp_err_t solar_os_bus_acquire(const char *name,
     }
     if (lease_count_locked((size_t)bus_index) == 0) {
         if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_I2C) {
-            ret = start_i2c_locked((size_t)bus_index);
+            if (!buses[bus_index].ready) {
+                ret = start_i2c_locked((size_t)bus_index);
+            }
         } else if (buses[bus_index].protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
             bool initialized_here = false;
             ret = solar_os_routed_spi_start(&buses[bus_index].config.spi,
@@ -683,10 +805,11 @@ esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address)
     }
 
     xSemaphoreTake(buses_mutex, portMAX_DELAY);
-    ret = find_ready_i2c_locked(name, NULL);
+    size_t bus_index = 0;
+    ret = find_ready_i2c_locked(name, &bus_index);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
     if (ret == ESP_OK) {
-        ret = i2c_bus_probe(address);
+        ret = i2c_bus_probe_handle(buses_i2c_handles[bus_index], address);
     }
 #else
     if (ret == ESP_OK) {
@@ -712,10 +835,16 @@ esp_err_t solar_os_bus_i2c_read_reg(const char *name,
     }
 
     xSemaphoreTake(buses_mutex, portMAX_DELAY);
-    ret = find_ready_i2c_locked(name, NULL);
+    size_t bus_index = 0;
+    ret = find_ready_i2c_locked(name, &bus_index);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
     if (ret == ESP_OK) {
-        ret = i2c_bus_read_reg(address, reg, data, len);
+        ret = i2c_bus_read_reg_handle(buses_i2c_handles[bus_index],
+                                      buses[bus_index].config.i2c.speed_hz,
+                                      address,
+                                      reg,
+                                      data,
+                                      len);
     }
 #else
     if (ret == ESP_OK) {
@@ -741,10 +870,16 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
     }
 
     xSemaphoreTake(buses_mutex, portMAX_DELAY);
-    ret = find_ready_i2c_locked(name, NULL);
+    size_t bus_index = 0;
+    ret = find_ready_i2c_locked(name, &bus_index);
 #if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
     if (ret == ESP_OK) {
-        ret = i2c_bus_write_reg(address, reg, data, len);
+        ret = i2c_bus_write_reg_handle(buses_i2c_handles[bus_index],
+                                       buses[bus_index].config.i2c.speed_hz,
+                                       address,
+                                       reg,
+                                       data,
+                                       len);
     }
 #else
     if (ret == ESP_OK) {

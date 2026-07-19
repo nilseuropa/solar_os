@@ -43,7 +43,7 @@ service packages are not available on that board.
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
-- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled
+- `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled
 - `solaros.expansion`: `drivers`, `devices`, `attach`, `detach` when the expansion service is compiled
 - `solaros.i2c`: `info`, `probe`, `scan`, `read_reg`, `write_reg` when I2C support is compiled
 - `solaros.spi`: constants `MODE0` through `MODE3`, `DEFAULT_SPEED`, and `MAX_SPEED`; functions `status`, `xfer`, `read`, `write` when SPI support is compiled
@@ -74,6 +74,8 @@ of the legacy single-board-bus and direct-pin service tables.
 
 - `list()` returns every bus table.
 - `get(name)` returns one bus table.
+- `create_i2c(name, config)` creates a runtime I2C bus and returns its table.
+- `create_onewire(name, config)` creates a runtime 1-Wire bus and returns its table.
 - `create_spi(name, config)` creates a runtime SPI bus and returns its table.
 - `remove(name)` removes an idle runtime bus.
 - `i2c_probe(bus, address)`, `i2c_scan(bus)`,
@@ -98,6 +100,10 @@ OneWire bus tables include `pin`. Named OneWire operations take and release an
 exclusive lease automatically; `solaros.onewire` remains the direct-pin
 compatibility API.
 
+`create_i2c` requires `port`, `sda`, and `scl`; optional `speed_hz` defaults to
+100000. `create_onewire` requires `pin`. Both claim their approved runtime pins
+until `remove(name)`.
+
 ```lua
 local solaros = require("solaros")
 
@@ -113,6 +119,23 @@ print(bus.name, bus.origin)
 local reply = solaros.buses.spi_xfer("spi1", "gpio17", "\x9f\x00\x00\x00")
 print(#reply)
 solaros.buses.remove("spi1")
+```
+
+```lua
+local solaros = require("solaros")
+
+local i2c1 = solaros.buses.create_i2c("i2c1", {
+    port = 1,
+    sda = 14,
+    scl = 15,
+    speed_hz = 100000,
+})
+print(#solaros.buses.i2c_scan(i2c1.name))
+solaros.buses.remove(i2c1.name)
+
+local onewire0 = solaros.buses.create_onewire("onewire0", {pin = 16})
+print(#solaros.buses.onewire_scan(onewire0.name))
+solaros.buses.remove(onewire0.name)
 ```
 
 ```lua

@@ -469,7 +469,15 @@ static const char * const expansion_subcommands[] = {
     "detach",
 };
 static const char * const expansion_bus_subcommands[] = {"create", "remove"};
-static const char * const expansion_bus_protocols[] = {"spi"};
+static const char * const expansion_bus_protocols[] = {
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    "i2c",
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    "onewire",
+#endif
+    "spi",
+};
 static const char * const expansion_driver_values[] = {
     "manual",
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
