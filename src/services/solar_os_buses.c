@@ -729,6 +729,68 @@ esp_err_t solar_os_bus_spi_transfer(const char *name,
     return ret;
 }
 
+esp_err_t solar_os_bus_spi_transfer_once(const char *name,
+                                         int cs_pin,
+                                         uint8_t mode,
+                                         uint32_t speed_hz,
+                                         const uint8_t *tx_data,
+                                         uint8_t *rx_data,
+                                         size_t len,
+                                         const char *owner)
+{
+    solar_os_bus_info_t info;
+    if (!owner_valid(owner) ||
+        !solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info) ||
+        !spi_cs_allowed(&info.config.spi, cs_pin) ||
+        mode > 3 ||
+        speed_hz == 0 ||
+        speed_hz > SOLAR_OS_BUS_SPI_MAX_SPEED_HZ ||
+        len == 0 ||
+        len > info.config.spi.max_transfer_size ||
+        (tx_data == NULL && rx_data == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_resource_request_t requests[] = {
+        {
+            .kind = SOLAR_OS_RESOURCE_SPI_CS,
+            .primary = cs_pin,
+            .secondary = -1,
+            .label = name,
+        },
+        {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = cs_pin,
+            .secondary = -1,
+            .label = "spi-cs",
+        },
+    };
+    esp_err_t ret = solar_os_resource_claim_bundle(requests,
+                                                    sizeof(requests) / sizeof(requests[0]),
+                                                    owner,
+                                                    NULL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_SPI, owner);
+    if (ret != ESP_OK) {
+        (void)solar_os_resource_release_owner(owner);
+        return ret;
+    }
+    ret = solar_os_bus_spi_transfer(name,
+                                    cs_pin,
+                                    mode,
+                                    speed_hz,
+                                    tx_data,
+                                    rx_data,
+                                    len);
+    const esp_err_t release_ret = solar_os_bus_release(name,
+                                                       SOLAR_OS_BUS_PROTOCOL_SPI,
+                                                       owner);
+    (void)solar_os_resource_release_owner(owner);
+    return ret == ESP_OK ? release_ret : ret;
+}
+
 const char *solar_os_bus_protocol_name(solar_os_bus_protocol_t protocol)
 {
     switch (protocol) {

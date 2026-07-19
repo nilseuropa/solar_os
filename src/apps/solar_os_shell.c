@@ -19,6 +19,9 @@
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#include "solar_os_buses.h"
+#endif
 #include "solar_os_display.h"
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
@@ -35,7 +38,6 @@
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
-#include "solar_os_spi.h"
 #include "solar_os_terminal.h"
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
@@ -89,6 +91,7 @@ typedef struct {
     bool complete_display_targets;
     bool complete_display_modes;
     bool complete_gpio_pins;
+    bool complete_spi_buses;
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
@@ -222,7 +225,7 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
     {"spi", "SPI bus tools", solar_os_shell_cmd_spi},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
@@ -914,19 +917,34 @@ static const char * const path_i2c_write_reg[] = {
     SHELL_COMPLETION_ANY,
 };
 static const char * const path_spi[] = {"spi"};
+static const char * const path_spi_status[] = {"spi", "status"};
 static const char * const path_spi_xfer[] = {"spi", "xfer"};
-static const char * const path_spi_xfer_cs[] = {"spi", "xfer", SHELL_COMPLETION_ANY};
-static const char * const path_spi_xfer_mode[] = {
+static const char * const path_spi_xfer_bus[] = {"spi", "xfer", SHELL_COMPLETION_ANY};
+static const char * const path_spi_xfer_cs[] = {
     "spi",
     "xfer",
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_spi_xfer_mode[] = {
+    "spi",
+    "xfer",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi_read[] = {"spi", "read"};
-static const char * const path_spi_read_cs[] = {"spi", "read", SHELL_COMPLETION_ANY};
+static const char * const path_spi_read_bus[] = {"spi", "read", SHELL_COMPLETION_ANY};
+static const char * const path_spi_read_cs[] = {
+    "spi",
+    "read",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi_read_mode[] = {
     "spi",
     "read",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -937,12 +955,20 @@ static const char * const path_spi_read_len[] = {
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
 };
 static const char * const path_spi_write[] = {"spi", "write"};
-static const char * const path_spi_write_cs[] = {"spi", "write", SHELL_COMPLETION_ANY};
+static const char * const path_spi_write_bus[] = {"spi", "write", SHELL_COMPLETION_ANY};
+static const char * const path_spi_write_cs[] = {
+    "spi",
+    "write",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi_write_mode[] = {
     "spi",
     "write",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -1164,6 +1190,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_gpio_pins = true, \
     }
+#define SHELL_COMPLETION_SPI_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_spi_buses = true, \
+    }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
         .path = path_array, \
@@ -1331,14 +1363,18 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_i2c_write_addr, i2c_reg_values),
     SHELL_COMPLETION_STATIC(path_i2c_write_reg, byte_values),
     SHELL_COMPLETION_STATIC(path_spi, spi_subcommands),
-    SHELL_COMPLETION_SPI_CS(path_spi_xfer),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_status),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_xfer),
+    SHELL_COMPLETION_SPI_CS(path_spi_xfer_bus),
     SHELL_COMPLETION_STATIC(path_spi_xfer_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_xfer_mode, spi_speed_values),
-    SHELL_COMPLETION_SPI_CS(path_spi_read),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_read),
+    SHELL_COMPLETION_SPI_CS(path_spi_read_bus),
     SHELL_COMPLETION_STATIC(path_spi_read_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_read_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_spi_read_len, spi_fill_values),
-    SHELL_COMPLETION_SPI_CS(path_spi_write),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_write),
+    SHELL_COMPLETION_SPI_CS(path_spi_write_bus),
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
@@ -3531,22 +3567,42 @@ static void shell_completion_emit_gpio_pins(shell_completion_match_t *state)
 #endif
 }
 
-static void shell_completion_emit_spi_cs(shell_completion_match_t *state)
+static void shell_completion_emit_spi_buses(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
-    solar_os_spi_status_t status;
-    if (solar_os_spi_get_status(&status) != ESP_OK || !status.available) {
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_spi_cs(shell_completion_match_t *state,
+                                         const char * const *tokens,
+                                         size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_bus_info_t info;
+    if (tokens == NULL || token_count < 3 ||
+        !solar_os_bus_find(tokens[2], SOLAR_OS_BUS_PROTOCOL_SPI, &info)) {
         return;
     }
 
-    for (size_t i = 0; i < status.cs_count; i++) {
+    for (size_t i = 0; i < info.config.spi.cs_count; i++) {
         char pin[8];
-        shell_completion_emit(state, status.cs[i].name);
-        snprintf(pin, sizeof(pin), "%d", status.cs[i].pin);
+        shell_completion_emit(state, info.config.spi.cs[i].name);
+        snprintf(pin, sizeof(pin), "%d", info.config.spi.cs[i].pin);
         shell_completion_emit(state, pin);
     }
 #else
     (void)state;
+    (void)tokens;
+    (void)token_count;
 #endif
 }
 
@@ -4002,8 +4058,11 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_gpio_pins) {
             shell_completion_emit_gpio_pins(state);
         }
+        if (rule->complete_spi_buses) {
+            shell_completion_emit_spi_buses(state);
+        }
         if (rule->complete_spi_cs) {
-            shell_completion_emit_spi_cs(state);
+            shell_completion_emit_spi_cs(state, tokens, token_count);
         }
         if (rule->complete_streams) {
             shell_completion_emit_streams(state, rule->scalar_streams_only);

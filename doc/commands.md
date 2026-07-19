@@ -439,10 +439,10 @@ and writes the inactive ESP-IDF OTA partition.
 | `i2c` | `i2c probe <addr>` | Probe one address. |
 | `i2c` | `i2c read <addr> <reg> [len]` | Read bytes from a register. |
 | `i2c` | `i2c write <addr> <reg> <byte...>` | Write bytes to a register. |
-| `spi` | `spi [status]` | Show SPI bus pins and chip-select slots. |
-| `spi` | `spi xfer <cs> <mode> <hz> <byte...>` | Full-duplex SPI transfer. |
-| `spi` | `spi read <cs> <mode> <hz> <len> [fill]` | Read bytes over SPI. |
-| `spi` | `spi write <cs> <mode> <hz> <byte...>` | Write bytes over SPI. |
+| `spi` | `spi [status [bus]]` | Show every named SPI bus, or one selected bus. |
+| `spi` | `spi xfer <bus> <cs> <mode> <hz> <byte...>` | Full-duplex transfer over a named SPI bus. |
+| `spi` | `spi read <bus> <cs> <mode> <hz> <len> [fill]` | Read bytes over a named SPI bus. |
+| `spi` | `spi write <bus> <cs> <mode> <hz> <byte...>` | Write bytes over a named SPI bus. |
 | `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
 | `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
 | `temperature` | `temperature` | Read the board temperature sensor when available. |

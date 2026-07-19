@@ -47,7 +47,6 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
-#include "solar_os_resources.h"
 #endif
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
@@ -1949,49 +1948,6 @@ static void python_bus_spi_args(size_t n_args,
     }
 }
 
-static esp_err_t python_bus_spi_transfer_once(const char *name,
-                                              int cs_pin,
-                                              uint8_t mode,
-                                              uint32_t speed_hz,
-                                              const uint8_t *tx,
-                                              uint8_t *rx,
-                                              size_t len)
-{
-    static const char *const owner = "python-spi";
-    const solar_os_resource_request_t requests[] = {
-        {
-            .kind = SOLAR_OS_RESOURCE_SPI_CS,
-            .primary = cs_pin,
-            .secondary = -1,
-            .label = name,
-        },
-        {
-            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-            .primary = cs_pin,
-            .secondary = -1,
-            .label = "spi-cs",
-        },
-    };
-    esp_err_t ret = solar_os_resource_claim_bundle(requests,
-                                                    sizeof(requests) / sizeof(requests[0]),
-                                                    owner,
-                                                    NULL);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_SPI, owner);
-    if (ret != ESP_OK) {
-        (void)solar_os_resource_release_owner(owner);
-        return ret;
-    }
-    ret = solar_os_bus_spi_transfer(name, cs_pin, mode, speed_hz, tx, rx, len);
-    const esp_err_t release_ret = solar_os_bus_release(name,
-                                                       SOLAR_OS_BUS_PROTOCOL_SPI,
-                                                       owner);
-    (void)solar_os_resource_release_owner(owner);
-    return ret == ESP_OK ? release_ret : ret;
-}
-
 static mp_obj_t solaros_buses_spi_xfer(size_t n_args, const mp_obj_t *args)
 {
     solar_os_bus_info_t info;
@@ -2008,13 +1964,14 @@ static mp_obj_t solaros_buses_spi_xfer(size_t n_args, const mp_obj_t *args)
     if (rx == NULL) {
         python_raise_esp(ESP_ERR_NO_MEM);
     }
-    const esp_err_t ret = python_bus_spi_transfer_once(info.name,
-                                                       cs_pin,
-                                                       mode,
-                                                       speed_hz,
-                                                       tx.buf,
-                                                       rx,
-                                                       tx.len);
+    const esp_err_t ret = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx.buf,
+                                                         rx,
+                                                         tx.len,
+                                                         "python-spi");
     if (ret != ESP_OK) {
         heap_caps_free(rx);
         python_raise_esp(ret);
@@ -2047,13 +2004,14 @@ static mp_obj_t solaros_buses_spi_read(size_t n_args, const mp_obj_t *args)
     uint8_t *tx = buffers;
     uint8_t *rx = buffers + len;
     memset(tx, fill, len);
-    const esp_err_t ret = python_bus_spi_transfer_once(info.name,
-                                                       cs_pin,
-                                                       mode,
-                                                       speed_hz,
-                                                       tx,
-                                                       rx,
-                                                       len);
+    const esp_err_t ret = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         "python-spi");
     if (ret != ESP_OK) {
         heap_caps_free(buffers);
         python_raise_esp(ret);
@@ -2079,13 +2037,14 @@ static mp_obj_t solaros_buses_spi_write(size_t n_args, const mp_obj_t *args)
     if (tx.len == 0 || tx.len > info.config.spi.max_transfer_size) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid SPI transfer length"));
     }
-    python_check_esp(python_bus_spi_transfer_once(info.name,
-                                                  cs_pin,
-                                                  mode,
-                                                  speed_hz,
-                                                  tx.buf,
-                                                  NULL,
-                                                  tx.len));
+    python_check_esp(solar_os_bus_spi_transfer_once(info.name,
+                                                    cs_pin,
+                                                    mode,
+                                                    speed_hz,
+                                                    tx.buf,
+                                                    NULL,
+                                                    tx.len,
+                                                    "python-spi"));
     return mp_obj_new_int_from_uint(tx.len);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_spi_write_obj,

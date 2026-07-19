@@ -96,6 +96,22 @@ expansion detach radio0
 expansion bus remove spi1
 ```
 
+The `spi` command addresses board-defined and runtime buses by name. This makes
+the same transfer tools available for `spi0`, `spi1`, or any other registered
+SPI bus:
+
+```text
+spi status
+spi status spi1
+spi xfer spi1 gpio17 0 1m 0x9f 0 0 0
+spi read spi1 gpio17 0 1m 4 0xff
+spi write spi1 gpio17 0 1m 0xaa 0x55
+```
+
+The bus name and chip-select are always explicit. Transfers temporarily claim
+the selected chip-select and lease the bus, so they fail cleanly when an
+attached device already owns that chip-select.
+
 Omit `miso` or use `miso=none` for output-only peripherals. A runtime bus can
 only use a host and pins approved by the board profile. It cannot take fixed
 display, storage, I2C, USB, or strapping pins. A bus cannot be removed while it

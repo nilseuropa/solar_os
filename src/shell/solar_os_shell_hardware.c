@@ -19,6 +19,7 @@
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_buses.h"
 #include "solar_os_config.h"
 #include "solar_os_gpio.h"
 #include "solar_os_i2c.h"
@@ -27,7 +28,6 @@
 #include "solar_os_pins.h"
 #include "solar_os_pwm.h"
 #include "solar_os_sensors.h"
-#include "solar_os_spi.h"
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
@@ -2834,7 +2834,7 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t *value)
 {
     if (text == NULL || text[0] == '\0' || value == NULL) {
@@ -2870,75 +2870,137 @@ static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t
     return true;
 }
 
-static void spi_print_status(solar_os_shell_io_t *term)
+static const char *spi_bus_host_name(int host)
 {
-    solar_os_spi_status_t status;
-    const esp_err_t err = solar_os_spi_get_status(&status);
-    if (err != ESP_OK || !status.available) {
-        solar_os_shell_io_writeln(term, "SPI: not available on this board");
+    if (host == SPI2_HOST) {
+        return "spi2";
+    }
+    if (host == SPI3_HOST) {
+        return "spi3";
+    }
+    return "unknown";
+}
+
+static void spi_print_bus_status(solar_os_shell_io_t *term,
+                                 const solar_os_bus_info_t *info)
+{
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s host=%s SCLK=%d MISO=%d MOSI=%d ready=%s leases=%u max=%" PRIu32 "\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             spi_bus_host_name(info->config.spi.host),
+                             info->config.spi.sclk_pin,
+                             info->config.spi.miso_pin,
+                             info->config.spi.mosi_pin,
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count,
+                             info->config.spi.max_transfer_size);
+    solar_os_shell_io_write(term, "  CS:");
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        solar_os_shell_io_printf(term,
+                                 " %s(GPIO%d)",
+                                 info->config.spi.cs[i].name,
+                                 info->config.spi.cs[i].pin);
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+static void spi_print_status(solar_os_shell_io_t *term, const char *name)
+{
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info)) {
+            solar_os_shell_io_printf(term, "spi status: bus '%s' not found\n", name);
+            return;
+        }
+        spi_print_bus_status(term, &info);
         return;
     }
 
-    solar_os_shell_io_printf(term,
-                             "%s: SCK %d, MISO %d, MOSI %d\n",
-                             status.name != NULL ? status.name : "SPI",
-                             status.sclk_pin,
-                             status.miso_pin,
-                             status.mosi_pin);
-    solar_os_shell_io_printf(term,
-                             "default speed: %" PRIu32 " Hz, max transfer: %u bytes\n",
-                             status.default_speed_hz,
-                             (unsigned)status.max_transfer_size);
-    solar_os_shell_io_write(term, "CS:");
-    if (status.cs_count == 0) {
-        solar_os_shell_io_write(term, " none");
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "SPI: no registered buses");
+        return;
     }
-    for (size_t i = 0; i < status.cs_count; i++) {
-        solar_os_shell_io_printf(term,
-                                 " %s(GPIO%d)",
-                                 status.cs[i].name,
-                                 status.cs[i].pin);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, i, &info)) {
+            spi_print_bus_status(term, &info);
+        }
     }
-    solar_os_shell_io_put_char(term, '\n');
 }
 
 static void spi_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  spi [status]");
-    solar_os_shell_io_writeln(term, "  spi xfer <cs> <mode> <hz> <byte...>");
-    solar_os_shell_io_writeln(term, "  spi read <cs> <mode> <hz> <len> [fill]");
-    solar_os_shell_io_writeln(term, "  spi write <cs> <mode> <hz> <byte...>");
+    solar_os_shell_io_writeln(term, "  spi [status [bus]]");
+    solar_os_shell_io_writeln(term, "  spi xfer <bus> <cs> <mode> <hz> <byte...>");
+    solar_os_shell_io_writeln(term, "  spi read <bus> <cs> <mode> <hz> <len> [fill]");
+    solar_os_shell_io_writeln(term, "  spi write <bus> <cs> <mode> <hz> <byte...>");
+}
+
+static bool spi_resolve_cs(const solar_os_bus_info_t *info,
+                           const char *text,
+                           int *cs_pin)
+{
+    if (info == NULL || text == NULL || cs_pin == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        if (strcmp(text, info->config.spi.cs[i].name) == 0) {
+            *cs_pin = info->config.spi.cs[i].pin;
+            return true;
+        }
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const long parsed = strtol(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' || parsed < 0 || parsed > 63) {
+        return false;
+    }
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        if (parsed == info->config.spi.cs[i].pin) {
+            *cs_pin = (int)parsed;
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool spi_parse_common(solar_os_shell_io_t *term,
                              int argc,
                              char **argv,
                              int min_argc,
+                             solar_os_bus_info_t *info,
                              int *cs_pin,
                              uint8_t *mode,
                              uint32_t *speed_hz)
 {
     size_t parsed_mode;
 
-    if (argc < min_argc ||
-        solar_os_spi_resolve_cs(argv[2], cs_pin) != ESP_OK ||
-        !parse_size_arg(argv[3], 0, 3, &parsed_mode) ||
-        !parse_u32_arg(argv[4], 1, SOLAR_OS_SPI_MAX_SPEED_HZ, speed_hz)) {
+    if (argc < min_argc || info == NULL || cs_pin == NULL ||
+        mode == NULL || speed_hz == NULL) {
         return false;
     }
-
-    if (cs_pin == NULL || mode == NULL || speed_hz == NULL) {
+    if (!solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_SPI, info)) {
+        solar_os_shell_io_printf(term, "spi: bus '%s' not found\n", argv[2]);
+        return false;
+    }
+    if (!spi_resolve_cs(info, argv[3], cs_pin)) {
+        solar_os_shell_io_printf(term,
+                                 "spi: chip-select '%s' is not declared on %s\n",
+                                 argv[3],
+                                 info->name);
+        return false;
+    }
+    if (!parse_size_arg(argv[4], 0, 3, &parsed_mode) ||
+        !parse_u32_arg(argv[5], 1, SOLAR_OS_BUS_SPI_MAX_SPEED_HZ, speed_hz)) {
         return false;
     }
 
     *mode = (uint8_t)parsed_mode;
-    if (*speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ) {
-        solar_os_shell_io_printf(term,
-                                 "spi: speed must be 1..%" PRIu32 " Hz\n",
-                                 SOLAR_OS_SPI_MAX_SPEED_HZ);
-        return false;
-    }
     return true;
 }
 
@@ -2951,42 +3013,76 @@ static void spi_print_rx(solar_os_shell_io_t *term, const uint8_t *rx, size_t le
     solar_os_shell_io_put_char(term, '\n');
 }
 
-static void spi_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_print_transfer_error(solar_os_shell_io_t *term,
+                                     const char *operation,
+                                     const char *bus,
+                                     esp_err_t err)
 {
+    if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "spi %s: %s or its chip-select is busy\n",
+                                 operation,
+                                 bus);
+    } else if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "spi %s: bus '%s' not found\n", operation, bus);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 "spi %s failed on %s: %s\n",
+                                 operation,
+                                 bus,
+                                 esp_err_to_name(err));
+    }
+}
+
+static void spi_cmd_xfer(solar_os_shell_io_t *term,
+                         int argc,
+                         char **argv,
+                         const char *owner)
+{
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
     uint8_t rx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        argc > 5 + SPI_TRANSFER_MAX_LEN) {
-        solar_os_shell_io_writeln(term, "usage: spi xfer <cs> <mode> <hz> <byte...>");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        argc > 6 + SPI_TRANSFER_MAX_LEN) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi xfer <bus> <cs> <mode> <hz> <byte...>");
         return;
     }
 
-    const size_t len = (size_t)(argc - 5);
+    const size_t len = (size_t)(argc - 6);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 5], &tx[i])) {
+        if (!parse_u8(argv[i + 6], &tx[i])) {
             solar_os_shell_io_writeln(term, "spi xfer: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi xfer failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "xfer", info.name, err);
         return;
     }
 
     spi_print_rx(term, rx, len);
 }
 
-static void spi_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_cmd_read(solar_os_shell_io_t *term,
+                         int argc,
+                         char **argv,
+                         const char *owner)
 {
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
@@ -2995,54 +3091,68 @@ static void spi_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
     uint8_t rx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        !parse_size_arg(argv[5], 1, SPI_TRANSFER_MAX_LEN, &len) ||
-        (argc == 7 && !parse_u8(argv[6], &fill)) ||
-        argc > 7) {
-        solar_os_shell_io_writeln(term, "usage: spi read <cs> <mode> <hz> <len> [fill]");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        !parse_size_arg(argv[6], 1, SPI_TRANSFER_MAX_LEN, &len) ||
+        (argc == 8 && !parse_u8(argv[7], &fill)) ||
+        argc > 8) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi read <bus> <cs> <mode> <hz> <len> [fill]");
         return;
     }
 
     memset(tx, fill, len);
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi read failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "read", info.name, err);
         return;
     }
 
     spi_print_rx(term, rx, len);
 }
 
-static void spi_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_cmd_write(solar_os_shell_io_t *term,
+                          int argc,
+                          char **argv,
+                          const char *owner)
 {
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        argc > 5 + SPI_TRANSFER_MAX_LEN) {
-        solar_os_shell_io_writeln(term, "usage: spi write <cs> <mode> <hz> <byte...>");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        argc > 6 + SPI_TRANSFER_MAX_LEN) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi write <bus> <cs> <mode> <hz> <byte...>");
         return;
     }
 
-    const size_t len = (size_t)(argc - 5);
+    const size_t len = (size_t)(argc - 6);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 5], &tx[i])) {
+        if (!parse_u8(argv[i + 6], &tx[i])) {
             solar_os_shell_io_writeln(term, "spi write: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, NULL, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         NULL,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi write failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "write", info.name, err);
         return;
     }
 
@@ -3052,18 +3162,24 @@ static void spi_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 void solar_os_shell_cmd_spi(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+    char owner[SOLAR_OS_BUS_OWNER_MAX];
+    (void)snprintf(owner, sizeof(owner), "shell-spi:%" PRIxPTR, (uintptr_t)ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
-        spi_print_status(term);
+        if (argc > 3) {
+            spi_print_usage(term);
+            return;
+        }
+        spi_print_status(term, argc == 3 ? argv[2] : NULL);
         return;
     }
 
     if (strcmp(argv[1], "xfer") == 0) {
-        spi_cmd_xfer(term, argc, argv);
+        spi_cmd_xfer(term, argc, argv, owner);
     } else if (strcmp(argv[1], "read") == 0) {
-        spi_cmd_read(term, argc, argv);
+        spi_cmd_read(term, argc, argv, owner);
     } else if (strcmp(argv[1], "write") == 0) {
-        spi_cmd_write(term, argc, argv);
+        spi_cmd_write(term, argc, argv, owner);
     } else {
         spi_print_usage(term);
     }

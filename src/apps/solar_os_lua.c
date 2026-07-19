@@ -35,7 +35,6 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
-#include "solar_os_resources.h"
 #endif
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
@@ -1828,49 +1827,6 @@ static uint8_t *solua_bus_spi_alloc(lua_State *L, size_t len)
     return data;
 }
 
-static esp_err_t solua_bus_spi_transfer_once(const char *name,
-                                             int cs_pin,
-                                             uint8_t mode,
-                                             uint32_t speed_hz,
-                                             const uint8_t *tx,
-                                             uint8_t *rx,
-                                             size_t len)
-{
-    static const char *const owner = "lua-spi";
-    const solar_os_resource_request_t requests[] = {
-        {
-            .kind = SOLAR_OS_RESOURCE_SPI_CS,
-            .primary = cs_pin,
-            .secondary = -1,
-            .label = name,
-        },
-        {
-            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
-            .primary = cs_pin,
-            .secondary = -1,
-            .label = "spi-cs",
-        },
-    };
-    esp_err_t ret = solar_os_resource_claim_bundle(requests,
-                                                    sizeof(requests) / sizeof(requests[0]),
-                                                    owner,
-                                                    NULL);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = solar_os_bus_acquire(name, SOLAR_OS_BUS_PROTOCOL_SPI, owner);
-    if (ret != ESP_OK) {
-        (void)solar_os_resource_release_owner(owner);
-        return ret;
-    }
-    ret = solar_os_bus_spi_transfer(name, cs_pin, mode, speed_hz, tx, rx, len);
-    const esp_err_t release_ret = solar_os_bus_release(name,
-                                                       SOLAR_OS_BUS_PROTOCOL_SPI,
-                                                       owner);
-    (void)solar_os_resource_release_owner(owner);
-    return ret == ESP_OK ? release_ret : ret;
-}
-
 static int solua_buses_spi_xfer(lua_State *L)
 {
     solar_os_bus_info_t info;
@@ -1884,13 +1840,14 @@ static int solua_buses_spi_xfer(lua_State *L)
         return luaL_error(L, "invalid SPI transfer length");
     }
     uint8_t *rx = solua_bus_spi_alloc(L, len);
-    const esp_err_t ret = solua_bus_spi_transfer_once(info.name,
-                                                      cs_pin,
-                                                      mode,
-                                                      speed_hz,
-                                                      (const uint8_t *)tx,
-                                                      rx,
-                                                      len);
+    const esp_err_t ret = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         (const uint8_t *)tx,
+                                                         rx,
+                                                         len,
+                                                         "lua-spi");
     if (ret != ESP_OK) {
         heap_caps_free(rx);
         return solua_check_esp(L, ret);
@@ -1916,13 +1873,14 @@ static int solua_buses_spi_read(lua_State *L)
     uint8_t *tx = buffers;
     uint8_t *rx = buffers + len;
     memset(tx, fill, len);
-    const esp_err_t ret = solua_bus_spi_transfer_once(info.name,
-                                                      cs_pin,
-                                                      mode,
-                                                      speed_hz,
-                                                      tx,
-                                                      rx,
-                                                      len);
+    const esp_err_t ret = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         "lua-spi");
     if (ret != ESP_OK) {
         heap_caps_free(buffers);
         return solua_check_esp(L, ret);
@@ -1945,13 +1903,14 @@ static int solua_buses_spi_write(lua_State *L)
         return luaL_error(L, "invalid SPI transfer length");
     }
     (void)solua_check_esp(L,
-                          solua_bus_spi_transfer_once(info.name,
-                                                      cs_pin,
-                                                      mode,
-                                                      speed_hz,
-                                                      (const uint8_t *)tx,
-                                                      NULL,
-                                                      len));
+                          solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         (const uint8_t *)tx,
+                                                         NULL,
+                                                         len,
+                                                         "lua-spi"));
     lua_pushinteger(L, (lua_Integer)len);
     return 1;
 }
