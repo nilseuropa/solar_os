@@ -12,6 +12,7 @@ members = [
   "service_sd",
   "service_audio",
   "service_resources",
+  "app_io",
   "service_engines",
   "service_vector",
   "service_gpio",
@@ -518,6 +519,11 @@ capabilities = ["psram", "gfx"]
 [packages.app_files]
 label = "app.files"
 sources = ["apps/solar_os_files.c"]
+
+[packages.app_io]
+label = "app.io"
+sources = ["apps/solar_os_io.c"]
+capabilities = ["gpio"]
 
 [packages.app_notes]
 label = "app.notes"
