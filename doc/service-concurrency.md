@@ -54,6 +54,19 @@ slot identity, task/lifecycle flags, and list snapshots. Cleanup performs app
 callbacks and terminal/port I/O first, then generation-checks the final slot
 retirement.
 
+Bus transactions pin a generation of the selected bus while holding the bus
+registry lock, then release that lock before taking the bus slot's permanent
+mutex and performing I2C, UART, SPI, or 1-Wire I/O. Detach, unregister, and the
+last lease release reject a bus with pinned operations. Per-slot mutexes are
+never deleted when a runtime bus name is unregistered and reused.
+
+UART driver instances follow the same rule independently of the bus registry.
+Every lookup obtains a generation-checked reference before using instance
+configuration or hardware state. Unregister first marks an unreferenced slot as
+retiring, performs port and hardware teardown under its permanent slot mutex,
+then clears the slot. Port callbacks also pin their UART instance, so a stale
+raw instance pointer cannot race slot teardown or mutex deletion.
+
 ## Callback requirements
 
 Callbacks may call other SolarOS services because no global registry lock is
