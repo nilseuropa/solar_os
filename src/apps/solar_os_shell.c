@@ -233,7 +233,7 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_SPI
     {"spi", "SPI bus tools", solar_os_shell_cmd_spi},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
@@ -455,6 +455,7 @@ static const char * const i2c_reg_values[] = {"0x00", "0x01", "0x10"};
 static const char * const i2c_len_values[] = {"1", "2", "4", "16"};
 static const char * const byte_values[] = {"0x00", "0x01", "0xff"};
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static const char * const spi_subcommands[] = {
     "status",
     "xfer",
@@ -465,6 +466,7 @@ static const char * const spi_subcommands[] = {
 static const char * const spi_mode_values[] = {"0", "1", "2", "3"};
 static const char * const spi_speed_values[] = {"100k", "1m", "4m", "10m", "20m"};
 static const char * const spi_fill_values[] = {"0xff", "0x00"};
+#endif
 
 static const char * const expansion_subcommands[] = {
     "status",
@@ -483,7 +485,9 @@ static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
     "onewire",
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
     "spi",
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     "uart",
 #endif
@@ -957,6 +961,7 @@ static const char * const path_i2c_write_bus_reg[] = {
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static const char * const path_spi[] = {"spi"};
 static const char * const path_spi_status[] = {"spi", "status"};
 static const char * const path_spi_xfer[] = {"spi", "xfer"};
@@ -1013,6 +1018,7 @@ static const char * const path_spi_write_mode[] = {
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+#endif
 static const char * const path_uart[] = {"uart"};
 static const char * const path_uart_status[] = {"uart", "status"};
 static const char * const path_uart_baud[] = {"uart", "baud"};
@@ -1449,6 +1455,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_addr),
     SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_reg),
     SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_bus_reg),
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
     SHELL_COMPLETION_STATIC(path_spi, spi_subcommands),
     SHELL_COMPLETION_SPI_BUSES(path_spi_status),
     SHELL_COMPLETION_SPI_BUSES(path_spi_xfer),
@@ -1464,6 +1471,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_SPI_CS(path_spi_write_bus),
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
+#endif
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_baud),
     SHELL_COMPLETION_UART_ARGUMENTS(path_uart_mode),

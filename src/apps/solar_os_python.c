@@ -1847,6 +1847,7 @@ static mp_obj_t solaros_buses_get(mp_obj_t name_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_buses_get_obj, solaros_buses_get);
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static mp_obj_t solaros_buses_create_spi(mp_obj_t name_obj, mp_obj_t config_obj)
 {
     const char *name = mp_obj_str_get_str(name_obj);
@@ -1900,6 +1901,7 @@ static mp_obj_t solaros_buses_create_spi(mp_obj_t name_obj, mp_obj_t config_obj)
     return solaros_buses_get(name_obj);
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_buses_create_spi_obj, solaros_buses_create_spi);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 static mp_obj_t solaros_buses_create_i2c(mp_obj_t name_obj, mp_obj_t config_obj)
@@ -2216,6 +2218,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_onewire_xfer_obj,
                                     solaros_buses_onewire_xfer);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static int python_bus_spi_cs_from_obj(const solar_os_bus_info_t *info, mp_obj_t obj)
 {
     int pin = -1;
@@ -2373,6 +2376,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_spi_write_obj,
                                     3,
                                     5,
                                     solaros_buses_spi_write);
+#endif
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
@@ -4178,102 +4182,33 @@ static void python_register_solaros_module(void)
     python_module_store(pwm, "off", MP_OBJ_FROM_PTR(&solaros_pwm_off_obj));
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-    mp_obj_t buses = python_new_submodule(module, "buses");
-    python_module_store(buses, "MODE0", mp_obj_new_int(0));
-    python_module_store(buses, "MODE1", mp_obj_new_int(1));
-    python_module_store(buses, "MODE2", mp_obj_new_int(2));
-    python_module_store(buses, "MODE3", mp_obj_new_int(3));
-    python_module_store(buses, "SPI2_HOST", mp_obj_new_int(SPI2_HOST));
-    python_module_store(buses, "SPI3_HOST", mp_obj_new_int(SPI3_HOST));
-    python_module_store(buses,
-                        "DEFAULT_SPEED",
-                        mp_obj_new_int_from_uint(SOLAR_OS_BUS_SPI_DEFAULT_SPEED_HZ));
-    python_module_store(buses,
-                        "MAX_SPEED",
-                        mp_obj_new_int_from_uint(SOLAR_OS_BUS_SPI_MAX_SPEED_HZ));
-    python_module_store(buses, "list", MP_OBJ_FROM_PTR(&solaros_buses_list_obj));
-    python_module_store(buses, "get", MP_OBJ_FROM_PTR(&solaros_buses_get_obj));
-    python_module_store(buses,
-                        "create_spi",
-                        MP_OBJ_FROM_PTR(&solaros_buses_create_spi_obj));
-#if SOLAR_OS_PACKAGE_SERVICE_I2C
-    python_module_store(buses,
-                        "create_i2c",
-                        MP_OBJ_FROM_PTR(&solaros_buses_create_i2c_obj));
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
-    python_module_store(buses,
-                        "create_onewire",
-                        MP_OBJ_FROM_PTR(&solaros_buses_create_onewire_obj));
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-    python_module_store(buses,
-                        "create_uart",
-                        MP_OBJ_FROM_PTR(&solaros_buses_create_uart_obj));
-#endif
-    python_module_store(buses, "remove", MP_OBJ_FROM_PTR(&solaros_buses_remove_obj));
-    python_module_store(buses, "attach", MP_OBJ_FROM_PTR(&solaros_buses_attach_obj));
-    python_module_store(buses, "detach", MP_OBJ_FROM_PTR(&solaros_buses_detach_obj));
-#if SOLAR_OS_PACKAGE_SERVICE_I2C
-    python_module_store(buses,
-                        "i2c_probe",
-                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_probe_obj));
-    python_module_store(buses,
-                        "i2c_scan",
-                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_scan_obj));
-    python_module_store(buses,
-                        "i2c_read_reg",
-                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_read_reg_obj));
-    python_module_store(buses,
-                        "i2c_write_reg",
-                        MP_OBJ_FROM_PTR(&solaros_buses_i2c_write_reg_obj));
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
-    python_module_store(buses,
-                        "onewire_reset",
-                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_reset_obj));
-    python_module_store(buses,
-                        "onewire_scan",
-                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_scan_obj));
-    python_module_store(buses,
-                        "onewire_xfer",
-                        MP_OBJ_FROM_PTR(&solaros_buses_onewire_xfer_obj));
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-    python_module_store(buses,
-                        "uart_write",
-                        MP_OBJ_FROM_PTR(&solaros_buses_uart_write_obj));
-    python_module_store(buses,
-                        "uart_read",
-                        MP_OBJ_FROM_PTR(&solaros_buses_uart_read_obj));
-#endif
-    python_module_store(buses,
-                        "spi_xfer",
-                        MP_OBJ_FROM_PTR(&solaros_buses_spi_xfer_obj));
-    python_module_store(buses,
-                        "spi_read",
-                        MP_OBJ_FROM_PTR(&solaros_buses_spi_read_obj));
-    python_module_store(buses,
-                        "spi_write",
-                        MP_OBJ_FROM_PTR(&solaros_buses_spi_write_obj));
-#endif
-
-#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
-    mp_obj_t expansion = python_new_submodule(module, "expansion");
-    python_module_store(expansion,
-                        "drivers",
-                        MP_OBJ_FROM_PTR(&solaros_expansion_drivers_obj));
-    python_module_store(expansion,
-                        "devices",
-                        MP_OBJ_FROM_PTR(&solaros_expansion_devices_obj));
-    python_module_store(expansion,
-                        "attach",
-                        MP_OBJ_FROM_PTR(&solaros_expansion_attach_obj));
-    python_module_store(expansion,
-                        "detach",
-                        MP_OBJ_FROM_PTR(&solaros_expansion_detach_obj));
-#endif
+#define SOLAR_OS_SCRIPT_API_STRINGIFY_INNER(value) #value
+#define SOLAR_OS_SCRIPT_API_STRINGIFY(value) SOLAR_OS_SCRIPT_API_STRINGIFY_INNER(value)
+#define SOLAR_OS_SCRIPT_API_MODULE_BEGIN(module_name) \
+    { \
+        mp_obj_t script_module = python_new_submodule( \
+            module, SOLAR_OS_SCRIPT_API_STRINGIFY(module_name))
+#define SOLAR_OS_SCRIPT_API_INT(module_name, public_name, value) \
+    python_module_store(script_module, \
+                        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                        mp_obj_new_int(value))
+#define SOLAR_OS_SCRIPT_API_UINT(module_name, public_name, value) \
+    python_module_store(script_module, \
+                        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                        mp_obj_new_int_from_uint(value))
+#define SOLAR_OS_SCRIPT_API_FUNCTION(module_name, public_name, native_name) \
+    python_module_store(script_module, \
+                        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                        MP_OBJ_FROM_PTR(&solaros_##module_name##_##native_name##_obj))
+#define SOLAR_OS_SCRIPT_API_MODULE_END(module_name) }
+#include "solar_os_script_bus_api.inc"
+#undef SOLAR_OS_SCRIPT_API_MODULE_END
+#undef SOLAR_OS_SCRIPT_API_FUNCTION
+#undef SOLAR_OS_SCRIPT_API_UINT
+#undef SOLAR_OS_SCRIPT_API_INT
+#undef SOLAR_OS_SCRIPT_API_MODULE_BEGIN
+#undef SOLAR_OS_SCRIPT_API_STRINGIFY
+#undef SOLAR_OS_SCRIPT_API_STRINGIFY_INNER
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     mp_obj_t i2c = python_new_submodule(module, "i2c");

@@ -67,7 +67,9 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sleep(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_SPI
 void solar_os_shell_cmd_spi(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_NET
 void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv);
 #endif
