@@ -254,6 +254,7 @@ esp_err_t audio_dac_board_init(void)
     const dac_channel_mask_t channel_mask = audio_dac_channel_mask();
     ESP_RETURN_ON_FALSE(channel_mask != 0, ESP_ERR_NOT_SUPPORTED, TAG, "no DAC output channel");
 
+    /* The continuous DAC consumes this hot-path buffer from internal memory. */
     audio_dac.buffer = heap_caps_malloc(AUDIO_DAC_CONVERT_BUFFER_BYTES,
                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     ESP_RETURN_ON_FALSE(audio_dac.buffer != NULL, ESP_ERR_NO_MEM, TAG, "no DAC buffer");

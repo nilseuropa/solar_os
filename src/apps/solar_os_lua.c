@@ -11,7 +11,6 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -2173,11 +2172,11 @@ static int solua_buses_spi_xfer(lua_State *L)
                                                          len,
                                                          "lua-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         return solua_check_esp(L, ret);
     }
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return 1;
 }
 
@@ -2206,11 +2205,11 @@ static int solua_buses_spi_read(lua_State *L)
                                                          len,
                                                          "lua-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         return solua_check_esp(L, ret);
     }
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return 1;
 }
 
@@ -2669,12 +2668,12 @@ static int solua_spi_xfer(lua_State *L)
                                                 rx,
                                                 len);
     if (err != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         return solua_check_esp(L, err);
     }
 
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return 1;
 }
 
@@ -2693,12 +2692,12 @@ static int solua_spi_read(lua_State *L)
 
     const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
     if (err != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         return solua_check_esp(L, err);
     }
 
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return 1;
 }
 

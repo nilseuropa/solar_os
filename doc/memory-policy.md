@@ -9,6 +9,9 @@ Allocation classes:
 
 - `internal-critical`: internal byte-addressable RAM for control structures and
   work that must remain available during memory pressure.
+- `internal-preferred`: internal RAM while preserving the configured reserve,
+  then PSRAM. Use this for latency-sensitive buffers that can still operate
+  from external memory under pressure.
 - `dma`: internal DMA-capable RAM.
 - `external-required`: PSRAM only. Failure is reported to the caller.
 - `external-preferred`: PSRAM first. If the board has PSRAM, internal fallback
@@ -25,13 +28,14 @@ short subsystem tag and a snapshot of free and largest blocks in the log. Use
 configured reserve, and the most recent tagged failure.
 
 New code should use `solar_os_memory_alloc()`, `solar_os_memory_calloc()`, or
-`solar_os_memory_realloc()` with an explicit class. The older
-`solar_os_psram_*()` helpers remain available for existing services and now
-route through `external-preferred`; they no longer silently use a large internal
-block after a PSRAM allocation failure.
+`solar_os_memory_realloc()` with an explicit class and a short subsystem tag.
+Apps, jobs, shell commands, and services must not call capability allocators
+directly. This keeps placement, reserves, fallbacks, failure reporting, and
+class statistics in one place.
 
 Direct capability-heap allocations are reserved for low-level cases whose
-placement is intrinsic rather than a fallback preference. The RAMFS arena is
-PSRAM-required, and the optional ILI9341 shadow framebuffer disables its
-partial-update optimization when PSRAM is unavailable instead of consuming
-internal RAM.
+placement is intrinsic rather than a fallback preference. Hardware drivers may
+retain them for DMA buffers, device-facing staging buffers, and display
+framebuffers, with a short comment explaining the required capability. For
+example, SD sector and SPI line buffers require internal DMA memory, while
+optional display shadow frames can explicitly prefer PSRAM.

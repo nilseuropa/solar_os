@@ -9,7 +9,6 @@
 #include <string.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
 #include "freertos/FreeRTOS.h"
@@ -625,7 +624,7 @@ static void slip_cleanup(void)
     }
 
     if (slip_job.frame != NULL) {
-        heap_caps_free(slip_job.frame);
+        solar_os_memory_free(slip_job.frame);
         slip_job.frame = NULL;
     }
 
@@ -723,7 +722,9 @@ static esp_err_t slip_job_start(solar_os_context_t *ctx, int argc, char **argv)
         return err;
     }
 
-    slip_job.frame = solar_os_psram_malloc(SLIP_JOB_FRAME_SIZE);
+    slip_job.frame = solar_os_memory_alloc(SLIP_JOB_FRAME_SIZE,
+                                           SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                           "slip.frame");
     if (slip_job.frame == NULL) {
         slip_cleanup();
         return ESP_ERR_NO_MEM;

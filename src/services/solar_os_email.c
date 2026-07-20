@@ -2,12 +2,12 @@
 
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
 #include "solar_os_inbox.h"
+#include "solar_os_memory.h"
 
 #define EMAIL_NVS_NAMESPACE "email"
 #define EMAIL_NVS_URL_KEY "url"
@@ -167,15 +167,11 @@ esp_err_t solar_os_email_init(void)
     if (email_state.lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    email_state.ring = heap_caps_calloc(SOLAR_OS_EMAIL_CAPACITY,
-                                        sizeof(email_state.ring[0]),
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    email_state.ring_in_psram = email_state.ring != NULL;
-    if (email_state.ring == NULL) {
-        email_state.ring = heap_caps_calloc(SOLAR_OS_EMAIL_CAPACITY,
-                                            sizeof(email_state.ring[0]),
-                                            MALLOC_CAP_8BIT);
-    }
+    email_state.ring = solar_os_memory_calloc(SOLAR_OS_EMAIL_CAPACITY,
+                                              sizeof(email_state.ring[0]),
+                                              SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                              "email.ring");
+    email_state.ring_in_psram = solar_os_memory_is_external(email_state.ring);
     if (email_state.ring == NULL) {
         vSemaphoreDelete(email_state.lock);
         email_state.lock = NULL;

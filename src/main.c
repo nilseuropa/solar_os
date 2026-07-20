@@ -1280,7 +1280,10 @@ void app_main(void)
             solar_os_gfx_init(&gfx, display_u8g2);
             solar_os_splash_clear(&gfx);
 
-            shell_terminal = solar_os_psram_calloc(1, sizeof(*shell_terminal));
+            shell_terminal = solar_os_memory_calloc(1,
+                                                    sizeof(*shell_terminal),
+                                                    SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                    "main.terminal");
             if (shell_terminal != NULL) {
                 solar_os_terminal_init(shell_terminal, display_u8g2);
                 terminal = shell_terminal;

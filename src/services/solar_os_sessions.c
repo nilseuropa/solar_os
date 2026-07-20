@@ -4,7 +4,6 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_display.h"
 #include "solar_os_log.h"
@@ -329,7 +328,7 @@ static void session_free_terminal(solar_os_session_entry_t *session)
         return;
     }
 
-    heap_caps_free(session->terminal);
+    solar_os_memory_free(session->terminal);
     session->terminal = NULL;
     session->owns_terminal = false;
 }
@@ -363,7 +362,11 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    solar_os_terminal_t *session_terminal = solar_os_psram_calloc(1, sizeof(*session_terminal));
+    solar_os_terminal_t *session_terminal =
+        solar_os_memory_calloc(1,
+                               sizeof(*session_terminal),
+                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                               "session.terminal");
     if (session_terminal == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -1222,7 +1225,11 @@ esp_err_t solar_os_sessions_create_display_shell(const char *target_name,
     strlcpy(session->display_target, target.name, sizeof(session->display_target));
     strlcpy(session->display_owner, owner, sizeof(session->display_owner));
 
-    solar_os_terminal_t *terminal = solar_os_psram_calloc(1, sizeof(*terminal));
+    solar_os_terminal_t *terminal =
+        solar_os_memory_calloc(1,
+                               sizeof(*terminal),
+                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                               "session.display");
     if (terminal == NULL) {
         session_dispose_unstarted(session);
         return ESP_ERR_NO_MEM;

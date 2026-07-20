@@ -6,9 +6,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_inbox.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_terminal.h"
 #include "solar_os_tui.h"
 
@@ -502,21 +502,17 @@ static void inbox_app_page(bool down)
 static esp_err_t inbox_app_start(solar_os_context_t *ctx)
 {
     memset(&inbox_app, 0, sizeof(inbox_app));
-    inbox_app.entries = heap_caps_calloc(SOLAR_OS_INBOX_CAPACITY,
-                                         sizeof(*inbox_app.entries),
-                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (inbox_app.entries == NULL) {
-        inbox_app.entries = heap_caps_calloc(SOLAR_OS_INBOX_CAPACITY,
-                                             sizeof(*inbox_app.entries),
-                                             MALLOC_CAP_8BIT);
-    }
+    inbox_app.entries = solar_os_memory_calloc(SOLAR_OS_INBOX_CAPACITY,
+                                               sizeof(*inbox_app.entries),
+                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                               "app.inbox");
     if (inbox_app.entries == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
     const esp_err_t err = solar_os_tui_begin(&inbox_app.tui, ctx);
     if (err != ESP_OK) {
-        heap_caps_free(inbox_app.entries);
+        solar_os_memory_free(inbox_app.entries);
         memset(&inbox_app, 0, sizeof(inbox_app));
         return err;
     }
@@ -532,7 +528,7 @@ static void inbox_app_stop(solar_os_context_t *ctx)
     solar_os_tui_set_cursor_visible(&inbox_app.tui, true);
     solar_os_tui_refresh(&inbox_app.tui);
     solar_os_tui_end(&inbox_app.tui);
-    heap_caps_free(inbox_app.entries);
+    solar_os_memory_free(inbox_app.entries);
     memset(&inbox_app, 0, sizeof(inbox_app));
 }
 

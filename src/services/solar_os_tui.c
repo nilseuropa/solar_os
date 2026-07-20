@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_terminal.h"
@@ -177,19 +176,19 @@ static void tui_free_diff_buffers(solar_os_tui_t *tui)
         return;
     }
     if (tui->front_codepoints != NULL) {
-        heap_caps_free(tui->front_codepoints);
+        solar_os_memory_free(tui->front_codepoints);
         tui->front_codepoints = NULL;
     }
     if (tui->back_codepoints != NULL) {
-        heap_caps_free(tui->back_codepoints);
+        solar_os_memory_free(tui->back_codepoints);
         tui->back_codepoints = NULL;
     }
     if (tui->front_attrs != NULL) {
-        heap_caps_free(tui->front_attrs);
+        solar_os_memory_free(tui->front_attrs);
         tui->front_attrs = NULL;
     }
     if (tui->back_attrs != NULL) {
-        heap_caps_free(tui->back_attrs);
+        solar_os_memory_free(tui->back_attrs);
         tui->back_attrs = NULL;
     }
     tui->diff_ready = false;
@@ -221,10 +220,18 @@ static esp_err_t tui_prepare_diff_buffers(solar_os_tui_t *tui)
     tui_free_diff_buffers(tui);
 
     const size_t cells = (size_t)cols * (size_t)rows;
-    tui->front_codepoints = solar_os_psram_malloc(cells * sizeof(tui->front_codepoints[0]));
-    tui->back_codepoints = solar_os_psram_malloc(cells * sizeof(tui->back_codepoints[0]));
-    tui->front_attrs = solar_os_psram_malloc(cells * sizeof(tui->front_attrs[0]));
-    tui->back_attrs = solar_os_psram_malloc(cells * sizeof(tui->back_attrs[0]));
+    tui->front_codepoints = solar_os_memory_alloc(cells * sizeof(tui->front_codepoints[0]),
+                                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                  "tui.front.cp");
+    tui->back_codepoints = solar_os_memory_alloc(cells * sizeof(tui->back_codepoints[0]),
+                                                 SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                 "tui.back.cp");
+    tui->front_attrs = solar_os_memory_alloc(cells * sizeof(tui->front_attrs[0]),
+                                             SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                             "tui.front.attr");
+    tui->back_attrs = solar_os_memory_alloc(cells * sizeof(tui->back_attrs[0]),
+                                            SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                            "tui.back.attr");
     if (tui->front_codepoints == NULL ||
         tui->back_codepoints == NULL ||
         tui->front_attrs == NULL ||

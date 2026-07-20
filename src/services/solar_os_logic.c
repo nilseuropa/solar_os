@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "esp_cpu.h"
-#include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -12,6 +11,7 @@
 #include "soc/soc.h"
 #include "solar_os_gpio.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 
 static const char *TAG = "solar_os_logic";
 
@@ -62,15 +62,14 @@ static esp_err_t logic_ensure_capacity(size_t sample_count)
         return ESP_OK;
     }
 
-    uint8_t *replacement = heap_caps_malloc(sample_count, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (replacement == NULL) {
-        replacement = heap_caps_malloc(sample_count, MALLOC_CAP_8BIT);
-    }
+    uint8_t *replacement = solar_os_memory_alloc(sample_count,
+                                                 SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
+                                                 "logic.samples");
     if (replacement == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
-    heap_caps_free(logic_state.samples);
+    solar_os_memory_free(logic_state.samples);
     logic_state.samples = replacement;
     logic_state.capacity = sample_count;
     return ESP_OK;

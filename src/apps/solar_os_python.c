@@ -13,7 +13,6 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "solar_os_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -359,7 +358,7 @@ static esp_err_t python_load_file(const char *path, uint8_t **out_data, size_t *
     fclose(file);
 
     if (read_len != len) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         errno = read_errno != 0 ? read_errno : EIO;
         return ESP_FAIL;
     }
@@ -2298,11 +2297,11 @@ static mp_obj_t solaros_buses_spi_xfer(size_t n_args, const mp_obj_t *args)
                                                          tx.len,
                                                          "python-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         python_raise_esp(ret);
     }
     mp_obj_t result = mp_obj_new_bytes(rx, tx.len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_spi_xfer_obj,
@@ -2338,11 +2337,11 @@ static mp_obj_t solaros_buses_spi_read(size_t n_args, const mp_obj_t *args)
                                                          len,
                                                          "python-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         python_raise_esp(ret);
     }
     mp_obj_t result = mp_obj_new_bytes(rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_spi_read_obj,
@@ -2768,12 +2767,12 @@ static mp_obj_t solaros_spi_xfer(size_t n_args, const mp_obj_t *args)
 
     const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx.buf, rx, tx.len);
     if (err != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         python_raise_esp(err);
     }
 
     mp_obj_t result = mp_obj_new_bytes(rx, tx.len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_spi_xfer_obj, 2, 4, solaros_spi_xfer);
@@ -2797,12 +2796,12 @@ static mp_obj_t solaros_spi_read(size_t n_args, const mp_obj_t *args)
 
     const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
     if (err != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         python_raise_esp(err);
     }
 
     mp_obj_t result = mp_obj_new_bytes(rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_spi_read_obj, 2, 5, solaros_spi_read);
@@ -4547,7 +4546,7 @@ static bool python_run_repl(void)
         }
     }
 
-    heap_caps_free(source);
+    solar_os_memory_free(source);
     return success && (!python_app.stop_requested || python_app.repl_exit_requested);
 }
 
@@ -4575,7 +4574,7 @@ static bool python_run_script(void)
     success = !python_app.stop_requested;
 
 cleanup:
-    heap_caps_free(script);
+    solar_os_memory_free(script);
     return success;
 }
 
@@ -4614,7 +4613,7 @@ static void python_task(void *arg)
         mp_embed_deinit();
         python_app.vm_active = false;
     }
-    heap_caps_free(heap);
+    solar_os_memory_free(heap);
 
 done:
     SOLAR_OS_LOGI(TAG,

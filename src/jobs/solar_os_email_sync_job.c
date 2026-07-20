@@ -10,7 +10,6 @@
 #include <strings.h>
 
 #include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_tls.h"
 #include "esp_tls_errors.h"
@@ -19,6 +18,7 @@
 #include "solar_os_email.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_wifi.h"
 
 #define EMAIL_SYNC_DEFAULT_INTERVAL_SEC 300U
@@ -551,11 +551,9 @@ static esp_err_t email_sync_run(char *error_text, size_t error_text_len)
         return err;
     }
 
-    char *response = heap_caps_malloc(EMAIL_SYNC_RESPONSE_MAX,
-                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (response == NULL) {
-        response = heap_caps_malloc(EMAIL_SYNC_RESPONSE_MAX, MALLOC_CAP_8BIT);
-    }
+    char *response = solar_os_memory_alloc(EMAIL_SYNC_RESPONSE_MAX,
+                                           SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                           "email.response");
     if (response == NULL) {
         esp_tls_conn_destroy(tls);
         return ESP_ERR_NO_MEM;
@@ -652,7 +650,7 @@ static esp_err_t email_sync_run(char *error_text, size_t error_text_len)
     if (!email_sync.stop_requested) {
         (void)email_sync_command(tls, sequence++, "LOGOUT", response, EMAIL_SYNC_RESPONSE_MAX);
     }
-    heap_caps_free(response);
+    solar_os_memory_free(response);
     esp_tls_conn_destroy(tls);
     return email_sync.stop_requested ? ESP_ERR_INVALID_STATE : err;
 }

@@ -112,8 +112,8 @@ static void view_free_image(view_image_t *image)
         return;
     }
 
-    heap_caps_free(image->gray);
-    heap_caps_free(image->frame_delays_ms);
+    solar_os_memory_free(image->gray);
+    solar_os_memory_free(image->frame_delays_ms);
     image->gray = NULL;
     image->frame_delays_ms = NULL;
     image->width = 0;
@@ -221,7 +221,7 @@ static esp_err_t view_read_stream(FILE *file, uint8_t **out_data, size_t *out_le
     }
 
     if (!view_read_exact(file, data, (size_t)size)) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return ESP_FAIL;
     }
 
@@ -275,7 +275,7 @@ static esp_err_t view_decode_stb(FILE *file, view_image_t *image, const char *fo
                  (unsigned)image_len);
     }
 
-    heap_caps_free(image_data);
+    solar_os_memory_free(image_data);
     return err;
 }
 
@@ -336,7 +336,7 @@ static esp_err_t view_decode_gif(FILE *file,
     }
 
     solar_os_stb_gif_animation_free(&animation);
-    heap_caps_free(image_data);
+    solar_os_memory_free(image_data);
     return err;
 }
 
@@ -378,7 +378,7 @@ static esp_err_t view_decode_webp(FILE *file, view_image_t *image)
                  (unsigned)image_len);
     }
 
-    heap_caps_free(image_data);
+    solar_os_memory_free(image_data);
     return err;
 }
 
@@ -459,11 +459,11 @@ static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
         const uint32_t file_y = top_down ? y : (height - 1U - y);
         const uint64_t row_offset = (uint64_t)pixel_offset + ((uint64_t)file_y * row_stride);
         if (row_offset > LONG_MAX || fseek(file, (long)row_offset, SEEK_SET) != 0) {
-            heap_caps_free(row);
+            solar_os_memory_free(row);
             return ESP_FAIL;
         }
         if (!view_read_exact(file, row, row_stride)) {
-            heap_caps_free(row);
+            solar_os_memory_free(row);
             return ESP_FAIL;
         }
 
@@ -501,7 +501,7 @@ static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
         }
     }
 
-    heap_caps_free(row);
+    solar_os_memory_free(row);
     return ESP_OK;
 }
 
@@ -660,7 +660,7 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
         }
         for (uint32_t y = 0; y < height; y++) {
             if (!view_read_exact(file, row, row_bytes)) {
-                heap_caps_free(row);
+                solar_os_memory_free(row);
                 return ESP_FAIL;
             }
             uint8_t *dest = &image->gray[(size_t)y * width];
@@ -670,7 +670,7 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
                 dest[x] = black ? 0 : 255;
             }
         }
-        heap_caps_free(row);
+        solar_os_memory_free(row);
         return ESP_OK;
     }
 
