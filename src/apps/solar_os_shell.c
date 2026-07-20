@@ -23,6 +23,9 @@
 #include "solar_os_buses.h"
 #endif
 #include "solar_os_display.h"
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+#include "solar_os_expansion.h"
+#endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
 #include "solar_os_job_registry.h"
@@ -4277,6 +4280,235 @@ static bool shell_complete_daq_argument(solar_os_context_t *ctx,
     return true;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+static const solar_os_expansion_binding_spec_t shell_manual_expansion_specs[] = {
+    {.key = "i2c", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS},
+    {.key = "spi", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS},
+    {.key = "cs", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS},
+    {.key = "uart", .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT},
+    {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},
+    {.key = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "gpio"},
+    {.key = "irq", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
+    {.key = "reset", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
+    {.key = "dc", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc"},
+    {.key = "busy", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy"},
+};
+
+static bool shell_expansion_find_driver(const char *name,
+                                        solar_os_expansion_driver_t *driver)
+{
+    for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
+        if (solar_os_expansion_get_driver(i, driver) && strcmp(driver->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const char *shell_expansion_token_key(const char *token,
+                                             char *key,
+                                             size_t key_len)
+{
+    const char *eq = token != NULL ? strchr(token, '=') : NULL;
+    if (eq == NULL || eq == token || (size_t)(eq - token) >= key_len) {
+        return NULL;
+    }
+    memcpy(key, token, (size_t)(eq - token));
+    key[eq - token] = '\0';
+    if (strcmp(key, "ce") == 0) {
+        strlcpy(key, "cs", key_len);
+    } else if (strcmp(key, "rst") == 0) {
+        strlcpy(key, "reset", key_len);
+    }
+    return key;
+}
+
+static bool shell_expansion_spec_used(const shell_completion_parse_t *parse,
+                                      size_t current_index,
+                                      const char *key)
+{
+    for (size_t i = 4; i < current_index && i < parse->count; i++) {
+        char token_key[SOLAR_OS_EXPANSION_ROLE_MAX];
+        if (shell_expansion_token_key(parse->tokens[i], token_key, sizeof(token_key)) != NULL &&
+            strcmp(token_key, key) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static const char *shell_expansion_selected_spi(const shell_completion_parse_t *parse,
+                                                size_t current_index)
+{
+    for (size_t i = 4; i < current_index && i < parse->count; i++) {
+        if (starts_with(parse->tokens[i], "spi=") && parse->tokens[i][4] != '\0') {
+            return &parse->tokens[i][4];
+        }
+    }
+    return NULL;
+}
+
+static void shell_completion_emit_expansion_gpio(shell_completion_match_t *state,
+                                                 const char *key)
+{
+    char candidate[32];
+    for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
+        solar_os_gpio_pin_info_t info;
+        if (!solar_os_gpio_get_pin_info(i, &info) || !info.available) {
+            continue;
+        }
+        snprintf(candidate, sizeof(candidate), "%s=gpio%d", key, info.pin);
+        shell_completion_emit(state, candidate);
+    }
+}
+
+static void shell_completion_emit_expansion_spec(
+    shell_completion_match_t *state,
+    const solar_os_expansion_binding_spec_t *spec,
+    const shell_completion_parse_t *parse,
+    size_t current_index)
+{
+    char candidate[40];
+
+    if (spec->allowed_value_count > 0) {
+        for (size_t i = 0; i < spec->allowed_value_count; i++) {
+            snprintf(candidate, sizeof(candidate), "%s=0x%02x", spec->key, spec->allowed_values[i]);
+            shell_completion_emit(state, candidate);
+        }
+        return;
+    }
+
+    switch (spec->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+        for (size_t i = 0; i < solar_os_expansion_i2c_bus_count(); i++) {
+            solar_os_expansion_i2c_bus_t bus;
+            if (solar_os_expansion_get_i2c_bus(i, &bus)) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+        for (size_t i = 0; i < solar_os_expansion_spi_bus_count(); i++) {
+            solar_os_expansion_spi_bus_t bus;
+            if (solar_os_expansion_get_spi_bus(i, &bus)) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+        for (size_t i = 0; i < solar_os_expansion_uart_port_count(); i++) {
+            solar_os_expansion_uart_port_t port;
+            if (solar_os_expansion_get_uart_port(i, &port)) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, port.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS: {
+        const char *selected = shell_expansion_selected_spi(parse, current_index);
+        for (size_t i = 0; i < solar_os_expansion_spi_bus_count(); i++) {
+            solar_os_expansion_spi_bus_t bus;
+            if (!solar_os_expansion_get_spi_bus(i, &bus) ||
+                (selected != NULL && strcmp(selected, bus.name) != 0)) {
+                continue;
+            }
+            for (size_t cs = 0; cs < bus.cs_count; cs++) {
+                snprintf(candidate, sizeof(candidate), "%s=gpio%d", spec->key, bus.cs[cs].pin);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    }
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+        shell_completion_emit_expansion_gpio(state, spec->key);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
+        shell_completion_emit(state, "addr=0x3c");
+        shell_completion_emit(state, "addr=0x3d");
+        break;
+    default:
+        break;
+    }
+}
+
+static void shell_completion_emit_expansion_bindings(
+    shell_completion_match_t *state,
+    const solar_os_expansion_driver_t *driver,
+    const shell_completion_parse_t *parse,
+    size_t current_index)
+{
+    const solar_os_expansion_binding_spec_t *specs = driver->binding_specs;
+    size_t spec_count = driver->binding_spec_count;
+    if (driver->allow_unlisted_bindings) {
+        specs = shell_manual_expansion_specs;
+        spec_count = SHELL_ARRAY_COUNT(shell_manual_expansion_specs);
+    }
+    for (size_t i = 0; i < spec_count; i++) {
+        if (!shell_expansion_spec_used(parse, current_index, specs[i].key)) {
+            shell_completion_emit_expansion_spec(state, &specs[i], parse, current_index);
+        }
+    }
+}
+
+static bool shell_complete_expansion_argument(solar_os_context_t *ctx,
+                                              const char *effective_command,
+                                              const shell_completion_parse_t *parse,
+                                              size_t current_index,
+                                              size_t token_start,
+                                              bool show_matches)
+{
+    if (strcmp(effective_command, "expansion") != 0 || current_index < 3 ||
+        parse->count < 3 || strcmp(parse->tokens[1], "attach") != 0) {
+        return false;
+    }
+    if (current_index == 3) {
+        return true;
+    }
+
+    solar_os_expansion_driver_t driver;
+    if (!shell_expansion_find_driver(parse->tokens[2], &driver)) {
+        return true;
+    }
+    const char *prefix = "";
+    if (!parse->trailing_space && current_index < parse->count) {
+        prefix = parse->tokens[current_index];
+    }
+
+    shell_completion_match_t state;
+    shell_completion_init_state(ctx, prefix, false, &state);
+    shell_completion_emit_expansion_bindings(&state, &driver, parse, current_index);
+    if (state.count == 0) {
+        return true;
+    }
+    shell_session(ctx)->history_browsing = false;
+    shell_session(ctx)->history_index = -1;
+
+    if (state.count == 1 && !show_matches) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s ",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+    if (show_matches) {
+        char original[SHELL_INPUT_MAX];
+        strlcpy(original, shell_session(ctx)->input, sizeof(original));
+        solar_os_shell_io_newline(shell_io(ctx));
+        shell_completion_init_state(ctx, prefix, true, &state);
+        shell_completion_emit_expansion_bindings(&state, &driver, parse, current_index);
+        shell_prompt(ctx);
+        shell_replace_input(ctx, original);
+    }
+    return true;
+}
+#endif
+
 static bool shell_completion_collect_matches(solar_os_context_t *ctx,
                                              const char * const *tokens,
                                              size_t token_count,
@@ -4453,6 +4685,16 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                                     show_matches)) {
         return true;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (shell_complete_expansion_argument(ctx,
+                                          effective_command,
+                                          parse,
+                                          current_index,
+                                          token_start,
+                                          show_matches)) {
+        return true;
+    }
+#endif
 
     const shell_completion_rule_t *path_rule =
         shell_completion_find_path_rule(completed_tokens, completed_count);

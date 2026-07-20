@@ -21,12 +21,47 @@
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
 
+#if SOLAR_OS_PACKAGE_EXPANSION_RFM69
+static const solar_os_expansion_binding_spec_t rfm69_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
+    {.key = "irq", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
+    {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
+static const solar_os_expansion_binding_spec_t pcd8544_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
+    {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
+    {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .required = true},
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
+static const int oled_i2c_addresses[] = {0x3c, 0x3d};
+
+static const solar_os_expansion_binding_spec_t oled_binding_specs[] = {
+    {.key = "i2c", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .required = true},
+    {
+        .key = "addr",
+        .value_hint = "0x3c|0x3d",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .required = true,
+        .allowed_values = oled_i2c_addresses,
+        .allowed_value_count = sizeof(oled_i2c_addresses) / sizeof(oled_i2c_addresses[0]),
+    },
+};
+#endif
+
 static const solar_os_expansion_driver_t expansion_drivers[] = {
     {
         .name = "manual",
         .summary = "manual resource profile",
         .required_capabilities = 0,
         .probe_supported = false,
+        .allow_unlisted_bindings = true,
     },
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     {
@@ -34,6 +69,8 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .summary = "HopeRF RFM69 SPI packet radio",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
         .probe_supported = true,
+        .binding_specs = rfm69_binding_specs,
+        .binding_spec_count = sizeof(rfm69_binding_specs) / sizeof(rfm69_binding_specs[0]),
         .attach = solar_os_rfm69_attach,
         .detach = solar_os_rfm69_detach,
     },
@@ -45,6 +82,8 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI |
             SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
         .probe_supported = false,
+        .binding_specs = pcd8544_binding_specs,
+        .binding_spec_count = sizeof(pcd8544_binding_specs) / sizeof(pcd8544_binding_specs[0]),
         .attach = solar_os_pcd8544_attach,
         .detach = solar_os_pcd8544_detach,
     },
@@ -55,6 +94,8 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .summary = "SSD1306 128x64 I2C OLED",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
         .probe_supported = true,
+        .binding_specs = oled_binding_specs,
+        .binding_spec_count = sizeof(oled_binding_specs) / sizeof(oled_binding_specs[0]),
         .attach = solar_os_ssd1306_attach,
         .detach = solar_os_ssd1306_detach,
     },
@@ -63,6 +104,8 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .summary = "SH1106 128x64 I2C OLED",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
         .probe_supported = true,
+        .binding_specs = oled_binding_specs,
+        .binding_spec_count = sizeof(oled_binding_specs) / sizeof(oled_binding_specs[0]),
         .attach = solar_os_sh1106_attach,
         .detach = solar_os_ssd1306_detach,
     },
@@ -149,6 +192,52 @@ static const solar_os_expansion_driver_t *find_driver(const char *name)
         }
     }
     return NULL;
+}
+
+static bool binding_matches_spec(const solar_os_expansion_binding_t *binding,
+                                 const solar_os_expansion_binding_spec_t *spec)
+{
+    if (binding == NULL || spec == NULL || binding->kind != spec->kind) {
+        return false;
+    }
+    return spec->role == NULL || strcmp(binding->role, spec->role) == 0;
+}
+
+static const char *binding_key(const solar_os_expansion_binding_t *binding)
+{
+    if (binding == NULL) {
+        return "resource";
+    }
+    switch (binding->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_ADC:
+    case SOLAR_OS_EXPANSION_BINDING_PWM:
+        return binding->role[0] != '\0' ? binding->role :
+            solar_os_expansion_binding_kind_name(binding->kind);
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+        return "i2c";
+    case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
+        return "addr";
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+        return "spi";
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+        return "cs";
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+        return "uart";
+    default:
+        return "resource";
+    }
+}
+
+static void set_binding_validation(solar_os_expansion_binding_validation_t *validation,
+                                   solar_os_expansion_binding_validation_reason_t reason,
+                                   const char *key)
+{
+    if (validation == NULL) {
+        return;
+    }
+    validation->reason = reason;
+    strlcpy(validation->key, key != NULL ? key : "resource", sizeof(validation->key));
 }
 
 static bool pin_is_expansion_gpio(int pin)
@@ -460,6 +549,107 @@ bool solar_os_expansion_driver_supported(const char *name)
         (caps & driver->required_capabilities) == driver->required_capabilities;
 }
 
+esp_err_t solar_os_expansion_validate_bindings(
+    const char *driver,
+    const solar_os_expansion_binding_t *bindings,
+    size_t binding_count,
+    solar_os_expansion_binding_validation_t *validation)
+{
+    if (validation != NULL) {
+        memset(validation, 0, sizeof(*validation));
+        validation->reason = SOLAR_OS_EXPANSION_BINDINGS_VALID;
+    }
+    if (driver == NULL || driver[0] == '\0' ||
+        binding_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
+        (binding_count > 0 && bindings == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_expansion_driver_t *driver_def = find_driver(driver);
+    if (driver_def == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (driver_def->allow_unlisted_bindings && binding_count == 0) {
+        set_binding_validation(validation, SOLAR_OS_EXPANSION_BINDINGS_MISSING, "resource");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    for (size_t i = 0; i < binding_count; i++) {
+        const solar_os_expansion_binding_spec_t *matched = NULL;
+        size_t matches = 0;
+        for (size_t s = 0; s < driver_def->binding_spec_count; s++) {
+            const solar_os_expansion_binding_spec_t *spec = &driver_def->binding_specs[s];
+            if (!binding_matches_spec(&bindings[i], spec)) {
+                continue;
+            }
+            matched = spec;
+            for (size_t j = 0; j < i; j++) {
+                if (binding_matches_spec(&bindings[j], spec)) {
+                    matches++;
+                }
+            }
+            break;
+        }
+        if (matched == NULL && !driver_def->allow_unlisted_bindings) {
+            set_binding_validation(validation,
+                                   SOLAR_OS_EXPANSION_BINDINGS_UNEXPECTED,
+                                   binding_key(&bindings[i]));
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (matched != NULL && matches > 0) {
+            set_binding_validation(validation,
+                                   SOLAR_OS_EXPANSION_BINDINGS_DUPLICATE,
+                                   matched->key);
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (matched != NULL && matched->allowed_value_count > 0) {
+            bool allowed = false;
+            for (size_t v = 0; v < matched->allowed_value_count; v++) {
+                if (bindings[i].value == matched->allowed_values[v]) {
+                    allowed = true;
+                    break;
+                }
+            }
+            if (!allowed) {
+                set_binding_validation(validation,
+                                       SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE,
+                                       matched->key);
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+    }
+
+    for (size_t s = 0; s < driver_def->binding_spec_count; s++) {
+        const solar_os_expansion_binding_spec_t *spec = &driver_def->binding_specs[s];
+        if (!spec->required) {
+            continue;
+        }
+        bool found = false;
+        for (size_t i = 0; i < binding_count; i++) {
+            if (binding_matches_spec(&bindings[i], spec)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            set_binding_validation(validation,
+                                   SOLAR_OS_EXPANSION_BINDINGS_MISSING,
+                                   spec->key);
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
+    for (size_t i = 0; i < binding_count; i++) {
+        if (!binding_valid(&bindings[i], bindings, binding_count)) {
+            set_binding_validation(validation,
+                                   SOLAR_OS_EXPANSION_BINDINGS_UNAVAILABLE,
+                                   binding_key(&bindings[i]));
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    return ESP_OK;
+}
+
 size_t solar_os_expansion_i2c_bus_count(void)
 {
     return solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C);
@@ -672,9 +862,8 @@ esp_err_t solar_os_expansion_attach(const char *driver,
 {
     if (driver == NULL || driver[0] == '\0' ||
         !device_name_valid(name) ||
-        bindings == NULL ||
-        binding_count == 0 ||
-        binding_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX) {
+        binding_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
+        (binding_count > 0 && bindings == NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (!solar_os_expansion_available()) {
@@ -684,16 +873,16 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     if (driver_def == NULL || !solar_os_expansion_driver_supported(driver)) {
         return ESP_ERR_NOT_FOUND;
     }
+    ESP_RETURN_ON_ERROR(solar_os_expansion_validate_bindings(driver,
+                                                              bindings,
+                                                              binding_count,
+                                                              NULL),
+                        "expansion",
+                        "invalid bindings");
     solar_os_expansion_binding_t normalized[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
     for (size_t i = 0; i < binding_count; i++) {
         normalized[i] = bindings[i];
     }
-    for (size_t i = 0; i < binding_count; i++) {
-        if (!binding_valid(&normalized[i], normalized, binding_count)) {
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
-
     solar_os_resource_request_t requests[SOLAR_OS_RESOURCE_BUNDLE_MAX];
     size_t request_count = 0;
     for (size_t i = 0; i < binding_count; i++) {
