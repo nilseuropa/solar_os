@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_check.h"
+#include "freertos/FreeRTOS.h"
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
@@ -69,6 +70,16 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
 };
 
 static solar_os_expansion_device_t devices[SOLAR_OS_EXPANSION_DEVICE_MAX];
+typedef enum {
+    EXPANSION_SLOT_FREE,
+    EXPANSION_SLOT_ATTACHING,
+    EXPANSION_SLOT_ACTIVE,
+    EXPANSION_SLOT_DETACHING,
+} expansion_slot_state_t;
+
+static expansion_slot_state_t device_states[SOLAR_OS_EXPANSION_DEVICE_MAX];
+static uint32_t device_generations[SOLAR_OS_EXPANSION_DEVICE_MAX];
+static portMUX_TYPE devices_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool mask_contains(uint64_t mask, int pin)
 {
@@ -83,27 +94,48 @@ static bool device_name_valid(const char *name)
     return strnlen(name, SOLAR_OS_EXPANSION_DEVICE_NAME_MAX) < SOLAR_OS_EXPANSION_DEVICE_NAME_MAX;
 }
 
-static solar_os_expansion_device_t *find_device(const char *name)
+static int find_device_locked(const char *name)
 {
     if (name == NULL) {
-        return NULL;
+        return -1;
     }
     for (size_t i = 0; i < SOLAR_OS_EXPANSION_DEVICE_MAX; i++) {
-        if (devices[i].active && strcmp(devices[i].name, name) == 0) {
-            return &devices[i];
+        if (device_states[i] != EXPANSION_SLOT_FREE && strcmp(devices[i].name, name) == 0) {
+            return (int)i;
         }
     }
-    return NULL;
+    return -1;
 }
 
-static solar_os_expansion_device_t *alloc_device(void)
+static int alloc_device_locked(void)
 {
     for (size_t i = 0; i < SOLAR_OS_EXPANSION_DEVICE_MAX; i++) {
-        if (!devices[i].active) {
-            return &devices[i];
+        if (device_states[i] == EXPANSION_SLOT_FREE) {
+            return (int)i;
         }
     }
-    return NULL;
+    return -1;
+}
+
+static uint32_t next_device_generation_locked(size_t index)
+{
+    device_generations[index]++;
+    if (device_generations[index] == 0) {
+        device_generations[index]++;
+    }
+    return device_generations[index];
+}
+
+static void release_device_reservation(size_t index, uint32_t generation)
+{
+    portENTER_CRITICAL(&devices_lock);
+    if (index < SOLAR_OS_EXPANSION_DEVICE_MAX &&
+        device_generations[index] == generation &&
+        device_states[index] == EXPANSION_SLOT_ATTACHING) {
+        memset(&devices[index], 0, sizeof(devices[index]));
+        device_states[index] = EXPANSION_SLOT_FREE;
+    }
+    portEXIT_CRITICAL(&devices_lock);
 }
 
 static const solar_os_expansion_driver_t *find_driver(const char *name)
@@ -652,10 +684,6 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     if (driver_def == NULL || !solar_os_expansion_driver_supported(driver)) {
         return ESP_ERR_NOT_FOUND;
     }
-    if (find_device(name) != NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
     solar_os_expansion_binding_t normalized[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
     for (size_t i = 0; i < binding_count; i++) {
         normalized[i] = bindings[i];
@@ -664,11 +692,6 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         if (!binding_valid(&normalized[i], normalized, binding_count)) {
             return ESP_ERR_INVALID_ARG;
         }
-    }
-
-    solar_os_expansion_device_t *device = alloc_device();
-    if (device == NULL) {
-        return ESP_ERR_NO_MEM;
     }
 
     solar_os_resource_request_t requests[SOLAR_OS_RESOURCE_BUNDLE_MAX];
@@ -683,12 +706,38 @@ esp_err_t solar_os_expansion_attach(const char *driver,
             return ret;
         }
     }
+
+    size_t device_index = 0;
+    uint32_t generation = 0;
+    portENTER_CRITICAL(&devices_lock);
+    if (find_device_locked(name) >= 0) {
+        portEXIT_CRITICAL(&devices_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    const int free_index = alloc_device_locked();
+    if (free_index < 0) {
+        portEXIT_CRITICAL(&devices_lock);
+        return ESP_ERR_NO_MEM;
+    }
+    device_index = (size_t)free_index;
+    generation = next_device_generation_locked(device_index);
+    memset(&devices[device_index], 0, sizeof(devices[device_index]));
+    strlcpy(devices[device_index].name, name, sizeof(devices[device_index].name));
+    strlcpy(devices[device_index].driver, driver, sizeof(devices[device_index].driver));
+    devices[device_index].binding_count = binding_count;
+    memcpy(devices[device_index].bindings,
+           normalized,
+           binding_count * sizeof(normalized[0]));
+    device_states[device_index] = EXPANSION_SLOT_ATTACHING;
+    portEXIT_CRITICAL(&devices_lock);
+
     if (request_count > 0) {
         const esp_err_t ret = solar_os_resource_claim_bundle(requests,
                                                              request_count,
                                                              name,
                                                              NULL);
         if (ret != ESP_OK) {
+            release_device_reservation(device_index, generation);
             return ret;
         }
     }
@@ -696,6 +745,7 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     const esp_err_t bus_ret = acquire_binding_buses(normalized, binding_count, name);
     if (bus_ret != ESP_OK) {
         (void)solar_os_resource_release_owner(name);
+        release_device_reservation(device_index, generation);
         return bus_ret;
     }
 
@@ -704,50 +754,85 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         if (ret != ESP_OK) {
             (void)solar_os_bus_release_owner(name);
             (void)solar_os_resource_release_owner(name);
+            release_device_reservation(device_index, generation);
             return ret;
         }
     }
 
-    memset(device, 0, sizeof(*device));
-    device->active = true;
-    strlcpy(device->name, name, sizeof(device->name));
-    strlcpy(device->driver, driver, sizeof(device->driver));
-    device->binding_count = binding_count;
-    for (size_t i = 0; i < binding_count; i++) {
-        device->bindings[i] = normalized[i];
+    portENTER_CRITICAL(&devices_lock);
+    if (device_generations[device_index] != generation ||
+        device_states[device_index] != EXPANSION_SLOT_ATTACHING) {
+        portEXIT_CRITICAL(&devices_lock);
+        (void)solar_os_bus_release_owner(name);
+        (void)solar_os_resource_release_owner(name);
+        return ESP_ERR_INVALID_STATE;
     }
+    devices[device_index].active = true;
+    device_states[device_index] = EXPANSION_SLOT_ACTIVE;
+    portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
 }
 
 esp_err_t solar_os_expansion_detach(const char *name)
 {
-    solar_os_expansion_device_t *device = find_device(name);
-    if (device == NULL) {
+    solar_os_expansion_device_t device;
+    size_t device_index = 0;
+    uint32_t generation = 0;
+
+    portENTER_CRITICAL(&devices_lock);
+    const int found_index = find_device_locked(name);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&devices_lock);
         return ESP_ERR_NOT_FOUND;
     }
+    device_index = (size_t)found_index;
+    if (device_states[device_index] != EXPANSION_SLOT_ACTIVE) {
+        portEXIT_CRITICAL(&devices_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    generation = device_generations[device_index];
+    device = devices[device_index];
+    devices[device_index].active = false;
+    device_states[device_index] = EXPANSION_SLOT_DETACHING;
+    portEXIT_CRITICAL(&devices_lock);
 
-    const solar_os_expansion_driver_t *driver = find_driver(device->driver);
+    const solar_os_expansion_driver_t *driver = find_driver(device.driver);
     if (driver != NULL && driver->detach != NULL) {
         const esp_err_t ret = driver->detach(name);
         if (ret != ESP_OK) {
+            portENTER_CRITICAL(&devices_lock);
+            if (device_generations[device_index] == generation &&
+                device_states[device_index] == EXPANSION_SLOT_DETACHING) {
+                devices[device_index].active = true;
+                device_states[device_index] = EXPANSION_SLOT_ACTIVE;
+            }
+            portEXIT_CRITICAL(&devices_lock);
             return ret;
         }
     }
 
     (void)solar_os_bus_release_owner(name);
     (void)solar_os_resource_release_owner(name);
-    memset(device, 0, sizeof(*device));
+    portENTER_CRITICAL(&devices_lock);
+    if (device_generations[device_index] == generation &&
+        device_states[device_index] == EXPANSION_SLOT_DETACHING) {
+        memset(&devices[device_index], 0, sizeof(devices[device_index]));
+        device_states[device_index] = EXPANSION_SLOT_FREE;
+    }
+    portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
 }
 
 size_t solar_os_expansion_device_count(void)
 {
     size_t count = 0;
+    portENTER_CRITICAL(&devices_lock);
     for (size_t i = 0; i < SOLAR_OS_EXPANSION_DEVICE_MAX; i++) {
-        if (devices[i].active) {
+        if (device_states[i] == EXPANSION_SLOT_ACTIVE) {
             count++;
         }
     }
+    portEXIT_CRITICAL(&devices_lock);
     return count;
 }
 
@@ -757,15 +842,18 @@ bool solar_os_expansion_get_device(size_t index, solar_os_expansion_device_t *de
     if (device == NULL) {
         return false;
     }
+    portENTER_CRITICAL(&devices_lock);
     for (size_t i = 0; i < SOLAR_OS_EXPANSION_DEVICE_MAX; i++) {
-        if (!devices[i].active) {
+        if (device_states[i] != EXPANSION_SLOT_ACTIVE) {
             continue;
         }
         if (current++ == index) {
             *device = devices[i];
+            portEXIT_CRITICAL(&devices_lock);
             return true;
         }
     }
+    portEXIT_CRITICAL(&devices_lock);
     return false;
 }
 

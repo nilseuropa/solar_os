@@ -44,6 +44,7 @@ esp_err_t solar_os_display_unregister_target(const char *name);
 size_t solar_os_display_target_count(void);
 bool solar_os_display_get_target(size_t index, solar_os_display_target_t *target);
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target);
+/* Claims are reference-counted per owner; every successful claim needs a release. */
 esp_err_t solar_os_display_claim(const char *name,
                                  const char *owner,
                                  char *busy_owner,

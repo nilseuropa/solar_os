@@ -44,6 +44,7 @@ typedef struct {
     uint32_t uid_validity;
     uint32_t success_count;
     uint32_t fail_count;
+    uint32_t generation;
     esp_err_t last_error;
     TaskHandle_t task;
 } email_sync_state_t;
@@ -697,6 +698,11 @@ static esp_err_t email_sync_start(solar_os_context_t *ctx, int argc, char **argv
         return err;
     }
     memset(&email_sync, 0, sizeof(email_sync));
+    err = solar_os_jobs_get_generation(solar_os_email_sync_job.name,
+                                       &email_sync.generation);
+    if (err != ESP_OK) {
+        return err;
+    }
     email_sync.running = true;
     email_sync.once = once;
     email_sync.interval_ms = interval_sec * 1000U;
@@ -724,7 +730,9 @@ static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *ev
     }
     if (email_sync.complete_requested && !email_sync.sync_in_progress) {
         email_sync.complete_requested = false;
-        (void)solar_os_jobs_mark_stopped(solar_os_email_sync_job.name, email_sync.last_error);
+        (void)solar_os_jobs_mark_stopped(solar_os_email_sync_job.name,
+                                         email_sync.generation,
+                                         email_sync.last_error);
         return true;
     }
     if (!email_sync.running || email_sync.sync_in_progress) {

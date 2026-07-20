@@ -87,6 +87,7 @@ esp_err_t solar_os_expansion_attach(const char *driver,
                                     size_t binding_count);
 esp_err_t solar_os_expansion_detach(const char *name);
 size_t solar_os_expansion_device_count(void);
+/* Returns a caller-owned snapshot; no registry pointer is borrowed. */
 bool solar_os_expansion_get_device(size_t index, solar_os_expansion_device_t *device);
 
 const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind_t kind);

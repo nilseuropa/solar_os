@@ -122,6 +122,7 @@ Detailed documentation split by topic:
 - [Expansion ports and external devices](doc/expansion.md)
 - [Foreground apps](doc/apps.md)
 - [Background jobs](doc/jobs.md)
+- [Service concurrency contract](doc/service-concurrency.md)
 - [Board targets and board support](doc/solar_os_boards.md)
 - [Python API](doc/solar_os_python.md)
 - [Lua API](doc/solar_os_lua.md)

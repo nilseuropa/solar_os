@@ -45,6 +45,7 @@ typedef struct {
     uint8_t pending_count;
     uint32_t captures;
     uint64_t uploaded_bytes;
+    uint32_t generation;
     esp_err_t last_error;
 } sump_job_state_t;
 
@@ -288,7 +289,9 @@ static void sump_task(void *arg)
 
     if (fatal_error != ESP_OK) {
         sump_job.last_error = fatal_error;
-        (void)solar_os_jobs_mark_stopped(solar_os_sump_job.name, fatal_error);
+        (void)solar_os_jobs_mark_stopped(solar_os_sump_job.name,
+                                         sump_job.generation,
+                                         fatal_error);
     }
     SOLAR_OS_LOGI(TAG,
                   "stopped: captures=%lu uploaded=%llu error=%s",
@@ -373,6 +376,10 @@ static esp_err_t sump_start(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_logic_config_t config;
     esp_err_t err = sump_parse_pins(argc, argv, &config);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = solar_os_jobs_get_generation(solar_os_sump_job.name, &sump_job.generation);
     if (err != ESP_OK) {
         return err;
     }

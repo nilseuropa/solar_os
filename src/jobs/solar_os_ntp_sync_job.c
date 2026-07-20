@@ -30,6 +30,7 @@ typedef struct {
     TaskHandle_t task;
     uint32_t success_count;
     uint32_t fail_count;
+    uint32_t generation;
     esp_err_t last_error;
 } ntp_sync_job_state_t;
 
@@ -207,6 +208,10 @@ static esp_err_t ntp_sync_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
 
+    if (ntp_job.task != NULL || ntp_job.sync_in_progress) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     uint32_t interval_sec = NTP_SYNC_DEFAULT_INTERVAL_SEC;
     const char *server = SOLAR_OS_NTP_DEFAULT_SERVER;
     bool once = false;
@@ -216,6 +221,11 @@ static esp_err_t ntp_sync_start(solar_os_context_t *ctx, int argc, char **argv)
 
     if (server == NULL || server[0] == '\0' || strlen(server) >= sizeof(ntp_job.server)) {
         return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_jobs_get_generation(solar_os_ntp_sync_job.name,
+                                                 &ntp_job.generation);
+    if (err != ESP_OK) {
+        return err;
     }
 
     ntp_job.running = true;
@@ -264,7 +274,9 @@ static bool ntp_sync_event(solar_os_context_t *ctx, const solar_os_event_t *even
     if (ntp_job.complete_requested && !ntp_job.sync_in_progress) {
         ntp_job.complete_requested = false;
         ntp_job.once = false;
-        (void)solar_os_jobs_mark_stopped(solar_os_ntp_sync_job.name, ESP_OK);
+        (void)solar_os_jobs_mark_stopped(solar_os_ntp_sync_job.name,
+                                         ntp_job.generation,
+                                         ESP_OK);
         return true;
     }
 
