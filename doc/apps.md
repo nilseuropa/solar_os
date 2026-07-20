@@ -92,14 +92,19 @@ Controls:
 
 ## com
 
-Serial terminal for the expansion UART. BLE keyboard input is forwarded to the
-UART and UART RX is drawn in the terminal.
+Serial terminal for the expansion UART. Display-keyboard or port-shell input is
+forwarded to the UART, and UART RX is drawn in the active terminal.
 
 Usage:
 
 ```text
-com
+com [bus]
 ```
+
+The bus defaults to `uart0`. For example, `com gps` connects to an existing
+runtime UART bus named `gps`. The selected bus remains leased by the app until
+the session exits. `com` works from both display and port shells; when launched
+from a port shell, its terminal output is returned through that same port.
 
 Controls:
 

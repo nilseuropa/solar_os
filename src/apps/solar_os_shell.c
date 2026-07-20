@@ -97,6 +97,7 @@ typedef struct {
     bool complete_i2c_arguments;
     bool complete_onewire_buses;
     bool complete_spi_buses;
+    bool complete_uart_buses;
     bool complete_uart_arguments;
     bool complete_buses;
     bool complete_spi_cs;
@@ -746,6 +747,9 @@ static const char * const plot_live_options[] = {"--rate"};
 
 static const char * const path_ls[] = {"ls"};
 static const char * const path_rm[] = {"rm"};
+#if SOLAR_OS_PACKAGE_APP_COM
+static const char * const path_com[] = {"com"};
+#endif
 static const char * const path_zip[] = {"zip"};
 static const char * const path_zip_after_archive[] = {"zip", SHELL_COMPLETION_ANY};
 static const char * const path_zip_after_option[] = {"zip", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
@@ -1252,6 +1256,12 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_spi_buses = true, \
     }
+#define SHELL_COMPLETION_UART_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_uart_buses = true, \
+    }
 #define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
@@ -1300,6 +1310,9 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
 static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
     SHELL_COMPLETION_OPTIONS(path_rm, rm_options),
+#if SOLAR_OS_PACKAGE_APP_COM
+    SHELL_COMPLETION_UART_BUSES(path_com),
+#endif
     SHELL_COMPLETION_OPTIONS(path_zip, zip_options),
     SHELL_COMPLETION_PATH(path_zip_after_archive, false),
     SHELL_COMPLETION_PATH(path_zip_after_option, false),
@@ -1571,6 +1584,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
 #undef SHELL_COMPLETION_SPI_CS
+#undef SHELL_COMPLETION_UART_BUSES
 #undef SHELL_COMPLETION_UART_ARGUMENTS
 #undef SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS
 #undef SHELL_COMPLETION_STORAGE_MOUNTABLES
@@ -4587,6 +4601,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
         if (rule->complete_spi_buses) {
             shell_completion_emit_spi_buses(state);
+        }
+        if (rule->complete_uart_buses) {
+            shell_completion_emit_uart_buses(state);
         }
         if (rule->complete_uart_arguments) {
             shell_completion_emit_uart_arguments(state, tokens, token_count);
