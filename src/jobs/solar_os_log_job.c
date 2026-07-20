@@ -7,14 +7,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_port.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 
 #define LOG_JOB_POLL_MS 250U
 #define LOG_JOB_BATCH 8U
 #define LOG_JOB_LINE_MAX 256U
+#define LOG_JOB_WORKER_STACK 6144U
+#define LOG_JOB_WORKER_PRIORITY (tskIDLE_PRIORITY + 1)
+#define LOG_JOB_NOTIFY_POLL (1U << 0)
+#define LOG_JOB_NOTIFY_STOP (1U << 1)
 
 static const char *TAG = "solar_os_log_job";
 
@@ -36,12 +43,16 @@ typedef struct {
     uint32_t written_entries;
     uint32_t failed_writes;
     esp_err_t last_error;
+    TaskHandle_t worker_task;
+    volatile bool worker_done;
 } log_job_state_t;
 
 static log_job_state_t log_job = {
     .port = SOLAR_OS_PORT_HANDLE_INIT,
     .last_error = ESP_OK,
 };
+
+static void log_job_worker_task(void *arg);
 
 static char log_job_level_letter(solar_os_log_level_t level)
 {
@@ -77,6 +88,8 @@ static void log_job_cleanup(void)
     }
 
     log_job.running = false;
+    log_job.worker_task = NULL;
+    log_job.worker_done = false;
     log_job.target = LOG_JOB_TARGET_NONE;
     log_job.target_name[0] = '\0';
     log_job.next_poll_ms = 0;
@@ -217,6 +230,10 @@ static esp_err_t log_job_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
 
+    if (log_job.worker_task != NULL && !log_job.worker_done) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     if (argc < 2 || argv == NULL || argv[1] == NULL || argv[1][0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
@@ -258,6 +275,21 @@ static esp_err_t log_job_start(solar_os_context_t *ctx, int argc, char **argv)
     log_job.written_entries = 0;
     log_job.failed_writes = 0;
     log_job.last_error = ESP_OK;
+    log_job.worker_done = false;
+    log_job.worker_task = NULL;
+
+    /* Flash-backed VFS calls require an internal stack while cache is disabled. */
+    if (solar_os_task_create_pinned(log_job_worker_task,
+                                    "log_worker",
+                                    LOG_JOB_WORKER_STACK,
+                                    NULL,
+                                    LOG_JOB_WORKER_PRIORITY,
+                                    &log_job.worker_task,
+                                    tskNO_AFFINITY) != pdPASS) {
+        log_job.last_error = ESP_ERR_NO_MEM;
+        log_job_cleanup();
+        return ESP_ERR_NO_MEM;
+    }
 
     SOLAR_OS_LOGI(TAG,
                   "started: target=%s level=%s",
@@ -281,6 +313,18 @@ static void log_job_stop(solar_os_context_t *ctx)
     const uint32_t written_entries = log_job.written_entries;
     const uint32_t failed_writes = log_job.failed_writes;
 
+    log_job.running = false;
+    if (log_job.worker_task != NULL) {
+        (void)xTaskNotify(log_job.worker_task, LOG_JOB_NOTIFY_STOP, eSetBits);
+    }
+    if (!solar_os_task_wait_done(log_job.worker_task,
+                                 &log_job.worker_done,
+                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
+        SOLAR_OS_LOGW(TAG, "worker did not stop within %u ms",
+                      (unsigned)SOLAR_OS_TASK_STOP_WAIT_MS);
+        return;
+    }
+
     if (log_job.file != NULL) {
         (void)fflush(log_job.file);
     }
@@ -291,6 +335,56 @@ static void log_job_stop(solar_os_context_t *ctx)
                   target_copy[0] != '\0' ? target_copy : "?",
                   written_entries,
                   failed_writes);
+}
+
+static void log_job_poll(void)
+{
+    solar_os_log_entry_t entries[LOG_JOB_BATCH];
+    size_t available = 0;
+    const size_t copied = solar_os_log_snapshot_since(log_job.last_sequence,
+                                                      log_job.level,
+                                                      entries,
+                                                      sizeof(entries) / sizeof(entries[0]),
+                                                      &available);
+    if (copied == 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < copied; i++) {
+        const esp_err_t err = log_job_write_entry(&entries[i]);
+        if (err != ESP_OK) {
+            log_job.last_error = err;
+            log_job.failed_writes++;
+            return;
+        }
+
+        log_job.last_sequence = entries[i].sequence;
+        log_job.written_entries++;
+    }
+
+    if (log_job.file != NULL) {
+        (void)fflush(log_job.file);
+    }
+    log_job.last_error = ESP_OK;
+}
+
+static void log_job_worker_task(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        uint32_t notification = 0;
+        (void)xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
+        if ((notification & LOG_JOB_NOTIFY_STOP) != 0) {
+            break;
+        }
+        if ((notification & LOG_JOB_NOTIFY_POLL) != 0 && log_job.running) {
+            log_job_poll();
+        }
+    }
+
+    log_job.worker_done = true;
+    vTaskDelete(NULL);
 }
 
 static bool log_job_event(solar_os_context_t *ctx, const solar_os_event_t *event)
@@ -307,35 +401,12 @@ static bool log_job_event(solar_os_context_t *ctx, const solar_os_event_t *event
         return false;
     }
     log_job.next_poll_ms = now_ms + LOG_JOB_POLL_MS;
-
-    solar_os_log_entry_t entries[LOG_JOB_BATCH];
-    size_t available = 0;
-    const size_t copied = solar_os_log_snapshot_since(log_job.last_sequence,
-                                                      log_job.level,
-                                                      entries,
-                                                      sizeof(entries) / sizeof(entries[0]),
-                                                      &available);
-    if (copied == 0) {
+    if (log_job.worker_task == NULL) {
+        log_job.failed_writes++;
+        log_job.last_error = ESP_ERR_INVALID_STATE;
         return false;
     }
-
-    for (size_t i = 0; i < copied; i++) {
-        const esp_err_t err = log_job_write_entry(&entries[i]);
-        if (err != ESP_OK) {
-            log_job.last_error = err;
-            log_job.failed_writes++;
-            return false;
-        }
-
-        log_job.last_sequence = entries[i].sequence;
-        log_job.written_entries++;
-    }
-
-    if (log_job.file != NULL) {
-        (void)fflush(log_job.file);
-    }
-    log_job.last_error = ESP_OK;
-    return true;
+    return xTaskNotify(log_job.worker_task, LOG_JOB_NOTIFY_POLL, eSetBits) == pdPASS;
 }
 
 const solar_os_job_t solar_os_log_job = {
@@ -344,4 +415,6 @@ const solar_os_job_t solar_os_log_job = {
     .start = log_job_start,
     .stop = log_job_stop,
     .event = log_job_event,
+    .tick_interval_ms = LOG_JOB_POLL_MS,
+    .tick_deadline_ms = 2U,
 };

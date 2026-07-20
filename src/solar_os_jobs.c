@@ -1,11 +1,13 @@
 #include "solar_os_jobs.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jobs/solar_os_job_registry.h"
+#include "solar_os_log.h"
 
 typedef struct {
     const solar_os_job_registry_entry_t *entry;
@@ -14,6 +16,7 @@ typedef struct {
     uint32_t tick_count;
     uint32_t last_tick_ms;
     uint32_t generation;
+    solar_os_tick_stats_t tick_stats;
     size_t callback_refs;
     bool lifecycle_busy;
     char owner[SOLAR_OS_JOB_OWNER_MAX];
@@ -115,6 +118,7 @@ static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
         .last_tick_ms = runtime->last_tick_ms,
         .generation = runtime->generation,
         .has_event = runtime->entry->job != NULL && runtime->entry->job->event != NULL,
+        .tick_stats = runtime->tick_stats,
         .resource_count = runtime->resource_count,
     };
     strlcpy(status->owner, runtime->owner, sizeof(status->owner));
@@ -261,6 +265,7 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
         runtime->last_error = ret;
         runtime->tick_count = 0;
         runtime->last_tick_ms = 0;
+        solar_os_tick_stats_reset(&runtime->tick_stats);
         runtime->state = ret == ESP_OK ? SOLAR_OS_JOB_RUNNING : SOLAR_OS_JOB_FAILED;
         runtime->lifecycle_busy = false;
         if (ret != ESP_OK) {
@@ -388,13 +393,20 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
     for (size_t i = 0; i < job_count; i++) {
         bool (*callback)(solar_os_context_t *ctx, const solar_os_event_t *event) = NULL;
         uint32_t generation = 0;
+        int64_t started_us = 0;
         portENTER_CRITICAL(&jobs_lock);
         solar_os_job_runtime_t *runtime = &job_runtimes[i];
         if (runtime->state == SOLAR_OS_JOB_RUNNING &&
             !runtime->lifecycle_busy &&
             runtime->entry != NULL &&
             runtime->entry->job != NULL &&
-            runtime->entry->job->event != NULL) {
+            runtime->entry->job->event != NULL &&
+            solar_os_tick_due(&runtime->tick_stats,
+                              runtime->entry->job->tick_interval_ms,
+                              runtime->entry->job->tick_deadline_ms,
+                              SOLAR_OS_TICK_INTERVAL_DEFAULT_MS,
+                              SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
+                              now_ms)) {
             callback = runtime->entry->job->event;
             generation = runtime->generation;
             runtime->callback_refs++;
@@ -404,17 +416,30 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
             continue;
         }
 
+        started_us = solar_os_tick_begin();
         (void)callback(ctx, &event);
+        bool deadline_missed = false;
+        solar_os_tick_stats_t tick_stats = {0};
         portENTER_CRITICAL(&jobs_lock);
         if (runtime->callback_refs > 0) {
             runtime->callback_refs--;
         }
         if (runtime->generation == generation &&
             runtime->state == SOLAR_OS_JOB_RUNNING) {
-            runtime->tick_count++;
+            deadline_missed = solar_os_tick_end(&runtime->tick_stats, started_us);
+            runtime->tick_count = runtime->tick_stats.dispatch_count;
             runtime->last_tick_ms = now_ms;
+            tick_stats = runtime->tick_stats;
         }
         portEXIT_CRITICAL(&jobs_lock);
+        if (deadline_missed && solar_os_tick_should_log_miss(&tick_stats)) {
+            SOLAR_OS_LOGW("solar_os_jobs",
+                          "tick miss: %s %" PRIu32 "us>%" PRIu32 "ms n=%" PRIu32,
+                          runtime->entry->name,
+                          tick_stats.last_duration_us,
+                          tick_stats.deadline_ms,
+                          tick_stats.deadline_miss_count);
+        }
     }
 }
 

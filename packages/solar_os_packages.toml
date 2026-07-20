@@ -146,6 +146,7 @@ sources = [
   "main.c",
   "solar_os.c",
   "solar_os_jobs.c",
+  "solar_os_scheduler.c",
   "solar_os_task.c",
   "drivers/flash_storage.c",
   "apps/solar_os_app_registry.c",

@@ -821,6 +821,11 @@ static void solua_push_job_status(lua_State *L, const solar_os_job_status_t *sta
     solua_set_str(L, -1, "last_error_name", esp_err_to_name(status->last_error));
     solua_set_int(L, -1, "tick_count", status->tick_count);
     solua_set_int(L, -1, "last_tick_ms", status->last_tick_ms);
+    solua_set_int(L, -1, "tick_interval_ms", status->tick_stats.interval_ms);
+    solua_set_int(L, -1, "tick_deadline_ms", status->tick_stats.deadline_ms);
+    solua_set_int(L, -1, "tick_last_us", status->tick_stats.last_duration_us);
+    solua_set_int(L, -1, "tick_max_us", status->tick_stats.max_duration_us);
+    solua_set_int(L, -1, "tick_deadline_misses", status->tick_stats.deadline_miss_count);
 }
 
 static bool solua_should_cancel(void *user)

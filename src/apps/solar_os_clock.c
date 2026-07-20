@@ -727,4 +727,6 @@ const solar_os_app_t solar_os_clock_app = {
     .stop = clock_stop,
     .event = clock_event,
     .title = clock_title,
+    .tick_interval_ms = 250U,
+    .tick_deadline_ms = 25U,
 };

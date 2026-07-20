@@ -314,4 +314,6 @@ const solar_os_job_t solar_os_ntp_sync_job = {
     .start = ntp_sync_start,
     .stop = ntp_sync_stop,
     .event = ntp_sync_event,
+    .tick_interval_ms = 100U,
+    .tick_deadline_ms = 10U,
 };

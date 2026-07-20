@@ -253,6 +253,13 @@ while not solaros.should_exit() do
 end
 ```
 
+## Jobs
+
+`solaros.jobs.list()` and `solaros.jobs.status(name)` return the effective
+`tick_interval_ms` and `tick_deadline_ms` plus `tick_last_us`, `tick_max_us`,
+and `tick_deadline_misses` runtime telemetry. Job control is available through
+`start(name[, args])` and `stop(name)`.
+
 ## Sessions
 
 `solaros.sessions` creates manual port shell sessions and closes sessions by id.

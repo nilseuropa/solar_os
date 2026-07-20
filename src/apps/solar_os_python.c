@@ -3243,7 +3243,7 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_ssh_keys_remove_obj, solaros_ssh_keys_remove);
 
 static mp_obj_t python_job_status_to_dict(const solar_os_job_status_t *status)
 {
-    mp_obj_t dict = mp_obj_new_dict(6);
+    mp_obj_t dict = mp_obj_new_dict(13);
     python_dict_store_cstr(dict, "name", status->name);
     python_dict_store_cstr(dict, "summary", status->summary);
     python_dict_store_cstr(dict, "state", solar_os_job_state_name(status->state));
@@ -3251,6 +3251,11 @@ static mp_obj_t python_job_status_to_dict(const solar_os_job_status_t *status)
     python_dict_store_cstr(dict, "last_error_name", esp_err_to_name(status->last_error));
     python_dict_store_uint(dict, "tick_count", status->tick_count);
     python_dict_store_uint(dict, "last_tick_ms", status->last_tick_ms);
+    python_dict_store_uint(dict, "tick_interval_ms", status->tick_stats.interval_ms);
+    python_dict_store_uint(dict, "tick_deadline_ms", status->tick_stats.deadline_ms);
+    python_dict_store_uint(dict, "tick_last_us", status->tick_stats.last_duration_us);
+    python_dict_store_uint(dict, "tick_max_us", status->tick_stats.max_duration_us);
+    python_dict_store_uint(dict, "tick_deadline_misses", status->tick_stats.deadline_miss_count);
     return dict;
 }
 

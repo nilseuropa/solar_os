@@ -17,8 +17,10 @@ job status [name]
 
 `jobs` is intentionally compact so it fits on the built-in 65-column display
 terminal. It shows job name, state, kind, event source, tick count, and resource
-count. Use `job status <name>` for the summary, owner string, last error, and
-claimed resources.
+count. Use `job status <name>` for the summary, owner string, last error,
+effective tick interval/deadline, runtime duration statistics, deadline misses,
+and claimed resources. Compact timing lines use `interval/deadline` in
+milliseconds, `n` for dispatches, `us=last/max`, and `miss` for deadline misses.
 
 ## Job Control
 
@@ -41,6 +43,13 @@ Jobs that use byte-stream ports claim those ports while running. If a port is
 already owned, SolarOS reports the owner, for example `job log owns cdc0`.
 Radio listeners expose their radio as a custom job resource.
 
+Tick intervals and execution-time deadlines are declared by each event-driven
+job. A zero descriptor value selects the runtime default. Deadline misses do
+not forcibly terminate a cooperative handler; SolarOS counts them, records the
+last and maximum duration, and emits rate-limited warnings. The DAQ and log
+handlers only enqueue work, so their stream, filesystem, and port I/O runs in
+isolated worker tasks instead of the display scheduler.
+
 Compact list example:
 
 ```text
@@ -57,6 +66,7 @@ NAME         STATE    KIND        EVT  TICKS RES
 log          running  background  tick     8   1
   summary: stream SolarOS logs to a port or file
   owner: job:log
+  tick: 250/2ms n=8 us=18/31 miss=0
   resources:
   - port   cdc0 rw
 ```

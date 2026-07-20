@@ -715,6 +715,11 @@ Job functions control SolarOS background jobs.
 - `start(name[, args])`: start a job; `args` is a list or tuple of strings.
 - `stop(name)`: stop a job.
 
+Status dictionaries include `tick_interval_ms`, `tick_deadline_ms`,
+`tick_last_us`, `tick_max_us`, and `tick_deadline_misses` in addition to the
+job state and tick count. These fields expose the effective cooperative
+scheduling policy and measured handler execution time.
+
 Example:
 
 ```python

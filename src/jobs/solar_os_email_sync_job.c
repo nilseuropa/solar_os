@@ -765,4 +765,6 @@ const solar_os_job_t solar_os_email_sync_job = {
     .start = email_sync_start,
     .stop = email_sync_stop,
     .event = email_sync_event,
+    .tick_interval_ms = 100U,
+    .tick_deadline_ms = 10U,
 };

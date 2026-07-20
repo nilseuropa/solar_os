@@ -923,6 +923,17 @@ static void job_print_status(solar_os_shell_io_t *term,
     solar_os_shell_io_printf(term,
                              "  owner: %s\n",
                              status->owner[0] != '\0' ? status->owner : "-");
+    if (status->has_event) {
+        solar_os_shell_io_printf(term,
+                                 "  tick: %" PRIu32 "/%" PRIu32 "ms n=%" PRIu32
+                                 " us=%" PRIu32 "/%" PRIu32 " miss=%" PRIu32 "\n",
+                                 status->tick_stats.interval_ms,
+                                 status->tick_stats.deadline_ms,
+                                 status->tick_stats.dispatch_count,
+                                 status->tick_stats.last_duration_us,
+                                 status->tick_stats.max_duration_us,
+                                 status->tick_stats.deadline_miss_count);
+    }
     if (status->resource_count == 0) {
         solar_os_shell_io_writeln(term, "  resources: none");
         return;

@@ -8,6 +8,7 @@
 #include "solar_os.h"
 #include "solar_os_config.h"
 #include "solar_os_port.h"
+#include "solar_os_scheduler.h"
 
 #define SOLAR_OS_JOB_OWNER_MAX SOLAR_OS_PORT_OWNER_MAX
 #define SOLAR_OS_JOB_RESOURCE_MAX 4
@@ -45,6 +46,7 @@ typedef struct {
     uint32_t last_tick_ms;
     uint32_t generation;
     bool has_event;
+    solar_os_tick_stats_t tick_stats;
     char owner[SOLAR_OS_JOB_OWNER_MAX];
     size_t resource_count;
     solar_os_job_resource_t resources[SOLAR_OS_JOB_RESOURCE_MAX];

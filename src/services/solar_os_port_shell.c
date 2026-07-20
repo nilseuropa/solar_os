@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -11,6 +12,7 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_log.h"
 #include "solar_os_port.h"
+#include "solar_os_scheduler.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_vt100.h"
@@ -54,6 +56,8 @@ typedef struct {
     uint16_t configured_rows;
     char port_name[SOLAR_OS_PORT_NAME_MAX];
     esp_err_t last_error;
+    const solar_os_app_t *tick_app;
+    solar_os_tick_stats_t tick_stats;
 } port_shell_state_t;
 
 static port_shell_state_t port_shells[PORT_SHELL_MAX];
@@ -327,15 +331,41 @@ static void port_shell_send_tick(port_shell_state_t *state, uint32_t now_ms)
         return;
     }
 
+    const solar_os_app_t *foreground_app = port_shell_foreground_app(state);
+    const solar_os_app_t *tick_app = foreground_app != NULL ?
+        foreground_app : solar_os_shell_app();
+    if (state->tick_app != tick_app) {
+        state->tick_app = tick_app;
+        solar_os_tick_stats_reset(&state->tick_stats);
+    }
+    if (!solar_os_tick_due(&state->tick_stats,
+                           tick_app->tick_interval_ms,
+                           tick_app->tick_deadline_ms,
+                           PORT_SHELL_TICK_MS,
+                           SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
+                           now_ms)) {
+        return;
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_TICK,
         .data.tick_ms = now_ms,
     };
-    const solar_os_app_t *foreground_app = port_shell_foreground_app(state);
+    const int64_t started_us = solar_os_tick_begin();
     if (foreground_app != NULL && foreground_app->event != NULL) {
         (void)foreground_app->event(&state->ctx, &event);
     } else {
         (void)solar_os_shell_session_event(&state->ctx, state->session, &event);
+    }
+    if (solar_os_tick_end(&state->tick_stats, started_us) &&
+        solar_os_tick_should_log_miss(&state->tick_stats)) {
+        SOLAR_OS_LOGW(TAG,
+                      "tick miss: #%u %s %" PRIu32 "us>%" PRIu32 "ms n=%" PRIu32,
+                      (unsigned)state->id,
+                      tick_app->name != NULL ? tick_app->name : "?",
+                      state->tick_stats.last_duration_us,
+                      state->tick_stats.deadline_ms,
+                      state->tick_stats.deadline_miss_count);
     }
 }
 
@@ -470,8 +500,7 @@ static void port_shell_task(void *arg)
 {
     port_shell_state_t *state = (port_shell_state_t *)arg;
     uint8_t buffer[PORT_SHELL_READ_BUF];
-    uint32_t last_tick_ms = port_shell_now_ms();
-    uint32_t last_input_ms = last_tick_ms;
+    uint32_t last_input_ms = port_shell_now_ms();
     uint32_t generation = 0;
 
     portENTER_CRITICAL(&port_shells_lock);
@@ -555,11 +584,8 @@ static void port_shell_task(void *arg)
         }
         port_shell_process_requests(state);
 
-        if ((uint32_t)(now_ms - last_tick_ms) >= PORT_SHELL_TICK_MS) {
-            last_tick_ms = now_ms;
-            port_shell_send_tick(state, now_ms);
-            port_shell_process_requests(state);
-        }
+        port_shell_send_tick(state, now_ms);
+        port_shell_process_requests(state);
     }
 
     SOLAR_OS_LOGI(TAG,
@@ -855,6 +881,7 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
         bool stop_requested;
         uint8_t id;
         solar_os_shell_terminal_profile_t terminal_profile;
+        solar_os_tick_stats_t tick_stats;
         char port_name[SOLAR_OS_PORT_NAME_MAX];
     } port_shell_list_entry_t;
     port_shell_list_entry_t entries[PORT_SHELL_MAX] = {0};
@@ -866,6 +893,7 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
         entries[i].stop_requested = port_shells[i].stop_requested;
         entries[i].id = port_shells[i].id;
         entries[i].terminal_profile = port_shells[i].terminal_profile;
+        entries[i].tick_stats = port_shells[i].tick_stats;
         strlcpy(entries[i].port_name, port_shells[i].port_name, sizeof(entries[i].port_name));
     }
     portEXIT_CRITICAL(&port_shells_lock);
@@ -877,12 +905,25 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
         }
         const char *state_name = entry->stop_requested ? "stopping" :
             (entry->running ? "active" : "starting");
+        char title[SOLAR_OS_PORT_NAME_MAX + 8];
+        snprintf(title,
+                 sizeof(title),
+                 "%s/%s",
+                 entry->port_name[0] != '\0' ? entry->port_name : "?",
+                 solar_os_shell_terminal_profile_name(entry->terminal_profile));
         solar_os_shell_io_printf(io,
-                                 "%-3u %-11s %-9s shell on %s term=%s\n",
+                                 "%-3u %-12.12s %-8s %-9.9s "
+                                 "%" PRIu32 "/%" PRIu32 "ms %" PRIu32
+                                 "/%" PRIu32 "us n=%" PRIu32 " !%" PRIu32 "\n",
                                  (unsigned)entry->id,
-                                 state_name,
+                                 title,
                                  "shell",
-                                 entry->port_name[0] != '\0' ? entry->port_name : "?",
-                                 solar_os_shell_terminal_profile_name(entry->terminal_profile));
+                                 state_name,
+                                 entry->tick_stats.interval_ms,
+                                 entry->tick_stats.deadline_ms,
+                                 entry->tick_stats.last_duration_us,
+                                 entry->tick_stats.max_duration_us,
+                                 entry->tick_stats.dispatch_count,
+                                 entry->tick_stats.deadline_miss_count);
     }
 }

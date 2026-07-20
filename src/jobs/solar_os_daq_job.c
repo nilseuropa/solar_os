@@ -9,10 +9,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
+#include "solar_os_task.h"
 #include "solar_os_time.h"
 
 #define DAQ_DEFAULT_SCALAR_INTERVAL_MS 1000U
@@ -23,6 +26,10 @@
 #define DAQ_STREAM_LIST_MAX SOLAR_OS_DAQ_STREAM_LIST_MAX
 #define DAQ_CSV_HEADER_MAX 512U
 #define DAQ_CSV_LINE_MAX 512U
+#define DAQ_WORKER_STACK 8192U
+#define DAQ_WORKER_PRIORITY (tskIDLE_PRIORITY + 1)
+#define DAQ_NOTIFY_SAMPLE (1U << 0)
+#define DAQ_NOTIFY_STOP (1U << 1)
 
 static const char *TAG = "solar_os_daq";
 
@@ -55,9 +62,13 @@ typedef struct {
     bool append;
     bool raw;
     esp_err_t last_error;
+    TaskHandle_t worker_task;
+    volatile bool worker_done;
 } daq_job_state_t;
 
 static daq_job_state_t daq = {.last_error = ESP_OK};
+
+static void daq_worker_task(void *arg);
 
 static bool daq_parse_u32(const char *text, uint32_t min, uint32_t max, uint32_t *value)
 {
@@ -155,6 +166,8 @@ static void daq_cleanup(void)
         solar_os_stream_close(&daq.streams[i]);
     }
     daq.running = false;
+    daq.worker_task = NULL;
+    daq.worker_done = false;
     daq.next_sample_ms = 0;
     daq.stream_count = 0;
     daq_init_stream_handles();
@@ -388,6 +401,10 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
 
+    if (daq.worker_task != NULL && !daq.worker_done) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     daq_start_config_t config;
     esp_err_t err = daq_parse_args(argc, argv, &config);
     if (err != ESP_OK) {
@@ -455,6 +472,8 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
     daq.raw = config.raw;
     daq.last_error = ESP_OK;
     daq.running = true;
+    daq.worker_done = false;
+    daq.worker_task = NULL;
     (void)solar_os_jobs_note_resource(solar_os_daq_job.name,
                                       SOLAR_OS_JOB_RESOURCE_FILE,
                                       daq.path,
@@ -463,6 +482,19 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
                                       SOLAR_OS_JOB_RESOURCE_STREAM,
                                       daq.stream_list,
                                       daq.raw ? "bytes" : "scalar");
+
+    /* Flash-backed VFS calls require an internal stack while cache is disabled. */
+    if (solar_os_task_create_pinned(daq_worker_task,
+                                    "daq_worker",
+                                    DAQ_WORKER_STACK,
+                                    NULL,
+                                    DAQ_WORKER_PRIORITY,
+                                    &daq.worker_task,
+                                    tskNO_AFFINITY) != pdPASS) {
+        daq.last_error = ESP_ERR_NO_MEM;
+        daq_cleanup();
+        return ESP_ERR_NO_MEM;
+    }
 
     SOLAR_OS_LOGI(TAG,
                   "started: %s -> %s interval=%" PRIu32 "ms%s%s",
@@ -477,6 +509,18 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
 static void daq_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
+
+    daq.running = false;
+    if (daq.worker_task != NULL) {
+        (void)xTaskNotify(daq.worker_task, DAQ_NOTIFY_STOP, eSetBits);
+    }
+    if (!solar_os_task_wait_done(daq.worker_task,
+                                 &daq.worker_done,
+                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
+        SOLAR_OS_LOGW(TAG, "worker did not stop within %u ms",
+                      (unsigned)SOLAR_OS_TASK_STOP_WAIT_MS);
+        return;
+    }
 
     SOLAR_OS_LOGI(TAG,
                   "stopped: %s records=%" PRIu32 " bytes=%" PRIu64
@@ -676,6 +720,25 @@ static bool daq_event_csv(void)
     return daq.stream_count > 1 ? daq_event_csv_multi() : daq_event_csv_single();
 }
 
+static void daq_worker_task(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        uint32_t notification = 0;
+        (void)xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
+        if ((notification & DAQ_NOTIFY_STOP) != 0) {
+            break;
+        }
+        if ((notification & DAQ_NOTIFY_SAMPLE) != 0 && daq.running) {
+            (void)(daq.raw ? daq_event_raw() : daq_event_csv());
+        }
+    }
+
+    daq.worker_done = true;
+    vTaskDelete(NULL);
+}
+
 static bool daq_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     (void)ctx;
@@ -685,7 +748,12 @@ static bool daq_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         return false;
     }
 
-    return daq.raw ? daq_event_raw() : daq_event_csv();
+    if (daq.worker_task == NULL) {
+        daq.failed_records++;
+        daq.last_error = ESP_ERR_INVALID_STATE;
+        return false;
+    }
+    return xTaskNotify(daq.worker_task, DAQ_NOTIFY_SAMPLE, eSetBits) == pdPASS;
 }
 
 void solar_os_daq_job_get_status(solar_os_daq_status_t *status)
@@ -720,4 +788,6 @@ const solar_os_job_t solar_os_daq_job = {
     .start = daq_start,
     .stop = daq_stop,
     .event = daq_event,
+    .tick_interval_ms = 25U,
+    .tick_deadline_ms = 2U,
 };
