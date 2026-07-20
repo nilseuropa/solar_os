@@ -234,8 +234,9 @@ Controls:
 - Bus creation uses arrows to select fields and values; the generated bus name
   can be edited directly.
 - Runtime buses can be attached, detached, or removed when their lease state
-  permits it. Direct GPIO and PWM assignments can be created and released from
-  the Pins view.
+  permits it. Their `Autostart` action idempotently appends the matching
+  `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
+  assignments can be created and released from the Pins view.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders
