@@ -1,6 +1,12 @@
 #include "solar_os_adc.h"
 
+#include <stdio.h>
+
 #include "solar_os_board_caps.h"
+#include "solar_os_config.h"
+#include "solar_os_resources.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #if SOLAR_OS_BOARD_HAS_ADC
 #include "adc_port.h"
@@ -85,8 +91,38 @@ esp_err_t solar_os_adc_read(int pin, solar_os_adc_sample_t *sample)
         return ESP_ERR_NOT_ALLOWED;
     }
 
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    snprintf(owner, sizeof(owner), "adc:%d:%p", pin, xTaskGetCurrentTaskHandle());
+    esp_err_t ret = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const solar_os_resource_request_t requests[] = {
+        {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = pin,
+            .secondary = -1,
+            .label = "adc-gpio",
+        },
+        {
+            .kind = SOLAR_OS_RESOURCE_ADC_PIN,
+            .primary = pin,
+            .secondary = -1,
+            .label = "adc",
+        },
+    };
+    ret = solar_os_resource_claim_bundle(requests,
+                                         sizeof(requests) / sizeof(requests[0]),
+                                         owner,
+                                         NULL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+#endif
+
     adc_port_sample_t port_sample;
-    const esp_err_t ret = adc_port_read((gpio_num_t)pin, &port_sample);
+    ret = adc_port_read((gpio_num_t)pin, &port_sample);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    (void)solar_os_resource_release_owner(owner);
+#endif
     if (ret != ESP_OK) {
         return ret;
     }

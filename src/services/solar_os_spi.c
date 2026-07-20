@@ -4,36 +4,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "solar_os_board.h"
-#include "solar_os_board_caps.h"
+#include "solar_os_buses.h"
 
-#if SOLAR_OS_BOARD_HAS_SPI
-#include "spi_bus.h"
-#endif
+#define SOLAR_OS_SPI_COMPAT_BUS "spi0"
+#define SOLAR_OS_SPI_COMPAT_OWNER "legacy-spi"
 
-#ifndef SOLAR_OS_BOARD_SPI_CS_SLOTS
-#define SOLAR_OS_BOARD_SPI_CS_SLOTS {{.pin = -1, .name = NULL}}
-#endif
-#ifndef SOLAR_OS_BOARD_SPI_NAME
-#define SOLAR_OS_BOARD_SPI_NAME "SPI"
-#endif
-
-#if SOLAR_OS_BOARD_HAS_SPI
-static const solar_os_spi_cs_t spi_cs_slots[] = SOLAR_OS_BOARD_SPI_CS_SLOTS;
-#endif
-
-static bool spi_slot_active(const solar_os_spi_cs_t *slot)
+static bool default_bus(solar_os_bus_info_t *info)
 {
-    return slot != NULL && slot->pin >= 0 && slot->name != NULL && slot->name[0] != '\0';
+    if (solar_os_bus_find(SOLAR_OS_SPI_COMPAT_BUS, SOLAR_OS_BUS_PROTOCOL_SPI, info)) {
+        return true;
+    }
+    return solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, 0, info);
 }
 
 esp_err_t solar_os_spi_init(void)
 {
-#if SOLAR_OS_BOARD_HAS_SPI
-    return ESP_OK;
-#else
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
+    return solar_os_buses_init();
 }
 
 esp_err_t solar_os_spi_get_status(solar_os_spi_status_t *status)
@@ -43,29 +29,28 @@ esp_err_t solar_os_spi_get_status(solar_os_spi_status_t *status)
     }
 
     memset(status, 0, sizeof(*status));
-#if SOLAR_OS_BOARD_HAS_SPI
-    status->available = true;
-    status->host = (int)solar_os_spi_bus_host();
-    status->name = SOLAR_OS_BOARD_SPI_NAME;
-    status->sclk_pin = solar_os_spi_bus_sclk_pin();
-    status->miso_pin = solar_os_spi_bus_miso_pin();
-    status->mosi_pin = solar_os_spi_bus_mosi_pin();
-    status->max_transfer_size = solar_os_spi_bus_max_transfer_size();
     status->default_speed_hz = SOLAR_OS_SPI_DEFAULT_SPEED_HZ;
 
-    for (size_t i = 0;
-         i < sizeof(spi_cs_slots) / sizeof(spi_cs_slots[0]) &&
-             status->cs_count < SOLAR_OS_SPI_MAX_CS;
-         i++) {
-        if (!spi_slot_active(&spi_cs_slots[i])) {
-            continue;
-        }
-        status->cs[status->cs_count++] = spi_cs_slots[i];
+    solar_os_bus_info_t info;
+    if (!default_bus(&info)) {
+        return ESP_OK;
+    }
+
+    status->available = true;
+    status->host = info.config.spi.host;
+    strlcpy(status->name, info.name, sizeof(status->name));
+    status->sclk_pin = info.config.spi.sclk_pin;
+    status->miso_pin = info.config.spi.miso_pin;
+    status->mosi_pin = info.config.spi.mosi_pin;
+    status->max_transfer_size = info.config.spi.max_transfer_size;
+    status->cs_count = info.config.spi.cs_count;
+    for (size_t i = 0; i < status->cs_count; i++) {
+        status->cs[i].pin = info.config.spi.cs[i].pin;
+        strlcpy(status->cs[i].name,
+                info.config.spi.cs[i].name,
+                sizeof(status->cs[i].name));
     }
     return ESP_OK;
-#else
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
 }
 
 esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
@@ -74,10 +59,13 @@ esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
         return ESP_ERR_INVALID_ARG;
     }
 
-#if SOLAR_OS_BOARD_HAS_SPI
-    for (size_t i = 0; i < sizeof(spi_cs_slots) / sizeof(spi_cs_slots[0]); i++) {
-        if (spi_slot_active(&spi_cs_slots[i]) && strcmp(name, spi_cs_slots[i].name) == 0) {
-            *pin = spi_cs_slots[i].pin;
+    solar_os_bus_info_t info;
+    if (!default_bus(&info)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    for (size_t i = 0; i < info.config.spi.cs_count; i++) {
+        if (strcmp(name, info.config.spi.cs[i].name) == 0) {
+            *pin = info.config.spi.cs[i].pin;
             return ESP_OK;
         }
     }
@@ -89,16 +77,13 @@ esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
         return ESP_ERR_INVALID_ARG;
     }
 
-    for (size_t i = 0; i < sizeof(spi_cs_slots) / sizeof(spi_cs_slots[0]); i++) {
-        if (spi_slot_active(&spi_cs_slots[i]) && parsed == spi_cs_slots[i].pin) {
+    for (size_t i = 0; i < info.config.spi.cs_count; i++) {
+        if (parsed == info.config.spi.cs[i].pin) {
             *pin = (int)parsed;
             return ESP_OK;
         }
     }
     return ESP_ERR_NOT_FOUND;
-#else
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
 }
 
 esp_err_t solar_os_spi_transfer(int cs_pin,
@@ -108,21 +93,24 @@ esp_err_t solar_os_spi_transfer(int cs_pin,
                                 uint8_t *rx_data,
                                 size_t len)
 {
-#if SOLAR_OS_BOARD_HAS_SPI
+    solar_os_bus_info_t info;
+    if (!default_bus(&info)) {
+        return ESP_ERR_NOT_FOUND;
+    }
     if (speed_hz == 0) {
         speed_hz = SOLAR_OS_SPI_DEFAULT_SPEED_HZ;
     }
-    if (speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ) {
+    if (mode > 3 || speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ || len == 0 ||
+        len > info.config.spi.max_transfer_size ||
+        (tx_data == NULL && rx_data == NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
-    return solar_os_spi_bus_transfer(cs_pin, mode, speed_hz, tx_data, rx_data, len);
-#else
-    (void)cs_pin;
-    (void)mode;
-    (void)speed_hz;
-    (void)tx_data;
-    (void)rx_data;
-    (void)len;
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
+    return solar_os_bus_spi_transfer_once(info.name,
+                                          cs_pin,
+                                          mode,
+                                          speed_hz,
+                                          tx_data,
+                                          rx_data,
+                                          len,
+                                          SOLAR_OS_SPI_COMPAT_OWNER);
 }

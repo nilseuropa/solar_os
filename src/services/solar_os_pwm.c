@@ -1,6 +1,11 @@
 #include "solar_os_pwm.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "solar_os_board_caps.h"
+#include "solar_os_config.h"
+#include "solar_os_resources.h"
 
 #if SOLAR_OS_BOARD_HAS_PWM
 #include "driver/gpio.h"
@@ -8,6 +13,11 @@
 #endif
 
 #include "solar_os_gpio.h"
+
+static void pwm_resource_owner(int pin, char *owner, size_t owner_size)
+{
+    snprintf(owner, owner_size, "pwm:%d", pin);
+}
 
 esp_err_t solar_os_pwm_init(void)
 {
@@ -87,7 +97,39 @@ esp_err_t solar_os_pwm_set(int pin, uint32_t freq_hz, uint8_t duty_percent)
         duty_percent > SOLAR_OS_PWM_DUTY_MAX_PERCENT) {
         return ESP_ERR_INVALID_ARG;
     }
-    return pwm_port_set((gpio_num_t)pin, freq_hz, duty_percent);
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    pwm_resource_owner(pin, owner, sizeof(owner));
+    esp_err_t ret = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const solar_os_resource_request_t requests[] = {
+        {
+            .kind = SOLAR_OS_RESOURCE_GPIO_PIN,
+            .primary = pin,
+            .secondary = -1,
+            .label = "pwm-gpio",
+        },
+        {
+            .kind = SOLAR_OS_RESOURCE_PWM_PIN,
+            .primary = pin,
+            .secondary = -1,
+            .label = "pwm",
+        },
+    };
+    ret = solar_os_resource_claim_bundle(requests,
+                                         sizeof(requests) / sizeof(requests[0]),
+                                         owner,
+                                         NULL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+#endif
+    ret = pwm_port_set((gpio_num_t)pin, freq_hz, duty_percent);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (ret != ESP_OK) {
+        (void)solar_os_resource_release_owner(owner);
+    }
+#endif
+    return ret;
 #endif
 }
 
@@ -100,6 +142,21 @@ esp_err_t solar_os_pwm_stop(int pin)
     if (!solar_os_gpio_is_runtime_allowed(pin)) {
         return ESP_ERR_NOT_ALLOWED;
     }
-    return pwm_port_stop((gpio_num_t)pin);
+    char owner[SOLAR_OS_RESOURCE_OWNER_MAX];
+    pwm_resource_owner(pin, owner, sizeof(owner));
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_resource_claim_t claim;
+    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim) &&
+        strcmp(claim.owner, owner) != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+    const esp_err_t ret = pwm_port_stop((gpio_num_t)pin);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (ret == ESP_OK) {
+        (void)solar_os_resource_release_owner(owner);
+    }
+#endif
+    return ret;
 #endif
 }

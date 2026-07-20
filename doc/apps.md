@@ -212,6 +212,32 @@ and keeps the newest 32 synchronized messages. This first version displays a
 best-effort text preview; MIME attachments, encoded headers, sending, and
 server-side read flags are not implemented yet.
 
+## io
+
+Interactive expansion I/O manager. It presents the board's expansion pins,
+named buses, and resource claims in one TUI and uses the same ownership and
+validation services as the `gpio`, `i2c`, `spi`, `uart`, `onewire`, and
+`expansion` commands.
+
+Usage:
+
+```text
+io
+```
+
+Controls:
+
+- `Tab`, `Left`, and `Right` switch between Pins, Buses, and Claims.
+- Arrows, Page Up/Page Down, Home, and End navigate the selected view.
+- `Enter` opens context-sensitive actions for a pin or bus.
+- `n` creates a board-approved named I2C, SPI, UART, or 1-Wire bus.
+- Bus creation uses arrows to select fields and values; the generated bus name
+  can be edited directly.
+- Runtime buses can be attached, detached, or removed when their lease state
+  permits it. Direct GPIO and PWM assignments can be created and released from
+  the Pins view.
+- `r` refreshes; `q`, `Esc`, or the app-exit key exits.
+
 ## invaders
 
 Graphical arcade shooter.

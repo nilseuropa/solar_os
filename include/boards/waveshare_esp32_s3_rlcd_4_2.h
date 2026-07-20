@@ -3,8 +3,10 @@
 #include "driver/gpio.h"
 #include "driver/i2c_types.h"
 #include "driver/i2s_types.h"
+#include "driver/spi_master.h"
 #include "driver/uart.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
+#include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "waveshare_esp32_s3_rlcd_4_2"
 #define SOLAR_OS_BOARD_NAME "Waveshare ESP32-S3-RLCD-4.2"
@@ -52,9 +54,6 @@
 #define SOLAR_OS_BOARD_I2C_PORT I2C_NUM_0
 #define SOLAR_OS_BOARD_PIN_I2C_SDA GPIO_NUM_13
 #define SOLAR_OS_BOARD_PIN_I2C_SCL GPIO_NUM_14
-#define SOLAR_OS_BOARD_EXPANSION_I2C_BUSES { \
-    {.name = "i2c0", .port = SOLAR_OS_BOARD_I2C_PORT, .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL}, \
-}
 
 #define SOLAR_OS_BOARD_PIN_SDMMC_CLK GPIO_NUM_38
 #define SOLAR_OS_BOARD_PIN_SDMMC_CMD GPIO_NUM_21
@@ -96,26 +95,51 @@
                                        (1ULL << GPIO_NUM_17))
 #define SOLAR_OS_BOARD_EXPANSION_GPIO_LIST "0 1 2 3 13 14 17 18 19 20 43 44"
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "1 2 3 17"
+#define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
+#define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
-    {.pin = 1, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 2, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 3, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 13, .runtime_allowed = false, .role = "I2C SDA"}, \
-    {.pin = 14, .runtime_allowed = false, .role = "I2C SCL"}, \
-    {.pin = 17, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 18, .runtime_allowed = false, .role = "KEY"}, \
-    {.pin = 19, .runtime_allowed = false, .role = "USB D-/CDC"}, \
-    {.pin = 20, .runtime_allowed = false, .role = "USB D+/CDC"}, \
-    {.pin = 43, .runtime_allowed = false, .role = "UART TX"}, \
-    {.pin = 44, .runtime_allowed = false, .role = "UART RX"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
+    {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "KEY"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
+    {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
+    {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART TX"}, \
+    {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART RX"}, \
 }
 
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_43
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
-#define SOLAR_OS_BOARD_EXPANSION_UART_PORTS { \
-    {.name = "uart0", .port = SOLAR_OS_BOARD_UART_PORT, .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX}, \
+#define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "i2c0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.i2c = { \
+            .port = SOLAR_OS_BOARD_I2C_PORT, \
+            .sda_pin = SOLAR_OS_BOARD_PIN_I2C_SDA, \
+            .scl_pin = SOLAR_OS_BOARD_PIN_I2C_SCL, \
+            .speed_hz = SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ, \
+        }, \
+    }, \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
+        }, \
+    }, \
 }
 
 #define SOLAR_OS_BOARD_EXPANSION_ADC_MASK SOLAR_OS_BOARD_USER_GPIO_MASK

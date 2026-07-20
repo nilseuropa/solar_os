@@ -1,0 +1,245 @@
+# Expansion Ports
+
+SolarOS treats an expansion port as a board-described collection of resources,
+not as one fixed connector standard. A board may expose individual GPIO pins,
+named I2C, SPI, or UART buses, or free pins that can be routed to an approved
+spare peripheral host at runtime.
+
+Use `expansion status` and `gpio list` on the running device for the authoritative
+view. The available resources depend on the board and the compiled firmware
+flavor.
+
+## Resource Model
+
+| Term | Meaning | Ownership and lifetime |
+| --- | --- | --- |
+| Connector pin | A signal physically present on an expansion header or breakout. Physical presence does not make a pin safe for runtime control. | Described by the board profile. |
+| Runtime GPIO | A connector pin approved for direct `gpio` and 1-Wire use, and for `adc` or `pwm` where the board tables allow it. | Claimed while a service or attached device uses it. |
+| Board-defined bus | A named bus with fixed pins, such as `i2c0` or `spi0`. | Registered at boot and cannot be removed. A named UART can still be detached and reattached. |
+| Runtime bus | A named bus routed onto approved free pins and a spare hardware host. | It can be removed when idle. UART controller and pin claims follow attach/detach; other bus signals remain claimed for the descriptor lifetime. |
+| Expansion driver | Code that knows how to initialize and operate a supported external device. | Listed by `expansion drivers`; availability is package- and capability-filtered. |
+| Attached device | A named driver instance bound to buses, addresses, chip-selects, or GPIO roles. | Acquires resource leases on attach and releases them on detach. |
+
+Board pin policy has three levels:
+
+| Policy | Direct GPIO | Runtime bus routing | Typical use |
+| --- | --- | --- | --- |
+| Free | Yes | Yes | Uncommitted expansion pin. |
+| Releasable | No | Yes, after its current service releases it. | UART or another default board role. |
+| Fixed | No | No | Boot straps, flash/PSRAM, display, storage, USB, controls, or other board hardware. |
+
+This policy is separate from physical connector membership. For example, a
+strapping pin may appear on a header and in the physical connector description
+while remaining blocked from runtime use.
+
+## Board Resources
+
+### GPIO, ADC, and PWM
+
+| Board | Physical expansion signals | Runtime GPIO and PWM | Runtime ADC | Connector restrictions |
+| --- | --- | --- | --- | --- |
+| Waveshare ESP32-S3-RLCD-4.2 | GPIO0-GPIO3, GPIO13, GPIO14, GPIO17-GPIO20, GPIO43, GPIO44 | GPIO1-GPIO3, GPIO17 | GPIO1-GPIO3, GPIO17 | GPIO0 is BOOT; GPIO13/GPIO14 are I2C; GPIO18 is KEY; GPIO19/GPIO20 are native USB; GPIO43/GPIO44 belong to `uart0` by default. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
+| ESP32-S3-DevKitC-1-N16R8 | ESP32-S3 signals broken out on the DevKitC headers | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18, GPIO21, GPIO39-GPIO42, GPIO47 | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18 | GPIO0/GPIO3/GPIO45/GPIO46 are strapping pins; GPIO19/GPIO20 are native USB; GPIO35-GPIO37 are Octal PSRAM; GPIO38/GPIO48 are reserved for either RGB LED revision; GPIO43/GPIO44 are `uart0`. |
+| ODROID-GO | External IO GPIO4 and GPIO15 | GPIO4, GPIO15 | None | Both pins are also the allowed external chip-select slots on the shared VSPI bus. |
+
+Power and ground pins are physical wiring resources and are not managed by the
+SolarOS pin-claim system. Check the board schematic and the external module's
+voltage and current requirements before connecting it.
+
+### Named and Runtime Buses
+
+| Board | Board-defined buses | Runtime-routable buses | Notes |
+| --- | --- | --- | --- |
+| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
+| ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
+| ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
+
+I2C and SPI buses accept shared logical leases. UART and registered 1-Wire bus
+instances are exclusive. Registered 1-Wire buses appear in expansion status
+and can be addressed by name. Bus names are unique across protocols.
+
+I2C, SPI, UART, and 1-Wire buses can be created at runtime. Runtime hardware
+buses require an unused board-approved controller or host; all signal pins must
+be approved by the board's runtime pin policy. Every named UART has an explicit
+attached state. Attaching reserves its controller and pins; the hardware driver
+still starts lazily on the first consumer claim and stops after the final claim.
+Detaching an idle UART releases the controller and pins but preserves its name
+and configuration. Runtime UART descriptors may additionally be removed;
+board-defined UART descriptors cannot.
+The direct numeric form of the `onewire` command remains available without
+creating a named expansion bus.
+
+## Typical Workflow
+
+Start by inspecting the live resource map and compiled drivers:
+
+```text
+expansion status
+gpio list
+expansion drivers
+expansion scan
+```
+
+If the device can use a board-defined bus, attach it directly. The device name
+is chosen by the user and becomes the lease owner:
+
+```text
+expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
+expansion devices
+display test oled0
+expansion detach oled0
+```
+
+Runtime I2C and 1-Wire buses use the same lifecycle:
+
+```text
+expansion bus create i2c i2c1 port=i2c1 sda=gpio14 scl=gpio15 speed=100000
+i2c scan i2c1
+expansion bus remove i2c1
+
+expansion bus create onewire onewire0 pin=gpio16
+onewire scan onewire0
+expansion bus remove onewire0
+
+expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
+uart status uart1
+uart write uart1 AT
+expansion bus detach uart1
+expansion bus attach uart1
+expansion bus remove uart1
+```
+
+On the Waveshare board, `uart0` owns the releasable GPIO43/GPIO44 pair while it
+is attached. From a display or other non-`uart0` shell, detach it before reusing
+those pins and attach it again after the temporary bus is removed:
+
+```text
+expansion bus detach uart0
+expansion bus create uart uart1 port=uart1 tx=gpio43 rx=gpio44
+expansion bus remove uart1
+expansion bus attach uart0
+```
+
+Detaching the port that carries the current shell fails as busy, so the shell
+cannot disconnect itself accidentally.
+
+On a board with an approved available SPI host, create a bus before attaching the
+device. Creating the bus claims SCLK, MOSI, and optional MISO immediately. Each
+`cs=` option declares and reserves a chip-select pin for the lifetime of
+the attached bus. Devices and one-shot transfers additionally claim the
+logical chip-select slot, preventing two users from driving it concurrently:
+
+```text
+expansion bus create spi spi1 host=spi3 sclk=gpio1 mosi=gpio2 miso=gpio3 cs=gpio17
+expansion attach rfm69 radio0 spi=spi1 cs=gpio17
+expansion detach radio0
+expansion bus remove spi1
+```
+
+On the Elecrow CrowPanel, run `sd umount` before creating the runtime SPI3 bus.
+Remove that bus before using `sd mount` to make SPI3 available to microSD again.
+
+The `spi` command addresses board-defined and runtime buses by name. This makes
+the same transfer tools available for `spi0`, `spi1`, or any other registered
+SPI bus:
+
+```text
+spi status
+spi status spi1
+spi xfer spi1 gpio17 0 1m 0x9f 0 0 0
+spi read spi1 gpio17 0 1m 4 0xff
+spi write spi1 gpio17 0 1m 0xaa 0x55
+```
+
+The bus name and chip-select are always explicit. Transfers temporarily claim
+the selected chip-select and lease the bus, so they fail cleanly when an
+attached device already owns that chip-select.
+
+The `i2c` command also accepts a named bus. Omitting it retains the `i2c0`
+shortcut used by existing scripts:
+
+```text
+i2c status i2c0
+i2c scan i2c0
+i2c probe i2c0 0x3c
+i2c read i2c0 0x50 0x00 8
+i2c write i2c0 0x50 0x00 0xaa 0x55
+```
+
+Omit `miso` or use `miso=none` for output-only peripherals. A runtime bus can
+only use a host and pins approved by the board profile. It cannot take fixed
+display, storage, I2C, USB, or strapping pins. A bus cannot be detached or
+removed while it has device leases, and board-defined buses can never be
+removed. `expansion bus detach` preserves the named descriptor and works for
+every runtime bus plus board buses whose owned pins are marked releasable.
+Fixed-pin board buses reject detach.
+
+## Drivers and Bindings
+
+Run `expansion drivers` on the device to see the exact compiled set.
+
+| Driver | Device | Required bindings | Result after attach |
+| --- | --- | --- | --- |
+| `manual` | Resource-only profile | Any valid bus, address, chip-select, GPIO, ADC, or PWM bindings | Claims resources without initializing hardware. |
+| `rfm69` | HopeRF RFM69 packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target for the `radio` command. |
+| `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
+| `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
+| `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
+
+Manual profiles are useful when another app or workflow operates the hardware
+but SolarOS still needs to prevent conflicting claims:
+
+```text
+expansion attach manual radio0 spi0 cs=gpio10 irq=gpio4 reset=gpio5
+expansion attach manual sensor0 i2c0 addr=0x40
+expansion detach radio0
+```
+
+Binding names may be explicit (`spi=spi0`, `i2c=i2c0`) or, where unambiguous,
+supplied as positional bus names. `ce=` aliases `cs=` and `rst=` aliases
+`reset=` for common module labels.
+
+## Wiring Examples
+
+### PCD8544 on ESP32-S3-DevKitC-1
+
+```text
+VCC -> 3V3        GND -> GND
+CLK/SCLK -> GPIO12
+DIN/MOSI -> GPIO11
+CE/CS -> GPIO10   DC -> GPIO4   RST -> GPIO5
+
+expansion attach pcd8544 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5
+display test lcd0
+```
+
+Wire a module backlight according to the module board and use suitable current
+limiting when connecting it to 3V3.
+
+### SSD1306 or SH1106 on Waveshare ESP32-S3-RLCD-4.2
+
+```text
+VCC -> 3V3        GND -> GND
+SDA -> GPIO13     SCL -> GPIO14
+
+i2c scan i2c0
+expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c
+display test oled0
+```
+
+Common modules answer at `0x3c` or `0x3d`. If the image is shifted two pixels
+left with two uninitialized columns on the right, reattach it as SH1106:
+
+```text
+expansion detach oled0
+expansion attach sh1106 oled0 i2c=i2c0 addr=0x3c
+display test oled0
+```
+
+After an auxiliary display is attached, it can also host a shell session:
+
+```text
+session create shell oled0
+```

@@ -5,8 +5,9 @@
 #include "driver/uart.h"
 #include "solar_os_adc_dpad.h"
 #include "solar_os_buttons.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_keys.h"
+#include "solar_os_pin_types.h"
 #include "solar_os_spi.h"
 
 #define SOLAR_OS_BOARD_ID "odroid_go"
@@ -17,6 +18,7 @@
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_1
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_3
+#define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
 
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ILI9341"
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 320
@@ -37,18 +39,35 @@
     {.pin = GPIO_NUM_15, .name = "io15"}, \
     {.pin = GPIO_NUM_4, .name = "io4"}, \
 }
-#define SOLAR_OS_BOARD_EXPANSION_SPI_BUSES { \
+#define SOLAR_OS_BOARD_BUSES { \
     { \
         .name = "spi0", \
-        .host = SOLAR_OS_BOARD_SPI_HOST, \
-        .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
-        .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
-        .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
-        .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
-        .cs_count = 2, \
-        .cs = { \
-            {.name = "io15", .pin = GPIO_NUM_15}, \
-            {.name = "io4", .pin = GPIO_NUM_4}, \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SOLAR_OS_BOARD_SPI_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
+            .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
+            .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
+            .cs_count = 2, \
+            .cs = { \
+                {.name = "io15", .pin = GPIO_NUM_15}, \
+                {.name = "io4", .pin = GPIO_NUM_4}, \
+            }, \
+        }, \
+    }, \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
         }, \
     }, \
 }
@@ -111,10 +130,10 @@
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "4 15"
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 2, .runtime_allowed = false, .role = "status LED"}, \
-    {.pin = 14, .runtime_allowed = false, .role = "LCD backlight"}, \
-    {.pin = 25, .runtime_allowed = false, .role = "speaker enable"}, \
-    {.pin = 26, .runtime_allowed = false, .role = "speaker DAC"}, \
-    {.pin = 4, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
-    {.pin = 15, .runtime_allowed = true, .role = "external IO / SPI CS"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "status LED"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD backlight"}, \
+    {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker enable"}, \
+    {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker DAC"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
+    {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
 }

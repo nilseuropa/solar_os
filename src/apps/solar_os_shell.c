@@ -19,6 +19,9 @@
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#include "solar_os_buses.h"
+#endif
 #include "solar_os_display.h"
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
@@ -35,7 +38,6 @@
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
-#include "solar_os_spi.h"
 #include "solar_os_terminal.h"
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
@@ -89,6 +91,11 @@ typedef struct {
     bool complete_display_targets;
     bool complete_display_modes;
     bool complete_gpio_pins;
+    bool complete_i2c_arguments;
+    bool complete_onewire_buses;
+    bool complete_spi_buses;
+    bool complete_uart_arguments;
+    bool complete_buses;
     bool complete_spi_cs;
     bool complete_streams;
     bool scalar_streams_only;
@@ -222,7 +229,7 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
     {"spi", "SPI bus tools", solar_os_shell_cmd_spi},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO && SOLAR_OS_BOARD_HAS_STATUS_LED
@@ -339,6 +346,7 @@ static const char * const ble_gatt_subcommands[] = {
     "chars",
     "read",
     "write",
+    "release",
     "write-nr",
 };
 
@@ -459,8 +467,22 @@ static const char * const expansion_subcommands[] = {
     "scan",
     "drivers",
     "devices",
+    "bus",
     "attach",
     "detach",
+};
+static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
+static const char * const expansion_bus_protocols[] = {
+#if SOLAR_OS_PACKAGE_SERVICE_I2C
+    "i2c",
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    "onewire",
+#endif
+    "spi",
+#if SOLAR_OS_PACKAGE_SERVICE_UART
+    "uart",
+#endif
 };
 static const char * const expansion_driver_values[] = {
     "manual",
@@ -589,7 +611,7 @@ static const char * const gpio_mode_values[] = {"in", "out"};
 static const char * const gpio_pull_values[] = {"none", "up", "down"};
 static const char * const bit_values[] = {"0", "1"};
 
-static const char * const onewire_subcommands[] = {"reset", "scan", "xfer"};
+static const char * const onewire_subcommands[] = {"status", "reset", "scan", "xfer"};
 static const char * const onewire_read_lengths[] = {"0", "1", "2", "8", "9", "16", "32"};
 
 static const char * const adc_subcommands[] = {
@@ -893,12 +915,23 @@ static const char * const path_ramfs[] = {"ramfs"};
 static const char * const path_ramfs_mount_path[] = {"ramfs", "mount", SHELL_COMPLETION_ANY};
 static const char * const path_ramfs_unmount[] = {"ramfs", "unmount"};
 static const char * const path_i2c[] = {"i2c"};
+static const char * const path_i2c_status[] = {"i2c", "status"};
+static const char * const path_i2c_speed[] = {"i2c", "speed"};
+static const char * const path_i2c_scan[] = {"i2c", "scan"};
 static const char * const path_i2c_probe[] = {"i2c", "probe"};
+static const char * const path_i2c_probe_bus[] = {"i2c", "probe", SHELL_COMPLETION_ANY};
 static const char * const path_i2c_read[] = {"i2c", "read"};
 static const char * const path_i2c_read_addr[] = {"i2c", "read", SHELL_COMPLETION_ANY};
 static const char * const path_i2c_read_reg[] = {
     "i2c",
     "read",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_i2c_read_bus_reg[] = {
+    "i2c",
+    "read",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -910,20 +943,42 @@ static const char * const path_i2c_write_reg[] = {
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_i2c_write_bus_reg[] = {
+    "i2c",
+    "write",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi[] = {"spi"};
+static const char * const path_spi_status[] = {"spi", "status"};
 static const char * const path_spi_xfer[] = {"spi", "xfer"};
-static const char * const path_spi_xfer_cs[] = {"spi", "xfer", SHELL_COMPLETION_ANY};
-static const char * const path_spi_xfer_mode[] = {
+static const char * const path_spi_xfer_bus[] = {"spi", "xfer", SHELL_COMPLETION_ANY};
+static const char * const path_spi_xfer_cs[] = {
     "spi",
     "xfer",
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_spi_xfer_mode[] = {
+    "spi",
+    "xfer",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi_read[] = {"spi", "read"};
-static const char * const path_spi_read_cs[] = {"spi", "read", SHELL_COMPLETION_ANY};
+static const char * const path_spi_read_bus[] = {"spi", "read", SHELL_COMPLETION_ANY};
+static const char * const path_spi_read_cs[] = {
+    "spi",
+    "read",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_spi_read_mode[] = {
     "spi",
     "read",
+    SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
@@ -934,18 +989,28 @@ static const char * const path_spi_read_len[] = {
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
 };
 static const char * const path_spi_write[] = {"spi", "write"};
-static const char * const path_spi_write_cs[] = {"spi", "write", SHELL_COMPLETION_ANY};
-static const char * const path_spi_write_mode[] = {
+static const char * const path_spi_write_bus[] = {"spi", "write", SHELL_COMPLETION_ANY};
+static const char * const path_spi_write_cs[] = {
     "spi",
     "write",
     SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_spi_write_mode[] = {
+    "spi",
+    "write",
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_uart[] = {"uart"};
+static const char * const path_uart_status[] = {"uart", "status"};
 static const char * const path_uart_baud[] = {"uart", "baud"};
 static const char * const path_uart_mode[] = {"uart", "mode"};
+static const char * const path_uart_write[] = {"uart", "write"};
 static const char * const path_uart_read[] = {"uart", "read"};
 static const char * const path_port[] = {"port"};
 static const char * const path_port_status[] = {"port", "status"};
@@ -998,7 +1063,9 @@ static const char * const path_gpio_mode_pin_mode[] = {
 static const char * const path_gpio_read[] = {"gpio", "read"};
 static const char * const path_gpio_write[] = {"gpio", "write"};
 static const char * const path_gpio_write_pin[] = {"gpio", "write", SHELL_COMPLETION_ANY};
+static const char * const path_gpio_release[] = {"gpio", "release"};
 static const char * const path_onewire[] = {"onewire"};
+static const char * const path_onewire_status[] = {"onewire", "status"};
 static const char * const path_onewire_reset[] = {"onewire", "reset"};
 static const char * const path_onewire_scan[] = {"onewire", "scan"};
 static const char * const path_onewire_xfer[] = {"onewire", "xfer"};
@@ -1030,6 +1097,11 @@ static const char * const path_pwm_set_freq[] = {
 };
 static const char * const path_pwm_off[] = {"pwm", "off"};
 static const char * const path_expansion[] = {"expansion"};
+static const char * const path_expansion_bus[] = {"expansion", "bus"};
+static const char * const path_expansion_bus_create[] = {"expansion", "bus", "create"};
+static const char * const path_expansion_bus_attach[] = {"expansion", "bus", "attach"};
+static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "detach"};
+static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_radio[] = {"radio"};
 static const char * const path_radio_status[] = {"radio", "status"};
@@ -1158,6 +1230,36 @@ static const char * const path_ota_flavor[] = {"ota", "flavor"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .complete_gpio_pins = true, \
+    }
+#define SHELL_COMPLETION_I2C_ARGUMENTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_i2c_arguments = true, \
+    }
+#define SHELL_COMPLETION_ONEWIRE_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_onewire_buses = true, \
+    }
+#define SHELL_COMPLETION_SPI_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_spi_buses = true, \
+    }
+#define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_uart_arguments = true, \
+    }
+#define SHELL_COMPLETION_BUSES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .complete_buses = true, \
     }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
@@ -1318,28 +1420,40 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_ramfs_mount_path, ramfs_size_values),
     SHELL_COMPLETION_RAMFS_MOUNTS(path_ramfs_unmount),
     SHELL_COMPLETION_STATIC(path_i2c, i2c_subcommands),
-    SHELL_COMPLETION_STATIC(path_i2c_probe, i2c_addr_values),
-    SHELL_COMPLETION_STATIC(path_i2c_read, i2c_addr_values),
-    SHELL_COMPLETION_STATIC(path_i2c_read_addr, i2c_reg_values),
-    SHELL_COMPLETION_STATIC(path_i2c_read_reg, i2c_len_values),
-    SHELL_COMPLETION_STATIC(path_i2c_write, i2c_addr_values),
-    SHELL_COMPLETION_STATIC(path_i2c_write_addr, i2c_reg_values),
-    SHELL_COMPLETION_STATIC(path_i2c_write_reg, byte_values),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_status),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_speed),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_scan),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_probe),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_probe_bus),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_read),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_read_addr),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_read_reg),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_read_bus_reg),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_addr),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_reg),
+    SHELL_COMPLETION_I2C_ARGUMENTS(path_i2c_write_bus_reg),
     SHELL_COMPLETION_STATIC(path_spi, spi_subcommands),
-    SHELL_COMPLETION_SPI_CS(path_spi_xfer),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_status),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_xfer),
+    SHELL_COMPLETION_SPI_CS(path_spi_xfer_bus),
     SHELL_COMPLETION_STATIC(path_spi_xfer_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_xfer_mode, spi_speed_values),
-    SHELL_COMPLETION_SPI_CS(path_spi_read),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_read),
+    SHELL_COMPLETION_SPI_CS(path_spi_read_bus),
     SHELL_COMPLETION_STATIC(path_spi_read_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_read_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_spi_read_len, spi_fill_values),
-    SHELL_COMPLETION_SPI_CS(path_spi_write),
+    SHELL_COMPLETION_SPI_BUSES(path_spi_write),
+    SHELL_COMPLETION_SPI_CS(path_spi_write_bus),
     SHELL_COMPLETION_STATIC(path_spi_write_cs, spi_mode_values),
     SHELL_COMPLETION_STATIC(path_spi_write_mode, spi_speed_values),
     SHELL_COMPLETION_STATIC(path_uart, uart_subcommands),
-    SHELL_COMPLETION_STATIC(path_uart_baud, uart_baud_values),
-    SHELL_COMPLETION_STATIC(path_uart_mode, uart_mode_values),
-    SHELL_COMPLETION_STATIC(path_uart_read, uart_read_ms_values),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_baud),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_mode),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_read),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_status),
+    SHELL_COMPLETION_UART_ARGUMENTS(path_uart_write),
     SHELL_COMPLETION_STATIC(path_port, port_subcommands),
     SHELL_COMPLETION_PORTS(path_port_status),
     SHELL_COMPLETION_STATIC(path_xfer, xfer_subcommands),
@@ -1373,10 +1487,15 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_gpio_read),
     SHELL_COMPLETION_GPIO_PINS(path_gpio_write),
     SHELL_COMPLETION_STATIC(path_gpio_write_pin, bit_values),
+    SHELL_COMPLETION_GPIO_PINS(path_gpio_release),
     SHELL_COMPLETION_STATIC(path_onewire, onewire_subcommands),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_status),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_reset),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_reset),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_scan),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_scan),
     SHELL_COMPLETION_GPIO_PINS(path_onewire_xfer),
+    SHELL_COMPLETION_ONEWIRE_BUSES(path_onewire_xfer),
     SHELL_COMPLETION_STATIC(path_onewire_xfer_pin, onewire_read_lengths),
     SHELL_COMPLETION_STATIC(path_onewire_xfer_len, byte_values),
     SHELL_COMPLETION_STATIC(path_adc, adc_subcommands),
@@ -1392,6 +1511,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_pwm_off),
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     SHELL_COMPLETION_STATIC(path_expansion, expansion_subcommands),
+    SHELL_COMPLETION_STATIC(path_expansion_bus, expansion_bus_subcommands),
+    SHELL_COMPLETION_STATIC(path_expansion_bus_create, expansion_bus_protocols),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_attach),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_detach),
+    SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_STATIC(path_expansion_attach, expansion_driver_values),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
@@ -1444,6 +1568,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
 #undef SHELL_COMPLETION_SPI_CS
+#undef SHELL_COMPLETION_UART_ARGUMENTS
 #undef SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS
 #undef SHELL_COMPLETION_STORAGE_MOUNTABLES
 #undef SHELL_COMPLETION_SESSION_IDS
@@ -3524,22 +3649,249 @@ static void shell_completion_emit_gpio_pins(shell_completion_match_t *state)
 #endif
 }
 
-static void shell_completion_emit_spi_cs(shell_completion_match_t *state)
+static void shell_completion_emit_spi_buses(shell_completion_match_t *state)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
-    solar_os_spi_status_t status;
-    if (solar_os_spi_get_status(&status) != ESP_OK || !status.available) {
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_i2c_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_I2C
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_I2C, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_onewire_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_uart_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static void shell_completion_emit_buses(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    const size_t count = solar_os_bus_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get(i, &info)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
+static bool shell_completion_uart_named(const char * const *tokens, size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_UART
+    return tokens != NULL && token_count >= 3 &&
+        solar_os_bus_find(tokens[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL);
+#else
+    (void)tokens;
+    (void)token_count;
+    return false;
+#endif
+}
+
+static void shell_completion_emit_uart_values(shell_completion_match_t *state,
+                                              const char * const *values,
+                                              size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        shell_completion_emit(state, values[i]);
+    }
+}
+
+static void shell_completion_emit_uart_arguments(shell_completion_match_t *state,
+                                                 const char * const *tokens,
+                                                 size_t token_count)
+{
+    if (tokens == NULL || token_count < 2) {
         return;
     }
 
-    for (size_t i = 0; i < status.cs_count; i++) {
+    const char *operation = tokens[1];
+    if (token_count == 2) {
+        shell_completion_emit_uart_buses(state);
+        if (strcmp(operation, "baud") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_baud_values,
+                                              SHELL_ARRAY_COUNT(uart_baud_values));
+        } else if (strcmp(operation, "mode") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_mode_values,
+                                              SHELL_ARRAY_COUNT(uart_mode_values));
+        } else if (strcmp(operation, "read") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_read_ms_values,
+                                              SHELL_ARRAY_COUNT(uart_read_ms_values));
+        }
+        return;
+    }
+
+    if (token_count == 3 && shell_completion_uart_named(tokens, token_count)) {
+        if (strcmp(operation, "baud") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_baud_values,
+                                              SHELL_ARRAY_COUNT(uart_baud_values));
+        } else if (strcmp(operation, "mode") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_mode_values,
+                                              SHELL_ARRAY_COUNT(uart_mode_values));
+        } else if (strcmp(operation, "read") == 0) {
+            shell_completion_emit_uart_values(state,
+                                              uart_read_ms_values,
+                                              SHELL_ARRAY_COUNT(uart_read_ms_values));
+        }
+    }
+}
+
+static void shell_completion_emit_i2c_values(shell_completion_match_t *state,
+                                             const char * const *values,
+                                             size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        shell_completion_emit(state, values[i]);
+    }
+}
+
+static bool shell_completion_i2c_named(const char * const *tokens, size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_I2C
+    return tokens != NULL && token_count >= 3 &&
+        solar_os_bus_find(tokens[2], SOLAR_OS_BUS_PROTOCOL_I2C, NULL);
+#else
+    (void)tokens;
+    (void)token_count;
+    return false;
+#endif
+}
+
+static void shell_completion_emit_i2c_arguments(shell_completion_match_t *state,
+                                                const char * const *tokens,
+                                                size_t token_count)
+{
+    if (tokens == NULL || token_count < 2) {
+        return;
+    }
+
+    const char *operation = tokens[1];
+    if (strcmp(operation, "status") == 0 ||
+        strcmp(operation, "speed") == 0 ||
+        strcmp(operation, "scan") == 0) {
+        if (token_count == 2) {
+            shell_completion_emit_i2c_buses(state);
+        }
+        return;
+    }
+
+    const bool named = shell_completion_i2c_named(tokens, token_count);
+    if (strcmp(operation, "probe") == 0) {
+        if (token_count == 2) {
+            shell_completion_emit_i2c_buses(state);
+            shell_completion_emit_i2c_values(state,
+                                              i2c_addr_values,
+                                              SHELL_ARRAY_COUNT(i2c_addr_values));
+        } else if (token_count == 3 && named) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_addr_values,
+                                              SHELL_ARRAY_COUNT(i2c_addr_values));
+        }
+        return;
+    }
+
+    if (strcmp(operation, "read") == 0 || strcmp(operation, "write") == 0) {
+        if (token_count == 2) {
+            shell_completion_emit_i2c_buses(state);
+            shell_completion_emit_i2c_values(state,
+                                              i2c_addr_values,
+                                              SHELL_ARRAY_COUNT(i2c_addr_values));
+        } else if (named && token_count == 3) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_addr_values,
+                                              SHELL_ARRAY_COUNT(i2c_addr_values));
+        } else if ((!named && token_count == 3) || (named && token_count == 4)) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_reg_values,
+                                              SHELL_ARRAY_COUNT(i2c_reg_values));
+        } else if (strcmp(operation, "read") == 0 &&
+                   ((!named && token_count == 4) || (named && token_count == 5))) {
+            shell_completion_emit_i2c_values(state,
+                                              i2c_len_values,
+                                              SHELL_ARRAY_COUNT(i2c_len_values));
+        } else if (strcmp(operation, "write") == 0 &&
+                   ((!named && token_count == 4) || (named && token_count == 5))) {
+            shell_completion_emit_i2c_values(state,
+                                              byte_values,
+                                              SHELL_ARRAY_COUNT(byte_values));
+        }
+    }
+}
+
+static void shell_completion_emit_spi_cs(shell_completion_match_t *state,
+                                         const char * const *tokens,
+                                         size_t token_count)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_bus_info_t info;
+    if (tokens == NULL || token_count < 3 ||
+        !solar_os_bus_find(tokens[2], SOLAR_OS_BUS_PROTOCOL_SPI, &info)) {
+        return;
+    }
+
+    for (size_t i = 0; i < info.config.spi.cs_count; i++) {
         char pin[8];
-        shell_completion_emit(state, status.cs[i].name);
-        snprintf(pin, sizeof(pin), "%d", status.cs[i].pin);
+        shell_completion_emit(state, info.config.spi.cs[i].name);
+        snprintf(pin, sizeof(pin), "%d", info.config.spi.cs[i].pin);
         shell_completion_emit(state, pin);
     }
 #else
     (void)state;
+    (void)tokens;
+    (void)token_count;
 #endif
 }
 
@@ -3995,8 +4347,23 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         if (rule->complete_gpio_pins) {
             shell_completion_emit_gpio_pins(state);
         }
+        if (rule->complete_i2c_arguments) {
+            shell_completion_emit_i2c_arguments(state, tokens, token_count);
+        }
+        if (rule->complete_onewire_buses) {
+            shell_completion_emit_onewire_buses(state);
+        }
+        if (rule->complete_spi_buses) {
+            shell_completion_emit_spi_buses(state);
+        }
+        if (rule->complete_uart_arguments) {
+            shell_completion_emit_uart_arguments(state, tokens, token_count);
+        }
+        if (rule->complete_buses) {
+            shell_completion_emit_buses(state);
+        }
         if (rule->complete_spi_cs) {
-            shell_completion_emit_spi_cs(state);
+            shell_completion_emit_spi_cs(state, tokens, token_count);
         }
         if (rule->complete_streams) {
             shell_completion_emit_streams(state, rule->scalar_streams_only);

@@ -200,7 +200,11 @@ esp_err_t solar_os_pcd8544_attach(const char *name,
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->spi_bus, spi_bus, sizeof(device->spi_bus));
 
-    esp_err_t ret = pcd8544_init(&device->display, cs_pin, dc_pin, reset_pin);
+    esp_err_t ret = pcd8544_init(&device->display,
+                                 spi_bus,
+                                 cs_pin,
+                                 dc_pin,
+                                 reset_pin);
     if (ret == ESP_OK) {
         ret = register_display_target(device);
     }

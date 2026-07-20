@@ -33,6 +33,8 @@ typedef esp_err_t (*solar_os_port_write_fn)(void *user,
                                             const uint8_t *data,
                                             size_t len,
                                             size_t *written);
+typedef esp_err_t (*solar_os_port_open_fn)(void *user);
+typedef esp_err_t (*solar_os_port_close_fn)(void *user);
 
 typedef struct {
     const char *name;
@@ -40,6 +42,8 @@ typedef struct {
     uint32_t capabilities;
     solar_os_port_read_fn read;
     solar_os_port_write_fn write;
+    solar_os_port_open_fn open;
+    solar_os_port_close_fn close;
     void *user;
 } solar_os_port_driver_t;
 
@@ -53,6 +57,7 @@ typedef struct {
 
 esp_err_t solar_os_port_init(void);
 esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver);
+esp_err_t solar_os_port_unregister(const char *name);
 esp_err_t solar_os_port_claim(const char *name,
                               const char *owner,
                               solar_os_port_handle_t *handle);

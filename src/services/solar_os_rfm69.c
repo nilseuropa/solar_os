@@ -275,7 +275,10 @@ esp_err_t solar_os_rfm69_attach(const char *name,
 
     esp_err_t ret = configure_optional_gpio(irq_pin, reset_pin);
     if (ret == ESP_OK) {
-        ret = rfm69_init(&device->radio, cs_pin, RFM69_DEFAULT_SPEED_HZ);
+        ret = rfm69_init(&device->radio,
+                         spi_bus,
+                         cs_pin,
+                         RFM69_DEFAULT_SPEED_HZ);
     }
     uint8_t version = 0;
     if (ret == ESP_OK) {

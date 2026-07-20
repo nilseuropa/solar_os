@@ -19,14 +19,18 @@
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_buses.h"
 #include "solar_os_config.h"
 #include "solar_os_gpio.h"
 #include "solar_os_i2c.h"
 #include "solar_os_joystick.h"
 #include "solar_os_onewire.h"
+#include "solar_os_pins.h"
 #include "solar_os_pwm.h"
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#include "solar_os_resources.h"
+#endif
 #include "solar_os_sensors.h"
-#include "solar_os_spi.h"
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
@@ -1525,19 +1529,55 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_UART
-static void uart_print_status(solar_os_shell_io_t *term)
+static bool uart_bus_exists(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' not found\n", name);
+        return false;
+    }
+#else
+    if (strcmp(name, SOLAR_OS_UART_PORT_NAME) != 0) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' not found\n", name);
+        return false;
+    }
+#endif
+    return true;
+}
+
+static void uart_print_status(solar_os_shell_io_t *term, const char *name)
 {
     solar_os_uart_status_t status;
-    solar_os_uart_get_status(&status);
+    if (!uart_bus_exists(term, name)) {
+        return;
+    }
+    if (strcmp(name, SOLAR_OS_UART_PORT_NAME) == 0) {
+        (void)solar_os_uart_init();
+    }
+    if (!solar_os_uart_get_bus_status(name, &status)) {
+        solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", name);
+        return;
+    }
 
     if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_UART)) {
         solar_os_shell_io_writeln(term, "UART: not available on this board");
         return;
     }
 
+    solar_os_shell_io_printf(term, "Bus: %s\n", name);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_bus_info_t bus_info;
+    if (solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_UART, &bus_info)) {
+        solar_os_shell_io_printf(term,
+                                 "Detachable: %s\n",
+                                 bus_info.detachable ? "yes" : "no");
+    }
+#endif
     solar_os_shell_io_printf(term,
-                             "UART: %s\n",
-                             status.initialized ? "ready" : "unavailable");
+                             "Attachment: %s\n",
+                             status.attached ? "attached" : "detached");
+    solar_os_shell_io_printf(term, "UART: %s\n",
+                             status.initialized ? "ready" : "idle");
     solar_os_shell_io_printf(term, "Port: UART%d\n", status.port_num);
     solar_os_shell_io_printf(term, "Pins: TX %d, RX %d\n", status.tx_pin, status.rx_pin);
     solar_os_shell_io_printf(term, "Baud: %" PRIu32 "\n", status.baud_rate);
@@ -1547,7 +1587,7 @@ static void uart_print_status(solar_os_shell_io_t *term)
     } else {
         solar_os_shell_io_printf(term,
                                  "RX buffered: %s\n",
-                                 status.initialized ? "busy" : "unavailable");
+                                 status.initialized ? "busy" : "idle");
     }
     solar_os_shell_io_printf(term,
                              "Owner: %s\n",
@@ -1557,11 +1597,11 @@ static void uart_print_status(solar_os_shell_io_t *term)
 static void uart_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  uart status");
-    solar_os_shell_io_writeln(term, "  uart baud [rate]");
-    solar_os_shell_io_writeln(term, "  uart mode [raw|line]");
-    solar_os_shell_io_writeln(term, "  uart write <text>");
-    solar_os_shell_io_writeln(term, "  uart read [ms]");
+    solar_os_shell_io_writeln(term, "  uart [status [bus]]");
+    solar_os_shell_io_writeln(term, "  uart baud [bus] [rate]");
+    solar_os_shell_io_writeln(term, "  uart mode [bus] [raw|line]");
+    solar_os_shell_io_writeln(term, "  uart write [bus] <text>");
+    solar_os_shell_io_writeln(term, "  uart read [bus] [ms]");
 }
 
 static void uart_print_apply_result(solar_os_shell_io_t *term,
@@ -1593,10 +1633,18 @@ static void uart_print_apply_result(solar_os_shell_io_t *term,
 
 static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int value_arg = 2;
     solar_os_uart_status_t status;
 
     if (argc == 2) {
-        solar_os_uart_get_status(&status);
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            (void)solar_os_uart_init();
+            if (!solar_os_uart_get_bus_status(bus, &status)) {
+                solar_os_shell_io_writeln(term, "uart: default bus unavailable");
+                return;
+            }
+        }
         solar_os_shell_io_printf(term, "baud: %" PRIu32 "\n", status.baud_rate);
         solar_os_shell_io_printf(term,
                                  "values: %u..%u\n",
@@ -1604,13 +1652,25 @@ static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
                                  (unsigned)SOLAR_OS_UART_MAX_BAUD_RATE);
         return;
     }
-    if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: uart baud [rate]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
+    if (argc == value_arg) {
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", bus);
+            return;
+        }
+        solar_os_shell_io_printf(term, "%s baud: %" PRIu32 "\n", bus, status.baud_rate);
+        return;
+    }
+    if (argc != value_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart baud [bus] [rate]");
         return;
     }
 
     size_t baud_rate = 0;
-    if (!parse_size_arg(argv[2],
+    if (!parse_size_arg(argv[value_arg],
                         SOLAR_OS_UART_MIN_BAUD_RATE,
                         SOLAR_OS_UART_MAX_BAUD_RATE,
                         &baud_rate)) {
@@ -1621,14 +1681,16 @@ static void uart_cmd_baud(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    const esp_err_t err = solar_os_uart_set_baud_rate((uint32_t)baud_rate);
-    solar_os_uart_get_status(&status);
+    const esp_err_t err = solar_os_uart_bus_set_baud_rate(bus, (uint32_t)baud_rate);
+    (void)solar_os_uart_get_bus_status(bus, &status);
     const bool applied = status.initialized && status.baud_rate == (uint32_t)baud_rate;
-    uart_print_apply_result(term, "baud", argv[2], err, applied);
+    uart_print_apply_result(term, "baud", argv[value_arg], err, applied);
 }
 
 static void uart_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int value_arg = 2;
     solar_os_uart_status_t status;
 
     if (argc == 2) {
@@ -1637,34 +1699,50 @@ static void uart_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
         solar_os_shell_io_writeln(term, "values: raw line");
         return;
     }
-    if (argc != 3) {
-        solar_os_shell_io_writeln(term, "usage: uart mode [raw|line]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
+    if (argc == value_arg) {
+        if (!solar_os_uart_get_bus_status(bus, &status)) {
+            solar_os_shell_io_printf(term, "uart: bus '%s' unavailable\n", bus);
+            return;
+        }
+        solar_os_shell_io_printf(term,
+                                 "%s mode: %s\n",
+                                 bus,
+                                 solar_os_uart_mode_name(status.mode));
+        return;
+    }
+    if (argc != value_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart mode [bus] [raw|line]");
         return;
     }
 
     solar_os_uart_mode_t mode;
-    if (!solar_os_uart_parse_mode(argv[2], &mode)) {
+    if (!solar_os_uart_parse_mode(argv[value_arg], &mode)) {
         solar_os_shell_io_writeln(term, "mode values: raw line");
         return;
     }
 
-    const esp_err_t err = solar_os_uart_set_mode(mode);
-    solar_os_uart_get_status(&status);
+    const esp_err_t err = solar_os_uart_bus_set_mode(bus, mode);
+    (void)solar_os_uart_get_bus_status(bus, &status);
     const bool applied = status.initialized && status.mode == mode;
-    uart_print_apply_result(term, "mode", argv[2], err, applied);
+    uart_print_apply_result(term, "mode", argv[value_arg], err, applied);
 }
 
 static bool uart_build_write_payload(int argc,
                                      char **argv,
+                                     int first_arg,
                                      uint8_t *buffer,
                                      size_t buffer_len,
                                      size_t *payload_len)
 {
     size_t len = 0;
 
-    for (int i = 2; i < argc; i++) {
+    for (int i = first_arg; i < argc; i++) {
         const size_t arg_len = strlen(argv[i]);
-        const size_t extra_space = i > 2 ? 1 : 0;
+        const size_t extra_space = i > first_arg ? 1 : 0;
         if (len + extra_space + arg_len > buffer_len) {
             return false;
         }
@@ -1681,20 +1759,26 @@ static bool uart_build_write_payload(int argc,
 
 static void uart_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int first_arg = 2;
+    if (argc >= 4 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        first_arg = 3;
+    }
     if (argc < 3) {
-        solar_os_shell_io_writeln(term, "usage: uart write <text>");
+        solar_os_shell_io_writeln(term, "usage: uart write [bus] <text>");
         return;
     }
 
     uint8_t buffer[UART_WRITE_MAX_LEN];
     size_t len = 0;
-    if (!uart_build_write_payload(argc, argv, buffer, sizeof(buffer), &len)) {
+    if (!uart_build_write_payload(argc, argv, first_arg, buffer, sizeof(buffer), &len)) {
         solar_os_shell_io_writeln(term, "uart write: text too long");
         return;
     }
 
     size_t written = 0;
-    const esp_err_t err = solar_os_uart_write(buffer, len, &written);
+    const esp_err_t err = solar_os_uart_bus_write(bus, buffer, len, &written);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
             return;
@@ -1731,20 +1815,31 @@ static void uart_print_read_data(solar_os_shell_io_t *term, const uint8_t *data,
 
 static void uart_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_UART_PORT_NAME;
+    int timeout_arg = 2;
     size_t timeout_ms = 100;
 
-    if (argc > 3) {
-        solar_os_shell_io_writeln(term, "usage: uart read [ms]");
+    if (argc >= 3 && solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_UART, NULL)) {
+        bus = argv[2];
+        timeout_arg = 3;
+    }
+    if (argc > timeout_arg + 1) {
+        solar_os_shell_io_writeln(term, "usage: uart read [bus] [ms]");
         return;
     }
-    if (argc == 3 && !parse_size_arg(argv[2], 0, 10000, &timeout_ms)) {
+    if (argc == timeout_arg + 1 &&
+        !parse_size_arg(argv[timeout_arg], 0, 10000, &timeout_ms)) {
         solar_os_shell_io_writeln(term, "read timeout: 0..10000 ms");
         return;
     }
 
     uint8_t buffer[UART_READ_MAX_LEN];
     size_t read_len = 0;
-    const esp_err_t err = solar_os_uart_read(buffer, sizeof(buffer), (uint32_t)timeout_ms, &read_len);
+    const esp_err_t err = solar_os_uart_bus_read(bus,
+                                                 buffer,
+                                                 sizeof(buffer),
+                                                 (uint32_t)timeout_ms,
+                                                 &read_len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "uart", "UART hardware", err)) {
             return;
@@ -1766,11 +1861,11 @@ void solar_os_shell_cmd_uart(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
-        if (argc > 2) {
-            solar_os_shell_io_writeln(term, "usage: uart status");
+        if (argc > 3) {
+            solar_os_shell_io_writeln(term, "usage: uart status [bus]");
             return;
         }
-        uart_print_status(term);
+        uart_print_status(term, argc == 3 ? argv[2] : SOLAR_OS_UART_PORT_NAME);
         return;
     }
 
@@ -1873,6 +1968,7 @@ static void gpio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  gpio mode <pin> <in|out> [none|up|down]");
     solar_os_shell_io_writeln(term, "  gpio read <pin>");
     solar_os_shell_io_writeln(term, "  gpio write <pin> <0|1>");
+    solar_os_shell_io_writeln(term, "  gpio release <pin>");
 }
 
 static bool gpio_parse_pin(const char *text, int *pin)
@@ -1896,6 +1992,19 @@ static void gpio_print_error(solar_os_shell_io_t *term, const char *action, int 
         solar_os_shell_io_printf(term, "gpio %s: GPIO%d is reserved\n", action, pin);
         return;
     }
+    if (err == ESP_ERR_INVALID_STATE) {
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+        solar_os_resource_claim_t claim;
+        if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim)) {
+            solar_os_shell_io_printf(term,
+                                     "gpio %s: GPIO%d is in use by %s\n",
+                                     action,
+                                     pin,
+                                     claim.owner);
+            return;
+        }
+#endif
+    }
 
     solar_os_shell_io_printf(term,
                              "gpio %s GPIO%d failed: %s\n",
@@ -1906,15 +2015,26 @@ static void gpio_print_error(solar_os_shell_io_t *term, const char *action, int 
 
 static void gpio_print_pin_info(solar_os_shell_io_t *term, const solar_os_gpio_pin_info_t *info)
 {
+    const char *role = info->role != NULL ? info->role : "";
+    const bool has_state = info->configured || info->claimed || info->runtime_allowed;
+
     solar_os_shell_io_printf(term,
-                             "GPIO%-2d %-8s %-6s %-6s pull %-4s",
+                             has_state ? "GPIO%-2d %-10s %-24s" : "GPIO%-2d %-10s %s",
                              info->pin,
-                             info->runtime_allowed ? "user" : "reserved",
-                             info->configured ? solar_os_gpio_mode_name(info->mode) : "-",
-                             info->level_valid ? (info->level ? "high" : "low") : "?",
-                             info->configured ? solar_os_gpio_pull_name(info->pull) : "-");
-    if (info->role != NULL && info->role[0] != '\0') {
-        solar_os_shell_io_printf(term, " %s", info->role);
+                             solar_os_pin_policy_name(info->policy),
+                             role);
+    if (info->configured) {
+        solar_os_shell_io_printf(term,
+                                 " %s%s pull=%s",
+                                 solar_os_gpio_mode_name(info->mode),
+                                 info->level_valid ? (info->level ? ":high" : ":low") : "",
+                                 solar_os_gpio_pull_name(info->pull));
+    }
+    if (info->claimed) {
+        solar_os_shell_io_printf(term, " owner=%s", info->owner);
+    } else if (info->runtime_allowed) {
+        solar_os_shell_io_writeln(term, " available");
+        return;
     }
     solar_os_shell_io_put_char(term, '\n');
 }
@@ -2002,6 +2122,21 @@ static void gpio_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
     solar_os_shell_io_printf(term, "GPIO%d <- %u\n", pin, (unsigned)level);
 }
 
+static void gpio_cmd_release(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    int pin = -1;
+    if (argc != 3 || !gpio_parse_pin(argv[2], &pin)) {
+        solar_os_shell_io_writeln(term, "usage: gpio release <pin>");
+        return;
+    }
+    const esp_err_t err = solar_os_gpio_release(pin);
+    if (err != ESP_OK) {
+        gpio_print_error(term, "release", pin, err);
+        return;
+    }
+    solar_os_shell_io_printf(term, "GPIO%d released\n", pin);
+}
+
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -2017,6 +2152,8 @@ void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv)
         gpio_cmd_read(term, argc, argv);
     } else if (strcmp(argv[1], "write") == 0) {
         gpio_cmd_write(term, argc, argv);
+    } else if (strcmp(argv[1], "release") == 0) {
+        gpio_cmd_release(term, argc, argv);
     } else {
         gpio_print_usage(term);
     }
@@ -2024,12 +2161,68 @@ void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+typedef struct {
+    bool named;
+    int pin;
+    const char *name;
+} onewire_target_t;
+
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+static void onewire_print_bus_status(solar_os_shell_io_t *term,
+                                     const solar_os_bus_info_t *info)
+{
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s GPIO%d attached=%s detachable=%s ready=%s leases=%u\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             info->config.onewire.pin,
+                             info->attached ? "yes" : "no",
+                             info->detachable ? "yes" : "no",
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count);
+}
+#endif
+
+static void onewire_print_status(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+            solar_os_shell_io_printf(term, "onewire status: bus '%s' not found\n", name);
+            return;
+        }
+        onewire_print_bus_status(term, &info);
+        return;
+    }
+
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term,
+                                  "1-Wire: no registered buses; direct GPIO targets are available");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE, i, &info)) {
+            onewire_print_bus_status(term, &info);
+        }
+    }
+#else
+    (void)name;
+    solar_os_shell_io_writeln(term,
+                              "1-Wire: named buses unavailable; direct GPIO targets are available");
+#endif
+}
+
 static void onewire_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  onewire reset <pin>");
-    solar_os_shell_io_writeln(term, "  onewire scan <pin>");
-    solar_os_shell_io_writeln(term, "  onewire xfer <pin> <read-len> [byte ...]");
+    solar_os_shell_io_writeln(term, "  onewire [status [bus]]");
+    solar_os_shell_io_writeln(term, "  onewire reset <bus|pin>");
+    solar_os_shell_io_writeln(term, "  onewire scan <bus|pin>");
+    solar_os_shell_io_writeln(term, "  onewire xfer <bus|pin> <read-len> [byte ...]");
 }
 
 static bool onewire_parse_pin(const char *text, int *pin)
@@ -2042,60 +2235,116 @@ static bool onewire_parse_pin(const char *text, int *pin)
     return true;
 }
 
+static bool onewire_parse_target(solar_os_shell_io_t *term,
+                                 const char *text,
+                                 onewire_target_t *target)
+{
+    if (text == NULL || target == NULL) {
+        return false;
+    }
+    int pin = -1;
+    if (onewire_parse_pin(text, &pin)) {
+        *target = (onewire_target_t) {
+            .pin = pin,
+        };
+        return true;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    solar_os_bus_info_t info;
+    if (solar_os_bus_find(text, SOLAR_OS_BUS_PROTOCOL_ONEWIRE, &info)) {
+        *target = (onewire_target_t) {
+            .named = true,
+            .pin = info.config.onewire.pin,
+            .name = text,
+        };
+        return true;
+    }
+#endif
+    solar_os_shell_io_printf(term, "onewire: bus '%s' not found\n", text);
+    return false;
+}
+
+static void onewire_target_label(const onewire_target_t *target,
+                                 char *label,
+                                 size_t label_size)
+{
+    if (target->named) {
+        strlcpy(label, target->name, label_size);
+    } else {
+        (void)snprintf(label, label_size, "GPIO%d", target->pin);
+    }
+}
+
 static void onewire_print_error(solar_os_shell_io_t *term,
                                 const char *action,
-                                int pin,
+                                const onewire_target_t *target,
                                 esp_err_t err)
 {
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(target, label, sizeof(label));
     if (err == ESP_ERR_NOT_ALLOWED) {
-        solar_os_shell_io_printf(term, "onewire %s: GPIO%d is reserved\n", action, pin);
+        solar_os_shell_io_printf(term, "onewire %s: %s is reserved\n", action, label);
     } else if (err == ESP_ERR_NOT_FOUND) {
-        solar_os_shell_io_printf(term, "onewire %s: no device on GPIO%d\n", action, pin);
+        solar_os_shell_io_printf(term, "onewire %s: no device on %s\n", action, label);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term, "onewire %s: bus '%s' is busy\n", action, label);
     } else {
         solar_os_shell_io_printf(term,
-                                 "onewire %s GPIO%d failed: %s\n",
+                                 "onewire %s on %s failed: %s\n",
                                  action,
-                                 pin,
+                                 label,
                                  esp_err_to_name(err));
     }
 }
 
 static void onewire_cmd_reset(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
-    if (argc != 3 || !onewire_parse_pin(argv[2], &pin)) {
-        solar_os_shell_io_writeln(term, "usage: onewire reset <pin>");
+    onewire_target_t target;
+    if (argc != 3) {
+        solar_os_shell_io_writeln(term, "usage: onewire reset <bus|pin>");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
 
     bool present = false;
-    const esp_err_t err = solar_os_onewire_reset(pin, &present);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_reset(target.name, &present)
+        : solar_os_onewire_reset(target.pin, &present);
     if (err != ESP_OK) {
-        onewire_print_error(term, "reset", pin, err);
+        onewire_print_error(term, "reset", &target, err);
         return;
     }
-    solar_os_shell_io_printf(term,
-                             "GPIO%d: %s\n",
-                             pin,
-                             present ? "presence detected" : "no presence");
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
+    solar_os_shell_io_printf(term, "%s: %s\n", label, present ? "presence detected" : "no presence");
 }
 
 static void onewire_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
-    if (argc != 3 || !onewire_parse_pin(argv[2], &pin)) {
-        solar_os_shell_io_writeln(term, "usage: onewire scan <pin>");
+    onewire_target_t target;
+    if (argc != 3) {
+        solar_os_shell_io_writeln(term, "usage: onewire scan <bus|pin>");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
 
     uint64_t addresses[SOLAR_OS_ONEWIRE_MAX_DEVICES];
     size_t count = 0;
-    const esp_err_t err = solar_os_onewire_scan(pin,
-                                                addresses,
-                                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
-                                                &count);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_scan(target.name,
+                                    addresses,
+                                    SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                    &count)
+        : solar_os_onewire_scan(target.pin,
+                                addresses,
+                                SOLAR_OS_ONEWIRE_MAX_DEVICES,
+                                &count);
     if (err != ESP_OK) {
-        onewire_print_error(term, "scan", pin, err);
+        onewire_print_error(term, "scan", &target, err);
         return;
     }
 
@@ -2105,28 +2354,32 @@ static void onewire_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
                                  addresses[i],
                                  (unsigned)(addresses[i] & 0xffU));
     }
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
     solar_os_shell_io_printf(term,
-                             "%u device%s found on GPIO%d\n",
+                             "%u device%s found on %s\n",
                              (unsigned)count,
                              count == 1 ? "" : "s",
-                             pin);
+                             label);
 }
 
 static void onewire_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    int pin = -1;
+    onewire_target_t target;
     size_t read_len = 0;
     const size_t write_len = argc >= 4 ? (size_t)(argc - 4) : 0;
     uint8_t tx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
     uint8_t rx_data[SOLAR_OS_ONEWIRE_MAX_TRANSFER];
 
     if (argc < 4 ||
-        !onewire_parse_pin(argv[2], &pin) ||
         !parse_size_arg(argv[3], 0, SOLAR_OS_ONEWIRE_MAX_TRANSFER, &read_len) ||
         write_len > SOLAR_OS_ONEWIRE_MAX_TRANSFER ||
         (read_len == 0 && write_len == 0)) {
         solar_os_shell_io_writeln(term,
-                                  "usage: onewire xfer <pin> <read-len> [byte ...]");
+                                  "usage: onewire xfer <bus|pin> <read-len> [byte ...]");
+        return;
+    }
+    if (!onewire_parse_target(term, argv[2], &target)) {
         return;
     }
     for (size_t i = 0; i < write_len; i++) {
@@ -2136,21 +2389,29 @@ static void onewire_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
         }
     }
 
-    const esp_err_t err = solar_os_onewire_transfer(pin,
-                                                     tx_data,
-                                                     write_len,
-                                                     rx_data,
-                                                     read_len);
+    const esp_err_t err = target.named
+        ? solar_os_onewire_bus_transfer(target.name,
+                                        tx_data,
+                                        write_len,
+                                        rx_data,
+                                        read_len)
+        : solar_os_onewire_transfer(target.pin,
+                                    tx_data,
+                                    write_len,
+                                    rx_data,
+                                    read_len);
     if (err != ESP_OK) {
-        onewire_print_error(term, "xfer", pin, err);
+        onewire_print_error(term, "xfer", &target, err);
         return;
     }
 
+    char label[SOLAR_OS_BUS_NAME_MAX + 8];
+    onewire_target_label(&target, label, sizeof(label));
     if (read_len == 0) {
-        solar_os_shell_io_printf(term, "wrote %u byte%s on GPIO%d\n",
+        solar_os_shell_io_printf(term, "wrote %u byte%s on %s\n",
                                  (unsigned)write_len,
                                  write_len == 1 ? "" : "s",
-                                 pin);
+                                 label);
         return;
     }
     solar_os_shell_io_write(term, "rx:");
@@ -2164,8 +2425,12 @@ void solar_os_shell_cmd_onewire(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc < 2) {
-        onewire_print_usage(term);
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 3) {
+            onewire_print_usage(term);
+            return;
+        }
+        onewire_print_status(term, argc == 3 ? argv[2] : NULL);
     } else if (strcmp(argv[1], "reset") == 0) {
         onewire_cmd_reset(term, argc, argv);
     } else if (strcmp(argv[1], "scan") == 0) {
@@ -2662,8 +2927,56 @@ void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
-static void i2c_print_status(solar_os_shell_io_t *term)
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+static void i2c_print_bus_status(solar_os_shell_io_t *term,
+                                 const solar_os_bus_info_t *info)
 {
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s port=%d SDA=%d SCL=%d speed=%" PRIu32
+                             " attached=%s detachable=%s ready=%s leases=%u\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             info->config.i2c.port,
+                             info->config.i2c.sda_pin,
+                             info->config.i2c.scl_pin,
+                             info->config.i2c.speed_hz,
+                             info->attached ? "yes" : "no",
+                             info->detachable ? "yes" : "no",
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count);
+}
+#endif
+
+static void i2c_print_status(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, &info)) {
+            solar_os_shell_io_printf(term, "i2c status: bus '%s' not found\n", name);
+            return;
+        }
+        i2c_print_bus_status(term, &info);
+        return;
+    }
+
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "I2C: no registered buses");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_I2C, i, &info)) {
+            i2c_print_bus_status(term, &info);
+        }
+    }
+#else
+    if (name != NULL && strcmp(name, SOLAR_OS_I2C_DEFAULT_BUS) != 0) {
+        solar_os_shell_io_printf(term, "i2c status: bus '%s' not found\n", name);
+        return;
+    }
     if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
         solar_os_shell_io_writeln(term, "I2C: not available on this board");
         return;
@@ -2673,26 +2986,47 @@ static void i2c_print_status(solar_os_shell_io_t *term)
                              solar_os_i2c_get_sda_pin(),
                              solar_os_i2c_get_scl_pin(),
                              solar_os_i2c_get_speed_hz());
+#endif
+}
+
+static bool i2c_bus_exists(solar_os_shell_io_t *term, const char *name)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+    if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_I2C, NULL)) {
+        solar_os_shell_io_printf(term, "i2c: bus '%s' not found\n", name);
+        return false;
+    }
+    return true;
+#else
+    if (strcmp(name, SOLAR_OS_I2C_DEFAULT_BUS) == 0) {
+        return true;
+    }
+    solar_os_shell_io_printf(term, "i2c: bus '%s' not found\n", name);
+    return false;
+#endif
 }
 
 static void i2c_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  i2c scan");
-    solar_os_shell_io_writeln(term, "  i2c probe <addr>");
-    solar_os_shell_io_writeln(term, "  i2c read <addr> <reg> [len]");
-    solar_os_shell_io_writeln(term, "  i2c write <addr> <reg> <byte...>");
-    solar_os_shell_io_writeln(term, "  i2c status");
+    solar_os_shell_io_writeln(term, "  i2c [status [bus]]");
+    solar_os_shell_io_writeln(term, "  i2c scan [bus]");
+    solar_os_shell_io_writeln(term, "  i2c probe [bus] <addr>");
+    solar_os_shell_io_writeln(term, "  i2c read [bus] <addr> <reg> [len]");
+    solar_os_shell_io_writeln(term, "  i2c write [bus] <addr> <reg> <byte...>");
 }
 
-static void i2c_cmd_scan(solar_os_shell_io_t *term)
+static void i2c_cmd_scan(solar_os_shell_io_t *term, int argc, char **argv)
 {
-    size_t found = 0;
-
-    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_I2C)) {
-        solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
+    if (argc > 3) {
+        solar_os_shell_io_writeln(term, "usage: i2c scan [bus]");
         return;
     }
+    const char *bus = argc == 3 ? argv[2] : SOLAR_OS_I2C_DEFAULT_BUS;
+    if (!i2c_bus_exists(term, bus)) {
+        return;
+    }
+    size_t found = 0;
 
     solar_os_shell_io_writeln(term, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
     for (uint8_t row = 0; row < 0x80; row += 0x10) {
@@ -2704,7 +3038,7 @@ static void i2c_cmd_scan(solar_os_shell_io_t *term)
                 continue;
             }
 
-            const esp_err_t err = solar_os_i2c_probe(address);
+            const esp_err_t err = solar_os_i2c_bus_probe(bus, address);
             if (err == ESP_OK) {
                 solar_os_shell_io_printf(term, "%02x ", address);
                 found++;
@@ -2722,47 +3056,74 @@ static void i2c_cmd_scan(solar_os_shell_io_t *term)
 
 static void i2c_cmd_probe(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int address_arg = 2;
+    if (argc == 4) {
+        bus = argv[2];
+        address_arg = 3;
+    }
     uint8_t address;
-    if (argc != 3 || !parse_u8(argv[2], &address) ||
+    if ((argc != 3 && argc != 4) || !parse_u8(argv[address_arg], &address) ||
         address < SOLAR_OS_I2C_SCAN_MIN_ADDR || address > SOLAR_OS_I2C_SCAN_MAX_ADDR) {
-        solar_os_shell_io_writeln(term, "usage: i2c probe <addr>");
+        solar_os_shell_io_writeln(term, "usage: i2c probe [bus] <addr>");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
-    const esp_err_t err = solar_os_i2c_probe(address);
+    const esp_err_t err = solar_os_i2c_bus_probe(bus, address);
     if (err == ESP_OK) {
-        solar_os_shell_io_printf(term, "0x%02x: ACK\n", address);
+        solar_os_shell_io_printf(term, "%s 0x%02x: ACK\n", bus, address);
     } else if (err == ESP_ERR_NOT_SUPPORTED) {
         solar_os_shell_io_writeln(term, "i2c: I2C hardware not available on this board");
     } else if (err == ESP_ERR_TIMEOUT) {
-        solar_os_shell_io_printf(term, "0x%02x: bus busy\n", address);
+        solar_os_shell_io_printf(term, "%s 0x%02x: bus busy\n", bus, address);
     } else {
-        solar_os_shell_io_printf(term, "0x%02x: no response (%s)\n", address, esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "%s 0x%02x: no response (%s)\n",
+                                 bus,
+                                 address,
+                                 esp_err_to_name(err));
     }
 }
 
 static void i2c_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int value_arg = 2;
+    uint8_t legacy_address;
+    if (argc >= 5 && !parse_u8(argv[2], &legacy_address)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
     uint8_t address;
     uint8_t reg;
     size_t len = 1;
 
-    if (argc < 4 ||
-        argc > 5 ||
-        !parse_u8(argv[2], &address) ||
-        !parse_u8(argv[3], &reg) ||
-        (argc == 5 && !parse_size_arg(argv[4], 1, I2C_READ_MAX_LEN, &len))) {
-        solar_os_shell_io_writeln(term, "usage: i2c read <addr> <reg> [len]");
+    if (argc < value_arg + 2 ||
+        argc > value_arg + 3 ||
+        !parse_u8(argv[value_arg], &address) ||
+        !parse_u8(argv[value_arg + 1], &reg) ||
+        (argc == value_arg + 3 &&
+         !parse_size_arg(argv[value_arg + 2], 1, I2C_READ_MAX_LEN, &len))) {
+        solar_os_shell_io_writeln(term, "usage: i2c read [bus] <addr> <reg> [len]");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
     uint8_t data[I2C_READ_MAX_LEN];
-    const esp_err_t err = solar_os_i2c_read_reg(address, reg, data, len);
+    const esp_err_t err = solar_os_i2c_bus_read_reg(bus, address, reg, data, len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
             return;
         }
-        solar_os_shell_io_printf(term, "i2c read failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "i2c read failed on %s: %s\n",
+                                 bus,
+                                 esp_err_to_name(err));
         return;
     }
 
@@ -2775,31 +3136,45 @@ static void i2c_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
 
 static void i2c_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 {
+    const char *bus = SOLAR_OS_I2C_DEFAULT_BUS;
+    int value_arg = 2;
+    uint8_t legacy_address;
+    if (argc >= 6 && !parse_u8(argv[2], &legacy_address)) {
+        bus = argv[2];
+        value_arg = 3;
+    }
     uint8_t address;
     uint8_t reg;
-    uint8_t data[SOLAR_OS_SHELL_ARG_MAX - 3];
+    uint8_t data[SOLAR_OS_SHELL_ARG_MAX];
 
-    if (argc < 5 ||
-        !parse_u8(argv[2], &address) ||
-        !parse_u8(argv[3], &reg)) {
-        solar_os_shell_io_writeln(term, "usage: i2c write <addr> <reg> <byte...>");
+    if (argc < value_arg + 3 ||
+        !parse_u8(argv[value_arg], &address) ||
+        !parse_u8(argv[value_arg + 1], &reg)) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: i2c write [bus] <addr> <reg> <byte...>");
+        return;
+    }
+    if (!i2c_bus_exists(term, bus)) {
         return;
     }
 
-    const size_t len = (size_t)(argc - 4);
+    const size_t len = (size_t)(argc - value_arg - 2);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 4], &data[i])) {
+        if (!parse_u8(argv[i + value_arg + 2], &data[i])) {
             solar_os_shell_io_writeln(term, "i2c write: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_i2c_write_reg(address, reg, data, len);
+    const esp_err_t err = solar_os_i2c_bus_write_reg(bus, address, reg, data, len);
     if (err != ESP_OK) {
         if (shell_print_not_supported(term, "i2c", "I2C hardware", err)) {
             return;
         }
-        solar_os_shell_io_printf(term, "i2c write failed: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_printf(term,
+                                 "i2c write failed on %s: %s\n",
+                                 bus,
+                                 esp_err_to_name(err));
         return;
     }
 
@@ -2815,12 +3190,16 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0 || strcmp(argv[1], "speed") == 0) {
-        i2c_print_status(term);
+        if (argc > 3) {
+            i2c_print_usage(term);
+            return;
+        }
+        i2c_print_status(term, argc == 3 ? argv[2] : NULL);
         return;
     }
 
     if (strcmp(argv[1], "scan") == 0) {
-        i2c_cmd_scan(term);
+        i2c_cmd_scan(term, argc, argv);
     } else if (strcmp(argv[1], "probe") == 0) {
         i2c_cmd_probe(term, argc, argv);
     } else if (strcmp(argv[1], "read") == 0) {
@@ -2833,7 +3212,7 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_SPI
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t *value)
 {
     if (text == NULL || text[0] == '\0' || value == NULL) {
@@ -2869,75 +3248,139 @@ static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t
     return true;
 }
 
-static void spi_print_status(solar_os_shell_io_t *term)
+static const char *spi_bus_host_name(int host)
 {
-    solar_os_spi_status_t status;
-    const esp_err_t err = solar_os_spi_get_status(&status);
-    if (err != ESP_OK || !status.available) {
-        solar_os_shell_io_writeln(term, "SPI: not available on this board");
+    if (host == SPI2_HOST) {
+        return "spi2";
+    }
+    if (host == SPI3_HOST) {
+        return "spi3";
+    }
+    return "unknown";
+}
+
+static void spi_print_bus_status(solar_os_shell_io_t *term,
+                                 const solar_os_bus_info_t *info)
+{
+    solar_os_shell_io_printf(term,
+                             "%s: %s %s host=%s SCLK=%d MISO=%d MOSI=%d attached=%s detachable=%s ready=%s leases=%u max=%" PRIu32 "\n",
+                             info->name,
+                             solar_os_bus_origin_name(info->origin),
+                             solar_os_bus_sharing_name(info->sharing),
+                             spi_bus_host_name(info->config.spi.host),
+                             info->config.spi.sclk_pin,
+                             info->config.spi.miso_pin,
+                             info->config.spi.mosi_pin,
+                             info->attached ? "yes" : "no",
+                             info->detachable ? "yes" : "no",
+                             info->ready ? "yes" : "no",
+                             (unsigned)info->lease_count,
+                             info->config.spi.max_transfer_size);
+    solar_os_shell_io_write(term, "  CS:");
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        solar_os_shell_io_printf(term,
+                                 " %s(GPIO%d)",
+                                 info->config.spi.cs[i].name,
+                                 info->config.spi.cs[i].pin);
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+static void spi_print_status(solar_os_shell_io_t *term, const char *name)
+{
+    if (name != NULL) {
+        solar_os_bus_info_t info;
+        if (!solar_os_bus_find(name, SOLAR_OS_BUS_PROTOCOL_SPI, &info)) {
+            solar_os_shell_io_printf(term, "spi status: bus '%s' not found\n", name);
+            return;
+        }
+        spi_print_bus_status(term, &info);
         return;
     }
 
-    solar_os_shell_io_printf(term,
-                             "%s: SCK %d, MISO %d, MOSI %d\n",
-                             status.name != NULL ? status.name : "SPI",
-                             status.sclk_pin,
-                             status.miso_pin,
-                             status.mosi_pin);
-    solar_os_shell_io_printf(term,
-                             "default speed: %" PRIu32 " Hz, max transfer: %u bytes\n",
-                             status.default_speed_hz,
-                             (unsigned)status.max_transfer_size);
-    solar_os_shell_io_write(term, "CS:");
-    if (status.cs_count == 0) {
-        solar_os_shell_io_write(term, " none");
+    const size_t count = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI);
+    if (count == 0) {
+        solar_os_shell_io_writeln(term, "SPI: no registered buses");
+        return;
     }
-    for (size_t i = 0; i < status.cs_count; i++) {
-        solar_os_shell_io_printf(term,
-                                 " %s(GPIO%d)",
-                                 status.cs[i].name,
-                                 status.cs[i].pin);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_bus_info_t info;
+        if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, i, &info)) {
+            spi_print_bus_status(term, &info);
+        }
     }
-    solar_os_shell_io_put_char(term, '\n');
 }
 
 static void spi_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  spi [status]");
-    solar_os_shell_io_writeln(term, "  spi xfer <cs> <mode> <hz> <byte...>");
-    solar_os_shell_io_writeln(term, "  spi read <cs> <mode> <hz> <len> [fill]");
-    solar_os_shell_io_writeln(term, "  spi write <cs> <mode> <hz> <byte...>");
+    solar_os_shell_io_writeln(term, "  spi [status [bus]]");
+    solar_os_shell_io_writeln(term, "  spi xfer <bus> <cs> <mode> <hz> <byte...>");
+    solar_os_shell_io_writeln(term, "  spi read <bus> <cs> <mode> <hz> <len> [fill]");
+    solar_os_shell_io_writeln(term, "  spi write <bus> <cs> <mode> <hz> <byte...>");
+}
+
+static bool spi_resolve_cs(const solar_os_bus_info_t *info,
+                           const char *text,
+                           int *cs_pin)
+{
+    if (info == NULL || text == NULL || cs_pin == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        if (strcmp(text, info->config.spi.cs[i].name) == 0) {
+            *cs_pin = info->config.spi.cs[i].pin;
+            return true;
+        }
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const long parsed = strtol(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' || parsed < 0 || parsed > 63) {
+        return false;
+    }
+    for (size_t i = 0; i < info->config.spi.cs_count; i++) {
+        if (parsed == info->config.spi.cs[i].pin) {
+            *cs_pin = (int)parsed;
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool spi_parse_common(solar_os_shell_io_t *term,
                              int argc,
                              char **argv,
                              int min_argc,
+                             solar_os_bus_info_t *info,
                              int *cs_pin,
                              uint8_t *mode,
                              uint32_t *speed_hz)
 {
     size_t parsed_mode;
 
-    if (argc < min_argc ||
-        solar_os_spi_resolve_cs(argv[2], cs_pin) != ESP_OK ||
-        !parse_size_arg(argv[3], 0, 3, &parsed_mode) ||
-        !parse_u32_arg(argv[4], 1, SOLAR_OS_SPI_MAX_SPEED_HZ, speed_hz)) {
+    if (argc < min_argc || info == NULL || cs_pin == NULL ||
+        mode == NULL || speed_hz == NULL) {
         return false;
     }
-
-    if (cs_pin == NULL || mode == NULL || speed_hz == NULL) {
+    if (!solar_os_bus_find(argv[2], SOLAR_OS_BUS_PROTOCOL_SPI, info)) {
+        solar_os_shell_io_printf(term, "spi: bus '%s' not found\n", argv[2]);
+        return false;
+    }
+    if (!spi_resolve_cs(info, argv[3], cs_pin)) {
+        solar_os_shell_io_printf(term,
+                                 "spi: chip-select '%s' is not declared on %s\n",
+                                 argv[3],
+                                 info->name);
+        return false;
+    }
+    if (!parse_size_arg(argv[4], 0, 3, &parsed_mode) ||
+        !parse_u32_arg(argv[5], 1, SOLAR_OS_BUS_SPI_MAX_SPEED_HZ, speed_hz)) {
         return false;
     }
 
     *mode = (uint8_t)parsed_mode;
-    if (*speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ) {
-        solar_os_shell_io_printf(term,
-                                 "spi: speed must be 1..%" PRIu32 " Hz\n",
-                                 SOLAR_OS_SPI_MAX_SPEED_HZ);
-        return false;
-    }
     return true;
 }
 
@@ -2950,42 +3393,76 @@ static void spi_print_rx(solar_os_shell_io_t *term, const uint8_t *rx, size_t le
     solar_os_shell_io_put_char(term, '\n');
 }
 
-static void spi_cmd_xfer(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_print_transfer_error(solar_os_shell_io_t *term,
+                                     const char *operation,
+                                     const char *bus,
+                                     esp_err_t err)
 {
+    if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(term,
+                                 "spi %s: %s or its chip-select is busy\n",
+                                 operation,
+                                 bus);
+    } else if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "spi %s: bus '%s' not found\n", operation, bus);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 "spi %s failed on %s: %s\n",
+                                 operation,
+                                 bus,
+                                 esp_err_to_name(err));
+    }
+}
+
+static void spi_cmd_xfer(solar_os_shell_io_t *term,
+                         int argc,
+                         char **argv,
+                         const char *owner)
+{
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
     uint8_t rx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        argc > 5 + SPI_TRANSFER_MAX_LEN) {
-        solar_os_shell_io_writeln(term, "usage: spi xfer <cs> <mode> <hz> <byte...>");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        argc > 6 + SPI_TRANSFER_MAX_LEN) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi xfer <bus> <cs> <mode> <hz> <byte...>");
         return;
     }
 
-    const size_t len = (size_t)(argc - 5);
+    const size_t len = (size_t)(argc - 6);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 5], &tx[i])) {
+        if (!parse_u8(argv[i + 6], &tx[i])) {
             solar_os_shell_io_writeln(term, "spi xfer: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi xfer failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "xfer", info.name, err);
         return;
     }
 
     spi_print_rx(term, rx, len);
 }
 
-static void spi_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_cmd_read(solar_os_shell_io_t *term,
+                         int argc,
+                         char **argv,
+                         const char *owner)
 {
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
@@ -2994,54 +3471,68 @@ static void spi_cmd_read(solar_os_shell_io_t *term, int argc, char **argv)
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
     uint8_t rx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        !parse_size_arg(argv[5], 1, SPI_TRANSFER_MAX_LEN, &len) ||
-        (argc == 7 && !parse_u8(argv[6], &fill)) ||
-        argc > 7) {
-        solar_os_shell_io_writeln(term, "usage: spi read <cs> <mode> <hz> <len> [fill]");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        !parse_size_arg(argv[6], 1, SPI_TRANSFER_MAX_LEN, &len) ||
+        (argc == 8 && !parse_u8(argv[7], &fill)) ||
+        argc > 8) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi read <bus> <cs> <mode> <hz> <len> [fill]");
         return;
     }
 
     memset(tx, fill, len);
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         rx,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi read failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "read", info.name, err);
         return;
     }
 
     spi_print_rx(term, rx, len);
 }
 
-static void spi_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
+static void spi_cmd_write(solar_os_shell_io_t *term,
+                          int argc,
+                          char **argv,
+                          const char *owner)
 {
+    solar_os_bus_info_t info;
     int cs_pin;
     uint8_t mode;
     uint32_t speed_hz;
     uint8_t tx[SPI_TRANSFER_MAX_LEN];
 
-    if (!spi_parse_common(term, argc, argv, 6, &cs_pin, &mode, &speed_hz) ||
-        argc > 5 + SPI_TRANSFER_MAX_LEN) {
-        solar_os_shell_io_writeln(term, "usage: spi write <cs> <mode> <hz> <byte...>");
+    if (!spi_parse_common(term, argc, argv, 7, &info, &cs_pin, &mode, &speed_hz) ||
+        argc > 6 + SPI_TRANSFER_MAX_LEN) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: spi write <bus> <cs> <mode> <hz> <byte...>");
         return;
     }
 
-    const size_t len = (size_t)(argc - 5);
+    const size_t len = (size_t)(argc - 6);
     for (size_t i = 0; i < len; i++) {
-        if (!parse_u8(argv[i + 5], &tx[i])) {
+        if (!parse_u8(argv[i + 6], &tx[i])) {
             solar_os_shell_io_writeln(term, "spi write: byte values must be 0..255");
             return;
         }
     }
 
-    const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, NULL, len);
+    const esp_err_t err = solar_os_bus_spi_transfer_once(info.name,
+                                                         cs_pin,
+                                                         mode,
+                                                         speed_hz,
+                                                         tx,
+                                                         NULL,
+                                                         len,
+                                                         owner);
     if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "spi", "SPI hardware", err)) {
-            return;
-        }
-        solar_os_shell_io_printf(term, "spi write failed: %s\n", esp_err_to_name(err));
+        spi_print_transfer_error(term, "write", info.name, err);
         return;
     }
 
@@ -3051,18 +3542,24 @@ static void spi_cmd_write(solar_os_shell_io_t *term, int argc, char **argv)
 void solar_os_shell_cmd_spi(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+    char owner[SOLAR_OS_BUS_OWNER_MAX];
+    (void)snprintf(owner, sizeof(owner), "shell-spi:%" PRIxPTR, (uintptr_t)ctx);
 
     if (argc == 1 || strcmp(argv[1], "status") == 0) {
-        spi_print_status(term);
+        if (argc > 3) {
+            spi_print_usage(term);
+            return;
+        }
+        spi_print_status(term, argc == 3 ? argv[2] : NULL);
         return;
     }
 
     if (strcmp(argv[1], "xfer") == 0) {
-        spi_cmd_xfer(term, argc, argv);
+        spi_cmd_xfer(term, argc, argv, owner);
     } else if (strcmp(argv[1], "read") == 0) {
-        spi_cmd_read(term, argc, argv);
+        spi_cmd_read(term, argc, argv, owner);
     } else if (strcmp(argv[1], "write") == 0) {
-        spi_cmd_write(term, argc, argv);
+        spi_cmd_write(term, argc, argv, owner);
     } else {
         spi_print_usage(term);
     }

@@ -7,11 +7,14 @@
 
 #define SOLAR_OS_RESOURCE_OWNER_MAX 24
 #define SOLAR_OS_RESOURCE_LABEL_MAX 24
+#define SOLAR_OS_RESOURCE_BUNDLE_MAX 16
 
 typedef enum {
     SOLAR_OS_RESOURCE_GPIO_PIN,
     SOLAR_OS_RESOURCE_ADC_PIN,
     SOLAR_OS_RESOURCE_PWM_PIN,
+    SOLAR_OS_RESOURCE_I2C_PORT,
+    SOLAR_OS_RESOURCE_SPI_HOST,
     SOLAR_OS_RESOURCE_I2C_ADDRESS,
     SOLAR_OS_RESOURCE_SPI_CS,
     SOLAR_OS_RESOURCE_UART_PORT,
@@ -26,7 +29,23 @@ typedef struct {
     char label[SOLAR_OS_RESOURCE_LABEL_MAX];
 } solar_os_resource_claim_t;
 
+typedef struct {
+    solar_os_resource_kind_t kind;
+    int primary;
+    int secondary;
+    const char *label;
+} solar_os_resource_request_t;
+
+typedef struct {
+    size_t request_index;
+    solar_os_resource_claim_t existing;
+} solar_os_resource_conflict_t;
+
 esp_err_t solar_os_resources_init(void);
+esp_err_t solar_os_resource_claim_bundle(const solar_os_resource_request_t *requests,
+                                         size_t request_count,
+                                         const char *owner,
+                                         solar_os_resource_conflict_t *conflict);
 esp_err_t solar_os_resource_claim(solar_os_resource_kind_t kind,
                                   int primary,
                                   int secondary,
@@ -39,4 +58,8 @@ esp_err_t solar_os_resource_release(solar_os_resource_kind_t kind,
 size_t solar_os_resource_release_owner(const char *owner);
 size_t solar_os_resource_claim_count(void);
 bool solar_os_resource_get_claim(size_t index, solar_os_resource_claim_t *claim);
+bool solar_os_resource_find_claim(solar_os_resource_kind_t kind,
+                                  int primary,
+                                  int secondary,
+                                  solar_os_resource_claim_t *claim);
 const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind);

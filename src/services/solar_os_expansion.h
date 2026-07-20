@@ -75,6 +75,12 @@ size_t solar_os_expansion_uart_port_count(void);
 bool solar_os_expansion_get_uart_port(size_t index, solar_os_expansion_uart_port_t *port);
 bool solar_os_expansion_find_uart_port(const char *name, solar_os_expansion_uart_port_t *port, size_t *index);
 
+size_t solar_os_expansion_onewire_bus_count(void);
+bool solar_os_expansion_get_onewire_bus(size_t index, solar_os_expansion_onewire_bus_t *bus);
+bool solar_os_expansion_find_onewire_bus(const char *name,
+                                         solar_os_expansion_onewire_bus_t *bus,
+                                         size_t *index);
+
 esp_err_t solar_os_expansion_attach(const char *driver,
                                     const char *name,
                                     const solar_os_expansion_binding_t *bindings,

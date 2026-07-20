@@ -119,6 +119,7 @@ was compiled and what hardware is exposed.
 Detailed documentation split by topic:
 
 - [Shell commands](doc/commands.md)
+- [Expansion ports and external devices](doc/expansion.md)
 - [Foreground apps](doc/apps.md)
 - [Background jobs](doc/jobs.md)
 - [Board targets and board support](doc/solar_os_boards.md)

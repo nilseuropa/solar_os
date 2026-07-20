@@ -236,7 +236,7 @@ while not solaros.should_exit():
 
 GPIO functions expose only runtime-safe expansion pins. Use `solaros.gpio.pins()`
 to inspect the active board. On the Waveshare ESP32-S3-RLCD-4.2 this is GPIO1,
-GPIO2, GPIO3, and GPIO17. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
+GPIO2, GPIO3, GPIO17, plus releasable GPIO43/GPIO44 while `uart0` is detached. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
 GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16, GPIO17,
 GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. On ODROID-GO this
 is GPIO4 and GPIO15. On the Elecrow CrowPanel ESP32-S3 4.2-inch E-paper this is
@@ -244,13 +244,18 @@ GPIO8, GPIO9, GPIO14, GPIO15, GPIO16, GPIO17, GPIO18, GPIO19, GPIO20, GPIO21,
 and GPIO38.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
-- `pins()`: return expansion GPIO dictionaries with `pin`, `allowed`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.
+- `pins()`: return board GPIO dictionaries with `pin`, `expansion`, `allowed`,
+  `available`, `claimed`, `owner`, `policy`, `role`, `configured`, `mode`,
+  `pull`, `level`, and `level_valid`. Pin policy is `free`, `releasable`, or
+  `fixed`; releasable pins report `allowed=True` but become available only when
+  their board bus is detached.
 - `allowed(pin)`: return whether a pin can be controlled by runtime apps.
 - `mode(pin)`: return one pin dictionary.
 - `mode(pin, mode[, pull])`: configure an allowed pin. `mode` may be `INPUT`, `OUTPUT`, `"in"`, `"input"`, `"out"`, or `"output"`.
 - `configure(pin, mode[, pull])`: alias for `mode(pin, mode[, pull])`.
 - `read(pin)`: read an allowed pin and return `0` or `1`.
 - `write(pin, value)`: set an allowed pin low or high. If needed, the pin is configured as output first.
+- `release(pin)`: reset the pin and release its direct-GPIO claim.
 
 Example:
 
@@ -269,8 +274,9 @@ solaros.gpio.write(1, 1)
 ## `solaros.onewire`
 
 OneWire functions operate on runtime-safe expansion GPIOs when the OneWire
-service is included in the active flavor. Transfers reset the bus before writing
-and reading, and are limited to 64 bytes in each direction.
+service is included in the active flavor. Use `solaros.buses.onewire_*` for a
+registered named bus. Transfers reset the bus before writing and reading, and
+are limited to 64 bytes in each direction.
 
 - `allowed(pin)`: return whether the pin is available for OneWire operations.
 - `reset(pin)`: reset the bus and return whether a presence pulse was detected.
@@ -345,9 +351,177 @@ print(solaros.pwm.status())
 solaros.pwm.off(1)
 ```
 
+## `solaros.buses`
+
+The named-bus API discovers board-defined and runtime-created buses. It is
+available when the resource service is compiled, independently of the legacy
+single-board-bus `solaros.spi` module.
+
+- Constants: `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`,
+  `DEFAULT_SPEED`, and `MAX_SPEED`.
+- `list()`: return all named bus dictionaries.
+- `get(name)`: return one named bus dictionary or raise `OSError` when absent.
+- `create_i2c(name, config)`: create a runtime I2C bus and return its dictionary.
+- `create_onewire(name, config)`: create a runtime 1-Wire bus and return its dictionary.
+- `create_spi(name, config)`: create a runtime SPI bus and return its dictionary.
+- `create_uart(name, config)`: create a lazy runtime UART bus and return its dictionary.
+- `attach(name)`: attach a named detachable bus and reserve its endpoint and pins.
+- `detach(name)`: detach an idle named bus without deleting its descriptor.
+- `remove(name)`: remove an idle runtime bus. Board-defined or leased buses
+  cannot be removed.
+- `i2c_probe(bus, address)`: probe an address on a named I2C bus.
+- `i2c_scan(bus)`: return detected addresses on a named I2C bus.
+- `i2c_read_reg(bus, address, reg, length)`: read bytes from an 8-bit register.
+- `i2c_write_reg(bus, address, reg, data)`: write bytes to an 8-bit register.
+- `onewire_reset(bus)`: reset a named 1-Wire bus and return device presence.
+- `onewire_scan(bus)`: return ROM-address dictionaries found on a named bus.
+- `onewire_xfer(bus, read_length[, data])`: reset, write, and read a named bus.
+- `uart_write(bus, data)`: write bytes through a named UART and return the number written.
+- `uart_read(bus[, length[, timeout_ms]])`: read bytes from a named UART.
+- `spi_xfer(bus, cs, data[, mode[, speed_hz]])`: perform a full-duplex named-bus
+  transfer and return received bytes.
+- `spi_read(bus, cs, length[, fill[, mode[, speed_hz]]])`: clock in bytes using
+  the optional fill byte.
+- `spi_write(bus, cs, data[, mode[, speed_hz]])`: write bytes and return the
+  number written.
+
+Bus dictionaries contain `id`, `name`, `protocol`, `origin`, `sharing`,
+`attached`, `detachable`, `ready`, and `lease_count`, plus protocol-specific pins and configuration. SPI
+buses include `host`, `sclk_pin`, `miso_pin`, `mosi_pin`,
+`max_transfer_size`, and `cs` slot dictionaries. I2C buses include `port`,
+`sda_pin`, `scl_pin`, and `speed_hz`. UART buses include `port`, `tx_pin`,
+`rx_pin`, and `baud_rate`.
+
+Named I2C operations are present when both the resource and I2C services are
+compiled. They take and release a shared bus lease automatically. The legacy
+`solaros.i2c` module remains an `i2c0` shortcut.
+
+Named OneWire operations are present when both the resource and OneWire
+services are compiled. They take and release an exclusive bus lease
+automatically. OneWire bus dictionaries include `pin`; the legacy
+`solaros.onewire` module continues to accept a direct runtime-safe GPIO.
+
+`create_i2c` requires `port`, `sda`, and `scl`; optional `speed_hz` defaults to
+100000. `create_onewire` requires `pin`. Both validate the board runtime pin
+policy and claim their signal pins until `remove(name)`.
+
+`create_uart` requires `port`, `tx`, and `rx`; optional `baud_rate` defaults to
+115200. Named UART reads and writes take an exclusive lease automatically.
+Runtime descriptors are detachable and removable. Board descriptors whose
+signal pins are marked releasable are detachable but never removable;
+fixed-pin board descriptors reject detach. Attached buses own their hardware
+endpoint and signal pins, while protocol hardware starts for the first lease.
+
+`create_spi` accepts a configuration dictionary with required `host`, `sclk`,
+`mosi`, and `cs` fields. `cs` is a list of one to four chip-select GPIOs.
+Optional fields are `miso` (`None` for transmit-only) and
+`max_transfer_size` (default 4096 bytes). The board validates the selected host
+and all signal pins. Raw named-bus transfers take and release a temporary bus
+lease automatically.
+
+Example for a runtime-routed Waveshare SPI bus:
+
+```python
+import solaros
+
+bus = solaros.buses.create_spi("spi1", {
+    "host": solaros.buses.SPI3_HOST,
+    "sclk": 1,
+    "mosi": 2,
+    "miso": 3,
+    "cs": [17],
+})
+print(bus)
+
+reply = solaros.buses.spi_xfer("spi1", "gpio17", b"\x9f\x00\x00\x00")
+print(reply)
+
+solaros.buses.remove("spi1")
+```
+
+Runtime I2C and 1-Wire examples:
+
+```python
+i2c1 = solaros.buses.create_i2c("i2c1", {
+    "port": 1,
+    "sda": 14,
+    "scl": 15,
+    "speed_hz": 100000,
+})
+print(solaros.buses.i2c_scan(i2c1["name"]))
+solaros.buses.remove(i2c1["name"])
+
+onewire0 = solaros.buses.create_onewire("onewire0", {"pin": 16})
+print(solaros.buses.onewire_scan(onewire0["name"]))
+solaros.buses.remove(onewire0["name"])
+
+uart1 = solaros.buses.create_uart("uart1", {
+    "port": 1,
+    "tx": 14,
+    "rx": 15,
+    "baud_rate": 115200,
+})
+solaros.buses.uart_write(uart1["name"], b"AT\r\n")
+print(solaros.buses.uart_read(uart1["name"], 64, 500))
+solaros.buses.detach(uart1["name"])
+solaros.buses.attach(uart1["name"])
+solaros.buses.remove(uart1["name"])
+```
+
+Named I2C example:
+
+```python
+import solaros
+
+print(solaros.buses.get("i2c0"))
+print([hex(addr) for addr in solaros.buses.i2c_scan("i2c0")])
+solaros.buses.i2c_probe("i2c0", 0x3c)
+```
+
+Named OneWire example for a board-defined bus:
+
+```python
+import solaros
+
+print(solaros.buses.get("onewire0"))
+print(solaros.buses.onewire_reset("onewire0"))
+for device in solaros.buses.onewire_scan("onewire0"):
+    print(device["address"], device["family"])
+```
+
+## `solaros.expansion`
+
+The expansion API mirrors the `expansion` shell lifecycle when the expansion
+service is compiled.
+
+- `drivers()`: return compiled driver dictionaries with `name`, `summary`,
+  `required_capabilities`, `probe_supported`, and `supported`.
+- `devices()`: return active device dictionaries and their normalized binding
+  lists.
+- `attach(driver, name, bindings)`: attach a driver using a binding dictionary.
+- `detach(name)`: detach a device and release its resource claims and bus leases.
+
+Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
+`gpio`, `irq`, `reset` (or `rst`), `dc`, `busy`, `adc`, and `pwm`. `cs`
+requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
+
+```python
+import solaros
+
+solaros.expansion.attach("pcd8544", "lcd0", {
+    "spi": "spi0",
+    "cs": 10,
+    "dc": 4,
+    "reset": 5,
+})
+print(solaros.expansion.devices())
+solaros.expansion.detach("lcd0")
+```
+
 ## `solaros.i2c`
 
-I2C functions expose the board I2C service for diagnostics and add-ons.
+I2C functions expose `i2c0` for diagnostics and compatibility. Use
+`solaros.buses.i2c_*` to select a named bus.
 
 - `info()`: return bus speed and SDA/SCL pins.
 - `probe(address)`: raise on missing device, return `None` on success.
@@ -366,9 +540,13 @@ print([hex(addr) for addr in solaros.i2c.scan()])
 
 ## `solaros.spi`
 
-Available when the board and flavor include the SPI service. Chip select may be
-a configured CS name from `status()["cs"]` or its configured numeric GPIO.
-Transfers are limited to the board's reported `max_transfer_size`.
+Available when the board and flavor include the SPI service. This compatibility
+module selects `spi0` when present, otherwise the first registered named SPI
+bus. On a dynamic-only board, `status()["available"]` remains `False` until a
+bus is created. Chip select may be a configured CS name from `status()["cs"]`
+or its configured numeric GPIO. Transfers are limited to the selected bus's
+reported `max_transfer_size`; new code should address buses explicitly through
+`solaros.buses.spi_*`.
 
 - Constants: `MODE0`, `MODE1`, `MODE2`, `MODE3`, `DEFAULT_SPEED`, `MAX_SPEED`.
 - `status()`: return the bus name, host, pins, speed, transfer limit, and configured CS slots.
@@ -391,9 +569,10 @@ print(response[1:])
 
 ## `solaros.uart`
 
-UART functions expose the external UART service.
+UART functions expose the default `uart0` compatibility service. Use
+`solaros.buses.uart_*` to address another named UART bus.
 
-- `status()`: return UART port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
+- `status()`: return UART name, `attached`, port, pins, baud rate, mode, `rx_buffered`, and `rx_buffered_valid`. When another owner is actively using the UART, `rx_buffered_valid` is `False` because the live RX count is not sampled.
 - `baud([rate])`: get or set baud rate.
 - `is_valid_baud(rate)`: return whether a baud rate is accepted.
 - `mode([name])`: get or set `raw` or `line` mode.

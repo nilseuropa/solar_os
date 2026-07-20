@@ -4,8 +4,9 @@
 #include "driver/spi_master.h"
 #include "driver/uart.h"
 #include "solar_os_buttons.h"
-#include "solar_os_expansion_types.h"
+#include "solar_os_bus_types.h"
 #include "solar_os_keys.h"
+#include "solar_os_pin_types.h"
 
 #define SOLAR_OS_BOARD_ID "elecrow_crowpanel_esp32_s3_4_2_epaper"
 #define SOLAR_OS_BOARD_NAME "Elecrow CrowPanel ESP32-S3 4.2-inch E-paper"
@@ -15,6 +16,22 @@
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_43
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
+#define SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK ((1U << UART_NUM_1) | (1U << UART_NUM_2))
+#define SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK (1U << SPI3_HOST)
+#define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "uart0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.uart = { \
+            .port = SOLAR_OS_BOARD_UART_PORT, \
+            .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
+            .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
+            .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
+        }, \
+    }, \
+}
 
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683"
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 400
@@ -40,6 +57,7 @@
 #define SOLAR_OS_BOARD_PIN_SPI_MISO GPIO_NUM_13
 #define SOLAR_OS_BOARD_PIN_SPI_MOSI GPIO_NUM_40
 #define SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ 4096
+#define SOLAR_OS_BOARD_SPI_RESOURCE_OWNER "board:sdspi"
 #define SOLAR_OS_BOARD_PIN_SD_CARD_CS GPIO_NUM_10
 #define SOLAR_OS_BOARD_PIN_SD_POWER GPIO_NUM_42
 #define SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL 1
@@ -95,37 +113,37 @@
                                            (1ULL << GPIO_NUM_20))
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
-    {.pin = 0, .runtime_allowed = false, .role = "BOOT/download"}, \
-    {.pin = 1, .runtime_allowed = false, .role = "EXIT button"}, \
-    {.pin = 2, .runtime_allowed = false, .role = "MENU / SolarOS KEY"}, \
-    {.pin = 3, .runtime_allowed = false, .role = "expansion / strapping"}, \
-    {.pin = 4, .runtime_allowed = false, .role = "rotary down"}, \
-    {.pin = 5, .runtime_allowed = false, .role = "rotary confirm"}, \
-    {.pin = 6, .runtime_allowed = false, .role = "rotary up"}, \
-    {.pin = 7, .runtime_allowed = false, .role = "EPD power"}, \
-    {.pin = 8, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 9, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 10, .runtime_allowed = false, .role = "SD chip select"}, \
-    {.pin = 11, .runtime_allowed = false, .role = "EPD MOSI"}, \
-    {.pin = 12, .runtime_allowed = false, .role = "EPD SCK"}, \
-    {.pin = 13, .runtime_allowed = false, .role = "SD MISO"}, \
-    {.pin = 14, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 15, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 16, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 17, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 18, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 19, .runtime_allowed = true, .role = "expansion / USB D- capable"}, \
-    {.pin = 20, .runtime_allowed = true, .role = "expansion / USB D+ capable"}, \
-    {.pin = 21, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 38, .runtime_allowed = true, .role = "expansion"}, \
-    {.pin = 39, .runtime_allowed = false, .role = "SD SCK"}, \
-    {.pin = 40, .runtime_allowed = false, .role = "SD MOSI"}, \
-    {.pin = 41, .runtime_allowed = false, .role = "status LED"}, \
-    {.pin = 42, .runtime_allowed = false, .role = "SD power"}, \
-    {.pin = 43, .runtime_allowed = false, .role = "UART TX / USB bridge"}, \
-    {.pin = 44, .runtime_allowed = false, .role = "UART RX / USB bridge"}, \
-    {.pin = 45, .runtime_allowed = false, .role = "EPD chip select / strapping"}, \
-    {.pin = 46, .runtime_allowed = false, .role = "EPD D/C / strapping"}, \
-    {.pin = 47, .runtime_allowed = false, .role = "EPD reset"}, \
-    {.pin = 48, .runtime_allowed = false, .role = "EPD busy"}, \
+    {.pin = 0, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "BOOT/download"}, \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EXIT button"}, \
+    {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "MENU / SolarOS KEY"}, \
+    {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "expansion / strapping"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary down"}, \
+    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary confirm"}, \
+    {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "rotary up"}, \
+    {.pin = 7, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD power"}, \
+    {.pin = 8, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 9, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 10, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SD chip select"}, \
+    {.pin = 11, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD MOSI"}, \
+    {.pin = 12, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD SCK"}, \
+    {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SD MISO"}, \
+    {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 16, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / USB D- capable"}, \
+    {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion / USB D+ capable"}, \
+    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 38, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 39, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SD SCK"}, \
+    {.pin = 40, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SD MOSI"}, \
+    {.pin = 41, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "status LED"}, \
+    {.pin = 42, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SD power"}, \
+    {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "UART TX / USB bridge"}, \
+    {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "UART RX / USB bridge"}, \
+    {.pin = 45, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD chip select / strapping"}, \
+    {.pin = 46, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD D/C / strapping"}, \
+    {.pin = 47, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD reset"}, \
+    {.pin = 48, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "EPD busy"}, \
 }

@@ -85,6 +85,20 @@ string(REPLACE ";" " " SOLAR_OS_BOARD_AVAILABLE_CAPABILITY_LIST
     "${SOLAR_OS_BOARD_AVAILABLE_CAPABILITIES}"
 )
 
+function(solar_os_require_capability capability dependency)
+    if(SOLAR_OS_BOARD_HAS_${capability} AND NOT SOLAR_OS_BOARD_HAS_${dependency})
+        message(FATAL_ERROR
+            "SolarOS board ${SOLAR_OS_BOARD_ID} enables ${capability} without ${dependency}"
+        )
+    endif()
+endfunction()
+
+solar_os_require_capability(DISPLAY GFX)
+solar_os_require_capability(DISPLAY_BRIGHTNESS DISPLAY)
+solar_os_require_capability(EXPANSION_I2C I2C)
+solar_os_require_capability(EXPANSION_SPI SPI)
+solar_os_require_capability(EXPANSION_UART UART)
+
 if(NOT DEFINED SOLAR_OS_BOARD_PSRAM_BYTES OR
         "${SOLAR_OS_BOARD_PSRAM_BYTES}" STREQUAL "")
     set(SOLAR_OS_BOARD_PSRAM_BYTES 0)
@@ -151,6 +165,13 @@ if(NOT SOLAR_OS_FLAVOR_GENERATE_RESULT EQUAL 0)
 endif()
 include("${SOLAR_OS_GENERATED_CMAKE}")
 message(STATUS "SolarOS flavor: ${SOLAR_OS_FLAVOR_NAME} (${SOLAR_OS_FLAVOR_INPUT})")
+
+if((SOLAR_OS_PACKAGE_EXPANSION_PCD8544 OR SOLAR_OS_PACKAGE_EXPANSION_SSD1306)
+        AND NOT SOLAR_OS_BOARD_HAS_GFX)
+    message(FATAL_ERROR
+        "SolarOS board ${SOLAR_OS_BOARD_ID} enables an expansion display package without GFX"
+    )
+endif()
 
 if(SOLAR_OS_PACKAGE_REQUIRED_CAPABILITIES)
     string(REPLACE " " ";" SOLAR_OS_REQUIRED_CAPABILITY_LIST

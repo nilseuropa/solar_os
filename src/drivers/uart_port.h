@@ -18,12 +18,17 @@ typedef struct {
 } uart_port_config_t;
 
 esp_err_t uart_port_init(const uart_port_config_t *config);
-bool uart_port_is_ready(void);
-esp_err_t uart_port_set_baud_rate(uint32_t baud_rate);
-esp_err_t uart_port_write(const uint8_t *data, size_t len, size_t *written);
-esp_err_t uart_port_read(uint8_t *data, size_t len, uint32_t timeout_ms, size_t *read_len);
-esp_err_t uart_port_get_rx_buffered(size_t *buffered);
-uart_port_t uart_port_get_port_num(void);
-gpio_num_t uart_port_get_tx_pin(void);
-gpio_num_t uart_port_get_rx_pin(void);
-uint32_t uart_port_get_baud_rate(void);
+esp_err_t uart_port_deinit(uart_port_t port_num);
+bool uart_port_is_ready(uart_port_t port_num);
+esp_err_t uart_port_set_baud_rate(uart_port_t port_num, uint32_t baud_rate);
+esp_err_t uart_port_write(uart_port_t port_num,
+                          const uint8_t *data,
+                          size_t len,
+                          size_t *written);
+esp_err_t uart_port_read(uart_port_t port_num,
+                         uint8_t *data,
+                         size_t len,
+                         uint32_t timeout_ms,
+                         size_t *read_len);
+esp_err_t uart_port_get_rx_buffered(uart_port_t port_num, size_t *buffered);
+bool uart_port_get_config(uart_port_t port_num, uart_port_config_t *config);
