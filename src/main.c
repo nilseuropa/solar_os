@@ -263,7 +263,6 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK);
 #endif
 #endif
-#endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
     SOLAR_OS_LOGI(TAG,
                   "I2C%d pins: SDA=%d SCL=%d",
