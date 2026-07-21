@@ -44,6 +44,7 @@ The current tree includes these board targets:
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/UART/GPIO/ADC/PWM, and runtime GPIO1/GPIO2/GPIO3/GPIO17. |
+| `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, expansion I2C/SPI/GPIO/ADC/PWM, and no display or onboard sensors. |
 
@@ -170,6 +171,7 @@ Current built-in driver selector values:
 | `CDC` | `drivers/cdc_usb_serial_jtag.cmake` | `SOLAR_OS_BOARD_CDC_DRIVER=usb_serial_jtag` |
 | `UART` | `drivers/uart_esp_idf.cmake` | `SOLAR_OS_BOARD_UART_DRIVER=esp_idf` |
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
+| `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
 | `DISPLAY` | `drivers/display_ili9341.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ili9341` |
 | `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
 | `SD` | `drivers/storage_sdspi.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdspi` |
@@ -334,6 +336,8 @@ Add the board define to `include/solar_os_board.h`:
 #include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
 #include "boards/odroid_go.h"
+#elif defined(SOLAR_OS_BOARD_ELECROW_CROWPANEL_ESP32_S3_4_2_EPAPER)
+#include "boards/elecrow_crowpanel_esp32_s3_4_2_epaper.h"
 #elif defined(SOLAR_OS_BOARD_MY_BOARD)
 #include "boards/my_board.h"
 #else
@@ -408,6 +412,52 @@ buttons.
 
 GPIO25 is amplifier enable/shutdown wiring, not a second SolarOS DAC channel.
 Treat GPIO26 as the only DAC sample output for ODROID-GO audio.
+
+## Elecrow CrowPanel ESP32-S3 4.2-inch E-paper
+
+The built-in `elecrow_crowpanel_esp32_s3_4_2_epaper` target covers Elecrow's
+V1.0 400x300 monochrome CrowPanel. It uses an ESP32-S3-WROOM-1-N8R8 module,
+the SSD1683 e-paper driver, microSD over a dedicated SDSPI bus, five digital
+controls, a status LED, Wi-Fi, BLE, and an 8 MB dual-OTA partition layout.
+
+Elecrow has shipped both the original panel and a newer panel identified by a
+green circular sticker on the back. The newer revision keeps the same GPIO
+pinout but requires a different reset, initialization, refresh, and sleep
+sequence. SolarOS detects the revision from its post-reset BUSY behavior and
+selects the matching command and waveform path automatically.
+
+The board's USB-C data lines terminate at a CH340C USB-to-UART bridge. SolarOS
+therefore uses `uart0` on GPIO43/GPIO44 for the serial console and does not
+claim native USB Serial/JTAG CDC. The BAT connector supplies the board but the
+published schematic does not provide a battery-voltage ADC path, so the target
+does not advertise the `BATTERY` capability.
+
+The display shell defaults to the board's landscape orientation, rotated 90
+degrees clockwise from the controller's portrait orientation. The onboard
+controls are mapped as follows:
+
+- GPIO1: EXIT, mapped to the foreground app-exit key.
+- GPIO2: MENU, used as the SolarOS KEY for sleep/wake and BLE pairing.
+- GPIO6: rotary counter-clockwise/previous, mapped to Up.
+- GPIO4: rotary clockwise/next, mapped to Down.
+- GPIO5: rotary press, mapped to Enter.
+
+The 20-pin GPIO header exposes GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, and GPIO38.
+GPIO3 is a strapping pin and is listed as a physical connector pin but blocked
+from runtime control. Runtime GPIO/PWM is allowed on GPIO8, GPIO9, GPIO14-GPIO21,
+and GPIO38. ADC is available on the ADC-capable subset GPIO8, GPIO9, and
+GPIO14-GPIO20.
+
+The panel and storage buses are internal board resources, not expansion SPI:
+
+- SSD1683: GPIO12 SCK, GPIO11 MOSI, GPIO47 reset, GPIO46 D/C, GPIO45 chip
+  select, GPIO48 BUSY, and GPIO7 display-power enable.
+- microSD: GPIO39 SCK, GPIO40 MOSI, GPIO13 MISO, GPIO10 chip select, and GPIO42
+  SD-power enable.
+- GPIO41: active-high status LED.
+
+The target uses `partitions_8mb.csv`, with two 0x3B0000-byte OTA application
+slots and a 0x90000-byte flash filesystem partition.
 
 ## Headless Boards
 
@@ -492,6 +542,28 @@ The built-in ODROID-GO target uses the ILI9341 TFT driver on the board VSPI bus:
 #define SOLAR_OS_BOARD_PIN_LCD_BL GPIO_NUM_14
 ```
 
+The Elecrow CrowPanel target uses the SSD1683 e-paper driver on a dedicated SPI
+host:
+
+```c
+#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683"
+#define SOLAR_OS_BOARD_DISPLAY_WIDTH 400
+#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 300
+
+#define SOLAR_OS_BOARD_PIN_LCD_SCK GPIO_NUM_12
+#define SOLAR_OS_BOARD_PIN_LCD_MOSI GPIO_NUM_11
+#define SOLAR_OS_BOARD_PIN_LCD_RST GPIO_NUM_47
+#define SOLAR_OS_BOARD_PIN_LCD_DC GPIO_NUM_46
+#define SOLAR_OS_BOARD_PIN_LCD_CS GPIO_NUM_45
+#define SOLAR_OS_BOARD_PIN_LCD_BUSY GPIO_NUM_48
+#define SOLAR_OS_BOARD_PIN_LCD_POWER GPIO_NUM_7
+```
+
+Its `refresh=auto` default performs fast updates, skips unchanged frames, and
+inserts a full waveform on the first update and after every 19 fast updates to
+limit ghosting. `display mode display0 refresh=fast` forces fast updates and
+`display mode display0 refresh=full` forces the full waveform.
+
 Different display controllers should get a separate driver and board display
 binding instead of overloading the ST7305 or ILI9341 macros.
 
@@ -545,6 +617,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/sensors_shtc3.cmake")
 SDSPI boards provide the shared SPI bus metadata and an SD-card chip select
 instead of SDMMC pins. The ODROID-GO target uses VSPI on GPIO18/GPIO19/GPIO23
 and `SOLAR_OS_BOARD_PIN_SD_CARD_CS` on GPIO22.
+Boards with a switched card supply can additionally define
+`SOLAR_OS_BOARD_PIN_SD_POWER` and `SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL`; the
+shared storage adapter enables that rail before probing or mounting the card.
 
 Audio codec boards also need I2S and codec power/pin metadata. See the
 Waveshare board header for the complete ES8311/ES7210 example. ESP32 DAC boards

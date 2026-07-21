@@ -420,7 +420,14 @@ and writes the inactive ESP-IDF OTA partition.
 
 Runtime GPIO access is board-filtered. On the Waveshare ESP32-S3-RLCD-4.2,
 runtime user GPIO access is intentionally limited to GPIO1, GPIO2, GPIO3, and
-GPIO17. On the ESP32-S3-DevKitC-1-N16R8, runtime GPIO access is available on
+GPIO17. On the Elecrow CrowPanel ESP32-S3 4.2-inch E-paper, runtime GPIO access
+is available on GPIO8, GPIO9, GPIO14, GPIO15, GPIO16, GPIO17, GPIO18, GPIO19,
+GPIO20, GPIO21, and GPIO38. GPIO3 is present on the expansion header but is
+blocked as a strapping pin. GPIO1/GPIO2/GPIO4/GPIO5/GPIO6 are controls,
+GPIO7/GPIO11/GPIO12/GPIO45-GPIO48 are display signals, GPIO10/GPIO13/
+GPIO39/GPIO40/GPIO42 are SD signals, GPIO41 is the status LED, and
+GPIO43/GPIO44 are `uart0` through the CH340C USB bridge. On the
+ESP32-S3-DevKitC-1-N16R8, runtime GPIO access is available on
 GPIO1, GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16,
 GPIO17, GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. The
 DevKitC I2C bus uses GPIO8/GPIO9, SPI uses GPIO12/GPIO13/GPIO11 with
@@ -462,6 +469,10 @@ idle switching or a forced power mode, `inverted=<on|off>` selects panel
 inversion, `lpm-hz=<0.25|0.5|1|2|4|8>` changes the controller's LPM frame-rate
 field, and `hpm-hz=<16|25.5|32|51>` changes the controller's HPM frame-rate
 field. These driver values are stored in NVS when changed.
+On the CrowPanel SSD1683 path, `refresh=auto` uses a full waveform for the first
+changed frame and after every 19 fast updates, while unchanged frames are
+skipped. `refresh=fast` forces the faster waveform and `refresh=full` forces the
+full waveform on every changed frame.
 
 Manual expansion profiles claim resources without initializing external
 hardware:

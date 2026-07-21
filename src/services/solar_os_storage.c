@@ -105,10 +105,8 @@ static esp_err_t storage_flash_get_usage(solar_os_storage_usage_t *usage)
 
 esp_err_t solar_os_storage_init(void)
 {
-    esp_err_t default_err = ESP_OK;
-
 #if SOLAR_OS_BOARD_HAS_SD
-    default_err = solar_os_board_storage_mount();
+    const esp_err_t sd_err = solar_os_board_storage_mount();
 #endif
 
     const esp_err_t flash_err = flash_storage_mount(storage_flash_default_mount_point());
@@ -116,8 +114,11 @@ esp_err_t solar_os_storage_init(void)
         ESP_LOGW(TAG, "flash storage unavailable: %s", esp_err_to_name(flash_err));
     }
 
+    if (flash_err == ESP_OK) {
+        return ESP_OK;
+    }
 #if SOLAR_OS_BOARD_HAS_SD
-    return default_err;
+    return sd_err;
 #else
     return flash_err;
 #endif
@@ -165,27 +166,62 @@ esp_err_t solar_os_storage_unmount_volume(const char *target)
 bool solar_os_storage_is_mounted(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
+    if (solar_os_board_storage_is_mounted()) {
+        return true;
+    }
+#endif
+    return flash_storage_is_mounted();
+}
+
+bool solar_os_storage_sd_is_mounted(void)
+{
+#if SOLAR_OS_BOARD_HAS_SD
     return solar_os_board_storage_is_mounted();
 #else
-    return flash_storage_is_mounted();
+    return false;
 #endif
 }
 
 void solar_os_storage_get_status(char *buffer, size_t len)
 {
 #if SOLAR_OS_BOARD_HAS_SD
+    if (solar_os_board_storage_is_mounted()) {
+        solar_os_board_storage_get_status(buffer, len);
+        return;
+    }
+#endif
+    flash_storage_get_status(buffer, len);
+}
+
+void solar_os_storage_sd_get_status(char *buffer, size_t len)
+{
+#if SOLAR_OS_BOARD_HAS_SD
     solar_os_board_storage_get_status(buffer, len);
 #else
-    flash_storage_get_status(buffer, len);
+    if (buffer != NULL && len > 0) {
+        strlcpy(buffer, "not supported", len);
+    }
 #endif
 }
 
 const char *solar_os_storage_mount_point(void)
 {
 #if SOLAR_OS_BOARD_HAS_SD
+    if (solar_os_board_storage_is_mounted()) {
+        return solar_os_board_storage_mount_point();
+    }
+#endif
+    return flash_storage_is_mounted() ?
+        flash_storage_mount_point() :
+        storage_flash_default_mount_point();
+}
+
+const char *solar_os_storage_sd_mount_point(void)
+{
+#if SOLAR_OS_BOARD_HAS_SD
     return solar_os_board_storage_mount_point();
 #else
-    return FLASH_STORAGE_ROOT_MOUNT_POINT;
+    return SOLAR_OS_STORAGE_DEFAULT_MOUNT_POINT;
 #endif
 }
 
@@ -220,7 +256,8 @@ esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage
 #if !SOLAR_OS_BOARD_HAS_SD
     return ESP_ERR_NOT_FOUND;
 #else
-    if (!solar_os_storage_is_mounted() && strcmp(path, solar_os_storage_mount_point()) == 0) {
+    if (!solar_os_storage_sd_is_mounted() &&
+        strcmp(path, solar_os_storage_sd_mount_point()) == 0) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -382,8 +419,8 @@ size_t solar_os_storage_mount_count(void)
             count++;
         }
     }
-    if (solar_os_storage_is_mounted() &&
-        !storage_block_mount_point_seen(solar_os_storage_mount_point())) {
+    if (solar_os_storage_sd_is_mounted() &&
+        !storage_block_mount_point_seen(solar_os_storage_sd_mount_point())) {
         count++;
     }
 #endif
@@ -418,8 +455,8 @@ bool solar_os_storage_get_mount(size_t index, solar_os_storage_mount_info_t *mou
         index--;
     }
 
-    const char *default_mount = solar_os_storage_mount_point();
-    if (solar_os_storage_is_mounted() && !storage_block_mount_point_seen(default_mount)) {
+    const char *default_mount = solar_os_storage_sd_mount_point();
+    if (solar_os_storage_sd_is_mounted() && !storage_block_mount_point_seen(default_mount)) {
         if (index == 0) {
             memset(mount, 0, sizeof(*mount));
             strlcpy(mount->mount_point, default_mount, sizeof(mount->mount_point));
@@ -481,8 +518,8 @@ esp_err_t solar_os_storage_path_mount_point(const char *path,
     }
 
 #if SOLAR_OS_BOARD_HAS_SD
-    const char *default_mount = solar_os_storage_mount_point();
-    if (path_is_on_mount(path, default_mount)) {
+    const char *default_mount = solar_os_storage_sd_mount_point();
+    if (solar_os_storage_sd_is_mounted() && path_is_on_mount(path, default_mount)) {
         best_len = strlen(default_mount);
         if (strlcpy(best_mount, default_mount, sizeof(best_mount)) >= sizeof(best_mount)) {
             return ESP_ERR_INVALID_SIZE;

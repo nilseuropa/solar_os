@@ -80,11 +80,13 @@ solaros.time.set_datetime({"year": 2026, "month": 6, "day": 19, "hour": 12, "min
 
 Storage functions expose SD mount and filesystem service operations.
 
-- `status()`: return a human-readable SD status string.
+- `status()`: return a human-readable status string for the preferred mounted
+  persistent storage (SD when mounted, otherwise internal flash).
 - `is_mounted()`: return whether the default storage volume is mounted.
 - `mount()`: mount the default storage volume.
 - `unmount()`: unmount the default storage volume.
-- `mount_point()`: return the default mount point.
+- `mount_point()`: return the preferred mounted persistent-storage path (SD
+  when mounted, otherwise internal flash).
 - `usage([path])`: return disk usage for the default volume or the volume containing `path`.
 - `resolve(path)`: return the internal resolved path.
 - `rescan()`: rescan SD block devices and partitions.
@@ -237,7 +239,9 @@ to inspect the active board. On the Waveshare ESP32-S3-RLCD-4.2 this is GPIO1,
 GPIO2, GPIO3, and GPIO17. On the ESP32-S3-DevKitC-1-N16R8 this is GPIO1,
 GPIO2, GPIO4, GPIO5, GPIO6, GPIO7, GPIO10, GPIO14, GPIO15, GPIO16, GPIO17,
 GPIO18, GPIO21, GPIO39, GPIO40, GPIO41, GPIO42, and GPIO47. On ODROID-GO this
-is GPIO4 and GPIO15.
+is GPIO4 and GPIO15. On the Elecrow CrowPanel ESP32-S3 4.2-inch E-paper this is
+GPIO8, GPIO9, GPIO14, GPIO15, GPIO16, GPIO17, GPIO18, GPIO19, GPIO20, GPIO21,
+and GPIO38.
 
 - Constants: `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`.
 - `pins()`: return expansion GPIO dictionaries with `pin`, `allowed`, `role`, `configured`, `mode`, `pull`, `level`, and `level_valid`.

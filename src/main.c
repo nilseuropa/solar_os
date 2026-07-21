@@ -237,6 +237,15 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_CS,
                   SOLAR_OS_BOARD_PIN_LCD_RST,
                   SOLAR_OS_BOARD_PIN_LCD_TE);
+#elif defined(SOLAR_OS_BOARD_PIN_LCD_BUSY)
+    SOLAR_OS_LOGI(TAG,
+                  "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d BUSY=%d",
+                  SOLAR_OS_BOARD_PIN_LCD_MOSI,
+                  SOLAR_OS_BOARD_PIN_LCD_SCK,
+                  SOLAR_OS_BOARD_PIN_LCD_DC,
+                  SOLAR_OS_BOARD_PIN_LCD_CS,
+                  SOLAR_OS_BOARD_PIN_LCD_RST,
+                  SOLAR_OS_BOARD_PIN_LCD_BUSY);
 #else
     SOLAR_OS_LOGI(TAG,
                   "Display pins: MOSI=%d SCK=%d DC=%d CS=%d",
@@ -252,6 +261,7 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_PIN_LCD_RGB_VSYNC,
                   SOLAR_OS_BOARD_PIN_LCD_RGB_DE,
                   SOLAR_OS_BOARD_PIN_LCD_RGB_PCLK);
+#endif
 #endif
 #endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
@@ -949,7 +959,7 @@ static void update_status(void)
     }
 #endif
     if (board_has(SOLAR_OS_BOARD_CAP_SD)) {
-        status.sd_mounted = solar_os_storage_is_mounted();
+        status.sd_mounted = solar_os_storage_sd_is_mounted();
     }
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
@@ -1357,12 +1367,17 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(solar_os_jobs_init());
+    ESP_LOGI(TAG, "boot milestone: jobs ready");
 
+    ESP_LOGI(TAG, "boot milestone: starting peripherals");
     init_peripherals();
+    ESP_LOGI(TAG, "boot milestone: peripherals ready");
     update_status();
+    ESP_LOGI(TAG, "boot milestone: status ready");
 
     if (terminal != NULL) {
-        solar_os_sessions_switch_to_app(solar_os_shell_app());
+        const bool shell_started = solar_os_sessions_switch_to_app(solar_os_shell_app());
+        ESP_LOGI(TAG, "boot milestone: shell switch=%s", shell_started ? "ok" : "failed");
         /*
          * A board can have a display but no local input wired yet (no
          * buttons/joystick/dpad, e.g. m5stack_core2's minimal port) --

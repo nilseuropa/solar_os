@@ -2,7 +2,46 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sd_card.h"
+#include "solar_os_board.h"
+
+#ifndef SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL
+#define SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL 1
+#endif
+
+static bool storage_power_configured;
+
+static esp_err_t storage_power_on(void)
+{
+#ifndef SOLAR_OS_BOARD_PIN_SD_POWER
+    return ESP_OK;
+#else
+    if (!storage_power_configured) {
+        const gpio_config_t config = {
+            .pin_bit_mask = 1ULL << SOLAR_OS_BOARD_PIN_SD_POWER,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        const esp_err_t err = gpio_config(&config);
+        if (err != ESP_OK) {
+            return err;
+        }
+        storage_power_configured = true;
+    }
+
+    const int active = SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL ? 1 : 0;
+    const esp_err_t err = gpio_set_level(SOLAR_OS_BOARD_PIN_SD_POWER, active);
+    if (err == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return err;
+#endif
+}
 
 static void storage_block_from_driver(solar_os_board_storage_block_t *out,
                                       const sd_card_block_t *in)
@@ -30,16 +69,28 @@ static void storage_block_from_driver(solar_os_board_storage_block_t *out,
 
 esp_err_t solar_os_board_storage_init(void)
 {
+    const esp_err_t err = storage_power_on();
+    if (err != ESP_OK) {
+        return err;
+    }
     return sd_card_init();
 }
 
 esp_err_t solar_os_board_storage_mount(void)
 {
+    const esp_err_t err = storage_power_on();
+    if (err != ESP_OK) {
+        return err;
+    }
     return sd_card_init();
 }
 
 esp_err_t solar_os_board_storage_mount_volume(const char *name, const char *mount_point)
 {
+    const esp_err_t err = storage_power_on();
+    if (err != ESP_OK) {
+        return err;
+    }
     return sd_card_mount_volume(name, mount_point);
 }
 
@@ -70,6 +121,10 @@ const char *solar_os_board_storage_mount_point(void)
 
 esp_err_t solar_os_board_storage_rescan(void)
 {
+    const esp_err_t err = storage_power_on();
+    if (err != ESP_OK) {
+        return err;
+    }
     return sd_card_rescan();
 }
 

@@ -68,6 +68,13 @@ bool solar_os_storage_is_mounted(void);
 void solar_os_storage_get_status(char *buffer, size_t len);
 const char *solar_os_storage_mount_point(void);
 
+// Explicit removable-media state. The generic helpers above select the
+// preferred mounted persistent storage, falling back to internal flash when
+// an SD-capable board has no card inserted.
+bool solar_os_storage_sd_is_mounted(void);
+void solar_os_storage_sd_get_status(char *buffer, size_t len);
+const char *solar_os_storage_sd_mount_point(void);
+
 // Joins a relative path under a storage-owned base path. Dot-dot segments are
 // clamped to base_path, so this is for app/service state paths, not shell cwd
 // resolution where users expect `..` to walk upward.
