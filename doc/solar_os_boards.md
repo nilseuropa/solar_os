@@ -5,6 +5,23 @@ identity and pin metadata, and a PlatformIO environment that selects the target.
 The goal is that services and applications can ask for capabilities instead of
 assuming the display terminal hardware exists.
 
+These files have distinct ownership: `boards/<target>.cmake` is authoritative
+for capability flags and driver selection, while `include/boards/<target>.h` is
+authoritative for identity, pins, pin policy, controller masks, and static bus
+definitions. Do not add aggregate capability bitmaps to board headers. Runtime
+capability bits are derived from the CMake-generated `SOLAR_OS_BOARD_HAS_*`
+defines.
+
+`scripts/validate_board_metadata.py` checks every board during CMake
+configuration. It verifies board registration and identity, capability registry
+coverage and dependencies, pin masks against their named lists and free-pin
+slots, static bus protocol gates, and the GPIO/bus tables in `doc/expansion.md`.
+Run it directly after changing board metadata:
+
+```sh
+python3 scripts/validate_board_metadata.py
+```
+
 ## File Layout
 
 For a new board target named `my_board`, add:
