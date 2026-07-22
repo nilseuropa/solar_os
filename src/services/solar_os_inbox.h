@@ -30,12 +30,17 @@ typedef struct {
     const char *body;
     /* Stable producer identity used to suppress replayed notifications. */
     const char *dedupe_key;
+    /* Optional producer IDs retained for service-specific persistence fallback. */
+    uint64_t source_id;
+    uint64_t source_context;
     uint64_t timestamp_ms;
     solar_os_inbox_priority_t priority;
 } solar_os_inbox_publish_t;
 
 typedef struct {
     uint32_t id;
+    uint64_t source_id;
+    uint64_t source_context;
     uint64_t timestamp_ms;
     uint32_t received_ms;
     solar_os_inbox_priority_t priority;

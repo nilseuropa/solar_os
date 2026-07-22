@@ -9,8 +9,11 @@
 
 #define SOLAR_OS_CHAT_ERROR_MAX 96
 #define SOLAR_OS_CHAT_STORE_CAPACITY 80
+#define SOLAR_OS_CHAT_MESSAGE_CAPACITY 64
 #define SOLAR_OS_CHAT_OUTBOX_CAPACITY 16
 #define SOLAR_OS_CHAT_CHANNEL_CAPACITY 32
+#define SOLAR_OS_CHAT_STORE_DIR ".chat"
+#define SOLAR_OS_CHAT_STORE_FILE "messages.bin"
 
 typedef enum {
     SOLAR_OS_CHAT_STATE_DISCONNECTED,
@@ -42,6 +45,7 @@ typedef enum {
 typedef struct {
     uint32_t id;
     solar_os_chat_event_type_t type;
+    uint64_t message_key;
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
     char from[SOLAR_OS_CHAT_USER_MAX];
     char text[SOLAR_OS_CHAT_TEXT_MAX];
@@ -50,6 +54,22 @@ typedef struct {
     int code;
     bool truncated;
 } solar_os_chat_event_t;
+
+typedef struct {
+    uint32_t id;
+    uint32_t inbox_id;
+    uint64_t message_key;
+    uint64_t timestamp;
+    bool unread;
+    bool truncated;
+    char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
+    char from[SOLAR_OS_CHAT_USER_MAX];
+    char text[SOLAR_OS_CHAT_TEXT_MAX];
+} solar_os_chat_message_t;
+
+typedef bool (*solar_os_chat_message_visitor_t)(
+    const solar_os_chat_message_t *message,
+    void *user);
 
 typedef struct {
     uint32_t id;
@@ -92,6 +112,13 @@ typedef struct {
     uint32_t dropped_count;
     size_t queued_events;
     size_t queued_outbox;
+    size_t stored_messages;
+    size_t unread_messages;
+    size_t persistent_capacity;
+    size_t persistent_limit_bytes;
+    bool persistent;
+    bool persistent_inbox_backed;
+    esp_err_t storage_error;
 } solar_os_chat_status_t;
 
 esp_err_t solar_os_chat_init(void);
@@ -112,6 +139,11 @@ esp_err_t solar_os_chat_send(const char *channel, const char *text);
 esp_err_t solar_os_chat_read_event(solar_os_chat_event_t *event, uint32_t timeout_ms);
 esp_err_t solar_os_chat_read_event_after(uint32_t *cursor,
                                          solar_os_chat_event_t *event);
+size_t solar_os_chat_message_visit(solar_os_chat_message_visitor_t visitor,
+                                   void *user,
+                                   uint32_t *event_cursor);
+esp_err_t solar_os_chat_mark_message_read(uint64_t message_key, bool read);
+esp_err_t solar_os_chat_mark_channel_read(const char *channel);
 esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status);
 esp_err_t solar_os_chat_get_config(solar_os_chat_config_t *config);
 size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
@@ -122,7 +154,12 @@ esp_err_t solar_os_chat_sync_set_status(bool running,
                                         bool connected,
                                         esp_err_t error,
                                         const char *message);
-esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event);
+esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event,
+                                     bool *inserted,
+                                     uint64_t *message_key);
+esp_err_t solar_os_chat_sync_set_inbox_id(uint64_t message_key,
+                                          uint32_t inbox_id);
+uint64_t solar_os_chat_context_id(void);
 esp_err_t solar_os_chat_outbox_peek(solar_os_chat_command_t *command);
 esp_err_t solar_os_chat_outbox_ack(uint32_t id);
 

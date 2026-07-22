@@ -38,6 +38,8 @@ typedef enum {
 
 typedef struct {
     solar_os_chat_event_type_t type;
+    uint64_t message_key;
+    uint64_t timestamp;
     bool system;
     bool unread;
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
@@ -413,11 +415,14 @@ static void chat_remove_channel(const char *name)
     chat_app.redraw = true;
 }
 
-static void chat_append_event(solar_os_chat_event_type_t type,
-                              const char *channel,
-                              const char *from,
-                              const char *text,
-                              bool system)
+static void chat_append_event_full(solar_os_chat_event_type_t type,
+                                   const char *channel,
+                                   const char *from,
+                                   const char *text,
+                                   bool system,
+                                   uint64_t message_key,
+                                   uint64_t timestamp,
+                                   bool unread)
 {
     if (chat_app.messages == NULL) {
         return;
@@ -429,6 +434,8 @@ static void chat_append_event(solar_os_chat_event_type_t type,
     chat_app_message_t *message = &chat_app.messages[index];
     memset(message, 0, sizeof(*message));
     message->type = type;
+    message->message_key = message_key;
+    message->timestamp = timestamp;
     message->system = system;
     strlcpy(message->channel, message_channel, sizeof(message->channel));
     if (from != NULL) {
@@ -441,7 +448,7 @@ static void chat_append_event(solar_os_chat_event_type_t type,
     const int channel_index = chat_add_channel(message_channel, false);
     if (channel_index >= 0 &&
         (uint8_t)channel_index != chat_app.current_channel &&
-        type == SOLAR_OS_CHAT_EVENT_MESSAGE) {
+        type == SOLAR_OS_CHAT_EVENT_MESSAGE && unread) {
         chat_app.channels[channel_index].unread = true;
         message->unread = true;
     }
@@ -451,6 +458,33 @@ static void chat_append_event(solar_os_chat_event_type_t type,
         chat_app.message_count++;
     }
     chat_app.redraw = true;
+}
+
+static void chat_append_event(solar_os_chat_event_type_t type,
+                              const char *channel,
+                              const char *from,
+                              const char *text,
+                              bool system)
+{
+    chat_append_event_full(type, channel, from, text, system, 0, 0, false);
+}
+
+static bool chat_restore_message(const solar_os_chat_message_t *message,
+                                 void *user)
+{
+    (void)user;
+    if (message == NULL) {
+        return false;
+    }
+    chat_append_event_full(SOLAR_OS_CHAT_EVENT_MESSAGE,
+                           message->channel,
+                           message->from,
+                           message->text,
+                           false,
+                           message->message_key,
+                           message->timestamp,
+                           message->unread);
+    return true;
 }
 
 static void chat_append_statusf(const char *fmt, ...)
@@ -1079,6 +1113,7 @@ static void chat_select_channel(uint8_t index, bool join)
     chat_app.selected_channel = index;
     chat_app.current_channel = index;
     chat_app.channels[index].unread = false;
+    (void)solar_os_chat_mark_channel_read(chat_app.channels[index].name);
     chat_app.message_scroll = 0;
     chat_app.redraw = true;
 
@@ -1150,7 +1185,18 @@ static void chat_handle_service_event(const solar_os_chat_event_t *event)
         break;
     }
     case SOLAR_OS_CHAT_EVENT_MESSAGE:
-        chat_append_event(event->type, event->channel, event->from, event->text, false);
+        chat_append_event_full(event->type,
+                               event->channel,
+                               event->from,
+                               event->text,
+                               false,
+                               event->message_key,
+                               event->timestamp,
+                               true);
+        if (strcmp(event->channel, chat_current_channel_name()) == 0 &&
+            event->message_key != 0) {
+            (void)solar_os_chat_mark_message_read(event->message_key, true);
+        }
         break;
     case SOLAR_OS_CHAT_EVENT_PRESENCE:
         {
@@ -1253,9 +1299,17 @@ static void chat_show_status(void)
                         status.rx_count,
                         status.tx_count,
                         status.dropped_count);
-    chat_append_statusf("store=%u outbox=%u",
-                        (unsigned)status.queued_events,
+    chat_append_statusf("store=%u/%u unread=%u outbox=%u",
+                        (unsigned)status.stored_messages,
+                        (unsigned)SOLAR_OS_CHAT_MESSAGE_CAPACITY,
+                        (unsigned)status.unread_messages,
                         (unsigned)status.queued_outbox);
+    chat_append_statusf("persistence: %s cap=%u",
+                        status.persistent ?
+                            (status.persistent_inbox_backed ?
+                                 "/.inbox/messages.bin" : "/.chat/messages.bin") :
+                            "unavailable",
+                        (unsigned)status.persistent_capacity);
 }
 
 static void chat_leave_channel(const char *name)
@@ -1627,6 +1681,11 @@ static esp_err_t chat_start(solar_os_context_t *ctx)
     (void)solar_os_chat_init();
     (void)chat_add_channel(chat_app.initial_channel, true);
     chat_app.active = true;
+    (void)solar_os_chat_message_visit(chat_restore_message,
+                                      NULL,
+                                      &chat_app.event_cursor);
+    (void)solar_os_chat_mark_channel_read(chat_current_channel_name());
+    chat_app.channels[chat_app.current_channel].unread = false;
     chat_append_statusf("chat starting");
 
     if (chat_app.initial_url[0] != '\0' ||

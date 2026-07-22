@@ -16,7 +16,7 @@
 #include "solar_os_storage.h"
 
 #define INBOX_STORE_MAGIC 0x58424e49UL
-#define INBOX_STORE_VERSION 1U
+#define INBOX_STORE_VERSION 2U
 #define INBOX_STORE_HEADER_COPIES 2U
 
 typedef struct {
@@ -510,6 +510,8 @@ esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32
     if (inbox_next_id == 0) {
         inbox_next_id = 1;
     }
+    entry->source_id = message->source_id;
+    entry->source_context = message->source_context;
     entry->timestamp_ms = message->timestamp_ms;
     entry->received_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
     entry->priority = message->priority;

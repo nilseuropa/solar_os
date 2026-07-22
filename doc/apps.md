@@ -52,10 +52,18 @@ chat [gateway-url] [channel] [user] [token]
 ```
 
 The background `chat-sync` job owns the transport connection, retries, joined
-channels, and queued outbound messages. It starts automatically when compiled.
-Closing or suspending `chat` does not disconnect it. Incoming messages remain
-in the shared volatile chat store and publish bounded notifications to the
-universal inbox; reopening the app replays the retained store.
+channels, and queued outbound messages. Start it explicitly with
+`job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
+not disconnect an already-running synchronizer. Incoming messages remain in the
+shared bounded chat store and publish bounded notifications to the universal
+inbox; reopening the app replays the retained store. With SD storage, full
+messages are retained under `/.chat/messages.bin`. On internal flash, Chat
+restores the compact message copy already retained in `/.inbox/messages.bin`,
+so it consumes no second flash ring. Both backends deduplicate transport replays
+by stable message identity and keep linked Inbox read state aligned.
+
+Unlike `email-sync`, `chat-sync` takes no interval argument: it waits for Wi-Fi
+and reconnects with exponential backoff while remaining in the running state.
 
 `/connect [url]` updates the saved gateway and enables synchronization.
 `/disconnect` pauses synchronization without stopping the job.

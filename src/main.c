@@ -1324,15 +1324,6 @@ void app_main(void)
     ESP_LOGI(TAG, "boot milestone: starting peripherals");
     init_peripherals();
     ESP_LOGI(TAG, "boot milestone: peripherals ready");
-#if SOLAR_OS_PACKAGE_JOB_CHAT_SYNC
-    const esp_err_t chat_sync_err =
-        solar_os_jobs_start(&os_ctx, "chat-sync", 0, NULL);
-    if (chat_sync_err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG,
-                      "Chat synchronizer unavailable: %s",
-                      esp_err_to_name(chat_sync_err));
-    }
-#endif
     update_status();
     ESP_LOGI(TAG, "boot milestone: status ready");
 

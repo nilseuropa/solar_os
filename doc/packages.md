@@ -36,8 +36,11 @@ Callers continue to own their worker task and response consumer; see
 Chat is split further: `network.chat` owns the transport-neutral message store
 and outbox, `chat.transport.gateway` owns the gateway wire protocol, and
 `job.chat-sync` owns connection lifetime, retries, cursors, delivery, and inbox
-notifications. `app.chat` is only a foreground view over that shared state;
-`job.chatd` remains the independent local gateway server.
+notifications. The bounded store persists full messages on SD and uses the
+Inbox's compact persistent records as its internal-flash fallback. Stable
+producer IDs suppress transport replays before they reach either UI. `app.chat`
+is only a foreground view over that shared state; `job.chatd` remains the
+independent local gateway server.
 
 Inbox storage and presentation are also separate. Producers such as mail and
 POCSAG depend only on `service.inbox`; it owns the bounded persistent ring under

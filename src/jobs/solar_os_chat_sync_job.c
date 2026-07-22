@@ -78,9 +78,11 @@ static bool chat_sync_url_is_local(const char *url)
              host[localhost_len] == '/'));
 }
 
-static void chat_sync_publish_inbox(const solar_os_chat_event_t *event)
+static void chat_sync_publish_inbox(const solar_os_chat_event_t *event,
+                                    uint64_t message_key)
 {
-    if (event == NULL || event->type != SOLAR_OS_CHAT_EVENT_MESSAGE) {
+    if (event == NULL || event->type != SOLAR_OS_CHAT_EVENT_MESSAGE ||
+        message_key == 0) {
         return;
     }
     char title[SOLAR_OS_INBOX_TITLE_MAX];
@@ -89,28 +91,30 @@ static void chat_sync_publish_inbox(const solar_os_chat_event_t *event)
     } else {
         strlcpy(title, "Chat message", sizeof(title));
     }
-    char dedupe_key[32];
-    const char *selected_key = NULL;
-    if (event->timestamp != 0) {
-        snprintf(dedupe_key,
-                 sizeof(dedupe_key),
-                 "%llu",
-                 (unsigned long long)event->timestamp);
-        selected_key = dedupe_key;
-    }
+    char dedupe_key[24];
+    snprintf(dedupe_key,
+             sizeof(dedupe_key),
+             "%016llx",
+             (unsigned long long)message_key);
     const solar_os_inbox_publish_t notification = {
         .source = "chat",
         .topic = event->channel,
         .sender = event->from,
         .title = title,
         .body = event->text,
-        .dedupe_key = selected_key,
+        .dedupe_key = dedupe_key,
+        .source_id = message_key,
+        .source_context = solar_os_chat_context_id(),
         .timestamp_ms = event->timestamp,
         .priority = SOLAR_OS_INBOX_PRIORITY_NORMAL,
     };
-    const esp_err_t err = solar_os_inbox_publish(&notification, NULL);
+    uint32_t inbox_id = 0;
+    const esp_err_t err = solar_os_inbox_publish(&notification, &inbox_id);
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "inbox publish failed: %s", esp_err_to_name(err));
+    } else if (solar_os_chat_sync_set_inbox_id(message_key, inbox_id) != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "inbox link failed for message %016llx",
+                      (unsigned long long)message_key);
     }
 }
 
@@ -149,8 +153,17 @@ static void chat_sync_drain_events(uint32_t now_ms)
             }
             continue;
         }
-        (void)solar_os_chat_sync_publish(event);
-        chat_sync_publish_inbox(event);
+        bool inserted = false;
+        uint64_t message_key = 0;
+        const esp_err_t publish_err =
+            solar_os_chat_sync_publish(event, &inserted, &message_key);
+        if (publish_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "message store failed: %s",
+                          esp_err_to_name(publish_err));
+        } else if (inserted) {
+            chat_sync_publish_inbox(event, message_key);
+        }
         if (event->type == SOLAR_OS_CHAT_EVENT_CONNECTED) {
             chat_sync.retry_delay_ms = CHAT_SYNC_RETRY_MIN_MS;
             chat_sync.next_retry_ms = 0;
