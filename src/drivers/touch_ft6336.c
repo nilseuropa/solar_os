@@ -5,6 +5,7 @@
 
 #include "i2c_bus.h"
 #include "solar_os_log.h"
+#include "solar_os_touch.h"
 
 #define FT6336_ADDR 0x38
 #define FT6336_REG_TD_STATUS 0x02
@@ -73,4 +74,20 @@ esp_err_t touch_ft6336_read(bool *pressed, uint16_t *x, uint16_t *y)
     *x = (uint16_t)(((buf[1] & 0x0fU) << 8) | buf[2]);
     *y = (uint16_t)(((buf[3] & 0x0fU) << 8) | buf[4]);
     return ESP_OK;
+}
+
+/* Board-agnostic facade (solar_os_touch.h). */
+esp_err_t solar_os_touch_init(void)
+{
+    return touch_ft6336_init();
+}
+
+bool solar_os_touch_available(void)
+{
+    return touch_ft6336_available();
+}
+
+esp_err_t solar_os_touch_read(bool *pressed, uint16_t *x, uint16_t *y)
+{
+    return touch_ft6336_read(pressed, x, y);
 }

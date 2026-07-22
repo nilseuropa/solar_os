@@ -9,10 +9,11 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/io_expander_ch422g.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_rgb_panel.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/storage_sdspi.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/rtc_pcf85063.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/drivers/touch_gt911.cmake")
 
-# Minimal port: RGB display (through CH422G expander bring-up), RTC,
-# SD, UART, connectivity. No touch (GT911 -- SolarOS has no
-# touch-input capability yet) or RS485. USB native CDC and UART are
+# Port: RGB display (through CH422G expander bring-up), RTC, SD, UART,
+# connectivity, GT911 touch (polled app-level driver, see
+# drivers/touch_gt911.cmake). No RS485. USB native CDC and UART are
 # both wired as console/shell candidates; UART lives on GPIO15/16,
 # the board's stock CAN pins (TJA1051 TXD/RXD) -- this only becomes a
 # real point-to-point serial port once that transceiver is swapped for
