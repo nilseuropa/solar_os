@@ -27,6 +27,12 @@ Network ownership is intentionally split. `network.base`, `network.mqtt`,
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
 
+Chat is split further: `network.chat` owns the transport-neutral message store
+and outbox, `chat.transport.gateway` owns the gateway wire protocol, and
+`job.chat-sync` owns connection lifetime, retries, cursors, delivery, and inbox
+notifications. `app.chat` is only a foreground view over that shared state;
+`job.chatd` remains the independent local gateway server.
+
 Inbox storage and presentation are also separate. Producers such as mail and
 POCSAG depend only on `service.inbox`; `app.inbox` adds the foreground browser
 and its shell command.

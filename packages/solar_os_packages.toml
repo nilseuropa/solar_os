@@ -73,6 +73,7 @@ members = [
   "service_ssh",
   "service_mail",
   "service_chat",
+  "chat_transport_gateway",
   "service_http_client",
   "service_http_server",
   "app_ssh",
@@ -83,6 +84,7 @@ members = [
   "app_chat",
   "app_email",
   "job_httpd",
+  "job_chat_sync",
   "job_chatd",
   "job_email_sync",
   "job_slip",
@@ -97,6 +99,7 @@ triggers = [
   "app_chat",
   "app_email",
   "job_httpd",
+  "job_chat_sync",
   "job_chatd",
   "job_email_sync",
   "job_slip",
@@ -276,10 +279,16 @@ capabilities = ["wifi"]
 
 [packages.service_chat]
 label = "network.chat"
-depends = ["service_wifi"]
 sources = ["services/solar_os_chat.c"]
+requires = ["heap", "nvs_flash"]
+capabilities = ["psram"]
+
+[packages.chat_transport_gateway]
+label = "chat.transport.gateway"
+depends = ["service_chat", "service_wifi"]
+sources = ["services/solar_os_chat_transport_gateway.c"]
 requires = ["esp-tls"]
-capabilities = ["wifi"]
+capabilities = ["psram", "wifi"]
 
 [packages.service_http_client]
 label = "network.http-client"
@@ -534,7 +543,7 @@ capabilities = ["psram", "wifi", "gfx"]
 
 [packages.app_chat]
 label = "app.chat"
-depends = ["service_chat"]
+depends = ["job_chat_sync"]
 sources = ["apps/solar_os_chat.c"]
 capabilities = ["psram", "wifi"]
 
@@ -647,8 +656,15 @@ capabilities = ["wifi"]
 
 [packages.job_chatd]
 label = "job.chatd"
-depends = ["service_chat"]
+depends = ["service_wifi"]
 sources = ["jobs/solar_os_chatd_job.c"]
+requires = ["heap"]
+capabilities = ["psram", "wifi"]
+
+[packages.job_chat_sync]
+label = "job.chat-sync"
+depends = ["chat_transport_gateway", "service_inbox"]
+sources = ["jobs/solar_os_chat_sync_job.c"]
 capabilities = ["psram", "wifi"]
 
 [packages.job_email_sync]

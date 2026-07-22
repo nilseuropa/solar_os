@@ -42,7 +42,7 @@ Controls:
 
 ## chat
 
-Two-pane gateway chat client. The left pane lists channels, the right pane shows
+Two-pane chat client. The left pane lists channels, the right pane shows
 conversation history, and the bottom line is the message/command input.
 
 Usage:
@@ -50,6 +50,15 @@ Usage:
 ```text
 chat [gateway-url] [channel] [user] [token]
 ```
+
+The background `chat-sync` job owns the transport connection, retries, joined
+channels, and queued outbound messages. It starts automatically when compiled.
+Closing or suspending `chat` does not disconnect it. Incoming messages remain
+in the shared volatile chat store and publish bounded notifications to the
+universal inbox; reopening the app replays the retained store.
+
+`/connect [url]` updates the saved gateway and enables synchronization.
+`/disconnect` pauses synchronization without stopping the job.
 
 In-app commands:
 

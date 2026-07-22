@@ -166,6 +166,23 @@ Notes:
 - Both ports are claimed by the bridge job until it stops.
 - This is the clean base for USB-to-UART converter style workflows.
 
+## chat-sync
+
+Background client synchronizer for the transport-neutral chat service. It starts
+automatically when the package is compiled and can also be controlled normally:
+
+```text
+job start chat-sync
+job stop chat-sync
+job status chat-sync
+```
+
+It owns transport connection lifetime, exponential retry, opaque resume cursors,
+joined-channel replay, outbound queue delivery, retained message publication,
+and chat notifications in the universal inbox. Stopping or closing `app.chat`
+has no effect on this job. Its worker performs transport startup, polling, and
+retry work outside the cooperative session/job scheduler.
+
 ## chatd
 
 Local SolarOS chat gateway server. It is useful for testing the `chat` app or
