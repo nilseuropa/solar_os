@@ -183,7 +183,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"mem", "show free memory", solar_os_shell_cmd_mem},
     {"ramfs", "PSRAM-backed volatile filesystem", solar_os_shell_cmd_ramfs},
     {"stream", "list data streams", solar_os_shell_cmd_stream},
+#if SOLAR_OS_PACKAGE_JOB_DAQ
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
+#endif
     {"log", "show SolarOS logs", solar_os_shell_cmd_log},
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     {"inbox", "read incoming messages", solar_os_shell_cmd_inbox},
@@ -219,8 +221,10 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     {"wifi", "Wi-Fi station control", solar_os_shell_cmd_wifi},
 #endif
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
     {"mqtt", "MQTT client", solar_os_shell_cmd_mqtt},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     {"ping", "send ICMP echo requests", solar_os_shell_cmd_ping},
     {"netscan", "scan TCP ports", solar_os_shell_cmd_netscan},
 #endif
@@ -254,19 +258,24 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
     {"radio", "packet radio tools", solar_os_shell_cmd_radio},
 #endif
+#if SOLAR_OS_PACKAGE_SYSTEM_SHELL
     {"date", "read or set local date", solar_os_shell_cmd_date},
     {"time", "read or set local time", solar_os_shell_cmd_time},
-#if SOLAR_OS_PACKAGE_NET
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     {"ntp", "sync RTC from network time", solar_os_shell_cmd_ntp},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
     {"ota", "OTA update control", solar_os_shell_cmd_ota},
-#if SOLAR_OS_PACKAGE_NET
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
     {"sshkey", "manage SSH keys", solar_os_shell_cmd_sshkey},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     {"temperature", "read SHTC3 temperature", solar_os_shell_cmd_temperature},
     {"humidity", "read SHTC3 humidity", solar_os_shell_cmd_humidity},
 #endif
+#if SOLAR_OS_PACKAGE_CORE_FS_COMMANDS
     {"cd", "change directory", solar_os_shell_cmd_cd},
     {"ls", "list storage files", solar_os_shell_cmd_ls},
     {"cat", "print a small text file", solar_os_shell_cmd_cat},
@@ -277,6 +286,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"cp", "copy a file", solar_os_shell_cmd_cp},
     {"zip", "create ZIP archives", solar_os_shell_cmd_zip},
     {"unzip", "list or extract ZIP archives", solar_os_shell_cmd_unzip},
+#endif
     {"reboot", "restart the board", cmd_reboot},
 };
 
@@ -379,7 +389,7 @@ static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_ap_auth_values[] = {"open", "wpa", "wpa2", "wpa/wpa2"};
 static const char * const wifi_forget_values[] = {"all"};
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static const char * const mqtt_subcommands[] = {
     "status",
     "connect",
@@ -696,7 +706,7 @@ static const char * const audio_hz_values[] = {"440", "880", "1000"};
 static const char * const audio_ms_values[] = {"100", "500", "1000", "3000"};
 static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"};
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const sshkey_subcommands[] = {
     "status",
     "gen",
@@ -732,7 +742,7 @@ static const char * const daq_options[] = {
 static const char * const daq_rate_values[] = {"1", "5", "10", "60"};
 static const char * const daq_rate_ms_values[] = {"0", "25", "100", "1000"};
 static const char * const watch_subcommands[] = {"-n"};
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static const char * const ping_count_values[] = {"1", "4", "10"};
 static const char * const netscan_port_values[] = {"22", "80", "443", "22,80,443", "1-1024"};
 static const char * const ntp_server_values[] = {"pool.ntp.org", "time.google.com"};
@@ -894,11 +904,15 @@ static const char * const path_wifi_ap_on_auth[] = {
 static const char * const path_wifi_connect[] = {"wifi", "connect"};
 static const char * const path_wifi_nat[] = {"wifi", "nat"};
 static const char * const path_wifi_forget[] = {"wifi", "forget"};
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static const char * const path_mqtt[] = {"mqtt"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static const char * const path_ping_count[] = {"ping", SHELL_COMPLETION_ANY};
 static const char * const path_netscan_ports[] = {"netscan", SHELL_COMPLETION_ANY};
 static const char * const path_ntp[] = {"ntp"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static const char * const path_mqtt_publish_payload[] = {
     "mqtt",
     "publish",
@@ -1148,7 +1162,7 @@ static const char * const path_audio_level[] = {"audio", "level"};
 static const char * const path_audio_mic[] = {"audio", "mic"};
 static const char * const path_audio_loopback[] = {"audio", "loopback"};
 static const char * const path_audio_loopback_ms[] = {"audio", "loopback", SHELL_COMPLETION_ANY};
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
 static const char * const path_sshkey_gen_force[] = {"sshkey", "gen", "-f"};
@@ -1425,10 +1439,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_wifi_nat, wifi_nat_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_forget, wifi_forget_values),
     SHELL_COMPLETION_WIFI_SSIDS(path_wifi_forget),
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     SHELL_COMPLETION_STATIC(path_ping_count, ping_count_values),
     SHELL_COMPLETION_STATIC(path_netscan_ports, netscan_port_values),
     SHELL_COMPLETION_STATIC(path_ntp, ntp_server_values),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
     SHELL_COMPLETION_STATIC(path_mqtt, mqtt_subcommands),
     SHELL_COMPLETION_STATIC(path_mqtt_publish_payload, mqtt_qos_values),
     SHELL_COMPLETION_STATIC(path_mqtt_publish_qos, mqtt_retain_values),
@@ -1571,7 +1587,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_audio_mic, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback_ms, audio_volume_values),
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
     SHELL_COMPLETION_STATIC(path_sshkey, sshkey_subcommands),
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),
     SHELL_COMPLETION_STATIC(path_sshkey_gen_force, sshkey_bits_values),

@@ -16,6 +16,7 @@ DEFAULT_PACKAGE_CATALOG = Path(__file__).resolve().parents[1] / "packages" / "so
 @dataclass(frozen=True)
 class PackageDef:
     label: str
+    depends: tuple[str, ...]
     sources: tuple[str, ...]
     requires: tuple[str, ...]
     capabilities: tuple[str, ...]
@@ -24,10 +25,9 @@ class PackageDef:
 
 @dataclass(frozen=True)
 class GroupDef:
+    immutable: bool
     members: tuple[str, ...]
     triggers: tuple[str, ...]
-    sources: tuple[str, ...]
-    requires: tuple[str, ...]
     capabilities: tuple[str, ...]
     any_capabilities: tuple[str, ...]
 
@@ -128,6 +128,7 @@ def load_catalog(path: Path) -> PackageCatalog:
             raise ValueError(f"packages.{name} must be a table")
         package_defs[name] = PackageDef(
             label=str(raw.get("label") or default_package_label(name)),
+            depends=string_tuple(raw.get("depends"), f"packages.{name}.depends"),
             sources=string_tuple(raw.get("sources"), f"packages.{name}.sources"),
             requires=string_tuple(raw.get("requires"), f"packages.{name}.requires"),
             capabilities=normalize_capability_tuple(
@@ -136,6 +137,32 @@ def load_catalog(path: Path) -> PackageCatalog:
                 string_tuple(raw.get("any_capabilities"),
                              f"packages.{name}.any_capabilities")),
         )
+
+    for name, package_def in package_defs.items():
+        unknown_dependencies = sorted(set(package_def.depends) - package_set)
+        if unknown_dependencies:
+            raise ValueError(
+                f"packages.{name} has unknown dependency/dependencies: "
+                f"{', '.join(unknown_dependencies)}")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(package: str, path_stack: tuple[str, ...]) -> None:
+        if package in visited:
+            return
+        if package in visiting:
+            cycle_start = path_stack.index(package)
+            cycle = path_stack[cycle_start:] + (package,)
+            raise ValueError(f"package dependency cycle: {' -> '.join(cycle)}")
+        visiting.add(package)
+        for dependency in package_defs[package].depends:
+            visit(dependency, path_stack + (package,))
+        visiting.remove(package)
+        visited.add(package)
+
+    for package in packages:
+        visit(package, ())
 
     groups = tuple(raw_groups.keys())
     group_defs: dict[str, GroupDef] = {}
@@ -150,11 +177,15 @@ def load_catalog(path: Path) -> PackageCatalog:
         unknown_triggers = sorted(set(triggers) - package_set)
         if unknown_triggers:
             raise ValueError(f"groups.{name} has unknown trigger(s): {', '.join(unknown_triggers)}")
+        group_sources = string_tuple(raw.get("sources"), f"groups.{name}.sources")
+        group_requires = string_tuple(raw.get("requires"), f"groups.{name}.requires")
+        if group_sources or group_requires:
+            raise ValueError(
+                f"groups.{name} cannot own sources or requirements; assign them to packages")
         group_defs[name] = GroupDef(
+            immutable=bool(raw.get("immutable", False)),
             members=members,
             triggers=triggers,
-            sources=string_tuple(raw.get("sources"), f"groups.{name}.sources"),
-            requires=string_tuple(raw.get("requires"), f"groups.{name}.requires"),
             capabilities=normalize_capability_tuple(
                 string_tuple(raw.get("capabilities"), f"groups.{name}.capabilities")),
             any_capabilities=normalize_capability_tuple(
@@ -162,8 +193,9 @@ def load_catalog(path: Path) -> PackageCatalog:
                              f"groups.{name}.any_capabilities")),
         )
 
-    if "core" not in group_defs:
-        raise ValueError("package catalog must define groups.core")
+    immutable_groups = [name for name, group in group_defs.items() if group.immutable]
+    if not immutable_groups:
+        raise ValueError("package catalog must define an immutable bootstrap group")
 
     return PackageCatalog(
         groups=groups,
@@ -205,7 +237,9 @@ def load_flavor(path: Path,
     if unknown_packages:
         raise ValueError(f"unknown package key(s): {', '.join(sorted(unknown_packages))}")
 
-    groups_enabled["core"] = True
+    for group, group_def in catalog.group_defs.items():
+        if group_def.immutable:
+            groups_enabled[group] = True
 
     for group, group_def in catalog.group_defs.items():
         if groups_enabled[group]:
@@ -215,12 +249,39 @@ def load_flavor(path: Path,
     for package, value in package_overrides.items():
         packages_enabled[package] = value
 
-    for member in catalog.group_defs["core"].members:
+    immutable_members = {
+        member
+        for group_def in catalog.group_defs.values()
+        if group_def.immutable
+        for member in group_def.members
+    }
+    disabled_immutable = sorted(
+        package for package in immutable_members if package_overrides.get(package) is False)
+    if disabled_immutable:
+        raise ValueError(
+            "immutable bootstrap package(s) cannot be disabled: "
+            + ", ".join(disabled_immutable))
+    for member in immutable_members:
         packages_enabled[member] = True
 
+    changed = True
+    while changed:
+        changed = False
+        for package, package_def in catalog.package_defs.items():
+            if not packages_enabled[package]:
+                continue
+            for dependency in package_def.depends:
+                if package_overrides.get(dependency) is False:
+                    raise ValueError(
+                        f"package {package} requires explicitly disabled package {dependency}")
+                if not packages_enabled[dependency]:
+                    packages_enabled[dependency] = True
+                    changed = True
+
     groups_effective = dict(groups_enabled)
-    groups_effective["core"] = True
     for group, group_def in catalog.group_defs.items():
+        if group_def.immutable:
+            groups_effective[group] = True
         if any(packages_enabled[package] for package in group_def.triggers):
             groups_effective[group] = True
 
@@ -251,6 +312,16 @@ def apply_board_capability_pruning(catalog: PackageCatalog,
                                       available_capabilities):
             pruned_packages[package] = False
 
+    changed = True
+    while changed:
+        changed = False
+        for package, package_def in catalog.package_defs.items():
+            if not pruned_packages[package]:
+                continue
+            if any(not pruned_packages[dependency] for dependency in package_def.depends):
+                pruned_packages[package] = False
+                changed = True
+
     pruned_groups = dict(groups_enabled)
     for group, group_def in catalog.group_defs.items():
         if not pruned_groups[group]:
@@ -260,12 +331,14 @@ def apply_board_capability_pruning(catalog: PackageCatalog,
                                       available_capabilities):
             pruned_groups[group] = False
             continue
-        if group != "core" and not group_def.sources and not any(
+        if not group_def.immutable and not any(
                 pruned_packages[package] for package in group_def.members):
             pruned_groups[group] = False
 
-    pruned_groups["core"] = True
     for group, group_def in catalog.group_defs.items():
+        if group_def.immutable:
+            pruned_groups[group] = True
+            continue
         if pruned_groups[group]:
             continue
         if capabilities_supported(group_def.capabilities,
@@ -282,9 +355,6 @@ def collect_sources(catalog: PackageCatalog,
                     groups_enabled: dict[str, bool],
                     packages_enabled: dict[str, bool]) -> list[str]:
     sources: list[str] = []
-    for group in catalog.groups:
-        if groups_enabled[group]:
-            sources.extend(catalog.group_defs[group].sources)
     for package in catalog.packages:
         if packages_enabled[package]:
             sources.extend(catalog.package_defs[package].sources)
@@ -295,9 +365,6 @@ def collect_requires(catalog: PackageCatalog,
                      groups_enabled: dict[str, bool],
                      packages_enabled: dict[str, bool]) -> list[str]:
     requires: list[str] = []
-    for group in catalog.groups:
-        if groups_enabled[group]:
-            requires.extend(catalog.group_defs[group].requires)
     for package in catalog.packages:
         if packages_enabled[package]:
             requires.extend(catalog.package_defs[package].requires)

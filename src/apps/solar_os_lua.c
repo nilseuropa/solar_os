@@ -51,9 +51,13 @@
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 #include "solar_os_mqtt.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 #include "solar_os_ssh_keys.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -685,7 +689,7 @@ static void solua_push_wav_info(lua_State *L, const solar_os_audio_wav_info_t *i
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static void solua_push_mqtt_status(lua_State *L, const solar_os_mqtt_status_t *status)
 {
     lua_newtable(L);
@@ -1293,7 +1297,7 @@ static int solua_wifi_nat(lua_State *L)
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static int solua_mqtt_status(lua_State *L)
 {
     solar_os_mqtt_status_t status;
@@ -3007,7 +3011,7 @@ static int solua_identity_format(lua_State *L)
     return 1;
 }
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static int solua_net_ping(lua_State *L)
 {
     const char *host = luaL_checkstring(L, 1);
@@ -3040,6 +3044,9 @@ static int solua_net_ping(lua_State *L)
     return 1;
 }
 
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 static int solua_ssh_keys_default_paths(lua_State *L)
 {
     char private_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -3880,7 +3887,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
     solua_new_submodule(L, solaros, "mqtt");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_mqtt_status);
@@ -4060,12 +4067,14 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "format", solua_identity_format);
     lua_pop(L, 1);
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_new_submodule(L, solaros, "net");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "ping", solua_net_ping);
     lua_pop(L, 1);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
     solua_new_submodule(L, solaros, "ssh_keys");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "default_paths", solua_ssh_keys_default_paths);

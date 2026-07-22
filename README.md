@@ -91,7 +91,9 @@ SOLAR_OS_FLAVOR=core pio run -e waveshare_esp32_s3_rlcd_4_2
 ```
 
 The running firmware reports its selected board, version, flavor, and package
-set through the `version` and `pkg` shell commands.
+set through the `version` and `pkg` shell commands. See
+[Firmware Packages and Flavors](doc/packages.md) for package ownership,
+dependency resolution, and custom flavor rules.
 
 ## First Commands
 

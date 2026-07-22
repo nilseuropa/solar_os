@@ -1,9 +1,12 @@
 [flavor]
 name = "core"
-description = "Minimal SolarOS build with hardware services, shell, storage, OTA, and maintenance commands."
+description = "SolarOS bootstrap with hardware services and maintenance tools, without optional applications."
 
 [packages]
-core = true
+system = true
+expansions = true
+maintenance_apps = true
+maintenance_jobs = true
 audio = false
 net = false
 media = false

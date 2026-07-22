@@ -32,7 +32,9 @@ service packages are not available on that board.
 Optional API groups follow these package gates:
 
 - `service.wifi`: top-level `wifi_status` and `solaros.wifi`
-- `net`: `solaros.mqtt`, `solaros.net`, and `solaros.ssh_keys`
+- `network.mqtt`: `solaros.mqtt`
+- `network.base`: `solaros.net`
+- `network.ssh`: `solaros.ssh_keys`
 - `service.ble`: `solaros.ble`
 - `service.gpio`: `solaros.gpio` and `solaros.led`
 - `service.onewire`: `solaros.onewire`

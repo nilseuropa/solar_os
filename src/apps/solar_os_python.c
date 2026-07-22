@@ -62,8 +62,10 @@
 #include "solar_os_identity.h"
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 #include "solar_os_mqtt.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -82,7 +84,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_SPI
 #include "solar_os_spi.h"
 #endif
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 #include "solar_os_ssh_keys.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
@@ -734,7 +736,7 @@ static mp_obj_t python_audio_status_to_dict(const solar_os_audio_status_t *statu
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static mp_obj_t python_mqtt_status_to_dict(const solar_os_mqtt_status_t *status)
 {
     mp_obj_t dict = mp_obj_new_dict(16);
@@ -1354,7 +1356,7 @@ static mp_obj_t solaros_wifi_nat(mp_obj_t enabled_obj)
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_wifi_nat_obj, solaros_wifi_nat);
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static mp_obj_t solaros_mqtt_status(void)
 {
     solar_os_mqtt_status_t status;
@@ -3146,7 +3148,7 @@ static mp_obj_t solaros_identity_format(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_identity_format_obj, solaros_identity_format);
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static mp_obj_t solaros_net_ping(size_t n_args, const mp_obj_t *args)
 {
     const char *host = mp_obj_str_get_str(args[0]);
@@ -3179,6 +3181,9 @@ static mp_obj_t solaros_net_ping(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_net_ping_obj, 1, 5, solaros_net_ping);
 
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 static mp_obj_t solaros_ssh_keys_default_paths(void)
 {
     char private_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -4128,7 +4133,7 @@ static void python_register_solaros_module(void)
     python_module_store(wifi, "nat", MP_OBJ_FROM_PTR(&solaros_wifi_nat_obj));
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
     mp_obj_t mqtt = python_new_submodule(module, "mqtt");
     python_module_store(mqtt, "status", MP_OBJ_FROM_PTR(&solaros_mqtt_status_obj));
     python_module_store(mqtt, "connect", MP_OBJ_FROM_PTR(&solaros_mqtt_connect_obj));
@@ -4287,10 +4292,12 @@ static void python_register_solaros_module(void)
     python_module_store(identity, "hostname", MP_OBJ_FROM_PTR(&solaros_identity_hostname_obj));
     python_module_store(identity, "format", MP_OBJ_FROM_PTR(&solaros_identity_format_obj));
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     mp_obj_t net = python_new_submodule(module, "net");
     python_module_store(net, "ping", MP_OBJ_FROM_PTR(&solaros_net_ping_obj));
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
     mp_obj_t ssh_keys = python_new_submodule(module, "ssh_keys");
     python_module_store(ssh_keys,
                         "default_paths",

@@ -3,7 +3,10 @@ name = "netrunner"
 description = "Minimal SolarOS build with hardware services, and network tools."
 
 [packages]
-core = true
+system = true
+expansions = true
+maintenance_apps = true
+maintenance_jobs = true
 audio = false
 net = true
 media = false
