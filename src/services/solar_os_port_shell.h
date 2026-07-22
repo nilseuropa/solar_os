@@ -16,6 +16,7 @@ typedef struct {
     uint16_t rows;
 } solar_os_port_shell_options_t;
 
+esp_err_t solar_os_port_shell_init(void);
 esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
                                     const char *port_name,
                                     bool run_startup,

@@ -1265,6 +1265,13 @@ void app_main(void)
     print_boot_summary();
     key_button_init();
 
+    const esp_err_t port_shell_err = solar_os_port_shell_init();
+    if (port_shell_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "Port shell reserve unavailable: %s",
+                      esp_err_to_name(port_shell_err));
+    }
+
     solar_os_context_init(&os_ctx, NULL, NULL);
     ESP_ERROR_CHECK(solar_os_sessions_init(&os_ctx,
                                            NULL,
