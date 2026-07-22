@@ -44,7 +44,7 @@ members = [
 members = [
   "service_ota",
   "core_fs_commands",
-  "service_inbox",
+  "app_inbox",
   "app_com",
   "app_edit",
   "app_less",
@@ -218,11 +218,7 @@ sources = ["shell/solar_os_shell_hardware.c"]
 
 [packages.service_inbox]
 label = "service.inbox"
-sources = [
-  "apps/solar_os_inbox_app.c",
-  "services/solar_os_inbox.c",
-  "shell/solar_os_shell_inbox.c",
-]
+sources = ["services/solar_os_inbox.c"]
 requires = ["esp_timer", "heap"]
 
 [packages.core_fs_commands]
@@ -550,6 +546,14 @@ sources = [
   "shell/solar_os_shell_email.c",
 ]
 capabilities = ["wifi"]
+
+[packages.app_inbox]
+label = "app.inbox"
+depends = ["service_inbox"]
+sources = [
+  "apps/solar_os_inbox_app.c",
+  "shell/solar_os_shell_inbox.c",
+]
 
 [packages.app_view]
 label = "app.view"

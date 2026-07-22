@@ -27,6 +27,10 @@ Network ownership is intentionally split. `network.base`, `network.mqtt`,
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
 
+Inbox storage and presentation are also separate. Producers such as mail and
+POCSAG depend only on `service.inbox`; `app.inbox` adds the foreground browser
+and its shell command.
+
 ## Custom Flavor Example
 
 This flavor adds only `curl` and the dependency closure needed by that app to
