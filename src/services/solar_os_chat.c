@@ -1155,16 +1155,6 @@ esp_err_t solar_os_chat_read_event(solar_os_chat_event_t *event, uint32_t timeou
     }
 }
 
-static bool chat_message_before(const solar_os_chat_message_t *first,
-                                const solar_os_chat_message_t *second)
-{
-    if (first->timestamp != 0 && second->timestamp != 0 &&
-        first->timestamp != second->timestamp) {
-        return first->timestamp < second->timestamp;
-    }
-    return first->id < second->id;
-}
-
 size_t solar_os_chat_message_visit(solar_os_chat_message_visitor_t visitor,
                                    void *user,
                                    uint32_t *event_cursor)
@@ -1173,30 +1163,19 @@ size_t solar_os_chat_message_visit(solar_os_chat_message_visitor_t visitor,
         return 0;
     }
 
-    chat_message_slot_t *ordered[SOLAR_OS_CHAT_MESSAGE_CAPACITY];
     chat_lock();
-    size_t count = 0;
+    /* Transport timestamps are not necessarily wall-clock values and may reset
+     * when a gateway restarts. The ring order is the stable receipt order. */
     const size_t oldest = chat_message_oldest_locked();
-    for (size_t i = 0; i < chat_store.message_count; i++) {
-        chat_message_slot_t *slot =
-            &chat_store.messages[(oldest + i) % SOLAR_OS_CHAT_MESSAGE_CAPACITY];
-        size_t at = count;
-        while (at > 0 &&
-               chat_message_before(&slot->message,
-                                   &ordered[at - 1U]->message)) {
-            ordered[at] = ordered[at - 1U];
-            at--;
-        }
-        ordered[at] = slot;
-        count++;
-    }
     if (event_cursor != NULL) {
         *event_cursor = chat_store.next_event_id > 1U ?
             chat_store.next_event_id - 1U : 0U;
     }
     size_t visited = 0;
-    for (; visited < count; visited++) {
-        if (!visitor(&ordered[visited]->message, user)) {
+    for (; visited < chat_store.message_count; visited++) {
+        chat_message_slot_t *slot =
+            &chat_store.messages[(oldest + visited) % SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+        if (!visitor(&slot->message, user)) {
             break;
         }
     }

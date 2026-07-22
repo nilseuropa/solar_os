@@ -535,50 +535,38 @@ static bool chat_message_matches_current(const chat_app_message_t *message)
     return strcmp(message->channel, chat_current_channel_name()) == 0;
 }
 
-typedef void (*chat_visual_line_fn)(const char *line, uint8_t attr, void *user);
-
-static void chat_make_spaces(char *out, size_t out_len, size_t count)
-{
-    if (out == NULL || out_len == 0) {
-        return;
-    }
-
-    const size_t spaces = count < out_len ? count : out_len - 1U;
-    memset(out, ' ', spaces);
-    out[spaces] = '\0';
-}
+typedef void (*chat_visual_line_fn)(const char *line,
+                                    uint8_t attr,
+                                    size_t emphasis_bytes,
+                                    void *user);
 
 static void chat_make_user_prefix(const char *from,
                                   size_t width,
                                   char *prefix,
                                   size_t prefix_len,
-                                  char *indent,
-                                  size_t indent_len)
+                                  size_t *emphasis_bytes)
 {
-    if (prefix == NULL || prefix_len == 0 || indent == NULL || indent_len == 0) {
+    if (prefix == NULL || prefix_len == 0) {
         return;
     }
     prefix[0] = '\0';
-    indent[0] = '\0';
+    if (emphasis_bytes != NULL) {
+        *emphasis_bytes = 0;
+    }
 
     if (from == NULL || from[0] == '\0' || width == 0) {
         return;
     }
 
-    size_t max_prefix_cols = width > 10U ? width / 2U : width - 1U;
-    if (max_prefix_cols > 18U) {
-        max_prefix_cols = 18U;
-    }
-    if (max_prefix_cols < 4U) {
-        max_prefix_cols = width > 4U ? 4U : width;
-    }
-
     const size_t from_cols = chat_utf8_width(from);
-    if (from_cols + 2U <= max_prefix_cols) {
+    if (from_cols + 2U <= width) {
         snprintf(prefix, prefix_len, "%s: ", from);
+        if (emphasis_bytes != NULL) {
+            *emphasis_bytes = strlen(from);
+        }
     } else {
         char name[SOLAR_OS_CHAT_USER_MAX];
-        const size_t name_cols = max_prefix_cols > 3U ? max_prefix_cols - 3U : 1U;
+        const size_t name_cols = width > 3U ? width - 3U : 1U;
         const size_t name_bytes = chat_take_columns(from,
                                                     name_cols,
                                                     sizeof(name) - 1U,
@@ -586,27 +574,25 @@ static void chat_make_user_prefix(const char *from,
         memcpy(name, from, name_bytes);
         name[name_bytes] = '\0';
         snprintf(prefix, prefix_len, "%s~: ", name);
+        if (emphasis_bytes != NULL) {
+            *emphasis_bytes = name_bytes + 1U;
+        }
     }
-
-    size_t indent_cols = chat_utf8_width(prefix);
-    if (indent_cols >= width) {
-        indent_cols = width > 1U ? width - 1U : 0U;
-    }
-    chat_make_spaces(indent, indent_len, indent_cols);
 }
 
 static void chat_message_prefixes(const chat_app_message_t *message,
                                   size_t width,
                                   char *first,
                                   size_t first_len,
-                                  char *next,
-                                  size_t next_len)
+                                  size_t *emphasis_bytes)
 {
-    if (first == NULL || first_len == 0 || next == NULL || next_len == 0) {
+    if (first == NULL || first_len == 0) {
         return;
     }
     first[0] = '\0';
-    next[0] = '\0';
+    if (emphasis_bytes != NULL) {
+        *emphasis_bytes = 0;
+    }
 
     if (message == NULL) {
         return;
@@ -617,11 +603,14 @@ static void chat_message_prefixes(const chat_app_message_t *message,
                  first_len,
                  "%c ",
                  message->type == SOLAR_OS_CHAT_EVENT_ERROR ? '!' : '*');
-        chat_make_spaces(next, next_len, chat_utf8_width(first));
         return;
     }
 
-    chat_make_user_prefix(message->from, width, first, first_len, next, next_len);
+    chat_make_user_prefix(message->from,
+                          width,
+                          first,
+                          first_len,
+                          emphasis_bytes);
 }
 
 static void chat_line_init(char *line,
@@ -717,21 +706,20 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     }
 
     char first_prefix[80];
-    char next_prefix[80];
     char line[CHAT_APP_LINE_MAX];
     const uint8_t attr = message->system ? SOLAR_OS_TUI_ATTR_BOLD : SOLAR_OS_TUI_ATTR_NORMAL;
     const char *text = message->text;
     size_t line_bytes = 0;
     size_t line_cols = 0;
     size_t emitted = 0;
+    size_t line_emphasis_bytes = 0;
     bool has_text = false;
 
     chat_message_prefixes(message,
                           width,
                           first_prefix,
                           sizeof(first_prefix),
-                          next_prefix,
-                          sizeof(next_prefix));
+                          &line_emphasis_bytes);
     chat_line_init(line,
                    sizeof(line),
                    first_prefix,
@@ -743,9 +731,10 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     while (text != NULL && *text != '\0') {
         if (*text == '\n' || *text == '\r') {
             if (emit != NULL) {
-                emit(line, attr, user);
+                emit(line, attr, line_emphasis_bytes, user);
             }
             emitted++;
+            line_emphasis_bytes = 0;
             if (*text == '\r' && text[1] == '\n') {
                 text += 2;
             } else {
@@ -753,7 +742,7 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
             }
             chat_line_init(line,
                            sizeof(line),
-                           next_prefix,
+                           "",
                            width,
                            &line_bytes,
                            &line_cols,
@@ -831,12 +820,13 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
             }
 
             if (emit != NULL) {
-                emit(line, attr, user);
+                emit(line, attr, line_emphasis_bytes, user);
             }
             emitted++;
+            line_emphasis_bytes = 0;
             chat_line_init(line,
                            sizeof(line),
-                           next_prefix,
+                           "",
                            width,
                            &line_bytes,
                            &line_cols,
@@ -847,26 +837,19 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     }
 
     if (emit != NULL) {
-        emit(line, attr, user);
+        emit(line, attr, line_emphasis_bytes, user);
     }
     emitted++;
     return emitted;
 }
 
-static void chat_count_visual_line(const char *line, uint8_t attr, void *user)
-{
-    (void)line;
-    (void)attr;
-
-    size_t *count = (size_t *)user;
-    if (count != NULL) {
-        (*count)++;
-    }
-}
-
-static size_t chat_count_visual_rows(size_t width)
+static size_t chat_emit_visual_rows(size_t width,
+                                    chat_visual_line_fn emit,
+                                    void *user)
 {
     size_t count = 0;
+    char previous_from[SOLAR_OS_CHAT_USER_MAX] = {0};
+    bool have_previous_sender = false;
 
     if (width == 0) {
         return 0;
@@ -877,9 +860,26 @@ static size_t chat_count_visual_rows(size_t width)
         if (!chat_message_matches_current(message)) {
             continue;
         }
-        (void)chat_emit_wrapped_message(message, width, chat_count_visual_line, &count);
+
+        if (!message->system) {
+            if (have_previous_sender && strcmp(previous_from, message->from) != 0) {
+                if (emit != NULL) {
+                    emit("", SOLAR_OS_TUI_ATTR_NORMAL, 0, user);
+                }
+                count++;
+            }
+            strlcpy(previous_from, message->from, sizeof(previous_from));
+            have_previous_sender = true;
+        }
+
+        count += chat_emit_wrapped_message(message, width, emit, user);
     }
     return count;
+}
+
+static size_t chat_count_visual_rows(size_t width)
+{
+    return chat_emit_visual_rows(width, NULL, NULL);
 }
 
 typedef struct {
@@ -892,7 +892,10 @@ typedef struct {
     size_t drawn;
 } chat_draw_visual_ctx_t;
 
-static void chat_draw_visual_line(const char *line, uint8_t attr, void *user)
+static void chat_draw_visual_line(const char *line,
+                                  uint8_t attr,
+                                  size_t emphasis_bytes,
+                                  void *user)
 {
     chat_draw_visual_ctx_t *ctx = (chat_draw_visual_ctx_t *)user;
     if (ctx == NULL) {
@@ -901,6 +904,18 @@ static void chat_draw_visual_line(const char *line, uint8_t attr, void *user)
 
     if (ctx->visual_index >= ctx->first_visible && ctx->drawn < ctx->max_rows) {
         chat_write_cell(ctx->row + ctx->drawn, ctx->start_col, ctx->width, line, attr);
+        if (emphasis_bytes > 0 && line != NULL) {
+            char emphasis[SOLAR_OS_CHAT_USER_MAX];
+            const size_t copy_len = emphasis_bytes < sizeof(emphasis) ?
+                emphasis_bytes : sizeof(emphasis) - 1U;
+            memcpy(emphasis, line, copy_len);
+            emphasis[copy_len] = '\0';
+            solar_os_tui_addstr(&chat_app.tui,
+                                ctx->row + ctx->drawn,
+                                ctx->start_col,
+                                emphasis,
+                                SOLAR_OS_TUI_ATTR_BOLD);
+        }
         ctx->drawn++;
     }
     ctx->visual_index++;
@@ -1001,15 +1016,7 @@ static void chat_draw_messages(size_t start_col,
         .max_rows = visible_rows,
     };
 
-    for (size_t logical = 0;
-         logical < chat_app.message_count && draw_ctx.drawn < visible_rows;
-         logical++) {
-        const chat_app_message_t *message = chat_message_at(logical);
-        if (!chat_message_matches_current(message)) {
-            continue;
-        }
-        (void)chat_emit_wrapped_message(message, width, chat_draw_visual_line, &draw_ctx);
-    }
+    (void)chat_emit_visual_rows(width, chat_draw_visual_line, &draw_ctx);
 }
 
 static void chat_draw_input(size_t rows, size_t cols)
