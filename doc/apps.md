@@ -179,7 +179,9 @@ Controls:
 
 Universal incoming-message browser for pages, chat notifications, mail, and
 other background producers. It reads the same shared inbox that supplies the
-status-bar unread count.
+status-bar unread count. Messages and read state survive reboot in the bounded
+`/.inbox/messages.bin` store; the service retains at most 64 entries and keeps
+the file below 32 KB even when internal flash is the only storage.
 
 Usage:
 

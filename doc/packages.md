@@ -40,8 +40,9 @@ notifications. `app.chat` is only a foreground view over that shared state;
 `job.chatd` remains the independent local gateway server.
 
 Inbox storage and presentation are also separate. Producers such as mail and
-POCSAG depend only on `service.inbox`; `app.inbox` adds the foreground browser
-and its shell command.
+POCSAG depend only on `service.inbox`; it owns the bounded persistent ring under
+`/.inbox/`, durable read state, and producer-key replay suppression.
+`app.inbox` adds the foreground browser and its shell command.
 
 ## Custom Flavor Example
 

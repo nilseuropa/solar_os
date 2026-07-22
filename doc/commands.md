@@ -75,13 +75,16 @@ name command-or-app fixed-args...
 
 Arguments typed after the alias are appended.
 
-The inbox is a volatile, producer-neutral message sink. Radio decoders,
+The inbox is a persistent, producer-neutral message sink. Radio decoders,
 background chat or mail jobs, and shell scripts publish messages with a source,
 optional topic/sender/title, priority, timestamp, and body. New messages are
 unread by default. The status bar shows an envelope and unread count; reading or
-clearing messages removes that count. The first implementation keeps the newest
-64 messages in PSRAM when available and falls back to internal RAM. The browser
-shows newest messages first; opening a message marks the shared entry read.
+clearing messages durably updates that count. The newest 64 messages are kept in
+PSRAM when available and mirrored by a fixed-size ring at
+`/.inbox/messages.bin`; its compiled maximum is below 32 KB, so systems using
+the 64 KB internal flash volume cannot grow the inbox without bound. Replayed
+mail and chat notifications retain their existing read state. The browser shows
+newest messages first; opening a message marks the shared entry read.
 
 Email configuration is saved in NVS and deliberately has no compiled remote
 server or account default. Only `imaps://` endpoints are accepted, with TLS

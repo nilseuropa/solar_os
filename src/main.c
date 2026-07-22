@@ -983,6 +983,12 @@ static void init_peripherals(void)
     if (storage_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Default storage unavailable: %s", esp_err_to_name(storage_err));
     }
+#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+    const esp_err_t inbox_err = solar_os_inbox_init();
+    if (inbox_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Inbox service unavailable: %s", esp_err_to_name(inbox_err));
+    }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
     const esp_err_t resources_err = solar_os_resources_init();
@@ -1256,12 +1262,6 @@ void app_main(void)
     if (log_err != ESP_OK) {
         ESP_LOGW(TAG, "Log service unavailable: %s", esp_err_to_name(log_err));
     }
-#if SOLAR_OS_PACKAGE_SERVICE_INBOX
-    const esp_err_t inbox_err = solar_os_inbox_init();
-    if (inbox_err != ESP_OK) {
-        ESP_LOGW(TAG, "Inbox service unavailable: %s", esp_err_to_name(inbox_err));
-    }
-#endif
     print_boot_summary();
     key_button_init();
 

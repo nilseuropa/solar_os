@@ -89,12 +89,22 @@ static void chat_sync_publish_inbox(const solar_os_chat_event_t *event)
     } else {
         strlcpy(title, "Chat message", sizeof(title));
     }
+    char dedupe_key[32];
+    const char *selected_key = NULL;
+    if (event->timestamp != 0) {
+        snprintf(dedupe_key,
+                 sizeof(dedupe_key),
+                 "%llu",
+                 (unsigned long long)event->timestamp);
+        selected_key = dedupe_key;
+    }
     const solar_os_inbox_publish_t notification = {
         .source = "chat",
         .topic = event->channel,
         .sender = event->from,
         .title = title,
         .body = event->text,
+        .dedupe_key = selected_key,
         .timestamp_ms = event->timestamp,
         .priority = SOLAR_OS_INBOX_PRIORITY_NORMAL,
     };
