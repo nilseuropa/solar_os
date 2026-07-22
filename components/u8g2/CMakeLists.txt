@@ -23,6 +23,7 @@ set(U8G2_CLIB_SRCS
 set(SOLAR_OS_GENERATED_FONT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../fonts/build/u8g2")
 file(GLOB SOLAR_OS_GENERATED_FONT_SRCS
     "${SOLAR_OS_GENERATED_FONT_DIR}/u8g2_font_solar_os_default_*_tf.c"
+    "${SOLAR_OS_GENERATED_FONT_DIR}/u8g2_font_solar_os_profont_*_mf.c"
 )
 if(SOLAR_OS_GENERATED_FONT_SRCS)
     list(SORT SOLAR_OS_GENERATED_FONT_SRCS)

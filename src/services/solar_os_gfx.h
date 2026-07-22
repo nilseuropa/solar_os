@@ -47,6 +47,12 @@ typedef enum {
     SOLAR_OS_GFX_FONT_PROFONT_17,
     SOLAR_OS_GFX_FONT_PROFONT_22,
     SOLAR_OS_GFX_FONT_PROFONT_29,
+    /* Pixel-doubled ProFont for 2x UI scale on large panels. */
+    SOLAR_OS_GFX_FONT_PROFONT_24,
+    SOLAR_OS_GFX_FONT_PROFONT_30,
+    SOLAR_OS_GFX_FONT_PROFONT_34,
+    SOLAR_OS_GFX_FONT_PROFONT_44,
+    SOLAR_OS_GFX_FONT_PROFONT_58,
     SOLAR_OS_GFX_FONT_COUNT,
 } solar_os_gfx_font_t;
 

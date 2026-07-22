@@ -71,6 +71,16 @@ static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
         return u8g2_font_profont22_mf;
     case SOLAR_OS_GFX_FONT_PROFONT_29:
         return u8g2_font_profont29_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_24:
+        return u8g2_font_solar_os_profont_24_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_30:
+        return u8g2_font_solar_os_profont_30_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_34:
+        return u8g2_font_solar_os_profont_34_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_44:
+        return u8g2_font_solar_os_profont_44_mf;
+    case SOLAR_OS_GFX_FONT_PROFONT_58:
+        return u8g2_font_solar_os_profont_58_mf;
     case SOLAR_OS_GFX_FONT_MONO:
     default:
         return u8g2_font_solar_os_default_r_14_tf;

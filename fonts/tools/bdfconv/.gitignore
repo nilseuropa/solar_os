@@ -1,4 +1,6 @@
 /bdfconv
+/bdfconv.exe
+/bdfconv.pdb
 *.o
 *.s
 *.tga

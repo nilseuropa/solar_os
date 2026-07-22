@@ -4,3 +4,4 @@
 !/build/u8g2/
 /build/u8g2/*
 !/build/u8g2/u8g2_font_solar_os_default_*_tf.c
+!/build/u8g2/u8g2_font_solar_os_profont_*_mf.c
