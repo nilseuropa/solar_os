@@ -307,13 +307,20 @@ Defaults:
 
 | Setting | Value |
 | --- | --- |
-| Web editor port | `8081` |
+| Web editor port | `8081` (own server; unused when attached to `remote`) |
 
-On builds with Wi-Fi, the job also serves a browser schedule editor on
-its own HTTP server: one tab per zone, a card per schedule slot with
-start/end time fields, weekday toggles, an active switch, a live
-screenshot of the device display, and a single SAVE that applies
-everything within one engine tick. `job start irrigd off` disables it.
+On builds with Wi-Fi, the job also serves a browser schedule editor:
+one tab per zone, a card per schedule slot with start/end time fields,
+weekday toggles, an active switch, a live screenshot of the device
+display, and a single SAVE that applies everything within one engine
+tick. `job start irrigd off` disables it.
+
+If the `remote` job's server is already running, the editor registers
+on it at `/irrig` instead of starting a second HTTP server (two
+instances contend for sockets and starve each other's transfers on
+weak links) and `http-port` is ignored. Otherwise the editor gets its
+own server on `http-port`. The attach happens at start time: after
+(re)starting `remote`, restart `irrigd` to re-attach.
 
 Notes:
 
@@ -387,6 +394,47 @@ Notes:
 - In `once` mode, the job retries at the interval until the first successful
   sync, then stops itself.
 - Without `once`, it keeps syncing periodically.
+
+## remote
+
+Web screen share and keyboard. It serves the live display as a 1bpp BMP plus
+a self-contained page that refreshes it and forwards browser keystrokes into
+the input dispatch, so the device can be driven from any browser on the LAN.
+
+Usage:
+
+```text
+job start remote [port]
+job stop remote
+job status remote
+```
+
+Defaults:
+
+| Setting | Value |
+| --- | --- |
+| Port | `8080` |
+
+Routes:
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Screen view (auto-refreshing) plus keyboard capture and a button row |
+| `/keys` | Keyboard only, no screen image -- for slow or unreliable links |
+| `/screen.bmp` | Current display as a 1bpp BMP |
+| `/key?c=<code>` | Inject one key (SolarOS key codes for specials, ASCII otherwise) |
+
+`/screen.bmp` takes optional query parameters for links that cannot move a
+whole frame in one response: `d=2|4` decimates (every d-th pixel of every
+d-th row), `s=<i>&n=<k>` returns horizontal strip `i` of `k` (0-based,
+`k <= 8`) at full resolution. The main page fetches the screen as four
+strips in sequence and stacks them.
+
+Notes:
+
+- No authentication -- LAN use only, same trust model as the httpd job.
+- On builds with the irrigation web editor, `irrigd` attaches the schedule
+  editor to this server at `/irrig` (see irrigd above).
 
 ## slip
 

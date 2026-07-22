@@ -23,9 +23,11 @@
  * the same engine.
  *
  * On builds with the web editor package, the job also serves the
- * schedule editor page: job start irrigd [http-port|off]. A web
- * failure never blocks the job -- watering matters more than the
- * page.
+ * schedule editor page: job start irrigd [http-port|off]. When the
+ * remote job's server is running the editor attaches to it (page at
+ * /irrig on the remote port, http-port ignored); otherwise it gets
+ * its own server on http-port. A web failure never blocks the job --
+ * watering matters more than the page.
  */
 #define IRRIGD_EVAL_INTERVAL_MS 1000U
 
@@ -76,12 +78,16 @@ static esp_err_t irrigd_start(solar_os_context_t *ctx, int argc, char **argv)
     if (web_port != 0) {
         const esp_err_t web_ret = solar_os_irrig_web_start(web_port);
         if (web_ret == ESP_OK) {
-            char net[16];
-            snprintf(net, sizeof(net), "tcp:%u", (unsigned)web_port);
-            (void)solar_os_jobs_note_resource(solar_os_irrigd_job.name,
-                                              SOLAR_OS_JOB_RESOURCE_NET,
-                                              net,
-                                              "listen");
+            /* In shared mode the listening port belongs to the remote
+             * job (already noted there); nothing new is opened. */
+            if (!solar_os_irrig_web_shared()) {
+                char net[16];
+                snprintf(net, sizeof(net), "tcp:%u", (unsigned)web_port);
+                (void)solar_os_jobs_note_resource(solar_os_irrigd_job.name,
+                                                  SOLAR_OS_JOB_RESOURCE_NET,
+                                                  net,
+                                                  "listen");
+            }
         } else {
             SOLAR_OS_LOGW(TAG, "web editor failed on port %u: %s",
                           (unsigned)web_port, esp_err_to_name(web_ret));

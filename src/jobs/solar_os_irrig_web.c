@@ -13,6 +13,7 @@
 #include "solar_os_irrig.h"
 #include "solar_os_log.h"
 #if SOLAR_OS_PACKAGE_JOB_REMOTE
+#include "solar_os_remote_job.h"
 #include "solar_os_remote_screen.h"
 #endif
 
@@ -42,6 +43,7 @@ static const char *TAG = "solar_os_irrig_web";
 
 typedef struct {
     httpd_handle_t server;
+    bool shared; /* attached to the remote job's server, not our own */
     uint16_t port;
     SemaphoreHandle_t lock; /* created once, never deleted */
     uint8_t snap_zones;
@@ -79,7 +81,8 @@ static const char irrig_web_page_head[] =
     ".tabs { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }\n"
     ".tab { padding: 12px 24px; background: white; border: none; border-radius: 12px 12px 0 0; cursor: pointer; font-weight: bold; color: #555; box-shadow: 0 2px 6px rgba(0,0,0,0.1); white-space: nowrap; }\n"
     ".tab.active { background: var(--primary); color: white; }\n"
-    ".screenshot { max-width: 320px; width: 100%; border: 3px solid #333; border-radius: 8px; margin: 0 auto 20px; display: block; image-rendering: pixelated; }\n"
+    ".screenshot { max-width: 800px; width: 100%; border: 3px solid #333; border-radius: 8px; margin: 0 auto 20px; overflow: hidden; line-height: 0; }\n"
+    ".screenshot img { width: 100%; display: block; image-rendering: pixelated; }\n"
     ".container { display: none; flex-direction: column; gap: 15px; align-items: center; }\n"
     ".container.active { display: flex; }\n"
     ".card { background: white; border-radius: 20px; padding: 18px 25px; width: 100%; max-width: 560px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.06); box-sizing: border-box; }\n"
@@ -104,9 +107,7 @@ static const char irrig_web_page_head[] =
     "</head>\n"
     "<body>\n"
     "<h2>Scheduler</h2>\n"
-    "<img id=\"screenshot\" class=\"screenshot\" src=\"/screenshot\" "
-    "onclick=\"this.src='/screenshot?'+Math.random()\" "
-    "onerror=\"this.style.display='none'\">\n"
+    "<div id=\"screenshot\" class=\"screenshot\"></div>\n"
     "<div class=\"tabs-wrapper\"><div class=\"tabs\" id=\"tabs\"></div></div>\n"
     "<div id=\"zones\"></div>\n"
     "<button class=\"save\" onclick=\"saveAll()\">SAVE</button>\n"
@@ -176,7 +177,56 @@ static const char irrig_web_page_tail[] =
     "function saveAll() {\n"
     "    fetch('/update', {method:'POST', body:getAllData()}).then(r => r.text()).then(txt => alert(txt === 'OK' ? 'Salvat cu succes!' : 'Eroare: ' + txt)).catch(() => alert('Eroare de conexiune'));\n"
     "}\n"
-    "setInterval(() => { const s = document.getElementById('screenshot'); if (s.style.display !== 'none') s.src = '/screenshot?' + Math.random(); }, 4000);\n"
+    /* Same full-resolution horizontal-strip approach as the remote
+     * job's live view: a whole screenshot stalls on this link, four
+     * small strip requests don't. Strips are buffered and only
+     * swapped into the visible <img> elements once the whole set has
+     * arrived, so the box shows the old shot intact until the new one
+     * is complete instead of a top-to-bottom wipe (distracting on a
+     * mostly-static, mostly-black UI like irriga). An 8s watchdog
+     * abandons a stuck cycle and starts over; three misses in a row
+     * (no screen support in this build, or /screenshot genuinely
+     * unreachable) hide the box instead of retrying forever. */
+    "const ssN = 4;\n"
+    "const ssBox = document.getElementById('screenshot');\n"
+    "const ssImgs = [];\n"
+    "for (let i = 0; i < ssN; i++) { const im = document.createElement('img'); ssBox.appendChild(im); ssImgs.push(im); }\n"
+    "let ssGen = 0, ssFails = 0;\n"
+    "function ssCycle() {\n"
+    "    const g = ++ssGen; let k = 0; const pending = new Array(ssN); let stripH = 0;\n"
+    "    function step() {\n"
+    "        if (g !== ssGen) return;\n"
+    "        const pre = new Image();\n"
+    "        const wd = setTimeout(() => { if (g === ssGen) ssCycle(); }, 8000);\n"
+    "        pre.onload = () => {\n"
+    "            clearTimeout(wd); if (g !== ssGen) return;\n"
+    /* Each strip's height is normally left to the browser (CSS
+     * width:100%, auto height from the image's own aspect ratio) --
+     * with 4 separate images that means 4 independent roundings,
+     * which can undershoot the container's border by a fractional
+     * pixel on the last strip (visible as a missing bottom/right
+     * edge at some zoom levels, gone at others as the rounding
+     * shifts). Computing one exact height from the first strip and
+     * applying it to all four removes the accumulation entirely. */
+    "            ssFails = 0; pending[k] = pre.src;\n"
+    "            if (k === 0) stripH = Math.round(ssBox.clientWidth * pre.naturalHeight / pre.naturalWidth);\n"
+    "            k++;\n"
+    "            if (k < ssN) { step(); return; }\n"
+    "            for (let i = 0; i < ssN; i++) { ssImgs[i].src = pending[i]; ssImgs[i].style.height = stripH + 'px'; }\n"
+    "            setTimeout(() => { if (g === ssGen) ssCycle(); }, 4000);\n"
+    "        };\n"
+    "        pre.onerror = () => {\n"
+    "            clearTimeout(wd); if (g !== ssGen) return;\n"
+    "            ssFails++;\n"
+    "            if (ssFails >= 3) { ssBox.style.display = 'none'; return; }\n"
+    "            setTimeout(() => { if (g === ssGen) ssCycle(); }, 1500);\n"
+    "        };\n"
+    "        pre.src = '/screenshot?s=' + k + '&n=' + ssN + '&t=' + Date.now();\n"
+    "    }\n"
+    "    step();\n"
+    "}\n"
+    "ssBox.addEventListener('click', () => { ssFails = 0; ssBox.style.display = ''; ssCycle(); });\n"
+    "ssCycle();\n"
     "</script>\n"
     "</body>\n"
     "</html>\n";
@@ -301,8 +351,10 @@ static void irrig_web_bmp_write_u32(uint8_t *out, uint32_t value)
     out[3] = (uint8_t)((value >> 24) & 0xffU);
 }
 
-/* Same 1bpp BMP the remote job serves; duplicated because packages
- * cannot depend on each other and this is only ~40 lines. */
+/* Same 1bpp BMP the remote job serves, and the same horizontal-strip
+ * shrink -- full resolution, s=<i>&n=<k> (0-based, k<=8) -- since this
+ * page rides the same link the remote view does. Duplicated because
+ * packages cannot depend on each other and this is only ~50 lines. */
 static esp_err_t irrig_web_screenshot_handler(httpd_req_t *req)
 {
     uint16_t width = 0;
@@ -312,10 +364,35 @@ static esp_err_t irrig_web_screenshot_handler(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no display");
     }
 
+    unsigned strip_count = 1;
+    unsigned strip_index = 0;
+    char query[24];
+    char value[4];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "n", value, sizeof(value)) == ESP_OK) {
+            const unsigned n = (unsigned)(value[0] - '0');
+            if (value[1] == '\0' && n >= 1 && n <= 8) {
+                strip_count = n;
+            }
+        }
+        if (httpd_query_key_value(query, "s", value, sizeof(value)) == ESP_OK) {
+            const unsigned s = (unsigned)(value[0] - '0');
+            if (value[1] == '\0' && s < strip_count) {
+                strip_index = s;
+            }
+        }
+    }
+
     const size_t stride = ((size_t)width + 7U) / 8U;
+    const uint16_t strip_y0 = (uint16_t)(((uint32_t)height * strip_index) / strip_count);
+    const uint16_t strip_y1 = (uint16_t)(((uint32_t)height * (strip_index + 1U)) / strip_count);
+    const uint16_t out_height = (uint16_t)(strip_y1 - strip_y0);
+    const size_t snapshot_size = stride * out_height;
     const size_t row_bytes = (stride + 3U) & ~(size_t)3U;
-    const size_t snapshot_size = stride * height;
-    const size_t bmp_size = IRRIG_WEB_BMP_HEADER_SIZE + (row_bytes * height);
+    const size_t bmp_size = IRRIG_WEB_BMP_HEADER_SIZE + (row_bytes * out_height);
+    if (out_height == 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty strip");
+    }
 
     uint8_t *bmp = heap_caps_malloc(bmp_size + snapshot_size,
                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -327,13 +404,16 @@ static esp_err_t irrig_web_screenshot_handler(httpd_req_t *req)
     }
     uint8_t *snapshot = &bmp[bmp_size];
 
-    ret = solar_os_remote_screen_snapshot(snapshot, snapshot_size, &width, &height);
+    /* Only this strip's rows are captured -- see
+     * solar_os_remote_screen.h on why a shorter copy against the
+     * unsynchronized render loop matters here. */
+    ret = solar_os_remote_screen_snapshot(snapshot, snapshot_size, strip_y0, strip_y1, &width, &height);
     if (ret != ESP_OK) {
         heap_caps_free(bmp);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "snapshot failed");
     }
 
-    const uint32_t image_size = (uint32_t)(row_bytes * height);
+    const uint32_t image_size = (uint32_t)(row_bytes * out_height);
     memset(bmp, 0, IRRIG_WEB_BMP_HEADER_SIZE);
     bmp[0] = 'B';
     bmp[1] = 'M';
@@ -341,7 +421,7 @@ static esp_err_t irrig_web_screenshot_handler(httpd_req_t *req)
     irrig_web_bmp_write_u32(&bmp[10], IRRIG_WEB_BMP_HEADER_SIZE);
     irrig_web_bmp_write_u32(&bmp[14], 40);
     irrig_web_bmp_write_u32(&bmp[18], width);
-    irrig_web_bmp_write_u32(&bmp[22], height);
+    irrig_web_bmp_write_u32(&bmp[22], out_height);
     bmp[26] = 1; /* planes */
     bmp[28] = 1; /* bits per pixel */
     irrig_web_bmp_write_u32(&bmp[34], image_size);
@@ -351,10 +431,10 @@ static esp_err_t irrig_web_screenshot_handler(httpd_req_t *req)
     bmp[60] = 0xff;
 
     uint8_t *rows = &bmp[IRRIG_WEB_BMP_HEADER_SIZE];
-    memset(rows, 0, row_bytes * height);
-    for (uint16_t y = 0; y < height; y++) {
+    memset(rows, 0, row_bytes * out_height);
+    for (uint16_t y = 0; y < out_height; y++) {
         /* BMP stores rows bottom-up */
-        memcpy(&rows[(size_t)(height - 1U - y) * row_bytes],
+        memcpy(&rows[(size_t)(out_height - 1U - y) * row_bytes],
                &snapshot[(size_t)y * stride],
                stride);
     }
@@ -502,6 +582,11 @@ bool solar_os_irrig_web_running(void)
     return irrig_web.server != NULL;
 }
 
+bool solar_os_irrig_web_shared(void)
+{
+    return irrig_web.server != NULL && irrig_web.shared;
+}
+
 esp_err_t solar_os_irrig_web_start(uint16_t port)
 {
     if (irrig_web.server != NULL) {
@@ -519,6 +604,61 @@ esp_err_t solar_os_irrig_web_start(uint16_t port)
     irrig_web.page_hits = 0;
     irrig_web.saves = 0;
     irrig_web_refresh_snapshot();
+
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+    /*
+     * Prefer registering on the remote job's already-running server
+     * over starting a second httpd instance: two instances contend
+     * for the socket pool and starve each other's transfers on
+     * congested links. The editor then lives at /irrig on the remote
+     * port; /update and /screenshot don't collide with the remote
+     * job's own URIs. Attach happens at start time only -- if the
+     * remote job is (re)started later, restart irrigd to attach.
+     */
+    uint16_t shared_port = 0;
+    httpd_handle_t shared = solar_os_remote_job_server(&shared_port);
+    if (shared != NULL) {
+        const httpd_uri_t shared_page_uri = {
+            .uri = "/irrig",
+            .method = HTTP_GET,
+            .handler = irrig_web_page_handler,
+            .user_ctx = NULL,
+        };
+        const httpd_uri_t shared_update_uri = {
+            .uri = "/update",
+            .method = HTTP_POST,
+            .handler = irrig_web_update_handler,
+            .user_ctx = NULL,
+        };
+        const httpd_uri_t shared_screenshot_uri = {
+            .uri = "/screenshot",
+            .method = HTTP_GET,
+            .handler = irrig_web_screenshot_handler,
+            .user_ctx = NULL,
+        };
+        esp_err_t sret = httpd_register_uri_handler(shared, &shared_page_uri);
+        if (sret == ESP_OK) {
+            sret = httpd_register_uri_handler(shared, &shared_update_uri);
+        }
+        if (sret == ESP_OK) {
+            sret = httpd_register_uri_handler(shared, &shared_screenshot_uri);
+        }
+        if (sret == ESP_OK) {
+            irrig_web.server = shared;
+            irrig_web.shared = true;
+            irrig_web.port = shared_port;
+            SOLAR_OS_LOGI(TAG, "schedule editor at /irrig on the remote server (port %u)",
+                          (unsigned)shared_port);
+            return ESP_OK;
+        }
+        /* Roll back a partial registration and fall through to a
+         * server of our own. */
+        (void)httpd_unregister_uri_handler(shared, "/irrig", HTTP_GET);
+        (void)httpd_unregister_uri_handler(shared, "/update", HTTP_POST);
+        (void)httpd_unregister_uri_handler(shared, "/screenshot", HTTP_GET);
+        SOLAR_OS_LOGW(TAG, "attach to remote server failed: %s", esp_err_to_name(sret));
+    }
+#endif
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
@@ -564,6 +704,7 @@ esp_err_t solar_os_irrig_web_start(uint16_t port)
     }
 
     irrig_web.server = server;
+    irrig_web.shared = false;
     irrig_web.port = port;
     SOLAR_OS_LOGI(TAG, "schedule editor on port %u", (unsigned)port);
     return ESP_OK;
@@ -575,11 +716,26 @@ void solar_os_irrig_web_stop(void)
         return;
     }
 
-    (void)httpd_stop(irrig_web.server);
-    SOLAR_OS_LOGI(TAG, "stopped: pages=%u saves=%u port=%u",
+    if (irrig_web.shared) {
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+        /* Only touch the shared server if it is still the instance we
+         * attached to; if the remote job stopped first, its
+         * httpd_stop() already destroyed our handlers with it. */
+        if (solar_os_remote_job_server(NULL) == irrig_web.server) {
+            (void)httpd_unregister_uri_handler(irrig_web.server, "/irrig", HTTP_GET);
+            (void)httpd_unregister_uri_handler(irrig_web.server, "/update", HTTP_POST);
+            (void)httpd_unregister_uri_handler(irrig_web.server, "/screenshot", HTTP_GET);
+        }
+#endif
+    } else {
+        (void)httpd_stop(irrig_web.server);
+    }
+    SOLAR_OS_LOGI(TAG, "stopped: pages=%u saves=%u port=%u%s",
                   (unsigned)irrig_web.page_hits,
                   (unsigned)irrig_web.saves,
-                  (unsigned)irrig_web.port);
+                  (unsigned)irrig_web.port,
+                  irrig_web.shared ? " (shared)" : "");
     irrig_web.server = NULL;
+    irrig_web.shared = false;
     irrig_web.pending = false;
 }
