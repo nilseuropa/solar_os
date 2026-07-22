@@ -1,0 +1,26 @@
+# Waveshare ESP32-S3-Touch-LCD-5 specific defaults, applied on top of
+# sdkconfig.defaults.
+#
+# The 800x480 RGB panel is fed continuously from the PSRAM frame
+# buffer through CPU-filled bounce buffers, a steady ~45MB/s of PSRAM
+# reads that competes with Wi-Fi and application traffic. At the
+# shared default of 80MHz the margin is thin enough that the panel
+# occasionally underruns (visible shimmer even on an idle screen).
+# 120MHz octal (DDR) PSRAM -- the configuration the board vendor's own
+# demo firmware ships with -- adds ~50% bandwidth headroom.
+# IDF_EXPERIMENTAL_FEATURES is required to unlock 120MHz in octal
+# mode.
+#
+# NOTE: do NOT add CONFIG_LCD_RGB_ISR_IRAM_SAFE here -- with the frame
+# buffers in PSRAM it makes the bounce-refill ISR touch PSRAM while
+# the flash cache is disabled (Cache-error panic at the first flash
+# write). CONFIG_LCD_RGB_RESTART_IN_VSYNC is also known-bad here: it
+# desynchronizes the bounce position from the panel scan (rolling
+# frames, ghost lines).
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+CONFIG_SPIRAM_SPEED_120M=y
+# 120MHz PSRAM raises the shared MSPI core clock to 240MHz, which
+# requires the flash to run at 120MHz as well (the 240M-core/80M-flash
+# timing-tuning table does not exist). The board vendor's demo
+# firmware ships this same 120/120 pairing.
+CONFIG_ESPTOOLPY_FLASHFREQ_120M=y

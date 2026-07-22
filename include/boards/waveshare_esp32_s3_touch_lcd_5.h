@@ -48,7 +48,12 @@
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 800
 #define SOLAR_OS_BOARD_DISPLAY_HEIGHT 480
 
-#define SOLAR_OS_BOARD_DISPLAY_RGB_PCLK_HZ (16 * 1000 * 1000)
+/* Panel datasheet typical is 16MHz (240/15). 15MHz (240/16) trades a
+ * bit of refresh rate (~56Hz) for PSRAM-bus headroom for the bounce
+ * refill ISR while apps repaint. Keep this an INTEGER divisor of the
+ * 240MHz source: a fractional divider (e.g. 14MHz) produces an
+ * unstable pixel clock on the S3 and hung the boot outright. */
+#define SOLAR_OS_BOARD_DISPLAY_RGB_PCLK_HZ (15 * 1000 * 1000)
 #define SOLAR_OS_BOARD_DISPLAY_RGB_HSYNC_PULSE 4
 #define SOLAR_OS_BOARD_DISPLAY_RGB_HSYNC_BACK_PORCH 8
 #define SOLAR_OS_BOARD_DISPLAY_RGB_HSYNC_FRONT_PORCH 8

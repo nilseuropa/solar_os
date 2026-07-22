@@ -10,6 +10,11 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_VOLUME_COUNT=4
+# Two esp_http_server instances can run at once (remote screen share
+# on 8080 + the irrigation schedule editor on 8081); each needs
+# max_open_sockets + listener + control = 6 sockets, so the default
+# LWIP pool of 10 starves and responses stall mid-transfer.
+CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_LWIP_IP_FORWARD=y
 CONFIG_LWIP_IPV4_NAPT=y
 CONFIG_LWIP_IPV4_NAPT_PORTMAP=y
