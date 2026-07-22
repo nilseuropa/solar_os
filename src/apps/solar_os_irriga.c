@@ -13,7 +13,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_time.h"
 #if SOLAR_OS_BOARD_HAS_TOUCH
-#include "touch_ft6336.h"
+#include "solar_os_touch.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
@@ -23,9 +23,9 @@
  * Irrigation controller UI -- the graphical front-end for the irrigd
  * schedule engine (which keeps running on its own whether this app is
  * open or not; see solar_os_irrigd_job.c). Key-driven (CardKB, BLE
- * keyboard, remote web page) and, on boards with the FT6336 touch
- * panel, tap-driven: the home-screen zone buttons/panels open the
- * editor, and the editor is built around big touch buttons.
+ * keyboard, remote web page) and, on boards with a touch panel,
+ * tap-driven: the home-screen zone buttons/panels open the editor,
+ * and the editor is built around big touch buttons.
  *
  * The home screen reproduces the layout of the standalone controller
  * this was ported from: large clock and date top-left, IP and one
@@ -39,29 +39,20 @@
  * -1 buttons around it. NEXT walks fields (start h/m, end h/m, day
  * toggles, active) across all four slots; SET commits the whole zone
  * to the engine.
+ *
+ * The whole layout is designed on a 320x240 canvas and drawn at an
+ * integer scale: 1 on the small panels, 2 on 800x480 (the height is
+ * the binding side, 480/240; the extra width is absorbed by the
+ * width-adaptive home panels). The 2x fonts are pixel-doubled ProFont
+ * (fonts/generate_profont_2x.py), so the app looks identical, just
+ * bigger. IRRIGA_PX() scales a design-space pixel value.
  */
-#define IRRIGA_CLOCK_X 4
-#define IRRIGA_CLOCK_BASELINE 30
-#define IRRIGA_DATE_BASELINE 46
-#define IRRIGA_PANELS_TOP 52
-#define IRRIGA_PANEL_ROW_STEP 17
-#define IRRIGA_BUTTON_SIZE 22
-#define IRRIGA_BUTTON_GAP 6
-#define IRRIGA_BUTTON_ROW_Y 20
-#define IRRIGA_RIGHT_MARGIN 4
-#define IRRIGA_FOOTER_MARGIN 4
+#define IRRIGA_PX(v) ((v) * (int)irriga.ui_scale)
+
 #define IRRIGA_FIELDS_PER_SLOT 12U
 #define IRRIGA_CLOCK_FIELDS 5U
 #define IRRIGA_FOCUS_TIMEOUT_MS 5000U
 #define IRRIGA_TOUCH_POLL_MS 30U
-
-/* Casio editor layout (sized for 320x240, stretches on larger panels). */
-#define IRRIGA_EDITZ_MARGIN 6
-#define IRRIGA_EDITZ_BACK_W 86
-#define IRRIGA_EDITZ_BACK_H 34
-#define IRRIGA_EDITZ_MID_Y 48
-#define IRRIGA_EDITZ_LIST_W 164
-#define IRRIGA_EDITZ_BOTTOM_H 68
 
 typedef enum {
     IRRIGA_SCREEN_HOME,
@@ -80,6 +71,7 @@ typedef struct {
 typedef struct {
     irriga_screen_t screen;
     bool suspended;
+    uint8_t ui_scale; /* 1 or 2, decided from the panel size at start */
     uint32_t last_render_s;
     uint8_t sel_zone;
     uint8_t sel_setting;
@@ -111,6 +103,32 @@ static const struct {
 };
 
 static irriga_state_t irriga;
+
+/* Design-role fonts, picked per UI scale. */
+static solar_os_gfx_font_t irriga_font_rows(void)
+{
+    return irriga.ui_scale == 2 ? SOLAR_OS_GFX_FONT_PROFONT_24 : SOLAR_OS_GFX_FONT_PROFONT_12;
+}
+
+static solar_os_gfx_font_t irriga_font_text(void)
+{
+    return irriga.ui_scale == 2 ? SOLAR_OS_GFX_FONT_PROFONT_30 : SOLAR_OS_GFX_FONT_PROFONT_15;
+}
+
+static solar_os_gfx_font_t irriga_font_title(void)
+{
+    return irriga.ui_scale == 2 ? SOLAR_OS_GFX_FONT_PROFONT_34 : SOLAR_OS_GFX_FONT_PROFONT_17;
+}
+
+static solar_os_gfx_font_t irriga_font_button(void)
+{
+    return irriga.ui_scale == 2 ? SOLAR_OS_GFX_FONT_PROFONT_44 : SOLAR_OS_GFX_FONT_PROFONT_22;
+}
+
+static solar_os_gfx_font_t irriga_font_clock(void)
+{
+    return irriga.ui_scale == 2 ? SOLAR_OS_GFX_FONT_PROFONT_58 : SOLAR_OS_GFX_FONT_PROFONT_29;
+}
 
 static uint8_t irriga_weekday_of(int year, int month, int day)
 {
@@ -198,41 +216,56 @@ static bool irriga_rect_hit(const irriga_rect_t *rect, int x, int y)
         y >= rect->y && y < rect->y + rect->h;
 }
 
+/* One design-space pixel: an s-by-s block on screen. */
+static void irriga_block(solar_os_gfx_t *gfx, int x, int y)
+{
+    const int s = (int)irriga.ui_scale;
+    if (s == 1) {
+        solar_os_gfx_pixel(gfx, x, y);
+    } else {
+        solar_os_gfx_fill_rect(gfx, x, y, s, s);
+    }
+}
+
 /* Rectangle with the corners knocked off -- close enough to the
- * rounded panels of the original at one bit per pixel. */
+ * rounded panels of the original at one bit per pixel. Geometry is in
+ * screen pixels; the chamfer pattern scales with the UI. */
 static void irriga_round_rect(solar_os_gfx_t *gfx, int x, int y, int w, int h)
 {
-    solar_os_gfx_line(gfx, x + 3, y, x + w - 4, y);
-    solar_os_gfx_line(gfx, x + 3, y + h - 1, x + w - 4, y + h - 1);
-    solar_os_gfx_line(gfx, x, y + 3, x, y + h - 4);
-    solar_os_gfx_line(gfx, x + w - 1, y + 3, x + w - 1, y + h - 4);
-    solar_os_gfx_pixel(gfx, x + 1, y + 1);
-    solar_os_gfx_pixel(gfx, x + 2, y + 1);
-    solar_os_gfx_pixel(gfx, x + 1, y + 2);
-    solar_os_gfx_pixel(gfx, x + w - 2, y + 1);
-    solar_os_gfx_pixel(gfx, x + w - 3, y + 1);
-    solar_os_gfx_pixel(gfx, x + w - 2, y + 2);
-    solar_os_gfx_pixel(gfx, x + 1, y + h - 2);
-    solar_os_gfx_pixel(gfx, x + 2, y + h - 2);
-    solar_os_gfx_pixel(gfx, x + 1, y + h - 3);
-    solar_os_gfx_pixel(gfx, x + w - 2, y + h - 2);
-    solar_os_gfx_pixel(gfx, x + w - 3, y + h - 2);
-    solar_os_gfx_pixel(gfx, x + w - 2, y + h - 3);
+    const int s = (int)irriga.ui_scale;
+    const int c = 3 * s;
+
+    solar_os_gfx_line(gfx, x + c, y, x + w - 1 - c, y);
+    solar_os_gfx_line(gfx, x + c, y + h - 1, x + w - 1 - c, y + h - 1);
+    solar_os_gfx_line(gfx, x, y + c, x, y + h - 1 - c);
+    solar_os_gfx_line(gfx, x + w - 1, y + c, x + w - 1, y + h - 1 - c);
+
+    irriga_block(gfx, x + s, y + s);
+    irriga_block(gfx, x + 2 * s, y + s);
+    irriga_block(gfx, x + s, y + 2 * s);
+    irriga_block(gfx, x + w - 2 * s, y + s);
+    irriga_block(gfx, x + w - 3 * s, y + s);
+    irriga_block(gfx, x + w - 2 * s, y + 2 * s);
+    irriga_block(gfx, x + s, y + h - 2 * s);
+    irriga_block(gfx, x + 2 * s, y + h - 2 * s);
+    irriga_block(gfx, x + s, y + h - 3 * s);
+    irriga_block(gfx, x + w - 2 * s, y + h - 2 * s);
+    irriga_block(gfx, x + w - 3 * s, y + h - 2 * s);
+    irriga_block(gfx, x + w - 2 * s, y + h - 3 * s);
 }
 
 static void irriga_touch_button(solar_os_gfx_t *gfx,
                                 const irriga_rect_t *rect,
-                                solar_os_gfx_font_t font,
+                                bool big,
                                 const char *label)
 {
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     irriga_round_rect(gfx, rect->x, rect->y, rect->w, rect->h);
-    solar_os_gfx_set_font(gfx, font);
+    solar_os_gfx_set_font(gfx, big ? irriga_font_button() : irriga_font_text());
     const int label_w = (int)solar_os_gfx_text_width(gfx, label);
     solar_os_gfx_text(gfx,
                       rect->x + (rect->w - label_w) / 2,
-                      rect->y + (rect->h / 2) +
-                          (font == SOLAR_OS_GFX_FONT_PROFONT_22 ? 8 : 6),
+                      rect->y + (rect->h / 2) + IRRIGA_PX(big ? 8 : 6),
                       label);
 }
 
@@ -247,18 +280,18 @@ static void irriga_draw_clock(solar_os_gfx_t *gfx,
     } else {
         strlcpy(text, "--:--:--", sizeof(text));
     }
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_29);
+    solar_os_gfx_set_font(gfx, irriga_font_clock());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_text(gfx, IRRIGA_CLOCK_X, IRRIGA_CLOCK_BASELINE, text);
+    solar_os_gfx_text(gfx, IRRIGA_PX(4), IRRIGA_PX(30), text);
 }
 
 static void irriga_footer(solar_os_gfx_t *gfx, const char *text)
 {
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_12);
+    solar_os_gfx_set_font(gfx, irriga_font_rows());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
     solar_os_gfx_text(gfx,
-                      IRRIGA_FOOTER_MARGIN,
-                      (int)solar_os_gfx_height(gfx) - IRRIGA_FOOTER_MARGIN,
+                      IRRIGA_PX(4),
+                      (int)solar_os_gfx_height(gfx) - IRRIGA_PX(4),
                       text);
 }
 
@@ -267,9 +300,9 @@ static void irriga_message_line(solar_os_gfx_t *gfx, int baseline)
     if (irriga.message[0] == '\0') {
         return;
     }
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
+    solar_os_gfx_set_font(gfx, irriga_font_text());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_text(gfx, IRRIGA_FOOTER_MARGIN, baseline, irriga.message);
+    solar_os_gfx_text(gfx, IRRIGA_PX(4), baseline, irriga.message);
 }
 
 /* --- home screen layout, shared by rendering and tap hit-testing --- */
@@ -284,11 +317,11 @@ static uint8_t irriga_grid_rows(void)
 static void irriga_home_button_rect(int width, uint8_t zone, irriga_rect_t *out)
 {
     const uint8_t zones = solar_os_irrig_zone_count();
-    const int bsize = zones > 6 ? 16 : IRRIGA_BUTTON_SIZE;
-    const int bgap = zones > 6 ? 4 : IRRIGA_BUTTON_GAP;
+    const int bsize = IRRIGA_PX(zones > 6 ? 16 : 22);
+    const int bgap = IRRIGA_PX(zones > 6 ? 4 : 6);
     const int buttons_w = (zones * bsize) + ((zones - 1) * bgap);
-    out->x = width - IRRIGA_RIGHT_MARGIN - buttons_w + zone * (bsize + bgap);
-    out->y = IRRIGA_BUTTON_ROW_Y;
+    out->x = width - IRRIGA_PX(4) - buttons_w + zone * (bsize + bgap);
+    out->y = IRRIGA_PX(20);
     out->w = bsize;
     out->h = bsize;
 }
@@ -296,13 +329,15 @@ static void irriga_home_button_rect(int width, uint8_t zone, irriga_rect_t *out)
 static void irriga_home_panel_rect(int width, int height, uint8_t zone, irriga_rect_t *out)
 {
     const uint8_t rows = irriga_grid_rows();
-    const int pw = (width - 3 * 2) / 2;
-    int ph = ((height - IRRIGA_PANELS_TOP - 2) / rows) - 2;
-    if (ph > 92) {
-        ph = 92;
+    const int margin = IRRIGA_PX(2);
+    const int top = IRRIGA_PX(52);
+    const int pw = (width - 3 * margin) / 2;
+    int ph = ((height - top - margin) / rows) - margin;
+    if (ph > IRRIGA_PX(92)) {
+        ph = IRRIGA_PX(92);
     }
-    out->x = 2 + (zone / rows) * (pw + 2);
-    out->y = IRRIGA_PANELS_TOP + (zone % rows) * (ph + 2);
+    out->x = margin + (zone / rows) * (pw + margin);
+    out->y = top + (zone % rows) * (ph + margin);
     out->w = pw;
     out->h = ph;
 }
@@ -314,11 +349,12 @@ static void irriga_render_home_header(solar_os_gfx_t *gfx,
                                       bool time_ok)
 {
     const int width = (int)solar_os_gfx_width(gfx);
+    const int date_baseline = IRRIGA_PX(46);
     char text[40];
 
     irriga_draw_clock(gfx, now, time_ok);
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
+    solar_os_gfx_set_font(gfx, irriga_font_text());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     if (time_ok) {
         snprintf(text, sizeof(text), "%02u/%02u/%04u %s",
@@ -327,15 +363,13 @@ static void irriga_render_home_header(solar_os_gfx_t *gfx,
     } else {
         strlcpy(text, "ceas nesetat", sizeof(text));
     }
-    solar_os_gfx_text(gfx, IRRIGA_CLOCK_X, IRRIGA_DATE_BASELINE, text);
+    solar_os_gfx_text(gfx, IRRIGA_PX(4), date_baseline, text);
 
     /* Status cues share the date line so the grid keeps its space. */
     if (!irriga_engine_running()) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
-        solar_os_gfx_text(gfx, 140, IRRIGA_DATE_BASELINE, "irrigd OFF");
+        solar_os_gfx_text(gfx, IRRIGA_PX(140), date_baseline, "irrigd OFF");
     } else if (solar_os_irrig_mode() == SOLAR_OS_IRRIG_MODE_MANUAL) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
-        solar_os_gfx_text(gfx, 140, IRRIGA_DATE_BASELINE, "MANUAL");
+        solar_os_gfx_text(gfx, IRRIGA_PX(140), date_baseline, "MANUAL");
     }
 
     /* IP top right. */
@@ -344,17 +378,18 @@ static void irriga_render_home_header(solar_os_gfx_t *gfx,
     solar_os_wifi_get_status(&wifi);
     if (wifi.state == SOLAR_OS_WIFI_STATE_CONNECTED && wifi.ip[0] != '\0') {
         snprintf(text, sizeof(text), "IP:%s", wifi.ip);
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
+        solar_os_gfx_set_font(gfx, irriga_font_text());
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         const int ip_w = (int)solar_os_gfx_text_width(gfx, text);
-        solar_os_gfx_text(gfx, width - IRRIGA_RIGHT_MARGIN - ip_w, 14, text);
+        solar_os_gfx_text(gfx, width - IRRIGA_PX(4) - ip_w, IRRIGA_PX(14), text);
     }
 #endif
 
     /* One lettered button per zone, right-aligned under the IP.
      * Filled = that zone's relay is on. Tapping one opens its editor. */
     const uint8_t zones = solar_os_irrig_zone_count();
-    solar_os_gfx_set_font(gfx, zones > 6 ? SOLAR_OS_GFX_FONT_PROFONT_12 : SOLAR_OS_GFX_FONT_PROFONT_15);
+    const int s = (int)irriga.ui_scale;
+    solar_os_gfx_set_font(gfx, zones > 6 ? irriga_font_rows() : irriga_font_text());
     for (uint8_t zone = 0; zone < zones; zone++) {
         solar_os_irrig_zone_status_t status = {0};
         (void)solar_os_irrig_zone_status(zone, &status);
@@ -365,7 +400,7 @@ static void irriga_render_home_header(solar_os_gfx_t *gfx,
         char letter[2] = {(char)('A' + zone), '\0'};
         const int letter_w = (int)solar_os_gfx_text_width(gfx, letter);
         const int lx = rect.x + (rect.w - letter_w) / 2;
-        const int ly = rect.y + (rect.h / 2) + 5;
+        const int ly = rect.y + (rect.h / 2) + IRRIGA_PX(5);
 
         if (status.output_on) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
@@ -373,18 +408,18 @@ static void irriga_render_home_header(solar_os_gfx_t *gfx,
             /* Knock the corners off the fill so the on button keeps
              * the same rounded shape as the off outline. */
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_pixel(gfx, rect.x, rect.y);
-            solar_os_gfx_pixel(gfx, rect.x + 1, rect.y);
-            solar_os_gfx_pixel(gfx, rect.x, rect.y + 1);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 1, rect.y);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 2, rect.y);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 1, rect.y + 1);
-            solar_os_gfx_pixel(gfx, rect.x, rect.y + rect.h - 1);
-            solar_os_gfx_pixel(gfx, rect.x + 1, rect.y + rect.h - 1);
-            solar_os_gfx_pixel(gfx, rect.x, rect.y + rect.h - 2);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 1, rect.y + rect.h - 1);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 2, rect.y + rect.h - 1);
-            solar_os_gfx_pixel(gfx, rect.x + rect.w - 1, rect.y + rect.h - 2);
+            irriga_block(gfx, rect.x, rect.y);
+            irriga_block(gfx, rect.x + s, rect.y);
+            irriga_block(gfx, rect.x, rect.y + s);
+            irriga_block(gfx, rect.x + rect.w - s, rect.y);
+            irriga_block(gfx, rect.x + rect.w - 2 * s, rect.y);
+            irriga_block(gfx, rect.x + rect.w - s, rect.y + s);
+            irriga_block(gfx, rect.x, rect.y + rect.h - s);
+            irriga_block(gfx, rect.x + s, rect.y + rect.h - s);
+            irriga_block(gfx, rect.x, rect.y + rect.h - 2 * s);
+            irriga_block(gfx, rect.x + rect.w - s, rect.y + rect.h - s);
+            irriga_block(gfx, rect.x + rect.w - 2 * s, rect.y + rect.h - s);
+            irriga_block(gfx, rect.x + rect.w - s, rect.y + rect.h - 2 * s);
             solar_os_gfx_text(gfx, lx, ly, letter);
         } else {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
@@ -405,6 +440,7 @@ static void irriga_render_zone_panel(solar_os_gfx_t *gfx,
     const int py = rect->y;
     const int pw = rect->w;
     const int ph = rect->h;
+    const int row_step = IRRIGA_PX(17);
 
     solar_os_irrig_zone_status_t status = {0};
     (void)solar_os_irrig_zone_status(zone, &status);
@@ -412,27 +448,29 @@ static void irriga_render_zone_panel(solar_os_gfx_t *gfx,
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     irriga_round_rect(gfx, px, py, pw, ph);
     if (status.output_on) {
-        irriga_round_rect(gfx, px + 1, py + 1, pw - 2, ph - 2);
+        const int inset = IRRIGA_PX(1);
+        irriga_round_rect(gfx, px + inset, py + inset, pw - 2 * inset, ph - 2 * inset);
     }
 
     /* The keyboard cursor is a dashed inner frame -- deliberately
      * different from the solid double border, which means "relay on".
      * Only shown while keys are being used (see irriga_focus_visible). */
     if (zone == irriga.sel_zone && irriga_focus_visible()) {
+        const int inset = IRRIGA_PX(2);
         solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_DASHED);
-        irriga_round_rect(gfx, px + 2, py + 2, pw - 4, ph - 4);
+        irriga_round_rect(gfx, px + inset, py + inset, pw - 2 * inset, ph - 2 * inset);
         solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
     }
 
     snprintf(text, sizeof(text), "Zone %c", 'A' + zone);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
+    solar_os_gfx_set_font(gfx, irriga_font_text());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_text(gfx, px + 7, py + 14, text);
+    solar_os_gfx_text(gfx, px + IRRIGA_PX(7), py + IRRIGA_PX(14), text);
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_12);
-    int baseline = py + 14 + IRRIGA_PANEL_ROW_STEP;
+    solar_os_gfx_set_font(gfx, irriga_font_rows());
+    int baseline = py + IRRIGA_PX(14) + row_step;
     for (uint8_t slot = 0; slot < SOLAR_OS_IRRIG_SCHEDULES_PER_ZONE; slot++) {
-        if (baseline > py + ph - 4) {
+        if (baseline > py + ph - IRRIGA_PX(4)) {
             break;
         }
 
@@ -446,15 +484,17 @@ static void irriga_render_zone_panel(solar_os_gfx_t *gfx,
         if (irriga_slot_active_now(&schedule, now, time_ok)) {
             const int row_w = (int)solar_os_gfx_text_width(gfx, text);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-            solar_os_gfx_fill_rect(gfx, px + 3, baseline - 10, row_w + 6, 13);
+            solar_os_gfx_fill_rect(gfx, px + IRRIGA_PX(3),
+                                   baseline - IRRIGA_PX(10),
+                                   row_w + IRRIGA_PX(6), IRRIGA_PX(13));
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         } else {
             solar_os_gfx_set_color(gfx, schedule.active ?
                                             SOLAR_OS_GFX_COLOR_WHITE :
                                             SOLAR_OS_GFX_COLOR_LIGHT);
         }
-        solar_os_gfx_text(gfx, px + 6, baseline, text);
-        baseline += IRRIGA_PANEL_ROW_STEP;
+        solar_os_gfx_text(gfx, px + IRRIGA_PX(6), baseline, text);
+        baseline += row_step;
     }
 }
 
@@ -476,7 +516,7 @@ static void irriga_render_home(solar_os_gfx_t *gfx,
         irriga_render_zone_panel(gfx, zone, &rect, now, time_ok);
     }
 
-    irriga_message_line(gfx, height - IRRIGA_FOOTER_MARGIN);
+    irriga_message_line(gfx, height - IRRIGA_PX(4));
 }
 
 /* --- Casio-style zone editor --- */
@@ -491,24 +531,27 @@ static void irriga_editz_layout(const solar_os_gfx_t *gfx,
 {
     const int width = (int)solar_os_gfx_width(gfx);
     const int height = (int)solar_os_gfx_height(gfx);
-    const int m = IRRIGA_EDITZ_MARGIN;
-    const int bottom_y = height - m - IRRIGA_EDITZ_BOTTOM_H;
-    const int mid_h = bottom_y - m - IRRIGA_EDITZ_MID_Y;
-    const int right_x = m + IRRIGA_EDITZ_LIST_W + m;
+    const int m = IRRIGA_PX(6);
+    const int list_w = IRRIGA_PX(164);
+    const int bottom_h = IRRIGA_PX(68);
+    const int mid_y = IRRIGA_PX(48);
+    const int bottom_y = height - m - bottom_h;
+    const int mid_h = bottom_y - m - mid_y;
+    const int right_x = m + list_w + m;
     const int right_w = width - right_x - m;
 
-    *back = (irriga_rect_t){m, m, IRRIGA_EDITZ_BACK_W, IRRIGA_EDITZ_BACK_H};
-    *list = (irriga_rect_t){m, IRRIGA_EDITZ_MID_Y, IRRIGA_EDITZ_LIST_W, mid_h};
-    *set = (irriga_rect_t){right_x, IRRIGA_EDITZ_MID_Y, right_w, mid_h};
-    *next = (irriga_rect_t){m, bottom_y, IRRIGA_EDITZ_LIST_W, IRRIGA_EDITZ_BOTTOM_H};
+    *back = (irriga_rect_t){m, m, IRRIGA_PX(86), IRRIGA_PX(34)};
+    *list = (irriga_rect_t){m, mid_y, list_w, mid_h};
+    *set = (irriga_rect_t){right_x, mid_y, right_w, mid_h};
+    *next = (irriga_rect_t){m, bottom_y, list_w, bottom_h};
     const int half = (right_w - m) / 2;
-    *plus = (irriga_rect_t){right_x, bottom_y, half, IRRIGA_EDITZ_BOTTOM_H};
-    *minus = (irriga_rect_t){right_x + half + m, bottom_y, half, IRRIGA_EDITZ_BOTTOM_H};
+    *plus = (irriga_rect_t){right_x, bottom_y, half, bottom_h};
+    *minus = (irriga_rect_t){right_x + half + m, bottom_y, half, bottom_h};
 }
 
 static int irriga_editz_row_baseline(const irriga_rect_t *list, uint8_t slot)
 {
-    return list->y + 16 + IRRIGA_PANEL_ROW_STEP + (int)slot * IRRIGA_PANEL_ROW_STEP;
+    return list->y + IRRIGA_PX(16) + IRRIGA_PX(17) * ((int)slot + 1);
 }
 
 static void irriga_render_editz(solar_os_gfx_t *gfx)
@@ -524,28 +567,27 @@ static void irriga_render_editz(solar_os_gfx_t *gfx)
     irriga_rect_t minus;
     irriga_editz_layout(gfx, &back, &list, &set, &next, &plus, &minus);
 
-    irriga_touch_button(gfx, &back, SOLAR_OS_GFX_FONT_PROFONT_15, "< BACK");
+    irriga_touch_button(gfx, &back, false, "< BACK");
 
     snprintf(text, sizeof(text), "Edit Zone %c", 'A' + irriga.sel_zone);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_17);
+    solar_os_gfx_set_font(gfx, irriga_font_title());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     const int title_w = (int)solar_os_gfx_text_width(gfx, text);
-    solar_os_gfx_text(gfx, width - IRRIGA_EDITZ_MARGIN - 4 - title_w, 29, text);
+    solar_os_gfx_text(gfx, width - IRRIGA_PX(10) - title_w, IRRIGA_PX(29), text);
 
     /* Slot list with the field under edit inverted. */
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     irriga_round_rect(gfx, list.x, list.y, list.w, list.h);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_15);
+    solar_os_gfx_set_font(gfx, irriga_font_text());
     snprintf(text, sizeof(text), "Zone %c", 'A' + irriga.sel_zone);
-    solar_os_gfx_text(gfx, list.x + 8, list.y + 16, text);
+    solar_os_gfx_text(gfx, list.x + IRRIGA_PX(8), list.y + IRRIGA_PX(16), text);
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_12);
-    const int char_w = (int)solar_os_gfx_text_width(gfx, "0");
+    solar_os_gfx_set_font(gfx, irriga_font_rows());
     const uint8_t cur_slot = (uint8_t)(irriga.editz_pos / IRRIGA_FIELDS_PER_SLOT);
     const uint8_t cur_field = (uint8_t)(irriga.editz_pos % IRRIGA_FIELDS_PER_SLOT);
 
     for (uint8_t slot = 0; slot < SOLAR_OS_IRRIG_SCHEDULES_PER_ZONE; slot++) {
-        const int row_x = list.x + 8;
+        const int row_x = list.x + IRRIGA_PX(8);
         const int baseline = irriga_editz_row_baseline(&list, slot);
 
         irriga_format_slot_row(&irriga.editz[slot], text, sizeof(text));
@@ -555,26 +597,63 @@ static void irriga_render_editz(solar_os_gfx_t *gfx)
         solar_os_gfx_text(gfx, row_x, baseline, text);
 
         if (slot == cur_slot) {
-            /* Invert the edited field, Casio style. */
-            const int span_x = row_x + irriga_field_spans[cur_field].index * char_w;
-            const int span_w = irriga_field_spans[cur_field].chars * char_w;
+            /* Invert the edited field, Casio style. The highlight's
+             * x is measured from the actual rendered prefix, not
+             * assumed from a per-character cell width -- so it lines
+             * up with wherever DrawUTF8 really put that glyph even if
+             * the font isn't perfectly uniform-width. */
+            const uint8_t field_index = irriga_field_spans[cur_field].index;
+            const uint8_t field_chars = irriga_field_spans[cur_field].chars;
+            char prefix[24];
+            memcpy(prefix, text, field_index);
+            prefix[field_index] = '\0';
+            int span_x = row_x + (int)solar_os_gfx_text_width(gfx, prefix);
+
+            /*
+             * Hardware-measured correction (2026-07-20, LCD-5),
+             * tuned iteratively against on-device measurement across
+             * all 12 fields of a slot row: the pixel-doubled 2x row
+             * font (u8g2_font_solar_os_profont_24_mf) under-measures
+             * a non-empty, space-free prefix (the three time fields
+             * after start-hour) by 3 physical px; a prefix with one
+             * space (the 7 day fields) by 1px; a prefix with both
+             * spaces (the active field) is exact. Root cause not
+             * pinned down (source BDF metrics are uniformly
+             * monospace; something downstream of the doubling/bdfconv
+             * step isn't), so this compensates the measured behavior
+             * directly rather than a guessed mechanism. Only applies
+             * to the doubled font -- the vendored 1x ProFont hasn't
+             * shown this and shouldn't be touched blindly.
+             */
+            if (irriga.ui_scale == 2 && field_index != 0) {
+                int spaces = 0;
+                for (uint8_t i = 0; i < field_index; i++) {
+                    if (prefix[i] == ' ') {
+                        spaces++;
+                    }
+                }
+                span_x += spaces == 0 ? 3 : (2 - spaces);
+            }
+
             char span_text[4];
-            memcpy(span_text, &text[irriga_field_spans[cur_field].index],
-                   irriga_field_spans[cur_field].chars);
-            span_text[irriga_field_spans[cur_field].chars] = '\0';
+            memcpy(span_text, &text[field_index], field_chars);
+            span_text[field_chars] = '\0';
+            const int span_w = (int)solar_os_gfx_text_width(gfx, span_text);
 
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-            solar_os_gfx_fill_rect(gfx, span_x - 1, baseline - 10, span_w + 2, 13);
+            solar_os_gfx_fill_rect(gfx, span_x - IRRIGA_PX(1),
+                                   baseline - IRRIGA_PX(10),
+                                   span_w + IRRIGA_PX(2), IRRIGA_PX(13));
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
             solar_os_gfx_text(gfx, span_x, baseline, span_text);
         }
     }
 
     const char *set_label = irriga.editz_status[0] != '\0' ? irriga.editz_status : "SET";
-    irriga_touch_button(gfx, &set, SOLAR_OS_GFX_FONT_PROFONT_22, set_label);
-    irriga_touch_button(gfx, &next, SOLAR_OS_GFX_FONT_PROFONT_22, "NEXT");
-    irriga_touch_button(gfx, &plus, SOLAR_OS_GFX_FONT_PROFONT_22, "+1");
-    irriga_touch_button(gfx, &minus, SOLAR_OS_GFX_FONT_PROFONT_22, "-1");
+    irriga_touch_button(gfx, &set, true, set_label);
+    irriga_touch_button(gfx, &next, true, "NEXT");
+    irriga_touch_button(gfx, &plus, true, "+1");
+    irriga_touch_button(gfx, &minus, true, "-1");
 }
 
 static void irriga_open_editz(uint8_t zone)
@@ -673,10 +752,10 @@ static void irriga_render_settings(solar_os_gfx_t *gfx)
 {
     const int width = (int)solar_os_gfx_width(gfx);
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_17);
+    solar_os_gfx_set_font(gfx, irriga_font_title());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_text(gfx, IRRIGA_FOOTER_MARGIN, 18, "Settings");
-    solar_os_gfx_line(gfx, 0, 26, width - 1, 26);
+    solar_os_gfx_text(gfx, IRRIGA_PX(4), IRRIGA_PX(18), "Settings");
+    solar_os_gfx_line(gfx, 0, IRRIGA_PX(26), width - 1, IRRIGA_PX(26));
 
     const char *labels[3];
     char zones_text[32];
@@ -688,72 +767,87 @@ static void irriga_render_settings(solar_os_gfx_t *gfx)
     labels[1] = mode_text;
     labels[2] = "Set clock...";
 
-    int y = 56;
+    int y = IRRIGA_PX(56);
     for (uint8_t i = 0; i < 3; i++) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_17);
+        solar_os_gfx_set_font(gfx, irriga_font_title());
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         if (i == irriga.sel_setting) {
-            solar_os_gfx_text(gfx, IRRIGA_FOOTER_MARGIN, y, ">");
+            solar_os_gfx_text(gfx, IRRIGA_PX(4), y, ">");
         }
-        solar_os_gfx_text(gfx, 24, y, labels[i]);
-        y += 30;
+        solar_os_gfx_text(gfx, IRRIGA_PX(24), y, labels[i]);
+        y += IRRIGA_PX(30);
     }
 
-    irriga_message_line(gfx, y + 6);
+    irriga_message_line(gfx, y + IRRIGA_PX(6));
     irriga_footer(gfx, "L/R change  ENT select  ESC back");
 }
 
 static void irriga_render_setclock(solar_os_gfx_t *gfx)
 {
     const int width = (int)solar_os_gfx_width(gfx);
-    char text[48];
+    char time_text[16];
+    char date_text[32];
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_17);
+    solar_os_gfx_set_font(gfx, irriga_font_title());
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_text(gfx, IRRIGA_FOOTER_MARGIN, 18, "Set clock");
-    solar_os_gfx_line(gfx, 0, 26, width - 1, 26);
+    solar_os_gfx_text(gfx, IRRIGA_PX(4), IRRIGA_PX(18), "Set clock");
+    solar_os_gfx_line(gfx, 0, IRRIGA_PX(26), width - 1, IRRIGA_PX(26));
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_PROFONT_22);
-    const int char_w = (int)solar_os_gfx_text_width(gfx, "0");
-    const int x0 = 24;
+    solar_os_gfx_set_font(gfx, irriga_font_button());
+    const int x0 = IRRIGA_PX(24);
 
     /* Line 1: "HH:MM" -- fields 0 (hour), 1 (minute). */
-    const int time_y = 100;
-    snprintf(text, sizeof(text), "%02u:%02u",
+    const int time_y = IRRIGA_PX(100);
+    snprintf(time_text, sizeof(time_text), "%02u:%02u",
              (unsigned)irriga.clock_edit.hour, (unsigned)irriga.clock_edit.minute);
-    solar_os_gfx_text(gfx, x0, time_y, text);
+    solar_os_gfx_text(gfx, x0, time_y, time_text);
 
     /* Line 2: "DD/MM/YYYY Www" -- fields 2, 3, 4 (weekday derived). */
-    const int date_y = 156;
+    const int date_y = IRRIGA_PX(156);
     const uint8_t weekday = irriga_weekday_of(irriga.clock_edit.year,
                                               irriga.clock_edit.month,
                                               irriga.clock_edit.day);
-    snprintf(text, sizeof(text), "%02u/%02u/%04u %s",
+    snprintf(date_text, sizeof(date_text), "%02u/%02u/%04u %s",
              (unsigned)irriga.clock_edit.day,
              (unsigned)irriga.clock_edit.month,
              (unsigned)irriga.clock_edit.year,
              irriga_weekday_names[weekday]);
-    solar_os_gfx_text(gfx, x0, date_y, text);
+    solar_os_gfx_text(gfx, x0, date_y, date_text);
 
     static const struct {
         int y;
         int char_index;
         int chars;
+        bool on_time_line;
     } fields[IRRIGA_CLOCK_FIELDS] = {
-        {100, 0, 2},  /* hour */
-        {100, 3, 2},  /* minute */
-        {156, 0, 2},  /* day */
-        {156, 3, 2},  /* month */
-        {156, 6, 4},  /* year */
+        {100, 0, 2, true},   /* hour */
+        {100, 3, 2, true},   /* minute */
+        {156, 0, 2, false},  /* day */
+        {156, 3, 2, false},  /* month */
+        {156, 6, 4, false},  /* year */
     };
-    const int x = x0 + (fields[irriga.clock_field].char_index * char_w) - 2;
+    const int char_index = fields[irriga.clock_field].char_index;
+    const int chars = fields[irriga.clock_field].chars;
+    const char *line = fields[irriga.clock_field].on_time_line ? time_text : date_text;
+
+    /* Measure the actual rendered prefix/field width instead of
+     * assuming a uniform per-character cell, same reasoning as the
+     * zone editor's field highlight. */
+    char prefix[16];
+    memcpy(prefix, line, (size_t)char_index);
+    prefix[char_index] = '\0';
+    char field_text[8];
+    memcpy(field_text, &line[char_index], (size_t)chars);
+    field_text[chars] = '\0';
+
+    const int x = x0 + (int)solar_os_gfx_text_width(gfx, prefix) - IRRIGA_PX(2);
     solar_os_gfx_rect(gfx,
                       x,
-                      fields[irriga.clock_field].y - 22,
-                      (fields[irriga.clock_field].chars * char_w) + 4,
-                      28);
+                      IRRIGA_PX(fields[irriga.clock_field].y - 22),
+                      (int)solar_os_gfx_text_width(gfx, field_text) + IRRIGA_PX(4),
+                      IRRIGA_PX(28));
 
-    irriga_message_line(gfx, 196);
+    irriga_message_line(gfx, IRRIGA_PX(196));
     irriga_footer(gfx, "ARROWS edit  ENT apply  ESC back");
 }
 
@@ -1040,15 +1134,16 @@ static bool irriga_handle_tap_home(solar_os_gfx_t *gfx, int x, int y)
     const int width = (int)solar_os_gfx_width(gfx);
     const int height = (int)solar_os_gfx_height(gfx);
     const uint8_t zones = solar_os_irrig_zone_count();
+    const int grow = IRRIGA_PX(3);
 
     for (uint8_t zone = 0; zone < zones; zone++) {
         irriga_rect_t rect;
         irriga_home_button_rect(width, zone, &rect);
         /* Grow the small letter buttons a bit -- fingers are blunt. */
-        rect.x -= 3;
-        rect.y -= 3;
-        rect.w += 6;
-        rect.h += 6;
+        rect.x -= grow;
+        rect.y -= grow;
+        rect.w += 2 * grow;
+        rect.h += 2 * grow;
         if (irriga_rect_hit(&rect, x, y)) {
             irriga_open_editz(zone);
             return true;
@@ -1100,7 +1195,7 @@ static bool irriga_handle_tap_editz(solar_os_gfx_t *gfx, int x, int y)
         /* Tap a slot row to jump the cursor to it. */
         for (uint8_t slot = 0; slot < SOLAR_OS_IRRIG_SCHEDULES_PER_ZONE; slot++) {
             const int baseline = irriga_editz_row_baseline(&list, slot);
-            if (y >= baseline - 13 && y <= baseline + 4) {
+            if (y >= baseline - IRRIGA_PX(13) && y <= baseline + IRRIGA_PX(4)) {
                 irriga.editz_pos = (uint8_t)(slot * IRRIGA_FIELDS_PER_SLOT);
                 irriga.editz_status[0] = '\0';
                 return true;
@@ -1129,7 +1224,7 @@ static bool irriga_handle_tap(solar_os_context_t *ctx, int x, int y)
 
 static void irriga_poll_touch(solar_os_context_t *ctx, uint32_t tick_ms)
 {
-    if (!touch_ft6336_available()) {
+    if (!solar_os_touch_available()) {
         return;
     }
     if ((uint32_t)(tick_ms - irriga.touch_last_poll_ms) < IRRIGA_TOUCH_POLL_MS) {
@@ -1140,7 +1235,7 @@ static void irriga_poll_touch(solar_os_context_t *ctx, uint32_t tick_ms)
     bool pressed = false;
     uint16_t x = 0;
     uint16_t y = 0;
-    if (touch_ft6336_read(&pressed, &x, &y) != ESP_OK) {
+    if (solar_os_touch_read(&pressed, &x, &y) != ESP_OK) {
         return;
     }
 
@@ -1159,18 +1254,23 @@ static void irriga_poll_touch(solar_os_context_t *ctx, uint32_t tick_ms)
 
 static esp_err_t irriga_start(solar_os_context_t *ctx)
 {
-    if (solar_os_context_gfx(ctx) == NULL) {
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
     memset(&irriga, 0, sizeof(irriga));
+    /* The layout is designed for 320x240; large panels draw it at 2x
+     * (480 tall fits exactly twice the design height). */
+    irriga.ui_scale = solar_os_gfx_height(gfx) >= 480 ? 2 : 1;
+
     const esp_err_t ret = solar_os_irrig_init();
     if (ret != ESP_OK) {
         return ret;
     }
 
 #if SOLAR_OS_BOARD_HAS_TOUCH
-    (void)touch_ft6336_init(); /* app works fine without it */
+    (void)solar_os_touch_init(); /* app works fine without it */
 #endif
 
     solar_os_context_set_graphics_active(ctx, true);
