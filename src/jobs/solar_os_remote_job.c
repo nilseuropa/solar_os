@@ -55,7 +55,8 @@ static const char remote_page[] =
     "<title>SolarOS remote</title><style>"
     "body{background:#111;color:#ccc;font-family:monospace;margin:0;padding:12px;"
     "display:flex;flex-direction:column;align-items:center;gap:10px}"
-    "img{image-rendering:pixelated;width:min(96vw,640px);border:1px solid #444}"
+    "#scrn{width:min(96vw,640px);border:1px solid #444;line-height:0}"
+    "#scrn img{image-rendering:pixelated;display:block;width:100%}"
     "#keys{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}"
     "button{background:#222;color:#ccc;border:1px solid #555;border-radius:6px;"
     "padding:8px 12px;font-family:monospace;font-size:14px}"
@@ -64,7 +65,7 @@ static const char remote_page[] =
     "padding:8px;width:min(90vw,400px);font-family:monospace}"
     "#st{color:#777;font-size:12px}"
     "</style></head><body>"
-    "<img id=\"scr\" src=\"/screen.bmp\" alt=\"screen\">"
+    "<div id=\"scrn\"></div>"
     "<div id=\"keys\">"
     "<button data-k=\"27\">Esc</button>"
     "<button data-k=\"9\">Tab</button>"
@@ -80,15 +81,92 @@ static const char remote_page[] =
     "<input id=\"txt\" placeholder=\"type here (phone) or just type (desktop)\" autocomplete=\"off\">"
     "<div id=\"st\"></div>"
     "<script>"
-    "var img=document.getElementById('scr'),st=document.getElementById('st'),"
-    "txt=document.getElementById('txt'),sending=Promise.resolve();"
-    "function refresh(){var pre=new Image();"
-    "pre.onload=function(){img.src=pre.src;st.textContent='';setTimeout(refresh,250);};"
-    "pre.onerror=function(){st.textContent='connection lost, retrying...';setTimeout(refresh,1500);};"
-    "pre.src='/screen.bmp?'+Date.now();}"
-    "refresh();"
+    "var st=document.getElementById('st'),txt=document.getElementById('txt'),"
+    "sending=Promise.resolve(),gen=0,N=4,imgs=[];"
+    "var scrn=document.getElementById('scrn');"
+    "for(var i=0;i<N;i++){var im=document.createElement('img');"
+    "im.alt='screen strip '+i;scrn.appendChild(im);imgs.push(im);}"
+    /* The screen travels as N full-resolution horizontal strips
+     * fetched one after another -- each strip is a small transfer
+     * that completes even on links that stall on whole-frame
+     * responses. Strips are buffered and only swapped into the
+     * visible <img> elements once the whole set has arrived, so a
+     * slow link shows the old frame intact until the new one is
+     * complete rather than a top-to-bottom wipe (distracting on a
+     * mostly-static, mostly-black UI like irriga). A request that
+     * never finishes (no onload, no onerror) must not end the loop:
+     * an 8s watchdog abandons that cycle; stale callbacks are ignored
+     * via the generation id. */
+    "function cycle(){var g=++gen,k=0,pending=new Array(N);"
+    "function step(){if(g!==gen)return;var pre=new Image();"
+    "var wd=setTimeout(function(){if(g===gen){st.textContent='timeout, retrying...';cycle();}},8000);"
+    "pre.onload=function(){clearTimeout(wd);if(g!==gen)return;"
+    "st.textContent='';pending[k]=pre.src;k++;"
+    "if(k<N){step();return;}"
+    "for(var i=0;i<N;i++)imgs[i].src=pending[i];"
+    "setTimeout(function(){if(g===gen)cycle();},250);};"
+    "pre.onerror=function(){clearTimeout(wd);if(g!==gen)return;"
+    "st.textContent='connection lost, retrying...';"
+    "setTimeout(function(){if(g===gen)cycle();},1500);};"
+    "pre.src='/screen.bmp?s='+k+'&n='+N+'&t='+Date.now();}"
+    "step();}"
+    "cycle();"
     "function send(code){sending=sending.then(function(){"
     "return fetch('/key?c='+code).catch(function(){});});}"
+    "var special={'Enter':13,'Backspace':8,'Tab':9,'Escape':27,"
+    "'ArrowUp':128,'ArrowDown':129,'ArrowLeft':130,'ArrowRight':131,"
+    "'PageUp':132,'PageDown':133,'Home':148,'End':149,'Delete':150};"
+    "document.addEventListener('keydown',function(e){"
+    "if(e.target===txt&&e.key.length===1)return;"
+    "var code=null;"
+    "if(special[e.key]!==undefined)code=special[e.key];"
+    "else if(e.key.length===1&&e.key.charCodeAt(0)<127)code=e.key.charCodeAt(0);"
+    "if(code!==null){e.preventDefault();send(code);}});"
+    "txt.addEventListener('input',function(){"
+    "var v=txt.value;txt.value='';"
+    "for(var i=0;i<v.length;i++){var c=v.charCodeAt(i);if(c<127)send(c);}});"
+    "document.querySelectorAll('#keys button').forEach(function(b){"
+    "b.addEventListener('click',function(){send(parseInt(b.dataset.k,10));});});"
+    "</script></body></html>";
+
+/* Keys-only page (/keys): the same keyboard capture and button row
+ * without the screen image -- a lightweight control path for slow or
+ * unreliable links, since it never transfers more than a keystroke. */
+static const char remote_keys_page[] =
+    "<!doctype html><html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<title>SolarOS keys</title><style>"
+    "body{background:#111;color:#ccc;font-family:monospace;margin:0;padding:12px;"
+    "display:flex;flex-direction:column;align-items:center;gap:10px}"
+    "#keys{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}"
+    "button{background:#222;color:#ccc;border:1px solid #555;border-radius:6px;"
+    "padding:8px 12px;font-family:monospace;font-size:14px}"
+    "button:active{background:#444}"
+    "input{background:#222;color:#ccc;border:1px solid #555;border-radius:6px;"
+    "padding:8px;width:min(90vw,400px);font-family:monospace}"
+    "#st{color:#777;font-size:12px}"
+    "</style></head><body>"
+    "<div>SolarOS keys-only remote (no screen)</div>"
+    "<div id=\"keys\">"
+    "<button data-k=\"27\">Esc</button>"
+    "<button data-k=\"9\">Tab</button>"
+    "<button data-k=\"128\">&#8593;</button>"
+    "<button data-k=\"129\">&#8595;</button>"
+    "<button data-k=\"130\">&#8592;</button>"
+    "<button data-k=\"131\">&#8594;</button>"
+    "<button data-k=\"13\">Enter</button>"
+    "<button data-k=\"8\">Bksp</button>"
+    "<button data-k=\"32\">Space</button>"
+    "<button data-k=\"146\">EXIT</button>"
+    "</div>"
+    "<input id=\"txt\" placeholder=\"type here (phone) or just type (desktop)\" autocomplete=\"off\">"
+    "<div id=\"st\"></div>"
+    "<script>"
+    "var st=document.getElementById('st'),txt=document.getElementById('txt'),"
+    "sending=Promise.resolve();"
+    "function send(code){sending=sending.then(function(){"
+    "return fetch('/key?c='+code).then(function(){st.textContent='';})"
+    ".catch(function(){st.textContent='send failed';});});}"
     "var special={'Enter':13,'Backspace':8,'Tab':9,'Escape':27,"
     "'ArrowUp':128,'ArrowDown':129,'ArrowLeft':130,'ArrowRight':131,"
     "'PageUp':132,'PageDown':133,'Home':148,'End':149,'Delete':150};"
@@ -145,10 +223,27 @@ static void remote_bmp_build_header(uint8_t *header,
     header[60] = 0xff;
 }
 
+httpd_handle_t solar_os_remote_job_server(uint16_t *port)
+{
+    if (!remote_job.running || remote_job.server == NULL) {
+        return NULL;
+    }
+    if (port != NULL) {
+        *port = remote_job.port;
+    }
+    return remote_job.server;
+}
+
 static esp_err_t remote_page_handler(httpd_req_t *req)
 {
     (void)httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, remote_page, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t remote_keys_page_handler(httpd_req_t *req)
+{
+    (void)httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, remote_keys_page, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t remote_screen_handler(httpd_req_t *req)
@@ -160,10 +255,55 @@ static esp_err_t remote_screen_handler(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no display");
     }
 
+    /*
+     * Two transfer-shrinking knobs, both optional query params, both
+     * for links that cannot move a whole frame in one response:
+     *
+     *   d=1|2|4      decimation -- every d-th pixel of every d-th row
+     *                (lossless on 2x-scaled UIs, blurry on native text)
+     *   s=<i>&n=<k>  horizontal strip i of k (0-based, k<=8) at full
+     *                resolution -- the page reassembles k stacked
+     *                images, each strip being a small transfer
+     */
+    unsigned decimate = 1;
+    unsigned strip_count = 1;
+    unsigned strip_index = 0;
+    char query[40];
+    char value[4];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "d", value, sizeof(value)) == ESP_OK) {
+            if (value[0] == '2' && value[1] == '\0') {
+                decimate = 2;
+            } else if (value[0] == '4' && value[1] == '\0') {
+                decimate = 4;
+            }
+        }
+        if (httpd_query_key_value(query, "n", value, sizeof(value)) == ESP_OK) {
+            const unsigned n = (unsigned)(value[0] - '0');
+            if (value[1] == '\0' && n >= 1 && n <= 8) {
+                strip_count = n;
+            }
+        }
+        if (httpd_query_key_value(query, "s", value, sizeof(value)) == ESP_OK) {
+            const unsigned s = (unsigned)(value[0] - '0');
+            if (value[1] == '\0' && s < strip_count) {
+                strip_index = s;
+            }
+        }
+    }
+
     const size_t stride = ((size_t)width + 7U) / 8U;
-    const size_t row_bytes = (stride + 3U) & ~(size_t)3U; /* BMP rows pad to 4 */
-    const size_t snapshot_size = stride * height;
-    const size_t bmp_size = REMOTE_BMP_HEADER_SIZE + (row_bytes * height);
+    const uint16_t strip_y0 = (uint16_t)(((uint32_t)height * strip_index) / strip_count);
+    const uint16_t strip_y1 = (uint16_t)(((uint32_t)height * (strip_index + 1U)) / strip_count);
+    const size_t snapshot_size = stride * (strip_y1 - strip_y0);
+    const uint16_t out_width = (uint16_t)(width / decimate);
+    const uint16_t out_height = (uint16_t)((strip_y1 - strip_y0) / decimate);
+    const size_t out_stride = ((size_t)out_width + 7U) / 8U;
+    const size_t row_bytes = (out_stride + 3U) & ~(size_t)3U; /* BMP rows pad to 4 */
+    const size_t bmp_size = REMOTE_BMP_HEADER_SIZE + (row_bytes * out_height);
+    if (out_height == 0) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty strip");
+    }
 
     uint8_t *snapshot = heap_caps_malloc(snapshot_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (snapshot == NULL) {
@@ -179,21 +319,34 @@ static esp_err_t remote_screen_handler(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
     }
 
-    ret = solar_os_remote_screen_snapshot(snapshot, snapshot_size, &width, &height);
+    /* Only this strip's rows are captured -- a shorter, faster copy
+     * against the unsynchronized render loop (see
+     * solar_os_remote_screen.h) than pulling the whole frame every
+     * time and slicing it afterward. */
+    ret = solar_os_remote_screen_snapshot(snapshot, snapshot_size, strip_y0, strip_y1, &width, &height);
     if (ret != ESP_OK) {
         heap_caps_free(snapshot);
         heap_caps_free(bmp);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "snapshot failed");
     }
 
-    remote_bmp_build_header(bmp, width, height, (uint32_t)row_bytes);
+    remote_bmp_build_header(bmp, out_width, out_height, (uint32_t)row_bytes);
     uint8_t *rows = &bmp[REMOTE_BMP_HEADER_SIZE];
-    memset(rows, 0, row_bytes * height);
-    for (uint16_t y = 0; y < height; y++) {
+    memset(rows, 0, row_bytes * out_height);
+    for (uint16_t y = 0; y < out_height; y++) {
         /* BMP stores rows bottom-up */
-        memcpy(&rows[(size_t)(height - 1U - y) * row_bytes],
-               &snapshot[(size_t)y * stride],
-               stride);
+        uint8_t *out_row = &rows[(size_t)(out_height - 1U - y) * row_bytes];
+        const uint8_t *src_row = &snapshot[(size_t)y * decimate * stride];
+        if (decimate == 1) {
+            memcpy(out_row, src_row, stride);
+            continue;
+        }
+        for (uint16_t x = 0; x < out_width; x++) {
+            const unsigned sx = (unsigned)x * decimate;
+            if ((src_row[sx >> 3] & (0x80U >> (sx & 7U))) != 0) {
+                out_row[x >> 3] |= (uint8_t)(0x80U >> (x & 7U));
+            }
+        }
     }
     heap_caps_free(snapshot);
 
@@ -288,12 +441,21 @@ static esp_err_t remote_job_start(solar_os_context_t *ctx, int argc, char **argv
         .handler = remote_key_handler,
         .user_ctx = NULL,
     };
+    const httpd_uri_t keys_page_uri = {
+        .uri = "/keys",
+        .method = HTTP_GET,
+        .handler = remote_keys_page_handler,
+        .user_ctx = NULL,
+    };
     ret = httpd_register_uri_handler(server, &page_uri);
     if (ret == ESP_OK) {
         ret = httpd_register_uri_handler(server, &screen_uri);
     }
     if (ret == ESP_OK) {
         ret = httpd_register_uri_handler(server, &key_uri);
+    }
+    if (ret == ESP_OK) {
+        ret = httpd_register_uri_handler(server, &keys_page_uri);
     }
     if (ret != ESP_OK) {
         (void)httpd_stop(server);

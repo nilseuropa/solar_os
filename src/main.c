@@ -902,6 +902,27 @@ static void dispatch_remote_chars(void)
 #endif
 }
 
+/*
+ * Bookends around a tick's drawing, matched with
+ * solar_os_remote_screen_snapshot()'s own lock: a strip request never
+ * sees a half-drawn frame, and never has to fall back to reading a
+ * smaller window to dodge the render loop -- the two sides simply
+ * take turns owning the buffer.
+ */
+static void remote_screen_render_lock(void)
+{
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+    solar_os_remote_screen_render_lock();
+#endif
+}
+
+static void remote_screen_render_unlock(void)
+{
+#if SOLAR_OS_PACKAGE_JOB_REMOTE
+    solar_os_remote_screen_render_unlock();
+#endif
+}
+
 static void dispatch_input_sources(void)
 {
     dispatch_keyboard_chars();
@@ -1400,6 +1421,15 @@ void app_main(void)
     while (true) {
         solar_os_power_poll();
         poll_key_button();
+
+        /* Everything that can touch the display buffer this tick --
+         * input dispatch (a keystroke can run a shell command that
+         * draws), app tick/session dispatch, app-switch draws, the
+         * terminal, the session-switch overlay -- happens inside this
+         * lock, so a concurrent remote-screen snapshot always sees
+         * either last tick's finished frame or this one's, never a
+         * mix. */
+        remote_screen_render_lock();
         dispatch_input_sources();
         dispatch_app_tick();
         dispatch_input_sources();
@@ -1408,6 +1438,8 @@ void app_main(void)
 
         draw_terminal_if_needed();
         draw_session_overlay_if_needed();
+        remote_screen_render_unlock();
+
         maybe_enter_idle_sleep();
 
         vTaskDelay(pdMS_TO_TICKS(10));

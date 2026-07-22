@@ -2,15 +2,35 @@
 
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "solar_os_gfx_internal.h"
 
 static u8g2_t *screen_u8g2;
 static const solar_os_gfx_t *screen_gfx;
+static SemaphoreHandle_t screen_lock;
 
 void solar_os_remote_screen_attach(u8g2_t *u8g2, const solar_os_gfx_t *gfx)
 {
     screen_u8g2 = u8g2;
     screen_gfx = gfx;
+    if (screen_lock == NULL) {
+        screen_lock = xSemaphoreCreateMutex();
+    }
+}
+
+void solar_os_remote_screen_render_lock(void)
+{
+    if (screen_lock != NULL) {
+        (void)xSemaphoreTake(screen_lock, portMAX_DELAY);
+    }
+}
+
+void solar_os_remote_screen_render_unlock(void)
+{
+    if (screen_lock != NULL) {
+        (void)xSemaphoreGive(screen_lock);
+    }
 }
 
 bool solar_os_remote_screen_available(void)
@@ -81,10 +101,12 @@ static void screen_map_pixel(const u8g2_cb_t *cb,
 
 esp_err_t solar_os_remote_screen_snapshot(uint8_t *out,
                                           size_t out_size,
+                                          uint16_t y0,
+                                          uint16_t y1,
                                           uint16_t *width,
                                           uint16_t *height)
 {
-    if (out == NULL) {
+    if (out == NULL || y1 <= y0) {
         return ESP_ERR_INVALID_ARG;
     }
     if (screen_u8g2 == NULL) {
@@ -101,8 +123,12 @@ esp_err_t solar_os_remote_screen_snapshot(uint8_t *out,
     const bool swap = screen_rotation_swaps_axes();
     const uint16_t w = swap ? nh : nw;
     const uint16_t h = swap ? nw : nh;
+    if (y1 > h) {
+        return ESP_ERR_INVALID_ARG;
+    }
     const size_t stride = ((size_t)w + 7U) / 8U;
-    if (out_size < stride * h) {
+    const uint16_t rows = (uint16_t)(y1 - y0);
+    if (out_size < stride * rows) {
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -112,9 +138,10 @@ esp_err_t solar_os_remote_screen_snapshot(uint8_t *out,
     const bool set_bit_is_white = screen_gfx == NULL || !screen_gfx->black_is_one;
     const u8g2_cb_t *cb = screen_u8g2->cb;
 
-    memset(out, 0, stride * h);
-    for (uint16_t y = 0; y < h; y++) {
-        uint8_t *row = &out[(size_t)y * stride];
+    memset(out, 0, stride * rows);
+    solar_os_remote_screen_render_lock();
+    for (uint16_t y = y0; y < y1; y++) {
+        uint8_t *row = &out[(size_t)(y - y0) * stride];
         for (uint16_t x = 0; x < w; x++) {
             uint16_t nx = 0;
             uint16_t ny = 0;
@@ -128,6 +155,7 @@ esp_err_t solar_os_remote_screen_snapshot(uint8_t *out,
             }
         }
     }
+    solar_os_remote_screen_render_unlock();
 
     if (width != NULL) {
         *width = w;
