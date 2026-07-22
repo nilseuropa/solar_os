@@ -9,11 +9,11 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_zip.h"
 
@@ -1170,26 +1170,18 @@ static bool shell_zip_alloc_sources(shell_zip_source_list_t *list, solar_os_shel
     memset(list, 0, sizeof(*list));
     list->term = term;
     list->capacity = SHELL_ZIP_SOURCE_MAX;
-    list->sources = heap_caps_calloc(list->capacity,
-                                     sizeof(*list->sources),
-                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (list->sources == NULL) {
-        list->sources = heap_caps_calloc(list->capacity,
-                                         sizeof(*list->sources),
-                                         MALLOC_CAP_8BIT);
-    }
-    list->paths = heap_caps_calloc(list->capacity,
-                                   sizeof(*list->paths),
-                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (list->paths == NULL) {
-        list->paths = heap_caps_calloc(list->capacity,
-                                       sizeof(*list->paths),
-                                       MALLOC_CAP_8BIT);
-    }
+    list->sources = solar_os_memory_calloc(list->capacity,
+                                           sizeof(*list->sources),
+                                           SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                           "shell.zip.src");
+    list->paths = solar_os_memory_calloc(list->capacity,
+                                         sizeof(*list->paths),
+                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                         "shell.zip.path");
 
     if (list->sources == NULL || list->paths == NULL) {
-        heap_caps_free(list->sources);
-        heap_caps_free(list->paths);
+        solar_os_memory_free(list->sources);
+        solar_os_memory_free(list->paths);
         memset(list, 0, sizeof(*list));
         return false;
     }
@@ -1202,8 +1194,8 @@ static void shell_zip_free_sources(shell_zip_source_list_t *list)
         return;
     }
 
-    heap_caps_free(list->sources);
-    heap_caps_free(list->paths);
+    solar_os_memory_free(list->sources);
+    solar_os_memory_free(list->paths);
     memset(list, 0, sizeof(*list));
 }
 

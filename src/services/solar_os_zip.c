@@ -10,7 +10,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "miniz.h"
@@ -324,7 +323,7 @@ static esp_err_t zip_writer_add_meta(zip_writer_t *writer, const zip_entry_meta_
         }
         if (writer->entries != NULL) {
             memcpy(new_entries, writer->entries, writer->entry_count * sizeof(*new_entries));
-            heap_caps_free(writer->entries);
+            solar_os_memory_free(writer->entries);
         }
         writer->entries = new_entries;
         writer->entry_capacity = new_capacity;
@@ -421,7 +420,7 @@ static esp_err_t zip_deflate_file(zip_writer_t *writer,
     tdefl_status status =
         tdefl_init(compressor, NULL, NULL, TDEFL_DEFAULT_MAX_PROBES | TDEFL_GREEDY_PARSING_FLAG);
     if (status != TDEFL_STATUS_OKAY) {
-        heap_caps_free(compressor);
+        solar_os_memory_free(compressor);
         return ESP_FAIL;
     }
 
@@ -434,14 +433,14 @@ static esp_err_t zip_deflate_file(zip_writer_t *writer,
         const size_t bytes_read = fread(writer->in_buffer, 1, ZIP_IO_BUFFER_SIZE, source);
         if (bytes_read < ZIP_IO_BUFFER_SIZE) {
             if (ferror(source)) {
-                heap_caps_free(compressor);
+                solar_os_memory_free(compressor);
                 return ESP_FAIL;
             }
             eof = true;
         }
 
         if (*uncompressed_size > UINT32_MAX - bytes_read) {
-            heap_caps_free(compressor);
+            solar_os_memory_free(compressor);
             return ESP_ERR_INVALID_SIZE;
         }
         *crc32 = (uint32_t)mz_crc32(*crc32, writer->in_buffer, bytes_read);
@@ -461,18 +460,18 @@ static esp_err_t zip_deflate_file(zip_writer_t *writer,
 
             if (out_bytes > 0) {
                 if (*compressed_size > UINT32_MAX - out_bytes) {
-                    heap_caps_free(compressor);
+                    solar_os_memory_free(compressor);
                     return ESP_ERR_INVALID_SIZE;
                 }
                 if (!zip_write_all(writer->file, writer->out_buffer, out_bytes)) {
-                    heap_caps_free(compressor);
+                    solar_os_memory_free(compressor);
                     return ESP_FAIL;
                 }
                 *compressed_size += (uint32_t)out_bytes;
             }
 
             if (status < TDEFL_STATUS_OKAY) {
-                heap_caps_free(compressor);
+                solar_os_memory_free(compressor);
                 return ESP_FAIL;
             }
             if (status == TDEFL_STATUS_OKAY && in_bytes == 0 && out_bytes == 0 && !eof) {
@@ -482,7 +481,7 @@ static esp_err_t zip_deflate_file(zip_writer_t *writer,
         zip_yield();
     } while (!eof || status != TDEFL_STATUS_DONE);
 
-    heap_caps_free(compressor);
+    solar_os_memory_free(compressor);
     return ESP_OK;
 }
 
@@ -730,7 +729,7 @@ static esp_err_t zip_reader_open(zip_reader_t *reader, const char *archive_path)
 
     if (fseek(reader->file, file_size - (long)search_len, SEEK_SET) != 0 ||
         fread(tail, 1, search_len, reader->file) != search_len) {
-        heap_caps_free(tail);
+        solar_os_memory_free(tail);
         fclose(reader->file);
         reader->file = NULL;
         return ESP_FAIL;
@@ -749,7 +748,7 @@ static esp_err_t zip_reader_open(zip_reader_t *reader, const char *archive_path)
     }
 
     if (eocd == NULL) {
-        heap_caps_free(tail);
+        solar_os_memory_free(tail);
         fclose(reader->file);
         reader->file = NULL;
         return ESP_ERR_NOT_FOUND;
@@ -762,7 +761,7 @@ static esp_err_t zip_reader_open(zip_reader_t *reader, const char *archive_path)
     reader->central_size = zip_read_le32(&eocd[12]);
     reader->central_offset = zip_read_le32(&eocd[16]);
 
-    heap_caps_free(tail);
+    solar_os_memory_free(tail);
 
     if (disk != 0 || central_disk != 0 || disk_entries != total_entries ||
         total_entries == UINT16_MAX ||
@@ -910,7 +909,7 @@ static esp_err_t zip_inflate_file(FILE *archive,
                 compressed_left;
             input_len = fread(input, 1, request, archive);
             if (input_len != request) {
-                heap_caps_free(decompressor);
+                solar_os_memory_free(decompressor);
                 return ESP_FAIL;
             }
             input_pos = 0;
@@ -931,11 +930,11 @@ static esp_err_t zip_inflate_file(FILE *archive,
 
         if (out_bytes > 0) {
             if (*bytes_written > UINT32_MAX - out_bytes) {
-                heap_caps_free(decompressor);
+                solar_os_memory_free(decompressor);
                 return ESP_ERR_INVALID_SIZE;
             }
             if (!zip_write_all(output, &dict[dict_pos], out_bytes)) {
-                heap_caps_free(decompressor);
+                solar_os_memory_free(decompressor);
                 return ESP_FAIL;
             }
             *crc32 = (uint32_t)mz_crc32(*crc32, &dict[dict_pos], out_bytes);
@@ -944,19 +943,19 @@ static esp_err_t zip_inflate_file(FILE *archive,
         }
 
         if (status < TINFL_STATUS_DONE) {
-            heap_caps_free(decompressor);
+            solar_os_memory_free(decompressor);
             return ESP_FAIL;
         }
         if (status == TINFL_STATUS_NEEDS_MORE_INPUT &&
             input_pos == input_len &&
             compressed_left == 0) {
-            heap_caps_free(decompressor);
+            solar_os_memory_free(decompressor);
             return ESP_FAIL;
         }
         zip_yield();
     }
 
-    heap_caps_free(decompressor);
+    solar_os_memory_free(decompressor);
     return ESP_OK;
 }
 
@@ -1039,7 +1038,7 @@ static esp_err_t zip_inflate_memory(FILE *archive,
                 compressed_left;
             input_len = fread(input, 1, request, archive);
             if (input_len != request) {
-                heap_caps_free(decompressor);
+                solar_os_memory_free(decompressor);
                 return ESP_FAIL;
             }
             input_pos = 0;
@@ -1061,7 +1060,7 @@ static esp_err_t zip_inflate_memory(FILE *archive,
         if (out_bytes > 0) {
             if (*bytes_written > entry->uncompressed_size ||
                 out_bytes > entry->uncompressed_size - *bytes_written) {
-                heap_caps_free(decompressor);
+                solar_os_memory_free(decompressor);
                 return ESP_ERR_INVALID_SIZE;
             }
             memcpy(&output[*bytes_written], &dict[dict_pos], out_bytes);
@@ -1071,19 +1070,19 @@ static esp_err_t zip_inflate_memory(FILE *archive,
         }
 
         if (status < TINFL_STATUS_DONE) {
-            heap_caps_free(decompressor);
+            solar_os_memory_free(decompressor);
             return ESP_FAIL;
         }
         if (status == TINFL_STATUS_NEEDS_MORE_INPUT &&
             input_pos == input_len &&
             compressed_left == 0) {
-            heap_caps_free(decompressor);
+            solar_os_memory_free(decompressor);
             return ESP_FAIL;
         }
         zip_yield();
     }
 
-    heap_caps_free(decompressor);
+    solar_os_memory_free(decompressor);
     return ESP_OK;
 }
 
@@ -1176,8 +1175,8 @@ esp_err_t solar_os_zip_create(const char *archive_path,
     writer.in_buffer = zip_malloc(ZIP_IO_BUFFER_SIZE);
     writer.out_buffer = zip_malloc(TDEFL_OUT_BUF_SIZE);
     if (writer.in_buffer == NULL || writer.out_buffer == NULL) {
-        heap_caps_free(writer.in_buffer);
-        heap_caps_free(writer.out_buffer);
+        solar_os_memory_free(writer.in_buffer);
+        solar_os_memory_free(writer.out_buffer);
         return ESP_ERR_NO_MEM;
     }
 
@@ -1213,9 +1212,9 @@ esp_err_t solar_os_zip_create(const char *archive_path,
         remove(archive_path);
     }
     errno = saved_errno;
-    heap_caps_free(writer.entries);
-    heap_caps_free(writer.in_buffer);
-    heap_caps_free(writer.out_buffer);
+    solar_os_memory_free(writer.entries);
+    solar_os_memory_free(writer.in_buffer);
+    solar_os_memory_free(writer.out_buffer);
     return ret;
 }
 
@@ -1287,8 +1286,8 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
     uint8_t *input = zip_malloc(ZIP_IO_BUFFER_SIZE);
     uint8_t *dict = zip_malloc(ZIP_INFLATE_DICT_SIZE);
     if (input == NULL || dict == NULL) {
-        heap_caps_free(input);
-        heap_caps_free(dict);
+        solar_os_memory_free(input);
+        solar_os_memory_free(dict);
         zip_reader_close(&reader);
         return ESP_ERR_NO_MEM;
     }
@@ -1316,8 +1315,8 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
         zip_yield();
     }
 
-    heap_caps_free(input);
-    heap_caps_free(dict);
+    solar_os_memory_free(input);
+    solar_os_memory_free(dict);
     zip_reader_close(&reader);
     return ret;
 }
@@ -1395,16 +1394,16 @@ esp_err_t solar_os_zip_read_file(const char *archive_path,
         }
     }
 
-    heap_caps_free(input);
-    heap_caps_free(dict);
+    solar_os_memory_free(input);
+    solar_os_memory_free(dict);
     zip_reader_close(&reader);
 
     if (ret != ESP_OK) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return ret;
     }
     if (crc32 != entry.crc32 || bytes_written != entry.uncompressed_size) {
-        heap_caps_free(data);
+        solar_os_memory_free(data);
         return ESP_ERR_INVALID_CRC;
     }
 
@@ -1416,5 +1415,5 @@ esp_err_t solar_os_zip_read_file(const char *archive_path,
 
 void solar_os_zip_free(uint8_t *data)
 {
-    heap_caps_free(data);
+    solar_os_memory_free(data);
 }

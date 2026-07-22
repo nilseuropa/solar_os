@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "solar_os_log.h"
@@ -27,6 +28,8 @@ const char *solar_os_memory_class_name(solar_os_memory_class_t memory_class)
     switch (memory_class) {
     case SOLAR_OS_MEMORY_INTERNAL_CRITICAL:
         return "internal-critical";
+    case SOLAR_OS_MEMORY_INTERNAL_PREFERRED:
+        return "internal-preferred";
     case SOLAR_OS_MEMORY_DMA:
         return "dma";
     case SOLAR_OS_MEMORY_EXTERNAL_REQUIRED:
@@ -72,12 +75,8 @@ static void memory_record_failure(solar_os_memory_class_t memory_class,
     portEXIT_CRITICAL(&memory_stats_lock);
 }
 
-static bool memory_internal_fallback_allowed(size_t size)
+static bool memory_internal_reserve_allows(size_t size)
 {
-    if (size > SOLAR_OS_MEMORY_INTERNAL_FALLBACK_MAX_BYTES) {
-        return false;
-    }
-
     const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     const size_t free_now = heap_caps_get_free_size(caps);
     const size_t largest = heap_caps_get_largest_free_block(caps);
@@ -87,6 +86,12 @@ static bool memory_internal_fallback_allowed(size_t size)
     }
     const size_t required = size + SOLAR_OS_MEMORY_INTERNAL_RESERVE_BYTES;
     return free_now >= required && largest >= required;
+}
+
+static bool memory_internal_fallback_allowed(size_t size)
+{
+    return size <= SOLAR_OS_MEMORY_INTERNAL_FALLBACK_MAX_BYTES &&
+           memory_internal_reserve_allows(size);
 }
 
 static void *memory_allocate(size_t count,
@@ -112,6 +117,17 @@ static void *memory_allocate(size_t count,
     case SOLAR_OS_MEMORY_INTERNAL_CRITICAL:
         ptr = zero ? heap_caps_calloc(count, size, internal_caps) :
                      heap_caps_malloc(requested, internal_caps);
+        break;
+    case SOLAR_OS_MEMORY_INTERNAL_PREFERRED:
+        if (memory_internal_reserve_allows(requested)) {
+            ptr = zero ? heap_caps_calloc(count, size, internal_caps) :
+                         heap_caps_malloc(requested, internal_caps);
+        }
+        if (ptr == NULL) {
+            ptr = zero ? heap_caps_calloc(count, size, external_caps) :
+                         heap_caps_malloc(requested, external_caps);
+            fallback = ptr != NULL;
+        }
         break;
     case SOLAR_OS_MEMORY_DMA:
         ptr = zero ? heap_caps_calloc(count, size, internal_caps | MALLOC_CAP_DMA) :
@@ -201,6 +217,15 @@ void *solar_os_memory_realloc(void *ptr,
     case SOLAR_OS_MEMORY_INTERNAL_CRITICAL:
         next = heap_caps_realloc(ptr, size, internal_caps);
         break;
+    case SOLAR_OS_MEMORY_INTERNAL_PREFERRED:
+        if (memory_internal_reserve_allows(size)) {
+            next = heap_caps_realloc(ptr, size, internal_caps);
+        }
+        if (next == NULL) {
+            next = heap_caps_realloc(ptr, size, external_caps);
+            fallback = next != NULL;
+        }
+        break;
     case SOLAR_OS_MEMORY_DMA:
         next = heap_caps_realloc(ptr, size, internal_caps | MALLOC_CAP_DMA);
         break;
@@ -278,15 +303,7 @@ void solar_os_memory_get_status(solar_os_memory_status_t *status)
     portEXIT_CRITICAL(&memory_stats_lock);
 }
 
-void *solar_os_psram_malloc(size_t size)
+bool solar_os_memory_is_external(const void *ptr)
 {
-    return solar_os_memory_alloc(size, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "psram.compat");
-}
-
-void *solar_os_psram_calloc(size_t count, size_t size)
-{
-    return solar_os_memory_calloc(count,
-                                  size,
-                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                  "psram.compat");
+    return ptr != NULL && esp_ptr_external_ram(ptr);
 }

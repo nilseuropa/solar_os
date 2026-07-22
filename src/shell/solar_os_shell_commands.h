@@ -43,14 +43,16 @@ void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_rm(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mv(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_ntp(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_onewire(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv);
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 void solar_os_shell_cmd_ping(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_pkg(solar_os_context_t *ctx, int argc, char **argv);
@@ -67,8 +69,10 @@ void solar_os_shell_cmd_ramfs(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sd(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_sleep(solar_os_context_t *ctx, int argc, char **argv);
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_SPI
 void solar_os_shell_cmd_spi(solar_os_context_t *ctx, int argc, char **argv);
-#if SOLAR_OS_PACKAGE_NET
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv);

@@ -225,4 +225,6 @@ const solar_os_job_t solar_os_batmon_job = {
     .start = batmon_start,
     .stop = batmon_stop,
     .event = batmon_event,
+    .tick_interval_ms = 250U,
+    .tick_deadline_ms = 10U,
 };

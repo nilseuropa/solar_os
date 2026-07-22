@@ -11,7 +11,6 @@
 #include <strings.h>
 
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "services/solar_os_chat.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
@@ -1372,12 +1371,12 @@ static void chat_submit_input(solar_os_context_t *ctx)
 
     if (line[0] == '/') {
         chat_execute_command(line);
-        heap_caps_free(line);
+        solar_os_memory_free(line);
         return;
     }
 
     const esp_err_t err = solar_os_chat_send(chat_current_channel_name(), line);
-    heap_caps_free(line);
+    solar_os_memory_free(line);
     if (err == ESP_OK) {
         chat_set_status("sent");
     } else {
@@ -1558,30 +1557,30 @@ static chat_app_state_t *chat_app_alloc_state(void)
 
 static void chat_app_free_state(void)
 {
-    heap_caps_free(chat_app_state);
+    solar_os_memory_free(chat_app_state);
     chat_app_state = NULL;
 }
 
 static void chat_free_buffers(void)
 {
     if (chat_app.messages != NULL) {
-        heap_caps_free(chat_app.messages);
+        solar_os_memory_free(chat_app.messages);
         chat_app.messages = NULL;
     }
     if (chat_app.history != NULL) {
-        heap_caps_free(chat_app.history);
+        solar_os_memory_free(chat_app.history);
         chat_app.history = NULL;
     }
     if (chat_app.input != NULL) {
-        heap_caps_free(chat_app.input);
+        solar_os_memory_free(chat_app.input);
         chat_app.input = NULL;
     }
     if (chat_app.history_draft != NULL) {
-        heap_caps_free(chat_app.history_draft);
+        solar_os_memory_free(chat_app.history_draft);
         chat_app.history_draft = NULL;
     }
     if (chat_app.event != NULL) {
-        heap_caps_free(chat_app.event);
+        solar_os_memory_free(chat_app.event);
         chat_app.event = NULL;
     }
 }

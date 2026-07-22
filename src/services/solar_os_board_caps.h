@@ -42,9 +42,6 @@ typedef uint64_t solar_os_board_capability_t;
 #define SOLAR_OS_BOARD_CAP_EXPANSION_PWM (1ULL << 30)
 #define SOLAR_OS_BOARD_CAP_SIMD (1ULL << 31)
 
-#ifndef SOLAR_OS_BOARD_CAPABILITIES
-#define SOLAR_OS_BOARD_CAPABILITIES 0ULL
-#endif
 #ifndef SOLAR_OS_BOARD_HAS_PSRAM
 #define SOLAR_OS_BOARD_HAS_PSRAM 0
 #endif

@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_board.h"
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "nvs.h"
 
 #define TERM_MARGIN_X 4
@@ -774,31 +774,37 @@ static void terminal_alloc_scrollback(solar_os_terminal_t *terminal)
         return;
     }
 
-    terminal->scrollback = heap_caps_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
-                                            sizeof(terminal->scrollback[0]),
-                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    terminal->scrollback_bold = heap_caps_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
-                                                 sizeof(terminal->scrollback_bold[0]),
-                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    terminal->scrollback_italic = heap_caps_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
-                                                   sizeof(terminal->scrollback_italic[0]),
-                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    terminal->scrollback_underline = heap_caps_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
-                                                      sizeof(terminal->scrollback_underline[0]),
-                                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    terminal->scrollback_inverse = heap_caps_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
-                                                    sizeof(terminal->scrollback_inverse[0]),
-                                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    terminal->scrollback = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
+                                                  sizeof(terminal->scrollback[0]),
+                                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                                  "terminal.text");
+    terminal->scrollback_bold = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
+                                                       sizeof(terminal->scrollback_bold[0]),
+                                                       SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                                       "terminal.bold");
+    terminal->scrollback_italic = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
+                                                         sizeof(terminal->scrollback_italic[0]),
+                                                         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                                         "terminal.italic");
+    terminal->scrollback_underline =
+        solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
+                               sizeof(terminal->scrollback_underline[0]),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "terminal.underline");
+    terminal->scrollback_inverse = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
+                                                          sizeof(terminal->scrollback_inverse[0]),
+                                                          SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                                          "terminal.inverse");
     if (terminal->scrollback == NULL ||
         terminal->scrollback_bold == NULL ||
         terminal->scrollback_italic == NULL ||
         terminal->scrollback_underline == NULL ||
         terminal->scrollback_inverse == NULL) {
-        heap_caps_free(terminal->scrollback);
-        heap_caps_free(terminal->scrollback_bold);
-        heap_caps_free(terminal->scrollback_italic);
-        heap_caps_free(terminal->scrollback_underline);
-        heap_caps_free(terminal->scrollback_inverse);
+        solar_os_memory_free(terminal->scrollback);
+        solar_os_memory_free(terminal->scrollback_bold);
+        solar_os_memory_free(terminal->scrollback_italic);
+        solar_os_memory_free(terminal->scrollback_underline);
+        solar_os_memory_free(terminal->scrollback_inverse);
         terminal->scrollback = NULL;
         terminal->scrollback_bold = NULL;
         terminal->scrollback_italic = NULL;

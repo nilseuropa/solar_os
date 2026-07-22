@@ -1,11 +1,14 @@
 #include "solar_os_io.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "driver/spi_master.h"
 #include "esp_err.h"
 #include "solar_os_board.h"
 #include "solar_os_board_caps.h"
@@ -15,6 +18,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#include "solar_os_storage.h"
 #include "solar_os_tui.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
@@ -27,6 +31,9 @@
 #define IO_ACTION_MAX 10
 #define IO_PIN_MAX 64
 #define IO_FORM_CS_MAX 4
+#define IO_STARTUP_DIR ".shell"
+#define IO_STARTUP_FILE "startup"
+#define IO_STARTUP_COMMAND_MAX 256
 
 typedef enum {
     IO_VIEW_PINS,
@@ -54,6 +61,7 @@ typedef enum {
     IO_ACTION_ADC_READ,
     IO_ACTION_BUS_ATTACH,
     IO_ACTION_BUS_DETACH,
+    IO_ACTION_BUS_AUTOSTART,
     IO_ACTION_BUS_REMOVE,
     IO_ACTION_NEW_BUS,
 } io_action_kind_t;
@@ -662,6 +670,247 @@ static bool io_selected_bus_info(solar_os_bus_info_t *bus)
     return solar_os_bus_get(io.selected[IO_VIEW_BUSES], bus);
 }
 
+static bool io_find_bus(const char *name, solar_os_bus_info_t *bus)
+{
+    if (name == NULL || bus == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < solar_os_bus_count(); i++) {
+        solar_os_bus_info_t candidate;
+        if (solar_os_bus_get(i, &candidate) && strcmp(candidate.name, name) == 0) {
+            *bus = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t io_quote_shell_token(const char *value, char *quoted, size_t quoted_len)
+{
+    if (value == NULL || value[0] == '\0' || quoted == NULL || quoted_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool needs_quotes = false;
+    size_t required = 1;
+    for (const char *p = value; *p != '\0'; p++) {
+        if (iscntrl((unsigned char)*p)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (isspace((unsigned char)*p)) {
+            needs_quotes = true;
+        }
+        required++;
+        if (*p == '"' || *p == '\\') {
+            needs_quotes = true;
+            required++;
+        }
+    }
+    if (needs_quotes) {
+        required += 2;
+    }
+    if (required > quoted_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (!needs_quotes) {
+        strlcpy(quoted, value, quoted_len);
+        return ESP_OK;
+    }
+    char *out = quoted;
+    *out++ = '"';
+    for (const char *p = value; *p != '\0'; p++) {
+        if (*p == '"' || *p == '\\') {
+            *out++ = '\\';
+        }
+        *out++ = *p;
+    }
+    *out++ = '"';
+    *out = '\0';
+    return ESP_OK;
+}
+
+static esp_err_t io_command_append(char *command, size_t command_len, const char *format, ...)
+{
+    const size_t used = command != NULL ? strlen(command) : 0;
+    if (command == NULL || used >= command_len || format == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(&command[used], command_len - used, format, args);
+    va_end(args);
+    if (written < 0 || (size_t)written >= command_len - used) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t io_bus_create_command(const solar_os_bus_info_t *bus,
+                                       char *command,
+                                       size_t command_len)
+{
+    if (bus == NULL || bus->origin != SOLAR_OS_BUS_ORIGIN_RUNTIME ||
+        command == NULL || command_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char name[SOLAR_OS_BUS_NAME_MAX * 2 + 3];
+    esp_err_t ret = io_quote_shell_token(bus->name, name, sizeof(name));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    command[0] = '\0';
+
+    switch (bus->protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+        return io_command_append(command,
+                                 command_len,
+                                 "expansion bus create i2c %s port=i2c%d sda=gpio%d scl=gpio%d speed=%" PRIu32,
+                                 name,
+                                 bus->config.i2c.port,
+                                 bus->config.i2c.sda_pin,
+                                 bus->config.i2c.scl_pin,
+                                 bus->config.i2c.speed_hz);
+    case SOLAR_OS_BUS_PROTOCOL_SPI: {
+        const char *host = bus->config.spi.host == SPI2_HOST ? "spi2" :
+            bus->config.spi.host == SPI3_HOST ? "spi3" : NULL;
+        if (host == NULL) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        char miso[12];
+        if (bus->config.spi.miso_pin >= 0) {
+            snprintf(miso, sizeof(miso), "gpio%d", bus->config.spi.miso_pin);
+        } else {
+            strlcpy(miso, "none", sizeof(miso));
+        }
+        ret = io_command_append(command,
+                                command_len,
+                                "expansion bus create spi %s host=%s sclk=gpio%d mosi=gpio%d miso=%s",
+                                name,
+                                host,
+                                bus->config.spi.sclk_pin,
+                                bus->config.spi.mosi_pin,
+                                miso);
+        for (size_t i = 0; ret == ESP_OK && i < bus->config.spi.cs_count; i++) {
+            ret = io_command_append(command,
+                                    command_len,
+                                    " cs=gpio%d",
+                                    bus->config.spi.cs[i].pin);
+        }
+        if (ret == ESP_OK) {
+            ret = io_command_append(command,
+                                    command_len,
+                                    " max=%" PRIu32,
+                                    bus->config.spi.max_transfer_size);
+        }
+        return ret;
+    }
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+        return io_command_append(command,
+                                 command_len,
+                                 "expansion bus create uart %s port=uart%d tx=gpio%d rx=gpio%d baud=%" PRIu32,
+                                 name,
+                                 bus->config.uart.port,
+                                 bus->config.uart.tx_pin,
+                                 bus->config.uart.rx_pin,
+                                 bus->config.uart.baud_rate);
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+        return io_command_append(command,
+                                 command_len,
+                                 "expansion bus create onewire %s pin=gpio%d",
+                                 name,
+                                 bus->config.onewire.pin);
+    default:
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+}
+
+static esp_err_t io_append_startup_command(const char *command, bool *added)
+{
+    char dir[SOLAR_OS_STORAGE_PATH_MAX];
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (added != NULL) {
+        *added = false;
+    }
+    if (command == NULL || command[0] == '\0' || !solar_os_storage_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t ret = solar_os_storage_default_path(IO_STARTUP_DIR, dir, sizeof(dir));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_storage_join_path(dir, IO_STARTUP_FILE, path, sizeof(path));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (solar_os_storage_mkdir(dir) != ESP_OK && errno != EEXIST) {
+        return ESP_FAIL;
+    }
+
+    bool has_content = false;
+    bool ends_with_newline = true;
+    FILE *file = fopen(path, "r");
+    if (file != NULL) {
+        char line[IO_STARTUP_COMMAND_MAX + 4];
+        while (fgets(line, sizeof(line), file) != NULL) {
+            const size_t line_len = strlen(line);
+            has_content = true;
+            ends_with_newline = line_len > 0 && line[line_len - 1] == '\n';
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strcmp(line, command) == 0) {
+                fclose(file);
+                return ESP_OK;
+            }
+        }
+        if (ferror(file)) {
+            fclose(file);
+            return ESP_FAIL;
+        }
+        fclose(file);
+    } else if (errno != ENOENT) {
+        return ESP_FAIL;
+    }
+
+    file = fopen(path, "a");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+    bool ok = true;
+    if (has_content && !ends_with_newline) {
+        ok = fputc('\n', file) != EOF;
+    }
+    if (ok) {
+        ok = fprintf(file, "%s\n", command) >= 0;
+    }
+    if (fclose(file) != 0) {
+        ok = false;
+    }
+    if (!ok) {
+        return ESP_FAIL;
+    }
+    if (added != NULL) {
+        *added = true;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t io_autostart_bus(const char *name, bool *added)
+{
+    solar_os_bus_info_t bus;
+    char command[IO_STARTUP_COMMAND_MAX];
+    if (!io_find_bus(name, &bus)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_err_t ret = io_bus_create_command(&bus, command, sizeof(command));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return io_append_startup_command(command, added);
+}
+
 static void io_build_bus_actions(const solar_os_bus_info_t *bus)
 {
     if (bus == NULL) {
@@ -676,6 +925,7 @@ static void io_build_bus_actions(const solar_os_bus_info_t *bus)
                       bus->lease_count == 0 ? "Detach bus" : "Detach bus (busy)");
     }
     if (bus->origin == SOLAR_OS_BUS_ORIGIN_RUNTIME) {
+        io_action_add(IO_ACTION_BUS_AUTOSTART, "Autostart");
         io_action_add(IO_ACTION_BUS_REMOVE,
                       bus->lease_count == 0 ? "Remove bus" : "Remove bus (busy)");
     }
@@ -1411,6 +1661,15 @@ static void io_execute_action(io_action_kind_t action)
     case IO_ACTION_BUS_DETACH:
         err = solar_os_bus_detach(io.selected_bus);
         break;
+    case IO_ACTION_BUS_AUTOSTART: {
+        bool added = false;
+        err = io_autostart_bus(io.selected_bus, &added);
+        if (err == ESP_OK) {
+            io_set_message(added ? "autostart added to /.shell/startup" :
+                                   "autostart already in /.shell/startup");
+        }
+        break;
+    }
     case IO_ACTION_BUS_REMOVE:
         io.confirm_action = action;
         io.mode = IO_MODE_CONFIRM;
@@ -1423,7 +1682,8 @@ static void io_execute_action(io_action_kind_t action)
     default:
         return;
     }
-    if (err == ESP_OK && action != IO_ACTION_ADC_READ) {
+    if (err == ESP_OK && action != IO_ACTION_ADC_READ &&
+        action != IO_ACTION_BUS_AUTOSTART) {
         io_set_message("assignment updated");
     } else if (err != ESP_OK) {
         io_set_error("update", err);

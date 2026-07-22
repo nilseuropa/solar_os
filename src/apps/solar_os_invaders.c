@@ -879,4 +879,6 @@ const solar_os_app_t solar_os_invaders_app = {
     .start = invaders_start,
     .stop = invaders_stop,
     .event = invaders_event,
+    .tick_interval_ms = INVADERS_UPDATE_MS,
+    .tick_deadline_ms = 25U,
 };

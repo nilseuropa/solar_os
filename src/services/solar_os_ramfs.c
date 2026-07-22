@@ -12,11 +12,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "esp_heap_caps.h"
 #include "esp_vfs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_memory.h"
 
 #define RAMFS_MAX_OPEN_FILES 16
 #define RAMFS_MIN_QUOTA_BYTES 1024U
@@ -931,7 +931,10 @@ static DIR *ramfs_vfs_opendir(void *ctx, const char *name)
         goto out;
     }
 
-    dir = heap_caps_calloc(1, sizeof(*dir), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    dir = solar_os_memory_calloc(1,
+                                 sizeof(*dir),
+                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                 "ramfs.dir");
     if (dir == NULL) {
         errno = ENOMEM;
         goto out;
@@ -1022,7 +1025,7 @@ static int ramfs_vfs_closedir(void *ctx, DIR *pdir)
         errno = EBADF;
         return -1;
     }
-    heap_caps_free(pdir);
+    solar_os_memory_free(pdir);
     return 0;
 }
 
@@ -1250,7 +1253,9 @@ esp_err_t solar_os_ramfs_mount(const char *mount_point, size_t quota_bytes)
     if (quota_bytes < RAMFS_MIN_QUOTA_BYTES || quota_bytes <= sizeof(ramfs_block_t)) {
         return ESP_ERR_INVALID_SIZE;
     }
-    if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) == 0) {
+    solar_os_memory_status_t memory_status;
+    solar_os_memory_get_status(&memory_status);
+    if (memory_status.external.total == 0) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     esp_err_t ret = ramfs_validate_mount_point(mount_point);
@@ -1273,7 +1278,9 @@ esp_err_t solar_os_ramfs_mount(const char *mount_point, size_t quota_bytes)
     }
 
     memset(mount, 0, sizeof(*mount));
-    mount->arena = heap_caps_malloc(quota_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    mount->arena = solar_os_memory_alloc(quota_bytes,
+                                         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                         "ramfs.arena");
     if (mount->arena == NULL) {
         memset(mount, 0, sizeof(*mount));
         return ESP_ERR_NO_MEM;
@@ -1291,7 +1298,7 @@ esp_err_t solar_os_ramfs_mount(const char *mount_point, size_t quota_bytes)
     mount->dir_count = 1;
     mount->lock = xSemaphoreCreateMutex();
     if (mount->lock == NULL) {
-        heap_caps_free(mount->arena);
+        solar_os_memory_free(mount->arena);
         memset(mount, 0, sizeof(*mount));
         return ESP_ERR_NO_MEM;
     }
@@ -1300,7 +1307,7 @@ esp_err_t solar_os_ramfs_mount(const char *mount_point, size_t quota_bytes)
     ret = esp_vfs_register(ramfs_vfs_base_path(mount->mount_point), &ramfs_vfs, mount);
     if (ret != ESP_OK) {
         vSemaphoreDelete(mount->lock);
-        heap_caps_free(mount->arena);
+        solar_os_memory_free(mount->arena);
         memset(mount, 0, sizeof(*mount));
         return ret;
     }
@@ -1338,7 +1345,7 @@ esp_err_t solar_os_ramfs_unmount(const char *mount_point)
     ramfs_free_tree(mount, &mount->root);
     ramfs_unlock(mount);
     vSemaphoreDelete(mount->lock);
-    heap_caps_free(mount->arena);
+    solar_os_memory_free(mount->arena);
     memset(mount, 0, sizeof(*mount));
     return ESP_OK;
 #endif

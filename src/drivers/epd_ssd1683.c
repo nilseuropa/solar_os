@@ -614,6 +614,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display)
                         "SPI device add failed");
 
     display->line_buffer_size = SSD1683_PANEL_ROW_BYTES;
+    /* SPI transmits directly from this line buffer, so it must be internal DMA memory. */
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (display->line_buffer == NULL) {
@@ -622,6 +623,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display)
     }
 
     display->buffer_size = SSD1683_BUFFER_BYTES;
+    /* Driver framebuffer only requires byte-addressable memory. */
     display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
     if (display->buffer == NULL) {
         epd_ssd1683_deinit(display);
@@ -629,6 +631,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display)
     }
 
     display->shadow_size = SSD1683_BUFFER_BYTES;
+    /* Full-frame shadow prefers PSRAM but remains optional without it. */
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (display->shadow == NULL) {

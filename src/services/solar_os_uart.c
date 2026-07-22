@@ -35,12 +35,23 @@ typedef struct {
     char name[SOLAR_OS_BUS_NAME_MAX];
     solar_os_bus_uart_config_t config;
     solar_os_uart_mode_t mode;
-    SemaphoreHandle_t mutex;
 } solar_os_uart_instance_t;
+
+typedef struct {
+    solar_os_uart_instance_t *instance;
+    size_t index;
+    uint32_t generation;
+    SemaphoreHandle_t mutex;
+} solar_os_uart_ref_t;
 
 static const char *TAG = "solar_os_uart";
 static solar_os_uart_instance_t uart_instances[UART_NUM_MAX];
 static SemaphoreHandle_t uart_manager_mutex;
+static SemaphoreHandle_t uart_instance_mutexes[UART_NUM_MAX];
+static StaticSemaphore_t uart_instance_mutex_buffers[UART_NUM_MAX];
+static uint32_t uart_instance_generations[UART_NUM_MAX];
+static size_t uart_instance_refs[UART_NUM_MAX];
+static bool uart_instance_retiring[UART_NUM_MAX];
 
 static esp_err_t uart_port_read_cb(void *user,
                                    uint8_t *data,
@@ -88,7 +99,28 @@ static esp_err_t uart_manager_init(void)
     if (uart_manager_mutex == NULL) {
         uart_manager_mutex = xSemaphoreCreateMutex();
     }
-    return uart_manager_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    if (uart_manager_mutex == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    for (size_t i = 0; i < UART_NUM_MAX; i++) {
+        if (uart_instance_mutexes[i] == NULL) {
+            uart_instance_mutexes[i] =
+                xSemaphoreCreateMutexStatic(&uart_instance_mutex_buffers[i]);
+        }
+        if (uart_instance_mutexes[i] == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    return ESP_OK;
+}
+
+static uint32_t uart_next_generation_locked(size_t index)
+{
+    uart_instance_generations[index]++;
+    if (uart_instance_generations[index] == 0) {
+        uart_instance_generations[index]++;
+    }
+    return uart_instance_generations[index];
 }
 
 static solar_os_uart_instance_t *uart_find_name_locked(const char *name)
@@ -111,15 +143,86 @@ static solar_os_uart_instance_t *uart_find_port_locked(int port_num)
     return NULL;
 }
 
-static solar_os_uart_instance_t *uart_find_name(const char *name)
+static esp_err_t uart_pin_index_locked(size_t index, solar_os_uart_ref_t *ref)
 {
-    if (name == NULL || uart_manager_init() != ESP_OK) {
-        return NULL;
+    if (ref == NULL || index >= UART_NUM_MAX ||
+        !uart_instances[index].active || uart_instance_retiring[index]) {
+        return ESP_ERR_NOT_FOUND;
     }
+    uart_instance_refs[index]++;
+    *ref = (solar_os_uart_ref_t) {
+        .instance = &uart_instances[index],
+        .index = index,
+        .generation = uart_instance_generations[index],
+        .mutex = uart_instance_mutexes[index],
+    };
+    return ESP_OK;
+}
+
+static esp_err_t uart_pin_name_timeout(const char *name,
+                                       TickType_t wait_ticks,
+                                       solar_os_uart_ref_t *ref)
+{
+    if (name == NULL || ref == NULL || uart_manager_init() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(ref, 0, sizeof(*ref));
     xSemaphoreTake(uart_manager_mutex, portMAX_DELAY);
     solar_os_uart_instance_t *instance = uart_find_name_locked(name);
+    const esp_err_t ret = instance != NULL
+        ? uart_pin_index_locked((size_t)(instance - uart_instances), ref)
+        : ESP_ERR_NOT_FOUND;
     xSemaphoreGive(uart_manager_mutex);
-    return instance;
+    if (ret == ESP_OK && xSemaphoreTake(ref->mutex, wait_ticks) != pdTRUE) {
+        xSemaphoreTake(uart_manager_mutex, portMAX_DELAY);
+        if (uart_instance_generations[ref->index] == ref->generation &&
+            uart_instance_refs[ref->index] > 0) {
+            uart_instance_refs[ref->index]--;
+        }
+        xSemaphoreGive(uart_manager_mutex);
+        memset(ref, 0, sizeof(*ref));
+        return ESP_ERR_TIMEOUT;
+    }
+    return ret;
+}
+
+static esp_err_t uart_pin_name(const char *name, solar_os_uart_ref_t *ref)
+{
+    return uart_pin_name_timeout(name, portMAX_DELAY, ref);
+}
+
+static esp_err_t uart_pin_instance(solar_os_uart_instance_t *instance,
+                                   solar_os_uart_ref_t *ref)
+{
+    if (instance == NULL || ref == NULL || uart_manager_init() != ESP_OK ||
+        instance < uart_instances || instance >= &uart_instances[UART_NUM_MAX]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(ref, 0, sizeof(*ref));
+    const size_t index = (size_t)(instance - uart_instances);
+    xSemaphoreTake(uart_manager_mutex, portMAX_DELAY);
+    const esp_err_t ret = uart_pin_index_locked(index, ref);
+    xSemaphoreGive(uart_manager_mutex);
+    if (ret == ESP_OK) {
+        xSemaphoreTake(ref->mutex, portMAX_DELAY);
+    }
+    return ret;
+}
+
+static void uart_unpin(solar_os_uart_ref_t *ref)
+{
+    if (ref == NULL || ref->mutex == NULL) {
+        return;
+    }
+    xSemaphoreGive(ref->mutex);
+    xSemaphoreTake(uart_manager_mutex, portMAX_DELAY);
+    if (ref->index < UART_NUM_MAX &&
+        uart_instance_generations[ref->index] == ref->generation &&
+        uart_instance_refs[ref->index] > 0) {
+        uart_instance_refs[ref->index]--;
+    }
+    xSemaphoreGive(uart_manager_mutex);
+    memset(ref, 0, sizeof(*ref));
 }
 
 bool solar_os_uart_is_valid_baud_rate(uint32_t baud_rate)
@@ -230,9 +333,12 @@ esp_err_t solar_os_uart_register_bus(const char *name,
     }
 
     solar_os_uart_instance_t *instance = NULL;
+    size_t instance_index = 0;
     for (size_t i = 0; i < UART_NUM_MAX; i++) {
-        if (!uart_instances[i].active) {
+        if (!uart_instances[i].active && !uart_instance_retiring[i] &&
+            uart_instance_refs[i] == 0) {
             instance = &uart_instances[i];
+            instance_index = i;
             break;
         }
     }
@@ -241,22 +347,16 @@ esp_err_t solar_os_uart_register_bus(const char *name,
         return ESP_ERR_NO_MEM;
     }
 
-    SemaphoreHandle_t instance_mutex = xSemaphoreCreateMutex();
-    if (instance_mutex == NULL) {
-        xSemaphoreGive(uart_manager_mutex);
-        return ESP_ERR_NO_MEM;
-    }
     memset(instance, 0, sizeof(*instance));
+    (void)uart_next_generation_locked(instance_index);
     instance->active = true;
     instance->persistent = persistent;
     instance->config = *config;
     instance->mode = SOLAR_OS_UART_MODE_RAW;
-    instance->mutex = instance_mutex;
     strlcpy(instance->name, name, sizeof(instance->name));
 
     esp_err_t ret = uart_register_port(instance);
     if (ret != ESP_OK) {
-        vSemaphoreDelete(instance_mutex);
         memset(instance, 0, sizeof(*instance));
         xSemaphoreGive(uart_manager_mutex);
         return ret;
@@ -276,23 +376,13 @@ esp_err_t solar_os_uart_register_bus(const char *name,
 #endif
 }
 
-esp_err_t solar_os_uart_start_bus(const char *name)
+#if SOLAR_OS_BOARD_HAS_UART
+static esp_err_t uart_start_instance_locked(solar_os_uart_instance_t *instance)
 {
-#if !SOLAR_OS_BOARD_HAS_UART
-    (void)name;
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
     if (!instance->attached) {
-        xSemaphoreGive(instance->mutex);
         return ESP_ERR_INVALID_STATE;
     }
     if (instance->initialized) {
-        xSemaphoreGive(instance->mutex);
         return ESP_OK;
     }
     esp_err_t ret = ESP_OK;
@@ -315,7 +405,23 @@ esp_err_t solar_os_uart_start_bus(const char *name)
                       instance->config.rx_pin,
                       instance->config.baud_rate);
     }
-    xSemaphoreGive(instance->mutex);
+    return ret;
+}
+#endif
+
+esp_err_t solar_os_uart_start_bus(const char *name)
+{
+#if !SOLAR_OS_BOARD_HAS_UART
+    (void)name;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    solar_os_uart_ref_t ref;
+    const esp_err_t pin_ret = uart_pin_name(name, &ref);
+    if (pin_ret != ESP_OK) {
+        return pin_ret;
+    }
+    const esp_err_t ret = uart_start_instance_locked(ref.instance);
+    uart_unpin(&ref);
     return ret;
 #endif
 }
@@ -326,17 +432,18 @@ esp_err_t solar_os_uart_stop_bus(const char *name)
     (void)name;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
     }
     solar_os_port_info_t info;
     if (solar_os_port_get_info(name, &info) == ESP_OK && info.claimed) {
+        uart_unpin(&ref);
         return ESP_ERR_INVALID_STATE;
     }
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
-    const esp_err_t ret = uart_stop_instance_locked(instance);
-    xSemaphoreGive(instance->mutex);
+    ret = uart_stop_instance_locked(ref.instance);
+    uart_unpin(&ref);
     return ret;
 #endif
 }
@@ -360,20 +467,38 @@ esp_err_t solar_os_uart_unregister_bus(const char *name)
         xSemaphoreGive(uart_manager_mutex);
         return ESP_ERR_INVALID_STATE;
     }
-    solar_os_port_info_t port_info;
-    if (solar_os_port_get_info(name, &port_info) == ESP_OK && port_info.claimed) {
+    const size_t index = (size_t)(instance - uart_instances);
+    if (uart_instance_refs[index] > 0 || uart_instance_retiring[index]) {
         xSemaphoreGive(uart_manager_mutex);
         return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t ret = uart_stop_instance_locked(instance);
-    if (ret == ESP_OK && instance->attached) {
-        ret = solar_os_port_unregister(name);
+    const uint32_t generation = uart_instance_generations[index];
+    uart_instance_retiring[index] = true;
+    xSemaphoreGive(uart_manager_mutex);
+
+    xSemaphoreTake(uart_instance_mutexes[index], portMAX_DELAY);
+    esp_err_t ret = ESP_OK;
+    solar_os_port_info_t port_info;
+    if (solar_os_port_get_info(name, &port_info) == ESP_OK && port_info.claimed) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        ret = uart_stop_instance_locked(instance);
+        if (ret == ESP_OK && instance->attached) {
+            ret = solar_os_port_unregister(name);
+        }
+    }
+    xSemaphoreGive(uart_instance_mutexes[index]);
+
+    xSemaphoreTake(uart_manager_mutex, portMAX_DELAY);
+    if (uart_instance_generations[index] != generation ||
+        !uart_instance_retiring[index]) {
+        xSemaphoreGive(uart_manager_mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     if (ret == ESP_OK) {
-        SemaphoreHandle_t instance_mutex = instance->mutex;
         memset(instance, 0, sizeof(*instance));
-        vSemaphoreDelete(instance_mutex);
     }
+    uart_instance_retiring[index] = false;
     xSemaphoreGive(uart_manager_mutex);
     return ret;
 #endif
@@ -385,13 +510,14 @@ esp_err_t solar_os_uart_bus_attach(const char *name)
     (void)name;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    solar_os_uart_ref_t ref;
+    const esp_err_t pin_ret = uart_pin_name(name, &ref);
+    if (pin_ret != ESP_OK) {
+        return pin_ret;
     }
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
+    solar_os_uart_instance_t *instance = ref.instance;
     if (instance->attached) {
-        xSemaphoreGive(instance->mutex);
+        uart_unpin(&ref);
         return ESP_OK;
     }
 
@@ -400,7 +526,7 @@ esp_err_t solar_os_uart_bus_attach(const char *name)
         instance->attached = true;
         SOLAR_OS_LOGI(TAG, "%s attached", instance->name);
     }
-    xSemaphoreGive(instance->mutex);
+    uart_unpin(&ref);
     return ret;
 #endif
 }
@@ -411,13 +537,14 @@ esp_err_t solar_os_uart_bus_detach(const char *name)
     (void)name;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    solar_os_uart_ref_t ref;
+    const esp_err_t pin_ret = uart_pin_name(name, &ref);
+    if (pin_ret != ESP_OK) {
+        return pin_ret;
     }
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
+    solar_os_uart_instance_t *instance = ref.instance;
     if (!instance->attached) {
-        xSemaphoreGive(instance->mutex);
+        uart_unpin(&ref);
         return ESP_OK;
     }
 
@@ -432,7 +559,7 @@ esp_err_t solar_os_uart_bus_detach(const char *name)
         instance->attached = false;
         SOLAR_OS_LOGI(TAG, "%s detached", instance->name);
     }
-    xSemaphoreGive(instance->mutex);
+    uart_unpin(&ref);
     return ret;
 #endif
 }
@@ -442,7 +569,9 @@ esp_err_t solar_os_uart_init(void)
 #if !SOLAR_OS_BOARD_HAS_UART
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (uart_find_name(SOLAR_OS_UART_PORT_NAME) != NULL) {
+    solar_os_uart_ref_t existing;
+    if (uart_pin_name(SOLAR_OS_UART_PORT_NAME, &existing) == ESP_OK) {
+        uart_unpin(&existing);
         return ESP_OK;
     }
 
@@ -464,11 +593,10 @@ esp_err_t solar_os_uart_init(void)
     uart_load_config(&config.baud_rate, &mode);
     esp_err_t ret = solar_os_uart_register_bus(SOLAR_OS_UART_PORT_NAME, &config, true);
     if (ret == ESP_OK) {
-        solar_os_uart_instance_t *instance = uart_find_name(SOLAR_OS_UART_PORT_NAME);
-        if (instance != NULL) {
-            xSemaphoreTake(instance->mutex, portMAX_DELAY);
-            instance->mode = mode;
-            xSemaphoreGive(instance->mutex);
+        solar_os_uart_ref_t ref;
+        if (uart_pin_name(SOLAR_OS_UART_PORT_NAME, &ref) == ESP_OK) {
+            ref.instance->mode = mode;
+            uart_unpin(&ref);
         }
 #if !SOLAR_OS_PACKAGE_SERVICE_RESOURCES
         ret = solar_os_uart_start_bus(SOLAR_OS_UART_PORT_NAME);
@@ -499,14 +627,18 @@ esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
     if (strcmp(name, SOLAR_OS_UART_PORT_NAME) == 0) {
         ESP_RETURN_ON_ERROR(solar_os_uart_init(), TAG, "initialize default UART failed");
     }
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
     }
-    ESP_RETURN_ON_ERROR(uart_require_idle(name), TAG, "UART port busy");
+    ret = uart_require_idle(name);
+    if (ret != ESP_OK) {
+        uart_unpin(&ref);
+        return ret;
+    }
 
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
-    esp_err_t ret = ESP_OK;
+    solar_os_uart_instance_t *instance = ref.instance;
     if (instance->initialized) {
         ret = uart_port_set_baud_rate((uart_port_t)instance->config.port, baud_rate);
     }
@@ -516,7 +648,7 @@ esp_err_t solar_os_uart_bus_set_baud_rate(const char *name, uint32_t baud_rate)
             ret = uart_save_config(instance);
         }
     }
-    xSemaphoreGive(instance->mutex);
+    uart_unpin(&ref);
     return ret;
 }
 
@@ -534,16 +666,21 @@ esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode
     if (strcmp(name, SOLAR_OS_UART_PORT_NAME) == 0) {
         ESP_RETURN_ON_ERROR(solar_os_uart_init(), TAG, "initialize default UART failed");
     }
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
-        return ESP_ERR_NOT_FOUND;
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_name(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
     }
-    ESP_RETURN_ON_ERROR(uart_require_idle(name), TAG, "UART port busy");
+    ret = uart_require_idle(name);
+    if (ret != ESP_OK) {
+        uart_unpin(&ref);
+        return ret;
+    }
 
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
+    solar_os_uart_instance_t *instance = ref.instance;
     instance->mode = mode;
-    const esp_err_t ret = instance->persistent ? uart_save_config(instance) : ESP_OK;
-    xSemaphoreGive(instance->mutex);
+    ret = instance->persistent ? uart_save_config(instance) : ESP_OK;
+    uart_unpin(&ref);
     return ret;
 }
 
@@ -557,15 +694,19 @@ static esp_err_t uart_write_direct(solar_os_uart_instance_t *instance,
                                    size_t len,
                                    size_t *written)
 {
-    ESP_RETURN_ON_ERROR(solar_os_uart_start_bus(instance->name),
-                        TAG,
-                        "start UART bus failed");
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
-    const esp_err_t ret = uart_port_write((uart_port_t)instance->config.port,
-                                          data,
-                                          len,
-                                          written);
-    xSemaphoreGive(instance->mutex);
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_instance(instance, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = uart_start_instance_locked(instance);
+    if (ret == ESP_OK) {
+        ret = uart_port_write((uart_port_t)instance->config.port,
+                              data,
+                              len,
+                              written);
+    }
+    uart_unpin(&ref);
     return ret;
 }
 
@@ -615,18 +756,22 @@ static esp_err_t uart_read_direct(solar_os_uart_instance_t *instance,
                                   uint32_t timeout_ms,
                                   size_t *read_len)
 {
-    ESP_RETURN_ON_ERROR(solar_os_uart_start_bus(instance->name),
-                        TAG,
-                        "start UART bus failed");
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
-    const esp_err_t ret = instance->mode == SOLAR_OS_UART_MODE_LINE
-        ? uart_read_line_mode(instance, data, len, timeout_ms, read_len)
-        : uart_port_read((uart_port_t)instance->config.port,
-                         data,
-                         len,
-                         timeout_ms,
-                         read_len);
-    xSemaphoreGive(instance->mutex);
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_instance(instance, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = uart_start_instance_locked(instance);
+    if (ret == ESP_OK) {
+        ret = instance->mode == SOLAR_OS_UART_MODE_LINE
+            ? uart_read_line_mode(instance, data, len, timeout_ms, read_len)
+            : uart_port_read((uart_port_t)instance->config.port,
+                             data,
+                             len,
+                             timeout_ms,
+                             read_len);
+    }
+    uart_unpin(&ref);
     return ret;
 }
 
@@ -658,7 +803,16 @@ static esp_err_t uart_port_write_cb(void *user,
 static esp_err_t uart_port_open_cb(void *user)
 {
     solar_os_uart_instance_t *instance = (solar_os_uart_instance_t *)user;
-    return instance != NULL ? solar_os_uart_start_bus(instance->name) : ESP_ERR_INVALID_ARG;
+    if (instance == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_instance(instance, &ref);
+    if (ret == ESP_OK) {
+        ret = uart_start_instance_locked(instance);
+        uart_unpin(&ref);
+    }
+    return ret;
 }
 
 static esp_err_t uart_port_close_cb(void *user)
@@ -667,9 +821,12 @@ static esp_err_t uart_port_close_cb(void *user)
     if (instance == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    xSemaphoreTake(instance->mutex, portMAX_DELAY);
-    const esp_err_t ret = uart_stop_instance_locked(instance);
-    xSemaphoreGive(instance->mutex);
+    solar_os_uart_ref_t ref;
+    esp_err_t ret = uart_pin_instance(instance, &ref);
+    if (ret == ESP_OK) {
+        ret = uart_stop_instance_locked(instance);
+        uart_unpin(&ref);
+    }
     return ret;
 }
 
@@ -759,10 +916,11 @@ bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *stat
     if (name == NULL || status == NULL) {
         return false;
     }
-    solar_os_uart_instance_t *instance = uart_find_name(name);
-    if (instance == NULL) {
+    solar_os_uart_ref_t ref;
+    if (uart_pin_name_timeout(name, 0, &ref) != ESP_OK) {
         return false;
     }
+    solar_os_uart_instance_t *instance = ref.instance;
 
     memset(status, 0, sizeof(*status));
     strlcpy(status->name, instance->name, sizeof(status->name));
@@ -774,15 +932,15 @@ bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *stat
     status->baud_rate = instance->config.baud_rate;
     status->mode = instance->mode;
 
-    if (instance->initialized && xSemaphoreTake(instance->mutex, 0) == pdTRUE) {
+    if (instance->initialized) {
         size_t buffered = 0;
         if (uart_port_get_rx_buffered((uart_port_t)instance->config.port,
                                       &buffered) == ESP_OK) {
             status->rx_buffered = buffered;
             status->rx_buffered_valid = true;
         }
-        xSemaphoreGive(instance->mutex);
     }
+    uart_unpin(&ref);
 
     solar_os_port_info_t port_info;
     if (solar_os_port_get_info(name, &port_info) == ESP_OK) {

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "solar_os_pocsag_job.h"
+#include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 
 #define POCSAG_DEFAULT_DEVIATION_HZ 4500U
@@ -116,7 +117,9 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
         return;
     }
 
-    uint8_t *payload = malloc(SOLAR_OS_POCSAG_PAYLOAD_MAX);
+    uint8_t *payload = solar_os_memory_alloc(SOLAR_OS_POCSAG_PAYLOAD_MAX,
+                                             SOLAR_OS_MEMORY_TRANSIENT,
+                                             "pocsag.payload");
     if (payload == NULL) {
         solar_os_shell_io_writeln(io, "pocsag send: ESP_ERR_NO_MEM");
         return;
@@ -132,7 +135,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
                                          &payload_len,
                                          &batches);
     if (err != ESP_OK) {
-        free(payload);
+        solar_os_memory_free(payload);
         solar_os_shell_io_printf(io, "pocsag send: invalid message: %s\n", esp_err_to_name(err));
         return;
     }
@@ -145,7 +148,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
     solar_os_radio_status_t saved;
     err = solar_os_radio_get_status(radio, &saved);
     if (err != ESP_OK) {
-        free(payload);
+        solar_os_memory_free(payload);
         solar_os_shell_io_printf(io, "pocsag send: %s\n", esp_err_to_name(err));
         return;
     }
@@ -174,7 +177,7 @@ static void pocsag_send(solar_os_shell_io_t *io, int argc, char **argv)
         err = solar_os_radio_send_stream(radio, payload, payload_len, timeout_ms);
     }
     const esp_err_t restore_err = restore_radio(radio, &saved);
-    free(payload);
+    solar_os_memory_free(payload);
     if (err == ESP_OK) {
         err = restore_err;
     }

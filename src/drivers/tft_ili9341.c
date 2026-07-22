@@ -580,6 +580,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display)
                         "spi add device failed");
 
     display->line_buffer_size = ILI9341_LINE_BYTES;
+    /* SPI transmits directly from this line buffer, so it must be internal DMA memory. */
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (display->line_buffer == NULL) {
@@ -588,6 +589,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display)
     }
 
     display->buffer_size = ILI9341_BUFFER_BYTES;
+    /* Driver framebuffer only requires byte-addressable memory. */
     display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
     if (display->buffer == NULL) {
         tft_ili9341_deinit(display);
@@ -596,6 +598,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display)
     memset(display->buffer, 0, display->buffer_size);
 
     display->shadow_size = ILI9341_BUFFER_BYTES;
+    /* Full-frame shadow is large and never used as a DMA source. */
     display->shadow = heap_caps_malloc(display->shadow_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (display->shadow == NULL) {
         ESP_LOGW(TAG, "display shadow allocation failed, partial update skipping disabled");

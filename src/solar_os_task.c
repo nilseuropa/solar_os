@@ -1,7 +1,23 @@
 #include "solar_os_task.h"
 
+#include "esp_heap_caps.h"
+#include "freertos/idf_additions.h"
+#include "sdkconfig.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+
+static void task_log_create_failure(const char *name, uint32_t stack_depth)
+{
+    solar_os_memory_status_t memory;
+    solar_os_memory_get_status(&memory);
+    SOLAR_OS_LOGW("task",
+                  "create failed name=%s stack=%u internal_free=%u internal_max=%u external_free=%u",
+                  name != NULL ? name : "unknown",
+                  (unsigned)stack_depth,
+                  (unsigned)memory.internal.free,
+                  (unsigned)memory.internal.largest_free,
+                  (unsigned)memory.external.free);
+}
 
 BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
                                         const char *name,
@@ -19,17 +35,51 @@ BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
                                                       handle,
                                                       core_id);
     if (result != pdPASS) {
-        solar_os_memory_status_t memory;
-        solar_os_memory_get_status(&memory);
-        SOLAR_OS_LOGW("task",
-                      "create failed name=%s stack=%u internal_free=%u internal_max=%u external_free=%u",
-                      name != NULL ? name : "unknown",
-                      (unsigned)stack_depth,
-                      (unsigned)memory.internal.free,
-                      (unsigned)memory.internal.largest_free,
-                      (unsigned)memory.external.free);
+        task_log_create_failure(name, stack_depth);
     }
     return result;
+}
+
+BaseType_t solar_os_task_create_pinned_external(TaskFunction_t task,
+                                                 const char *name,
+                                                 uint32_t stack_depth,
+                                                 void *parameters,
+                                                 UBaseType_t priority,
+                                                 TaskHandle_t *handle,
+                                                 BaseType_t core_id)
+{
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    const BaseType_t result = xTaskCreatePinnedToCoreWithCaps(
+        task,
+        name,
+        stack_depth,
+        parameters,
+        priority,
+        handle,
+        core_id,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (result != pdPASS) {
+        task_log_create_failure(name, stack_depth);
+    }
+    return result;
+#else
+    return solar_os_task_create_pinned(task,
+                                       name,
+                                       stack_depth,
+                                       parameters,
+                                       priority,
+                                       handle,
+                                       core_id);
+#endif
+}
+
+void solar_os_task_delete_external(TaskHandle_t task)
+{
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    vTaskDeleteWithCaps(task);
+#else
+    vTaskDelete(task);
+#endif
 }
 
 bool solar_os_task_wait_done(TaskHandle_t task,

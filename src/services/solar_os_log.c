@@ -7,12 +7,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
+#include "solar_os_memory.h"
 
 #define LOG_NVS_NAMESPACE "log"
 #define LOG_NVS_LEVEL_KEY "level"
@@ -173,15 +173,11 @@ static esp_err_t log_allocate_ring(void)
     }
 
     const size_t bytes = sizeof(solar_os_log_entry_t) * SOLAR_OS_LOG_CAPACITY;
-    log_ring = heap_caps_calloc(SOLAR_OS_LOG_CAPACITY,
-                                sizeof(solar_os_log_entry_t),
-                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    log_ring_in_psram = log_ring != NULL;
-    if (log_ring == NULL) {
-        log_ring = heap_caps_calloc(SOLAR_OS_LOG_CAPACITY,
-                                    sizeof(solar_os_log_entry_t),
-                                    MALLOC_CAP_8BIT);
-    }
+    log_ring = solar_os_memory_calloc(SOLAR_OS_LOG_CAPACITY,
+                                      sizeof(solar_os_log_entry_t),
+                                      SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                      "log.ring");
+    log_ring_in_psram = solar_os_memory_is_external(log_ring);
     if (log_ring == NULL) {
         return ESP_ERR_NO_MEM;
     }

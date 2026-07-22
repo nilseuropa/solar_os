@@ -862,7 +862,7 @@ esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume)
         }
     }
 
-    heap_caps_free(buffer);
+    solar_os_memory_free(buffer);
     SOLAR_OS_LOGI(TAG, "loopback: %" PRIu32 " ms vol=%u ret=%s",
              duration_ms,
              volume,
@@ -1017,7 +1017,7 @@ esp_err_t solar_os_audio_record_wav(const char *path,
         ret = ESP_FAIL;
     }
     errno = close_errno;
-    heap_caps_free(buffer);
+    solar_os_memory_free(buffer);
 
     if (info != NULL) {
         *info = current;
@@ -1137,7 +1137,7 @@ esp_err_t solar_os_audio_play_wav(const char *path,
     const int close_errno = errno;
     fclose(file);
     errno = close_errno;
-    heap_caps_free(buffer);
+    solar_os_memory_free(buffer);
 
     if (info != NULL) {
         *info = progress;
@@ -1210,11 +1210,11 @@ esp_err_t solar_os_audio_play_mp3(const char *path,
             audio_log_heap_nomem("mp3 playback", AUDIO_WAV_BUFFER_BYTES);
         }
         fclose(file);
-        heap_caps_free(decoder);
-        heap_caps_free(input);
-        heap_caps_free(decoded);
-        heap_caps_free(output);
-        heap_caps_free(playback);
+        solar_os_memory_free(decoder);
+        solar_os_memory_free(input);
+        solar_os_memory_free(decoded);
+        solar_os_memory_free(output);
+        solar_os_memory_free(playback);
         return ESP_ERR_NO_MEM;
     }
 
@@ -1338,11 +1338,11 @@ cleanup:
         fclose(file);
         errno = close_errno;
     }
-    heap_caps_free(decoder);
-    heap_caps_free(input);
-    heap_caps_free(decoded);
-    heap_caps_free(output);
-    heap_caps_free(playback);
+    solar_os_memory_free(decoder);
+    solar_os_memory_free(input);
+    solar_os_memory_free(decoded);
+    solar_os_memory_free(output);
+    solar_os_memory_free(playback);
 
     if (info != NULL) {
         *info = progress;

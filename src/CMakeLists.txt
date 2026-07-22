@@ -139,6 +139,36 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 )
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+file(GLOB SOLAR_OS_BOARD_METADATA_HEADERS
+    "${SOLAR_OS_PROJECT_DIR}/include/boards/*.h"
+)
+file(GLOB SOLAR_OS_BOARD_METADATA_PROFILES
+    "${SOLAR_OS_PROJECT_DIR}/boards/*.cmake"
+)
+set(SOLAR_OS_BOARD_METADATA_VALIDATOR
+    "${SOLAR_OS_PROJECT_DIR}/scripts/validate_board_metadata.py"
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${SOLAR_OS_BOARD_METADATA_VALIDATOR}"
+    "${SOLAR_OS_PROJECT_DIR}/include/solar_os_board.h"
+    ${SOLAR_OS_BOARD_METADATA_HEADERS}
+    ${SOLAR_OS_BOARD_METADATA_PROFILES}
+    "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.h"
+    "${SOLAR_OS_PROJECT_DIR}/src/services/solar_os_board_caps.c"
+    "${SOLAR_OS_PROJECT_DIR}/doc/solar_os_boards.md"
+    "${SOLAR_OS_PROJECT_DIR}/doc/expansion.md"
+    "${SOLAR_OS_PROJECT_DIR}/platformio.ini"
+)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${SOLAR_OS_BOARD_METADATA_VALIDATOR}"
+            "--root" "${SOLAR_OS_PROJECT_DIR}"
+    RESULT_VARIABLE SOLAR_OS_BOARD_METADATA_RESULT
+)
+if(NOT SOLAR_OS_BOARD_METADATA_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS board metadata validation failed")
+endif()
+
 get_filename_component(SOLAR_OS_CMAKE_BINARY_DIR "${CMAKE_BINARY_DIR}" ABSOLUTE)
 if(SOLAR_OS_CMAKE_BINARY_DIR STREQUAL SOLAR_OS_PROJECT_DIR
         AND DEFINED ENV{PIOENV}

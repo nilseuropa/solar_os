@@ -188,8 +188,14 @@ Columns:
 | `TICKS` | Number of dispatched tick events while running. |
 | `RES` | Number of resources currently recorded for the job. |
 
-Use `job status <name>` for the job summary, owner string, last error, and
-resource details. Job-owned resources use owner strings such as `job:log`; port
+Use `job status <name>` for the job summary, owner string, last error, effective
+tick interval/deadline, last and maximum handler time, deadline-miss count, and
+resource details. `sessions` prints the same timing telemetry for display and
+port sessions as one row per session in `ID TITLE APP STATE TIME` order. In the
+`TIME` column, the first pair is `interval/deadline` in milliseconds, the second
+is `last/max` in microseconds, `n` is the dispatch count, and `!` is the deadline
+miss count. Job timing detail uses the same values with explicit labels.
+Job-owned resources use owner strings such as `job:log`; port
 conflicts are reported as readable messages such as `job log owns cdc0`.
 
 Common job examples:

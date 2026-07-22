@@ -11,7 +11,6 @@
 #include <string.h>
 
 #include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
 #include "esp_tls.h"
 #include "esp_tls_errors.h"
 #include "freertos/FreeRTOS.h"
@@ -117,7 +116,7 @@ static void chat_clear_event_queue(void)
 
     solar_os_chat_event_t *event = NULL;
     while (xQueueReceive(chat_state.events, &event, 0) == pdTRUE) {
-        heap_caps_free(event);
+        solar_os_memory_free(event);
         event = NULL;
     }
     xQueueReset(chat_state.events);
@@ -131,7 +130,7 @@ static void chat_clear_tx_queue(void)
 
     char *line = NULL;
     while (xQueueReceive(chat_state.tx, &line, 0) == pdTRUE) {
-        heap_caps_free(line);
+        solar_os_memory_free(line);
         line = NULL;
     }
     xQueueReset(chat_state.tx);
@@ -352,12 +351,12 @@ static void chat_count_dropped_event(void)
 static bool chat_queue_event_owned(solar_os_chat_event_t *event)
 {
     if (event == NULL || chat_state.events == NULL) {
-        heap_caps_free(event);
+        solar_os_memory_free(event);
         return false;
     }
 
     if (xQueueSend(chat_state.events, &event, 0) != pdPASS) {
-        heap_caps_free(event);
+        solar_os_memory_free(event);
         chat_count_dropped_event();
         return false;
     }
@@ -923,7 +922,7 @@ static void chat_gateway_task(void *arg)
         while (!chat_state.stop_requested &&
                xQueueReceive(chat_state.tx, &tx_line, 0) == pdTRUE) {
             ret = chat_send_line(tls, tx_line);
-            heap_caps_free(tx_line);
+            solar_os_memory_free(tx_line);
             tx_line = NULL;
             if (ret != ESP_OK) {
                 SOLAR_OS_LOGW(TAG,
@@ -989,7 +988,7 @@ static void chat_gateway_task(void *arg)
         break;
     }
 
-    heap_caps_free(line);
+    solar_os_memory_free(line);
     esp_tls_conn_destroy(tls);
     chat_task_set_state(false, false, ESP_OK, NULL);
     if (!chat_state.stop_requested) {
@@ -1185,7 +1184,7 @@ static esp_err_t chat_queue_tx_line(const char *line)
     memcpy(queued, line, line_len + 1U);
 
     if (xQueueSend(chat_state.tx, &queued, 0) != pdTRUE) {
-        heap_caps_free(queued);
+        solar_os_memory_free(queued);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -1244,8 +1243,8 @@ esp_err_t solar_os_chat_send(const char *channel, const char *text)
     char *text_esc = chat_malloc(CHAT_TEXT_ESC_MAX);
     char *line = chat_malloc(CHAT_TX_LINE_MAX);
     if (text_esc == NULL || line == NULL) {
-        heap_caps_free(text_esc);
-        heap_caps_free(line);
+        solar_os_memory_free(text_esc);
+        solar_os_memory_free(line);
         return ESP_ERR_NO_MEM;
     }
 
@@ -1258,8 +1257,8 @@ esp_err_t solar_os_chat_send(const char *channel, const char *text)
              channel_esc,
              text_esc);
     const esp_err_t ret = chat_queue_tx_line(line);
-    heap_caps_free(text_esc);
-    heap_caps_free(line);
+    solar_os_memory_free(text_esc);
+    solar_os_memory_free(line);
     return ret;
 }
 
@@ -1280,7 +1279,7 @@ esp_err_t solar_os_chat_read_event(solar_os_chat_event_t *event, uint32_t timeou
         return ESP_FAIL;
     }
     *event = *queued;
-    heap_caps_free(queued);
+    solar_os_memory_free(queued);
     return ESP_OK;
 }
 

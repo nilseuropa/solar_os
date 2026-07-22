@@ -6,9 +6,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_email.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_terminal.h"
 #include "solar_os_tui.h"
 
@@ -414,20 +414,16 @@ static void email_app_page(bool down)
 static esp_err_t email_app_start(solar_os_context_t *ctx)
 {
     memset(&email_app, 0, sizeof(email_app));
-    email_app.messages = heap_caps_calloc(SOLAR_OS_EMAIL_CAPACITY,
-                                          sizeof(email_app.messages[0]),
-                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (email_app.messages == NULL) {
-        email_app.messages = heap_caps_calloc(SOLAR_OS_EMAIL_CAPACITY,
-                                              sizeof(email_app.messages[0]),
-                                              MALLOC_CAP_8BIT);
-    }
+    email_app.messages = solar_os_memory_calloc(SOLAR_OS_EMAIL_CAPACITY,
+                                                sizeof(email_app.messages[0]),
+                                                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                "app.email");
     if (email_app.messages == NULL) {
         return ESP_ERR_NO_MEM;
     }
     esp_err_t err = solar_os_tui_begin(&email_app.tui, ctx);
     if (err != ESP_OK) {
-        heap_caps_free(email_app.messages);
+        solar_os_memory_free(email_app.messages);
         memset(&email_app, 0, sizeof(email_app));
         return err;
     }
@@ -443,7 +439,7 @@ static void email_app_stop(solar_os_context_t *ctx)
     solar_os_tui_set_cursor_visible(&email_app.tui, true);
     solar_os_tui_refresh(&email_app.tui);
     solar_os_tui_end(&email_app.tui);
-    heap_caps_free(email_app.messages);
+    solar_os_memory_free(email_app.messages);
     memset(&email_app, 0, sizeof(email_app));
 }
 

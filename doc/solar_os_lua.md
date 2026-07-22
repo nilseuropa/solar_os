@@ -37,7 +37,7 @@ service packages are not available on that board.
 - `solaros.battery`: `status` when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
-- `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when the `net` package is compiled
+- `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
@@ -52,8 +52,8 @@ service packages are not available on that board.
 - `solaros.ble`: `status`, `connected`, `pair`, `forget`, `layout`, `read` when BLE support is compiled
 - `solaros.clipboard`: `set`, `get`, `size`, `clear`
 - `solaros.identity`: `user`, `hostname`, `format`
-- `solaros.net`: `ping` when the `net` package is compiled
-- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when the `net` package is compiled
+- `solaros.net`: `ping` when `network.base` is compiled
+- `solaros.ssh_keys`: `default_paths`, `default_exists`, `status`, `generate`, `remove` when `network.ssh` is compiled
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
 - `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`
@@ -252,6 +252,13 @@ while not solaros.should_exit() do
     end
 end
 ```
+
+## Jobs
+
+`solaros.jobs.list()` and `solaros.jobs.status(name)` return the effective
+`tick_interval_ms` and `tick_deadline_ms` plus `tick_last_us`, `tick_max_us`,
+and `tick_deadline_misses` runtime telemetry. Job control is available through
+`start(name[, args])` and `stop(name)`.
 
 ## Sessions
 

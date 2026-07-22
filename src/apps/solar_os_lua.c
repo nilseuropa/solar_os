@@ -11,7 +11,6 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -52,9 +51,13 @@
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 #include "solar_os_mqtt.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 #include "solar_os_ssh_keys.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
@@ -686,7 +689,7 @@ static void solua_push_wav_info(lua_State *L, const solar_os_audio_wav_info_t *i
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static void solua_push_mqtt_status(lua_State *L, const solar_os_mqtt_status_t *status)
 {
     lua_newtable(L);
@@ -821,6 +824,11 @@ static void solua_push_job_status(lua_State *L, const solar_os_job_status_t *sta
     solua_set_str(L, -1, "last_error_name", esp_err_to_name(status->last_error));
     solua_set_int(L, -1, "tick_count", status->tick_count);
     solua_set_int(L, -1, "last_tick_ms", status->last_tick_ms);
+    solua_set_int(L, -1, "tick_interval_ms", status->tick_stats.interval_ms);
+    solua_set_int(L, -1, "tick_deadline_ms", status->tick_stats.deadline_ms);
+    solua_set_int(L, -1, "tick_last_us", status->tick_stats.last_duration_us);
+    solua_set_int(L, -1, "tick_max_us", status->tick_stats.max_duration_us);
+    solua_set_int(L, -1, "tick_deadline_misses", status->tick_stats.deadline_miss_count);
 }
 
 static bool solua_should_cancel(void *user)
@@ -1289,7 +1297,7 @@ static int solua_wifi_nat(lua_State *L)
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 static int solua_mqtt_status(lua_State *L)
 {
     solar_os_mqtt_status_t status;
@@ -1715,6 +1723,7 @@ static int solua_buses_get(lua_State *L)
     return 1;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static int solua_buses_create_spi(lua_State *L)
 {
     const char *name = luaL_checkstring(L, 1);
@@ -1769,6 +1778,7 @@ static int solua_buses_create_spi(lua_State *L)
     solua_push_bus_info(L, &info);
     return 1;
 }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 static int solua_buses_create_i2c(lua_State *L)
@@ -2077,6 +2087,7 @@ static int solua_buses_onewire_xfer(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPI
 static int solua_bus_spi_cs_from_arg(lua_State *L,
                                      const solar_os_bus_info_t *info,
                                      int index)
@@ -2165,11 +2176,11 @@ static int solua_buses_spi_xfer(lua_State *L)
                                                          len,
                                                          "lua-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         return solua_check_esp(L, ret);
     }
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return 1;
 }
 
@@ -2198,11 +2209,11 @@ static int solua_buses_spi_read(lua_State *L)
                                                          len,
                                                          "lua-spi");
     if (ret != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         return solua_check_esp(L, ret);
     }
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return 1;
 }
 
@@ -2230,6 +2241,7 @@ static int solua_buses_spi_write(lua_State *L)
     lua_pushinteger(L, (lua_Integer)len);
     return 1;
 }
+#endif
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
@@ -2660,12 +2672,12 @@ static int solua_spi_xfer(lua_State *L)
                                                 rx,
                                                 len);
     if (err != ESP_OK) {
-        heap_caps_free(rx);
+        solar_os_memory_free(rx);
         return solua_check_esp(L, err);
     }
 
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(rx);
+    solar_os_memory_free(rx);
     return 1;
 }
 
@@ -2684,12 +2696,12 @@ static int solua_spi_read(lua_State *L)
 
     const esp_err_t err = solar_os_spi_transfer(cs_pin, mode, speed_hz, tx, rx, len);
     if (err != ESP_OK) {
-        heap_caps_free(buffers);
+        solar_os_memory_free(buffers);
         return solua_check_esp(L, err);
     }
 
     lua_pushlstring(L, (const char *)rx, len);
-    heap_caps_free(buffers);
+    solar_os_memory_free(buffers);
     return 1;
 }
 
@@ -2999,7 +3011,7 @@ static int solua_identity_format(lua_State *L)
     return 1;
 }
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static int solua_net_ping(lua_State *L)
 {
     const char *host = luaL_checkstring(L, 1);
@@ -3032,6 +3044,9 @@ static int solua_net_ping(lua_State *L)
     return 1;
 }
 
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
 static int solua_ssh_keys_default_paths(lua_State *L)
 {
     char private_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -3872,7 +3887,7 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
     solua_new_submodule(L, solaros, "mqtt");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "status", solua_mqtt_status);
@@ -3942,62 +3957,32 @@ static void solua_open_solaros(lua_State *L)
     lua_pop(L, 1);
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-    solua_new_submodule(L, solaros, "buses");
-    mod = lua_gettop(L);
-    solua_set_int(L, mod, "MODE0", 0);
-    solua_set_int(L, mod, "MODE1", 1);
-    solua_set_int(L, mod, "MODE2", 2);
-    solua_set_int(L, mod, "MODE3", 3);
-    solua_set_int(L, mod, "SPI2_HOST", SPI2_HOST);
-    solua_set_int(L, mod, "SPI3_HOST", SPI3_HOST);
-    solua_set_int(L, mod, "DEFAULT_SPEED", SOLAR_OS_BUS_SPI_DEFAULT_SPEED_HZ);
-    solua_set_int(L, mod, "MAX_SPEED", SOLAR_OS_BUS_SPI_MAX_SPEED_HZ);
-    solua_set_func(L, mod, "list", solua_buses_list);
-    solua_set_func(L, mod, "get", solua_buses_get);
-    solua_set_func(L, mod, "create_spi", solua_buses_create_spi);
-#if SOLAR_OS_PACKAGE_SERVICE_I2C
-    solua_set_func(L, mod, "create_i2c", solua_buses_create_i2c);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
-    solua_set_func(L, mod, "create_onewire", solua_buses_create_onewire);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-    solua_set_func(L, mod, "create_uart", solua_buses_create_uart);
-#endif
-    solua_set_func(L, mod, "remove", solua_buses_remove);
-    solua_set_func(L, mod, "attach", solua_buses_attach);
-    solua_set_func(L, mod, "detach", solua_buses_detach);
-#if SOLAR_OS_PACKAGE_SERVICE_I2C
-    solua_set_func(L, mod, "i2c_probe", solua_buses_i2c_probe);
-    solua_set_func(L, mod, "i2c_scan", solua_buses_i2c_scan);
-    solua_set_func(L, mod, "i2c_read_reg", solua_buses_i2c_read_reg);
-    solua_set_func(L, mod, "i2c_write_reg", solua_buses_i2c_write_reg);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
-    solua_set_func(L, mod, "onewire_reset", solua_buses_onewire_reset);
-    solua_set_func(L, mod, "onewire_scan", solua_buses_onewire_scan);
-    solua_set_func(L, mod, "onewire_xfer", solua_buses_onewire_xfer);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_UART
-    solua_set_func(L, mod, "uart_write", solua_buses_uart_write);
-    solua_set_func(L, mod, "uart_read", solua_buses_uart_read);
-#endif
-    solua_set_func(L, mod, "spi_xfer", solua_buses_spi_xfer);
-    solua_set_func(L, mod, "spi_read", solua_buses_spi_read);
-    solua_set_func(L, mod, "spi_write", solua_buses_spi_write);
-    lua_pop(L, 1);
-#endif
-
-#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
-    solua_new_submodule(L, solaros, "expansion");
-    mod = lua_gettop(L);
-    solua_set_func(L, mod, "drivers", solua_expansion_drivers);
-    solua_set_func(L, mod, "devices", solua_expansion_devices);
-    solua_set_func(L, mod, "attach", solua_expansion_attach);
-    solua_set_func(L, mod, "detach", solua_expansion_detach);
-    lua_pop(L, 1);
-#endif
+#define SOLAR_OS_SCRIPT_API_STRINGIFY_INNER(value) #value
+#define SOLAR_OS_SCRIPT_API_STRINGIFY(value) SOLAR_OS_SCRIPT_API_STRINGIFY_INNER(value)
+#define SOLAR_OS_SCRIPT_API_MODULE_BEGIN(module_name) \
+    { \
+        solua_new_submodule(L, solaros, SOLAR_OS_SCRIPT_API_STRINGIFY(module_name)); \
+        const int script_module = lua_gettop(L)
+#define SOLAR_OS_SCRIPT_API_INT(module_name, public_name, value) \
+    solua_set_int(L, script_module, SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), value)
+#define SOLAR_OS_SCRIPT_API_UINT(module_name, public_name, value) \
+    solua_set_int(L, script_module, SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), value)
+#define SOLAR_OS_SCRIPT_API_FUNCTION(module_name, public_name, native_name) \
+    solua_set_func(L, \
+                   script_module, \
+                   SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                   solua_##module_name##_##native_name)
+#define SOLAR_OS_SCRIPT_API_MODULE_END(module_name) \
+        lua_pop(L, 1); \
+    }
+#include "solar_os_script_bus_api.inc"
+#undef SOLAR_OS_SCRIPT_API_MODULE_END
+#undef SOLAR_OS_SCRIPT_API_FUNCTION
+#undef SOLAR_OS_SCRIPT_API_UINT
+#undef SOLAR_OS_SCRIPT_API_INT
+#undef SOLAR_OS_SCRIPT_API_MODULE_BEGIN
+#undef SOLAR_OS_SCRIPT_API_STRINGIFY
+#undef SOLAR_OS_SCRIPT_API_STRINGIFY_INNER
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     solua_new_submodule(L, solaros, "i2c");
@@ -4082,12 +4067,14 @@ static void solua_open_solaros(lua_State *L)
     solua_set_func(L, mod, "format", solua_identity_format);
     lua_pop(L, 1);
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_new_submodule(L, solaros, "net");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "ping", solua_net_ping);
     lua_pop(L, 1);
+#endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
     solua_new_submodule(L, solaros, "ssh_keys");
     mod = lua_gettop(L);
     solua_set_func(L, mod, "default_paths", solua_ssh_keys_default_paths);

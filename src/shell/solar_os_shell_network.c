@@ -24,7 +24,7 @@
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_config.h"
 #include "solar_os_keys.h"
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #endif
 #include "solar_os_port.h"
@@ -481,7 +481,7 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     wifi_print_usage(term);
 }
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_NET
 static void ping_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage: ping <host> [count]");

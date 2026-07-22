@@ -2,7 +2,7 @@
 
 #include "solar_os_config.h"
 
-#if SOLAR_OS_PACKAGE_NET
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
 
 #include <inttypes.h>
 #include <stdbool.h>

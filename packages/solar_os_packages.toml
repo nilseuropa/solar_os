@@ -1,18 +1,15 @@
-[groups.core]
+[groups.bootstrap]
+immutable = true
+members = ["core_runtime", "core_shell"]
+
+[groups.system]
 members = [
-  "core_runtime",
-  "core_shell",
-  "core_fs_commands",
-  "service_inbox",
-  "app_com",
-  "app_edit",
-  "app_less",
+  "system_shell",
   "service_wifi",
   "service_ble",
   "service_sd",
   "service_audio",
   "service_resources",
-  "app_io",
   "service_engines",
   "service_vector",
   "service_gpio",
@@ -20,11 +17,6 @@ members = [
   "service_logic",
   "service_i2c",
   "service_spi",
-  "service_expansion",
-  "service_radio",
-  "expansion_rfm69",
-  "expansion_pcd8544",
-  "expansion_ssd1306",
   "service_json",
   "service_crypto",
   "service_uart",
@@ -36,12 +28,36 @@ members = [
   "service_buttons",
   "service_joystick",
   "service_adc_dpad",
+]
+
+[groups.expansions]
+members = [
+  "service_expansion",
+  "service_radio",
+  "expansion_rfm69",
+  "expansion_pcd8544",
+  "expansion_ssd1306",
+  "job_pocsag",
+]
+
+[groups.maintenance_apps]
+members = [
+  "service_ota",
+  "core_fs_commands",
+  "service_inbox",
+  "app_com",
+  "app_edit",
+  "app_less",
+  "app_io",
+]
+
+[groups.maintenance_jobs]
+members = [
   "job_bridge",
   "job_log",
   "job_batmon",
   "job_daq",
   "job_sump",
-  "job_pocsag",
 ]
 
 [groups.audio]
@@ -52,6 +68,13 @@ triggers = ["app_aplay", "app_arecord"]
 capabilities = ["wifi"]
 members = [
   "service_wifi",
+  "service_net",
+  "service_mqtt",
+  "service_ssh",
+  "service_mail",
+  "service_chat",
+  "service_http_client",
+  "service_http_server",
   "app_ssh",
   "app_scp",
   "app_curl",
@@ -78,28 +101,6 @@ triggers = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
-]
-sources = [
-  "shell/solar_os_shell_mqtt.c",
-  "services/solar_os_chat.c",
-  "services/solar_os_email.c",
-  "services/solar_os_mqtt.c",
-  "services/solar_os_net.c",
-  "services/solar_os_scp.c",
-  "services/solar_os_ssh.c",
-  "services/solar_os_ssh_keys.c",
-  "services/solar_os_ssh_transport.c",
-  "shell/solar_os_shell_email.c",
-]
-requires = [
-  "esp-tls",
-  "esp_http_client",
-  "esp_http_server",
-  "lwip",
-  "mbedtls",
-  "mqtt",
-  "stb_image",
-  "webp_decoder",
 ]
 
 [groups.media]
@@ -141,11 +142,12 @@ triggers = [
 ]
 
 [packages.core_runtime]
-label = "core.runtime"
+label = "bootstrap.runtime"
 sources = [
   "main.c",
   "solar_os.c",
   "solar_os_jobs.c",
+  "solar_os_scheduler.c",
   "solar_os_task.c",
   "drivers/flash_storage.c",
   "apps/solar_os_app_registry.c",
@@ -158,7 +160,6 @@ sources = [
   "services/solar_os_identity.c",
   "services/solar_os_log.c",
   "services/solar_os_memory.c",
-  "services/solar_os_ota.c",
   "services/solar_os_port.c",
   "services/solar_os_port_shell.c",
   "services/solar_os_power.c",
@@ -172,13 +173,9 @@ sources = [
   "services/solar_os_tui.c",
 ]
 requires = [
-  "app_update",
-  "esp-tls",
   "esp_driver_gpio",
   "esp_driver_usb_serial_jtag",
   "esp_event",
-  "esp_http_client",
-  "esp_https_ota",
   "esp_pm",
   "esp_rom",
   "esp_timer",
@@ -189,23 +186,35 @@ requires = [
   "wear_levelling",
 ]
 
+[packages.service_ota]
+label = "maintenance.ota"
+depends = ["service_crypto", "service_json", "service_wifi"]
+sources = ["services/solar_os_ota.c"]
+requires = [
+  "app_update",
+  "esp-tls",
+  "esp_http_client",
+  "esp_https_ota",
+]
+capabilities = ["wifi"]
+
 [packages.core_shell]
-label = "core.shell"
+label = "bootstrap.shell"
 sources = [
   "apps/solar_os_shell.c",
   "shell/solar_os_shell_common.c",
   "shell/solar_os_shell_commands.c",
-  "shell/solar_os_shell_daq.c",
-  "shell/solar_os_shell_hardware.c",
   "shell/solar_os_shell_io.c",
   "shell/solar_os_shell_setterm_tui.c",
   "shell/solar_os_shell_system.c",
-  "shell/solar_os_shell_network.c",
-  "shell/solar_os_shell_wifi_tui.c",
   "shell/solar_os_vt100.c",
   "services/solar_os_transfer.c",
   "services/solar_os_zmodem.c",
 ]
+
+[packages.system_shell]
+label = "system.shell"
+sources = ["shell/solar_os_shell_hardware.c"]
 
 [packages.service_inbox]
 label = "service.inbox"
@@ -225,9 +234,81 @@ sources = [
 
 [packages.service_wifi]
 label = "service.wifi"
-sources = ["services/solar_os_wifi.c"]
+sources = [
+  "services/solar_os_wifi.c",
+  "shell/solar_os_shell_network.c",
+  "shell/solar_os_shell_wifi_tui.c",
+]
 requires = ["esp_event", "esp_netif", "esp_wifi", "lwip", "nvs_flash"]
 capabilities = ["wifi"]
+
+[packages.service_net]
+label = "network.base"
+depends = ["service_wifi"]
+sources = ["services/solar_os_net.c"]
+requires = ["lwip"]
+capabilities = ["wifi"]
+
+[packages.service_mqtt]
+label = "network.mqtt"
+depends = ["service_wifi"]
+sources = [
+  "services/solar_os_mqtt.c",
+  "shell/solar_os_shell_mqtt.c",
+]
+requires = ["esp-tls", "mqtt"]
+capabilities = ["wifi"]
+
+[packages.service_ssh]
+label = "network.ssh"
+depends = ["service_crypto", "service_wifi"]
+sources = [
+  "services/solar_os_scp.c",
+  "services/solar_os_ssh.c",
+  "services/solar_os_ssh_keys.c",
+  "services/solar_os_ssh_transport.c",
+]
+requires = ["esp-tls", "mbedtls"]
+capabilities = ["wifi"]
+
+[packages.service_mail]
+label = "network.mail"
+depends = ["service_inbox", "service_wifi"]
+sources = ["services/solar_os_email.c"]
+requires = ["esp-tls", "heap"]
+capabilities = ["wifi"]
+
+[packages.service_chat]
+label = "network.chat"
+depends = ["service_wifi"]
+sources = ["services/solar_os_chat.c"]
+requires = ["esp-tls"]
+capabilities = ["wifi"]
+
+[packages.service_http_client]
+label = "network.http-client"
+depends = ["service_wifi"]
+requires = ["esp_http_client"]
+capabilities = ["wifi"]
+
+[packages.service_http_server]
+label = "network.http-server"
+depends = ["service_wifi"]
+requires = ["esp_http_server"]
+capabilities = ["wifi"]
+
+[packages.service_image]
+label = "media.image"
+requires = ["stb_image", "webp_decoder"]
+
+[packages.service_document]
+label = "media.document"
+depends = ["service_image"]
+sources = [
+  "services/solar_os_doc.c",
+  "services/solar_os_html.c",
+  "services/solar_os_xml.c",
+]
 
 [packages.service_ble]
 label = "service.ble"
@@ -296,6 +377,7 @@ capabilities = ["spi"]
 
 [packages.service_expansion]
 label = "service.expansion"
+depends = ["service_resources"]
 sources = [
   "services/solar_os_expansion.c",
   "shell/solar_os_shell_expansion.c",
@@ -324,6 +406,7 @@ any_capabilities = [
 
 [packages.expansion_rfm69]
 label = "expansion.rfm69"
+depends = ["service_radio", "service_spi"]
 sources = [
   "drivers/rfm69.c",
   "services/solar_os_rfm69.c",
@@ -333,6 +416,7 @@ any_capabilities = ["expansion_spi", "expansion_gpio"]
 
 [packages.expansion_pcd8544]
 label = "expansion.pcd8544"
+depends = ["service_spi"]
 sources = [
   "drivers/pcd8544.c",
   "services/solar_os_pcd8544.c",
@@ -342,6 +426,7 @@ capabilities = ["expansion_gpio"]
 
 [packages.expansion_ssd1306]
 label = "expansion.ssd1306"
+depends = ["service_i2c"]
 sources = [
   "drivers/ssd1306.c",
   "services/solar_os_ssd1306.c",
@@ -411,59 +496,65 @@ capabilities = ["adc_dpad"]
 
 [packages.app_aplay]
 label = "app.aplay"
+depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
 capabilities = ["audio"]
 
 [packages.app_arecord]
 label = "app.arecord"
+depends = ["service_audio"]
 sources = ["apps/solar_os_audio_apps.c"]
 capabilities = ["audio"]
 
 [packages.app_ssh]
 label = "app.ssh"
+depends = ["service_ssh"]
 sources = ["apps/solar_os_ssh.c"]
 capabilities = ["wifi"]
 
 [packages.app_scp]
 label = "app.scp"
+depends = ["service_ssh"]
 sources = ["apps/solar_os_scp.c"]
 capabilities = ["wifi"]
 
 [packages.app_curl]
 label = "app.curl"
+depends = ["service_http_client"]
 sources = ["apps/solar_os_curl.c"]
 capabilities = ["wifi"]
 
 [packages.app_telnet]
 label = "app.telnet"
+depends = ["service_net"]
 sources = ["apps/solar_os_telnet.c"]
 capabilities = ["wifi"]
 
 [packages.app_web]
 label = "app.web"
-sources = [
-  "apps/solar_os_web.c",
-  "services/solar_os_doc.c",
-  "services/solar_os_html.c",
-  "services/solar_os_xml.c",
-]
-requires = ["esp_http_client", "stb_image", "webp_decoder"]
+depends = ["service_document", "service_http_client"]
+sources = ["apps/solar_os_web.c"]
 capabilities = ["psram", "wifi", "gfx"]
 
 [packages.app_chat]
 label = "app.chat"
+depends = ["service_chat"]
 sources = ["apps/solar_os_chat.c"]
 capabilities = ["psram", "wifi"]
 
 [packages.app_email]
 label = "app.email"
-sources = ["apps/solar_os_email_app.c"]
+depends = ["service_mail"]
+sources = [
+  "apps/solar_os_email_app.c",
+  "shell/solar_os_shell_email.c",
+]
 capabilities = ["wifi"]
 
 [packages.app_view]
 label = "app.view"
+depends = ["service_image"]
 sources = ["apps/solar_os_view.c"]
-requires = ["stb_image", "webp_decoder"]
 capabilities = ["psram", "gfx"]
 
 [packages.app_invaders]
@@ -490,6 +581,7 @@ capabilities = ["gfx"]
 
 [packages.app_com]
 label = "app.com"
+depends = ["service_uart"]
 sources = ["apps/solar_os_com.c"]
 capabilities = ["uart"]
 
@@ -506,14 +598,11 @@ sources = ["apps/solar_os_less.c"]
 
 [packages.app_reader]
 label = "app.reader"
+depends = ["service_document"]
 sources = [
   "apps/solar_os_reader.c",
-  "services/solar_os_doc.c",
   "services/solar_os_epub.c",
-  "services/solar_os_html.c",
-  "services/solar_os_xml.c",
 ]
-requires = ["stb_image", "webp_decoder"]
 capabilities = ["psram", "gfx"]
 
 [packages.app_files]
@@ -522,6 +611,7 @@ sources = ["apps/solar_os_files.c"]
 
 [packages.app_io]
 label = "app.io"
+depends = ["service_gpio"]
 sources = ["apps/solar_os_io.c"]
 capabilities = ["gpio"]
 
@@ -536,6 +626,7 @@ capabilities = ["gfx"]
 
 [packages.app_logic]
 label = "app.logic"
+depends = ["service_logic"]
 sources = ["apps/solar_os_logic_app.c"]
 requires = ["heap"]
 capabilities = ["gfx", "gpio"]
@@ -546,22 +637,26 @@ sources = ["apps/solar_os_sheet.c"]
 
 [packages.job_httpd]
 label = "job.httpd"
+depends = ["service_http_server"]
 sources = ["jobs/solar_os_httpd_job.c"]
 capabilities = ["wifi"]
 
 [packages.job_chatd]
 label = "job.chatd"
+depends = ["service_chat"]
 sources = ["jobs/solar_os_chatd_job.c"]
 capabilities = ["psram", "wifi"]
 
 [packages.job_email_sync]
 label = "job.email-sync"
+depends = ["service_mail"]
 sources = ["jobs/solar_os_email_sync_job.c"]
 requires = ["esp-tls", "heap"]
 capabilities = ["wifi"]
 
 [packages.job_slip]
 label = "job.slip"
+depends = ["service_uart", "service_wifi"]
 sources = ["jobs/solar_os_slip_job.c"]
 requires = ["lwip"]
 capabilities = ["wifi"]
@@ -576,25 +671,32 @@ sources = ["jobs/solar_os_log_job.c"]
 
 [packages.job_batmon]
 label = "job.batmon"
+depends = ["service_battery"]
 sources = ["jobs/solar_os_batmon_job.c"]
 capabilities = ["battery"]
 
 [packages.job_daq]
 label = "job.daq"
-sources = ["jobs/solar_os_daq_job.c"]
+sources = [
+  "jobs/solar_os_daq_job.c",
+  "shell/solar_os_shell_daq.c",
+]
 
 [packages.job_sump]
 label = "job.sump"
+depends = ["service_gpio"]
 sources = ["jobs/solar_os_sump_job.c"]
 capabilities = ["cdc", "gpio"]
 
 [packages.job_ntp_sync]
 label = "job.ntp-sync"
+depends = ["service_net"]
 sources = ["jobs/solar_os_ntp_sync_job.c"]
 capabilities = ["wifi"]
 
 [packages.job_pocsag]
 label = "job.pocsag"
+depends = ["service_inbox", "service_radio"]
 sources = [
   "services/solar_os_pocsag.c",
   "jobs/solar_os_pocsag_job.c",

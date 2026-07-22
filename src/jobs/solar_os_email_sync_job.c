@@ -10,7 +10,6 @@
 #include <strings.h>
 
 #include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_tls.h"
 #include "esp_tls_errors.h"
@@ -19,6 +18,7 @@
 #include "solar_os_email.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_wifi.h"
 
 #define EMAIL_SYNC_DEFAULT_INTERVAL_SEC 300U
@@ -44,6 +44,7 @@ typedef struct {
     uint32_t uid_validity;
     uint32_t success_count;
     uint32_t fail_count;
+    uint32_t generation;
     esp_err_t last_error;
     TaskHandle_t task;
 } email_sync_state_t;
@@ -550,11 +551,9 @@ static esp_err_t email_sync_run(char *error_text, size_t error_text_len)
         return err;
     }
 
-    char *response = heap_caps_malloc(EMAIL_SYNC_RESPONSE_MAX,
-                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (response == NULL) {
-        response = heap_caps_malloc(EMAIL_SYNC_RESPONSE_MAX, MALLOC_CAP_8BIT);
-    }
+    char *response = solar_os_memory_alloc(EMAIL_SYNC_RESPONSE_MAX,
+                                           SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                           "email.response");
     if (response == NULL) {
         esp_tls_conn_destroy(tls);
         return ESP_ERR_NO_MEM;
@@ -651,7 +650,7 @@ static esp_err_t email_sync_run(char *error_text, size_t error_text_len)
     if (!email_sync.stop_requested) {
         (void)email_sync_command(tls, sequence++, "LOGOUT", response, EMAIL_SYNC_RESPONSE_MAX);
     }
-    heap_caps_free(response);
+    solar_os_memory_free(response);
     esp_tls_conn_destroy(tls);
     return email_sync.stop_requested ? ESP_ERR_INVALID_STATE : err;
 }
@@ -697,6 +696,11 @@ static esp_err_t email_sync_start(solar_os_context_t *ctx, int argc, char **argv
         return err;
     }
     memset(&email_sync, 0, sizeof(email_sync));
+    err = solar_os_jobs_get_generation(solar_os_email_sync_job.name,
+                                       &email_sync.generation);
+    if (err != ESP_OK) {
+        return err;
+    }
     email_sync.running = true;
     email_sync.once = once;
     email_sync.interval_ms = interval_sec * 1000U;
@@ -724,7 +728,9 @@ static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *ev
     }
     if (email_sync.complete_requested && !email_sync.sync_in_progress) {
         email_sync.complete_requested = false;
-        (void)solar_os_jobs_mark_stopped(solar_os_email_sync_job.name, email_sync.last_error);
+        (void)solar_os_jobs_mark_stopped(solar_os_email_sync_job.name,
+                                         email_sync.generation,
+                                         email_sync.last_error);
         return true;
     }
     if (!email_sync.running || email_sync.sync_in_progress) {
@@ -757,4 +763,6 @@ const solar_os_job_t solar_os_email_sync_job = {
     .start = email_sync_start,
     .stop = email_sync_stop,
     .event = email_sync_event,
+    .tick_interval_ms = 100U,
+    .tick_deadline_ms = 10U,
 };

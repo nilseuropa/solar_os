@@ -10,6 +10,7 @@
 
 typedef enum {
     SOLAR_OS_MEMORY_INTERNAL_CRITICAL = 0,
+    SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
     SOLAR_OS_MEMORY_DMA,
     SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
     SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
@@ -60,7 +61,4 @@ void solar_os_memory_free(void *ptr);
 
 void solar_os_memory_get_status(solar_os_memory_status_t *status);
 const char *solar_os_memory_class_name(solar_os_memory_class_t memory_class);
-
-/* Compatibility helpers. New code should select an explicit memory class. */
-void *solar_os_psram_malloc(size_t size);
-void *solar_os_psram_calloc(size_t count, size_t size);
+bool solar_os_memory_is_external(const void *ptr);

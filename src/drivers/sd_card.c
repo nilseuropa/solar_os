@@ -205,6 +205,7 @@ static void detect_fs(uint64_t start_sector, char *fs, size_t fs_len)
     }
     fs[0] = '\0';
 
+    /* SD sector transfers require an internal DMA-capable buffer. */
     uint8_t *sector = heap_caps_malloc(SD_CARD_SECTOR_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (sector == NULL) {
         return;
@@ -356,6 +357,7 @@ static void scan_gpt(const uint8_t *mbr_sector)
 {
     (void)mbr_sector;
 
+    /* SD sector transfers require an internal DMA-capable buffer. */
     uint8_t *sector = heap_caps_malloc(SD_CARD_SECTOR_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (sector == NULL) {
         return;
@@ -433,6 +435,7 @@ static void scan_partitions(void)
     strlcpy(disk.type_name, "disk", sizeof(disk.type_name));
     add_block(&disk);
 
+    /* SD sector transfers require an internal DMA-capable buffer. */
     uint8_t *sector = heap_caps_malloc(SD_CARD_SECTOR_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (sector == NULL) {
         update_block_mount_state();

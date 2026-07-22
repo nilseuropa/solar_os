@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_check.h"
+#include "freertos/FreeRTOS.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_gfx_internal.h"
 
@@ -20,6 +21,9 @@
 
 typedef struct {
     bool active;
+    uint32_t generation;
+    size_t refs;
+    size_t claim_refs;
     solar_os_display_target_t target;
     solar_os_gfx_t gfx;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -28,8 +32,9 @@ typedef struct {
 } display_target_slot_t;
 
 static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
+static portMUX_TYPE display_targets_lock = portMUX_INITIALIZER_UNLOCKED;
 
-static void display_sync_slot(display_target_slot_t *slot);
+static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target);
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 static solar_os_board_display_t *display_handle;
@@ -80,87 +85,105 @@ static bool display_owner_valid(const char *owner)
         strnlen(owner, SOLAR_OS_DISPLAY_TARGET_OWNER_MAX) < SOLAR_OS_DISPLAY_TARGET_OWNER_MAX;
 }
 
-static display_target_slot_t *display_find_slot(const char *name)
+static int display_find_slot_locked(const char *name)
 {
     if (name == NULL) {
-        return NULL;
+        return -1;
     }
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
         if (display_targets[i].active && strcmp(display_targets[i].target.name, name) == 0) {
-            return &display_targets[i];
+            return (int)i;
         }
     }
-    return NULL;
+    return -1;
 }
 
-static display_target_slot_t *display_find_slot_by_u8g2(u8g2_t *u8g2)
+static int display_find_slot_by_u8g2_locked(u8g2_t *u8g2)
 {
     if (u8g2 == NULL) {
-        return NULL;
+        return -1;
     }
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
-        display_target_slot_t *slot = &display_targets[i];
-        if (!slot->active) {
-            continue;
-        }
-        display_sync_slot(slot);
-        if (slot->target.u8g2 == u8g2) {
-            return slot;
+        if (display_targets[i].active && display_targets[i].target.u8g2 == u8g2) {
+            return (int)i;
         }
     }
-    return NULL;
+    return -1;
 }
 
-static display_target_slot_t *display_alloc_slot(void)
+static int display_alloc_slot_locked(void)
 {
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
         if (!display_targets[i].active) {
-            return &display_targets[i];
+            return (int)i;
         }
     }
-    return NULL;
+    return -1;
 }
 
-#if SOLAR_OS_BOARD_HAS_DISPLAY
-static esp_err_t display_set_slot_controller_mode(display_target_slot_t *slot, const char *mode)
+static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target)
 {
-    if (slot == NULL || mode == NULL || mode[0] == '\0') {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (slot->board_display == NULL) {
-        return ESP_ERR_NOT_SUPPORTED;
+    if (target == NULL || slot_index >= SOLAR_OS_DISPLAY_TARGET_MAX) {
+        return false;
     }
 
-    const char *current = solar_os_board_display_controller_mode(slot->board_display);
-    if (current != NULL && strcmp(current, mode) == 0) {
-        return ESP_OK;
+    uint32_t generation = 0;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    solar_os_board_display_t *board_display = NULL;
+#endif
+    portENTER_CRITICAL(&display_targets_lock);
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if (!slot->active) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return false;
     }
-    return solar_os_board_display_set_controller_mode(slot->board_display, mode);
-}
+    slot->refs++;
+    generation = slot->generation;
+    *target = slot->target;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    board_display = slot->board_display;
+#endif
+    portEXIT_CRITICAL(&display_targets_lock);
+
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    if (board_display != NULL) {
+        strlcpy(target->driver,
+                solar_os_board_display_driver_name(board_display),
+                sizeof(target->driver));
+        strlcpy(target->controller,
+                solar_os_board_display_controller(board_display),
+                sizeof(target->controller));
+        target->width = solar_os_board_display_width(board_display);
+        target->height = solar_os_board_display_height(board_display);
+        target->ready = solar_os_board_display_ready(board_display);
+        target->brightness_supported = solar_os_board_display_brightness_supported(board_display);
+        target->u8g2 = solar_os_board_display_u8g2(board_display);
+    }
 #endif
 
-static void display_sync_slot(display_target_slot_t *slot)
-{
+    bool valid = false;
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->active && slot->generation == generation) {
 #if SOLAR_OS_BOARD_HAS_DISPLAY
-    if (slot == NULL || slot->board_display == NULL) {
-        return;
-    }
-
-    solar_os_board_display_t *display = slot->board_display;
-    strlcpy(slot->target.driver,
-            solar_os_board_display_driver_name(display),
-            sizeof(slot->target.driver));
-    strlcpy(slot->target.controller,
-            solar_os_board_display_controller(display),
-            sizeof(slot->target.controller));
-    slot->target.width = solar_os_board_display_width(display);
-    slot->target.height = solar_os_board_display_height(display);
-    slot->target.ready = solar_os_board_display_ready(display);
-    slot->target.brightness_supported = solar_os_board_display_brightness_supported(display);
-    slot->target.u8g2 = solar_os_board_display_u8g2(display);
-#else
-    (void)slot;
+        if (board_display != NULL) {
+            strlcpy(slot->target.driver, target->driver, sizeof(slot->target.driver));
+            strlcpy(slot->target.controller, target->controller, sizeof(slot->target.controller));
+            slot->target.width = target->width;
+            slot->target.height = target->height;
+            slot->target.ready = target->ready;
+            slot->target.brightness_supported = target->brightness_supported;
+            slot->target.u8g2 = target->u8g2;
+        }
 #endif
+        *target = slot->target;
+        valid = true;
+    }
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return valid;
 }
 
 static void display_init_slot_gfx(display_target_slot_t *slot)
@@ -193,10 +216,12 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
         return err;
     }
 
-    display_target_slot_t *slot = display_find_slot(DISPLAY_BOARD_TARGET_NAME);
-    if (slot != NULL) {
-        slot->board_display = display;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(DISPLAY_BOARD_TARGET_NAME);
+    if (slot_index >= 0) {
+        display_targets[slot_index].board_display = display;
     }
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 #endif
@@ -233,16 +258,22 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
         target->height == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (display_find_slot(target->name) != NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    if (display_find_slot_locked(target->name) >= 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
-    display_target_slot_t *slot = display_alloc_slot();
-    if (slot == NULL) {
+    const int slot_index = display_alloc_slot_locked();
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NO_MEM;
     }
 
+    display_target_slot_t *slot = &display_targets[slot_index];
+    const uint32_t generation = slot->generation + 1U;
     memset(slot, 0, sizeof(*slot));
+    slot->generation = generation != 0 ? generation : 1U;
     slot->active = true;
     slot->target = *target;
     slot->target.name[sizeof(slot->target.name) - 1] = '\0';
@@ -252,6 +283,7 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.role[sizeof(slot->target.role) - 1] = '\0';
     slot->target.owner[0] = '\0';
     display_init_slot_gfx(slot);
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 
@@ -261,26 +293,35 @@ esp_err_t solar_os_display_unregister_target(const char *name)
         return ESP_ERR_INVALID_ARG;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_FOUND;
     }
-    if (slot->target.owner[0] != '\0') {
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if (slot->claim_refs != 0 || slot->refs != 0 || slot->target.owner[0] != '\0') {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
+    const uint32_t generation = slot->generation;
     memset(slot, 0, sizeof(*slot));
+    slot->generation = generation;
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 
 size_t solar_os_display_target_count(void)
 {
     size_t count = 0;
+    portENTER_CRITICAL(&display_targets_lock);
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
         if (display_targets[i].active) {
             count++;
         }
     }
+    portEXIT_CRITICAL(&display_targets_lock);
     return count;
 }
 
@@ -291,18 +332,19 @@ bool solar_os_display_get_target(size_t index, solar_os_display_target_t *target
         return false;
     }
 
+    size_t slot_index = SOLAR_OS_DISPLAY_TARGET_MAX;
+    portENTER_CRITICAL(&display_targets_lock);
     for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; i++) {
-        display_target_slot_t *slot = &display_targets[i];
-        if (!slot->active) {
+        if (!display_targets[i].active) {
             continue;
         }
         if (current++ == index) {
-            display_sync_slot(slot);
-            *target = slot->target;
-            return true;
+            slot_index = i;
+            break;
         }
     }
-    return false;
+    portEXIT_CRITICAL(&display_targets_lock);
+    return slot_index < SOLAR_OS_DISPLAY_TARGET_MAX && display_snapshot_slot(slot_index, target);
 }
 
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target)
@@ -311,14 +353,13 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
         return false;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    portEXIT_CRITICAL(&display_targets_lock);
+    if (slot_index < 0) {
         return false;
     }
-
-    display_sync_slot(slot);
-    *target = slot->target;
-    return true;
+    return display_snapshot_slot((size_t)slot_index, target);
 }
 
 esp_err_t solar_os_display_claim(const char *name,
@@ -334,25 +375,36 @@ esp_err_t solar_os_display_claim(const char *name,
         busy_owner[0] = '\0';
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target)) {
         return ESP_ERR_NOT_FOUND;
     }
-
-    display_sync_slot(slot);
-    if (!slot->target.ready || slot->target.u8g2 == NULL) {
+    if (!target.ready || target.u8g2 == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    display_target_slot_t *slot = &display_targets[slot_index];
     if (slot->target.owner[0] != '\0' && strcmp(slot->target.owner, owner) != 0) {
         if (busy_owner != NULL && busy_owner_len > 0) {
             strlcpy(busy_owner, slot->target.owner, busy_owner_len);
         }
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
+    const bool first_claim = slot->claim_refs == 0;
     strlcpy(slot->target.owner, owner, sizeof(slot->target.owner));
-    display_init_slot_gfx(slot);
+    slot->claim_refs++;
+    if (first_claim) {
+        display_init_slot_gfx(slot);
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 
@@ -372,12 +424,16 @@ esp_err_t solar_os_display_open_gfx(const char *name,
         return err;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         (void)solar_os_display_release(name, owner);
         return ESP_ERR_NOT_FOUND;
     }
+    display_target_slot_t *slot = &display_targets[slot_index];
     *gfx = &slot->gfx;
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 
@@ -388,19 +444,30 @@ esp_err_t solar_os_display_release(const char *name, const char *owner)
         return ESP_ERR_INVALID_ARG;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_FOUND;
     }
+    display_target_slot_t *slot = &display_targets[slot_index];
     if (slot->target.owner[0] == '\0') {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_OK;
     }
     if (strcmp(slot->target.owner, owner) != 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
-    slot->target.owner[0] = '\0';
-    display_init_slot_gfx(slot);
+    if (slot->claim_refs > 0) {
+        slot->claim_refs--;
+    }
+    if (slot->claim_refs == 0) {
+        slot->target.owner[0] = '\0';
+        display_init_slot_gfx(slot);
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
 }
 
@@ -473,21 +540,37 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
         *values = NULL;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
 #if !SOLAR_OS_BOARD_HAS_DISPLAY
-    (void)slot;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (slot->board_display == NULL) {
+    solar_os_board_display_t *board_display = NULL;
+    uint32_t generation = 0;
+    size_t slot_index = 0;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_locked(name);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    board_display = slot->board_display;
+    if (board_display == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
+    generation = slot->generation;
+    slot->refs++;
+    portEXIT_CRITICAL(&display_targets_lock);
 
-    const char *mode_value = solar_os_board_display_controller_mode(slot->board_display);
-    const char *mode_values = solar_os_board_display_controller_mode_values(slot->board_display);
+    const char *mode_value = solar_os_board_display_controller_mode(board_display);
+    const char *mode_values = solar_os_board_display_controller_mode_values(board_display);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
     if (mode_value == NULL || mode_values == NULL) {
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -510,27 +593,49 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
         return ESP_ERR_INVALID_ARG;
     }
 
-    display_target_slot_t *slot = display_find_slot(name);
-    if (slot == NULL) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
 #if !SOLAR_OS_BOARD_HAS_DISPLAY
-    (void)slot;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (slot->board_display == NULL) {
+    solar_os_board_display_t *board_display = NULL;
+    uint32_t generation = 0;
+    size_t slot_index = 0;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_locked(name);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    board_display = slot->board_display;
+    if (board_display == NULL) {
+        portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return display_set_slot_controller_mode(slot, mode);
+    generation = slot->generation;
+    slot->refs++;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    const char *current = solar_os_board_display_controller_mode(board_display);
+    const esp_err_t ret = current != NULL && strcmp(current, mode) == 0 ?
+        ESP_OK : solar_os_board_display_set_controller_mode(board_display, mode);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ret;
 #endif
 }
 
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode)
 {
-    display_target_slot_t *slot = display_find_slot_by_u8g2(u8g2);
-    if (slot == NULL) {
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_by_u8g2_locked(u8g2);
+    portEXIT_CRITICAL(&display_targets_lock);
+    if (slot_index < 0) {
         return ESP_ERR_NOT_FOUND;
     }
 

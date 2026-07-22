@@ -3,7 +3,10 @@ name = "full"
 description = "Default SolarOS build with all built-in packages enabled."
 
 [packages]
-core = true
+system = true
+expansions = true
+maintenance_apps = true
+maintenance_jobs = true
 audio = true
 net = true
 media = true

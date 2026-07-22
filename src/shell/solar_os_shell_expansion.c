@@ -228,18 +228,131 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
     }
 }
 
+static bool expansion_find_driver(const char *name, solar_os_expansion_driver_t *driver)
+{
+    if (name == NULL || driver == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
+        if (solar_os_expansion_get_driver(i, driver) && strcmp(driver->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool expansion_binding_matches_spec(
+    const solar_os_expansion_binding_t *binding,
+    const solar_os_expansion_binding_spec_t *spec)
+{
+    return binding != NULL && spec != NULL && binding->kind == spec->kind &&
+        (spec->role == NULL || strcmp(binding->role, spec->role) == 0);
+}
+
+static bool expansion_has_binding(const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count,
+                                  const solar_os_expansion_binding_spec_t *spec)
+{
+    for (size_t i = 0; i < binding_count; i++) {
+        if (expansion_binding_matches_spec(&bindings[i], spec)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void expansion_print_driver_usage(solar_os_shell_io_t *term,
+                                         const solar_os_expansion_driver_t *driver)
+{
+    if (driver == NULL) {
+        solar_os_shell_io_writeln(term, "usage: expansion attach <driver> <name> <resource...>");
+        solar_os_shell_io_writeln(term, "run 'expansion drivers' to list available drivers");
+        return;
+    }
+
+    solar_os_shell_io_printf(term, "usage: expansion attach %s <name>", driver->name);
+    if (driver->allow_unlisted_bindings) {
+        solar_os_shell_io_write(term, " <resource...>");
+    } else {
+        for (size_t i = 0; i < driver->binding_spec_count; i++) {
+            const solar_os_expansion_binding_spec_t *spec = &driver->binding_specs[i];
+            solar_os_shell_io_printf(term,
+                                     " %s%s=<%s>%s",
+                                     spec->required ? "" : "[",
+                                     spec->key,
+                                     spec->value_hint,
+                                     spec->required ? "" : "]");
+        }
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+static void expansion_print_missing_bindings(solar_os_shell_io_t *term,
+                                             const solar_os_expansion_driver_t *driver,
+                                             const solar_os_expansion_binding_t *bindings,
+                                             size_t binding_count)
+{
+    if (driver->allow_unlisted_bindings && binding_count == 0) {
+        solar_os_shell_io_writeln(term, "expansion attach: at least one resource is required");
+        return;
+    }
+
+    solar_os_shell_io_write(term, "expansion attach: missing required resource");
+    bool plural = false;
+    size_t missing = 0;
+    for (size_t i = 0; i < driver->binding_spec_count; i++) {
+        const solar_os_expansion_binding_spec_t *spec = &driver->binding_specs[i];
+        if (spec->required && !expansion_has_binding(bindings, binding_count, spec)) {
+            missing++;
+        }
+    }
+    plural = missing != 1;
+    solar_os_shell_io_printf(term, "%s:", plural ? "s" : "");
+    for (size_t i = 0; i < driver->binding_spec_count; i++) {
+        const solar_os_expansion_binding_spec_t *spec = &driver->binding_specs[i];
+        if (spec->required && !expansion_has_binding(bindings, binding_count, spec)) {
+            solar_os_shell_io_printf(term, " %s", spec->key);
+        }
+    }
+    solar_os_shell_io_put_char(term, '\n');
+}
+
+static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *driver)
+{
+    if (driver == NULL) {
+        return "-";
+    }
+    if (driver->allow_unlisted_bindings) {
+        return "any";
+    }
+    for (size_t i = 0; i < driver->binding_spec_count; i++) {
+        switch (driver->binding_specs[i].kind) {
+        case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+            return "I2C";
+        case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+            return "SPI";
+        case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+            return "UART";
+        default:
+            break;
+        }
+    }
+    return "-";
+}
+
 static void expansion_print_drivers(solar_os_shell_io_t *term)
 {
-    solar_os_shell_io_writeln(term, "DRIVER  PROBE  SUMMARY");
+    solar_os_shell_io_writeln(term, "DRIVER  PROBE BUS(TYPE) SUMMARY");
     for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
         solar_os_expansion_driver_t driver;
         if (!solar_os_expansion_get_driver(i, &driver)) {
             continue;
         }
         solar_os_shell_io_printf(term,
-                                 "%-7s %-5s %s%s\n",
+                                 "%-7s %-5s %-9s %s%s\n",
                                  driver.name,
                                  driver.probe_supported ? "yes" : "no",
+                                 expansion_driver_bus_type(&driver),
                                  driver.summary,
                                  solar_os_expansion_driver_supported(driver.name) ? "" : " (unsupported)");
     }
@@ -503,7 +616,7 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term, esp_err_t er
         solar_os_shell_io_writeln(term, "expansion attach: device name or resource already in use");
         break;
     case ESP_ERR_INVALID_ARG:
-        solar_os_shell_io_writeln(term, "expansion attach: invalid resource for this board");
+        solar_os_shell_io_writeln(term, "expansion attach: invalid device name or resource combination");
         break;
     case ESP_ERR_NO_MEM:
         solar_os_shell_io_writeln(term, "expansion attach: no free device or resource slots");
@@ -521,17 +634,70 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
 {
     solar_os_expansion_binding_t bindings[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
     size_t binding_count = 0;
+    solar_os_expansion_driver_t driver;
 
-    if (argc < 5) {
-        solar_os_shell_io_writeln(term, "usage: expansion attach <driver> <name> <resource...>");
+    if (argc < 3) {
+        expansion_print_driver_usage(term, NULL);
+        return;
+    }
+    if (!expansion_find_driver(argv[2], &driver)) {
+        solar_os_shell_io_printf(term, "expansion attach: unknown driver '%s'\n", argv[2]);
+        solar_os_shell_io_writeln(term, "run 'expansion drivers' to list available drivers");
+        return;
+    }
+    if (argc < 4) {
+        solar_os_shell_io_writeln(term, "expansion attach: missing device name");
+        expansion_print_driver_usage(term, &driver);
         return;
     }
 
     for (int i = 4; i < argc; i++) {
         if (!parse_binding_token(argv[i], bindings, &binding_count)) {
-            solar_os_shell_io_printf(term, "expansion attach: invalid resource '%s'\n", argv[i]);
+            solar_os_shell_io_printf(term, "expansion attach: invalid resource syntax or value '%s'\n", argv[i]);
+            expansion_print_driver_usage(term, &driver);
             return;
         }
+    }
+
+    solar_os_expansion_binding_validation_t validation;
+    const esp_err_t validation_err = solar_os_expansion_validate_bindings(driver.name,
+                                                                           bindings,
+                                                                           binding_count,
+                                                                           &validation);
+    if (validation_err != ESP_OK) {
+        switch (validation.reason) {
+        case SOLAR_OS_EXPANSION_BINDINGS_MISSING:
+            expansion_print_missing_bindings(term, &driver, bindings, binding_count);
+            break;
+        case SOLAR_OS_EXPANSION_BINDINGS_UNEXPECTED:
+            solar_os_shell_io_printf(term,
+                                     "expansion attach: resource '%s' is not used by %s\n",
+                                     validation.key,
+                                     driver.name);
+            break;
+        case SOLAR_OS_EXPANSION_BINDINGS_DUPLICATE:
+            solar_os_shell_io_printf(term,
+                                     "expansion attach: resource '%s' was specified more than once\n",
+                                     validation.key);
+            break;
+        case SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE:
+            solar_os_shell_io_printf(term,
+                                     "expansion attach: invalid value for '%s'\n",
+                                     validation.key);
+            break;
+        case SOLAR_OS_EXPANSION_BINDINGS_UNAVAILABLE:
+            solar_os_shell_io_printf(term,
+                                     "expansion attach: resource '%s' is not available on this board\n",
+                                     validation.key);
+            solar_os_shell_io_writeln(term, "run 'expansion status' to list available resources");
+            break;
+        case SOLAR_OS_EXPANSION_BINDINGS_VALID:
+        default:
+            solar_os_shell_io_writeln(term, "expansion attach: invalid resources");
+            break;
+        }
+        expansion_print_driver_usage(term, &driver);
+        return;
     }
 
     const esp_err_t err = solar_os_expansion_attach(argv[2], argv[3], bindings, binding_count);

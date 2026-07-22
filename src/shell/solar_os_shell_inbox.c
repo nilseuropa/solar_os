@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_inbox_app.h"
 #include "solar_os_inbox.h"
+#include "solar_os_memory.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 
@@ -90,12 +90,11 @@ static void inbox_summary(const solar_os_inbox_entry_t *entry, char *summary, si
 
 static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
 {
-    solar_os_inbox_entry_t *entries = heap_caps_calloc(INBOX_LIST_MAX,
-                                                       sizeof(*entries),
-                                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (entries == NULL) {
-        entries = heap_caps_calloc(INBOX_LIST_MAX, sizeof(*entries), MALLOC_CAP_8BIT);
-    }
+    solar_os_inbox_entry_t *entries =
+        solar_os_memory_calloc(INBOX_LIST_MAX,
+                               sizeof(*entries),
+                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                               "shell.inbox");
     if (entries == NULL) {
         solar_os_shell_io_writeln(io, "inbox: out of memory");
         return;
@@ -106,7 +105,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
         solar_os_inbox_snapshot(entries, INBOX_LIST_MAX, unread_only, &total);
     if (total == 0) {
         solar_os_shell_io_writeln(io, unread_only ? "no unread messages" : "inbox is empty");
-        heap_caps_free(entries);
+        solar_os_memory_free(entries);
         return;
     }
 
@@ -127,7 +126,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
     if (total > count) {
         solar_os_shell_io_printf(io, "... %u older messages\n", (unsigned)(total - count));
     }
-    heap_caps_free(entries);
+    solar_os_memory_free(entries);
 }
 
 static void inbox_cmd_read(solar_os_shell_io_t *io, uint32_t id)

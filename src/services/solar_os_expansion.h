@@ -33,6 +33,30 @@ typedef struct {
     int aux;
 } solar_os_expansion_binding_t;
 
+typedef struct {
+    const char *key;
+    const char *value_hint;
+    solar_os_expansion_binding_kind_t kind;
+    const char *role;
+    bool required;
+    const int *allowed_values;
+    size_t allowed_value_count;
+} solar_os_expansion_binding_spec_t;
+
+typedef enum {
+    SOLAR_OS_EXPANSION_BINDINGS_VALID,
+    SOLAR_OS_EXPANSION_BINDINGS_MISSING,
+    SOLAR_OS_EXPANSION_BINDINGS_UNEXPECTED,
+    SOLAR_OS_EXPANSION_BINDINGS_DUPLICATE,
+    SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE,
+    SOLAR_OS_EXPANSION_BINDINGS_UNAVAILABLE,
+} solar_os_expansion_binding_validation_reason_t;
+
+typedef struct {
+    solar_os_expansion_binding_validation_reason_t reason;
+    char key[SOLAR_OS_EXPANSION_ROLE_MAX];
+} solar_os_expansion_binding_validation_t;
+
 typedef esp_err_t (*solar_os_expansion_attach_fn_t)(const char *name,
                                                     const solar_os_expansion_binding_t *bindings,
                                                     size_t binding_count);
@@ -43,6 +67,9 @@ typedef struct {
     const char *summary;
     solar_os_board_capabilities_t required_capabilities;
     bool probe_supported;
+    const solar_os_expansion_binding_spec_t *binding_specs;
+    size_t binding_spec_count;
+    bool allow_unlisted_bindings;
     solar_os_expansion_attach_fn_t attach;
     solar_os_expansion_detach_fn_t detach;
 } solar_os_expansion_driver_t;
@@ -61,6 +88,11 @@ bool solar_os_expansion_available(void);
 size_t solar_os_expansion_driver_count(void);
 bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *driver);
 bool solar_os_expansion_driver_supported(const char *name);
+esp_err_t solar_os_expansion_validate_bindings(
+    const char *driver,
+    const solar_os_expansion_binding_t *bindings,
+    size_t binding_count,
+    solar_os_expansion_binding_validation_t *validation);
 
 size_t solar_os_expansion_i2c_bus_count(void);
 bool solar_os_expansion_get_i2c_bus(size_t index, solar_os_expansion_i2c_bus_t *bus);
@@ -87,6 +119,7 @@ esp_err_t solar_os_expansion_attach(const char *driver,
                                     size_t binding_count);
 esp_err_t solar_os_expansion_detach(const char *name);
 size_t solar_os_expansion_device_count(void);
+/* Returns a caller-owned snapshot; no registry pointer is borrowed. */
 bool solar_os_expansion_get_device(size_t index, solar_os_expansion_device_t *device);
 
 const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind_t kind);

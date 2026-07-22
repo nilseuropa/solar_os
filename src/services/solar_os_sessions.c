@@ -1,14 +1,15 @@
 #include "solar_os_sessions.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_display.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
+#include "solar_os_scheduler.h"
 #include "solar_os_shell.h"
 #include "solar_os_terminal_internal.h"
 
@@ -37,6 +38,7 @@ typedef struct {
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char display_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
     char title[SOLAR_OS_SESSION_TITLE_MAX];
+    solar_os_tick_stats_t tick_stats;
 } solar_os_session_entry_t;
 
 typedef struct {
@@ -54,6 +56,8 @@ typedef struct {
     solar_os_session_entry_t *foreground_session;
     bool legacy_return_session_valid;
     uint8_t legacy_return_session_id;
+    const solar_os_app_t *legacy_tick_app;
+    solar_os_tick_stats_t legacy_tick_stats;
 } solar_os_session_state_t;
 
 static solar_os_session_state_t session_state;
@@ -324,7 +328,7 @@ static void session_free_terminal(solar_os_session_entry_t *session)
         return;
     }
 
-    heap_caps_free(session->terminal);
+    solar_os_memory_free(session->terminal);
     session->terminal = NULL;
     session->owns_terminal = false;
 }
@@ -358,7 +362,11 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    solar_os_terminal_t *session_terminal = solar_os_psram_calloc(1, sizeof(*session_terminal));
+    solar_os_terminal_t *session_terminal =
+        solar_os_memory_calloc(1,
+                               sizeof(*session_terminal),
+                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                               "session.terminal");
     if (session_terminal == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -900,10 +908,67 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
         return;
     }
 
+    const bool tick = event->type == SOLAR_OS_EVENT_TICK;
+    if (tick &&
+        !solar_os_tick_due(&session->tick_stats,
+                           session->app->tick_interval_ms,
+                           session->app->tick_deadline_ms,
+                           SOLAR_OS_TICK_INTERVAL_DEFAULT_MS,
+                           SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
+                           event->data.tick_ms)) {
+        return;
+    }
+
     session_prepare_context(session);
+    const int64_t started_us = tick ? solar_os_tick_begin() : 0;
     session->app->event(session_state.ctx, event);
+    if (tick && solar_os_tick_end(&session->tick_stats, started_us) &&
+        solar_os_tick_should_log_miss(&session->tick_stats)) {
+        SOLAR_OS_LOGW(TAG,
+                      "tick miss: #%u %s %" PRIu32 "us>%" PRIu32 "ms n=%" PRIu32,
+                      (unsigned)session->id,
+                      app_display_name(session->app),
+                      session->tick_stats.last_duration_us,
+                      session->tick_stats.deadline_ms,
+                      session->tick_stats.deadline_miss_count);
+    }
     if (solar_os_context_take_exit_request(session_state.ctx)) {
         (void)close_session(session, false);
+    }
+}
+
+static void dispatch_legacy_event(const solar_os_event_t *event)
+{
+    const solar_os_app_t *app = session_state.foreground_app;
+    if (app == NULL || app->event == NULL || event == NULL) {
+        return;
+    }
+    if (session_state.legacy_tick_app != app) {
+        session_state.legacy_tick_app = app;
+        solar_os_tick_stats_reset(&session_state.legacy_tick_stats);
+    }
+
+    const bool tick = event->type == SOLAR_OS_EVENT_TICK;
+    if (tick &&
+        !solar_os_tick_due(&session_state.legacy_tick_stats,
+                           app->tick_interval_ms,
+                           app->tick_deadline_ms,
+                           SOLAR_OS_TICK_INTERVAL_DEFAULT_MS,
+                           SOLAR_OS_TICK_DEADLINE_DEFAULT_MS,
+                           event->data.tick_ms)) {
+        return;
+    }
+
+    const int64_t started_us = tick ? solar_os_tick_begin() : 0;
+    app->event(session_state.ctx, event);
+    if (tick && solar_os_tick_end(&session_state.legacy_tick_stats, started_us) &&
+        solar_os_tick_should_log_miss(&session_state.legacy_tick_stats)) {
+        SOLAR_OS_LOGW(TAG,
+                      "tick miss: %s %" PRIu32 "us>%" PRIu32 "ms n=%" PRIu32,
+                      app_display_name(app),
+                      session_state.legacy_tick_stats.last_duration_us,
+                      session_state.legacy_tick_stats.deadline_ms,
+                      session_state.legacy_tick_stats.deadline_miss_count);
     }
 }
 
@@ -1018,7 +1083,7 @@ void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *event)
         return;
     }
     if (session_state.foreground_app != NULL && session_state.foreground_app->event != NULL) {
-        session_state.foreground_app->event(session_state.ctx, event);
+        dispatch_legacy_event(event);
     }
 }
 
@@ -1045,7 +1110,7 @@ void solar_os_sessions_dispatch_tick(uint32_t now_ms)
         solar_os_sessions_process_requests();
     } else if (session_state.foreground_app != NULL &&
                session_state.foreground_app->event != NULL) {
-        session_state.foreground_app->event(session_state.ctx, &event);
+        dispatch_legacy_event(&event);
         solar_os_sessions_process_requests();
     }
 }
@@ -1160,7 +1225,11 @@ esp_err_t solar_os_sessions_create_display_shell(const char *target_name,
     strlcpy(session->display_target, target.name, sizeof(session->display_target));
     strlcpy(session->display_owner, owner, sizeof(session->display_owner));
 
-    solar_os_terminal_t *terminal = solar_os_psram_calloc(1, sizeof(*terminal));
+    solar_os_terminal_t *terminal =
+        solar_os_memory_calloc(1,
+                               sizeof(*terminal),
+                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                               "session.display");
     if (terminal == NULL) {
         session_dispose_unstarted(session);
         return ESP_ERR_NO_MEM;
@@ -1287,7 +1356,7 @@ void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
         return;
     }
 
-    solar_os_shell_io_writeln(io, "ID  STATE       APP       TITLE");
+    solar_os_shell_io_writeln(io, "ID  TITLE        APP      STATE     TIME");
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
         if (!session->used || session->app == NULL) {
@@ -1296,12 +1365,29 @@ void solar_os_sessions_print_list(solar_os_shell_io_t *io, void *user)
         session_update_title(session);
         const char *state = session == session_state.foreground_session ? "active" :
             session->suspended ? "suspended" : "ready";
-        solar_os_shell_io_printf(io,
-                                 "%-3u %-11s %-9s %s\n",
-                                 (unsigned)session->id,
-                                 state,
-                                 app_display_name(session->app),
-                                 session->title);
+        if (session->app->event != NULL) {
+            solar_os_shell_io_printf(io,
+                                     "%-3u %-12.12s %-8.8s %-9.9s "
+                                     "%" PRIu32 "/%" PRIu32 "ms %" PRIu32
+                                     "/%" PRIu32 "us n=%" PRIu32 " !%" PRIu32 "\n",
+                                     (unsigned)session->id,
+                                     session->title,
+                                     app_display_name(session->app),
+                                     state,
+                                     session->tick_stats.interval_ms,
+                                     session->tick_stats.deadline_ms,
+                                     session->tick_stats.last_duration_us,
+                                     session->tick_stats.max_duration_us,
+                                     session->tick_stats.dispatch_count,
+                                     session->tick_stats.deadline_miss_count);
+        } else {
+            solar_os_shell_io_printf(io,
+                                     "%-3u %-12.12s %-8.8s %-9.9s -\n",
+                                     (unsigned)session->id,
+                                     session->title,
+                                     app_display_name(session->app),
+                                     state);
+        }
     }
     solar_os_port_shell_print_list(io);
     solar_os_shell_io_flush(io);

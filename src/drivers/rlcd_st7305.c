@@ -1249,6 +1249,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
                         "spi add device failed");
 
     display->buffer_size = RLCD_BUFFER_ROW_BYTES * RLCD_TILE_HEIGHT;
+    /* Driver staging buffer only requires byte-addressable memory. */
     display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
     if (display->buffer == NULL) {
         rlcd_st7305_deinit(display);
@@ -1257,6 +1258,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
     memset(display->buffer, 0, display->buffer_size);
 
     display->shadow_size = RLCD_SHADOW_BYTES;
+    /* Full-frame shadow prefers PSRAM but remains optional without it. */
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (display->shadow == NULL) {

@@ -32,7 +32,9 @@ service packages are not available on that board.
 Optional API groups follow these package gates:
 
 - `service.wifi`: top-level `wifi_status` and `solaros.wifi`
-- `net`: `solaros.mqtt`, `solaros.net`, and `solaros.ssh_keys`
+- `network.mqtt`: `solaros.mqtt`
+- `network.base`: `solaros.net`
+- `network.ssh`: `solaros.ssh_keys`
 - `service.ble`: `solaros.ble`
 - `service.gpio`: `solaros.gpio` and `solaros.led`
 - `service.onewire`: `solaros.onewire`
@@ -714,6 +716,11 @@ Job functions control SolarOS background jobs.
 - `status(name)`: return one job status.
 - `start(name[, args])`: start a job; `args` is a list or tuple of strings.
 - `stop(name)`: stop a job.
+
+Status dictionaries include `tick_interval_ms`, `tick_deadline_ms`,
+`tick_last_us`, `tick_max_us`, and `tick_deadline_misses` in addition to the
+job state and tick count. These fields expose the effective cooperative
+scheduling policy and measured handler execution time.
 
 Example:
 

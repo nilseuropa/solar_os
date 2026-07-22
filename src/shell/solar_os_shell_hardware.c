@@ -3212,7 +3212,7 @@ void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv)
 }
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_PACKAGE_SERVICE_SPI
 static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t *value)
 {
     if (text == NULL || text[0] == '\0' || value == NULL) {

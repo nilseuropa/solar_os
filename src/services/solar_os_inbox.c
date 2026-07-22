@@ -2,11 +2,11 @@
 
 #include <string.h>
 
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "solar_os_memory.h"
 
 static SemaphoreHandle_t inbox_mutex;
 static solar_os_inbox_entry_t *inbox_ring;
@@ -69,15 +69,11 @@ static esp_err_t inbox_allocate_ring(void)
     }
 
     inbox_bytes = sizeof(solar_os_inbox_entry_t) * SOLAR_OS_INBOX_CAPACITY;
-    inbox_ring = heap_caps_calloc(SOLAR_OS_INBOX_CAPACITY,
-                                  sizeof(solar_os_inbox_entry_t),
-                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    inbox_ring_in_psram = inbox_ring != NULL;
-    if (inbox_ring == NULL) {
-        inbox_ring = heap_caps_calloc(SOLAR_OS_INBOX_CAPACITY,
-                                      sizeof(solar_os_inbox_entry_t),
-                                      MALLOC_CAP_8BIT);
-    }
+    inbox_ring = solar_os_memory_calloc(SOLAR_OS_INBOX_CAPACITY,
+                                        sizeof(solar_os_inbox_entry_t),
+                                        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                        "inbox.ring");
+    inbox_ring_in_psram = solar_os_memory_is_external(inbox_ring);
     if (inbox_ring == NULL) {
         inbox_bytes = 0;
         return ESP_ERR_NO_MEM;
