@@ -8,6 +8,7 @@
 #include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "io_expander_ch422g.h"
 #include "solar_os_board.h"
@@ -60,6 +61,134 @@
 
 static const char *TAG = "lcd_rgb_panel";
 static lcd_rgb_panel_t *active_display;
+static SemaphoreHandle_t lcd_vsync_sem;
+
+/*
+ * Present path: the naive approach (rotate each u8g2 tile pixel by
+ * pixel straight into the PSRAM frame buffer) scatters 16-bit writes
+ * 1600 bytes apart, so almost every write costs a full cache-line
+ * round trip to PSRAM -- several MB of bus traffic per frame,
+ * starving the bounce-buffer refill ISR that feeds the panel (visible
+ * as shimmer/torn lines while apps repaint). Instead, each PHYSICAL
+ * row is assembled in a small internal-RAM staging buffer via a
+ * byte -> 8-pixels lookup table and then written to PSRAM as one
+ * contiguous 1600-byte burst.
+ *
+ * lcd_byte_lut expands one native framebuffer byte (8 vertical
+ * pixels, LSB = top) to 8 RGB565 words; lcd_byte_lut_rev is the same
+ * with the words in reverse order, for the CCW mounting direction.
+ */
+static uint16_t lcd_byte_lut[256][8];
+static uint16_t lcd_byte_lut_rev[256][8];
+static uint16_t lcd_row_staging[LCD_PHYS_WIDTH];
+
+static void lcd_rgb_init_luts(void)
+{
+    for (unsigned value = 0; value < 256; value++) {
+        for (unsigned bit = 0; bit < 8; bit++) {
+            const uint16_t px = (value & (1U << bit)) != 0 ? LCD_RGB565_WHITE : LCD_RGB565_BLACK;
+            lcd_byte_lut[value][bit] = px;
+            lcd_byte_lut_rev[value][7 - bit] = px;
+        }
+    }
+}
+
+/*
+ * Convert the native 1bpp u8g2 buffer into the back frame buffer,
+ * rotated into physical orientation. One native COLUMN nx is one
+ * physical ROW:
+ *   CW:  py = NATIVE_W-1-nx, px = ny  ->  for row py, nx = NATIVE_W-1-py
+ *   CCW: py = nx,            px = NATIVE_H-1-ny (reversed pixel order)
+ *
+ * Only rows whose native column changed since the previous present
+ * are written: the shadow copy diffs the u8g2 buffer page by page,
+ * and the union with dirty_prev covers what the back buffer (one
+ * flip behind) is still missing. An unchanged frame costs only the
+ * sequential compare -- no PSRAM frame-buffer writes, no flip.
+ */
+_Static_assert(LCD_NATIVE_TILE_WIDTH <= sizeof(((lcd_rgb_panel_t *)0)->dirty_prev),
+               "dirty_prev bitmap too small for this panel width");
+
+static void lcd_rgb_present_frame(lcd_rgb_panel_t *display)
+{
+    const uint8_t *buffer = display->buffer;
+    uint16_t *fb = (uint16_t *)display->framebuffers[display->back_fb];
+    uint8_t dirty_cur[LCD_NATIVE_TILE_WIDTH] = {0};
+    bool changed = false;
+
+    for (int page = 0; page < LCD_NATIVE_TILE_HEIGHT; page++) {
+        const uint8_t *src = &buffer[(size_t)page * LCD_NATIVE_BUFFER_ROW_BYTES];
+        uint8_t *shadow = &display->shadow[(size_t)page * LCD_NATIVE_BUFFER_ROW_BYTES];
+        if (memcmp(src, shadow, LCD_NATIVE_BUFFER_ROW_BYTES) == 0) {
+            continue;
+        }
+        for (int nx = 0; nx < LCD_NATIVE_WIDTH; nx++) {
+            if (src[nx] != shadow[nx]) {
+                dirty_cur[nx >> 3] |= (uint8_t)(1U << (nx & 7));
+                changed = true;
+            }
+        }
+        memcpy(shadow, src, LCD_NATIVE_BUFFER_ROW_BYTES);
+    }
+
+    if (!changed) {
+        /* The front buffer already shows exactly this frame; whatever
+         * the back buffer is missing stays recorded in dirty_prev. */
+        return;
+    }
+
+    for (int py = 0; py < LCD_PHYS_HEIGHT; py++) {
+#if LCD_ROTATE_CW
+        const int nx = LCD_NATIVE_WIDTH - 1 - py;
+#else
+        const int nx = py;
+#endif
+        if (((dirty_cur[nx >> 3] | display->dirty_prev[nx >> 3]) &
+             (1U << (nx & 7))) == 0) {
+            continue;
+        }
+        for (int page = 0; page < LCD_NATIVE_TILE_HEIGHT; page++) {
+            const uint8_t value = buffer[(size_t)page * LCD_NATIVE_BUFFER_ROW_BYTES + (size_t)nx];
+#if LCD_ROTATE_CW
+            memcpy(&lcd_row_staging[page * 8], lcd_byte_lut[value], 16);
+#else
+            memcpy(&lcd_row_staging[LCD_PHYS_WIDTH - 8 - (page * 8)],
+                   lcd_byte_lut_rev[value], 16);
+#endif
+        }
+        memcpy(&fb[(size_t)py * LCD_PHYS_WIDTH], lcd_row_staging,
+               sizeof(lcd_row_staging));
+    }
+
+    /* Point the scan-out at the finished frame (takes effect at the
+     * frame boundary) and wait one VSYNC before anything writes into
+     * the buffer that was on screen until now. */
+    (void)esp_lcd_panel_draw_bitmap((esp_lcd_panel_handle_t)display->panel,
+                                    0, 0, LCD_PHYS_WIDTH, LCD_PHYS_HEIGHT,
+                                    display->framebuffers[display->back_fb]);
+    display->back_fb ^= 1U;
+    memcpy(display->dirty_prev, dirty_cur, sizeof(dirty_cur));
+    if (lcd_vsync_sem != NULL) {
+        (void)xSemaphoreTake(lcd_vsync_sem, 0); /* drain stale give */
+        (void)xSemaphoreTake(lcd_vsync_sem, pdMS_TO_TICKS(50));
+    }
+}
+
+/* Runs in ISR context; must live in IRAM (CONFIG_LCD_RGB_ISR_IRAM_SAFE). */
+static IRAM_ATTR bool lcd_rgb_on_vsync(esp_lcd_panel_handle_t panel,
+                                       const esp_lcd_rgb_panel_event_data_t *edata,
+                                       void *user_ctx)
+{
+    (void)panel;
+    (void)edata;
+    (void)user_ctx;
+
+    BaseType_t woken = pdFALSE;
+    if (lcd_vsync_sem != NULL) {
+        (void)xSemaphoreGiveFromISR(lcd_vsync_sem, &woken);
+    }
+    return woken == pdTRUE;
+}
 
 static const u8x8_display_info_t lcd_rgb_display_info = {
     .chip_enable_level = 0,
@@ -129,46 +258,21 @@ static uint8_t lcd_rgb_u8x8_display_cb(u8x8_t *u8x8,
         return lcd_rgb_apply_backlight(0) == ESP_OK ? 1 : 0;
 
     case U8X8_MSG_DISPLAY_DRAW_TILE: {
+        /*
+         * Every present is a full u8g2_SendBuffer over the finished
+         * native buffer (which we own -- display->buffer), so the
+         * per-tile payload is redundant: the FIRST tile triggers one
+         * optimized whole-frame conversion (see lcd_rgb_present_frame)
+         * and every other tile of the same pass is a no-op.
+         */
         const u8x8_tile_t *tile = (const u8x8_tile_t *)arg_ptr;
-        if (tile == NULL || tile->tile_ptr == NULL || tile->cnt == 0 ||
-            tile->x_pos >= LCD_NATIVE_TILE_WIDTH || tile->y_pos >= LCD_NATIVE_TILE_HEIGHT ||
-            display->framebuffer == NULL) {
+        if (tile == NULL ||
+            display->framebuffers[display->back_fb] == NULL ||
+            display->buffer == NULL || display->shadow == NULL) {
             return 0;
         }
-
-        uint8_t count = tile->cnt;
-        if (tile->x_pos + count > LCD_NATIVE_TILE_WIDTH) {
-            count = LCD_NATIVE_TILE_WIDTH - tile->x_pos;
-        }
-
-        const int nx0 = (int)tile->x_pos * 8;
-        int width = (int)count * 8;
-        if (nx0 + width > LCD_NATIVE_WIDTH) {
-            width = LCD_NATIVE_WIDTH - nx0;
-        }
-        if (width <= 0) {
-            return 1;
-        }
-
-        uint16_t *fb = (uint16_t *)display->framebuffer;
-        for (int col = 0; col < width; col++) {
-            const uint8_t bits = tile->tile_ptr[col];
-            const int nx = nx0 + col;
-            for (unsigned row = 0; row < 8; row++) {
-                const int ny = ((int)tile->y_pos * 8) + (int)row;
-                if (ny >= LCD_NATIVE_HEIGHT) {
-                    break;
-                }
-#if LCD_ROTATE_CW
-                const int px = ny;
-                const int py = LCD_NATIVE_WIDTH - 1 - nx;
-#else
-                const int px = LCD_NATIVE_HEIGHT - 1 - ny;
-                const int py = nx;
-#endif
-                const bool set = (bits & (1U << row)) != 0;
-                fb[((size_t)py * LCD_PHYS_WIDTH) + (size_t)px] = set ? LCD_RGB565_WHITE : LCD_RGB565_BLACK;
-            }
+        if (tile->x_pos == 0 && tile->y_pos == 0) {
+            lcd_rgb_present_frame(display);
         }
         return 1;
     }
@@ -196,6 +300,7 @@ esp_err_t lcd_rgb_panel_init(lcd_rgb_panel_t *display)
     memset(display, 0, sizeof(*display));
     display->last_error = ESP_OK;
     display->backlight_percent = 100;
+    lcd_rgb_init_luts();
 
     ESP_RETURN_ON_ERROR(io_expander_ch422g_init(), TAG, "io expander init failed");
     ESP_RETURN_ON_ERROR(lcd_rgb_apply_backlight(0), TAG, "backlight off failed");
@@ -233,8 +338,11 @@ esp_err_t lcd_rgb_panel_init(lcd_rgb_panel_t *display)
         },
         .data_width = 16,
         .bits_per_pixel = 16,
-        .num_fbs = 1,
-        .bounce_buffer_size_px = LCD_PHYS_WIDTH * 10,
+        .num_fbs = 2,
+        /* 20 lines of bounce slack: the refill ISR competes with big
+         * PSRAM-heavy presents (full-screen apps); 10 lines was tight
+         * enough to underrun visibly during them. */
+        .bounce_buffer_size_px = LCD_PHYS_WIDTH * 20,
         .dma_burst_size = 64,
         .hsync_gpio_num = SOLAR_OS_BOARD_PIN_LCD_RGB_HSYNC,
         .vsync_gpio_num = SOLAR_OS_BOARD_PIN_LCD_RGB_VSYNC,
@@ -279,14 +387,31 @@ esp_err_t lcd_rgb_panel_init(lcd_rgb_panel_t *display)
         return err;
     }
 
-    void *fb = NULL;
-    err = esp_lcd_rgb_panel_get_frame_buffer(panel, 1, &fb);
-    if (err != ESP_OK || fb == NULL) {
+    void *fb0 = NULL;
+    void *fb1 = NULL;
+    err = esp_lcd_rgb_panel_get_frame_buffer(panel, 2, &fb0, &fb1);
+    if (err != ESP_OK || fb0 == NULL || fb1 == NULL) {
         lcd_rgb_panel_deinit(display);
         return err == ESP_OK ? ESP_FAIL : err;
     }
-    display->framebuffer = fb;
-    memset(display->framebuffer, 0, (size_t)LCD_PHYS_WIDTH * LCD_PHYS_HEIGHT * 2U);
+    display->framebuffers[0] = fb0;
+    display->framebuffers[1] = fb1;
+    memset(fb0, 0, (size_t)LCD_PHYS_WIDTH * LCD_PHYS_HEIGHT * 2U);
+    memset(fb1, 0, (size_t)LCD_PHYS_WIDTH * LCD_PHYS_HEIGHT * 2U);
+    /* Scan-out starts on framebuffer 0; render into the other one. */
+    display->back_fb = 1;
+
+    if (lcd_vsync_sem == NULL) {
+        lcd_vsync_sem = xSemaphoreCreateBinary();
+    }
+    const esp_lcd_rgb_panel_event_callbacks_t callbacks = {
+        .on_vsync = lcd_rgb_on_vsync,
+    };
+    err = esp_lcd_rgb_panel_register_event_callbacks(panel, &callbacks, NULL);
+    if (err != ESP_OK) {
+        lcd_rgb_panel_deinit(display);
+        return err;
+    }
 
     display->buffer_size = LCD_NATIVE_BUFFER_BYTES;
     display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
@@ -295,6 +420,18 @@ esp_err_t lcd_rgb_panel_init(lcd_rgb_panel_t *display)
         return ESP_ERR_NO_MEM;
     }
     memset(display->buffer, 0, display->buffer_size);
+
+    display->shadow = heap_caps_malloc(LCD_NATIVE_BUFFER_BYTES,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (display->shadow == NULL) {
+        display->shadow = heap_caps_malloc(LCD_NATIVE_BUFFER_BYTES, MALLOC_CAP_8BIT);
+    }
+    if (display->shadow == NULL) {
+        lcd_rgb_panel_deinit(display);
+        return ESP_ERR_NO_MEM;
+    }
+    memset(display->shadow, 0, LCD_NATIVE_BUFFER_BYTES);
+    memset(display->dirty_prev, 0, sizeof(display->dirty_prev));
 
     u8g2_SetupDisplay(&display->u8g2,
                       lcd_rgb_u8x8_display_cb,
@@ -342,8 +479,14 @@ void lcd_rgb_panel_deinit(lcd_rgb_panel_t *display)
         heap_caps_free(display->buffer);
         display->buffer = NULL;
     }
+    if (display->shadow != NULL) {
+        heap_caps_free(display->shadow);
+        display->shadow = NULL;
+    }
 
-    display->framebuffer = NULL;
+    display->framebuffers[0] = NULL;
+    display->framebuffers[1] = NULL;
+    display->back_fb = 0;
 
     if (active_display == display) {
         active_display = NULL;

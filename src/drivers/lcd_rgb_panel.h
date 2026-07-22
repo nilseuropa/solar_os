@@ -15,7 +15,17 @@ typedef struct {
     void *panel;
     u8g2_t u8g2;
     uint8_t *buffer;
-    void *framebuffer;
+    /* Double-buffered scan-out: tiles render into framebuffers[back_fb]
+     * while the panel DMA reads the other one; the buffers swap at the
+     * next frame boundary once a full frame has been written. */
+    void *framebuffers[2];
+    uint8_t back_fb;
+    /* Copy of the native 1bpp buffer as of the last present, plus a
+     * bitmap of native columns the back framebuffer is still missing:
+     * together they let a present convert/write only the physical rows
+     * that actually changed. */
+    uint8_t *shadow;
+    uint8_t dirty_prev[64];
     size_t buffer_size;
     esp_err_t last_error;
     uint8_t backlight_percent;
