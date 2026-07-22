@@ -123,16 +123,16 @@ Time functions use the SolarOS RTC/time service.
 
 - `uptime_ms()`: return uptime in milliseconds.
 - `uptime()`: return formatted uptime text.
-- `datetime()`: return local RTC datetime.
+- `datetime()`: return the local wall-clock datetime.
 - `utc_datetime()`: return UTC datetime.
-- `set_datetime(datetime)`: set local RTC datetime.
-- `set_utc_datetime(datetime)`: set UTC RTC datetime.
+- `set_datetime(datetime)`: set the local wall-clock datetime.
+- `set_utc_datetime(datetime)`: set the UTC wall-clock datetime.
 - `utc_to_local(datetime)`: convert UTC datetime to local time.
 - `local_to_utc(datetime)`: convert local datetime to UTC.
 - `is_valid(datetime)`: validate a datetime.
 - `timezone()`: return `{"name": ..., "posix": ...}`.
 - `set_timezone(timezone)`: set timezone by SolarOS-supported name or POSIX TZ string.
-- `ntp_sync([server[, timeout_ms]])`: sync RTC from NTP and return `{"utc": ..., "local": ...}`.
+- `ntp_sync([server[, timeout_ms]])`: sync wall-clock time from NTP and return `{"utc": ..., "local": ...}`.
 
 Example:
 

@@ -822,7 +822,8 @@ static void chat_restore_inbox_fallback(void)
         slot->message.id = chat_next_id(&chat_store.next_message_id);
         slot->message.inbox_id = entry->id;
         slot->message.message_key = entry->source_id;
-        slot->message.timestamp = entry->timestamp_ms;
+        /* Inbox fallback stores receipt time, not the transport timestamp. */
+        slot->message.timestamp = 0;
         slot->message.unread = entry->unread;
         slot->message.truncated = entry->truncated;
         strlcpy(slot->message.channel,

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "solar_os_inbox.h"
 #include "solar_os_keys.h"
@@ -14,6 +15,10 @@
 
 #define INBOX_APP_DETAIL_TEXT_MAX 640U
 #define INBOX_APP_LINE_MAX (SOLAR_OS_TERMINAL_MAX_COLS * 4U + 1U)
+#define INBOX_APP_RECEPTION_TEXT_MAX 17U
+#define INBOX_APP_SOURCE_TEXT_MAX \
+    (SOLAR_OS_INBOX_SOURCE_MAX + SOLAR_OS_INBOX_TOPIC_MAX + 1U)
+#define INBOX_APP_EPOCH_MIN_MS 1577836800000ULL
 
 typedef enum {
     INBOX_APP_LIST,
@@ -125,10 +130,56 @@ static void inbox_app_flatten(char *text)
 
 static const char *inbox_app_summary(const solar_os_inbox_entry_t *entry)
 {
-    if (entry->title[0] != '\0') {
-        return entry->title;
+    if (entry->body[0] != '\0') {
+        return entry->body;
     }
-    return entry->body;
+    return entry->title;
+}
+
+static void inbox_app_format_reception(const solar_os_inbox_entry_t *entry,
+                                       char *text,
+                                       size_t text_len)
+{
+    if (text == NULL || text_len == 0) {
+        return;
+    }
+    if (entry == NULL || entry->timestamp_ms < INBOX_APP_EPOCH_MIN_MS) {
+        strlcpy(text, "---- -- -- --:--", text_len);
+        return;
+    }
+
+    const time_t seconds = (time_t)(entry->timestamp_ms / 1000ULL);
+    struct tm local;
+    if (localtime_r(&seconds, &local) == NULL || local.tm_year < 120) {
+        strlcpy(text, "---- -- -- --:--", text_len);
+        return;
+    }
+    snprintf(text,
+             text_len,
+             "%04d-%02d-%02d %02d:%02d",
+             local.tm_year + 1900,
+             local.tm_mon + 1,
+             local.tm_mday,
+             local.tm_hour,
+             local.tm_min);
+}
+
+static void inbox_app_source_label(const solar_os_inbox_entry_t *entry,
+                                   char *text,
+                                   size_t text_len)
+{
+    if (text == NULL || text_len == 0) {
+        return;
+    }
+    if (entry == NULL) {
+        text[0] = '\0';
+        return;
+    }
+    if (strcmp(entry->source, "chat") == 0 && entry->topic[0] != '\0') {
+        snprintf(text, text_len, "%s/%s", entry->source, entry->topic);
+    } else {
+        strlcpy(text, entry->source, text_len);
+    }
 }
 
 static void inbox_app_refresh(void)
@@ -216,16 +267,19 @@ static void inbox_app_render_list(void)
         const solar_os_inbox_entry_t *entry = &inbox_app.entries[index];
         char summary[SOLAR_OS_INBOX_TITLE_MAX > SOLAR_OS_INBOX_BODY_MAX ?
                      SOLAR_OS_INBOX_TITLE_MAX : SOLAR_OS_INBOX_BODY_MAX];
+        char reception[INBOX_APP_RECEPTION_TEXT_MAX];
+        char source[INBOX_APP_SOURCE_TEXT_MAX];
         strlcpy(summary, inbox_app_summary(entry), sizeof(summary));
         inbox_app_flatten(summary);
+        inbox_app_format_reception(entry, reception, sizeof(reception));
+        inbox_app_source_label(entry, source, sizeof(source));
         snprintf(line,
                  sizeof(line),
-                 "%c%c %s%s%s%s%s",
+                 "%c%c %s %s%s%s",
                  entry->unread ? '*' : ' ',
                  entry->priority >= SOLAR_OS_INBOX_PRIORITY_HIGH ? '!' : ' ',
-                 entry->source,
-                 entry->topic[0] != '\0' && cols >= 32U ? "/" : "",
-                 entry->topic[0] != '\0' && cols >= 32U ? entry->topic : "",
+                 reception,
+                 source,
                  summary[0] != '\0' ? ": " : "",
                  summary);
         inbox_app_write_cell(row + 1U,

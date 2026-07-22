@@ -191,6 +191,10 @@ status-bar unread count. Messages and read state survive reboot in the bounded
 `/.inbox/messages.bin` store; the service retains at most 64 entries and keeps
 the file below 32 KB even when internal flash is the only storage.
 
+Each list item occupies exactly one terminal row: unread/priority markers,
+local reception date and time, a compact source (`chat/general`, `email`, or
+`pocsag`), and as much of the message body preview as fits the screen.
+
 Usage:
 
 ```text

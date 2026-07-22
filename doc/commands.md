@@ -294,7 +294,7 @@ daq start /logs/key.csv gpio17 --changes
 daq start /logs/uart0.bin uart0 --raw --rate-ms 25
 ```
 
-`daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when RTC time is
+`daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when wall-clock time is
 trusted. Raw mode is byte-stream only, single-stream only, and writes bytes
 directly without CSV framing.
 
@@ -336,7 +336,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | See below | MQTT/MQTTS client. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
-| `ntp` | `ntp [server]` | Sync RTC from NTP. |
+| `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
 
 BLE GATT usage:
 
@@ -459,8 +459,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `spi` | `spi xfer <bus> <cs> <mode> <hz> <byte...>` | Full-duplex transfer over a named SPI bus. |
 | `spi` | `spi read <bus> <cs> <mode> <hz> <len> [fill]` | Read bytes over a named SPI bus. |
 | `spi` | `spi write <bus> <cs> <mode> <hz> <byte...>` | Write bytes over a named SPI bus. |
-| `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
-| `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
+| `date` | `date [YYYY-MM-DD]` | Show or set the local date. |
+| `time` | `time [HH:MM[:SS]]` | Show or set the local time. |
 | `temperature` | `temperature` | Read the board temperature sensor when available. |
 | `humidity` | `humidity` | Read the board humidity sensor when available. |
 

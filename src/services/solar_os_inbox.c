@@ -14,10 +14,12 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_time.h"
 
 #define INBOX_STORE_MAGIC 0x58424e49UL
 #define INBOX_STORE_VERSION 2U
 #define INBOX_STORE_HEADER_COPIES 2U
+#define INBOX_EPOCH_MIN_MS 1577836800000ULL
 
 typedef struct {
     solar_os_inbox_entry_t entry;
@@ -470,6 +472,12 @@ esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32
         return err;
     }
 
+    uint64_t reception_ms = 0;
+    if (solar_os_time_get_utc_epoch_ms(&reception_ms) != ESP_OK) {
+        reception_ms = message->timestamp_ms >= INBOX_EPOCH_MIN_MS ?
+            message->timestamp_ms : 0;
+    }
+
     inbox_lock();
     const uint64_t dedupe_hash = inbox_dedupe_hash(message);
     if (dedupe_hash != 0) {
@@ -512,7 +520,7 @@ esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32
     }
     entry->source_id = message->source_id;
     entry->source_context = message->source_context;
-    entry->timestamp_ms = message->timestamp_ms;
+    entry->timestamp_ms = reception_ms;
     entry->received_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
     entry->priority = message->priority;
     entry->unread = true;
