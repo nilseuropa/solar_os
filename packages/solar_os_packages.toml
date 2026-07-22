@@ -293,7 +293,8 @@ capabilities = ["psram", "wifi"]
 [packages.service_http_client]
 label = "network.http-client"
 depends = ["service_wifi"]
-requires = ["esp_http_client"]
+sources = ["services/solar_os_http_client.c"]
+requires = ["esp_http_client", "esp_timer"]
 capabilities = ["wifi"]
 
 [packages.service_http_server]
