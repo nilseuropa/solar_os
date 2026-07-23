@@ -484,13 +484,13 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
                                       daq.raw ? "bytes" : "scalar");
 
     /* Flash-backed VFS calls require an internal stack while cache is disabled. */
-    if (solar_os_task_create_pinned(daq_worker_task,
-                                    "daq_worker",
-                                    DAQ_WORKER_STACK,
-                                    NULL,
-                                    DAQ_WORKER_PRIORITY,
-                                    &daq.worker_task,
-                                    tskNO_AFFINITY) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(daq_worker_task,
+                                             "daq_worker",
+                                             DAQ_WORKER_STACK,
+                                             NULL,
+                                             DAQ_WORKER_PRIORITY,
+                                             &daq.worker_task,
+                                             tskNO_AFFINITY) != pdPASS) {
         daq.last_error = ESP_ERR_NO_MEM;
         daq_cleanup();
         return ESP_ERR_NO_MEM;
@@ -736,7 +736,7 @@ static void daq_worker_task(void *arg)
     }
 
     daq.worker_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static bool daq_event(solar_os_context_t *ctx, const solar_os_event_t *event)

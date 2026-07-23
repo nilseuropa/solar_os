@@ -19,6 +19,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_shell.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 #include "solar_os_terminal.h"
 #include "solar_os_tui.h"
 #include "solar_os_zip.h"
@@ -1164,7 +1165,7 @@ static void files_zip_task(void *arg)
                                           request->source_count,
                                           &options);
     request->done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t files_run_zip_task(files_zip_request_t *request)
@@ -1173,13 +1174,14 @@ static esp_err_t files_run_zip_task(files_zip_request_t *request)
     request->done = false;
     request->result = ESP_FAIL;
 
-    const BaseType_t created = xTaskCreatePinnedToCore(files_zip_task,
-                                                       "files_zip",
-                                                       FILES_ZIP_TASK_STACK,
-                                                       request,
-                                                       FILES_ZIP_TASK_PRIORITY,
-                                                       &task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        files_zip_task,
+        "files_zip",
+        FILES_ZIP_TASK_STACK,
+        request,
+        FILES_ZIP_TASK_PRIORITY,
+        &task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         return ESP_ERR_NO_MEM;
     }

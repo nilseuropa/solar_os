@@ -13,6 +13,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "solar_os_audio.h"
+#include "solar_os_queue.h"
 #include "solar_os_task.h"
 #endif
 #include "solar_os_gfx.h"
@@ -152,7 +153,7 @@ static void invaders_sound_task(void *arg)
     }
 
     invaders_audio.task_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void invaders_sound_start(void)
@@ -161,28 +162,31 @@ static void invaders_sound_start(void)
         return;
     }
     if (invaders_audio.queue != NULL) {
-        vQueueDelete(invaders_audio.queue);
+        solar_os_queue_delete_internal(invaders_audio.queue);
     }
 
     memset(&invaders_audio, 0, sizeof(invaders_audio));
     invaders_audio.task_done = true;
-    invaders_audio.queue = xQueueCreate(INVADERS_SOUND_QUEUE_LEN, sizeof(invaders_sound_t));
+    invaders_audio.queue = solar_os_queue_create_internal(
+        INVADERS_SOUND_QUEUE_LEN,
+        sizeof(invaders_sound_t));
     if (invaders_audio.queue == NULL) {
         SOLAR_OS_LOGW(TAG, "sound queue create failed");
         return;
     }
 
     invaders_audio.task_done = false;
-    const BaseType_t created = xTaskCreatePinnedToCore(invaders_sound_task,
-                                                       "invaders_sound",
-                                                       INVADERS_SOUND_STACK,
-                                                       NULL,
-                                                       tskIDLE_PRIORITY + 1,
-                                                       &invaders_audio.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        invaders_sound_task,
+        "invaders_sound",
+        INVADERS_SOUND_STACK,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        &invaders_audio.task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         SOLAR_OS_LOGW(TAG, "sound task create failed");
-        vQueueDelete(invaders_audio.queue);
+        solar_os_queue_delete_internal(invaders_audio.queue);
         memset(&invaders_audio, 0, sizeof(invaders_audio));
     }
 }
@@ -191,7 +195,7 @@ static void invaders_sound_stop(void)
 {
     if (invaders_audio.task == NULL) {
         if (invaders_audio.queue != NULL) {
-            vQueueDelete(invaders_audio.queue);
+            solar_os_queue_delete_internal(invaders_audio.queue);
         }
         memset(&invaders_audio, 0, sizeof(invaders_audio));
         return;
@@ -211,7 +215,7 @@ static void invaders_sound_stop(void)
     }
 
     if (invaders_audio.queue != NULL) {
-        vQueueDelete(invaders_audio.queue);
+        solar_os_queue_delete_internal(invaders_audio.queue);
     }
     memset(&invaders_audio, 0, sizeof(invaders_audio));
 }

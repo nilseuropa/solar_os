@@ -20,6 +20,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_queue.h"
 #include "solar_os_stb_image.h"
 #include "solar_os_task.h"
 #include "solar_os_webp_decoder.h"
@@ -396,7 +397,8 @@ static bool web_allocate_buffers(void)
     web.forms = web_calloc(WEB_FORM_COUNT, sizeof(web.forms[0]), "web.forms");
     web.images = web_calloc(WEB_IMAGE_COUNT, sizeof(web.images[0]), "web.images");
     web.items = web_calloc(WEB_ITEM_COUNT, sizeof(web.items[0]), "web.items");
-    web.events = xQueueCreate(WEB_EVENT_QUEUE_LEN, sizeof(web_event_t));
+    web.events = solar_os_queue_create(WEB_EVENT_QUEUE_LEN,
+                                        sizeof(web_event_t));
 
     if (web.html == NULL ||
         web.lines == NULL ||
@@ -415,7 +417,7 @@ static bool web_allocate_buffers(void)
 static void web_free_buffers(void)
 {
     if (web.events != NULL) {
-        vQueueDelete(web.events);
+        solar_os_queue_delete(web.events);
         web.events = NULL;
     }
     if (web.html != NULL) {
@@ -2113,7 +2115,7 @@ done:
                   "task done stack_high_water=%u",
                   (unsigned)uxTaskGetStackHighWaterMark(NULL));
     web.task_done = true;
-    solar_os_task_delete_external(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static int web_body_height(solar_os_gfx_t *gfx)
@@ -2770,7 +2772,7 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     web.redraw = true;
     web_render(ctx);
 
-    const BaseType_t created = solar_os_task_create_pinned_external(
+    const BaseType_t created = solar_os_task_create_pinned(
         web_task,
         "solar_os_web",
         WEB_TASK_STACK,

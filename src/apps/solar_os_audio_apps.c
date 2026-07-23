@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "solar_os_audio.h"
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_queue.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
@@ -206,7 +207,7 @@ static void audio_app_send_message(audio_app_event_type_t type, const char *mess
 static void audio_app_cleanup_resources(void)
 {
     if (audio_app.events != NULL) {
-        vQueueDelete(audio_app.events);
+        solar_os_queue_delete_internal(audio_app.events);
         audio_app.events = NULL;
     }
 }
@@ -288,7 +289,7 @@ static void audio_app_task(void *arg)
              info.duration_ms,
              esp_err_to_name(err));
     audio_app.task_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void audio_app_print_info(solar_os_terminal_t *term,
@@ -382,7 +383,8 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         }
     }
 
-    audio_app.events = xQueueCreate(AUDIO_APP_EVENT_QUEUE_LEN, sizeof(audio_app_event_t));
+    audio_app.events = solar_os_queue_create_internal(AUDIO_APP_EVENT_QUEUE_LEN,
+                                                       sizeof(audio_app_event_t));
     if (audio_app.events == NULL) {
         solar_os_terminal_writeln(term, "audio: out of memory");
         solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
@@ -390,15 +392,16 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
     }
 
     audio_app.running = true;
-    const BaseType_t created = xTaskCreatePinnedToCore(audio_app_task,
-                                                       audio_app_name(mode),
-                                                       AUDIO_APP_TASK_STACK,
-                                                       NULL,
-                                                       AUDIO_APP_TASK_PRIORITY,
-                                                       &audio_app.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        audio_app_task,
+        audio_app_name(mode),
+        AUDIO_APP_TASK_STACK,
+        NULL,
+        AUDIO_APP_TASK_PRIORITY,
+        &audio_app.task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
-        vQueueDelete(audio_app.events);
+        solar_os_queue_delete_internal(audio_app.events);
         audio_app.events = NULL;
         audio_app.running = false;
         solar_os_terminal_writeln(term, "audio: task create failed");

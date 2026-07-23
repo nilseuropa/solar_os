@@ -19,6 +19,7 @@
 #include "freertos/task.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_queue.h"
 #include "solar_os_task.h"
 
 #define CHAT_DEFAULT_USER "user"
@@ -752,7 +753,7 @@ static void chat_gateway_task(void *arg)
         chat_task_set_state(false, false, ret, "invalid gateway URL");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "invalid gateway URL");
         chat_state.task_done = true;
-        vTaskDelete(NULL);
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -761,7 +762,7 @@ static void chat_gateway_task(void *arg)
         chat_task_set_state(false, false, ESP_ERR_NO_MEM, "TLS init failed");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "TLS init failed");
         chat_state.task_done = true;
-        vTaskDelete(NULL);
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -789,7 +790,7 @@ static void chat_gateway_task(void *arg)
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway connect failed");
         }
         chat_state.task_done = true;
-        vTaskDelete(NULL);
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -800,7 +801,7 @@ static void chat_gateway_task(void *arg)
             chat_task_set_state(false, false, ret, "gateway socket setup failed");
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway socket setup failed");
             chat_state.task_done = true;
-            vTaskDelete(NULL);
+            solar_os_task_delete(NULL);
             return;
         }
     }
@@ -818,7 +819,7 @@ static void chat_gateway_task(void *arg)
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway write failed");
         }
         chat_state.task_done = true;
-        vTaskDelete(NULL);
+        solar_os_task_delete(NULL);
         return;
     }
     chat_task_set_state(true, true, ESP_OK, NULL);
@@ -831,7 +832,7 @@ static void chat_gateway_task(void *arg)
         chat_task_set_state(false, false, ESP_ERR_NO_MEM, "chat RX alloc failed");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "chat RX alloc failed");
         chat_state.task_done = true;
-        vTaskDelete(NULL);
+        solar_os_task_delete(NULL);
         return;
     }
     size_t line_len = 0;
@@ -924,7 +925,7 @@ static void chat_gateway_task(void *arg)
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_DISCONNECTED, "disconnected");
     }
     chat_state.task_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
     return;
 }
 
@@ -938,15 +939,17 @@ static esp_err_t solar_os_chat_gateway_init(void)
     if (chat_state.lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    chat_state.events = xQueueCreate(CHAT_EVENT_QUEUE_LEN, sizeof(solar_os_chat_event_t *));
+    chat_state.events = solar_os_queue_create(CHAT_EVENT_QUEUE_LEN,
+                                               sizeof(solar_os_chat_event_t *));
     if (chat_state.events == NULL) {
         vSemaphoreDelete(chat_state.lock);
         chat_state.lock = NULL;
         return ESP_ERR_NO_MEM;
     }
-    chat_state.tx = xQueueCreate(CHAT_TX_QUEUE_LEN, sizeof(chat_tx_item_t));
+    chat_state.tx = solar_os_queue_create(CHAT_TX_QUEUE_LEN,
+                                           sizeof(chat_tx_item_t));
     if (chat_state.tx == NULL) {
-        vQueueDelete(chat_state.events);
+        solar_os_queue_delete(chat_state.events);
         chat_state.events = NULL;
         vSemaphoreDelete(chat_state.lock);
         chat_state.lock = NULL;

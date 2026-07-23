@@ -10,6 +10,12 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_40M=y
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0
+# Classic ESP32 Wi-Fi allocation wrappers live in IRAM; enabling their PSRAM
+# path overflows ODROID-GO's already full IRAM segment. General and Bluetooth
+# allocations still prefer PSRAM, while Wi-Fi retains its smaller SRAM profile.
+# CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP is not set
+CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
 # Keep the rev1 PSRAM cache workaround enabled, but do not pin optional libc
 # helper groups into scarce classic ESP32 IRAM.
 # CONFIG_SPIRAM_CACHE_LIBJMP_IN_IRAM is not set

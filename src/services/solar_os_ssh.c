@@ -433,7 +433,7 @@ done:
     SOLAR_OS_LOGI(TAG,
                   "SSH task stopped stack_min_free=%u bytes",
                   (unsigned)stack_free_words);
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
@@ -476,13 +476,14 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
         return ESP_ERR_NO_MEM;
     }
 
-    BaseType_t created = solar_os_task_create_pinned(ssh_session_task,
-                                                      "solar_os_ssh",
-                                                      SOLAR_OS_SSH_TASK_STACK,
-                                                      session,
-                                                      SOLAR_OS_SSH_TASK_PRIORITY,
-                                                      &session->task,
-                                                      tskNO_AFFINITY);
+    BaseType_t created = solar_os_task_create_pinned_internal(
+        ssh_session_task,
+        "solar_os_ssh",
+        SOLAR_OS_SSH_TASK_STACK,
+        session,
+        SOLAR_OS_SSH_TASK_PRIORITY,
+        &session->task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         solar_os_ssh_stop(session);
         return ESP_ERR_NO_MEM;

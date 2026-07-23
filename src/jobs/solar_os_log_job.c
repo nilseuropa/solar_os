@@ -279,13 +279,13 @@ static esp_err_t log_job_start(solar_os_context_t *ctx, int argc, char **argv)
     log_job.worker_task = NULL;
 
     /* Flash-backed VFS calls require an internal stack while cache is disabled. */
-    if (solar_os_task_create_pinned(log_job_worker_task,
-                                    "log_worker",
-                                    LOG_JOB_WORKER_STACK,
-                                    NULL,
-                                    LOG_JOB_WORKER_PRIORITY,
-                                    &log_job.worker_task,
-                                    tskNO_AFFINITY) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(log_job_worker_task,
+                                             "log_worker",
+                                             LOG_JOB_WORKER_STACK,
+                                             NULL,
+                                             LOG_JOB_WORKER_PRIORITY,
+                                             &log_job.worker_task,
+                                             tskNO_AFFINITY) != pdPASS) {
         log_job.last_error = ESP_ERR_NO_MEM;
         log_job_cleanup();
         return ESP_ERR_NO_MEM;
@@ -384,7 +384,7 @@ static void log_job_worker_task(void *arg)
     }
 
     log_job.worker_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static bool log_job_event(solar_os_context_t *ctx, const solar_os_event_t *event)

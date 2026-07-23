@@ -417,7 +417,7 @@ static void chat_sync_worker(void *arg)
     (void)solar_os_chat_sync_set_status(false, false, ESP_OK, NULL);
     chat_sync.running = false;
     chat_sync.worker_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 const solar_os_job_t solar_os_chat_sync_job = {

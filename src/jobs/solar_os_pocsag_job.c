@@ -13,6 +13,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_radio.h"
+#include "solar_os_task.h"
 
 #define POCSAG_DEFAULT_DEVIATION_HZ 4500U
 #define POCSAG_DEFAULT_BANDWIDTH_HZ 10500U
@@ -250,7 +251,7 @@ static void pocsag_receive_task(void *arg)
     }
 
     pocsag.task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -319,12 +320,13 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
     pocsag.status.last_error = ESP_OK;
     pocsag.waiting_for_sync = false;
     solar_os_pocsag_decoder_init(&pocsag.decoder, ric, format);
-    if (xTaskCreate(pocsag_receive_task,
-                    "pocsag_rx",
-                    POCSAG_TASK_STACK,
-                    NULL,
-                    tskIDLE_PRIORITY + 2,
-                    &pocsag.task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(pocsag_receive_task,
+                                             "pocsag_rx",
+                                             POCSAG_TASK_STACK,
+                                             NULL,
+                                             tskIDLE_PRIORITY + 2,
+                                             &pocsag.task,
+                                             tskNO_AFFINITY) != pdPASS) {
         pocsag.status.running = false;
         pocsag.status.last_error = ESP_ERR_NO_MEM;
         restore_radio();
@@ -357,7 +359,7 @@ static void pocsag_stop(solar_os_context_t *ctx)
         vTaskDelay(wait_ticks);
     }
     if (pocsag.task != NULL) {
-        vTaskDelete(pocsag.task);
+        solar_os_task_delete_internal(pocsag.task);
         pocsag.task = NULL;
         pocsag.status.last_error = ESP_ERR_TIMEOUT;
         pocsag.status.receive_errors++;

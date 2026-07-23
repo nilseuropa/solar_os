@@ -12,6 +12,7 @@
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
 #include "ping/ping_sock.h"
+#include "solar_os_queue.h"
 #include "solar_os_storage.h"
 #include "solar_os_wifi.h"
 
@@ -339,8 +340,9 @@ esp_err_t solar_os_net_ping(const char *host,
         return ret;
     }
 
-    QueueHandle_t events = xQueueCreate(SOLAR_OS_NET_PING_EVENT_QUEUE_LEN,
-                                        sizeof(solar_os_net_ping_queue_event_t));
+    QueueHandle_t events = solar_os_queue_create(
+        SOLAR_OS_NET_PING_EVENT_QUEUE_LEN,
+        sizeof(solar_os_net_ping_queue_event_t));
     if (events == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -404,6 +406,6 @@ esp_err_t solar_os_net_ping(const char *host,
     if (ping != NULL) {
         (void)esp_ping_delete_session(ping);
     }
-    vQueueDelete(events);
+    solar_os_queue_delete(events);
     return ret;
 }

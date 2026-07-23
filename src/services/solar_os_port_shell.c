@@ -604,7 +604,7 @@ static void port_shell_run(port_shell_state_t *state)
 static void port_shell_task(void *arg)
 {
     port_shell_run((port_shell_state_t *)arg);
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void port_shell_reserved_worker(void *arg)
@@ -645,13 +645,14 @@ esp_err_t solar_os_port_shell_init(void)
     portEXIT_CRITICAL(&port_shells_lock);
 
     TaskHandle_t task = NULL;
-    const BaseType_t created = solar_os_task_create_pinned(port_shell_reserved_worker,
-                                                           "port_shell_rsv",
-                                                           PORT_SHELL_TASK_STACK,
-                                                           NULL,
-                                                           PORT_SHELL_TASK_PRIORITY,
-                                                           &task,
-                                                           tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        port_shell_reserved_worker,
+        "port_shell_rsv",
+        PORT_SHELL_TASK_STACK,
+        NULL,
+        PORT_SHELL_TASK_PRIORITY,
+        &task,
+        tskNO_AFFINITY);
 
     portENTER_CRITICAL(&port_shells_lock);
     port_shell_reserved_initializing = false;
@@ -886,13 +887,13 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
     portEXIT_CRITICAL(&port_shells_lock);
 
     if (!using_reserved_task &&
-        solar_os_task_create_pinned(port_shell_task,
-                                    "port_shell",
-                                    PORT_SHELL_TASK_STACK,
-                                    state,
-                                    PORT_SHELL_TASK_PRIORITY,
-                                    &created_task,
-                                    tskNO_AFFINITY) != pdPASS) {
+        solar_os_task_create_pinned_internal(port_shell_task,
+                                             "port_shell",
+                                             PORT_SHELL_TASK_STACK,
+                                             state,
+                                             PORT_SHELL_TASK_PRIORITY,
+                                             &created_task,
+                                             tskNO_AFFINITY) != pdPASS) {
         portENTER_CRITICAL(&port_shells_lock);
         if (state->generation == generation) {
             const uint32_t failed_generation = state->generation;

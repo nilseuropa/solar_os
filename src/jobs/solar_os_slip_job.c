@@ -23,6 +23,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port.h"
+#include "solar_os_task.h"
 #include "solar_os_uart.h"
 
 #define SLIP_JOB_TASK_STACK 6144
@@ -693,7 +694,7 @@ static void slip_task(void *arg)
                   slip_job.tx_errors);
 
     slip_cleanup();
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static esp_err_t slip_job_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -764,12 +765,13 @@ static esp_err_t slip_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                       network,
                                       "ipv4");
 
-    if (xTaskCreate(slip_task,
-                    "slip_job",
-                    SLIP_JOB_TASK_STACK,
-                    NULL,
-                    SLIP_JOB_TASK_PRIORITY,
-                    &slip_job.task) != pdPASS) {
+    if (solar_os_task_create_pinned(slip_task,
+                                    "slip_job",
+                                    SLIP_JOB_TASK_STACK,
+                                    NULL,
+                                    SLIP_JOB_TASK_PRIORITY,
+                                    &slip_job.task,
+                                    tskNO_AFFINITY) != pdPASS) {
         slip_cleanup();
         return ESP_ERR_NO_MEM;
     }

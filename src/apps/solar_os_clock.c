@@ -17,6 +17,7 @@
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_gfx.h"
 #include "solar_os_log.h"
+#include "solar_os_task.h"
 #include "solar_os_time.h"
 
 #define CLOCK_ALARM_SOUND_TASK_STACK 4096
@@ -543,7 +544,7 @@ static void clock_alarm_sound_task(void *arg)
 
     clock_state.alarm_sound_running = false;
     clock_state.alarm_sound_task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void clock_alarm_sound_start(void)
@@ -553,12 +554,14 @@ static void clock_alarm_sound_start(void)
     }
 
     clock_state.alarm_sound_stop_requested = false;
-    if (xTaskCreate(clock_alarm_sound_task,
-                    "clock_alarm",
-                    CLOCK_ALARM_SOUND_TASK_STACK,
-                    NULL,
-                    CLOCK_ALARM_SOUND_TASK_PRIORITY,
-                    &clock_state.alarm_sound_task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(
+            clock_alarm_sound_task,
+            "clock_alarm",
+            CLOCK_ALARM_SOUND_TASK_STACK,
+            NULL,
+            CLOCK_ALARM_SOUND_TASK_PRIORITY,
+            &clock_state.alarm_sound_task,
+            tskNO_AFFINITY) != pdPASS) {
         clock_state.alarm_sound_task = NULL;
         SOLAR_OS_LOGW(TAG, "alarm sound task allocation failed");
     }
