@@ -27,6 +27,26 @@ Network ownership is intentionally split. `network.base`, `network.mqtt`,
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
 
+`network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`
+and `web`. It exposes request headers and bodies, redirects, streaming response
+events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
+Callers continue to own their worker task and response consumer; see
+[HTTP Client Service](http_client.md) for the native API and lifecycle.
+
+Chat is split further: `network.chat` owns the transport-neutral message store
+and outbox, `chat.transport.gateway` owns the gateway wire protocol, and
+`job.chat-sync` owns connection lifetime, retries, cursors, delivery, and inbox
+notifications. The bounded store persists full messages on SD and uses the
+Inbox's compact persistent records as its internal-flash fallback. Stable
+producer IDs suppress transport replays before they reach either UI. `app.chat`
+is only a foreground view over that shared state; `job.chatd` remains the
+independent local gateway server.
+
+Inbox storage and presentation are also separate. Producers such as mail and
+POCSAG depend only on `service.inbox`; it owns the bounded persistent ring under
+`/.inbox/`, durable read state, and producer-key replay suppression.
+`app.inbox` adds the foreground browser and its shell command.
+
 ## Custom Flavor Example
 
 This flavor adds only `curl` and the dependency closure needed by that app to

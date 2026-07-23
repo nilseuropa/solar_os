@@ -42,7 +42,7 @@ Controls:
 
 ## chat
 
-Two-pane gateway chat client. The left pane lists channels, the right pane shows
+Two-pane chat client. The left pane lists channels, the right pane shows
 conversation history, and the bottom line is the message/command input.
 
 Usage:
@@ -50,6 +50,23 @@ Usage:
 ```text
 chat [gateway-url] [channel] [user] [token]
 ```
+
+The background `chat-sync` job owns the transport connection, retries, joined
+channels, and queued outbound messages. Start it explicitly with
+`job start chat-sync`, just like `email-sync`. Closing or suspending `chat` does
+not disconnect an already-running synchronizer. Incoming messages remain in the
+shared bounded chat store and publish bounded notifications to the universal
+inbox; reopening the app replays the retained store. With SD storage, full
+messages are retained under `/.chat/messages.bin`. On internal flash, Chat
+restores the compact message copy already retained in `/.inbox/messages.bin`,
+so it consumes no second flash ring. Both backends deduplicate transport replays
+by stable message identity and keep linked Inbox read state aligned.
+
+Unlike `email-sync`, `chat-sync` takes no interval argument: it waits for Wi-Fi
+and reconnects with exponential backoff while remaining in the running state.
+
+`/connect [url]` updates the saved gateway and enables synchronization.
+`/disconnect` pauses synchronization without stopping the job.
 
 In-app commands:
 
@@ -170,7 +187,13 @@ Controls:
 
 Universal incoming-message browser for pages, chat notifications, mail, and
 other background producers. It reads the same shared inbox that supplies the
-status-bar unread count.
+status-bar unread count. Messages and read state survive reboot in the bounded
+`/.inbox/messages.bin` store; the service retains at most 64 entries and keeps
+the file below 32 KB even when internal flash is the only storage.
+
+Each list item occupies exactly one terminal row: unread/priority markers,
+local reception date and time, a compact source (`chat/general`, `email`, or
+`pocsag`), and as much of the message body preview as fits the screen.
 
 Usage:
 

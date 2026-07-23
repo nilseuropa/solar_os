@@ -9,15 +9,13 @@
 #include <string.h>
 #include <strings.h>
 
-#include "esp_crt_bundle.h"
 #include "esp_err.h"
-#include "esp_http_client.h"
 #include "solar_os_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "sdkconfig.h"
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_http_client.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
@@ -67,7 +65,7 @@ typedef struct {
     curl_options_t options;
     QueueHandle_t events;
     TaskHandle_t task;
-    esp_http_client_handle_t client;
+    solar_os_http_request_t *request;
     FILE *output_file;
     volatile bool stop_requested;
     volatile bool task_done;
@@ -151,7 +149,10 @@ static void curl_cleanup_resources(void)
         fclose(curl_app.output_file);
         curl_app.output_file = NULL;
     }
-    curl_app.client = NULL;
+    if (curl_app.request != NULL) {
+        (void)solar_os_http_request_destroy(curl_app.request);
+        curl_app.request = NULL;
+    }
 }
 
 static void curl_set_transfer_error(const char *message)
@@ -238,8 +239,9 @@ static esp_err_t curl_handle_data(const uint8_t *data, size_t len)
     return ESP_OK;
 }
 
-static esp_err_t curl_http_event(esp_http_client_event_t *event)
+static esp_err_t curl_http_event(const solar_os_http_event_t *event, void *user_data)
 {
+    (void)user_data;
     if (event == NULL) {
         return ESP_OK;
     }
@@ -248,16 +250,16 @@ static esp_err_t curl_http_event(esp_http_client_event_t *event)
         return ESP_FAIL;
     }
 
-    switch (event->event_id) {
-    case HTTP_EVENT_ON_HEADER:
-        if (event->header_key != NULL &&
+    switch (event->type) {
+    case SOLAR_OS_HTTP_EVENT_HEADER:
+        if (event->header_name != NULL &&
             event->header_value != NULL &&
-            strcasecmp(event->header_key, "Location") == 0) {
+            strcasecmp(event->header_name, "Location") == 0) {
             strlcpy(curl_app.location, event->header_value, sizeof(curl_app.location));
         }
         break;
-    case HTTP_EVENT_ON_DATA:
-        return curl_handle_data((const uint8_t *)event->data, (size_t)event->data_len);
+    case SOLAR_OS_HTTP_EVENT_DATA:
+        return curl_handle_data(event->data, event->data_len);
     default:
         break;
     }
@@ -371,7 +373,6 @@ static void curl_task(void *arg)
 {
     (void)arg;
 
-    esp_http_client_handle_t client = NULL;
     bool success = false;
 
     curl_send_message(CURL_EVENT_STATUS, "connecting");
@@ -392,31 +393,28 @@ static void curl_task(void *arg)
         }
     }
 
-    esp_http_client_config_t config = {
+    const solar_os_http_request_options_t options = {
         .url = curl_app.options.url,
-        .method = HTTP_METHOD_GET,
+        .method = SOLAR_OS_HTTP_METHOD_GET,
         .timeout_ms = CURL_TIMEOUT_MS,
-        .disable_auto_redirect = !curl_app.options.follow_redirects,
+        .follow_redirects = curl_app.options.follow_redirects,
         .event_handler = curl_http_event,
-        .buffer_size = 1024,
-        .buffer_size_tx = 512,
+        .receive_buffer_size = 1024,
+        .transmit_buffer_size = 512,
         .user_agent = "SolarOS-curl/0.1",
         .user_data = &curl_app,
     };
-#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
-    config.crt_bundle_attach = esp_crt_bundle_attach;
-#endif
 
-    client = esp_http_client_init(&config);
-    if (client == NULL) {
+    esp_err_t err = solar_os_http_request_create(&options, &curl_app.request);
+    if (err != ESP_OK) {
         curl_send_message(CURL_EVENT_ERROR, "HTTP client init failed");
         goto done;
     }
-    curl_app.client = client;
 
-    const esp_err_t err = esp_http_client_perform(client);
-    curl_app.status_code = esp_http_client_get_status_code(client);
-    curl_app.content_length = esp_http_client_get_content_length(client);
+    solar_os_http_response_t response;
+    err = solar_os_http_request_perform(curl_app.request, &response);
+    curl_app.status_code = response.status_code;
+    curl_app.content_length = response.content_length;
 
     if (curl_app.output_file != NULL && fflush(curl_app.output_file) != 0) {
         curl_set_transfer_error("flush failed");
@@ -443,11 +441,6 @@ done:
         fclose(curl_app.output_file);
         curl_app.output_file = NULL;
     }
-    if (client != NULL) {
-        curl_app.client = NULL;
-        esp_http_client_cleanup(client);
-    }
-
     curl_send_done(success);
     SOLAR_OS_LOGI(TAG,
              "done status=%d bytes=%" PRIu32 " written=%" PRIu32 " success=%s",
@@ -599,8 +592,8 @@ static void curl_stop(solar_os_context_t *ctx)
     (void)ctx;
 
     curl_app.stop_requested = true;
-    if (curl_app.client != NULL) {
-        (void)esp_http_client_cancel_request(curl_app.client);
+    if (curl_app.request != NULL) {
+        (void)solar_os_http_request_cancel(curl_app.request);
     }
 
     if (!solar_os_task_wait_done(curl_app.task,

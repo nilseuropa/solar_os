@@ -12,6 +12,8 @@
 #define SOLAR_OS_INBOX_SENDER_MAX 40
 #define SOLAR_OS_INBOX_TITLE_MAX 64
 #define SOLAR_OS_INBOX_BODY_MAX 256
+#define SOLAR_OS_INBOX_STORE_DIR ".inbox"
+#define SOLAR_OS_INBOX_STORE_FILE "messages.bin"
 
 typedef enum {
     SOLAR_OS_INBOX_PRIORITY_LOW = 0,
@@ -26,12 +28,19 @@ typedef struct {
     const char *sender;
     const char *title;
     const char *body;
+    /* Stable producer identity used to suppress replayed notifications. */
+    const char *dedupe_key;
+    /* Optional producer IDs retained for service-specific persistence fallback. */
+    uint64_t source_id;
+    uint64_t source_context;
     uint64_t timestamp_ms;
     solar_os_inbox_priority_t priority;
 } solar_os_inbox_publish_t;
 
 typedef struct {
     uint32_t id;
+    uint64_t source_id;
+    uint64_t source_context;
     uint64_t timestamp_ms;
     uint32_t received_ms;
     solar_os_inbox_priority_t priority;
@@ -52,6 +61,9 @@ typedef struct {
     size_t unread;
     size_t bytes;
     uint32_t dropped;
+    bool persistent;
+    size_t storage_limit_bytes;
+    esp_err_t storage_error;
 } solar_os_inbox_status_t;
 
 esp_err_t solar_os_inbox_init(void);

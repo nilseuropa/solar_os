@@ -166,6 +166,40 @@ Notes:
 - Both ports are claimed by the bridge job until it stops.
 - This is the clean base for USB-to-UART converter style workflows.
 
+## chat-sync
+
+Background client synchronizer for the transport-neutral chat service. Start and
+stop it explicitly, using the same lifecycle as `email-sync`:
+
+```text
+job start chat-sync
+job stop chat-sync
+job status chat-sync
+```
+
+`chat-sync` takes no polling interval. Unlike the periodic `email-sync` job, it
+maintains a live connection and applies its own exponential reconnect backoff.
+It can therefore be started before Wi-Fi has an address; it remains running and
+connects when the network becomes available. In `/.shell/startup`, use exactly:
+
+```text
+job start chat-sync
+```
+
+It owns transport connection lifetime, exponential retry, opaque resume cursors,
+joined-channel replay, outbound queue delivery, retained message publication,
+and chat notifications in the universal inbox. Replayed transport messages are
+deduplicated by the shared stable producer identity before another notification
+is published.
+Stopping or closing `app.chat` has no effect on this job. Its worker performs
+transport startup, polling, and retry work outside the cooperative session/job
+scheduler.
+
+The store retains at most 64 messages. SD-backed systems use the full-message
+`/.chat/messages.bin` ring. Systems using internal flash restore Chat history
+from the compact records already stored in `/.inbox/messages.bin`; no second
+ring is created, so Chat history cannot consume the remaining flash volume.
+
 ## chatd
 
 Local SolarOS chat gateway server. It is useful for testing the `chat` app or
@@ -330,7 +364,8 @@ Notes:
 
 ## ntp-sync
 
-Network time synchronization job. It updates SolarOS time and the RTC from NTP.
+Network time synchronization job. It updates the SolarOS wall clock from NTP
+and also updates the hardware RTC when the board provides one.
 
 Usage:
 

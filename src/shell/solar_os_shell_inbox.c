@@ -61,9 +61,19 @@ static void inbox_cmd_status(solar_os_shell_io_t *io)
                              (unsigned)status.capacity,
                              (unsigned)status.unread);
     solar_os_shell_io_printf(io,
-                             "Storage: %s, %u bytes\n",
+                             "Memory: %s, %u bytes\n",
                              status.ring_in_psram ? "PSRAM" : "internal RAM",
                              (unsigned)status.bytes);
+    if (status.persistent) {
+        solar_os_shell_io_printf(io,
+                                 "Persistence: /.inbox/%s, max %u bytes\n",
+                                 SOLAR_OS_INBOX_STORE_FILE,
+                                 (unsigned)status.storage_limit_bytes);
+    } else {
+        solar_os_shell_io_printf(io,
+                                 "Persistence: unavailable (%s)\n",
+                                 esp_err_to_name(status.storage_error));
+    }
     solar_os_shell_io_printf(io, "Dropped: %lu\n", (unsigned long)status.dropped);
 }
 

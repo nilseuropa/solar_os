@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
@@ -15,6 +16,7 @@
 #include "solar_os_scheduler.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_task.h"
 #include "solar_os_vt100.h"
 
 #define PORT_SHELL_MAX 4
@@ -60,10 +62,16 @@ typedef struct {
     solar_os_tick_stats_t tick_stats;
 } port_shell_state_t;
 
-static port_shell_state_t port_shells[PORT_SHELL_MAX];
+/* Port-shell state is task-owned metadata, not DMA or ISR data. Keep the
+ * substantial idle registry out of scarce internal RAM on PSRAM boards. */
+static EXT_RAM_BSS_ATTR port_shell_state_t port_shells[PORT_SHELL_MAX];
 static portMUX_TYPE port_shells_lock = portMUX_INITIALIZER_UNLOCKED;
+static TaskHandle_t port_shell_reserved_task;
+static port_shell_state_t *port_shell_reserved_state;
+static bool port_shell_reserved_initializing;
 
 static void port_shell_process_requests(port_shell_state_t *state);
+static void port_shell_run(port_shell_state_t *state);
 
 static bool port_shell_should_stop(const port_shell_state_t *state)
 {
@@ -496,9 +504,8 @@ static void port_shell_cleanup(port_shell_state_t *state, uint32_t generation)
     portEXIT_CRITICAL(&port_shells_lock);
 }
 
-static void port_shell_task(void *arg)
+static void port_shell_run(port_shell_state_t *state)
 {
-    port_shell_state_t *state = (port_shell_state_t *)arg;
     uint8_t buffer[PORT_SHELL_READ_BUF];
     uint32_t last_input_ms = port_shell_now_ms();
     uint32_t generation = 0;
@@ -506,7 +513,6 @@ static void port_shell_task(void *arg)
     portENTER_CRITICAL(&port_shells_lock);
     if (!state->used) {
         portEXIT_CRITICAL(&port_shells_lock);
-        vTaskDelete(NULL);
         return;
     }
     generation = state->generation;
@@ -550,7 +556,6 @@ static void port_shell_task(void *arg)
         state->last_error = err;
         SOLAR_OS_LOGW(TAG, "session start failed on %s: %s", state->port_name, esp_err_to_name(err));
         port_shell_cleanup(state, generation);
-        vTaskDelete(NULL);
         return;
     }
 
@@ -589,11 +594,80 @@ static void port_shell_task(void *arg)
     }
 
     SOLAR_OS_LOGI(TAG,
-                  "session %u shell stopped on %s",
+                  "session %u shell stopped on %s stack_high_water=%u",
                   (unsigned)state->id,
-                  state->port_name);
+                  state->port_name,
+                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
     port_shell_cleanup(state, generation);
+}
+
+static void port_shell_task(void *arg)
+{
+    port_shell_run((port_shell_state_t *)arg);
     vTaskDelete(NULL);
+}
+
+static void port_shell_reserved_worker(void *arg)
+{
+    (void)arg;
+
+    while (true) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        portENTER_CRITICAL(&port_shells_lock);
+        port_shell_state_t *state = port_shell_reserved_state;
+        portEXIT_CRITICAL(&port_shells_lock);
+
+        if (state != NULL) {
+            port_shell_run(state);
+        }
+
+        portENTER_CRITICAL(&port_shells_lock);
+        if (port_shell_reserved_state == state) {
+            port_shell_reserved_state = NULL;
+        }
+        portEXIT_CRITICAL(&port_shells_lock);
+    }
+}
+
+esp_err_t solar_os_port_shell_init(void)
+{
+    portENTER_CRITICAL(&port_shells_lock);
+    if (port_shell_reserved_task != NULL) {
+        portEXIT_CRITICAL(&port_shells_lock);
+        return ESP_OK;
+    }
+    if (port_shell_reserved_initializing) {
+        portEXIT_CRITICAL(&port_shells_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    port_shell_reserved_initializing = true;
+    portEXIT_CRITICAL(&port_shells_lock);
+
+    TaskHandle_t task = NULL;
+    const BaseType_t created = solar_os_task_create_pinned(port_shell_reserved_worker,
+                                                           "port_shell_rsv",
+                                                           PORT_SHELL_TASK_STACK,
+                                                           NULL,
+                                                           PORT_SHELL_TASK_PRIORITY,
+                                                           &task,
+                                                           tskNO_AFFINITY);
+
+    portENTER_CRITICAL(&port_shells_lock);
+    port_shell_reserved_initializing = false;
+    if (created == pdPASS) {
+        port_shell_reserved_task = task;
+    }
+    portEXIT_CRITICAL(&port_shells_lock);
+
+    if (created != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    SOLAR_OS_LOGI(TAG,
+                  "reserved one %u-byte internal shell stack",
+                  (unsigned)PORT_SHELL_TASK_STACK);
+    return ESP_OK;
 }
 
 static esp_err_t port_shell_validate_port(const char *name)
@@ -801,12 +875,24 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
     portEXIT_CRITICAL(&port_shells_lock);
 
     TaskHandle_t created_task = NULL;
-    if (xTaskCreate(port_shell_task,
-                    "port_shell",
-                    PORT_SHELL_TASK_STACK,
-                    state,
-                    PORT_SHELL_TASK_PRIORITY,
-                    &created_task) != pdPASS) {
+    bool using_reserved_task = false;
+    portENTER_CRITICAL(&port_shells_lock);
+    if (port_shell_reserved_task != NULL && port_shell_reserved_state == NULL) {
+        port_shell_reserved_state = state;
+        created_task = port_shell_reserved_task;
+        state->task = created_task;
+        using_reserved_task = true;
+    }
+    portEXIT_CRITICAL(&port_shells_lock);
+
+    if (!using_reserved_task &&
+        solar_os_task_create_pinned(port_shell_task,
+                                    "port_shell",
+                                    PORT_SHELL_TASK_STACK,
+                                    state,
+                                    PORT_SHELL_TASK_PRIORITY,
+                                    &created_task,
+                                    tskNO_AFFINITY) != pdPASS) {
         portENTER_CRITICAL(&port_shells_lock);
         if (state->generation == generation) {
             const uint32_t failed_generation = state->generation;
@@ -818,6 +904,10 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
         solar_os_shell_session_destroy(session);
         (void)solar_os_port_release(&port);
         return ESP_ERR_NO_MEM;
+    }
+
+    if (using_reserved_task) {
+        xTaskNotifyGive(created_task);
     }
     portENTER_CRITICAL(&port_shells_lock);
     if (state->used && state->generation == generation && state->task == NULL) {

@@ -38,6 +38,8 @@ typedef enum {
 
 typedef struct {
     solar_os_chat_event_type_t type;
+    uint64_t message_key;
+    uint64_t timestamp;
     bool system;
     bool unread;
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
@@ -55,7 +57,6 @@ typedef struct {
     bool active;
     bool suspended;
     bool redraw;
-    bool join_pending;
     chat_app_focus_t focus;
     solar_os_tui_t tui;
     char initial_url[SOLAR_OS_CHAT_URL_MAX];
@@ -80,6 +81,7 @@ typedef struct {
     chat_app_channel_t channels[CHAT_APP_CHANNEL_COUNT];
     chat_app_message_t *messages;
     solar_os_chat_event_t *event;
+    uint32_t event_cursor;
     size_t message_head;
     size_t message_count;
 } chat_app_state_t;
@@ -413,11 +415,14 @@ static void chat_remove_channel(const char *name)
     chat_app.redraw = true;
 }
 
-static void chat_append_event(solar_os_chat_event_type_t type,
-                              const char *channel,
-                              const char *from,
-                              const char *text,
-                              bool system)
+static void chat_append_event_full(solar_os_chat_event_type_t type,
+                                   const char *channel,
+                                   const char *from,
+                                   const char *text,
+                                   bool system,
+                                   uint64_t message_key,
+                                   uint64_t timestamp,
+                                   bool unread)
 {
     if (chat_app.messages == NULL) {
         return;
@@ -429,6 +434,8 @@ static void chat_append_event(solar_os_chat_event_type_t type,
     chat_app_message_t *message = &chat_app.messages[index];
     memset(message, 0, sizeof(*message));
     message->type = type;
+    message->message_key = message_key;
+    message->timestamp = timestamp;
     message->system = system;
     strlcpy(message->channel, message_channel, sizeof(message->channel));
     if (from != NULL) {
@@ -441,7 +448,7 @@ static void chat_append_event(solar_os_chat_event_type_t type,
     const int channel_index = chat_add_channel(message_channel, false);
     if (channel_index >= 0 &&
         (uint8_t)channel_index != chat_app.current_channel &&
-        type == SOLAR_OS_CHAT_EVENT_MESSAGE) {
+        type == SOLAR_OS_CHAT_EVENT_MESSAGE && unread) {
         chat_app.channels[channel_index].unread = true;
         message->unread = true;
     }
@@ -451,6 +458,33 @@ static void chat_append_event(solar_os_chat_event_type_t type,
         chat_app.message_count++;
     }
     chat_app.redraw = true;
+}
+
+static void chat_append_event(solar_os_chat_event_type_t type,
+                              const char *channel,
+                              const char *from,
+                              const char *text,
+                              bool system)
+{
+    chat_append_event_full(type, channel, from, text, system, 0, 0, false);
+}
+
+static bool chat_restore_message(const solar_os_chat_message_t *message,
+                                 void *user)
+{
+    (void)user;
+    if (message == NULL) {
+        return false;
+    }
+    chat_append_event_full(SOLAR_OS_CHAT_EVENT_MESSAGE,
+                           message->channel,
+                           message->from,
+                           message->text,
+                           false,
+                           message->message_key,
+                           message->timestamp,
+                           message->unread);
+    return true;
 }
 
 static void chat_append_statusf(const char *fmt, ...)
@@ -501,50 +535,38 @@ static bool chat_message_matches_current(const chat_app_message_t *message)
     return strcmp(message->channel, chat_current_channel_name()) == 0;
 }
 
-typedef void (*chat_visual_line_fn)(const char *line, uint8_t attr, void *user);
-
-static void chat_make_spaces(char *out, size_t out_len, size_t count)
-{
-    if (out == NULL || out_len == 0) {
-        return;
-    }
-
-    const size_t spaces = count < out_len ? count : out_len - 1U;
-    memset(out, ' ', spaces);
-    out[spaces] = '\0';
-}
+typedef void (*chat_visual_line_fn)(const char *line,
+                                    uint8_t attr,
+                                    size_t emphasis_bytes,
+                                    void *user);
 
 static void chat_make_user_prefix(const char *from,
                                   size_t width,
                                   char *prefix,
                                   size_t prefix_len,
-                                  char *indent,
-                                  size_t indent_len)
+                                  size_t *emphasis_bytes)
 {
-    if (prefix == NULL || prefix_len == 0 || indent == NULL || indent_len == 0) {
+    if (prefix == NULL || prefix_len == 0) {
         return;
     }
     prefix[0] = '\0';
-    indent[0] = '\0';
+    if (emphasis_bytes != NULL) {
+        *emphasis_bytes = 0;
+    }
 
     if (from == NULL || from[0] == '\0' || width == 0) {
         return;
     }
 
-    size_t max_prefix_cols = width > 10U ? width / 2U : width - 1U;
-    if (max_prefix_cols > 18U) {
-        max_prefix_cols = 18U;
-    }
-    if (max_prefix_cols < 4U) {
-        max_prefix_cols = width > 4U ? 4U : width;
-    }
-
     const size_t from_cols = chat_utf8_width(from);
-    if (from_cols + 2U <= max_prefix_cols) {
+    if (from_cols + 2U <= width) {
         snprintf(prefix, prefix_len, "%s: ", from);
+        if (emphasis_bytes != NULL) {
+            *emphasis_bytes = strlen(from);
+        }
     } else {
         char name[SOLAR_OS_CHAT_USER_MAX];
-        const size_t name_cols = max_prefix_cols > 3U ? max_prefix_cols - 3U : 1U;
+        const size_t name_cols = width > 3U ? width - 3U : 1U;
         const size_t name_bytes = chat_take_columns(from,
                                                     name_cols,
                                                     sizeof(name) - 1U,
@@ -552,27 +574,25 @@ static void chat_make_user_prefix(const char *from,
         memcpy(name, from, name_bytes);
         name[name_bytes] = '\0';
         snprintf(prefix, prefix_len, "%s~: ", name);
+        if (emphasis_bytes != NULL) {
+            *emphasis_bytes = name_bytes + 1U;
+        }
     }
-
-    size_t indent_cols = chat_utf8_width(prefix);
-    if (indent_cols >= width) {
-        indent_cols = width > 1U ? width - 1U : 0U;
-    }
-    chat_make_spaces(indent, indent_len, indent_cols);
 }
 
 static void chat_message_prefixes(const chat_app_message_t *message,
                                   size_t width,
                                   char *first,
                                   size_t first_len,
-                                  char *next,
-                                  size_t next_len)
+                                  size_t *emphasis_bytes)
 {
-    if (first == NULL || first_len == 0 || next == NULL || next_len == 0) {
+    if (first == NULL || first_len == 0) {
         return;
     }
     first[0] = '\0';
-    next[0] = '\0';
+    if (emphasis_bytes != NULL) {
+        *emphasis_bytes = 0;
+    }
 
     if (message == NULL) {
         return;
@@ -583,11 +603,14 @@ static void chat_message_prefixes(const chat_app_message_t *message,
                  first_len,
                  "%c ",
                  message->type == SOLAR_OS_CHAT_EVENT_ERROR ? '!' : '*');
-        chat_make_spaces(next, next_len, chat_utf8_width(first));
         return;
     }
 
-    chat_make_user_prefix(message->from, width, first, first_len, next, next_len);
+    chat_make_user_prefix(message->from,
+                          width,
+                          first,
+                          first_len,
+                          emphasis_bytes);
 }
 
 static void chat_line_init(char *line,
@@ -683,21 +706,20 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     }
 
     char first_prefix[80];
-    char next_prefix[80];
     char line[CHAT_APP_LINE_MAX];
     const uint8_t attr = message->system ? SOLAR_OS_TUI_ATTR_BOLD : SOLAR_OS_TUI_ATTR_NORMAL;
     const char *text = message->text;
     size_t line_bytes = 0;
     size_t line_cols = 0;
     size_t emitted = 0;
+    size_t line_emphasis_bytes = 0;
     bool has_text = false;
 
     chat_message_prefixes(message,
                           width,
                           first_prefix,
                           sizeof(first_prefix),
-                          next_prefix,
-                          sizeof(next_prefix));
+                          &line_emphasis_bytes);
     chat_line_init(line,
                    sizeof(line),
                    first_prefix,
@@ -709,9 +731,10 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     while (text != NULL && *text != '\0') {
         if (*text == '\n' || *text == '\r') {
             if (emit != NULL) {
-                emit(line, attr, user);
+                emit(line, attr, line_emphasis_bytes, user);
             }
             emitted++;
+            line_emphasis_bytes = 0;
             if (*text == '\r' && text[1] == '\n') {
                 text += 2;
             } else {
@@ -719,7 +742,7 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
             }
             chat_line_init(line,
                            sizeof(line),
-                           next_prefix,
+                           "",
                            width,
                            &line_bytes,
                            &line_cols,
@@ -797,12 +820,13 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
             }
 
             if (emit != NULL) {
-                emit(line, attr, user);
+                emit(line, attr, line_emphasis_bytes, user);
             }
             emitted++;
+            line_emphasis_bytes = 0;
             chat_line_init(line,
                            sizeof(line),
-                           next_prefix,
+                           "",
                            width,
                            &line_bytes,
                            &line_cols,
@@ -813,26 +837,19 @@ static size_t chat_emit_wrapped_message(const chat_app_message_t *message,
     }
 
     if (emit != NULL) {
-        emit(line, attr, user);
+        emit(line, attr, line_emphasis_bytes, user);
     }
     emitted++;
     return emitted;
 }
 
-static void chat_count_visual_line(const char *line, uint8_t attr, void *user)
-{
-    (void)line;
-    (void)attr;
-
-    size_t *count = (size_t *)user;
-    if (count != NULL) {
-        (*count)++;
-    }
-}
-
-static size_t chat_count_visual_rows(size_t width)
+static size_t chat_emit_visual_rows(size_t width,
+                                    chat_visual_line_fn emit,
+                                    void *user)
 {
     size_t count = 0;
+    char previous_from[SOLAR_OS_CHAT_USER_MAX] = {0};
+    bool have_previous_sender = false;
 
     if (width == 0) {
         return 0;
@@ -843,9 +860,26 @@ static size_t chat_count_visual_rows(size_t width)
         if (!chat_message_matches_current(message)) {
             continue;
         }
-        (void)chat_emit_wrapped_message(message, width, chat_count_visual_line, &count);
+
+        if (!message->system) {
+            if (have_previous_sender && strcmp(previous_from, message->from) != 0) {
+                if (emit != NULL) {
+                    emit("", SOLAR_OS_TUI_ATTR_NORMAL, 0, user);
+                }
+                count++;
+            }
+            strlcpy(previous_from, message->from, sizeof(previous_from));
+            have_previous_sender = true;
+        }
+
+        count += chat_emit_wrapped_message(message, width, emit, user);
     }
     return count;
+}
+
+static size_t chat_count_visual_rows(size_t width)
+{
+    return chat_emit_visual_rows(width, NULL, NULL);
 }
 
 typedef struct {
@@ -858,7 +892,10 @@ typedef struct {
     size_t drawn;
 } chat_draw_visual_ctx_t;
 
-static void chat_draw_visual_line(const char *line, uint8_t attr, void *user)
+static void chat_draw_visual_line(const char *line,
+                                  uint8_t attr,
+                                  size_t emphasis_bytes,
+                                  void *user)
 {
     chat_draw_visual_ctx_t *ctx = (chat_draw_visual_ctx_t *)user;
     if (ctx == NULL) {
@@ -867,6 +904,18 @@ static void chat_draw_visual_line(const char *line, uint8_t attr, void *user)
 
     if (ctx->visual_index >= ctx->first_visible && ctx->drawn < ctx->max_rows) {
         chat_write_cell(ctx->row + ctx->drawn, ctx->start_col, ctx->width, line, attr);
+        if (emphasis_bytes > 0 && line != NULL) {
+            char emphasis[SOLAR_OS_CHAT_USER_MAX];
+            const size_t copy_len = emphasis_bytes < sizeof(emphasis) ?
+                emphasis_bytes : sizeof(emphasis) - 1U;
+            memcpy(emphasis, line, copy_len);
+            emphasis[copy_len] = '\0';
+            solar_os_tui_addstr(&chat_app.tui,
+                                ctx->row + ctx->drawn,
+                                ctx->start_col,
+                                emphasis,
+                                SOLAR_OS_TUI_ATTR_BOLD);
+        }
         ctx->drawn++;
     }
     ctx->visual_index++;
@@ -967,15 +1016,7 @@ static void chat_draw_messages(size_t start_col,
         .max_rows = visible_rows,
     };
 
-    for (size_t logical = 0;
-         logical < chat_app.message_count && draw_ctx.drawn < visible_rows;
-         logical++) {
-        const chat_app_message_t *message = chat_message_at(logical);
-        if (!chat_message_matches_current(message)) {
-            continue;
-        }
-        (void)chat_emit_wrapped_message(message, width, chat_draw_visual_line, &draw_ctx);
-    }
+    (void)chat_emit_visual_rows(width, chat_draw_visual_line, &draw_ctx);
 }
 
 static void chat_draw_input(size_t rows, size_t cols)
@@ -1079,6 +1120,7 @@ static void chat_select_channel(uint8_t index, bool join)
     chat_app.selected_channel = index;
     chat_app.current_channel = index;
     chat_app.channels[index].unread = false;
+    (void)solar_os_chat_mark_channel_read(chat_app.channels[index].name);
     chat_app.message_scroll = 0;
     chat_app.redraw = true;
 
@@ -1086,10 +1128,7 @@ static void chat_select_channel(uint8_t index, bool join)
         const esp_err_t err = solar_os_chat_join(chat_app.channels[index].name);
         if (err == ESP_OK) {
             chat_app.channels[index].joined = true;
-            chat_set_status("joining");
-        } else if (err == ESP_ERR_INVALID_STATE) {
-            chat_set_status("not connected");
-            chat_app.join_pending = true;
+            chat_set_status("join queued");
         } else {
             chat_set_status(esp_err_to_name(err));
         }
@@ -1106,7 +1145,6 @@ static void chat_handle_service_event(const solar_os_chat_event_t *event)
     case SOLAR_OS_CHAT_EVENT_CONNECTED:
         chat_append_event(event->type, chat_current_channel_name(), "", "connected", true);
         chat_set_status("connected");
-        chat_app.join_pending = true;
         break;
     case SOLAR_OS_CHAT_EVENT_DISCONNECTED:
         chat_append_event(event->type, chat_current_channel_name(), "", "disconnected", true);
@@ -1154,7 +1192,18 @@ static void chat_handle_service_event(const solar_os_chat_event_t *event)
         break;
     }
     case SOLAR_OS_CHAT_EVENT_MESSAGE:
-        chat_append_event(event->type, event->channel, event->from, event->text, false);
+        chat_append_event_full(event->type,
+                               event->channel,
+                               event->from,
+                               event->text,
+                               false,
+                               event->message_key,
+                               event->timestamp,
+                               true);
+        if (strcmp(event->channel, chat_current_channel_name()) == 0 &&
+            event->message_key != 0) {
+            (void)solar_os_chat_mark_message_read(event->message_key, true);
+        }
         break;
     case SOLAR_OS_CHAT_EVENT_PRESENCE:
         {
@@ -1177,23 +1226,12 @@ static void chat_drain_events(void)
     }
 
     for (size_t i = 0; i < CHAT_APP_DRAIN_EVENTS_PER_TICK; i++) {
-        const esp_err_t err = solar_os_chat_read_event(chat_app.event, 0);
+        const esp_err_t err = solar_os_chat_read_event_after(&chat_app.event_cursor,
+                                                              chat_app.event);
         if (err != ESP_OK) {
             break;
         }
         chat_handle_service_event(chat_app.event);
-    }
-
-    if (chat_app.join_pending) {
-        solar_os_chat_status_t status;
-        if (solar_os_chat_get_status(&status) == ESP_OK && status.connected) {
-            const esp_err_t err = solar_os_chat_join(chat_current_channel_name());
-            if (err == ESP_OK) {
-                chat_app.channels[chat_app.current_channel].joined = true;
-                chat_app.join_pending = false;
-                chat_set_status("joined");
-            }
-        }
     }
 }
 
@@ -1244,7 +1282,6 @@ static void chat_connect_with_args(const char *url,
                                 connect_url != NULL && connect_url[0] != '\0' ?
                                     connect_url : "saved gateway");
         }
-        chat_app.join_pending = true;
     } else {
         chat_set_status(esp_err_to_name(err));
         chat_append_statusf("connect failed: %s", esp_err_to_name(err));
@@ -1269,7 +1306,17 @@ static void chat_show_status(void)
                         status.rx_count,
                         status.tx_count,
                         status.dropped_count);
-    chat_append_statusf("cache: RAM session only; no SD cache");
+    chat_append_statusf("store=%u/%u unread=%u outbox=%u",
+                        (unsigned)status.stored_messages,
+                        (unsigned)SOLAR_OS_CHAT_MESSAGE_CAPACITY,
+                        (unsigned)status.unread_messages,
+                        (unsigned)status.queued_outbox);
+    chat_append_statusf("persistence: %s cap=%u",
+                        status.persistent ?
+                            (status.persistent_inbox_backed ?
+                                 "/.inbox/messages.bin" : "/.chat/messages.bin") :
+                            "unavailable",
+                        (unsigned)status.persistent_capacity);
 }
 
 static void chat_leave_channel(const char *name)
@@ -1280,8 +1327,6 @@ static void chat_leave_channel(const char *name)
         chat_append_statusf("left #%s", channel);
         chat_remove_channel(channel);
         chat_set_status("left");
-    } else if (err == ESP_ERR_INVALID_STATE) {
-        chat_set_status("not connected");
     } else {
         chat_set_status(esp_err_to_name(err));
     }
@@ -1294,8 +1339,6 @@ static void chat_delete_channel(const char *name)
     if (err == ESP_OK) {
         chat_append_statusf("delete requested #%s", channel);
         chat_set_status("deleting");
-    } else if (err == ESP_ERR_INVALID_STATE) {
-        chat_set_status("not connected");
     } else {
         chat_set_status(esp_err_to_name(err));
     }
@@ -1378,7 +1421,7 @@ static void chat_submit_input(solar_os_context_t *ctx)
     const esp_err_t err = solar_os_chat_send(chat_current_channel_name(), line);
     solar_os_memory_free(line);
     if (err == ESP_OK) {
-        chat_set_status("sent");
+        chat_set_status("queued");
     } else {
         chat_set_status(esp_err_to_name(err));
         chat_append_statusf("send failed: %s", esp_err_to_name(err));
@@ -1645,12 +1688,26 @@ static esp_err_t chat_start(solar_os_context_t *ctx)
     (void)solar_os_chat_init();
     (void)chat_add_channel(chat_app.initial_channel, true);
     chat_app.active = true;
+    (void)solar_os_chat_message_visit(chat_restore_message,
+                                      NULL,
+                                      &chat_app.event_cursor);
+    (void)solar_os_chat_mark_channel_read(chat_current_channel_name());
+    chat_app.channels[chat_app.current_channel].unread = false;
     chat_append_statusf("chat starting");
 
-    chat_connect_with_args(chat_app.initial_url[0] != '\0' ? chat_app.initial_url : NULL,
-                           chat_app.initial_user[0] != '\0' ? chat_app.initial_user : NULL,
-                           chat_app.initial_token[0] != '\0' ? chat_app.initial_token : NULL,
-                           false);
+    if (chat_app.initial_url[0] != '\0' ||
+        chat_app.initial_user[0] != '\0' ||
+        chat_app.initial_token[0] != '\0') {
+        chat_connect_with_args(chat_app.initial_url[0] != '\0' ? chat_app.initial_url : NULL,
+                               chat_app.initial_user[0] != '\0' ? chat_app.initial_user : NULL,
+                               chat_app.initial_token[0] != '\0' ? chat_app.initial_token : NULL,
+                               false);
+    } else {
+        solar_os_chat_status_t status;
+        if (solar_os_chat_get_status(&status) == ESP_OK) {
+            chat_set_status(solar_os_chat_state_name(status.state));
+        }
+    }
     chat_render();
     return ESP_OK;
 }
@@ -1659,7 +1716,6 @@ static void chat_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
 
-    (void)solar_os_chat_disconnect();
     solar_os_tui_set_cursor_visible(&chat_app.tui, true);
     solar_os_tui_refresh(&chat_app.tui);
     solar_os_tui_end(&chat_app.tui);

@@ -1,139 +1,546 @@
 #include "solar_os_chat.h"
 
-#include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <inttypes.h>
-#include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-#include "esp_crt_bundle.h"
-#include "esp_tls.h"
-#include "esp_tls_errors.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "solar_os_inbox.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
-#include "solar_os_task.h"
+#include "solar_os_storage.h"
 
 #define CHAT_NVS_NAMESPACE "chat"
 #define CHAT_NVS_URL_KEY "url"
 #define CHAT_NVS_TOKEN_KEY "token"
 #define CHAT_NVS_USER_KEY "user"
 #define CHAT_NVS_DEVICE_KEY "device"
-
+#define CHAT_NVS_ENABLED_KEY "enabled"
 #define CHAT_DEFAULT_USER "user"
 #define CHAT_DEFAULT_DEVICE "sol"
-#define CHAT_DEFAULT_TCP_PORT 7777
-#define CHAT_DEFAULT_TLS_PORT 7778
-#define CHAT_CONNECT_TIMEOUT_MS 10000
-#define CHAT_IO_TIMEOUT_MS 250
-#define CHAT_TASK_STACK 8192
-#define CHAT_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
-#define CHAT_EVENT_QUEUE_LEN 12
-#define CHAT_TX_QUEUE_LEN 8
-#define CHAT_TEXT_ESC_MAX (SOLAR_OS_CHAT_TEXT_MAX * 6U + 1U)
-#define CHAT_TX_LINE_MAX (CHAT_TEXT_ESC_MAX + SOLAR_OS_CHAT_CHANNEL_MAX * 2U + 64U)
-#define CHAT_LINE_MAX (CHAT_TX_LINE_MAX + SOLAR_OS_CHAT_USER_MAX * 2U + 256U)
-#define CHAT_HOST_MAX 128
-#define CHAT_HELLO_LINE_MAX \
-    (SOLAR_OS_CHAT_TOKEN_MAX * 2U + SOLAR_OS_CHAT_USER_MAX * 2U + \
-     SOLAR_OS_CHAT_DEVICE_MAX * 2U + 80U)
+#define CHAT_DEFAULT_CHANNEL "general"
+#define CHAT_EVENT_WAIT_POLL_MS 20U
+#define CHAT_STORE_MAGIC 0x54414843UL
+#define CHAT_STORE_VERSION 1U
+#define CHAT_STORE_HEADER_COPIES 2U
+#define CHAT_STORE_RESERVED_BYTES (36U * 1024U)
 
 typedef struct {
-    bool tls;
-    uint16_t port;
-    char host[CHAT_HOST_MAX];
-} chat_endpoint_t;
+    solar_os_chat_message_t message;
+    int16_t disk_index;
+} chat_message_slot_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t capacity;
+    uint32_t generation;
+    uint32_t head;
+    uint32_t count;
+    uint32_t next_id;
+    uint32_t dropped;
+    uint32_t crc32;
+} chat_store_header_t;
+
+typedef struct {
+    solar_os_chat_message_t message;
+    uint32_t crc32;
+} chat_store_record_t;
+
+#define CHAT_STORE_RECORDS_OFFSET \
+    (CHAT_STORE_HEADER_COPIES * sizeof(chat_store_header_t))
+#define CHAT_STORE_MAX_BYTES \
+    (CHAT_STORE_RECORDS_OFFSET + \
+     SOLAR_OS_CHAT_MESSAGE_CAPACITY * sizeof(chat_store_record_t))
+
+_Static_assert(CHAT_STORE_MAX_BYTES <= 384U * 1024U,
+               "persistent chat history must remain bounded");
 
 typedef struct {
     bool initialized;
     bool configured;
-    bool running;
+    bool enabled;
+    bool sync_running;
     bool connected;
-    volatile bool stop_requested;
-    volatile bool task_done;
     char url[SOLAR_OS_CHAT_URL_MAX];
     char token[SOLAR_OS_CHAT_TOKEN_MAX];
     char user[SOLAR_OS_CHAT_USER_MAX];
     char device[SOLAR_OS_CHAT_DEVICE_MAX];
     char last_error[SOLAR_OS_CHAT_ERROR_MAX];
     esp_err_t last_esp_error;
+    uint32_t config_revision;
+    uint32_t next_event_id;
+    uint32_t next_message_id;
+    uint32_t next_command_id;
+    uint32_t legacy_cursor;
     uint32_t rx_count;
     uint32_t tx_count;
     uint32_t dropped_count;
-    TaskHandle_t task;
-    QueueHandle_t events;
-    QueueHandle_t tx;
+    solar_os_chat_event_t *events;
+    size_t event_head;
+    size_t event_count;
+    chat_message_slot_t *messages;
+    chat_store_record_t *record_scratch;
+    size_t message_head;
+    size_t message_count;
+    size_t message_unread;
+    size_t disk_capacity;
+    size_t disk_head;
+    size_t disk_count;
+    uint32_t disk_generation;
+    uint32_t message_dropped_count;
+    bool persistent;
+    bool inbox_backed;
+    size_t inbox_capacity;
+    size_t inbox_limit_bytes;
+    esp_err_t storage_error;
+    char store_path[SOLAR_OS_STORAGE_PATH_MAX];
+    solar_os_chat_command_t *outbox;
+    size_t outbox_head;
+    size_t outbox_count;
+    solar_os_chat_channel_t channels[SOLAR_OS_CHAT_CHANNEL_CAPACITY];
+    size_t channel_count;
     SemaphoreHandle_t lock;
-} solar_os_chat_state_data_t;
+} solar_os_chat_store_t;
 
-static solar_os_chat_state_data_t chat_state;
-static const char *TAG = "solar_os_chat";
-static ssize_t chat_last_io_ret;
-static int chat_last_io_errno;
+typedef struct {
+    bool enabled;
+    char url[SOLAR_OS_CHAT_URL_MAX];
+    char token[SOLAR_OS_CHAT_TOKEN_MAX];
+    char user[SOLAR_OS_CHAT_USER_MAX];
+    char device[SOLAR_OS_CHAT_DEVICE_MAX];
+} solar_os_chat_saved_config_t;
 
-static void *chat_malloc(size_t size)
-{
-    return solar_os_memory_alloc(size,
-                                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-                                 "chat.service");
-}
-
-static void *chat_calloc(size_t count, size_t size)
-{
-    return solar_os_memory_calloc(count,
-                                  size,
-                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-                                  "chat.service");
-}
+static solar_os_chat_store_t chat_store;
+static const char *TAG = "chat";
 
 static void chat_lock(void)
 {
-    if (chat_state.lock != NULL) {
-        (void)xSemaphoreTake(chat_state.lock, portMAX_DELAY);
+    if (chat_store.lock != NULL) {
+        (void)xSemaphoreTake(chat_store.lock, portMAX_DELAY);
     }
 }
 
 static void chat_unlock(void)
 {
-    if (chat_state.lock != NULL) {
-        xSemaphoreGive(chat_state.lock);
+    if (chat_store.lock != NULL) {
+        xSemaphoreGive(chat_store.lock);
     }
 }
 
-static void chat_clear_event_queue(void)
+static uint32_t chat_crc32(const void *data, size_t len)
 {
-    if (chat_state.events == NULL) {
-        return;
+    const uint8_t *bytes = data;
+    uint32_t crc = 0xffffffffUL;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= bytes[i];
+        for (unsigned bit = 0; bit < 8U; bit++) {
+            crc = (crc & 1U) != 0 ? (crc >> 1) ^ 0xedb88320UL : crc >> 1;
+        }
     }
-
-    solar_os_chat_event_t *event = NULL;
-    while (xQueueReceive(chat_state.events, &event, 0) == pdTRUE) {
-        solar_os_memory_free(event);
-        event = NULL;
-    }
-    xQueueReset(chat_state.events);
+    return ~crc;
 }
 
-static void chat_clear_tx_queue(void)
+static uint64_t chat_hash_update(uint64_t hash, const void *data, size_t len)
 {
-    if (chat_state.tx == NULL) {
-        return;
+    const uint8_t *bytes = data;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    hash ^= 0xffU;
+    hash *= 1099511628211ULL;
+    return hash;
+}
+
+static uint64_t chat_hash_string(uint64_t hash, const char *text)
+{
+    const char *value = text != NULL ? text : "";
+    return chat_hash_update(hash, value, strlen(value));
+}
+
+static uint64_t chat_message_key_locked(const solar_os_chat_event_t *event)
+{
+    if (event->message_key != 0) {
+        return event->message_key;
+    }
+    if (event->timestamp == 0) {
+        return 0;
     }
 
-    char *line = NULL;
-    while (xQueueReceive(chat_state.tx, &line, 0) == pdTRUE) {
-        solar_os_memory_free(line);
-        line = NULL;
+    uint64_t hash = 1469598103934665603ULL;
+    hash = chat_hash_string(hash, chat_store.url);
+    hash = chat_hash_string(hash, event->channel);
+    hash = chat_hash_string(hash, event->from);
+    hash = chat_hash_update(hash, &event->timestamp, sizeof(event->timestamp));
+    hash = chat_hash_string(hash, event->text);
+    return hash != 0 ? hash : 1U;
+}
+
+static void chat_make_store_header(chat_store_header_t *header,
+                                   uint32_t generation)
+{
+    memset(header, 0, sizeof(*header));
+    header->magic = CHAT_STORE_MAGIC;
+    header->version = CHAT_STORE_VERSION;
+    header->capacity = (uint16_t)chat_store.disk_capacity;
+    header->generation = generation;
+    header->head = (uint32_t)chat_store.disk_head;
+    header->count = (uint32_t)chat_store.disk_count;
+    header->next_id = chat_store.next_message_id;
+    header->dropped = chat_store.message_dropped_count;
+    header->crc32 = chat_crc32(header, offsetof(chat_store_header_t, crc32));
+}
+
+static bool chat_store_header_valid(const chat_store_header_t *header)
+{
+    return header->magic == CHAT_STORE_MAGIC &&
+        header->version == CHAT_STORE_VERSION &&
+        header->capacity > 0 &&
+        header->capacity <= SOLAR_OS_CHAT_MESSAGE_CAPACITY &&
+        header->head < header->capacity &&
+        header->count <= header->capacity &&
+        header->next_id != 0 &&
+        header->crc32 == chat_crc32(header,
+                                    offsetof(chat_store_header_t, crc32));
+}
+
+static bool chat_generation_newer(uint32_t first, uint32_t second)
+{
+    return (int32_t)(first - second) > 0;
+}
+
+static void chat_make_store_record(chat_store_record_t *record,
+                                   const solar_os_chat_message_t *message)
+{
+    memset(record, 0, sizeof(*record));
+    record->message = *message;
+    record->crc32 = chat_crc32(record, offsetof(chat_store_record_t, crc32));
+}
+
+static bool chat_store_record_valid(const chat_store_record_t *record)
+{
+    return record->message.id != 0 &&
+        record->message.message_key != 0 &&
+        record->message.channel[0] != '\0' &&
+        record->crc32 == chat_crc32(record,
+                                    offsetof(chat_store_record_t, crc32));
+}
+
+static esp_err_t chat_sync_file(FILE *file)
+{
+    if (fflush(file) != 0) {
+        return ESP_FAIL;
     }
-    xQueueReset(chat_state.tx);
+    const int fd = fileno(file);
+    return fd >= 0 && fsync(fd) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t chat_prepare_store_path(void)
+{
+    if (!solar_os_storage_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!solar_os_storage_sd_is_mounted()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    char directory[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t err = solar_os_storage_default_path(SOLAR_OS_CHAT_STORE_DIR,
+                                                  directory,
+                                                  sizeof(directory));
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (solar_os_storage_mkdir(directory) != ESP_OK && errno != EEXIST) {
+        return ESP_FAIL;
+    }
+    return solar_os_storage_default_path(SOLAR_OS_CHAT_STORE_DIR "/" SOLAR_OS_CHAT_STORE_FILE,
+                                         chat_store.store_path,
+                                         sizeof(chat_store.store_path));
+}
+
+static size_t chat_select_disk_capacity(uint64_t reclaimed_bytes)
+{
+    solar_os_storage_usage_t usage;
+    if (solar_os_storage_get_usage(&usage) != ESP_OK) {
+        return 0;
+    }
+    const uint64_t available = usage.free_bytes + reclaimed_bytes;
+    if (available <= CHAT_STORE_RESERVED_BYTES + CHAT_STORE_RECORDS_OFFSET) {
+        return 0;
+    }
+    uint64_t bytes = available - CHAT_STORE_RESERVED_BYTES -
+        CHAT_STORE_RECORDS_OFFSET;
+    size_t capacity = (size_t)(bytes / sizeof(chat_store_record_t));
+    if (capacity > SOLAR_OS_CHAT_MESSAGE_CAPACITY) {
+        capacity = SOLAR_OS_CHAT_MESSAGE_CAPACITY;
+    }
+    return capacity;
+}
+
+static esp_err_t chat_store_reset_locked(void)
+{
+    if (chat_store.disk_capacity == 0) {
+        chat_store.persistent = false;
+        chat_store.storage_error = ESP_ERR_NO_MEM;
+        return ESP_ERR_NO_MEM;
+    }
+
+    FILE *file = fopen(chat_store.store_path, "w+b");
+    if (file == NULL) {
+        chat_store.storage_error = ESP_FAIL;
+        return ESP_FAIL;
+    }
+    uint32_t generation = chat_store.disk_generation + 1U;
+    if (generation == 0) {
+        generation = 1;
+    }
+    chat_store.disk_head = 0;
+    chat_store.disk_count = 0;
+    chat_store_header_t header;
+    chat_make_store_header(&header, generation);
+    bool ok = true;
+    for (size_t i = 0; i < CHAT_STORE_HEADER_COPIES; i++) {
+        if (fwrite(&header, sizeof(header), 1, file) != 1) {
+            ok = false;
+            break;
+        }
+    }
+    esp_err_t err = ok ? chat_sync_file(file) : ESP_FAIL;
+    if (fclose(file) != 0 && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+    if (err == ESP_OK) {
+        chat_store.disk_generation = generation;
+        chat_store.persistent = true;
+        chat_store.storage_error = ESP_OK;
+    } else {
+        chat_store.persistent = false;
+        chat_store.storage_error = err;
+    }
+    return err;
+}
+
+static void chat_clear_disk_mapping_locked(size_t disk_index)
+{
+    for (size_t i = 0; i < SOLAR_OS_CHAT_MESSAGE_CAPACITY; i++) {
+        if (chat_store.messages[i].disk_index == (int16_t)disk_index) {
+            chat_store.messages[i].disk_index = -1;
+        }
+    }
+}
+
+static int chat_store_write_message_locked(const solar_os_chat_message_t *message)
+{
+    if (!chat_store.persistent || chat_store.disk_capacity == 0 || message == NULL) {
+        chat_store.storage_error = ESP_ERR_INVALID_STATE;
+        return -1;
+    }
+
+    FILE *file = fopen(chat_store.store_path, "r+b");
+    if (file == NULL) {
+        chat_store.storage_error = ESP_FAIL;
+        return -1;
+    }
+    const size_t disk_index = chat_store.disk_head;
+    chat_store_record_t *record = chat_store.record_scratch;
+    if (message == &record->message) {
+        record->crc32 = chat_crc32(record, offsetof(chat_store_record_t, crc32));
+    } else {
+        chat_make_store_record(record, message);
+    }
+    const long record_offset = (long)(CHAT_STORE_RECORDS_OFFSET +
+                                      disk_index * sizeof(*record));
+    esp_err_t err = ESP_OK;
+    if (fseek(file, record_offset, SEEK_SET) != 0 ||
+        fwrite(record, sizeof(*record), 1, file) != 1 ||
+        chat_sync_file(file) != ESP_OK) {
+        err = ESP_FAIL;
+    }
+
+    uint32_t generation = chat_store.disk_generation;
+    if (err == ESP_OK) {
+        generation++;
+        if (generation == 0) {
+            generation = 1;
+        }
+        chat_store.disk_head = (disk_index + 1U) % chat_store.disk_capacity;
+        if (chat_store.disk_count < chat_store.disk_capacity) {
+            chat_store.disk_count++;
+        }
+        chat_store_header_t header;
+        chat_make_store_header(&header, generation);
+        const long header_offset =
+            (long)((generation % CHAT_STORE_HEADER_COPIES) * sizeof(header));
+        if (fseek(file, header_offset, SEEK_SET) != 0 ||
+            fwrite(&header, sizeof(header), 1, file) != 1 ||
+            chat_sync_file(file) != ESP_OK) {
+            err = ESP_FAIL;
+        }
+    }
+    if (fclose(file) != 0 && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+    if (err == ESP_OK) {
+        chat_clear_disk_mapping_locked(disk_index);
+        chat_store.disk_generation = generation;
+        chat_store.storage_error = ESP_OK;
+    } else {
+        chat_store.storage_error = err;
+    }
+    return err == ESP_OK ? (int)disk_index : -1;
+}
+
+static esp_err_t chat_store_update_messages_locked(chat_message_slot_t *const *slots,
+                                                   size_t count)
+{
+    if (!chat_store.persistent || slots == NULL || count == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    FILE *file = fopen(chat_store.store_path, "r+b");
+    if (file == NULL) {
+        chat_store.storage_error = ESP_FAIL;
+        return ESP_FAIL;
+    }
+    esp_err_t err = ESP_OK;
+    for (size_t i = 0; i < count; i++) {
+        const chat_message_slot_t *slot = slots[i];
+        if (slot == NULL || slot->disk_index < 0 ||
+            (size_t)slot->disk_index >= chat_store.disk_capacity) {
+            continue;
+        }
+        chat_store_record_t *record = chat_store.record_scratch;
+        chat_make_store_record(record, &slot->message);
+        const long offset = (long)(CHAT_STORE_RECORDS_OFFSET +
+                                   (size_t)slot->disk_index * sizeof(*record));
+        if (fseek(file, offset, SEEK_SET) != 0 ||
+            fwrite(record, sizeof(*record), 1, file) != 1) {
+            err = ESP_FAIL;
+            break;
+        }
+    }
+    if (err == ESP_OK) {
+        err = chat_sync_file(file);
+    }
+    if (fclose(file) != 0 && err == ESP_OK) {
+        err = ESP_FAIL;
+    }
+    chat_store.storage_error = err;
+    return err;
+}
+
+static esp_err_t chat_store_update_message_locked(chat_message_slot_t *slot)
+{
+    chat_message_slot_t *slots[] = {slot};
+    return chat_store_update_messages_locked(slots, 1);
+}
+
+static esp_err_t chat_store_load_locked(void)
+{
+    esp_err_t err = chat_prepare_store_path();
+    if (err != ESP_OK) {
+        chat_store.persistent = false;
+        chat_store.storage_error = err;
+        return err;
+    }
+
+    struct stat info;
+    if (stat(chat_store.store_path, &info) != 0) {
+        if (errno != ENOENT) {
+            chat_store.storage_error = ESP_FAIL;
+            return ESP_FAIL;
+        }
+        chat_store.disk_capacity = chat_select_disk_capacity(0);
+        return chat_store_reset_locked();
+    }
+    if (info.st_size < (off_t)CHAT_STORE_RECORDS_OFFSET ||
+        info.st_size > (off_t)CHAT_STORE_MAX_BYTES) {
+        SOLAR_OS_LOGW(TAG, "invalid store size %ld; resetting", (long)info.st_size);
+        chat_store.disk_capacity = chat_select_disk_capacity((uint64_t)info.st_size);
+        return chat_store_reset_locked();
+    }
+
+    FILE *file = fopen(chat_store.store_path, "rb");
+    if (file == NULL) {
+        chat_store.storage_error = ESP_FAIL;
+        return ESP_FAIL;
+    }
+    chat_store_header_t headers[CHAT_STORE_HEADER_COPIES];
+    const bool headers_read = fread(headers, sizeof(headers), 1, file) == 1;
+    const bool first_valid = headers_read && chat_store_header_valid(&headers[0]);
+    const bool second_valid = headers_read && chat_store_header_valid(&headers[1]);
+    if (!first_valid && !second_valid) {
+        fclose(file);
+        chat_store.disk_capacity = chat_select_disk_capacity((uint64_t)info.st_size);
+        SOLAR_OS_LOGW(TAG, "store headers invalid; resetting");
+        return chat_store_reset_locked();
+    }
+    const chat_store_header_t *header = &headers[0];
+    if (!first_valid ||
+        (second_valid && chat_generation_newer(headers[1].generation,
+                                               headers[0].generation))) {
+        header = &headers[1];
+    }
+
+    chat_store.disk_capacity = header->capacity;
+    chat_store.disk_head = header->head;
+    chat_store.disk_count = header->count;
+    chat_store.disk_generation = header->generation;
+    chat_store.next_message_id = header->next_id;
+    chat_store.message_dropped_count = header->dropped;
+    const size_t oldest =
+        (header->head + header->capacity - header->count) % header->capacity;
+    bool records_valid = true;
+    for (size_t i = 0; i < header->count; i++) {
+        const size_t disk_index = (oldest + i) % header->capacity;
+        const long offset = (long)(CHAT_STORE_RECORDS_OFFSET +
+                                   disk_index * sizeof(chat_store_record_t));
+        chat_store_record_t *record = chat_store.record_scratch;
+        if (fseek(file, offset, SEEK_SET) != 0 ||
+            fread(record, sizeof(*record), 1, file) != 1 ||
+            !chat_store_record_valid(record)) {
+            records_valid = false;
+            break;
+        }
+        chat_message_slot_t *slot = &chat_store.messages[chat_store.message_head];
+        memset(slot, 0, sizeof(*slot));
+        slot->message = record->message;
+        slot->disk_index = (int16_t)disk_index;
+        chat_store.message_head =
+            (chat_store.message_head + 1U) % SOLAR_OS_CHAT_MESSAGE_CAPACITY;
+        if (chat_store.message_count < SOLAR_OS_CHAT_MESSAGE_CAPACITY) {
+            chat_store.message_count++;
+        }
+        if (slot->message.unread) {
+            chat_store.message_unread++;
+        }
+    }
+    fclose(file);
+    if (!records_valid) {
+        memset(chat_store.messages,
+               0,
+               SOLAR_OS_CHAT_MESSAGE_CAPACITY * sizeof(*chat_store.messages));
+        for (size_t i = 0; i < SOLAR_OS_CHAT_MESSAGE_CAPACITY; i++) {
+            chat_store.messages[i].disk_index = -1;
+        }
+        chat_store.message_head = 0;
+        chat_store.message_count = 0;
+        chat_store.message_unread = 0;
+        chat_store.next_message_id = 1;
+        chat_store.message_dropped_count = 0;
+        SOLAR_OS_LOGW(TAG, "store record invalid; resetting");
+        return chat_store_reset_locked();
+    }
+    chat_store.persistent = true;
+    chat_store.storage_error = ESP_OK;
+    return ESP_OK;
 }
 
 static bool chat_string_is_valid(const char *text, size_t max_len, bool allow_empty)
@@ -153,14 +560,6 @@ static bool chat_string_is_valid(const char *text, size_t max_len, bool allow_em
     return true;
 }
 
-static bool chat_text_is_valid(const char *text, size_t max_len)
-{
-    if (text == NULL || text[0] == '\0' || strlen(text) >= max_len) {
-        return false;
-    }
-    return true;
-}
-
 static bool chat_url_is_valid(const char *url)
 {
     if (!chat_string_is_valid(url, SOLAR_OS_CHAT_URL_MAX, false)) {
@@ -172,103 +571,161 @@ static bool chat_url_is_valid(const char *url)
         strncmp(url, "tls://", 6) == 0;
 }
 
-static esp_err_t chat_parse_url(const char *url, chat_endpoint_t *endpoint)
+static uint32_t chat_next_id(uint32_t *next)
 {
-    if (!chat_url_is_valid(url) || endpoint == NULL) {
-        return ESP_ERR_INVALID_ARG;
+    uint32_t id = (*next)++;
+    if (id == 0) {
+        id = (*next)++;
     }
+    return id;
+}
 
-    memset(endpoint, 0, sizeof(*endpoint));
-    const char *p = NULL;
-    if (strncmp(url, "chat://", 7) == 0) {
-        p = url + 7;
-        endpoint->tls = false;
-        endpoint->port = CHAT_DEFAULT_TCP_PORT;
-    } else if (strncmp(url, "chats://", 8) == 0) {
-        p = url + 8;
-        endpoint->tls = true;
-        endpoint->port = CHAT_DEFAULT_TLS_PORT;
-    } else if (strncmp(url, "tcp://", 6) == 0) {
-        p = url + 6;
-        endpoint->tls = false;
-        endpoint->port = CHAT_DEFAULT_TCP_PORT;
-    } else if (strncmp(url, "tls://", 6) == 0) {
-        p = url + 6;
-        endpoint->tls = true;
-        endpoint->port = CHAT_DEFAULT_TLS_PORT;
-    }
+static size_t chat_message_oldest_locked(void)
+{
+    return (chat_store.message_head + SOLAR_OS_CHAT_MESSAGE_CAPACITY -
+            chat_store.message_count) % SOLAR_OS_CHAT_MESSAGE_CAPACITY;
+}
 
-    if (p == NULL || *p == '\0') {
-        return ESP_ERR_INVALID_ARG;
+static chat_message_slot_t *chat_find_message_locked(uint64_t message_key)
+{
+    if (message_key == 0) {
+        return NULL;
     }
-
-    const char *host_start = p;
-    while (*p != '\0' && *p != ':' && *p != '/') {
-        p++;
-    }
-    const size_t host_len = (size_t)(p - host_start);
-    if (host_len == 0 || host_len >= sizeof(endpoint->host)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    memcpy(endpoint->host, host_start, host_len);
-    endpoint->host[host_len] = '\0';
-
-    if (*p == ':') {
-        p++;
-        if (!isdigit((unsigned char)*p)) {
-            return ESP_ERR_INVALID_ARG;
+    const size_t oldest = chat_message_oldest_locked();
+    for (size_t i = 0; i < chat_store.message_count; i++) {
+        chat_message_slot_t *slot =
+            &chat_store.messages[(oldest + i) % SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+        if (slot->message.message_key == message_key) {
+            return slot;
         }
-        uint32_t port = 0;
-        while (isdigit((unsigned char)*p)) {
-            port = port * 10U + (uint32_t)(*p - '0');
-            if (port > UINT16_MAX) {
-                return ESP_ERR_INVALID_ARG;
-            }
-            p++;
-        }
-        if (port == 0) {
-            return ESP_ERR_INVALID_ARG;
-        }
-        endpoint->port = (uint16_t)port;
     }
+    return NULL;
+}
 
-    if (*p != '\0' && *p != '/') {
-        return ESP_ERR_INVALID_ARG;
+static uint64_t chat_latest_message_timestamp_locked(void)
+{
+    uint64_t latest = 0;
+    const size_t oldest = chat_message_oldest_locked();
+    for (size_t i = 0; i < chat_store.message_count; i++) {
+        const solar_os_chat_message_t *message =
+            &chat_store.messages[(oldest + i) % SOLAR_OS_CHAT_MESSAGE_CAPACITY].message;
+        if (message->timestamp > latest) {
+            latest = message->timestamp;
+        }
+    }
+    return latest;
+}
+
+static void chat_publish_event_locked(const solar_os_chat_event_t *event,
+                                      uint64_t message_key)
+{
+    solar_os_chat_event_t *stored = &chat_store.events[chat_store.event_head];
+    *stored = *event;
+    if (message_key != 0) {
+        stored->message_key = message_key;
+    }
+    stored->id = chat_next_id(&chat_store.next_event_id);
+    chat_store.event_head =
+        (chat_store.event_head + 1U) % SOLAR_OS_CHAT_STORE_CAPACITY;
+    if (chat_store.event_count < SOLAR_OS_CHAT_STORE_CAPACITY) {
+        chat_store.event_count++;
+    } else {
+        chat_store.dropped_count++;
+    }
+    chat_store.rx_count++;
+}
+
+static esp_err_t chat_clear_messages_locked(void)
+{
+    memset(chat_store.messages,
+           0,
+           SOLAR_OS_CHAT_MESSAGE_CAPACITY * sizeof(*chat_store.messages));
+    for (size_t i = 0; i < SOLAR_OS_CHAT_MESSAGE_CAPACITY; i++) {
+        chat_store.messages[i].disk_index = -1;
+    }
+    chat_store.message_head = 0;
+    chat_store.message_count = 0;
+    chat_store.message_unread = 0;
+    chat_store.next_message_id = 1;
+    chat_store.message_dropped_count = 0;
+    if (chat_store.persistent) {
+        return chat_store_reset_locked();
     }
     return ESP_OK;
 }
 
-static void chat_set_error_locked(esp_err_t err, const char *message)
+static void chat_clear_outbox_locked(void)
 {
-    chat_state.last_esp_error = err;
-    strlcpy(chat_state.last_error,
-            message != NULL ? message : esp_err_to_name(err),
-            sizeof(chat_state.last_error));
+    chat_store.outbox_head = 0;
+    chat_store.outbox_count = 0;
+    if (chat_store.outbox != NULL) {
+        memset(chat_store.outbox,
+               0,
+               SOLAR_OS_CHAT_OUTBOX_CAPACITY * sizeof(*chat_store.outbox));
+    }
 }
 
-static void chat_clear_error_locked(void)
+static int chat_channel_index_locked(const char *channel)
 {
-    chat_state.last_esp_error = ESP_OK;
-    chat_state.last_error[0] = '\0';
+    for (size_t i = 0; i < chat_store.channel_count; i++) {
+        if (strcmp(chat_store.channels[i].name, channel) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
 }
 
-static esp_err_t chat_save_config_locked(void)
+static int chat_add_channel_locked(const char *channel, bool joined)
 {
+    int index = chat_channel_index_locked(channel);
+    if (index >= 0) {
+        if (joined) {
+            chat_store.channels[index].joined = true;
+        }
+        return index;
+    }
+    if (chat_store.channel_count >= SOLAR_OS_CHAT_CHANNEL_CAPACITY) {
+        return -1;
+    }
+    index = (int)chat_store.channel_count++;
+    strlcpy(chat_store.channels[index].name,
+            channel,
+            sizeof(chat_store.channels[index].name));
+    chat_store.channels[index].joined = joined;
+    return index;
+}
+
+static void chat_snapshot_config_locked(solar_os_chat_saved_config_t *config)
+{
+    config->enabled = chat_store.enabled;
+    strlcpy(config->url, chat_store.url, sizeof(config->url));
+    strlcpy(config->token, chat_store.token, sizeof(config->token));
+    strlcpy(config->user, chat_store.user, sizeof(config->user));
+    strlcpy(config->device, chat_store.device, sizeof(config->device));
+}
+
+static esp_err_t chat_save_config(const solar_os_chat_saved_config_t *config)
+{
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     nvs_handle_t nvs;
     esp_err_t ret = nvs_open(CHAT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (ret != ESP_OK) {
         return ret;
     }
-
-    ret = nvs_set_str(nvs, CHAT_NVS_URL_KEY, chat_state.url);
+    ret = nvs_set_str(nvs, CHAT_NVS_URL_KEY, config->url);
     if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, CHAT_NVS_TOKEN_KEY, chat_state.token);
+        ret = nvs_set_str(nvs, CHAT_NVS_TOKEN_KEY, config->token);
     }
     if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, CHAT_NVS_USER_KEY, chat_state.user);
+        ret = nvs_set_str(nvs, CHAT_NVS_USER_KEY, config->user);
     }
     if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, CHAT_NVS_DEVICE_KEY, chat_state.device);
+        ret = nvs_set_str(nvs, CHAT_NVS_DEVICE_KEY, config->device);
+    }
+    if (ret == ESP_OK) {
+        ret = nvs_set_u8(nvs, CHAT_NVS_ENABLED_KEY, config->enabled ? 1U : 0U);
     }
     if (ret == ESP_OK) {
         ret = nvs_commit(nvs);
@@ -277,757 +734,200 @@ static esp_err_t chat_save_config_locked(void)
     return ret;
 }
 
-static void chat_load_config_locked(void)
+static void chat_load_config(void)
 {
-    strlcpy(chat_state.user, CHAT_DEFAULT_USER, sizeof(chat_state.user));
-    strlcpy(chat_state.device, CHAT_DEFAULT_DEVICE, sizeof(chat_state.device));
+    strlcpy(chat_store.user, CHAT_DEFAULT_USER, sizeof(chat_store.user));
+    strlcpy(chat_store.device, CHAT_DEFAULT_DEVICE, sizeof(chat_store.device));
 
     nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(CHAT_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (ret != ESP_OK) {
+    if (nvs_open(CHAT_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
         return;
     }
-
     char url[SOLAR_OS_CHAT_URL_MAX] = {0};
     char token[SOLAR_OS_CHAT_TOKEN_MAX] = {0};
     char user[SOLAR_OS_CHAT_USER_MAX] = {0};
     char device[SOLAR_OS_CHAT_DEVICE_MAX] = {0};
     size_t len = sizeof(url);
-    ret = nvs_get_str(nvs, CHAT_NVS_URL_KEY, url, &len);
+    esp_err_t ret = nvs_get_str(nvs, CHAT_NVS_URL_KEY, url, &len);
     if (ret == ESP_OK && chat_url_is_valid(url)) {
         len = sizeof(token);
-        esp_err_t token_ret = nvs_get_str(nvs, CHAT_NVS_TOKEN_KEY, token, &len);
-        if (token_ret == ESP_ERR_NVS_NOT_FOUND) {
+        if (nvs_get_str(nvs, CHAT_NVS_TOKEN_KEY, token, &len) == ESP_ERR_NVS_NOT_FOUND) {
             token[0] = '\0';
-            token_ret = ESP_OK;
         }
-
         len = sizeof(user);
-        esp_err_t user_ret = nvs_get_str(nvs, CHAT_NVS_USER_KEY, user, &len);
-        if (user_ret == ESP_ERR_NVS_NOT_FOUND) {
+        if (nvs_get_str(nvs, CHAT_NVS_USER_KEY, user, &len) != ESP_OK) {
             strlcpy(user, CHAT_DEFAULT_USER, sizeof(user));
-            user_ret = ESP_OK;
         }
-
         len = sizeof(device);
-        esp_err_t device_ret = nvs_get_str(nvs, CHAT_NVS_DEVICE_KEY, device, &len);
-        if (device_ret == ESP_ERR_NVS_NOT_FOUND) {
+        if (nvs_get_str(nvs, CHAT_NVS_DEVICE_KEY, device, &len) != ESP_OK) {
             strlcpy(device, CHAT_DEFAULT_DEVICE, sizeof(device));
-            device_ret = ESP_OK;
         }
-
-        if (token_ret == ESP_OK &&
-            user_ret == ESP_OK &&
-            device_ret == ESP_OK &&
-            chat_string_is_valid(token, sizeof(token), true) &&
+        if (chat_string_is_valid(token, sizeof(token), true) &&
             chat_string_is_valid(user, sizeof(user), false) &&
             chat_string_is_valid(device, sizeof(device), false)) {
-            strlcpy(chat_state.url, url, sizeof(chat_state.url));
-            strlcpy(chat_state.token, token, sizeof(chat_state.token));
-            strlcpy(chat_state.user, user, sizeof(chat_state.user));
-            strlcpy(chat_state.device, device, sizeof(chat_state.device));
-            chat_state.configured = true;
+            strlcpy(chat_store.url, url, sizeof(chat_store.url));
+            strlcpy(chat_store.token, token, sizeof(chat_store.token));
+            strlcpy(chat_store.user, user, sizeof(chat_store.user));
+            strlcpy(chat_store.device, device, sizeof(chat_store.device));
+            chat_store.configured = true;
+            uint8_t enabled = 1U;
+            const esp_err_t enabled_ret =
+                nvs_get_u8(nvs, CHAT_NVS_ENABLED_KEY, &enabled);
+            chat_store.enabled = enabled_ret == ESP_ERR_NVS_NOT_FOUND || enabled != 0;
+            chat_store.config_revision = 1U;
         }
     }
     nvs_close(nvs);
 }
 
-static solar_os_chat_event_t *chat_alloc_event(solar_os_chat_event_type_t type)
+static uint64_t chat_context_id_locked(void)
 {
-    solar_os_chat_event_t *event = chat_calloc(1, sizeof(*event));
-    if (event != NULL) {
-        event->type = type;
+    if (!chat_store.configured || chat_store.url[0] == '\0') {
+        return 0;
     }
-    return event;
+    uint64_t hash = 1469598103934665603ULL;
+    hash = chat_hash_string(hash, chat_store.url);
+    return hash != 0 ? hash : 1U;
 }
 
-static void chat_count_dropped_event(void)
+static void chat_restore_inbox_fallback(void)
 {
-    chat_lock();
-    chat_state.dropped_count++;
-    chat_unlock();
-}
-
-static bool chat_queue_event_owned(solar_os_chat_event_t *event)
-{
-    if (event == NULL || chat_state.events == NULL) {
-        solar_os_memory_free(event);
-        return false;
-    }
-
-    if (xQueueSend(chat_state.events, &event, 0) != pdPASS) {
-        solar_os_memory_free(event);
-        chat_count_dropped_event();
-        return false;
-    }
-    return true;
-}
-
-static void chat_queue_simple_event(solar_os_chat_event_type_t type, const char *text)
-{
-    solar_os_chat_event_t *event = chat_alloc_event(type);
-    if (event == NULL) {
-        chat_count_dropped_event();
+    solar_os_inbox_status_t status;
+    if (solar_os_inbox_get_status(&status) != ESP_OK || !status.persistent) {
         return;
+    }
+
+    solar_os_inbox_entry_t *entries = solar_os_memory_calloc(
+        SOLAR_OS_INBOX_CAPACITY,
+        sizeof(*entries),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "chat.inbox.restore");
+    if (entries == NULL) {
+        return;
+    }
+    const size_t count = solar_os_inbox_snapshot(entries,
+                                                 SOLAR_OS_INBOX_CAPACITY,
+                                                 false,
+                                                 NULL);
+    const uint64_t context_id = chat_context_id_locked();
+    for (size_t reverse = count; reverse > 0; reverse--) {
+        const solar_os_inbox_entry_t *entry = &entries[reverse - 1U];
+        if (strcmp(entry->source, "chat") != 0 || entry->source_id == 0 ||
+            entry->source_context != context_id) {
+            continue;
+        }
+        chat_message_slot_t *slot = &chat_store.messages[chat_store.message_head];
+        memset(slot, 0, sizeof(*slot));
+        slot->disk_index = -1;
+        slot->message.id = chat_next_id(&chat_store.next_message_id);
+        slot->message.inbox_id = entry->id;
+        slot->message.message_key = entry->source_id;
+        /* Inbox fallback stores receipt time, not the transport timestamp. */
+        slot->message.timestamp = 0;
+        slot->message.unread = entry->unread;
+        slot->message.truncated = entry->truncated;
+        strlcpy(slot->message.channel,
+                entry->topic[0] != '\0' ? entry->topic : CHAT_DEFAULT_CHANNEL,
+                sizeof(slot->message.channel));
+        strlcpy(slot->message.from, entry->sender, sizeof(slot->message.from));
+        strlcpy(slot->message.text, entry->body, sizeof(slot->message.text));
+        chat_store.message_head =
+            (chat_store.message_head + 1U) % SOLAR_OS_CHAT_MESSAGE_CAPACITY;
+        if (chat_store.message_count < SOLAR_OS_CHAT_MESSAGE_CAPACITY) {
+            chat_store.message_count++;
+        }
+        if (slot->message.unread) {
+            chat_store.message_unread++;
+        }
+    }
+    solar_os_memory_free(entries);
+    chat_store.inbox_backed = true;
+    chat_store.inbox_capacity = status.capacity;
+    chat_store.inbox_limit_bytes = status.storage_limit_bytes;
+    chat_store.storage_error = status.storage_error;
+}
+
+static esp_err_t chat_queue_command_locked(solar_os_chat_command_type_t type,
+                                           const char *channel,
+                                           const char *text)
+{
+    if (chat_store.outbox_count >= SOLAR_OS_CHAT_OUTBOX_CAPACITY) {
+        chat_store.dropped_count++;
+        return ESP_ERR_NO_MEM;
+    }
+    solar_os_chat_command_t *command = &chat_store.outbox[chat_store.outbox_head];
+    memset(command, 0, sizeof(*command));
+    command->id = chat_next_id(&chat_store.next_command_id);
+    command->type = type;
+    if (channel != NULL) {
+        strlcpy(command->channel, channel, sizeof(command->channel));
     }
     if (text != NULL) {
-        strlcpy(event->text, text, sizeof(event->text));
+        strlcpy(command->text, text, sizeof(command->text));
     }
-    (void)chat_queue_event_owned(event);
-}
-
-static size_t chat_json_escape(const char *text, char *out, size_t out_len)
-{
-    if (out == NULL || out_len == 0) {
-        return 0;
-    }
-
-    size_t used = 0;
-    if (text == NULL) {
-        out[0] = '\0';
-        return 0;
-    }
-
-    for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; p++) {
-        char esc[7] = {0};
-        const char *write = esc;
-        size_t write_len = 0;
-
-        switch (*p) {
-        case '"':
-            write = "\\\"";
-            write_len = 2;
-            break;
-        case '\\':
-            write = "\\\\";
-            write_len = 2;
-            break;
-        case '\n':
-            write = "\\n";
-            write_len = 2;
-            break;
-        case '\r':
-            write = "\\r";
-            write_len = 2;
-            break;
-        case '\t':
-            write = "\\t";
-            write_len = 2;
-            break;
-        default:
-            if (*p < 0x20) {
-                snprintf(esc, sizeof(esc), "\\u%04x", (unsigned)*p);
-                write_len = 6;
-            } else {
-                esc[0] = (char)*p;
-                write_len = 1;
-            }
-            break;
-        }
-
-        if (used + write_len >= out_len) {
-            break;
-        }
-        memcpy(out + used, write, write_len);
-        used += write_len;
-    }
-    out[used] = '\0';
-    return used;
-}
-
-static const char *chat_skip_ws(const char *p)
-{
-    while (p != NULL && isspace((unsigned char)*p)) {
-        p++;
-    }
-    return p;
-}
-
-static const char *chat_parse_json_string(const char *p, char *out, size_t out_len, bool *truncated)
-{
-    if (p == NULL || *p != '"' || out == NULL || out_len == 0) {
-        return NULL;
-    }
-
-    p++;
-    size_t used = 0;
-    bool was_truncated = false;
-    while (*p != '\0' && *p != '"') {
-        char ch = *p++;
-        if (ch == '\\') {
-            ch = *p++;
-            switch (ch) {
-            case '"':
-            case '\\':
-            case '/':
-                break;
-            case 'n':
-                ch = '\n';
-                break;
-            case 'r':
-                ch = '\r';
-                break;
-            case 't':
-                ch = '\t';
-                break;
-            case 'b':
-            case 'f':
-                ch = ' ';
-                break;
-            case 'u':
-                for (int i = 0; i < 4 && isxdigit((unsigned char)*p); i++) {
-                    p++;
-                }
-                ch = '?';
-                break;
-            default:
-                if (ch == '\0') {
-                    return NULL;
-                }
-                break;
-            }
-        }
-
-        if (used + 1 < out_len) {
-            out[used++] = ch;
-        } else {
-            was_truncated = true;
-        }
-    }
-
-    if (*p != '"') {
-        return NULL;
-    }
-    out[used] = '\0';
-    if (truncated != NULL && was_truncated) {
-        *truncated = true;
-    }
-    return p + 1;
-}
-
-static const char *chat_skip_json_value(const char *p)
-{
-    p = chat_skip_ws(p);
-    if (p == NULL) {
-        return NULL;
-    }
-    if (*p == '"') {
-        char scratch[2];
-        return chat_parse_json_string(p, scratch, sizeof(scratch), NULL);
-    }
-
-    int depth = 0;
-    while (*p != '\0') {
-        if (*p == '{' || *p == '[') {
-            depth++;
-        } else if (*p == '}' || *p == ']') {
-            if (depth == 0) {
-                return p;
-            }
-            depth--;
-        } else if (*p == ',' && depth == 0) {
-            return p;
-        }
-        p++;
-    }
-    return p;
-}
-
-static bool chat_json_get_string(const char *json,
-                                 const char *key,
-                                 char *out,
-                                 size_t out_len,
-                                 bool *truncated)
-{
-    if (json == NULL || key == NULL || out == NULL || out_len == 0) {
-        return false;
-    }
-    out[0] = '\0';
-
-    const char *p = chat_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-
-    while (*p != '\0') {
-        p = chat_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-
-        char member[32];
-        p = chat_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chat_skip_ws(p + 1);
-
-        if (strcmp(member, key) == 0 && *p == '"') {
-            return chat_parse_json_string(p, out, out_len, truncated) != NULL;
-        }
-
-        p = chat_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-
-    return false;
-}
-
-static bool chat_json_get_u64(const char *json, const char *key, uint64_t *out)
-{
-    if (json == NULL || key == NULL || out == NULL) {
-        return false;
-    }
-
-    const char *p = chat_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-
-    while (*p != '\0') {
-        p = chat_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-
-        char member[32];
-        p = chat_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chat_skip_ws(p + 1);
-
-        if (strcmp(member, key) == 0 && isdigit((unsigned char)*p)) {
-            uint64_t value = 0;
-            while (isdigit((unsigned char)*p)) {
-                value = value * 10ULL + (uint64_t)(*p - '0');
-                p++;
-            }
-            *out = value;
-            return true;
-        }
-
-        p = chat_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-    return false;
-}
-
-static void chat_handle_gateway_line(const char *line)
-{
-    if (line == NULL || line[0] == '\0') {
-        return;
-    }
-
-    solar_os_chat_event_t *event = chat_alloc_event(SOLAR_OS_CHAT_EVENT_RAW);
-    if (event == NULL) {
-        chat_count_dropped_event();
-        return;
-    }
-
-    char type[24];
-    bool truncated = false;
-    if (!chat_json_get_string(line, "type", type, sizeof(type), NULL)) {
-        strlcpy(event->text, line, sizeof(event->text));
-        event->truncated = strlen(line) >= sizeof(event->text);
-        (void)chat_queue_event_owned(event);
-        return;
-    }
-
-    if (strcmp(type, "msg") == 0 || strcmp(type, "message") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_MESSAGE;
-    } else if (strcmp(type, "joined") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_JOINED;
-    } else if (strcmp(type, "left") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_LEFT;
-    } else if (strcmp(type, "channel") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_CHANNEL;
-    } else if (strcmp(type, "deleted") == 0 || strcmp(type, "channel_deleted") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_CHANNEL_DELETED;
-    } else if (strcmp(type, "presence") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_PRESENCE;
-    } else if (strcmp(type, "error") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_ERROR;
-    } else if (strcmp(type, "connected") == 0 || strcmp(type, "hello") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_CONNECTED;
-    } else if (strcmp(type, "disconnected") == 0) {
-        event->type = SOLAR_OS_CHAT_EVENT_DISCONNECTED;
-    }
-
-    truncated = false;
-    (void)chat_json_get_string(line, "channel", event->channel, sizeof(event->channel), &truncated);
-    (void)chat_json_get_string(line, "from", event->from, sizeof(event->from), &truncated);
-    if (!chat_json_get_string(line, "text", event->text, sizeof(event->text), &truncated)) {
-        (void)chat_json_get_string(line, "name", event->text, sizeof(event->text), &truncated);
-    }
-    (void)chat_json_get_u64(line, "ts", &event->timestamp);
-    uint64_t code = 0;
-    if (chat_json_get_u64(line, "code", &code)) {
-        event->code = (int)code;
-    }
-    event->truncated = truncated;
-
-    (void)chat_queue_event_owned(event);
-    chat_lock();
-    chat_state.rx_count++;
-    chat_unlock();
-}
-
-static bool chat_io_would_block(ssize_t ret)
-{
-    if (ret == ESP_TLS_ERR_SSL_WANT_READ ||
-        ret == ESP_TLS_ERR_SSL_WANT_WRITE ||
-        ret == ESP_TLS_ERR_SSL_TIMEOUT) {
-        return true;
-    }
-
-    return ret == -1 &&
-        (errno == EAGAIN ||
-         errno == EWOULDBLOCK ||
-         errno == EINTR);
-}
-
-static esp_err_t chat_write_all(esp_tls_t *tls, const char *data, size_t len)
-{
-    if (tls == NULL || data == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    size_t offset = 0;
-    while (offset < len && !chat_state.stop_requested) {
-        errno = 0;
-        const ssize_t written = esp_tls_conn_write(tls, data + offset, len - offset);
-        if (written > 0) {
-            offset += (size_t)written;
-            continue;
-        }
-        if (chat_io_would_block(written)) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
-        chat_last_io_ret = written;
-        chat_last_io_errno = errno;
-        return ESP_FAIL;
-    }
-
-    return offset == len ? ESP_OK : ESP_FAIL;
-}
-
-static esp_err_t chat_send_line(esp_tls_t *tls, const char *line)
-{
-    const esp_err_t ret = chat_write_all(tls, line, strlen(line));
-    if (ret == ESP_OK) {
-        chat_lock();
-        chat_state.tx_count++;
-        chat_unlock();
-    }
-    return ret;
-}
-
-static esp_err_t chat_set_socket_nonblocking(esp_tls_t *tls)
-{
-    int fd = -1;
-    esp_err_t ret = esp_tls_get_conn_sockfd(tls, &fd);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0) {
-        return ESP_FAIL;
-    }
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        return ESP_FAIL;
-    }
+    chat_store.outbox_head =
+        (chat_store.outbox_head + 1U) % SOLAR_OS_CHAT_OUTBOX_CAPACITY;
+    chat_store.outbox_count++;
     return ESP_OK;
-}
-
-static esp_err_t chat_send_hello(esp_tls_t *tls)
-{
-    char user[SOLAR_OS_CHAT_USER_MAX];
-    char device[SOLAR_OS_CHAT_DEVICE_MAX];
-    char token[SOLAR_OS_CHAT_TOKEN_MAX];
-    chat_lock();
-    strlcpy(user, chat_state.user, sizeof(user));
-    strlcpy(device, chat_state.device, sizeof(device));
-    strlcpy(token, chat_state.token, sizeof(token));
-    chat_unlock();
-
-    char user_esc[SOLAR_OS_CHAT_USER_MAX * 2];
-    char device_esc[SOLAR_OS_CHAT_DEVICE_MAX * 2];
-    char token_esc[SOLAR_OS_CHAT_TOKEN_MAX * 2];
-    chat_json_escape(user, user_esc, sizeof(user_esc));
-    chat_json_escape(device, device_esc, sizeof(device_esc));
-    chat_json_escape(token, token_esc, sizeof(token_esc));
-
-    char line[CHAT_HELLO_LINE_MAX];
-    if (token_esc[0] != '\0') {
-        snprintf(line,
-                 sizeof(line),
-                 "{\"type\":\"hello\",\"user\":\"%s\",\"device\":\"%s\",\"token\":\"%s\"}\n",
-                 user_esc,
-                 device_esc,
-                 token_esc);
-    } else {
-        snprintf(line,
-                 sizeof(line),
-                 "{\"type\":\"hello\",\"user\":\"%s\",\"device\":\"%s\"}\n",
-                 user_esc,
-                 device_esc);
-    }
-    return chat_send_line(tls, line);
-}
-
-static void chat_task_set_state(bool running, bool connected, esp_err_t err, const char *error)
-{
-    chat_lock();
-    chat_state.running = running;
-    chat_state.connected = connected;
-    if (err == ESP_OK) {
-        chat_clear_error_locked();
-    } else {
-        chat_set_error_locked(err, error);
-    }
-    chat_unlock();
-}
-
-static void chat_gateway_task(void *arg)
-{
-    (void)arg;
-
-    char url[SOLAR_OS_CHAT_URL_MAX];
-    chat_lock();
-    strlcpy(url, chat_state.url, sizeof(url));
-    chat_unlock();
-
-    chat_endpoint_t endpoint;
-    esp_err_t ret = chat_parse_url(url, &endpoint);
-    if (ret != ESP_OK) {
-        chat_task_set_state(false, false, ret, "invalid gateway URL");
-        chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "invalid gateway URL");
-        chat_state.task_done = true;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    esp_tls_t *tls = esp_tls_init();
-    if (tls == NULL) {
-        chat_task_set_state(false, false, ESP_ERR_NO_MEM, "TLS init failed");
-        chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "TLS init failed");
-        chat_state.task_done = true;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    esp_tls_cfg_t cfg = {
-        .is_plain_tcp = !endpoint.tls,
-        .non_block = endpoint.tls,
-        .timeout_ms = CHAT_CONNECT_TIMEOUT_MS,
-        .crt_bundle_attach = endpoint.tls ? esp_crt_bundle_attach : NULL,
-    };
-
-    SOLAR_OS_LOGI(TAG,
-                  "connecting to %s:%u %s",
-                  endpoint.host,
-                  (unsigned)endpoint.port,
-                  endpoint.tls ? "TLS" : "TCP");
-    const int connected = esp_tls_conn_new_sync(endpoint.host,
-                                                (int)strlen(endpoint.host),
-                                                endpoint.port,
-                                                &cfg,
-                                                tls);
-    if (connected != 1 || chat_state.stop_requested) {
-        esp_tls_conn_destroy(tls);
-        chat_task_set_state(false, false, ESP_FAIL, "gateway connect failed");
-        if (!chat_state.stop_requested) {
-            chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway connect failed");
-        }
-        chat_state.task_done = true;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    if (!endpoint.tls) {
-        ret = chat_set_socket_nonblocking(tls);
-        if (ret != ESP_OK) {
-            esp_tls_conn_destroy(tls);
-            chat_task_set_state(false, false, ret, "gateway socket setup failed");
-            chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway socket setup failed");
-            chat_state.task_done = true;
-            vTaskDelete(NULL);
-            return;
-        }
-    }
-
-    chat_task_set_state(true, false, ESP_OK, NULL);
-    ret = chat_send_hello(tls);
-    if (ret != ESP_OK || chat_state.stop_requested) {
-        SOLAR_OS_LOGW(TAG,
-                      "gateway hello write failed: ret=%d errno=%d",
-                      (int)chat_last_io_ret,
-                      chat_last_io_errno);
-        esp_tls_conn_destroy(tls);
-        chat_task_set_state(false, false, ret != ESP_OK ? ret : ESP_FAIL, "gateway write failed");
-        if (!chat_state.stop_requested) {
-            chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway write failed");
-        }
-        chat_state.task_done = true;
-        vTaskDelete(NULL);
-        return;
-    }
-    chat_task_set_state(true, true, ESP_OK, NULL);
-    chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_CONNECTED, "connected");
-
-    char rx[128];
-    char *line = chat_malloc(CHAT_LINE_MAX);
-    if (line == NULL) {
-        esp_tls_conn_destroy(tls);
-        chat_task_set_state(false, false, ESP_ERR_NO_MEM, "chat RX alloc failed");
-        chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "chat RX alloc failed");
-        chat_state.task_done = true;
-        vTaskDelete(NULL);
-        return;
-    }
-    size_t line_len = 0;
-    bool line_truncated = false;
-
-    while (!chat_state.stop_requested) {
-        char *tx_line = NULL;
-        while (!chat_state.stop_requested &&
-               xQueueReceive(chat_state.tx, &tx_line, 0) == pdTRUE) {
-            ret = chat_send_line(tls, tx_line);
-            solar_os_memory_free(tx_line);
-            tx_line = NULL;
-            if (ret != ESP_OK) {
-                SOLAR_OS_LOGW(TAG,
-                              "gateway write failed: ret=%d errno=%d",
-                              (int)chat_last_io_ret,
-                              chat_last_io_errno);
-                chat_task_set_state(true, false, ret, "gateway write failed");
-                chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway write failed");
-                chat_state.stop_requested = true;
-                break;
-            }
-        }
-        if (chat_state.stop_requested) {
-            break;
-        }
-
-        const ssize_t read_len = esp_tls_conn_read(tls, rx, sizeof(rx));
-        if (read_len > 0) {
-            for (ssize_t i = 0; i < read_len; i++) {
-                const char ch = rx[i];
-                if (ch == '\n') {
-                    line[line_len] = '\0';
-                    if (line_len > 0 && line[line_len - 1U] == '\r') {
-                        line[line_len - 1U] = '\0';
-                    }
-                    chat_handle_gateway_line(line);
-                    if (line_truncated) {
-                        solar_os_chat_event_t *event =
-                            chat_alloc_event(SOLAR_OS_CHAT_EVENT_ERROR);
-                        if (event != NULL) {
-                            event->truncated = true;
-                            strlcpy(event->text, "gateway line truncated", sizeof(event->text));
-                            (void)chat_queue_event_owned(event);
-                        } else {
-                            chat_count_dropped_event();
-                        }
-                    }
-                    line_len = 0;
-                    line_truncated = false;
-                } else if (line_len + 1 < CHAT_LINE_MAX) {
-                    line[line_len++] = ch;
-                } else {
-                    line_truncated = true;
-                }
-            }
-            continue;
-        }
-
-        if (read_len == 0) {
-            break;
-        }
-        if (chat_io_would_block(read_len)) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
-
-        SOLAR_OS_LOGW(TAG,
-                      "gateway read failed: ret=%d errno=%d",
-                      (int)read_len,
-                      errno);
-        chat_task_set_state(true, false, ESP_FAIL, "gateway read failed");
-        chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway read failed");
-        break;
-    }
-
-    solar_os_memory_free(line);
-    esp_tls_conn_destroy(tls);
-    chat_task_set_state(false, false, ESP_OK, NULL);
-    if (!chat_state.stop_requested) {
-        chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_DISCONNECTED, "disconnected");
-    }
-    chat_state.task_done = true;
-    vTaskDelete(NULL);
-    return;
 }
 
 esp_err_t solar_os_chat_init(void)
 {
-    if (chat_state.initialized) {
+    if (chat_store.initialized) {
         return ESP_OK;
     }
-
-    chat_state.lock = xSemaphoreCreateMutex();
-    if (chat_state.lock == NULL) {
+    chat_store.lock = xSemaphoreCreateMutex();
+    if (chat_store.lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    chat_state.events = xQueueCreate(CHAT_EVENT_QUEUE_LEN, sizeof(solar_os_chat_event_t *));
-    if (chat_state.events == NULL) {
-        vSemaphoreDelete(chat_state.lock);
-        chat_state.lock = NULL;
+    chat_store.events = solar_os_memory_calloc(SOLAR_OS_CHAT_STORE_CAPACITY,
+                                               sizeof(*chat_store.events),
+                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                               "chat.store");
+    chat_store.messages = solar_os_memory_calloc(SOLAR_OS_CHAT_MESSAGE_CAPACITY,
+                                                 sizeof(*chat_store.messages),
+                                                 SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                 "chat.messages");
+    chat_store.record_scratch = solar_os_memory_calloc(1,
+                                                       sizeof(*chat_store.record_scratch),
+                                                       SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                       "chat.record");
+    chat_store.outbox = solar_os_memory_calloc(SOLAR_OS_CHAT_OUTBOX_CAPACITY,
+                                               sizeof(*chat_store.outbox),
+                                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                               "chat.outbox");
+    if (chat_store.events == NULL || chat_store.messages == NULL ||
+        chat_store.record_scratch == NULL || chat_store.outbox == NULL) {
+        solar_os_memory_free(chat_store.events);
+        solar_os_memory_free(chat_store.messages);
+        solar_os_memory_free(chat_store.record_scratch);
+        solar_os_memory_free(chat_store.outbox);
+        chat_store.events = NULL;
+        chat_store.messages = NULL;
+        chat_store.record_scratch = NULL;
+        chat_store.outbox = NULL;
+        vSemaphoreDelete(chat_store.lock);
+        chat_store.lock = NULL;
         return ESP_ERR_NO_MEM;
     }
-    chat_state.tx = xQueueCreate(CHAT_TX_QUEUE_LEN, sizeof(char *));
-    if (chat_state.tx == NULL) {
-        vQueueDelete(chat_state.events);
-        chat_state.events = NULL;
-        vSemaphoreDelete(chat_state.lock);
-        chat_state.lock = NULL;
-        return ESP_ERR_NO_MEM;
+    for (size_t i = 0; i < SOLAR_OS_CHAT_MESSAGE_CAPACITY; i++) {
+        chat_store.messages[i].disk_index = -1;
     }
-
-    chat_state.initialized = true;
-    chat_lock();
-    chat_load_config_locked();
-    chat_unlock();
+    chat_store.next_event_id = 1U;
+    chat_store.next_message_id = 1U;
+    chat_store.next_command_id = 1U;
+    chat_load_config();
+    (void)chat_add_channel_locked(CHAT_DEFAULT_CHANNEL, true);
+    const esp_err_t store_err = chat_store_load_locked();
+    if (store_err != ESP_OK) {
+        chat_restore_inbox_fallback();
+        if (!chat_store.inbox_backed) {
+            SOLAR_OS_LOGW(TAG,
+                          "persistent message store unavailable: %s",
+                          esp_err_to_name(store_err));
+        }
+    }
+    chat_store.initialized = true;
     return ESP_OK;
 }
 
@@ -1036,54 +936,69 @@ esp_err_t solar_os_chat_configure(const char *url,
                                   const char *user,
                                   const char *device)
 {
+    if ((url != NULL && url[0] != '\0' && !chat_url_is_valid(url)) ||
+        (token != NULL &&
+         !chat_string_is_valid(token, SOLAR_OS_CHAT_TOKEN_MAX, true)) ||
+        (user != NULL &&
+         !chat_string_is_valid(user, SOLAR_OS_CHAT_USER_MAX, false)) ||
+        (device != NULL &&
+         !chat_string_is_valid(device, SOLAR_OS_CHAT_DEVICE_MAX, false))) {
+        return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t ret = solar_os_chat_init();
     if (ret != ESP_OK) {
         return ret;
     }
-
     chat_lock();
+    bool endpoint_changed = false;
     if (url != NULL && url[0] != '\0') {
-        if (!chat_url_is_valid(url)) {
-            chat_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(chat_state.url, url, sizeof(chat_state.url));
-        chat_state.configured = true;
+        endpoint_changed = strcmp(chat_store.url, url) != 0;
+        strlcpy(chat_store.url, url, sizeof(chat_store.url));
+        chat_store.configured = true;
     }
     if (token != NULL) {
-        if (!chat_string_is_valid(token, SOLAR_OS_CHAT_TOKEN_MAX, true)) {
-            chat_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(chat_state.token, token, sizeof(chat_state.token));
+        strlcpy(chat_store.token, token, sizeof(chat_store.token));
     }
     if (user != NULL) {
-        if (!chat_string_is_valid(user, SOLAR_OS_CHAT_USER_MAX, false)) {
-            chat_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(chat_state.user, user, sizeof(chat_state.user));
+        strlcpy(chat_store.user, user, sizeof(chat_store.user));
     }
     if (device != NULL) {
-        if (!chat_string_is_valid(device, SOLAR_OS_CHAT_DEVICE_MAX, false)) {
-            chat_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(chat_state.device, device, sizeof(chat_state.device));
+        strlcpy(chat_store.device, device, sizeof(chat_store.device));
     }
-    if (!chat_state.configured || !chat_url_is_valid(chat_state.url)) {
+    if (!chat_store.configured || !chat_url_is_valid(chat_store.url)) {
         chat_unlock();
         return ESP_ERR_INVALID_STATE;
     }
-
-    ret = chat_save_config_locked();
-    if (ret != ESP_OK) {
-        chat_set_error_locked(ret, esp_err_to_name(ret));
-        chat_unlock();
-        return ret;
+    if (endpoint_changed) {
+        chat_clear_outbox_locked();
+        chat_store.event_head = 0;
+        chat_store.event_count = 0;
+        memset(chat_store.events,
+               0,
+               SOLAR_OS_CHAT_STORE_CAPACITY * sizeof(*chat_store.events));
+        const esp_err_t clear_err = chat_clear_messages_locked();
+        if (clear_err != ESP_OK) {
+            chat_store.persistent = false;
+            chat_store.storage_error = clear_err;
+        }
     }
+    chat_store.config_revision++;
+    if (chat_store.config_revision == 0) {
+        chat_store.config_revision = 1U;
+    }
+    solar_os_chat_saved_config_t config;
+    chat_snapshot_config_locked(&config);
     chat_unlock();
-    return ESP_OK;
+    ret = chat_save_config(&config);
+    if (ret != ESP_OK) {
+        chat_lock();
+        chat_store.last_esp_error = ret;
+        strlcpy(chat_store.last_error,
+                esp_err_to_name(ret),
+                sizeof(chat_store.last_error));
+        chat_unlock();
+    }
+    return ret;
 }
 
 esp_err_t solar_os_chat_connect(const char *url,
@@ -1091,49 +1006,16 @@ esp_err_t solar_os_chat_connect(const char *url,
                                 const char *user,
                                 const char *device)
 {
-    esp_err_t ret = solar_os_chat_init();
+    esp_err_t ret = solar_os_chat_configure(url, token, user, device);
     if (ret != ESP_OK) {
         return ret;
     }
-
-    ret = solar_os_chat_disconnect();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        return ret;
-    }
-
-    ret = solar_os_chat_configure(url, token, user, device);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    chat_clear_event_queue();
-    chat_clear_tx_queue();
-    chat_state.stop_requested = false;
-    chat_state.task_done = false;
-
     chat_lock();
-    chat_state.running = true;
-    chat_state.connected = false;
-    chat_clear_error_locked();
+    chat_store.enabled = true;
+    solar_os_chat_saved_config_t config;
+    chat_snapshot_config_locked(&config);
     chat_unlock();
-
-    BaseType_t created = xTaskCreatePinnedToCore(chat_gateway_task,
-                                                 "solar_os_chat",
-                                                 CHAT_TASK_STACK,
-                                                 NULL,
-                                                 CHAT_TASK_PRIORITY,
-                                                 &chat_state.task,
-                                                 tskNO_AFFINITY);
-    if (created != pdPASS) {
-        chat_lock();
-        chat_state.running = false;
-        chat_state.connected = false;
-        chat_set_error_locked(ESP_ERR_NO_MEM, "task create failed");
-        chat_unlock();
-        return ESP_ERR_NO_MEM;
-    }
-
-    return ESP_OK;
+    return chat_save_config(&config);
 }
 
 esp_err_t solar_os_chat_disconnect(void)
@@ -1142,52 +1024,12 @@ esp_err_t solar_os_chat_disconnect(void)
     if (ret != ESP_OK) {
         return ret;
     }
-    if (chat_state.task == NULL && !chat_state.running) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    chat_state.stop_requested = true;
-    if (!solar_os_task_wait_done(chat_state.task,
-                                 &chat_state.task_done,
-                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
-        return ESP_ERR_TIMEOUT;
-    }
-    chat_state.task = NULL;
     chat_lock();
-    chat_state.running = false;
-    chat_state.connected = false;
+    chat_store.enabled = false;
+    solar_os_chat_saved_config_t config;
+    chat_snapshot_config_locked(&config);
     chat_unlock();
-    chat_clear_event_queue();
-    chat_clear_tx_queue();
-    return ESP_OK;
-}
-
-static esp_err_t chat_queue_tx_line(const char *line)
-{
-    if (line == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    esp_err_t ret = solar_os_chat_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    if (!chat_state.running || !chat_state.connected || chat_state.tx == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    const size_t line_len = strlen(line);
-    char *queued = chat_malloc(line_len + 1U);
-    if (queued == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    memcpy(queued, line, line_len + 1U);
-
-    if (xQueueSend(chat_state.tx, &queued, 0) != pdTRUE) {
-        solar_os_memory_free(queued);
-        return ESP_ERR_NO_MEM;
-    }
-    return ESP_OK;
+    return chat_save_config(&config);
 }
 
 esp_err_t solar_os_chat_join(const char *channel)
@@ -1195,13 +1037,22 @@ esp_err_t solar_os_chat_join(const char *channel)
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
-
-    char line[CHAT_HELLO_LINE_MAX];
-    snprintf(line, sizeof(line), "{\"type\":\"join\",\"channel\":\"%s\"}\n", channel_esc);
-    return chat_queue_tx_line(line);
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    const int index = chat_channel_index_locked(channel);
+    if (index < 0 && chat_store.channel_count >= SOLAR_OS_CHAT_CHANNEL_CAPACITY) {
+        ret = ESP_ERR_NO_MEM;
+    } else {
+        ret = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_JOIN, channel, NULL);
+        if (ret == ESP_OK) {
+            (void)chat_add_channel_locked(channel, true);
+        }
+    }
+    chat_unlock();
+    return ret;
 }
 
 esp_err_t solar_os_chat_leave(const char *channel)
@@ -1209,13 +1060,18 @@ esp_err_t solar_os_chat_leave(const char *channel)
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
-
-    char line[CHAT_HELLO_LINE_MAX];
-    snprintf(line, sizeof(line), "{\"type\":\"leave\",\"channel\":\"%s\"}\n", channel_esc);
-    return chat_queue_tx_line(line);
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    const int index = chat_channel_index_locked(channel);
+    ret = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_LEAVE, channel, NULL);
+    if (ret == ESP_OK && index >= 0) {
+        chat_store.channels[index].joined = false;
+    }
+    chat_unlock();
+    return ret;
 }
 
 esp_err_t solar_os_chat_delete_channel(const char *channel)
@@ -1223,96 +1079,510 @@ esp_err_t solar_os_chat_delete_channel(const char *channel)
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
-
-    char line[CHAT_HELLO_LINE_MAX];
-    snprintf(line, sizeof(line), "{\"type\":\"delete\",\"channel\":\"%s\"}\n", channel_esc);
-    return chat_queue_tx_line(line);
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    const int index = chat_channel_index_locked(channel);
+    ret = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_DELETE_CHANNEL, channel, NULL);
+    if (ret == ESP_OK && index >= 0) {
+        chat_store.channels[index].joined = false;
+    }
+    chat_unlock();
+    return ret;
 }
 
 esp_err_t solar_os_chat_send(const char *channel, const char *text)
 {
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false) ||
-        !chat_text_is_valid(text, SOLAR_OS_CHAT_TEXT_MAX)) {
+        text == NULL || text[0] == '\0' || strlen(text) >= SOLAR_OS_CHAT_TEXT_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    char *text_esc = chat_malloc(CHAT_TEXT_ESC_MAX);
-    char *line = chat_malloc(CHAT_TX_LINE_MAX);
-    if (text_esc == NULL || line == NULL) {
-        solar_os_memory_free(text_esc);
-        solar_os_memory_free(line);
-        return ESP_ERR_NO_MEM;
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
     }
+    chat_lock();
+    ret = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_MESSAGE, channel, text);
+    chat_unlock();
+    return ret;
+}
 
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
-    chat_json_escape(text, text_esc, CHAT_TEXT_ESC_MAX);
-
-    snprintf(line,
-             CHAT_TX_LINE_MAX,
-             "{\"type\":\"msg\",\"channel\":\"%s\",\"text\":\"%s\"}\n",
-             channel_esc,
-             text_esc);
-    const esp_err_t ret = chat_queue_tx_line(line);
-    solar_os_memory_free(text_esc);
-    solar_os_memory_free(line);
+esp_err_t solar_os_chat_read_event_after(uint32_t *cursor,
+                                         solar_os_chat_event_t *event)
+{
+    if (cursor == NULL || event == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = ESP_ERR_NOT_FOUND;
+    chat_lock();
+    const size_t oldest = chat_store.event_count == SOLAR_OS_CHAT_STORE_CAPACITY ?
+        chat_store.event_head : 0U;
+    for (size_t logical = 0; logical < chat_store.event_count; logical++) {
+        const size_t index = (oldest + logical) % SOLAR_OS_CHAT_STORE_CAPACITY;
+        if (*cursor == 0 || chat_store.events[index].id > *cursor) {
+            *event = chat_store.events[index];
+            *cursor = event->id;
+            ret = ESP_OK;
+            break;
+        }
+    }
+    chat_unlock();
     return ret;
 }
 
 esp_err_t solar_os_chat_read_event(solar_os_chat_event_t *event, uint32_t timeout_ms)
 {
+    if (event == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const TickType_t start = xTaskGetTickCount();
+    const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
+    for (;;) {
+        esp_err_t ret = solar_os_chat_read_event_after(&chat_store.legacy_cursor, event);
+        if (ret == ESP_OK) {
+            return ESP_OK;
+        }
+        if (timeout_ms == 0 || xTaskGetTickCount() - start >= timeout) {
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(CHAT_EVENT_WAIT_POLL_MS));
+    }
+}
+
+size_t solar_os_chat_message_visit(solar_os_chat_message_visitor_t visitor,
+                                   void *user,
+                                   uint32_t *event_cursor)
+{
+    if (visitor == NULL || solar_os_chat_init() != ESP_OK) {
+        return 0;
+    }
+
+    chat_lock();
+    /* Transport timestamps are not necessarily wall-clock values and may reset
+     * when a gateway restarts. The ring order is the stable receipt order. */
+    const size_t oldest = chat_message_oldest_locked();
+    if (event_cursor != NULL) {
+        *event_cursor = chat_store.next_event_id > 1U ?
+            chat_store.next_event_id - 1U : 0U;
+    }
+    size_t visited = 0;
+    for (; visited < chat_store.message_count; visited++) {
+        chat_message_slot_t *slot =
+            &chat_store.messages[(oldest + visited) % SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+        if (!visitor(&slot->message, user)) {
+            break;
+        }
+    }
+    chat_unlock();
+    return visited;
+}
+
+esp_err_t solar_os_chat_mark_message_read(uint64_t message_key, bool read)
+{
+    if (message_key == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_chat_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint32_t inbox_id = 0;
+    chat_lock();
+    chat_message_slot_t *slot = chat_find_message_locked(message_key);
+    if (slot == NULL) {
+        chat_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    const bool unread = !read;
+    if (slot->message.unread != unread) {
+        const bool previous = slot->message.unread;
+        slot->message.unread = unread;
+        if (unread) {
+            chat_store.message_unread++;
+        } else if (chat_store.message_unread > 0) {
+            chat_store.message_unread--;
+        }
+        if (slot->disk_index >= 0 &&
+            chat_store_update_message_locked(slot) != ESP_OK) {
+            slot->message.unread = previous;
+            if (previous) {
+                chat_store.message_unread++;
+            } else if (chat_store.message_unread > 0) {
+                chat_store.message_unread--;
+            }
+            err = chat_store.storage_error;
+        }
+    }
+    if (err == ESP_OK) {
+        inbox_id = slot->message.inbox_id;
+    }
+    chat_unlock();
+    if (err == ESP_OK && inbox_id != 0) {
+        (void)solar_os_inbox_mark_read(inbox_id, read);
+    }
+    return err;
+}
+
+esp_err_t solar_os_chat_mark_channel_read(const char *channel)
+{
+    if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_chat_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    chat_message_slot_t *changed[SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+    uint32_t inbox_ids[SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+    size_t changed_count = 0;
+    size_t inbox_count = 0;
+    chat_lock();
+    const size_t oldest = chat_message_oldest_locked();
+    for (size_t i = 0; i < chat_store.message_count; i++) {
+        chat_message_slot_t *slot =
+            &chat_store.messages[(oldest + i) % SOLAR_OS_CHAT_MESSAGE_CAPACITY];
+        if (!slot->message.unread || strcmp(slot->message.channel, channel) != 0) {
+            continue;
+        }
+        slot->message.unread = false;
+        if (chat_store.message_unread > 0) {
+            chat_store.message_unread--;
+        }
+        changed[changed_count++] = slot;
+        if (slot->message.inbox_id != 0) {
+            inbox_ids[inbox_count++] = slot->message.inbox_id;
+        }
+    }
+    if (changed_count > 0 && chat_store.persistent &&
+        chat_store_update_messages_locked(changed, changed_count) != ESP_OK) {
+        for (size_t i = 0; i < changed_count; i++) {
+            changed[i]->message.unread = true;
+            chat_store.message_unread++;
+        }
+        err = chat_store.storage_error;
+        inbox_count = 0;
+    }
+    chat_unlock();
+    for (size_t i = 0; i < inbox_count; i++) {
+        (void)solar_os_inbox_mark_read(inbox_ids[i], true);
+    }
+    return err;
+}
+
+esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status)
+{
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t ret = solar_os_chat_init();
     if (ret != ESP_OK) {
         return ret;
     }
-    if (event == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    solar_os_chat_event_t *queued = NULL;
-    if (xQueueReceive(chat_state.events, &queued, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    if (queued == NULL) {
-        return ESP_FAIL;
-    }
-    *event = *queued;
-    solar_os_memory_free(queued);
+    chat_lock();
+    memset(status, 0, sizeof(*status));
+    status->initialized = chat_store.initialized;
+    status->configured = chat_store.configured;
+    status->enabled = chat_store.enabled;
+    status->running = chat_store.sync_running;
+    status->connected = chat_store.connected;
+    status->token_set = chat_store.token[0] != '\0';
+    status->state = chat_store.connected ? SOLAR_OS_CHAT_STATE_CONNECTED :
+        (chat_store.sync_running && chat_store.enabled && chat_store.configured ?
+             SOLAR_OS_CHAT_STATE_CONNECTING : SOLAR_OS_CHAT_STATE_DISCONNECTED);
+    strlcpy(status->url, chat_store.url, sizeof(status->url));
+    strlcpy(status->user, chat_store.user, sizeof(status->user));
+    strlcpy(status->device, chat_store.device, sizeof(status->device));
+    strlcpy(status->last_error, chat_store.last_error, sizeof(status->last_error));
+    status->last_esp_error = chat_store.last_esp_error;
+    status->config_revision = chat_store.config_revision;
+    status->rx_count = chat_store.rx_count;
+    status->tx_count = chat_store.tx_count;
+    status->dropped_count = chat_store.dropped_count;
+    status->queued_events = chat_store.event_count;
+    status->queued_outbox = chat_store.outbox_count;
+    status->stored_messages = chat_store.message_count;
+    status->unread_messages = chat_store.message_unread;
+    status->persistent_capacity = chat_store.persistent ? chat_store.disk_capacity :
+        chat_store.inbox_capacity;
+    status->persistent_limit_bytes = chat_store.persistent ?
+        CHAT_STORE_RECORDS_OFFSET +
+            chat_store.disk_capacity * sizeof(chat_store_record_t) :
+        chat_store.inbox_limit_bytes;
+    status->persistent = chat_store.persistent || chat_store.inbox_backed;
+    status->persistent_inbox_backed = chat_store.inbox_backed;
+    status->storage_error = chat_store.storage_error;
+    chat_unlock();
     return ESP_OK;
 }
 
-esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status)
+esp_err_t solar_os_chat_get_config(solar_os_chat_config_t *config)
+{
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    memset(config, 0, sizeof(*config));
+    config->configured = chat_store.configured;
+    config->enabled = chat_store.enabled;
+    config->revision = chat_store.config_revision;
+    strlcpy(config->url, chat_store.url, sizeof(config->url));
+    strlcpy(config->token, chat_store.token, sizeof(config->token));
+    strlcpy(config->user, chat_store.user, sizeof(config->user));
+    strlcpy(config->device, chat_store.device, sizeof(config->device));
+    chat_unlock();
+    return ESP_OK;
+}
+
+size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
+                                      size_t max_channels)
+{
+    if (solar_os_chat_init() != ESP_OK || channels == NULL || max_channels == 0) {
+        return 0;
+    }
+    chat_lock();
+    const size_t count = chat_store.channel_count < max_channels ?
+        chat_store.channel_count : max_channels;
+    memcpy(channels, chat_store.channels, count * sizeof(*channels));
+    chat_unlock();
+    return count;
+}
+
+esp_err_t solar_os_chat_sync_set_status(bool running,
+                                        bool connected,
+                                        esp_err_t error,
+                                        const char *message)
 {
     esp_err_t ret = solar_os_chat_init();
     if (ret != ESP_OK) {
         return ret;
     }
-    if (status == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
     chat_lock();
-    memset(status, 0, sizeof(*status));
-    status->initialized = chat_state.initialized;
-    status->configured = chat_state.configured;
-    status->running = chat_state.running;
-    status->connected = chat_state.connected;
-    status->token_set = chat_state.token[0] != '\0';
-    status->state = chat_state.connected ? SOLAR_OS_CHAT_STATE_CONNECTED :
-        (chat_state.running ? SOLAR_OS_CHAT_STATE_CONNECTING : SOLAR_OS_CHAT_STATE_DISCONNECTED);
-    strlcpy(status->url, chat_state.url, sizeof(status->url));
-    strlcpy(status->user, chat_state.user, sizeof(status->user));
-    strlcpy(status->device, chat_state.device, sizeof(status->device));
-    strlcpy(status->last_error, chat_state.last_error, sizeof(status->last_error));
-    status->last_esp_error = chat_state.last_esp_error;
-    status->rx_count = chat_state.rx_count;
-    status->tx_count = chat_state.tx_count;
-    status->dropped_count = chat_state.dropped_count;
-    status->queued_events = chat_state.events != NULL ? uxQueueMessagesWaiting(chat_state.events) : 0;
+    chat_store.sync_running = running;
+    chat_store.connected = connected;
+    chat_store.last_esp_error = error;
+    if (error == ESP_OK) {
+        chat_store.last_error[0] = '\0';
+    } else {
+        strlcpy(chat_store.last_error,
+                message != NULL ? message : esp_err_to_name(error),
+                sizeof(chat_store.last_error));
+    }
     chat_unlock();
     return ESP_OK;
+}
+
+esp_err_t solar_os_chat_sync_publish(const solar_os_chat_event_t *event,
+                                     bool *inserted,
+                                     uint64_t *message_key)
+{
+    if (inserted != NULL) {
+        *inserted = false;
+    }
+    if (message_key != NULL) {
+        *message_key = 0;
+    }
+    if (event == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    if (event->type != SOLAR_OS_CHAT_EVENT_MESSAGE) {
+        chat_publish_event_locked(event, 0);
+        chat_unlock();
+        return ESP_OK;
+    }
+
+    uint64_t key = chat_message_key_locked(event);
+    if (key == 0) {
+        uint64_t hash = 1469598103934665603ULL;
+        hash = chat_hash_string(hash, chat_store.url);
+        hash = chat_hash_string(hash, event->channel);
+        hash = chat_hash_string(hash, event->from);
+        hash = chat_hash_string(hash, event->text);
+        hash = chat_hash_update(hash,
+                                &chat_store.next_message_id,
+                                sizeof(chat_store.next_message_id));
+        key = hash != 0 ? hash : 1U;
+    }
+    if (message_key != NULL) {
+        *message_key = key;
+    }
+    if (chat_find_message_locked(key) != NULL) {
+        chat_unlock();
+        return ESP_OK;
+    }
+
+    const uint64_t latest_timestamp = chat_latest_message_timestamp_locked();
+    const bool backfill = event->timestamp != 0 && latest_timestamp != 0 &&
+        event->timestamp < latest_timestamp;
+    const size_t write_index = chat_store.message_head;
+    const uint32_t previous_next_id = chat_store.next_message_id;
+    const size_t previous_disk_head = chat_store.disk_head;
+    const size_t previous_disk_count = chat_store.disk_count;
+    const uint32_t previous_generation = chat_store.disk_generation;
+
+    solar_os_chat_message_t *incoming = &chat_store.record_scratch->message;
+    memset(chat_store.record_scratch, 0, sizeof(*chat_store.record_scratch));
+    incoming->id = chat_next_id(&chat_store.next_message_id);
+    incoming->message_key = key;
+    incoming->timestamp = event->timestamp;
+    incoming->unread = true;
+    incoming->truncated = event->truncated;
+    strlcpy(incoming->channel,
+            event->channel[0] != '\0' ? event->channel : CHAT_DEFAULT_CHANNEL,
+            sizeof(incoming->channel));
+    strlcpy(incoming->from, event->from, sizeof(incoming->from));
+    strlcpy(incoming->text, event->text, sizeof(incoming->text));
+
+    if (chat_store.persistent && !backfill &&
+        chat_store_write_message_locked(incoming) < 0) {
+        chat_store.next_message_id = previous_next_id;
+        chat_store.disk_head = previous_disk_head;
+        chat_store.disk_count = previous_disk_count;
+        chat_store.disk_generation = previous_generation;
+        ret = chat_store.storage_error;
+        chat_unlock();
+        return ret;
+    }
+
+    chat_message_slot_t *slot = &chat_store.messages[write_index];
+    if (chat_store.message_count == SOLAR_OS_CHAT_MESSAGE_CAPACITY) {
+        if (slot->message.unread && chat_store.message_unread > 0) {
+            chat_store.message_unread--;
+        }
+        chat_store.message_dropped_count++;
+    }
+    slot->message = *incoming;
+    slot->disk_index = !backfill && chat_store.persistent ?
+        (int16_t)((chat_store.disk_head + chat_store.disk_capacity - 1U) %
+                  chat_store.disk_capacity) : -1;
+    chat_store.message_head =
+        (chat_store.message_head + 1U) % SOLAR_OS_CHAT_MESSAGE_CAPACITY;
+    if (chat_store.message_count < SOLAR_OS_CHAT_MESSAGE_CAPACITY) {
+        chat_store.message_count++;
+    }
+    chat_store.message_unread++;
+
+    if (!backfill) {
+        chat_publish_event_locked(event, key);
+        if (inserted != NULL) {
+            *inserted = true;
+        }
+    }
+    chat_unlock();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_chat_sync_set_inbox_id(uint64_t message_key,
+                                          uint32_t inbox_id)
+{
+    if (message_key == 0 || inbox_id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = solar_os_chat_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    bool already_read = false;
+    chat_lock();
+    chat_message_slot_t *slot = chat_find_message_locked(message_key);
+    if (slot == NULL) {
+        chat_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    const uint32_t previous = slot->message.inbox_id;
+    slot->message.inbox_id = inbox_id;
+    if (slot->disk_index >= 0 &&
+        chat_store_update_message_locked(slot) != ESP_OK) {
+        slot->message.inbox_id = previous;
+        err = chat_store.storage_error;
+    } else {
+        already_read = !slot->message.unread;
+    }
+    chat_unlock();
+    if (err == ESP_OK && already_read) {
+        (void)solar_os_inbox_mark_read(inbox_id, true);
+    }
+    return err;
+}
+
+uint64_t solar_os_chat_context_id(void)
+{
+    if (solar_os_chat_init() != ESP_OK) {
+        return 0;
+    }
+    chat_lock();
+    const uint64_t context_id = chat_context_id_locked();
+    chat_unlock();
+    return context_id;
+}
+
+esp_err_t solar_os_chat_outbox_peek(solar_os_chat_command_t *command)
+{
+    if (command == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    if (chat_store.outbox_count == 0) {
+        ret = ESP_ERR_NOT_FOUND;
+    } else {
+        const size_t oldest =
+            (chat_store.outbox_head + SOLAR_OS_CHAT_OUTBOX_CAPACITY -
+             chat_store.outbox_count) % SOLAR_OS_CHAT_OUTBOX_CAPACITY;
+        *command = chat_store.outbox[oldest];
+        ret = ESP_OK;
+    }
+    chat_unlock();
+    return ret;
+}
+
+esp_err_t solar_os_chat_outbox_ack(uint32_t id)
+{
+    if (id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_chat_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    chat_lock();
+    if (chat_store.outbox_count == 0) {
+        ret = ESP_ERR_NOT_FOUND;
+    } else {
+        const size_t oldest =
+            (chat_store.outbox_head + SOLAR_OS_CHAT_OUTBOX_CAPACITY -
+             chat_store.outbox_count) % SOLAR_OS_CHAT_OUTBOX_CAPACITY;
+        if (chat_store.outbox[oldest].id != id) {
+            ret = ESP_ERR_INVALID_STATE;
+        } else {
+            memset(&chat_store.outbox[oldest], 0, sizeof(chat_store.outbox[oldest]));
+            chat_store.outbox_count--;
+            chat_store.tx_count++;
+            ret = ESP_OK;
+        }
+    }
+    chat_unlock();
+    return ret;
 }
 
 const char *solar_os_chat_state_name(solar_os_chat_state_t state)
@@ -1349,6 +1619,8 @@ const char *solar_os_chat_event_type_name(solar_os_chat_event_type_t type)
         return "message";
     case SOLAR_OS_CHAT_EVENT_PRESENCE:
         return "presence";
+    case SOLAR_OS_CHAT_EVENT_COMMAND_SENT:
+        return "sent";
     case SOLAR_OS_CHAT_EVENT_RAW:
     default:
         return "raw";

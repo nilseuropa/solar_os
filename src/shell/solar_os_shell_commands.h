@@ -30,7 +30,7 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv);
-#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+#if SOLAR_OS_PACKAGE_APP_INBOX
 void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_joystick(solar_os_context_t *ctx, int argc, char **argv);

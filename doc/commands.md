@@ -75,13 +75,16 @@ name command-or-app fixed-args...
 
 Arguments typed after the alias are appended.
 
-The inbox is a volatile, producer-neutral message sink. Radio decoders,
+The inbox is a persistent, producer-neutral message sink. Radio decoders,
 background chat or mail jobs, and shell scripts publish messages with a source,
 optional topic/sender/title, priority, timestamp, and body. New messages are
 unread by default. The status bar shows an envelope and unread count; reading or
-clearing messages removes that count. The first implementation keeps the newest
-64 messages in PSRAM when available and falls back to internal RAM. The browser
-shows newest messages first; opening a message marks the shared entry read.
+clearing messages durably updates that count. The newest 64 messages are kept in
+PSRAM when available and mirrored by a fixed-size ring at
+`/.inbox/messages.bin`; its compiled maximum is below 32 KB, so systems using
+the 64 KB internal flash volume cannot grow the inbox without bound. Replayed
+mail and chat notifications retain their existing read state. The browser shows
+newest messages first; opening a message marks the shared entry read.
 
 Email configuration is saved in NVS and deliberately has no compiled remote
 server or account default. Only `imaps://` endpoints are accepted, with TLS
@@ -291,7 +294,7 @@ daq start /logs/key.csv gpio17 --changes
 daq start /logs/uart0.bin uart0 --raw --rate-ms 25
 ```
 
-`daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when RTC time is
+`daq` CSV rows include `uptime_ms`, and include UTC `time_ms` when wall-clock time is
 trusted. Raw mode is byte-stream only, single-stream only, and writes bytes
 directly without CSV framing.
 
@@ -333,7 +336,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | See below | MQTT/MQTTS client. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
-| `ntp` | `ntp [server]` | Sync RTC from NTP. |
+| `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
 
 BLE GATT usage:
 
@@ -456,8 +459,8 @@ and writes the inactive ESP-IDF OTA partition.
 | `spi` | `spi xfer <bus> <cs> <mode> <hz> <byte...>` | Full-duplex transfer over a named SPI bus. |
 | `spi` | `spi read <bus> <cs> <mode> <hz> <len> [fill]` | Read bytes over a named SPI bus. |
 | `spi` | `spi write <bus> <cs> <mode> <hz> <byte...>` | Write bytes over a named SPI bus. |
-| `date` | `date [YYYY-MM-DD]` | Show or set local RTC date. |
-| `time` | `time [HH:MM[:SS]]` | Show or set local RTC time. |
+| `date` | `date [YYYY-MM-DD]` | Show or set the local date. |
+| `time` | `time [HH:MM[:SS]]` | Show or set the local time. |
 | `temperature` | `temperature` | Read the board temperature sensor when available. |
 | `humidity` | `humidity` | Read the board humidity sensor when available. |
 

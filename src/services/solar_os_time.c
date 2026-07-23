@@ -23,6 +23,7 @@
 #define TIME_NVS_TZ_POSIX_KEY "tz_posix"
 #define TIME_NTP_SERVER_MAX 96
 #define SECONDS_PER_DAY 86400LL
+#define TIME_VALID_EPOCH_SECONDS 946684800LL
 
 typedef struct {
     const char *alias;
@@ -296,7 +297,7 @@ esp_err_t solar_os_time_init(void)
 {
     timezone_load();
 #if !SOLAR_OS_BOARD_HAS_RTC
-    return ESP_ERR_NOT_SUPPORTED;
+    return ESP_OK;
 #else
     return solar_os_board_rtc_init();
 #endif
@@ -398,7 +399,14 @@ esp_err_t solar_os_time_get_utc_datetime(solar_os_datetime_t *datetime)
     }
 
 #if !SOLAR_OS_BOARD_HAS_RTC
-    return ESP_ERR_NOT_SUPPORTED;
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0) {
+        return ESP_FAIL;
+    }
+    if ((int64_t)tv.tv_sec < TIME_VALID_EPOCH_SECONDS) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return datetime_from_utc_epoch((time_t)tv.tv_sec, true, datetime);
 #else
     solar_os_board_rtc_datetime_t board_datetime;
     const esp_err_t ret = solar_os_board_rtc_get_datetime(&board_datetime);
@@ -418,7 +426,16 @@ esp_err_t solar_os_time_set_utc_datetime(const solar_os_datetime_t *datetime)
     }
 
 #if !SOLAR_OS_BOARD_HAS_RTC
-    return ESP_ERR_NOT_SUPPORTED;
+    time_t epoch = 0;
+    esp_err_t ret = epoch_from_utc_datetime(datetime, &epoch);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const struct timeval tv = {
+        .tv_sec = epoch,
+        .tv_usec = 0,
+    };
+    return settimeofday(&tv, NULL) == 0 ? ESP_OK : ESP_FAIL;
 #else
     solar_os_board_rtc_datetime_t board_datetime;
     datetime_to_board(&board_datetime, datetime);

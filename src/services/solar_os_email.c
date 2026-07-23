@@ -1,5 +1,6 @@
 #include "solar_os_email.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_timer.h"
@@ -342,6 +343,8 @@ esp_err_t solar_os_email_store(uint32_t uid,
     }
 
     char mailbox[SOLAR_OS_EMAIL_MAILBOX_MAX];
+    char dedupe_key[SOLAR_OS_EMAIL_URL_MAX + SOLAR_OS_EMAIL_USER_MAX +
+                    SOLAR_OS_EMAIL_MAILBOX_MAX + 32U];
     email_lock();
     if (email_uid_exists_locked(uid)) {
         email_unlock();
@@ -375,6 +378,13 @@ esp_err_t solar_os_email_store(uint32_t uid,
     email_state.unread++;
     email_state.received_count++;
     const uint32_t local_id = message->id;
+    snprintf(dedupe_key,
+             sizeof(dedupe_key),
+             "%s\n%s\n%s\n%lu",
+             email_state.config.url,
+             email_state.config.user,
+             email_state.config.mailbox,
+             (unsigned long)uid);
     email_unlock();
 
     const solar_os_inbox_publish_t notification = {
@@ -383,6 +393,7 @@ esp_err_t solar_os_email_store(uint32_t uid,
         .sender = from,
         .title = subject != NULL && subject[0] != '\0' ? subject : "Email",
         .body = preview,
+        .dedupe_key = dedupe_key,
         .priority = SOLAR_OS_INBOX_PRIORITY_NORMAL,
     };
     uint32_t inbox_id = 0;

@@ -45,7 +45,7 @@
 #if SOLAR_OS_PACKAGE_APP_IO
 #include "solar_os_io.h"
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+#if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS
@@ -87,7 +87,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     {"arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY},
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
-    {"chat", "gateway chat client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
+    {"chat", "shared chat client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     {"curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
@@ -122,7 +122,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_IO
     {"io", "expansion pin and bus manager", &solar_os_io_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_INBOX
+#if SOLAR_OS_PACKAGE_APP_INBOX
     {"inbox", "universal incoming-message browser", &solar_os_inbox_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT},
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS

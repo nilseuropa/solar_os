@@ -17,7 +17,7 @@
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
-#include "solar_os_chat.h"
+#include "solar_os_chat_protocol.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
