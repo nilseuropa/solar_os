@@ -2115,7 +2115,7 @@ done:
                   "task done stack_high_water=%u",
                   (unsigned)uxTaskGetStackHighWaterMark(NULL));
     web.task_done = true;
-    solar_os_task_delete(NULL);
+    solar_os_task_delete_external(NULL);
 }
 
 static int web_body_height(solar_os_gfx_t *gfx)
@@ -2772,7 +2772,7 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     web.redraw = true;
     web_render(ctx);
 
-    const BaseType_t created = solar_os_task_create_pinned(
+    const BaseType_t created = solar_os_task_create_pinned_external(
         web_task,
         "solar_os_web",
         WEB_TASK_STACK,
