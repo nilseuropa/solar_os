@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "libssh2.h"
 #include "solar_os_memory.h"
+#include "solar_os_queue.h"
 #include "solar_os_ssh_transport.h"
 #include "solar_os_task.h"
 
@@ -164,7 +165,7 @@ static void scp_session_destroy(solar_os_scp_session_t *session)
     }
 
     if (session->events != NULL) {
-        vQueueDelete(session->events);
+        solar_os_queue_delete(session->events);
         session->events = NULL;
     }
     memset(session->password, 0, sizeof(session->password));
@@ -1125,7 +1126,7 @@ done:
     }
 
     SOLAR_OS_LOGI(TAG, "SCP task stopped");
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 esp_err_t solar_os_scp_start(const solar_os_scp_config_t *config,
@@ -1171,19 +1172,21 @@ esp_err_t solar_os_scp_start(const solar_os_scp_config_t *config,
              session->remote_path,
              session->password[0] != '\0' ? "yes" : "no");
 
-    session->events = xQueueCreate(SOLAR_OS_SCP_EVENT_QUEUE_LEN, sizeof(solar_os_scp_event_t));
+    session->events = solar_os_queue_create(SOLAR_OS_SCP_EVENT_QUEUE_LEN,
+                                             sizeof(solar_os_scp_event_t));
     if (session->events == NULL) {
         solar_os_scp_stop(session);
         return ESP_ERR_NO_MEM;
     }
 
-    BaseType_t created = solar_os_task_create_pinned(scp_session_task,
-                                                      "solar_os_scp",
-                                                      SOLAR_OS_SCP_TASK_STACK,
-                                                      session,
-                                                      SOLAR_OS_SCP_TASK_PRIORITY,
-                                                      &session->task,
-                                                      tskNO_AFFINITY);
+    BaseType_t created = solar_os_task_create_pinned_internal(
+        scp_session_task,
+        "solar_os_scp",
+        SOLAR_OS_SCP_TASK_STACK,
+        session,
+        SOLAR_OS_SCP_TASK_PRIORITY,
+        &session->task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         solar_os_scp_stop(session);
         return ESP_ERR_NO_MEM;

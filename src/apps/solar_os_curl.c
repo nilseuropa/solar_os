@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_http_client.h"
+#include "solar_os_queue.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
@@ -142,7 +143,7 @@ static void curl_send_message(curl_event_type_t type, const char *message)
 static void curl_cleanup_resources(void)
 {
     if (curl_app.events != NULL) {
-        vQueueDelete(curl_app.events);
+        solar_os_queue_delete(curl_app.events);
         curl_app.events = NULL;
     }
     if (curl_app.output_file != NULL) {
@@ -449,7 +450,7 @@ done:
              curl_app.bytes_written,
              success ? "yes" : "no");
     curl_app.task_done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void curl_drain_events(solar_os_context_t *ctx)
@@ -554,7 +555,8 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
 
-    curl_app.events = xQueueCreate(CURL_EVENT_QUEUE_LEN, sizeof(curl_event_t));
+    curl_app.events = solar_os_queue_create(CURL_EVENT_QUEUE_LEN,
+                                             sizeof(curl_event_t));
     if (curl_app.events == NULL) {
         solar_os_shell_io_writeln(io, "curl: out of memory");
         solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
@@ -567,15 +569,16 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
     curl_app.content_length = -1;
     curl_app.running = true;
 
-    const BaseType_t created = xTaskCreatePinnedToCore(curl_task,
-                                                       "solar_os_curl",
-                                                       CURL_TASK_STACK,
-                                                       NULL,
-                                                       CURL_TASK_PRIORITY,
-                                                       &curl_app.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        curl_task,
+        "solar_os_curl",
+        CURL_TASK_STACK,
+        NULL,
+        CURL_TASK_PRIORITY,
+        &curl_app.task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
-        vQueueDelete(curl_app.events);
+        solar_os_queue_delete(curl_app.events);
         curl_app.events = NULL;
         curl_app.running = false;
         solar_os_shell_io_writeln(io, "curl: task create failed");

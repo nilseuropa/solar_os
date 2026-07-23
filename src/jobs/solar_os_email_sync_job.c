@@ -19,6 +19,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #include "solar_os_wifi.h"
 
 #define EMAIL_SYNC_DEFAULT_INTERVAL_SEC 300U
@@ -676,7 +677,7 @@ static void email_sync_task(void *arg)
         email_sync.complete_requested = true;
     }
     email_sync.task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static esp_err_t email_sync_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -742,12 +743,13 @@ static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *ev
     }
     email_sync.next_sync_ms = now + email_sync.interval_ms;
     email_sync.sync_in_progress = true;
-    if (xTaskCreate(email_sync_task,
-                    "email_sync",
-                    EMAIL_SYNC_TASK_STACK,
-                    NULL,
-                    tskIDLE_PRIORITY + 2,
-                    &email_sync.task) != pdPASS) {
+    if (solar_os_task_create_pinned(email_sync_task,
+                                    "email_sync",
+                                    EMAIL_SYNC_TASK_STACK,
+                                    NULL,
+                                    tskIDLE_PRIORITY + 2,
+                                    &email_sync.task,
+                                    tskNO_AFFINITY) != pdPASS) {
         email_sync.sync_in_progress = false;
         email_sync.last_error = ESP_ERR_NO_MEM;
         email_sync.fail_count++;

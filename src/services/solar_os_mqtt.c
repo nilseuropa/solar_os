@@ -15,6 +15,7 @@
 #include "mqtt_client.h"
 #include "nvs.h"
 #include "solar_os_log.h"
+#include "solar_os_queue.h"
 
 #define MQTT_NVS_NAMESPACE "mqtt"
 #define MQTT_NVS_URL_KEY "url"
@@ -331,7 +332,8 @@ esp_err_t solar_os_mqtt_init(void)
     if (mqtt_state.lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    mqtt_state.messages = xQueueCreate(MQTT_MESSAGE_QUEUE_LEN, sizeof(solar_os_mqtt_message_t));
+    mqtt_state.messages = solar_os_queue_create(MQTT_MESSAGE_QUEUE_LEN,
+                                                 sizeof(solar_os_mqtt_message_t));
     if (mqtt_state.messages == NULL) {
         vSemaphoreDelete(mqtt_state.lock);
         mqtt_state.lock = NULL;

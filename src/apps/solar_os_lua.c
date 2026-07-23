@@ -65,6 +65,7 @@
 #endif
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
+#include "solar_os_queue.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -81,6 +82,7 @@
 #endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
+#include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
 #if SOLAR_OS_PACKAGE_SERVICE_UART
@@ -4391,7 +4393,7 @@ done:
     solua.task_done = true;
     solua.task = NULL;
     SOLAR_OS_LOGI(TAG, "task stop: success=%d", success);
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static void solua_render_usage(solar_os_shell_io_t *io)
@@ -4499,7 +4501,8 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         strlcpy(solua.argv[0], solua.path, sizeof(solua.argv[0]));
     }
 
-    solua.events = xQueueCreate(SOLUA_EVENT_QUEUE_LEN, sizeof(solua_event_t));
+    solua.events = solar_os_queue_create(SOLUA_EVENT_QUEUE_LEN,
+                                          sizeof(solua_event_t));
     if (solua.events == NULL) {
         solar_os_shell_io_writeln(io, "lua: out of memory");
         solar_os_shell_io_flush(io);
@@ -4509,9 +4512,9 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
 
-    solua.key_input = xQueueCreate(SOLUA_KEY_QUEUE_LEN, sizeof(char));
+    solua.key_input = solar_os_queue_create(SOLUA_KEY_QUEUE_LEN, sizeof(char));
     if (solua.key_input == NULL) {
-        vQueueDelete(solua.events);
+        solar_os_queue_delete(solua.events);
         solua.events = NULL;
         solar_os_shell_io_writeln(io, "lua: out of memory");
         solar_os_shell_io_flush(io);
@@ -4522,11 +4525,12 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
     }
 
     if (repl_mode) {
-        solua.input = xQueueCreate(SOLUA_INPUT_QUEUE_LEN, sizeof(solua_input_t));
+        solua.input = solar_os_queue_create(SOLUA_INPUT_QUEUE_LEN,
+                                             sizeof(solua_input_t));
         if (solua.input == NULL) {
-            vQueueDelete(solua.key_input);
+            solar_os_queue_delete(solua.key_input);
             solua.key_input = NULL;
-            vQueueDelete(solua.events);
+            solar_os_queue_delete(solua.events);
             solua.events = NULL;
             solar_os_shell_io_writeln(io, "lua: out of memory");
             solar_os_shell_io_flush(io);
@@ -4535,23 +4539,24 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
     }
 
     solua.running = true;
-    const BaseType_t created = xTaskCreatePinnedToCore(solua_task,
-                                                       "solar_os_lua",
-                                                       SOLUA_TASK_STACK,
-                                                       NULL,
-                                                       SOLUA_TASK_PRIORITY,
-                                                       &solua.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned(
+        solua_task,
+        "solar_os_lua",
+        SOLUA_TASK_STACK,
+        NULL,
+        SOLUA_TASK_PRIORITY,
+        &solua.task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         if (solua.input != NULL) {
-            vQueueDelete(solua.input);
+            solar_os_queue_delete(solua.input);
             solua.input = NULL;
         }
         if (solua.key_input != NULL) {
-            vQueueDelete(solua.key_input);
+            solar_os_queue_delete(solua.key_input);
             solua.key_input = NULL;
         }
-        vQueueDelete(solua.events);
+        solar_os_queue_delete(solua.events);
         solua.events = NULL;
         solua.running = false;
         solar_os_shell_io_writeln(io, "lua: task create failed");
@@ -4591,7 +4596,7 @@ static void solua_stop(solar_os_context_t *ctx)
         }
         if (solua.task != NULL && !solua.task_done) {
             SOLAR_OS_LOGW(TAG, "force stopping unresponsive Lua task");
-            vTaskDelete(solua.task);
+            solar_os_task_delete(solua.task);
             solua.task = NULL;
             solua.task_done = true;
             solua.vm_active = false;
@@ -4599,15 +4604,15 @@ static void solua_stop(solar_os_context_t *ctx)
     }
 
     if (solua.events != NULL) {
-        vQueueDelete(solua.events);
+        solar_os_queue_delete(solua.events);
         solua.events = NULL;
     }
     if (solua.input != NULL) {
-        vQueueDelete(solua.input);
+        solar_os_queue_delete(solua.input);
         solua.input = NULL;
     }
     if (solua.key_input != NULL) {
-        vQueueDelete(solua.key_input);
+        solar_os_queue_delete(solua.key_input);
         solua.key_input = NULL;
     }
     solua_gfx_release_target();

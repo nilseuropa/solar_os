@@ -15,6 +15,7 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 #include "solar_os_zip.h"
 
 #define SHELL_PATH_MAX SOLAR_OS_STORAGE_PATH_MAX
@@ -1101,7 +1102,7 @@ static void shell_zip_create_task(void *arg)
                                           request->source_count,
                                           &options);
     request->done = true;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t shell_zip_run_create_task(shell_zip_create_request_t *request)
@@ -1110,13 +1111,14 @@ static esp_err_t shell_zip_run_create_task(shell_zip_create_request_t *request)
     request->done = false;
     request->result = ESP_FAIL;
 
-    const BaseType_t created = xTaskCreatePinnedToCore(shell_zip_create_task,
-                                                       "solar_os_zip",
-                                                       SHELL_ZIP_TASK_STACK,
-                                                       request,
-                                                       SHELL_ZIP_TASK_PRIORITY,
-                                                       &task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned_internal(
+        shell_zip_create_task,
+        "solar_os_zip",
+        SHELL_ZIP_TASK_STACK,
+        request,
+        SHELL_ZIP_TASK_PRIORITY,
+        &task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         return ESP_ERR_NO_MEM;
     }

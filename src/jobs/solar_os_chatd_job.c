@@ -22,6 +22,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 
 #define CHATD_DEFAULT_PORT 7777U
 #define CHATD_MAX_CLIENTS 6U
@@ -1373,7 +1374,7 @@ static void chatd_job_task(void *arg)
     state->running = false;
     state->stop_requested = false;
     state->task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static bool chatd_parse_port(const char *text, uint16_t *port)
@@ -1619,12 +1620,13 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     chatd_job.running = true;
-    if (xTaskCreate(chatd_job_task,
-                    "chatd_job",
-                    CHATD_TASK_STACK,
-                    &chatd_job,
-                    CHATD_TASK_PRIORITY,
-                    &chatd_job.task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(chatd_job_task,
+                                             "chatd_job",
+                                             CHATD_TASK_STACK,
+                                             &chatd_job,
+                                             CHATD_TASK_PRIORITY,
+                                             &chatd_job.task,
+                                             tskNO_AFFINITY) != pdPASS) {
         chatd_close_all_sockets(&chatd_job);
         chatd_free_buffers(&chatd_job);
         chatd_job.running = false;

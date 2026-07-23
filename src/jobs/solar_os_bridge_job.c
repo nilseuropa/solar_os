@@ -11,6 +11,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_port.h"
+#include "solar_os_task.h"
 
 #define BRIDGE_JOB_TASK_STACK 4096
 #define BRIDGE_JOB_TASK_PRIORITY (tskIDLE_PRIORITY + 3)
@@ -169,7 +170,7 @@ static void bridge_job_task(void *arg)
                   state->write_failures);
 
     bridge_job_cleanup();
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static esp_err_t bridge_job_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -215,12 +216,13 @@ static esp_err_t bridge_job_start(solar_os_context_t *ctx, int argc, char **argv
     strlcpy(bridge_job.port_a_name, argv[1], sizeof(bridge_job.port_a_name));
     strlcpy(bridge_job.port_b_name, argv[2], sizeof(bridge_job.port_b_name));
 
-    if (xTaskCreate(bridge_job_task,
-                    "bridge_job",
-                    BRIDGE_JOB_TASK_STACK,
-                    &bridge_job,
-                    BRIDGE_JOB_TASK_PRIORITY,
-                    &bridge_job.task) != pdPASS) {
+    if (solar_os_task_create_pinned(bridge_job_task,
+                                    "bridge_job",
+                                    BRIDGE_JOB_TASK_STACK,
+                                    &bridge_job,
+                                    BRIDGE_JOB_TASK_PRIORITY,
+                                    &bridge_job.task,
+                                    tskNO_AFFINITY) != pdPASS) {
         bridge_job_cleanup();
         return ESP_ERR_NO_MEM;
     }

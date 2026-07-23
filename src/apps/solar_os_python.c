@@ -73,6 +73,7 @@
 #endif
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
+#include "solar_os_queue.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -92,6 +93,7 @@
 #endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
+#include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
 #if SOLAR_OS_PACKAGE_SERVICE_UART
@@ -4638,7 +4640,7 @@ done:
 
     python_app.task_done = true;
     python_app.task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete(NULL);
 }
 
 static void python_render_usage(solar_os_shell_io_t *io)
@@ -4876,7 +4878,8 @@ static esp_err_t python_start(solar_os_context_t *ctx)
     strlcpy(python_app.argv[0], python_app.path, sizeof(python_app.argv[0]));
 
 start_task:
-    python_app.events = xQueueCreate(PYTHON_EVENT_QUEUE_LEN, sizeof(python_event_t));
+    python_app.events = solar_os_queue_create(PYTHON_EVENT_QUEUE_LEN,
+                                               sizeof(python_event_t));
     if (python_app.events == NULL) {
         solar_os_shell_io_writeln(io, "python: out of memory");
         solar_os_shell_io_flush(io);
@@ -4886,18 +4889,20 @@ start_task:
         return ESP_OK;
     }
     if (repl_mode) {
-        python_app.input = xQueueCreate(PYTHON_INPUT_QUEUE_LEN, sizeof(python_input_t));
+        python_app.input = solar_os_queue_create(PYTHON_INPUT_QUEUE_LEN,
+                                                  sizeof(python_input_t));
         if (python_app.input == NULL) {
-            vQueueDelete(python_app.events);
+            solar_os_queue_delete(python_app.events);
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
             solar_os_shell_io_flush(io);
             return ESP_OK;
         }
     } else {
-        python_app.key_input = xQueueCreate(PYTHON_KEY_QUEUE_LEN, sizeof(char));
+        python_app.key_input = solar_os_queue_create(PYTHON_KEY_QUEUE_LEN,
+                                                      sizeof(char));
         if (python_app.key_input == NULL) {
-            vQueueDelete(python_app.events);
+            solar_os_queue_delete(python_app.events);
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
             solar_os_shell_io_flush(io);
@@ -4907,23 +4912,24 @@ start_task:
     }
 
     python_app.running = true;
-    const BaseType_t created = xTaskCreatePinnedToCore(python_task,
-                                                       "solar_os_python",
-                                                       PYTHON_TASK_STACK,
-                                                       NULL,
-                                                       PYTHON_TASK_PRIORITY,
-                                                       &python_app.task,
-                                                       tskNO_AFFINITY);
+    const BaseType_t created = solar_os_task_create_pinned(
+        python_task,
+        "solar_os_python",
+        PYTHON_TASK_STACK,
+        NULL,
+        PYTHON_TASK_PRIORITY,
+        &python_app.task,
+        tskNO_AFFINITY);
     if (created != pdPASS) {
         if (python_app.input != NULL) {
-            vQueueDelete(python_app.input);
+            solar_os_queue_delete(python_app.input);
             python_app.input = NULL;
         }
         if (python_app.key_input != NULL) {
-            vQueueDelete(python_app.key_input);
+            solar_os_queue_delete(python_app.key_input);
             python_app.key_input = NULL;
         }
-        vQueueDelete(python_app.events);
+        solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
         python_app.running = false;
         solar_os_shell_io_writeln(io, "python: task create failed");
@@ -4978,7 +4984,7 @@ static void python_stop(solar_os_context_t *ctx)
         }
         if (python_app.task != NULL && !python_app.task_done) {
             SOLAR_OS_LOGW(TAG, "force stopping unresponsive script");
-            vTaskDelete(python_app.task);
+            solar_os_task_delete(python_app.task);
             python_app.task = NULL;
             python_app.task_done = true;
             python_app.vm_active = false;
@@ -4992,15 +4998,15 @@ static void python_stop(solar_os_context_t *ctx)
              python_app.vm_active);
 
     if (python_app.events != NULL) {
-        vQueueDelete(python_app.events);
+        solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
     }
     if (python_app.input != NULL) {
-        vQueueDelete(python_app.input);
+        solar_os_queue_delete(python_app.input);
         python_app.input = NULL;
     }
     if (python_app.key_input != NULL) {
-        vQueueDelete(python_app.key_input);
+        solar_os_queue_delete(python_app.key_input);
         python_app.key_input = NULL;
     }
     python_gfx_release_target();

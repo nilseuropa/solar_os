@@ -20,6 +20,8 @@
 #include "esp_private/esp_hidh_private.h"
 #include "solar_os_log.h"
 #include "solar_os_power.h"
+#include "solar_os_queue.h"
+#include "solar_os_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -305,7 +307,7 @@ static void stop_reconnect_task(const char *reason)
 
     TaskHandle_t task = reconnect_task_handle;
     reconnect_task_handle = NULL;
-    vTaskDelete(task);
+    solar_os_task_delete_internal(task);
 }
 
 static void stop_scan_task_for_sleep(uint32_t timeout_ms)
@@ -332,7 +334,7 @@ static void stop_scan_task_for_sleep(uint32_t timeout_ms)
         SOLAR_OS_LOGW(TAG, "sleep: forcing scan task stop");
         TaskHandle_t task = scan_task_handle;
         scan_task_handle = NULL;
-        vTaskDelete(task);
+        solar_os_task_delete_internal(task);
     }
 
     pairing_cancel_requested = false;
@@ -404,7 +406,8 @@ static esp_err_t ensure_runtime_objects(void)
         gatt_op_sem = xSemaphoreCreateBinary();
     }
     if (char_queue == NULL) {
-        char_queue = xQueueCreate(BLE_KEYBOARD_CHAR_QUEUE_LEN, sizeof(char));
+        char_queue = solar_os_queue_create_internal(BLE_KEYBOARD_CHAR_QUEUE_LEN,
+                                                     sizeof(char));
     }
 
     if (status_mutex == NULL ||
@@ -3162,7 +3165,7 @@ static void scan_task(void *arg)
     }
 
     scan_task_handle = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t start_pairing_scan_now(void)
@@ -3182,7 +3185,13 @@ static esp_err_t start_pairing_scan_now(void)
     }
 
     set_status(BLE_KEYBOARD_SCANNING, "pairing");
-    if (xTaskCreate(scan_task, "ble_kbd_scan", 6144, NULL, 4, &scan_task_handle) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(scan_task,
+                                             "ble_kbd_scan",
+                                             6144,
+                                             NULL,
+                                             4,
+                                             &scan_task_handle,
+                                             tskNO_AFFINITY) != pdPASS) {
         scan_task_handle = NULL;
         set_status(BLE_KEYBOARD_FAILED, "scan task failed");
         return ESP_ERR_NO_MEM;
@@ -3255,7 +3264,7 @@ static void reconnect_task(void *arg)
     }
 
     reconnect_task_handle = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static void schedule_reconnect(uint32_t delay_ms)
@@ -3268,12 +3277,13 @@ static void schedule_reconnect(uint32_t delay_ms)
         return;
     }
 
-    if (xTaskCreate(reconnect_task,
-                    "ble_kbd_reconn",
-                    4096,
-                    (void *)(uintptr_t)delay_ms,
-                    3,
-                    &reconnect_task_handle) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(reconnect_task,
+                                             "ble_kbd_reconn",
+                                             4096,
+                                             (void *)(uintptr_t)delay_ms,
+                                             3,
+                                             &reconnect_task_handle,
+                                             tskNO_AFFINITY) != pdPASS) {
         reconnect_task_handle = NULL;
         SOLAR_OS_LOGW(TAG, "reconnect task failed");
     }

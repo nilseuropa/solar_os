@@ -28,6 +28,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 #include "solar_os_ota.h"
 #endif
@@ -627,7 +628,7 @@ static void ota_upgrade_task(void *arg)
                       (unsigned)uxTaskGetStackHighWaterMark(NULL));
         worker->done = true;
     }
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
@@ -643,12 +644,13 @@ static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
     };
 
     TaskHandle_t task = NULL;
-    if (xTaskCreate(ota_upgrade_task,
-                    "ota_upgrade",
-                    OTA_UPGRADE_TASK_STACK,
-                    &worker,
-                    tskIDLE_PRIORITY + 2,
-                    &task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(ota_upgrade_task,
+                                             "ota_upgrade",
+                                             OTA_UPGRADE_TASK_STACK,
+                                             &worker,
+                                             tskIDLE_PRIORITY + 2,
+                                             &task,
+                                             tskNO_AFFINITY) != pdPASS) {
         SOLAR_OS_LOGW("solar_os_shell",
                       "OTA upgrade task create failed stack=%u internal_free=%u "
                       "internal_largest=%u",

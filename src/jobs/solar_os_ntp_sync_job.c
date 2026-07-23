@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_time.h"
+#include "solar_os_task.h"
 #include "solar_os_wifi.h"
 
 #define NTP_SYNC_DEFAULT_INTERVAL_SEC 60U
@@ -160,7 +161,7 @@ static void ntp_sync_task(void *arg)
         SOLAR_OS_LOGW(TAG, "sync skipped: Wi-Fi is not connected");
         ntp_job.sync_in_progress = false;
         ntp_job.task = NULL;
-        vTaskDelete(NULL);
+        solar_os_task_delete_internal(NULL);
         return;
     }
 
@@ -201,7 +202,7 @@ static void ntp_sync_task(void *arg)
 
     ntp_job.sync_in_progress = false;
     ntp_job.task = NULL;
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t ntp_sync_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -292,12 +293,13 @@ static bool ntp_sync_event(solar_os_context_t *ctx, const solar_os_event_t *even
 
     ntp_job.next_sync_ms = now_ms + ntp_job.interval_ms;
     ntp_job.sync_in_progress = true;
-    if (xTaskCreate(ntp_sync_task,
-                    "ntp_sync_job",
-                    NTP_SYNC_TASK_STACK,
-                    NULL,
-                    tskIDLE_PRIORITY + 2,
-                    &ntp_job.task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(ntp_sync_task,
+                                             "ntp_sync_job",
+                                             NTP_SYNC_TASK_STACK,
+                                             NULL,
+                                             tskIDLE_PRIORITY + 2,
+                                             &ntp_job.task,
+                                             tskNO_AFFINITY) != pdPASS) {
         ntp_job.sync_in_progress = false;
         ntp_job.task = NULL;
         ntp_job.last_error = ESP_ERR_NO_MEM;

@@ -14,6 +14,7 @@
 #include "solar_os_log.h"
 #include "solar_os_logic.h"
 #include "solar_os_port.h"
+#include "solar_os_task.h"
 
 #define SUMP_JOB_TASK_STACK 5120
 #define SUMP_JOB_TASK_PRIORITY (tskIDLE_PRIORITY + 3)
@@ -299,7 +300,7 @@ static void sump_task(void *arg)
                   (unsigned long long)sump_job.uploaded_bytes,
                   esp_err_to_name(sump_job.last_error));
     sump_cleanup();
-    vTaskDelete(NULL);
+    solar_os_task_delete_internal(NULL);
 }
 
 static bool sump_parse_pin(const char *text, uint8_t *pin)
@@ -418,12 +419,13 @@ static esp_err_t sump_start(solar_os_context_t *ctx, int argc, char **argv)
                                       "logic-gpio",
                                       pins);
 
-    if (xTaskCreate(sump_task,
-                    "sump_job",
-                    SUMP_JOB_TASK_STACK,
-                    NULL,
-                    SUMP_JOB_TASK_PRIORITY,
-                    &sump_job.task) != pdPASS) {
+    if (solar_os_task_create_pinned_internal(sump_task,
+                                             "sump_job",
+                                             SUMP_JOB_TASK_STACK,
+                                             NULL,
+                                             SUMP_JOB_TASK_PRIORITY,
+                                             &sump_job.task,
+                                             tskNO_AFFINITY) != pdPASS) {
         sump_cleanup();
         return ESP_ERR_NO_MEM;
     }
