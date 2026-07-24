@@ -749,7 +749,8 @@ static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *ev
                                     NULL,
                                     tskIDLE_PRIORITY + 2,
                                     &email_sync.task,
-                                    tskNO_AFFINITY) != pdPASS) {
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         email_sync.sync_in_progress = false;
         email_sync.last_error = ESP_ERR_NO_MEM;
         email_sync.fail_count++;
@@ -765,6 +766,7 @@ const solar_os_job_t solar_os_email_sync_job = {
     .start = email_sync_start,
     .stop = email_sync_stop,
     .event = email_sync_event,
+    .worker_stack_bytes = EMAIL_SYNC_TASK_STACK,
     .tick_interval_ms = 100U,
     .tick_deadline_ms = 10U,
 };

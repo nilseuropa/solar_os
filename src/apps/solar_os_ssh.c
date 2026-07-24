@@ -1136,4 +1136,5 @@ const solar_os_app_t solar_os_ssh_app = {
     .stop = ssh_stop,
     .event = ssh_event,
     .title = ssh_title,
+    .worker_stack_bytes = SOLAR_OS_SSH_TASK_STACK,
 };

@@ -22,6 +22,7 @@
 
 #define AUDIO_APP_TASK_STACK 28672
 #define AUDIO_APP_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AUDIO_APP_TASK_STACK);
 #define AUDIO_APP_EVENT_QUEUE_LEN 8
 #define AUDIO_APP_MESSAGE_MAX 96
 #define AUDIO_APP_DEFAULT_RECORD_MS 10000U
@@ -399,7 +400,8 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         NULL,
         AUDIO_APP_TASK_PRIORITY,
         &audio_app.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         solar_os_queue_delete_internal(audio_app.events);
         audio_app.events = NULL;
@@ -535,6 +537,7 @@ const solar_os_app_t solar_os_arecord_app = {
     .start = arecord_start,
     .stop = audio_app_stop,
     .event = audio_app_event,
+    .worker_stack_bytes = AUDIO_APP_TASK_STACK,
 };
 #endif
 
@@ -545,5 +548,6 @@ const solar_os_app_t solar_os_aplay_app = {
     .start = aplay_start,
     .stop = audio_app_stop,
     .event = audio_app_event,
+    .worker_stack_bytes = AUDIO_APP_TASK_STACK,
 };
 #endif

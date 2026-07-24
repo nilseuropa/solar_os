@@ -282,7 +282,8 @@ static esp_err_t chat_sync_start(solar_os_context_t *ctx, int argc, char **argv)
                                     NULL,
                                     CHAT_SYNC_WORKER_PRIORITY,
                                     &chat_sync.worker_task,
-                                    tskNO_AFFINITY) != pdPASS) {
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         chat_sync.running = false;
         (void)solar_os_chat_sync_set_status(false,
                                             false,
@@ -426,4 +427,5 @@ const solar_os_job_t solar_os_chat_sync_job = {
     .kind = SOLAR_OS_JOB_KIND_BACKGROUND,
     .start = chat_sync_start,
     .stop = chat_sync_stop,
+    .worker_stack_bytes = CHAT_SYNC_WORKER_STACK,
 };

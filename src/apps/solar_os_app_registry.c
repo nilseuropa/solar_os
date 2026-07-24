@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "solar_os_config.h"
+#include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_APP_APLAY || SOLAR_OS_PACKAGE_APP_ARECORD
 #include "solar_os_audio_apps.h"
 #endif
@@ -255,6 +256,13 @@ esp_err_t solar_os_app_registry_claim(const solar_os_app_t *app,
     }
     if (owner == NULL || owner[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (app->worker_stack_bytes > 0 &&
+        !solar_os_task_admit(app->name,
+                             app->worker_stack_bytes,
+                             SOLAR_OS_TASK_ROLE_FOREGROUND,
+                             app->worker_stack_external)) {
+        return ESP_ERR_NO_MEM;
     }
 
     portENTER_CRITICAL(&app_owner_lock);

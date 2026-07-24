@@ -31,6 +31,7 @@
 #include "py/smallint.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
@@ -110,6 +111,7 @@
 #define PYTHON_HEAP_SIZE (512U * 1024U)
 #define PYTHON_SCRIPT_MAX_BYTES (512U * 1024U)
 #define PYTHON_TASK_STACK 16384
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define PYTHON_EVENT_QUEUE_LEN 32
 #define PYTHON_EVENT_DATA_MAX 192
@@ -4919,7 +4921,8 @@ start_task:
         NULL,
         PYTHON_TASK_PRIORITY,
         &python_app.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         if (python_app.input != NULL) {
             solar_os_queue_delete(python_app.input);
@@ -5355,4 +5358,5 @@ const solar_os_app_t solar_os_python_app = {
     .start = python_start,
     .stop = python_stop,
     .event = python_event,
+    .worker_stack_bytes = PYTHON_TASK_STACK,
 };

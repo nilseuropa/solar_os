@@ -1048,7 +1048,8 @@ static esp_err_t solar_os_chat_gateway_connect_values(const char *url,
                                                      NULL,
                                                      CHAT_TASK_PRIORITY,
                                                      &chat_state.task,
-                                                     tskNO_AFFINITY);
+                                                     tskNO_AFFINITY,
+                                                     SOLAR_OS_TASK_ROLE_BACKGROUND);
     if (created != pdPASS) {
         chat_lock();
         chat_state.running = false;

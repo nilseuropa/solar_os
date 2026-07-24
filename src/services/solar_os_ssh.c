@@ -16,8 +16,8 @@
 #include "solar_os_task.h"
 
 #define SOLAR_OS_SSH_DEFAULT_PORT 22
-#define SOLAR_OS_SSH_TASK_STACK 12288
 #define SOLAR_OS_SSH_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLAR_OS_SSH_TASK_STACK);
 #define SOLAR_OS_SSH_EVENT_QUEUE_LEN 16
 #define SOLAR_OS_SSH_TX_QUEUE_LEN 16
 #define SOLAR_OS_SSH_TX_CHUNK_MAX 64
@@ -483,7 +483,8 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
         session,
         SOLAR_OS_SSH_TASK_PRIORITY,
         &session->task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         solar_os_ssh_stop(session);
         return ESP_ERR_NO_MEM;

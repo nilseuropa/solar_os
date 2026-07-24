@@ -41,6 +41,7 @@
 #endif
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
+#include "solar_os_task.h"
 #include "solar_os_keys.h"
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
@@ -60,6 +61,7 @@
 #define OTA_PROGRESS_BAR_WIDTH 24
 #define OTA_PROGRESS_STEP_BYTES (64U * 1024U)
 #define OTA_UPGRADE_TASK_STACK 16384
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(OTA_UPGRADE_TASK_STACK);
 #define OTA_UPGRADE_WAIT_MS 100U
 
 #ifndef SOLAR_OS_VERSION
@@ -650,7 +652,8 @@ static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
                                              &worker,
                                              tskIDLE_PRIORITY + 2,
                                              &task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
         SOLAR_OS_LOGW("solar_os_shell",
                       "OTA upgrade task create failed stack=%u internal_free=%u "
                       "internal_largest=%u",

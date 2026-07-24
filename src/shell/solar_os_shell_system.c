@@ -28,6 +28,7 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_spi.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
 #include "solar_os_wifi.h"
@@ -929,6 +930,29 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
                                  requested);
     }
 
+    solar_os_task_status_t task_status;
+    solar_os_task_get_status(&task_status);
+    for (size_t i = 0; i < SOLAR_OS_TASK_ROLE_COUNT; i++) {
+        const solar_os_task_role_stats_t *stats = &task_status.roles[i];
+        char requested[16];
+        format_bytes(stats->requested_stack_bytes, requested, sizeof(requested));
+        solar_os_shell_io_printf(term,
+                                 "task %-12s req=%" PRIu32 " ok=%" PRIu32
+                                 " deny=%" PRIu32 " fail=%" PRIu32 " stack=%s\n",
+                                 solar_os_task_role_name((solar_os_task_role_t)i),
+                                 stats->requests,
+                                 stats->successes,
+                                 stats->denied,
+                                 stats->failures,
+                                 requested);
+    }
+    solar_os_shell_io_printf(term,
+                             "task wait         now=%" PRIu32 " ok=%" PRIu32
+                             " cancel=%" PRIu32 "\n",
+                             task_status.waiting,
+                             task_status.wait_successes,
+                             task_status.wait_cancellations);
+
     if (status.last_failure_valid) {
         char failed_size[16];
         format_bytes(status.last_failure_size, failed_size, sizeof(failed_size));
@@ -937,6 +961,18 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
                                  solar_os_memory_class_name(status.last_failure_class),
                                  status.last_failure_tag,
                                  failed_size);
+    }
+    if (task_status.last_failure_valid) {
+        char failed_stack[16];
+        format_bytes(task_status.last_failure_stack_bytes,
+                     failed_stack,
+                     sizeof(failed_stack));
+        solar_os_shell_io_printf(term,
+                                 "Last task %s: %s role=%s stack=%s\n",
+                                 task_status.last_failure_denied ? "denial" : "failure",
+                                 task_status.last_failure_name,
+                                 solar_os_task_role_name(task_status.last_failure_role),
+                                 failed_stack);
     }
 }
 

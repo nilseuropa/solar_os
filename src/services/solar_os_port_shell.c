@@ -22,6 +22,7 @@
 #define PORT_SHELL_MAX 4
 #define PORT_SHELL_TASK_STACK 16384
 #define PORT_SHELL_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PORT_SHELL_TASK_STACK);
 #define PORT_SHELL_READ_BUF 64
 #define PORT_SHELL_READ_TIMEOUT_MS 50U
 #define PORT_SHELL_ESC_FLUSH_MS 40U
@@ -652,7 +653,8 @@ esp_err_t solar_os_port_shell_init(void)
         NULL,
         PORT_SHELL_TASK_PRIORITY,
         &task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_SYSTEM);
 
     portENTER_CRITICAL(&port_shells_lock);
     port_shell_reserved_initializing = false;
@@ -893,7 +895,8 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                              state,
                                              PORT_SHELL_TASK_PRIORITY,
                                              &created_task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
         portENTER_CRITICAL(&port_shells_lock);
         if (state->generation == generation) {
             const uint32_t failed_generation = state->generation;

@@ -16,6 +16,7 @@
 #include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_queue.h"
+#include "solar_os_task.h"
 
 #define MQTT_NVS_NAMESPACE "mqtt"
 #define MQTT_NVS_URL_KEY "url"
@@ -448,7 +449,21 @@ esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const cha
         mqtt_state.connected = false;
         mqtt_clear_error_locked();
         mqtt_unlock();
-        ret = esp_mqtt_client_start(client);
+        solar_os_task_managed_admission_t admission;
+        if (!solar_os_task_admit_managed("mqtt_client",
+                                         MQTT_CLIENT_TASK_STACK,
+                                         SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                         false,
+                                         &admission)) {
+            ret = ESP_ERR_NO_MEM;
+        } else {
+            ret = esp_mqtt_client_start(client);
+            solar_os_task_note_managed_result("mqtt_client",
+                                              MQTT_CLIENT_TASK_STACK,
+                                              SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                              &admission,
+                                              ret == ESP_OK);
+        }
     }
     if (ret != ESP_OK) {
         mqtt_lock();

@@ -35,23 +35,65 @@ Allocation classes:
 Every policy allocation records its class and requested size. Failures record a
 short subsystem tag and a snapshot of free and largest blocks in the log. Use
 `mem policy` to inspect heap regions, class counters, fallback counts, the
-configured reserve, and the most recent tagged failure.
+configured reserve, task-admission counters, pending launches, and the most
+recent tagged failure.
+
+## Task admission
+
+PSRAM does not make an arbitrary FreeRTOS task stack safe in external memory.
+Filesystem, NVS, TLS, OTA, and other library paths can run while the external
+memory cache is unavailable. SolarOS therefore keeps general task stacks in
+internal SRAM and uses PSRAM for application heaps, queues, buffers, and
+pending-launch records.
+
+Every SolarOS-owned task launch goes through one serialized admission boundary
+and declares a role:
+
+- `system` is boot and indispensable runtime infrastructure.
+- `foreground` is interactive or explicitly requested work. It is admitted
+  against its actual declared stack requirement and may consume the shared
+  reserve.
+- `background` is optional work. It must leave the shared 32 KiB internal
+  reserve available for foreground launches.
+
+Apps and jobs that own workers declare their stack requirement in their
+descriptor. Built-in internal foreground stacks are compile-time checked
+against the 28 KiB supported maximum. ESP-IDF-managed HTTP and MQTT workers use
+the same serialized admission boundary.
+
+If a background job cannot preserve the reserve, a PSRAM-enabled board records
+the complete start request in PSRAM, reports the job as `waiting`, and retries
+it from the scheduler when internal stack memory becomes available. Stopping or
+restarting the job cancels or replaces that request. If PSRAM is absent, the
+pending record cannot be created and the start returns `ESP_ERR_NO_MEM`, leaving
+memory balancing to the user.
+
+This policy is dynamic: it does not reserve a large permanent executor stack
+and does not serialize unrelated Python, Lua, email, or chat work through one
+worker. `mem policy` reports requests, admissions, denials, launch failures,
+the current number of waiting jobs, successful delayed launches, and cancelled
+waits.
 
 ## FreeRTOS objects
 
 ESP-IDF deliberately allocates ordinary dynamic FreeRTOS task stacks and queues
 from internal SRAM. SolarOS therefore owns their placement:
 
-- `solar_os_task_create_pinned()` uses a PSRAM stack when the target safely
-  supports external task stacks and otherwise uses an internal stack. Pair it
-  with `solar_os_task_delete()`.
+- `solar_os_task_create_pinned()` uses an internal stack. This is the safe
+  default because filesystem, NVS, TLS, OTA, and other library paths can enter
+  cache-disabled flash operations.
+- `solar_os_task_create_pinned_external()` uses a PSRAM stack when supported
+  and otherwise falls back to an internal stack. It is an explicit opt-in only
+  for a worker audited never to initiate flash access or otherwise run while
+  the external-memory cache is disabled. Pair it with
+  `solar_os_task_delete_external()`.
 - `solar_os_queue_create()` places queues in PSRAM whenever the board has
   PSRAM, otherwise it creates a normal internal queue. Pair it with
   `solar_os_queue_delete()`.
-- `solar_os_task_create_pinned_internal()` and
-  `solar_os_queue_create_internal()` are explicit exceptions. Use them for
-  flash/cache-disabled code, DMA or ISR-adjacent work, and timing-sensitive
-  drivers, and pair them with their `_internal` deletion functions.
+- `solar_os_task_create_pinned_internal()` documents a strict internal-stack
+  contract for cache-disabled, DMA, ISR-adjacent, or timing-sensitive work.
+  `solar_os_queue_create_internal()` is the matching explicit queue exception.
+  Pair them with their `_internal` deletion functions.
 
 Apps, jobs, services, and shell commands must not call dynamic FreeRTOS task or
 queue creation directly. New workers and queues use the automatic SolarOS API

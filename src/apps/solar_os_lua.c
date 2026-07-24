@@ -20,6 +20,7 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
 #endif
@@ -102,6 +103,7 @@
 #define SOLUA_EVENT_DATA_MAX 128
 #define SOLUA_REPL_INPUT_MAX 256
 #define SOLUA_TASK_STACK 12288
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_TASK_PRIORITY 5
 #define SOLUA_STOP_WAIT_MS 800
 #define SOLUA_HOOK_INSTRUCTION_COUNT 10000
@@ -4546,7 +4548,8 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         NULL,
         SOLUA_TASK_PRIORITY,
         &solua.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         if (solua.input != NULL) {
             solar_os_queue_delete(solua.input);
@@ -5051,4 +5054,5 @@ const solar_os_app_t solar_os_lua_app = {
     .start = solua_start,
     .stop = solua_stop,
     .event = solua_event,
+    .worker_stack_bytes = SOLUA_TASK_STACK,
 };

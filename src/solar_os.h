@@ -78,6 +78,9 @@ struct solar_os_app {
     void (*stop)(solar_os_context_t *ctx);
     bool (*event)(solar_os_context_t *ctx, const solar_os_event_t *event);
     void (*title)(solar_os_context_t *ctx, char *buffer, size_t buffer_len);
+    /* Declarative launch admission for an app-owned worker. */
+    uint32_t worker_stack_bytes;
+    bool worker_stack_external;
     /* Zero selects the runtime defaults. Deadlines are execution-time budgets. */
     uint32_t tick_interval_ms;
     uint32_t tick_deadline_ms;
@@ -95,6 +98,9 @@ struct solar_os_job {
     esp_err_t (*start)(solar_os_context_t *ctx, int argc, char **argv);
     void (*stop)(solar_os_context_t *ctx);
     bool (*event)(solar_os_context_t *ctx, const solar_os_event_t *event);
+    /* Declarative start admission for a job-owned worker. */
+    uint32_t worker_stack_bytes;
+    bool worker_stack_external;
     /* Zero selects the runtime defaults. Deadlines are execution-time budgets. */
     uint32_t tick_interval_ms;
     uint32_t tick_deadline_ms;

@@ -771,7 +771,8 @@ static esp_err_t slip_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                     NULL,
                                     SLIP_JOB_TASK_PRIORITY,
                                     &slip_job.task,
-                                    tskNO_AFFINITY) != pdPASS) {
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         slip_cleanup();
         return ESP_ERR_NO_MEM;
     }
@@ -801,4 +802,5 @@ const solar_os_job_t solar_os_slip_job = {
     .start = slip_job_start,
     .stop = slip_job_stop,
     .event = NULL,
+    .worker_stack_bytes = SLIP_JOB_TASK_STACK,
 };

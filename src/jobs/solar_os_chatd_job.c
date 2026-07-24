@@ -1626,7 +1626,8 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                              &chatd_job,
                                              CHATD_TASK_PRIORITY,
                                              &chatd_job.task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         chatd_close_all_sockets(&chatd_job);
         chatd_free_buffers(&chatd_job);
         chatd_job.running = false;
@@ -1680,4 +1681,5 @@ const solar_os_job_t solar_os_chatd_job = {
     .start = chatd_job_start,
     .stop = chatd_job_stop,
     .event = NULL,
+    .worker_stack_bytes = CHATD_TASK_STACK,
 };

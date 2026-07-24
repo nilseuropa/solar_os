@@ -3191,7 +3191,8 @@ static esp_err_t start_pairing_scan_now(void)
                                              NULL,
                                              4,
                                              &scan_task_handle,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_SYSTEM) != pdPASS) {
         scan_task_handle = NULL;
         set_status(BLE_KEYBOARD_FAILED, "scan task failed");
         return ESP_ERR_NO_MEM;
@@ -3283,7 +3284,8 @@ static void schedule_reconnect(uint32_t delay_ms)
                                              (void *)(uintptr_t)delay_ms,
                                              3,
                                              &reconnect_task_handle,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_SYSTEM) != pdPASS) {
         reconnect_task_handle = NULL;
         SOLAR_OS_LOGW(TAG, "reconnect task failed");
     }

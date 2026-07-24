@@ -425,7 +425,8 @@ static esp_err_t sump_start(solar_os_context_t *ctx, int argc, char **argv)
                                              NULL,
                                              SUMP_JOB_TASK_PRIORITY,
                                              &sump_job.task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         sump_cleanup();
         return ESP_ERR_NO_MEM;
     }
@@ -454,4 +455,5 @@ const solar_os_job_t solar_os_sump_job = {
     .start = sump_start,
     .stop = sump_stop,
     .event = NULL,
+    .worker_stack_bytes = SUMP_JOB_TASK_STACK,
 };

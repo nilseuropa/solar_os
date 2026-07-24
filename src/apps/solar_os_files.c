@@ -31,6 +31,7 @@
 #define FILES_PANEL_MIN_WIDTH 18U
 #define FILES_ZIP_TASK_STACK 24576
 #define FILES_ZIP_TASK_PRIORITY 4
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FILES_ZIP_TASK_STACK);
 #define FILES_ZIP_WAIT_POLL_MS 20U
 
 typedef struct {
@@ -1181,7 +1182,8 @@ static esp_err_t files_run_zip_task(files_zip_request_t *request)
         request,
         FILES_ZIP_TASK_PRIORITY,
         &task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
@@ -1824,4 +1826,5 @@ const solar_os_app_t solar_os_files_app = {
     .resume = files_resume,
     .stop = files_stop,
     .event = files_event,
+    .worker_stack_bytes = FILES_ZIP_TASK_STACK,
 };

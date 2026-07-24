@@ -15,6 +15,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "sdkconfig.h"
 #include "solar_os_gfx.h"
 #include "solar_os_http_client.h"
 #include "solar_os_keys.h"
@@ -46,6 +47,9 @@
 #define WEB_TAG_MAX 256
 #define WEB_TASK_STACK 24576
 #define WEB_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+#if !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEB_TASK_STACK);
+#endif
 #define WEB_EVENT_QUEUE_LEN 8
 #define WEB_TIMEOUT_MS 12000
 #define WEB_REDIRECT_MAX 5
@@ -2115,7 +2119,7 @@ done:
                   "task done stack_high_water=%u",
                   (unsigned)uxTaskGetStackHighWaterMark(NULL));
     web.task_done = true;
-    solar_os_task_delete(NULL);
+    solar_os_task_delete_external(NULL);
 }
 
 static int web_body_height(solar_os_gfx_t *gfx)
@@ -2772,14 +2776,15 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     web.redraw = true;
     web_render(ctx);
 
-    const BaseType_t created = solar_os_task_create_pinned(
+    const BaseType_t created = solar_os_task_create_pinned_external(
         web_task,
         "solar_os_web",
         WEB_TASK_STACK,
         NULL,
         WEB_TASK_PRIORITY,
         &web.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         web.task = NULL;
         web.task_done = true;
@@ -3365,4 +3370,6 @@ const solar_os_app_t solar_os_web_app = {
     .stop = web_stop,
     .event = web_event,
     .title = web_title,
+    .worker_stack_bytes = WEB_TASK_STACK,
+    .worker_stack_external = true,
 };
