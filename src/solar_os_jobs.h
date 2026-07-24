@@ -17,6 +17,7 @@
 
 typedef enum {
     SOLAR_OS_JOB_STOPPED,
+    SOLAR_OS_JOB_WAITING,
     SOLAR_OS_JOB_RUNNING,
     SOLAR_OS_JOB_FAILED,
 } solar_os_job_state_t;

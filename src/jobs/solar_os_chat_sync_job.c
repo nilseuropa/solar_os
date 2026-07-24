@@ -9,15 +9,21 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #include "solar_os_wifi.h"
 
 #define CHAT_SYNC_RETRY_MIN_MS 1000U
 #define CHAT_SYNC_RETRY_MAX_MS 60000U
-#define CHAT_SYNC_EVENTS_PER_TICK 4U
+#define CHAT_SYNC_EVENTS_PER_TICK 12U
+#define CHAT_SYNC_WORKER_STACK 6144U
+#define CHAT_SYNC_WORKER_PRIORITY (tskIDLE_PRIORITY + 1)
 #define CHAT_SYNC_WORKER_INTERVAL_MS 100U
+#define CHAT_SYNC_STOP_WAIT_MS 3000U
 
 typedef struct {
     bool running;
+    volatile bool stop_requested;
+    volatile bool worker_done;
     bool rejoin_pending;
     bool transport_busy;
     uint32_t config_revision;
@@ -27,6 +33,7 @@ typedef struct {
     size_t rejoin_index;
     size_t rejoin_count;
     const solar_os_chat_transport_t *transport;
+    TaskHandle_t worker_task;
     solar_os_chat_transport_event_t *event;
     solar_os_chat_command_t *command;
     solar_os_chat_channel_t *channels;
@@ -36,6 +43,8 @@ typedef struct {
 
 static chat_sync_state_t chat_sync;
 static const char *TAG = "chat_sync";
+
+static void chat_sync_worker(void *arg);
 
 static void chat_sync_schedule_retry(uint32_t now_ms)
 {
@@ -267,22 +276,41 @@ static esp_err_t chat_sync_start(solar_os_context_t *ctx, int argc, char **argv)
     chat_sync.running = true;
     chat_sync.retry_delay_ms = CHAT_SYNC_RETRY_MIN_MS;
     (void)solar_os_chat_sync_set_status(true, false, ESP_OK, NULL);
+    if (solar_os_task_create_pinned(chat_sync_worker,
+                                    "chat_sync",
+                                    CHAT_SYNC_WORKER_STACK,
+                                    NULL,
+                                    CHAT_SYNC_WORKER_PRIORITY,
+                                    &chat_sync.worker_task,
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+        chat_sync.running = false;
+        (void)solar_os_chat_sync_set_status(false,
+                                            false,
+                                            ESP_ERR_NO_MEM,
+                                            "synchronizer worker allocation failed");
+        chat_sync_free_buffers();
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 
 static void chat_sync_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
-    if (chat_sync.transport != NULL) {
-        const esp_err_t err = chat_sync.transport->disconnect();
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-            SOLAR_OS_LOGW(TAG,
-                          "transport stop failed: %s",
-                          esp_err_to_name(err));
-        }
+    chat_sync.stop_requested = true;
+    if (chat_sync.worker_task != NULL) {
+        (void)xTaskNotifyGive(chat_sync.worker_task);
     }
-    (void)solar_os_chat_sync_set_status(false, false, ESP_OK, NULL);
-    chat_sync.running = false;
+    if (!solar_os_task_wait_done(chat_sync.worker_task,
+                                 &chat_sync.worker_done,
+                                 CHAT_SYNC_STOP_WAIT_MS)) {
+        SOLAR_OS_LOGW(TAG,
+                      "worker did not stop within %u ms",
+                      (unsigned)CHAT_SYNC_STOP_WAIT_MS);
+        return;
+    }
+    chat_sync.worker_task = NULL;
     chat_sync_free_buffers();
 }
 
@@ -377,15 +405,20 @@ static bool chat_sync_process(uint32_t now_ms)
     return true;
 }
 
-static bool chat_sync_event(solar_os_context_t *ctx,
-                            const solar_os_event_t *event)
+static void chat_sync_worker(void *arg)
 {
-    (void)ctx;
-    if (event == NULL || event->type != SOLAR_OS_EVENT_TICK ||
-        !chat_sync.running) {
-        return false;
+    (void)arg;
+    while (!chat_sync.stop_requested) {
+        const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+        (void)chat_sync_process(now_ms);
+        (void)ulTaskNotifyTake(pdTRUE,
+                              pdMS_TO_TICKS(CHAT_SYNC_WORKER_INTERVAL_MS));
     }
-    return chat_sync_process(event->data.tick_ms);
+    (void)chat_sync.transport->disconnect();
+    (void)solar_os_chat_sync_set_status(false, false, ESP_OK, NULL);
+    chat_sync.running = false;
+    chat_sync.worker_done = true;
+    solar_os_task_delete(NULL);
 }
 
 const solar_os_job_t solar_os_chat_sync_job = {
@@ -394,7 +427,5 @@ const solar_os_job_t solar_os_chat_sync_job = {
     .kind = SOLAR_OS_JOB_KIND_BACKGROUND,
     .start = chat_sync_start,
     .stop = chat_sync_stop,
-    .event = chat_sync_event,
-    .tick_interval_ms = CHAT_SYNC_WORKER_INTERVAL_MS,
-    .tick_deadline_ms = 50U,
+    .worker_stack_bytes = CHAT_SYNC_WORKER_STACK,
 };

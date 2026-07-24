@@ -490,7 +490,8 @@ static esp_err_t daq_start(solar_os_context_t *ctx, int argc, char **argv)
                                              NULL,
                                              DAQ_WORKER_PRIORITY,
                                              &daq.worker_task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         daq.last_error = ESP_ERR_NO_MEM;
         daq_cleanup();
         return ESP_ERR_NO_MEM;
@@ -788,6 +789,7 @@ const solar_os_job_t solar_os_daq_job = {
     .start = daq_start,
     .stop = daq_stop,
     .event = daq_event,
+    .worker_stack_bytes = DAQ_WORKER_STACK,
     .tick_interval_ms = 25U,
     .tick_deadline_ms = 2U,
 };

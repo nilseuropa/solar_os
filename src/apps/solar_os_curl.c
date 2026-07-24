@@ -25,6 +25,7 @@
 
 #define CURL_TASK_STACK 12288
 #define CURL_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(CURL_TASK_STACK);
 #define CURL_EVENT_QUEUE_LEN 10
 #define CURL_EVENT_DATA_MAX 256
 #define CURL_EVENT_MESSAGE_MAX 128
@@ -576,7 +577,8 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
         NULL,
         CURL_TASK_PRIORITY,
         &curl_app.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         solar_os_queue_delete(curl_app.events);
         curl_app.events = NULL;
@@ -657,4 +659,5 @@ const solar_os_app_t solar_os_curl_app = {
     .start = curl_start,
     .stop = curl_stop,
     .event = curl_event,
+    .worker_stack_bytes = CURL_TASK_STACK,
 };

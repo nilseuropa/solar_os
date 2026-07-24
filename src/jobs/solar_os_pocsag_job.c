@@ -326,7 +326,8 @@ static esp_err_t pocsag_start(solar_os_context_t *ctx, int argc, char **argv)
                                              NULL,
                                              tskIDLE_PRIORITY + 2,
                                              &pocsag.task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         pocsag.status.running = false;
         pocsag.status.last_error = ESP_ERR_NO_MEM;
         restore_radio();
@@ -387,4 +388,5 @@ const solar_os_job_t solar_os_pocsag_job = {
     .start = pocsag_start,
     .stop = pocsag_stop,
     .event = NULL,
+    .worker_stack_bytes = POCSAG_TASK_STACK,
 };

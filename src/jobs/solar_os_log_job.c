@@ -285,7 +285,8 @@ static esp_err_t log_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                              NULL,
                                              LOG_JOB_WORKER_PRIORITY,
                                              &log_job.worker_task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         log_job.last_error = ESP_ERR_NO_MEM;
         log_job_cleanup();
         return ESP_ERR_NO_MEM;
@@ -415,6 +416,7 @@ const solar_os_job_t solar_os_log_job = {
     .start = log_job_start,
     .stop = log_job_stop,
     .event = log_job_event,
+    .worker_stack_bytes = LOG_JOB_WORKER_STACK,
     .tick_interval_ms = LOG_JOB_POLL_MS,
     .tick_deadline_ms = 2U,
 };

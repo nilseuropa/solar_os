@@ -299,7 +299,8 @@ static bool ntp_sync_event(solar_os_context_t *ctx, const solar_os_event_t *even
                                              NULL,
                                              tskIDLE_PRIORITY + 2,
                                              &ntp_job.task,
-                                             tskNO_AFFINITY) != pdPASS) {
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         ntp_job.sync_in_progress = false;
         ntp_job.task = NULL;
         ntp_job.last_error = ESP_ERR_NO_MEM;
@@ -316,6 +317,7 @@ const solar_os_job_t solar_os_ntp_sync_job = {
     .start = ntp_sync_start,
     .stop = ntp_sync_stop,
     .event = ntp_sync_event,
+    .worker_stack_bytes = NTP_SYNC_TASK_STACK,
     .tick_interval_ms = 100U,
     .tick_deadline_ms = 10U,
 };

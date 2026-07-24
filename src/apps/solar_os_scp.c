@@ -542,4 +542,5 @@ const solar_os_app_t solar_os_scp_app = {
     .start = scp_start,
     .stop = scp_stop,
     .event = scp_event,
+    .worker_stack_bytes = SOLAR_OS_SCP_TASK_STACK,
 };

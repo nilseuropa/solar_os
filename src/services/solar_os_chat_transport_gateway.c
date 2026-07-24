@@ -68,7 +68,6 @@ typedef struct {
     uint32_t tx_count;
     uint32_t dropped_count;
     TaskHandle_t task;
-    TaskHandle_t reserved_task;
     QueueHandle_t events;
     QueueHandle_t tx;
     SemaphoreHandle_t lock;
@@ -739,8 +738,10 @@ static void chat_task_set_state(bool running, bool connected, esp_err_t err, con
     chat_unlock();
 }
 
-static void chat_gateway_run(void)
+static void chat_gateway_task(void *arg)
 {
+    (void)arg;
+
     char url[SOLAR_OS_CHAT_URL_MAX];
     chat_lock();
     strlcpy(url, chat_state.url, sizeof(url));
@@ -752,6 +753,7 @@ static void chat_gateway_run(void)
         chat_task_set_state(false, false, ret, "invalid gateway URL");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "invalid gateway URL");
         chat_state.task_done = true;
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -760,6 +762,7 @@ static void chat_gateway_run(void)
         chat_task_set_state(false, false, ESP_ERR_NO_MEM, "TLS init failed");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "TLS init failed");
         chat_state.task_done = true;
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -787,6 +790,7 @@ static void chat_gateway_run(void)
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway connect failed");
         }
         chat_state.task_done = true;
+        solar_os_task_delete(NULL);
         return;
     }
 
@@ -797,6 +801,7 @@ static void chat_gateway_run(void)
             chat_task_set_state(false, false, ret, "gateway socket setup failed");
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway socket setup failed");
             chat_state.task_done = true;
+            solar_os_task_delete(NULL);
             return;
         }
     }
@@ -814,6 +819,7 @@ static void chat_gateway_run(void)
             chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "gateway write failed");
         }
         chat_state.task_done = true;
+        solar_os_task_delete(NULL);
         return;
     }
     chat_task_set_state(true, true, ESP_OK, NULL);
@@ -826,6 +832,7 @@ static void chat_gateway_run(void)
         chat_task_set_state(false, false, ESP_ERR_NO_MEM, "chat RX alloc failed");
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_ERROR, "chat RX alloc failed");
         chat_state.task_done = true;
+        solar_os_task_delete(NULL);
         return;
     }
     size_t line_len = 0;
@@ -918,15 +925,8 @@ static void chat_gateway_run(void)
         chat_queue_simple_event(SOLAR_OS_CHAT_EVENT_DISCONNECTED, "disconnected");
     }
     chat_state.task_done = true;
-}
-
-static void chat_gateway_reserved_worker(void *arg)
-{
-    (void)arg;
-    while (true) {
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        chat_gateway_run();
-    }
+    solar_os_task_delete(NULL);
+    return;
 }
 
 static esp_err_t solar_os_chat_gateway_init(void)
@@ -956,24 +956,6 @@ static esp_err_t solar_os_chat_gateway_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    TaskHandle_t reserved_task = NULL;
-    if (solar_os_task_create_pinned_internal(chat_gateway_reserved_worker,
-                                             "chat_gateway",
-                                             CHAT_TASK_STACK,
-                                             NULL,
-                                             CHAT_TASK_PRIORITY,
-                                             &reserved_task,
-                                             tskNO_AFFINITY) != pdPASS) {
-        solar_os_queue_delete(chat_state.tx);
-        solar_os_queue_delete(chat_state.events);
-        chat_state.tx = NULL;
-        chat_state.events = NULL;
-        vSemaphoreDelete(chat_state.lock);
-        chat_state.lock = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-
-    chat_state.reserved_task = reserved_task;
     chat_state.initialized = true;
     strlcpy(chat_state.user, CHAT_DEFAULT_USER, sizeof(chat_state.user));
     strlcpy(chat_state.device, CHAT_DEFAULT_DEVICE, sizeof(chat_state.device));
@@ -1060,8 +1042,22 @@ static esp_err_t solar_os_chat_gateway_connect_values(const char *url,
     chat_clear_error_locked();
     chat_unlock();
 
-    chat_state.task = chat_state.reserved_task;
-    xTaskNotifyGive(chat_state.reserved_task);
+    BaseType_t created = solar_os_task_create_pinned(chat_gateway_task,
+                                                     "solar_os_chat",
+                                                     CHAT_TASK_STACK,
+                                                     NULL,
+                                                     CHAT_TASK_PRIORITY,
+                                                     &chat_state.task,
+                                                     tskNO_AFFINITY,
+                                                     SOLAR_OS_TASK_ROLE_BACKGROUND);
+    if (created != pdPASS) {
+        chat_lock();
+        chat_state.running = false;
+        chat_state.connected = false;
+        chat_set_error_locked(ESP_ERR_NO_MEM, "task create failed");
+        chat_unlock();
+        return ESP_ERR_NO_MEM;
+    }
 
     return ESP_OK;
 }

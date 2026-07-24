@@ -19,8 +19,8 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_task.h"
 #include "solar_os_wifi.h"
-#include "solar_os_work.h"
 
 #define EMAIL_SYNC_DEFAULT_INTERVAL_SEC 300U
 #define EMAIL_SYNC_MIN_INTERVAL_SEC 30U
@@ -28,6 +28,7 @@
 #define EMAIL_SYNC_DEFAULT_PORT 993U
 #define EMAIL_SYNC_CONNECT_TIMEOUT_MS 15000U
 #define EMAIL_SYNC_IO_TIMEOUT_MS 15000U
+#define EMAIL_SYNC_TASK_STACK 12288U
 #define EMAIL_SYNC_RESPONSE_MAX 8192U
 #define EMAIL_SYNC_FETCH_MAX 8U
 #define EMAIL_SYNC_HOST_MAX 128U
@@ -46,7 +47,7 @@ typedef struct {
     uint32_t fail_count;
     uint32_t generation;
     esp_err_t last_error;
-    solar_os_work_handle_t work;
+    TaskHandle_t task;
 } email_sync_state_t;
 
 typedef struct {
@@ -655,7 +656,7 @@ static esp_err_t email_sync_run(char *error_text, size_t error_text_len)
     return email_sync.stop_requested ? ESP_ERR_INVALID_STATE : err;
 }
 
-static void email_sync_work(void *arg)
+static void email_sync_task(void *arg)
 {
     (void)arg;
     char error_text[SOLAR_OS_EMAIL_ERROR_MAX] = {0};
@@ -675,13 +676,14 @@ static void email_sync_work(void *arg)
         email_sync.running = false;
         email_sync.complete_requested = true;
     }
-    email_sync.work = (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
+    email_sync.task = NULL;
+    solar_os_task_delete(NULL);
 }
 
 static esp_err_t email_sync_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
-    if (solar_os_work_active(email_sync.work) || email_sync.sync_in_progress) {
+    if (email_sync.task != NULL || email_sync.sync_in_progress) {
         return ESP_ERR_INVALID_STATE;
     }
     uint32_t interval_sec = 0;
@@ -717,10 +719,6 @@ static void email_sync_stop(solar_os_context_t *ctx)
     email_sync.stop_requested = true;
     email_sync.once = false;
     email_sync.complete_requested = false;
-    if (solar_os_work_cancel(email_sync.work) == ESP_OK) {
-        email_sync.work = (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
-        email_sync.sync_in_progress = false;
-    }
 }
 
 static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *event)
@@ -745,18 +743,18 @@ static bool email_sync_event(solar_os_context_t *ctx, const solar_os_event_t *ev
     }
     email_sync.next_sync_ms = now + email_sync.interval_ms;
     email_sync.sync_in_progress = true;
-    const esp_err_t submit_err =
-        solar_os_work_submit("email-sync",
-                             email_sync_work,
-                             NULL,
-                             tskIDLE_PRIORITY + 2,
-                             &email_sync.work,
-                             NULL);
-    if (submit_err != ESP_OK) {
+    if (solar_os_task_create_pinned(email_sync_task,
+                                    "email_sync",
+                                    EMAIL_SYNC_TASK_STACK,
+                                    NULL,
+                                    tskIDLE_PRIORITY + 2,
+                                    &email_sync.task,
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         email_sync.sync_in_progress = false;
-        email_sync.last_error = submit_err;
+        email_sync.last_error = ESP_ERR_NO_MEM;
         email_sync.fail_count++;
-        solar_os_email_sync_finished(submit_err, "sync work queue full");
+        solar_os_email_sync_finished(ESP_ERR_NO_MEM, "sync task allocation failed");
     }
     return true;
 }
@@ -768,6 +766,7 @@ const solar_os_job_t solar_os_email_sync_job = {
     .start = email_sync_start,
     .stop = email_sync_stop,
     .event = email_sync_event,
+    .worker_stack_bytes = EMAIL_SYNC_TASK_STACK,
     .tick_interval_ms = 100U,
     .tick_deadline_ms = 10U,
 };

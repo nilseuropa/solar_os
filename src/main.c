@@ -31,9 +31,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CHAT
 #include "solar_os_chat.h"
 #endif
-#if SOLAR_OS_PACKAGE_CHAT_TRANSPORT_GATEWAY
-#include "solar_os_chat_transport_gateway.h"
-#endif
 #include "solar_os_cdc.h"
 #include "solar_os_display.h"
 #include "solar_os_engines.h"
@@ -73,7 +70,6 @@
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
 #include "solar_os_wifi.h"
-#include "solar_os_work.h"
 #include "solar_os_board.h"
 
 #ifndef SOLAR_OS_BOARD_PIN_KEY
@@ -1269,30 +1265,12 @@ void app_main(void)
     print_boot_summary();
     key_button_init();
 
-#if SOLAR_OS_BOARD_HAS_PSRAM
-    const esp_err_t work_err = solar_os_work_init();
-    if (work_err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG,
-                      "Transient worker reserve unavailable: %s",
-                      esp_err_to_name(work_err));
-    }
-#endif
-
     const esp_err_t port_shell_err = solar_os_port_shell_init();
     if (port_shell_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG,
                       "Port shell reserve unavailable: %s",
                       esp_err_to_name(port_shell_err));
     }
-
-#if SOLAR_OS_PACKAGE_CHAT_TRANSPORT_GATEWAY
-    const esp_err_t chat_transport_err = solar_os_chat_gateway_transport.init();
-    if (chat_transport_err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG,
-                      "Chat transport reserve unavailable: %s",
-                      esp_err_to_name(chat_transport_err));
-    }
-#endif
 
     solar_os_context_init(&os_ctx, NULL, NULL);
     ESP_ERROR_CHECK(solar_os_sessions_init(&os_ctx,

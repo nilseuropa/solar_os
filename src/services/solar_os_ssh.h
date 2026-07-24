@@ -11,6 +11,7 @@
 #define SOLAR_OS_SSH_PASSWORD_MAX 96
 #define SOLAR_OS_SSH_EVENT_DATA_MAX 256
 #define SOLAR_OS_SSH_EVENT_MESSAGE_MAX 128
+#define SOLAR_OS_SSH_TASK_STACK 12288U
 
 typedef struct solar_os_ssh_session solar_os_ssh_session_t;
 

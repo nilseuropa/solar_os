@@ -8,6 +8,13 @@
 #include "freertos/task.h"
 #include "jobs/solar_os_job_registry.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
+#include "solar_os_task.h"
+
+typedef struct {
+    int argc;
+    char args[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
+} solar_os_job_pending_start_t;
 
 typedef struct {
     const solar_os_job_registry_entry_t *entry;
@@ -19,6 +26,7 @@ typedef struct {
     solar_os_tick_stats_t tick_stats;
     size_t callback_refs;
     bool lifecycle_busy;
+    solar_os_job_pending_start_t *pending_start;
     char owner[SOLAR_OS_JOB_OWNER_MAX];
     size_t resource_count;
     solar_os_job_resource_t resources[SOLAR_OS_JOB_RESOURCE_MAX];
@@ -99,6 +107,49 @@ static uint32_t job_next_generation(solar_os_job_runtime_t *runtime)
         runtime->generation++;
     }
     return runtime->generation;
+}
+
+static solar_os_job_pending_start_t *job_pending_start_create(
+    int argc,
+    char **argv)
+{
+    solar_os_job_pending_start_t *pending =
+        solar_os_memory_calloc(1,
+                               sizeof(*pending),
+                               SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                               "job.pending");
+    if (pending == NULL) {
+        return NULL;
+    }
+    pending->argc = argc;
+    for (int i = 0; i < argc; i++) {
+        strlcpy(pending->args[i], argv[i], sizeof(pending->args[i]));
+    }
+    return pending;
+}
+
+static void job_pending_start_free(solar_os_job_pending_start_t *pending,
+                                   bool launched)
+{
+    if (pending == NULL) {
+        return;
+    }
+    solar_os_memory_free(pending);
+    solar_os_task_note_wait_finished(launched);
+}
+
+static esp_err_t job_call_start(const solar_os_job_t *job,
+                                solar_os_context_t *ctx,
+                                solar_os_job_pending_start_t *pending)
+{
+    if (job == NULL || pending == NULL || job->start == NULL) {
+        return ESP_OK;
+    }
+    char *argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    for (int i = 0; i < pending->argc; i++) {
+        argv[i] = pending->args[i];
+    }
+    return job->start(ctx, pending->argc, argv);
 }
 
 static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
@@ -220,8 +271,29 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
         }
     }
 
+    const int admission_index = job_index_by_name(name);
+    if (admission_index < 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    const solar_os_job_t *admission_job = job_runtimes[admission_index].entry != NULL ?
+        job_runtimes[admission_index].entry->job : NULL;
+    const bool wait_for_memory =
+        admission_job != NULL &&
+        admission_job->worker_stack_bytes > 0 &&
+        !solar_os_task_can_create(admission_job->worker_stack_bytes,
+                                  SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                  admission_job->worker_stack_external);
+    solar_os_job_pending_start_t *new_pending = NULL;
+    if (wait_for_memory) {
+        new_pending = job_pending_start_create(argc, argv);
+        if (new_pending == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     void (*stop)(solar_os_context_t *ctx) = NULL;
     esp_err_t (*start)(solar_os_context_t *ctx, int argc, char **argv) = NULL;
+    solar_os_job_pending_start_t *old_pending = NULL;
     uint32_t generation = 0;
     portENTER_CRITICAL(&jobs_lock);
     const int index = job_index_by_name(name);
@@ -232,11 +304,14 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
     solar_os_job_runtime_t *runtime = &job_runtimes[index];
     if (runtime->lifecycle_busy || runtime->entry == NULL || runtime->entry->job == NULL) {
         portEXIT_CRITICAL(&jobs_lock);
+        solar_os_memory_free(new_pending);
         return ESP_ERR_INVALID_STATE;
     }
     runtime->lifecycle_busy = true;
     stop = runtime->state == SOLAR_OS_JOB_RUNNING ? runtime->entry->job->stop : NULL;
     start = runtime->entry->job->start;
+    old_pending = runtime->pending_start;
+    runtime->pending_start = NULL;
     generation = job_next_generation(runtime);
     runtime->state = SOLAR_OS_JOB_STOPPED;
     job_clear_resources_by_index((size_t)index);
@@ -254,25 +329,81 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
     if (stop != NULL) {
         stop(ctx);
     }
+    job_pending_start_free(old_pending, false);
+
+    if (new_pending != NULL) {
+        bool queued = false;
+        portENTER_CRITICAL(&jobs_lock);
+        if (runtime->generation == generation && runtime->lifecycle_busy) {
+            runtime->pending_start = new_pending;
+            runtime->last_error = ESP_OK;
+            runtime->tick_count = 0;
+            runtime->last_tick_ms = 0;
+            solar_os_tick_stats_reset(&runtime->tick_stats);
+            runtime->state = SOLAR_OS_JOB_WAITING;
+            runtime->lifecycle_busy = false;
+            queued = true;
+        }
+        portEXIT_CRITICAL(&jobs_lock);
+        if (queued) {
+            solar_os_task_note_wait_queued();
+            SOLAR_OS_LOGI("solar_os_jobs",
+                          "queued %s until %u-byte background stack is available",
+                          name,
+                          (unsigned)admission_job->worker_stack_bytes);
+            return ESP_OK;
+        }
+        solar_os_memory_free(new_pending);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     ret = ESP_OK;
     if (start != NULL) {
         ret = start(ctx, argc, argv);
     }
 
+    /*
+     * The descriptor preflight is intentionally advisory: another subsystem
+     * can consume SRAM before the worker reaches the centralized create call.
+     * Preserve the request in PSRAM when that race is lost so all background
+     * launches have the same wait-and-retry behavior.
+     */
+    if (ret == ESP_ERR_NO_MEM &&
+        admission_job != NULL &&
+        admission_job->worker_stack_bytes > 0) {
+        new_pending = job_pending_start_create(argc, argv);
+    }
+
+    bool queued_after_race = false;
     portENTER_CRITICAL(&jobs_lock);
     if (runtime->generation == generation && runtime->lifecycle_busy) {
-        runtime->last_error = ret;
         runtime->tick_count = 0;
         runtime->last_tick_ms = 0;
         solar_os_tick_stats_reset(&runtime->tick_stats);
-        runtime->state = ret == ESP_OK ? SOLAR_OS_JOB_RUNNING : SOLAR_OS_JOB_FAILED;
+        if (new_pending != NULL) {
+            runtime->pending_start = new_pending;
+            runtime->last_error = ESP_OK;
+            runtime->state = SOLAR_OS_JOB_WAITING;
+            queued_after_race = true;
+        } else {
+            runtime->last_error = ret;
+            runtime->state = ret == ESP_OK ?
+                SOLAR_OS_JOB_RUNNING : SOLAR_OS_JOB_FAILED;
+        }
         runtime->lifecycle_busy = false;
-        if (ret != ESP_OK) {
+        if (ret != ESP_OK && !queued_after_race) {
             job_clear_resources_by_index((size_t)index);
         }
     }
     portEXIT_CRITICAL(&jobs_lock);
+    if (queued_after_race) {
+        solar_os_task_note_wait_queued();
+        SOLAR_OS_LOGI("solar_os_jobs",
+                      "queued %s after a concurrent SRAM allocation",
+                      name);
+        return ESP_OK;
+    }
+    solar_os_memory_free(new_pending);
     return ret;
 }
 
@@ -297,9 +428,12 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
         return ESP_ERR_INVALID_STATE;
     }
     if (runtime->state != SOLAR_OS_JOB_RUNNING) {
+        solar_os_job_pending_start_t *pending = runtime->pending_start;
+        runtime->pending_start = NULL;
         runtime->state = SOLAR_OS_JOB_STOPPED;
         job_clear_resources_by_index((size_t)index);
         portEXIT_CRITICAL(&jobs_lock);
+        job_pending_start_free(pending, false);
         return ESP_OK;
     }
     runtime->lifecycle_busy = true;
@@ -378,6 +512,83 @@ esp_err_t solar_os_jobs_mark_stopped(const char *name,
     return ESP_OK;
 }
 
+static void job_retry_pending_start(size_t index, solar_os_context_t *ctx)
+{
+    const solar_os_job_t *job = NULL;
+    solar_os_job_pending_start_t *pending = NULL;
+    uint32_t generation = 0;
+
+    portENTER_CRITICAL(&jobs_lock);
+    if (index < job_runtime_count) {
+        solar_os_job_runtime_t *runtime = &job_runtimes[index];
+        if (runtime->state == SOLAR_OS_JOB_WAITING &&
+            !runtime->lifecycle_busy &&
+            runtime->pending_start != NULL &&
+            runtime->entry != NULL &&
+            runtime->entry->job != NULL) {
+            job = runtime->entry->job;
+            pending = runtime->pending_start;
+            generation = runtime->generation;
+        }
+    }
+    portEXIT_CRITICAL(&jobs_lock);
+
+    if (job == NULL || pending == NULL ||
+        !solar_os_task_can_create(job->worker_stack_bytes,
+                                  SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                  job->worker_stack_external)) {
+        return;
+    }
+
+    bool claimed = false;
+    portENTER_CRITICAL(&jobs_lock);
+    solar_os_job_runtime_t *runtime = &job_runtimes[index];
+    if (runtime->generation == generation &&
+        runtime->state == SOLAR_OS_JOB_WAITING &&
+        !runtime->lifecycle_busy &&
+        runtime->pending_start == pending) {
+        runtime->lifecycle_busy = true;
+        claimed = true;
+    }
+    portEXIT_CRITICAL(&jobs_lock);
+    if (!claimed) {
+        return;
+    }
+
+    const esp_err_t ret = job_call_start(job, ctx, pending);
+    bool finished = false;
+    portENTER_CRITICAL(&jobs_lock);
+    if (runtime->generation == generation &&
+        runtime->state == SOLAR_OS_JOB_WAITING &&
+        runtime->lifecycle_busy &&
+        runtime->pending_start == pending) {
+        runtime->last_error = ret;
+        runtime->lifecycle_busy = false;
+        if (ret != ESP_ERR_NO_MEM) {
+            runtime->pending_start = NULL;
+            runtime->state = ret == ESP_OK ?
+                SOLAR_OS_JOB_RUNNING : SOLAR_OS_JOB_FAILED;
+            if (ret != ESP_OK) {
+                job_clear_resources_by_index(index);
+            }
+            finished = true;
+        }
+    }
+    portEXIT_CRITICAL(&jobs_lock);
+
+    if (finished) {
+        job_pending_start_free(pending, ret == ESP_OK);
+        if (ret == ESP_OK) {
+            SOLAR_OS_LOGI("solar_os_jobs", "started queued job %s", job->name);
+        } else {
+            SOLAR_OS_LOGW("solar_os_jobs",
+                          "queued job %s failed: %s",
+                          job->name,
+                          esp_err_to_name(ret));
+        }
+    }
+}
+
 void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
 {
     if (solar_os_jobs_init() != ESP_OK) {
@@ -391,6 +602,8 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
 
     const size_t job_count = solar_os_jobs_count();
     for (size_t i = 0; i < job_count; i++) {
+        job_retry_pending_start(i, ctx);
+
         bool (*callback)(solar_os_context_t *ctx, const solar_os_event_t *event) = NULL;
         uint32_t generation = 0;
         int64_t started_us = 0;
@@ -543,6 +756,8 @@ const char *solar_os_job_state_name(solar_os_job_state_t state)
     switch (state) {
     case SOLAR_OS_JOB_STOPPED:
         return "stopped";
+    case SOLAR_OS_JOB_WAITING:
+        return "waiting";
     case SOLAR_OS_JOB_RUNNING:
         return "running";
     case SOLAR_OS_JOB_FAILED:

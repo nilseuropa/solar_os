@@ -4,8 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "solar_os_resource_limits.h"
+
 #define SOLAR_OS_MEMORY_TAG_MAX 24U
-#define SOLAR_OS_MEMORY_INTERNAL_RESERVE_BYTES (32U * 1024U)
+#define SOLAR_OS_MEMORY_INTERNAL_RESERVE_BYTES SOLAR_OS_INTERNAL_RESERVE_BYTES
 #define SOLAR_OS_MEMORY_INTERNAL_FALLBACK_MAX_BYTES (4U * 1024U)
 
 typedef enum {

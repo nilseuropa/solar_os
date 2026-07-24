@@ -23,6 +23,7 @@
 #define SHELL_ZIP_SOURCE_MAX 64
 #define SHELL_ZIP_TASK_STACK 24576
 #define SHELL_ZIP_TASK_PRIORITY 4
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SHELL_ZIP_TASK_STACK);
 #define SHELL_ZIP_WAIT_POLL_MS 20U
 
 typedef struct {
@@ -1118,7 +1119,8 @@ static esp_err_t shell_zip_run_create_task(shell_zip_create_request_t *request)
         request,
         SHELL_ZIP_TASK_PRIORITY,
         &task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         return ESP_ERR_NO_MEM;
     }

@@ -22,6 +22,7 @@
 
 #define CLOCK_ALARM_SOUND_TASK_STACK 4096
 #define CLOCK_ALARM_SOUND_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(CLOCK_ALARM_SOUND_TASK_STACK);
 #define CLOCK_DISPLAY_MAX_MINUTES 99U
 
 typedef enum {
@@ -561,7 +562,8 @@ static void clock_alarm_sound_start(void)
             NULL,
             CLOCK_ALARM_SOUND_TASK_PRIORITY,
             &clock_state.alarm_sound_task,
-            tskNO_AFFINITY) != pdPASS) {
+            tskNO_AFFINITY,
+            SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
         clock_state.alarm_sound_task = NULL;
         SOLAR_OS_LOGW(TAG, "alarm sound task allocation failed");
     }
@@ -730,6 +732,7 @@ const solar_os_app_t solar_os_clock_app = {
     .stop = clock_stop,
     .event = clock_event,
     .title = clock_title,
+    .worker_stack_bytes = CLOCK_ALARM_SOUND_TASK_STACK,
     .tick_interval_ms = 250U,
     .tick_deadline_ms = 25U,
 };

@@ -14,6 +14,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_task.h"
 
 #define HTTPD_JOB_ROOT_MAX SOLAR_OS_STORAGE_PATH_MAX
 #define HTTPD_JOB_PATH_MAX 256
@@ -461,7 +462,21 @@ static esp_err_t httpd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     httpd_handle_t server = NULL;
+    solar_os_task_managed_admission_t admission;
+    if (!solar_os_task_admit_managed("httpd",
+                                     HTTPD_JOB_STACK_SIZE,
+                                     SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                     false,
+                                     &admission)) {
+        httpd_job.last_error = ESP_ERR_NO_MEM;
+        return ESP_ERR_NO_MEM;
+    }
     esp_err_t ret = httpd_start(&server, &config);
+    solar_os_task_note_managed_result("httpd",
+                                      HTTPD_JOB_STACK_SIZE,
+                                      SOLAR_OS_TASK_ROLE_BACKGROUND,
+                                      &admission,
+                                      ret == ESP_OK);
     if (ret != ESP_OK) {
         httpd_job.last_error = ret;
         return ret;
@@ -528,4 +543,5 @@ const solar_os_job_t solar_os_httpd_job = {
     .start = httpd_job_start,
     .stop = httpd_job_stop,
     .event = NULL,
+    .worker_stack_bytes = HTTPD_JOB_STACK_SIZE,
 };

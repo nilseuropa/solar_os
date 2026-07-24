@@ -153,7 +153,6 @@ sources = [
   "solar_os_queue.c",
   "solar_os_scheduler.c",
   "solar_os_task.c",
-  "solar_os_work.c",
   "drivers/flash_storage.c",
   "apps/solar_os_app_registry.c",
   "jobs/solar_os_job_registry.c",

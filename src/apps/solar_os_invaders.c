@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "solar_os_log.h"
+#include "solar_os_resource_limits.h"
 #include "freertos/FreeRTOS.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
@@ -44,6 +45,7 @@
 #define INVADERS_FIRE_MS 850U
 #define INVADERS_SOUND_QUEUE_LEN 8
 #define INVADERS_SOUND_STACK 8192
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(INVADERS_SOUND_STACK);
 #define INVADERS_SOUND_STOP_MS 2000U
 
 typedef enum {
@@ -183,7 +185,8 @@ static void invaders_sound_start(void)
         NULL,
         tskIDLE_PRIORITY + 1,
         &invaders_audio.task,
-        tskNO_AFFINITY);
+        tskNO_AFFINITY,
+        SOLAR_OS_TASK_ROLE_FOREGROUND);
     if (created != pdPASS) {
         SOLAR_OS_LOGW(TAG, "sound task create failed");
         solar_os_queue_delete_internal(invaders_audio.queue);
@@ -883,6 +886,7 @@ const solar_os_app_t solar_os_invaders_app = {
     .start = invaders_start,
     .stop = invaders_stop,
     .event = invaders_event,
+    .worker_stack_bytes = INVADERS_SOUND_STACK,
     .tick_interval_ms = INVADERS_UPDATE_MS,
     .tick_deadline_ms = 25U,
 };

@@ -9,6 +9,7 @@
 #include "solar_os_storage.h"
 
 #define SOLAR_OS_SCP_EVENT_MESSAGE_MAX 128
+#define SOLAR_OS_SCP_TASK_STACK 24576U
 
 typedef struct solar_os_scp_session solar_os_scp_session_t;
 

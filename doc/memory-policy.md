@@ -35,22 +35,50 @@ Allocation classes:
 Every policy allocation records its class and requested size. Failures record a
 short subsystem tag and a snapshot of free and largest blocks in the log. Use
 `mem policy` to inspect heap regions, class counters, fallback counts, the
-configured reserve, and the most recent tagged failure.
+configured reserve, task-admission counters, pending launches, and the most
+recent tagged failure.
+
+## Task admission
+
+PSRAM does not make an arbitrary FreeRTOS task stack safe in external memory.
+Filesystem, NVS, TLS, OTA, and other library paths can run while the external
+memory cache is unavailable. SolarOS therefore keeps general task stacks in
+internal SRAM and uses PSRAM for application heaps, queues, buffers, and
+pending-launch records.
+
+Every SolarOS-owned task launch goes through one serialized admission boundary
+and declares a role:
+
+- `system` is boot and indispensable runtime infrastructure.
+- `foreground` is interactive or explicitly requested work. It is admitted
+  against its actual declared stack requirement and may consume the shared
+  reserve.
+- `background` is optional work. It must leave the shared 32 KiB internal
+  reserve available for foreground launches.
+
+Apps and jobs that own workers declare their stack requirement in their
+descriptor. Built-in internal foreground stacks are compile-time checked
+against the 28 KiB supported maximum. ESP-IDF-managed HTTP and MQTT workers use
+the same serialized admission boundary.
+
+If a background job cannot preserve the reserve, a PSRAM-enabled board records
+the complete start request in PSRAM, reports the job as `waiting`, and retries
+it from the scheduler when internal stack memory becomes available. Stopping or
+restarting the job cancels or replaces that request. If PSRAM is absent, the
+pending record cannot be created and the start returns `ESP_ERR_NO_MEM`, leaving
+memory balancing to the user.
+
+This policy is dynamic: it does not reserve a large permanent executor stack
+and does not serialize unrelated Python, Lua, email, or chat work through one
+worker. `mem policy` reports requests, admissions, denials, launch failures,
+the current number of waiting jobs, successful delayed launches, and cancelled
+waits.
 
 ## FreeRTOS objects
 
 ESP-IDF deliberately allocates ordinary dynamic FreeRTOS task stacks and queues
 from internal SRAM. SolarOS therefore owns their placement:
 
-- A PSRAM build reserves one 16 KiB internal transient-executor stack during
-  early boot, before optional jobs and peripherals can fragment the internal
-  heap. Its queue is PSRAM-backed. Python, Lua, email synchronization, and
-  future transient operations submit callbacks to this executor instead of
-  creating another task. Work is serialized; if the executor is busy, another
-  operation waits in PSRAM rather than consuming another internal stack.
-- Long-lived services reserve their indispensable internal stacks at boot.
-  The chat gateway reserves one reusable 8 KiB worker. `chat-sync` itself is a
-  bounded scheduler tick and does not own a task.
 - `solar_os_task_create_pinned()` uses an internal stack. This is the safe
   default because filesystem, NVS, TLS, OTA, and other library paths can enter
   cache-disabled flash operations.
@@ -70,20 +98,6 @@ from internal SRAM. SolarOS therefore owns their placement:
 Apps, jobs, services, and shell commands must not call dynamic FreeRTOS task or
 queue creation directly. New workers and queues use the automatic SolarOS API
 unless an internal-memory requirement is documented at the call site.
-
-New short-lived or foreground operations should use `solar_os_work_submit()`.
-They must stop cooperatively, and must never delete the shared executor task.
-Use a dedicated task only for concurrent, continuously running work that
-cannot be represented by a bounded scheduler tick. Reserve indispensable
-dedicated stacks during service initialization; optional dedicated tasks may
-still report out of memory when internal SRAM is exhausted. On boards without
-PSRAM the executor is created lazily, so the existing user-managed memory
-tradeoff remains.
-
-`mem policy` reports executor initialization, stack size and high-water mark,
-queued/running work, and submitted/completed/cancelled/rejected totals. These
-counters make queue pressure and future executor sizing observable without
-changing client code.
 
 New code should use `solar_os_memory_alloc()`, `solar_os_memory_calloc()`, or
 `solar_os_memory_realloc()` with an explicit class and a short subsystem tag.

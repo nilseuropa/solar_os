@@ -222,7 +222,8 @@ static esp_err_t bridge_job_start(solar_os_context_t *ctx, int argc, char **argv
                                     &bridge_job,
                                     BRIDGE_JOB_TASK_PRIORITY,
                                     &bridge_job.task,
-                                    tskNO_AFFINITY) != pdPASS) {
+                                    tskNO_AFFINITY,
+                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         bridge_job_cleanup();
         return ESP_ERR_NO_MEM;
     }
@@ -252,4 +253,5 @@ const solar_os_job_t solar_os_bridge_job = {
     .start = bridge_job_start,
     .stop = bridge_job_stop,
     .event = NULL,
+    .worker_stack_bytes = BRIDGE_JOB_TASK_STACK,
 };
