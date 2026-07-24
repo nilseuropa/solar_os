@@ -82,9 +82,9 @@
 #endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
-#include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
+#include "solar_os_work.h"
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
 #endif
@@ -106,6 +106,9 @@
 #define SOLUA_STOP_WAIT_MS 800
 #define SOLUA_HOOK_INSTRUCTION_COUNT 10000
 #define SOLUA_EXIT_MARKER "__solaros_lua_exit__"
+
+_Static_assert(SOLAR_OS_WORK_STACK_BYTES >= SOLUA_TASK_STACK,
+               "shared worker stack is too small for Lua");
 
 typedef enum {
     SOLUA_EVENT_OUTPUT,
@@ -171,6 +174,7 @@ typedef struct {
     QueueHandle_t input;
     QueueHandle_t key_input;
     TaskHandle_t task;
+    solar_os_work_handle_t work;
     solua_mode_t mode;
     bool running;
     bool task_done;
@@ -4356,7 +4360,7 @@ static void solua_run_repl(lua_State *L)
     }
 }
 
-static void solua_task(void *arg)
+static void solua_work(void *arg)
 {
     (void)arg;
 
@@ -4392,8 +4396,8 @@ done:
     (void)solua_send_event(&event);
     solua.task_done = true;
     solua.task = NULL;
+    solua.work = (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
     SOLAR_OS_LOGI(TAG, "task stop: success=%d", success);
-    solar_os_task_delete(NULL);
 }
 
 static void solua_render_usage(solar_os_shell_io_t *io)
@@ -4539,15 +4543,14 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
     }
 
     solua.running = true;
-    const BaseType_t created = solar_os_task_create_pinned(
-        solua_task,
-        "solar_os_lua",
-        SOLUA_TASK_STACK,
-        NULL,
-        SOLUA_TASK_PRIORITY,
-        &solua.task,
-        tskNO_AFFINITY);
-    if (created != pdPASS) {
+    const esp_err_t submit_err =
+        solar_os_work_submit("lua",
+                             solua_work,
+                             NULL,
+                             SOLUA_TASK_PRIORITY,
+                             &solua.work,
+                             &solua.task);
+    if (submit_err != ESP_OK) {
         if (solua.input != NULL) {
             solar_os_queue_delete(solua.input);
             solua.input = NULL;
@@ -4559,7 +4562,7 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
         solua.running = false;
-        solar_os_shell_io_writeln(io, "lua: task create failed");
+        solar_os_shell_io_writeln(io, "lua: work queue full");
         solar_os_shell_io_flush(io);
         if (!repl_mode) {
             solua_return_to_shell(ctx);
@@ -4588,6 +4591,17 @@ static void solua_stop(solar_os_context_t *ctx)
     }
 
     if (solua.task != NULL && !solua.task_done) {
+        if (solar_os_work_cancel(solua.work) == ESP_OK) {
+            SOLAR_OS_LOGI(TAG, "cancelled queued Lua interpreter");
+            solua.task = NULL;
+            solua.task_done = true;
+            solua.vm_active = false;
+            solua.work =
+                (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
+        }
+    }
+
+    if (solua.task != NULL && !solua.task_done) {
         const TickType_t start = xTaskGetTickCount();
         while (solua.task != NULL &&
                !solua.task_done &&
@@ -4595,11 +4609,10 @@ static void solua_stop(solar_os_context_t *ctx)
             vTaskDelay(pdMS_TO_TICKS(20));
         }
         if (solua.task != NULL && !solua.task_done) {
-            SOLAR_OS_LOGW(TAG, "force stopping unresponsive Lua task");
-            solar_os_task_delete(solua.task);
-            solua.task = NULL;
-            solua.task_done = true;
-            solua.vm_active = false;
+            SOLAR_OS_LOGW(TAG,
+                          "Lua has not stopped; retaining its queues until "
+                          "cooperative exit");
+            return;
         }
     }
 

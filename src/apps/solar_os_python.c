@@ -93,9 +93,9 @@
 #endif
 #include "solar_os_storage.h"
 #include "solar_os_terminal.h"
-#include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "solar_os_tui.h"
+#include "solar_os_work.h"
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
 #endif
@@ -119,6 +119,9 @@
 #define PYTHON_REPL_SOURCE_MAX (2U * 1024U)
 #define PYTHON_STOP_WAIT_MS 1500
 #define PYTHON_DRAIN_EVENTS_PER_TICK 8U
+
+_Static_assert(SOLAR_OS_WORK_STACK_BYTES >= PYTHON_TASK_STACK,
+               "shared worker stack is too small for Python");
 
 typedef enum {
     PYTHON_EVENT_OUTPUT,
@@ -182,6 +185,7 @@ typedef struct {
     QueueHandle_t input;
     QueueHandle_t key_input;
     TaskHandle_t task;
+    solar_os_work_handle_t work;
     solar_os_context_t *ctx;
     volatile bool stop_requested;
     volatile bool task_done;
@@ -4587,7 +4591,7 @@ cleanup:
     return success;
 }
 
-static void python_task(void *arg)
+static void python_work(void *arg)
 {
     (void)arg;
 
@@ -4640,7 +4644,7 @@ done:
 
     python_app.task_done = true;
     python_app.task = NULL;
-    solar_os_task_delete(NULL);
+    python_app.work = (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
 }
 
 static void python_render_usage(solar_os_shell_io_t *io)
@@ -4912,15 +4916,14 @@ start_task:
     }
 
     python_app.running = true;
-    const BaseType_t created = solar_os_task_create_pinned(
-        python_task,
-        "solar_os_python",
-        PYTHON_TASK_STACK,
-        NULL,
-        PYTHON_TASK_PRIORITY,
-        &python_app.task,
-        tskNO_AFFINITY);
-    if (created != pdPASS) {
+    const esp_err_t submit_err =
+        solar_os_work_submit("python",
+                             python_work,
+                             NULL,
+                             PYTHON_TASK_PRIORITY,
+                             &python_app.work,
+                             &python_app.task);
+    if (submit_err != ESP_OK) {
         if (python_app.input != NULL) {
             solar_os_queue_delete(python_app.input);
             python_app.input = NULL;
@@ -4932,7 +4935,7 @@ start_task:
         solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
         python_app.running = false;
-        solar_os_shell_io_writeln(io, "python: task create failed");
+        solar_os_shell_io_writeln(io, "python: work queue full");
         if (!repl_mode) {
             solar_os_shell_io_flush(io);
             python_return_to_shell(ctx);
@@ -4976,6 +4979,17 @@ static void python_stop(solar_os_context_t *ctx)
 
     if (python_app.task != NULL && !python_app.task_done) {
         python_interrupt();
+        if (solar_os_work_cancel(python_app.work) == ESP_OK) {
+            SOLAR_OS_LOGI(TAG, "cancelled queued interpreter");
+            python_app.task = NULL;
+            python_app.task_done = true;
+            python_app.vm_active = false;
+            python_app.work =
+                (solar_os_work_handle_t)SOLAR_OS_WORK_HANDLE_INIT;
+        }
+    }
+
+    if (python_app.task != NULL && !python_app.task_done) {
         const TickType_t start = xTaskGetTickCount();
         while (python_app.task != NULL &&
                !python_app.task_done &&
@@ -4983,11 +4997,10 @@ static void python_stop(solar_os_context_t *ctx)
             vTaskDelay(pdMS_TO_TICKS(20));
         }
         if (python_app.task != NULL && !python_app.task_done) {
-            SOLAR_OS_LOGW(TAG, "force stopping unresponsive script");
-            solar_os_task_delete(python_app.task);
-            python_app.task = NULL;
-            python_app.task_done = true;
-            python_app.vm_active = false;
+            SOLAR_OS_LOGW(TAG,
+                          "interpreter has not stopped; retaining its "
+                          "queues until cooperative exit");
+            return;
         }
     }
 

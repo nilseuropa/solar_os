@@ -31,6 +31,7 @@
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
 #include "solar_os_wifi.h"
+#include "solar_os_work.h"
 
 #ifndef SOLAR_OS_VERSION
 #define SOLAR_OS_VERSION "0.0.0"
@@ -937,6 +938,27 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
                                  solar_os_memory_class_name(status.last_failure_class),
                                  status.last_failure_tag,
                                  failed_size);
+    }
+
+    solar_os_work_status_t work;
+    solar_os_work_get_status(&work);
+    if (work.initialized) {
+        char stack[16];
+        format_bytes(work.stack_bytes, stack, sizeof(stack));
+        solar_os_shell_io_printf(term,
+                                 "Executor: stack=%s high-water=%u queued=%u "
+                                 "running=%s current=%s submitted=%" PRIu32
+                                 " completed=%" PRIu32 " cancelled=%" PRIu32
+                                 " rejected=%" PRIu32 "\n",
+                                 stack,
+                                 (unsigned)work.stack_high_water,
+                                 (unsigned)work.queued,
+                                 work.running ? "yes" : "no",
+                                 work.current[0] != '\0' ? work.current : "-",
+                                 work.submitted,
+                                 work.completed,
+                                 work.cancelled,
+                                 work.rejected);
     }
 }
 
