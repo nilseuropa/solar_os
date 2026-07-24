@@ -57,6 +57,9 @@ typedef struct {
     bool configured_size;
     uint16_t configured_cols;
     uint16_t configured_rows;
+    bool dimensions_pending;
+    uint16_t pending_cols;
+    uint16_t pending_rows;
     char port_name[SOLAR_OS_PORT_NAME_MAX];
     esp_err_t last_error;
     const solar_os_app_t *tick_app;
@@ -73,6 +76,14 @@ static bool port_shell_reserved_initializing;
 
 static void port_shell_process_requests(port_shell_state_t *state);
 static void port_shell_run(port_shell_state_t *state);
+
+static bool port_shell_dimensions_valid(uint16_t cols, uint16_t rows)
+{
+    return cols >= PORT_SHELL_SIZE_PROBE_MIN_COLS &&
+        rows >= PORT_SHELL_SIZE_PROBE_MIN_ROWS &&
+        cols <= PORT_SHELL_SIZE_PROBE_MAX_COLS &&
+        rows <= PORT_SHELL_SIZE_PROBE_MAX_ROWS;
+}
 
 static bool port_shell_should_stop(const port_shell_state_t *state)
 {
@@ -378,6 +389,30 @@ static void port_shell_send_tick(port_shell_state_t *state, uint32_t now_ms)
     }
 }
 
+static void port_shell_apply_dimensions(port_shell_state_t *state)
+{
+    uint16_t cols = 0;
+    uint16_t rows = 0;
+
+    if (state == NULL || state->session == NULL) {
+        return;
+    }
+
+    portENTER_CRITICAL(&port_shells_lock);
+    if (state->used && state->dimensions_pending) {
+        cols = state->pending_cols;
+        rows = state->pending_rows;
+        state->dimensions_pending = false;
+    }
+    portEXIT_CRITICAL(&port_shells_lock);
+
+    if (cols != 0 && rows != 0) {
+        solar_os_shell_io_set_dimensions(solar_os_shell_session_io(state->session),
+                                         cols,
+                                         rows);
+    }
+}
+
 static void port_shell_return_to_shell(port_shell_state_t *state)
 {
     if (state == NULL || state->session == NULL) {
@@ -566,6 +601,8 @@ static void port_shell_run(port_shell_state_t *state)
                   state->port_name);
 
     while (!port_shell_should_stop(state)) {
+        port_shell_apply_dimensions(state);
+
         size_t read_len = 0;
         err = solar_os_port_read(&state->port,
                                                  buffer,
@@ -792,10 +829,7 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
             return ESP_ERR_INVALID_ARG;
         }
         if (options->cols != 0 || options->rows != 0) {
-            if (options->cols < PORT_SHELL_SIZE_PROBE_MIN_COLS ||
-                options->rows < PORT_SHELL_SIZE_PROBE_MIN_ROWS ||
-                options->cols > PORT_SHELL_SIZE_PROBE_MAX_COLS ||
-                options->rows > PORT_SHELL_SIZE_PROBE_MAX_ROWS) {
+            if (!port_shell_dimensions_valid(options->cols, options->rows)) {
                 return ESP_ERR_INVALID_ARG;
             }
             configured_size = true;
@@ -960,6 +994,27 @@ esp_err_t solar_os_port_shell_stop(uint8_t session_id)
             vTaskDelay(pdMS_TO_TICKS(25));
         }
     }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_port_shell_set_dimensions(uint8_t session_id,
+                                             uint16_t cols,
+                                             uint16_t rows)
+{
+    if (!port_shell_dimensions_valid(cols, rows)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&port_shells_lock);
+    port_shell_state_t *state = port_shell_by_id_locked(session_id);
+    if (state == NULL || state->stop_requested) {
+        portEXIT_CRITICAL(&port_shells_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    state->pending_cols = cols;
+    state->pending_rows = rows;
+    state->dimensions_pending = true;
+    portEXIT_CRITICAL(&port_shells_lock);
     return ESP_OK;
 }
 

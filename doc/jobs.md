@@ -1,11 +1,12 @@
 # SolarOS Jobs
 
 This document covers the built-in background job registry. Jobs are autonomous
-workers such as log followers, DAQ capture, HTTP serving, SLIP, chatd, or NTP
-sync. Foreground applications are documented in [apps.md](apps.md), and shell
-commands are documented in [commands.md](commands.md). Port shells are sessions,
-started with `session create shell <port>` plus optional `--term` and `--size`
-terminal settings. Display-target shells use `session create shell <target>`.
+workers such as log followers, DAQ capture, HTTP serving, Telnet shell access,
+SLIP, chatd, or NTP sync. Foreground applications are documented in
+[apps.md](apps.md), and shell commands are documented in
+[commands.md](commands.md). Port shells are sessions, started with
+`session create shell <port>` plus optional `--term` and `--size` terminal
+settings. Display-target shells use `session create shell <target>`.
 
 Job availability depends on the selected firmware flavor and board
 capabilities. The running system is authoritative:
@@ -361,6 +362,40 @@ Notes:
 - If no level is specified, the current runtime log level is used.
 - The log job starts from the latest entry, so it follows new logs rather than
   dumping the whole ring.
+
+## telnetd
+
+Remote Telnet shell server. The listener is a background job; each accepted
+connection is attached to its own normal SolarOS port-shell session.
+
+Usage:
+
+```text
+job start telnetd [port] [--password password]
+job stop telnetd
+job status telnetd
+```
+
+Examples:
+
+```text
+job start telnetd
+job start telnetd 2323 --password local-secret
+```
+
+Notes:
+
+- The default port is `23`.
+- One remote client is supported at a time. Additional clients receive a busy
+  response and are disconnected.
+- Telnet terminal-type and window-size negotiation select the terminal profile
+  and update the shell dimensions.
+- Disconnecting closes the child shell session and releases any foreground app
+  or resource it owns.
+- Remote sessions do not run `/.shell/startup`.
+- Telnet is unencrypted. The optional password limits access but is also sent
+  over the network in plaintext, and the start command remains in the local
+  shell history. Use this service only on a trusted network.
 
 ## ntp-sync
 

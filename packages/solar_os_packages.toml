@@ -86,6 +86,7 @@ members = [
   "job_httpd",
   "job_chat_sync",
   "job_chatd",
+  "job_telnetd",
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
@@ -101,6 +102,7 @@ triggers = [
   "job_httpd",
   "job_chat_sync",
   "job_chatd",
+  "job_telnetd",
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
@@ -663,6 +665,12 @@ depends = ["service_wifi"]
 sources = ["jobs/solar_os_chatd_job.c"]
 requires = ["heap"]
 capabilities = ["psram", "wifi"]
+
+[packages.job_telnetd]
+label = "job.telnetd"
+depends = ["service_net"]
+sources = ["jobs/solar_os_telnetd_job.c"]
+capabilities = ["wifi"]
 
 [packages.job_chat_sync]
 label = "job.chat-sync"
