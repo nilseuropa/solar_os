@@ -23,7 +23,8 @@ workflows:
   viewer, serial terminal, SSH/Telnet clients, web client, plotter, clock,
   chat client, games, Python, and Lua.
 - Keep background jobs running for logging, data acquisition, NTP sync, SLIP,
-  HTTP serving, serial bridging, battery monitoring, and chat gateway service.
+  HTTP serving, Telnet shell access, serial bridging, battery monitoring, and
+  chat gateway service.
 - Use Wi-Fi, BLE, USB CDC, UART, SD or flash storage, RTC time, GPIO, ADC, PWM,
   I2C, SPI, 1-Wire, audio, sensors, and board-specific display hardware through
   shared SolarOS services.

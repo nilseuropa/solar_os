@@ -27,6 +27,9 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                                  bool run_startup,
                                                  uint8_t *session_id);
 esp_err_t solar_os_port_shell_stop(uint8_t session_id);
+esp_err_t solar_os_port_shell_set_dimensions(uint8_t session_id,
+                                             uint16_t cols,
+                                             uint16_t rows);
 bool solar_os_port_shell_is_session_id(uint8_t session_id);
 size_t solar_os_port_shell_session_count(void);
 bool solar_os_port_shell_get_session_id(size_t index, uint8_t *session_id);
