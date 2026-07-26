@@ -103,3 +103,7 @@ esp_err_t solar_os_ble_gatt_write(uint16_t handle,
                                   size_t value_len,
                                   bool with_response,
                                   uint32_t timeout_ms);
+
+typedef void (*solar_os_ble_keyboard_passkey_cb_t)(uint32_t passkey);
+void solar_os_ble_keyboard_set_passkey_callback(solar_os_ble_keyboard_passkey_cb_t callback);
+void solar_os_ble_keyboard_clear_passkey_callback(void);

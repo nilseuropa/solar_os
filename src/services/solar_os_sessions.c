@@ -5,6 +5,9 @@
 #include <string.h>
 
 #include "solar_os_app_registry.h"
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+#include "solar_os_ble_keyboard.h"
+#endif
 #include "solar_os_display.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -1474,6 +1477,39 @@ static void dispatch_legacy_event(const solar_os_event_t *event)
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+static void sessions_passkey_display(uint32_t passkey)
+{
+    solar_os_terminal_t *terminal = session_state.current_terminal;
+    if (terminal == NULL) {
+        terminal = session_state.shell_terminal;
+    }
+
+    if (terminal != NULL) {
+        solar_os_terminal_writeln(terminal, "");
+        solar_os_terminal_printf_bold(terminal,
+                                      "BLE PASSKEY: %" PRIu32 "",
+                                      passkey);
+        solar_os_terminal_writeln(terminal, "");
+        solar_os_terminal_writeln_bold(terminal,
+                                       "Type the passkey on the keyboard, then press Enter");
+        solar_os_terminal_writeln(terminal, "");
+    }
+
+    if (session_state.shell_terminal != NULL &&
+        session_state.shell_terminal != terminal) {
+        solar_os_terminal_writeln(session_state.shell_terminal, "");
+        solar_os_terminal_printf_bold(session_state.shell_terminal,
+                                      "BLE PASSKEY: %" PRIu32 "",
+                                      passkey);
+        solar_os_terminal_writeln(session_state.shell_terminal, "");
+        solar_os_terminal_writeln_bold(session_state.shell_terminal,
+                                       "Type the passkey on the keyboard, then press Enter");
+        solar_os_terminal_writeln(session_state.shell_terminal, "");
+    }
+}
+#endif
+
 esp_err_t solar_os_sessions_init(solar_os_context_t *ctx,
                                  solar_os_terminal_t *shell_terminal,
                                  u8g2_t *display_u8g2,
@@ -1493,6 +1529,11 @@ esp_err_t solar_os_sessions_init(solar_os_context_t *ctx,
     if (ctx != NULL) {
         solar_os_context_set_session_list_handler(ctx, solar_os_sessions_print_list, NULL);
     }
+
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    solar_os_ble_keyboard_set_passkey_callback(sessions_passkey_display);
+#endif
+
     return ESP_OK;
 }
 

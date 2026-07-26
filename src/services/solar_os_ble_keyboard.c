@@ -21,6 +21,7 @@
 #include "solar_os_log.h"
 #include "solar_os_power.h"
 #include "solar_os_queue.h"
+#include "solar_os_sessions.h"
 #include "solar_os_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -150,6 +151,7 @@ static portMUX_TYPE repeat_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool initialized;
 static bool hidh_initialized;
 static bool classic_bt_memory_released;
+static solar_os_ble_keyboard_passkey_cb_t passkey_callback;
 static bool connected;
 static bool reconnect_suppressed_for_sleep;
 static bool reconnect_suppressed_for_pairing;
@@ -1000,6 +1002,9 @@ static esp_err_t open_keyboard(const uint8_t *bda,
     }
 
     pending_open_started_tick = xTaskGetTickCount();
+
+    esp_ble_gap_disconnect((uint8_t *)pending_bda);
+
     esp_hidh_dev_t *opened_dev = esp_hidh_dev_open(pending_bda, ESP_HID_TRANSPORT_BLE, pending_addr_type);
     if (opened_dev == NULL) {
         pending_open_started_tick = 0;
@@ -2018,12 +2023,19 @@ static bool hid_is_alt_tab(uint8_t modifiers, uint8_t keycode)
 
 static void handle_keyboard_report(const uint8_t *data, uint16_t length)
 {
-    if (data == NULL || length < 8) {
+    if (data == NULL || length < 3) {
         return;
     }
 
     const uint8_t modifiers = data[0];
-    const uint8_t *keys = &data[2];
+    const size_t key_offset = (length >= 8) ? 2 : 1;
+    uint8_t keys[BLE_KEYBOARD_MAX_KEYS];
+    memset(keys, 0, sizeof(keys));
+    const size_t key_bytes = length > key_offset ? (size_t)(length - key_offset) : 0;
+    const size_t copy_keys = key_bytes < sizeof(keys) ? key_bytes : sizeof(keys);
+    if (copy_keys > 0) {
+        memcpy(keys, &data[key_offset], copy_keys);
+    }
 
     if (keys[0] == 0x01) {
         memset(previous_keys, 0, sizeof(previous_keys));
@@ -2109,6 +2121,25 @@ static void gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *p
         set_status(BLE_KEYBOARD_PASSKEY,
                    "type %" PRIu32 " Enter",
                    param->ble_security.key_notif.passkey);
+
+        {
+            solar_os_terminal_t *term = solar_os_sessions_foreground_terminal();
+            if (term != NULL) {
+                solar_os_terminal_writeln(term, "");
+                solar_os_terminal_printf_bold(term,
+                                              "BLE PASSKEY: %" PRIu32 "",
+                                              param->ble_security.key_notif.passkey);
+                solar_os_terminal_writeln(term, "");
+                solar_os_terminal_writeln_bold(term,
+                                               "Type on keyboard, press Enter");
+                solar_os_terminal_writeln(term, "");
+                solar_os_terminal_draw(term);
+            }
+        }
+
+        if (passkey_callback != NULL) {
+            passkey_callback(param->ble_security.key_notif.passkey);
+        }
         break;
 
     case ESP_GAP_BLE_NC_REQ_EVT:
@@ -2518,8 +2549,8 @@ static esp_err_t init_nvs(void)
 
 static esp_err_t init_security(void)
 {
-    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
-    esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT;
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_io_cap_t iocap = ESP_IO_CAP_IO;
     uint8_t key_size = 16;
     uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
     uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
@@ -2643,10 +2674,6 @@ esp_err_t solar_os_ble_keyboard_init(void)
 
     initialized = true;
     set_status(BLE_KEYBOARD_IDLE, "idle");
-    if (remembered_peer_count() > 0) {
-        start_fast_reconnect_window("boot");
-        schedule_reconnect(0);
-    }
     SOLAR_OS_LOGI(TAG, "BLE keyboard host ready");
     return ESP_OK;
 }
@@ -3300,6 +3327,23 @@ esp_err_t solar_os_ble_keyboard_start_pairing(void)
     pairing_cancel_requested = false;
     stop_reconnect_task("pairing");
 
+    for (size_t i = 0; i < BLE_KEYBOARD_MAX_REMEMBERED; i++) {
+        if (remembered_peers[i].magic != BLE_KEYBOARD_PEER_MAGIC) {
+            continue;
+        }
+        esp_ble_gap_disconnect(remembered_peers[i].bda);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    if (remembered_peer_count() > 0) {
+        clear_remembered_peers();
+    }
+
+    if (state == BLE_KEYBOARD_CONNECTING) {
+        set_status(BLE_KEYBOARD_IDLE, "pairing");
+    }
+
     reconnect_suppressed_for_pairing = true;
     const bool pending_closed =
         close_pending_open_attempt("pairing", BLE_KEYBOARD_PAIR_SWITCH_DISCONNECT_TIMEOUT_MS);
@@ -3524,4 +3568,14 @@ esp_err_t solar_os_ble_keyboard_forget(void)
     }
 
     return ret;
+}
+
+void solar_os_ble_keyboard_set_passkey_callback(solar_os_ble_keyboard_passkey_cb_t callback)
+{
+    passkey_callback = callback;
+}
+
+void solar_os_ble_keyboard_clear_passkey_callback(void)
+{
+    passkey_callback = NULL;
 }
