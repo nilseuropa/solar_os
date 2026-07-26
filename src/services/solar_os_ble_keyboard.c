@@ -197,6 +197,7 @@ static esp_ble_scan_params_t scan_params = {
 
 static const char *keyboard_layout_names[] = {
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US] = "us",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US_INTL] = "us-intl",
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE] = "de",
 };
 
@@ -1717,6 +1718,55 @@ static char hid_keycode_to_char_us(uint8_t keycode, bool shift)
     }
 }
 
+static char hid_keycode_to_char_us_intl(uint8_t keycode, uint8_t modifiers)
+{
+    const bool altgr = (modifiers & HID_MOD_RIGHT_ALT) != 0;
+    const bool shift = (modifiers & HID_MOD_SHIFT) != 0;
+
+    if (altgr && keycode >= 0x04 && keycode <= 0x1d) {
+        const bool upper = shift ^ caps_lock;
+        switch (keycode) {
+        case 0x04: return upper ? (char)0xc1 : (char)0xe1;
+        case 0x06: return (char)0xa9;
+        case 0x07: return upper ? (char)0xd0 : (char)0xf0;
+        case 0x08: return upper ? (char)0xc9 : (char)0xe9;
+        case 0x0c: return upper ? (char)0xcd : (char)0xed;
+        case 0x0f: return upper ? (char)0xd3 : (char)0xf3;
+        case 0x11: return upper ? (char)0xda : (char)0xfa;
+        case 0x12: return upper ? (char)0xdc : (char)0xfc;
+        case 0x13: return upper ? (char)0xdd : (char)0xfd;
+        case 0x14: return upper ? (char)0xde : (char)0xfe;
+        case 0x15: return upper ? (char)0xc4 : (char)0xe4;
+        case 0x16: return upper ? (char)0xd6 : (char)0xf6;
+        case 0x17: return upper ? (char)0xd1 : (char)0xf1;
+        case 0x19: return (char)0xa2;
+        case 0x1a: return (char)0xa3;
+        case 0x1b: return (char)0xa5;
+        case 0x1c: return (char)0xd7;
+        case 0x1d: return (char)0xf7;
+        default:  return '\0';
+        }
+    }
+
+    if (altgr) {
+        switch (keycode) {
+        case 0x1e: return (char)0xa1;
+        case 0x2d: return (char)0xac;
+        case 0x2f: return (char)0xab;
+        case 0x30: return (char)0xbb;
+        case 0x31: return (char)0xac;
+        case 0x32: return (char)0xb0;
+        case 0x33: return (char)0xb6;
+        case 0x34: return (char)0xb4;
+        case 0x36: return (char)0xe7;
+        case 0x38: return (char)0xbf;
+        default:  return '\0';
+        }
+    }
+
+    return hid_keycode_to_char_us(keycode, shift);
+}
+
 static char hid_keycode_to_char_de(uint8_t keycode, uint8_t modifiers)
 {
     const bool shift = (modifiers & HID_MOD_SHIFT) != 0;
@@ -2002,6 +2052,10 @@ static char hid_keycode_to_char(uint8_t keycode, uint8_t modifiers)
 
     if (keyboard_layout == SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE) {
         return hid_keycode_to_char_de(keycode, modifiers);
+    }
+
+    if (keyboard_layout == SOLAR_OS_BLE_KEYBOARD_LAYOUT_US_INTL) {
+        return hid_keycode_to_char_us_intl(keycode, modifiers);
     }
 
     return hid_keycode_to_char_us(keycode, shift);

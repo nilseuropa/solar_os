@@ -21,6 +21,7 @@
 
 typedef enum {
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_US,
+    SOLAR_OS_BLE_KEYBOARD_LAYOUT_US_INTL,
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE,
 } solar_os_ble_keyboard_layout_t;
 

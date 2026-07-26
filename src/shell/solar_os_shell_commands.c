@@ -1234,7 +1234,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
+    solar_os_shell_io_writeln(term, "  setterm keyboard [us|us-intl|de]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
 #endif
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
@@ -1464,13 +1464,13 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
         if (argc != 3) {
-            solar_os_shell_io_writeln(term, "usage: setterm keyboard [us|de]");
+            solar_os_shell_io_writeln(term, "usage: setterm keyboard [us|us-intl|de]");
             return;
         }
 
         solar_os_ble_keyboard_layout_t layout;
         if (!solar_os_ble_keyboard_parse_layout(argv[2], &layout)) {
-            solar_os_shell_io_writeln(term, "keyboard values: us de");
+            solar_os_shell_io_writeln(term, "keyboard values: us us-intl de");
             return;
         }
 
