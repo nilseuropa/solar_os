@@ -40,7 +40,7 @@ decoding are separate `media.image` and `media.document` packages, so selecting
 and `web`. It exposes request headers and bodies, redirects, streaming response
 events, cross-task cancellation, per-I/O timeouts, and an end-to-end deadline.
 Callers continue to own their worker task and response consumer; see
-[HTTP Client Service](http_client.md) for the native API and lifecycle.
+[HTTP Client Service](../http_client.md) for the native API and lifecycle.
 
 The `agent` group selects `app.agent` and its `service.agent` dependency.
 `service.agent` owns provider-neutral events, NVS-backed provider

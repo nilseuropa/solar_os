@@ -16,7 +16,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Commands
 
 - [adc command](commands.md) — Show ADC service status.
-- [agent command](commands.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
+- [agent command](agent.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio service state and global speaker level.
 - [battery command](commands.md) — Show voltage, estimated charge, power source, config, and monitor trend.
@@ -36,20 +36,20 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell. The display shell remains active.
-- [expansion command](commands.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
+- [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
 - [fg command](commands.md) — Resume a display app or display shell session.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
-- [help command](commands.md) — Browse the package-aware manual or manage its signed exact-version SD copy.
+- [help command](help.md) — Browse the package-aware manual or manage its signed exact-version SD copy.
 - [humidity command](commands.md) — Read the board humidity sensor when available.
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
-- [identity command](commands.md) — Show the configured user and hostname.
+- [identity command](identity.md) — Show the configured user and hostname.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
-- [job command](commands.md) — Show one job or all jobs.
-- [jobs command](commands.md) — List registered jobs and their state.
+- [job command](jobs.md) — Show one job or all jobs.
+- [jobs command](jobs.md) — List registered jobs and their state.
 - [joystick command](commands.md) — Show joystick axes, raw values, direction, and thresholds.
 - [led command](commands.md) — Inspect or control the built-in status LED when available.
 - [log command](commands.md) — Show runtime log ring status.
-- [link command](commands.md) — Send and receive transport-independent SolarOS Link messages.
+- [link command](link.md) — Send and receive transport-independent SolarOS Link messages.
 - [ls command](commands.md) — List files. Hidden files are shown only with -a; sizes are human-readable with -h.
 - [man command](commands.md) — Read or search the package-aware SolarOS manual.
 - [mem command](commands.md) — Print heap status; policy also shows allocation-class counters, guarded fallback limits, and the last tagged failure.
