@@ -23,6 +23,9 @@
 #if SOLAR_OS_PACKAGE_APP_CURL
 #include "solar_os_curl.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_WEATHER
+#include "solar_os_weather_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
 #include "solar_os_telnet.h"
 #endif
@@ -149,6 +152,11 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     APP_ENTRY("curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "curl [-L] [-o file] <URL>", 2, 0),
+#endif
+#if SOLAR_OS_PACKAGE_APP_WEATHER
+APP_ENTRY("weather", "forecast + local sensor readout", &solar_os_weather_app,
+          SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY,
+          "weather [place]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
     APP_ENTRY("telnet", "Telnet client", &solar_os_telnet_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "telnet [-r] <host> [port]", 2, 4),

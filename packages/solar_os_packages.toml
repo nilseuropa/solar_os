@@ -127,6 +127,7 @@ members = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_weather",
   "app_webradio",
   "app_telnet",
   "app_web",
@@ -145,6 +146,7 @@ triggers = [
   "app_ssh",
   "app_scp",
   "app_curl",
+  "app_weather",
   "app_webradio",
   "app_telnet",
   "app_web",
@@ -921,6 +923,12 @@ label = "app.curl"
 depends = ["service_http_client"]
 sources = ["apps/solar_os_curl.c"]
 capabilities = ["wifi"]
+
+[packages.app_weather]
+label = "app.weather"
+depends = ["service_http_client", "service_sensors"]
+sources = ["apps/solar_os_weather_app.c"]
+capabilities = ["gfx", "wifi"]
 
 [packages.app_webradio]
 label = "app.webradio"

@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
+keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep weather forecast sensor"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -469,6 +469,27 @@ curl [-L] [-o file] URL
 Controls:
 
 - App-exit key cancels an active transfer.
+
+## weather
+
+Full-screen forecast display (Open-Meteo) alongside the on-board
+temperature/humidity sensor reading. The forecast refreshes automatically
+every 15 minutes over Wi-Fi; the local sensor reading is independent of
+network state and keeps updating every tick even when offline.
+
+Usage:
+
+```text
+weather [place]
+```
+
+With no argument, reuses the last configured place. A new place name
+re-resolves coordinates through geocoding and replaces the stored one.
+
+Controls:
+
+- Any key other than the app-exit key forces an immediate forecast refresh.
+- App-exit key exits.
 
 ## webradio
 
