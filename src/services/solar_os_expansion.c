@@ -23,6 +23,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_SSD1306
 #include "solar_os_ssd1306.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
+#include "solar_os_cardkb.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -85,6 +88,23 @@ static const solar_os_expansion_binding_spec_t oled_binding_specs[] = {
         .required = true,
         .allowed_values = oled_i2c_addresses,
         .allowed_value_count = sizeof(oled_i2c_addresses) / sizeof(oled_i2c_addresses[0]),
+    },
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
+static const int cardkb_i2c_addresses[] = {SOLAR_OS_CARDKB_ADDRESS};
+
+static const solar_os_expansion_binding_spec_t cardkb_binding_specs[] = {
+    {.key = "i2c", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .required = true},
+    {
+        .key = "addr",
+        .value_hint = "0x5f",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .required = true,
+        .allowed_values = cardkb_i2c_addresses,
+        .allowed_value_count = sizeof(cardkb_i2c_addresses) /
+            sizeof(cardkb_i2c_addresses[0]),
     },
 };
 #endif
@@ -238,6 +258,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .binding_spec_count = sizeof(oled_binding_specs) / sizeof(oled_binding_specs[0]),
         .attach = solar_os_sh1106_attach,
         .detach = solar_os_ssd1306_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
+    {
+        .name = "cardkb",
+        .summary = "M5Stack Unit CardKB I2C keyboard",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+        .probe_supported = true,
+        .binding_specs = cardkb_binding_specs,
+        .binding_spec_count = sizeof(cardkb_binding_specs) /
+            sizeof(cardkb_binding_specs[0]),
+        .attach = solar_os_cardkb_attach,
+        .detach = solar_os_cardkb_detach,
     },
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL

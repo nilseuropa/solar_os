@@ -47,6 +47,7 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1683",
   "expansion_ssd1306",
+  "expansion_cardkb",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -799,6 +800,16 @@ sources = [
   "services/solar_os_ssd1306.c",
 ]
 requires = ["esp_driver_i2c", "u8g2"]
+capabilities = ["expansion_i2c"]
+
+[packages.expansion_cardkb]
+label = "expansion.cardkb"
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_cardkb.c",
+  "services/solar_os_cardkb_codec.c",
+]
+requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
 [packages.expansion_neopixel]

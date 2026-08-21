@@ -35,6 +35,9 @@ ODROID-GO that cannot expose all required signals.
 named SPI bus and runtime-claimed CS, D/C, reset, and BUSY pins. It registers an
 auxiliary display target and uses changed-frame partial windows in automatic
 mode; it does not replace or suspend a built-in display.
+`expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
+publishes its character taps and navigation keys through the shared input
+service used by shells and foreground apps.
 
 ## Ownership Rules
 

@@ -225,6 +225,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `ssd1683` | Waveshare 4.2-inch V2 400x300 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>` | Registers an auxiliary display target with auto, fast, and full refresh modes. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
+| `cardkb` | M5Stack Unit CardKB | `i2c=<bus> addr=0x5f` | Polls released keys into the shared input service for shells and foreground apps. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |
 | `pcm5102` | PCM5102A three-wire I2S DAC | `bck=<pin> din=<pin> rck=<pin>` | Requires `expansion_i2s`, claims three GPIOs and I2S1, then registers a 16 kHz stereo playback device and stream. One instance can be attached. |
@@ -372,6 +373,28 @@ Keep VCC and ESP32 logic at 3.3 V even though recent Waveshare driver boards can
 also operate in a 5 V logic domain.
 If `expansion detach epd0` reports that the device is busy, run `sessions` and
 close the display session that owns `epd0` with `session close <id>` first.
+
+### M5Stack Unit CardKB on ESP32-S3-DevKitC-1
+
+CardKB uses a fixed I2C address of `0x5f`. Connect SDA and SCL to the pins of
+the named I2C bus; the DevKit `i2c0` board definition supplies the exact pin
+numbers shown by `expansion buses`.
+
+```text
+VCC -> 5V         GND -> GND
+SDA -> I2C0 SDA   SCL -> I2C0 SCL
+
+expansion attach cardkb cardkb0 i2c=i2c0 addr=0x5f
+expansion devices
+expansion detach cardkb0
+```
+
+Each I2C read returns one key value, or zero when no key is pending. Printable
+characters, Enter, Escape, Tab, Backspace, Delete, and the four arrows feed the
+shared SolarOS input path. CardKB reports one value after release, so host-side
+key repeat is not available. Its values 128 through 175 are private Fn
+combinations and are ignored instead of being confused with SolarOS logical
+keys.
 
 ### RFM95W on ESP32-S3-DevKitC-1
 

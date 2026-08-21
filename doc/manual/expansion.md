@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard input i2c oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -56,6 +56,18 @@ Use the module's eight-wire SPI connector and power it from the same 3.3 V
 logic domain as the ESP32. The module keeps its last image after detach.
 If SolarOS creates a display shell on `epd0`, run `sessions`, close that session
 with `session close <id>`, and then detach the expansion.
+
+An M5Stack Unit CardKB attaches at its fixed I2C address and becomes a shared
+keyboard source for the shell and foreground apps:
+
+```text
+expansion attach cardkb cardkb0 i2c=i2c0 addr=0x5f
+expansion detach cardkb0
+```
+
+The CardKB firmware produces characters after key release. SolarOS maps its
+four navigation values to the same logical arrow keys used by PS/2 and BLE
+keyboards. The module's Fn combinations are device-specific and are ignored.
 
 An RFM95W wired to the ESP32-S3-DevKitC-1 `spi0` bus with NSS on GPIO4 and
 reset on GPIO5 attaches as a multimode packet radio:
