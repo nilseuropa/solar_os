@@ -941,8 +941,9 @@ static void ble_set_scan_indicator(solar_os_shell_io_t *term, bool scanning)
 
     solar_os_status_bar_t status;
     solar_os_terminal_get_status_bar(display, &status);
-    status.ble_scanning = scanning;
-    status.ble_connected = solar_os_ble_keyboard_is_connected();
+    status.keyboard_scanning = scanning;
+    const size_t keyboard_count = solar_os_input_keyboard_count();
+    status.keyboard_count = keyboard_count > UINT8_MAX ? UINT8_MAX : (uint8_t)keyboard_count;
     solar_os_terminal_set_status_bar(display, &status);
 }
 

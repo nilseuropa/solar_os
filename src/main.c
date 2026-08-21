@@ -1159,10 +1159,11 @@ static void update_status(void)
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
-        status.ble_connected = solar_os_ble_keyboard_is_connected();
-        status.ble_scanning = solar_os_ble_keyboard_is_scanning();
+        status.keyboard_scanning = solar_os_ble_keyboard_is_scanning();
     }
 #endif
+    const size_t keyboard_count = solar_os_input_keyboard_count();
+    status.keyboard_count = keyboard_count > UINT8_MAX ? UINT8_MAX : (uint8_t)keyboard_count;
     if (board_has(SOLAR_OS_BOARD_CAP_SD)) {
         status.sd_mounted = solar_os_storage_sd_is_mounted();
     }

@@ -158,7 +158,9 @@ esp_err_t solar_os_cardkb_attach(const char *name,
     strlcpy(cardkb.name, name, sizeof(cardkb.name));
     strlcpy(cardkb.i2c_bus, i2c_bus, sizeof(cardkb.i2c_bus));
 
-    esp_err_t err = solar_os_input_source_open("cardkb", &cardkb.input_source);
+    esp_err_t err = solar_os_input_keyboard_source_open("cardkb",
+                                                       true,
+                                                       &cardkb.input_source);
     if (err != ESP_OK) {
         clear_device();
         return err;
