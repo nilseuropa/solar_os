@@ -495,13 +495,22 @@ static bool shell_cat_file(solar_os_shell_io_t *term, const char *path, const ch
 
     char buffer[96];
     size_t bytes_read = 0;
+    bool wrote_data = false;
+    char last_char = '\0';
     while (bytes_read < SHELL_CAT_MAX_BYTES && fgets(buffer, sizeof(buffer), file) != NULL) {
-        bytes_read += strlen(buffer);
+        const size_t length = strlen(buffer);
+        bytes_read += length;
+        if (length > 0) {
+            wrote_data = true;
+            last_char = buffer[length - 1U];
+        }
         solar_os_shell_io_write(term, buffer);
     }
 
     if (!feof(file)) {
         solar_os_shell_io_printf(term, "\ncat: %s: truncated\n", display_path);
+    } else if (wrote_data && last_char != '\n') {
+        solar_os_shell_io_newline(term);
     }
 
     fclose(file);
