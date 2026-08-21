@@ -222,6 +222,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `rfm69h` | HopeRF RFM69HW/HCW high-power packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target with PA_BOOST power from -2 through 20 dBm. |
 | `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
+| `ssd1683` | Waveshare 4.2-inch V2 400x300 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>` | Registers an auxiliary display target with auto, fast, and full refresh modes. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
@@ -337,6 +338,40 @@ display test lcd0
 
 Wire a module backlight according to the module board and use suitable current
 limiting when connecting it to 3V3.
+
+### Waveshare 4.2-inch V2 e-paper on ESP32-S3-DevKitC-1
+
+This driver is for the monochrome 400x300 V2 module with the UC8176-compatible
+controller path, including driver-board revision 2.2. It is not the
+red/black/white `(B)` module.
+
+```text
+VCC -> 3V3        GND -> GND
+CLK -> GPIO12     DIN -> GPIO11
+CS -> GPIO10      DC -> GPIO17
+RST -> GPIO16     BUSY -> GPIO15
+
+expansion attach ssd1683 epd0 spi=spi0 cs=gpio10 dc=gpio17 reset=gpio16 busy=gpio15
+display test epd0
+display mode epd0
+display mode epd0 refresh=full
+display mode epd0 refresh=fast
+expansion detach epd0
+```
+
+BUSY is active high. `refresh=auto` is the default: it uses a full waveform for
+the first changed frame, then refreshes only the framebuffer rectangle that
+changed. After 19 partial updates it reinitializes the controller and performs
+a full cleanup refresh. After each partial waveform, the driver synchronizes
+the controller's current and previous RAM planes before accepting the next
+frame. Unchanged frames are skipped. `refresh=fast` remains a
+fast full-frame update. Detach sends the controller to deep sleep before it
+releases the SPI and GPIO resources. E-paper is bistable, so the last image
+remains visible.
+Keep VCC and ESP32 logic at 3.3 V even though recent Waveshare driver boards can
+also operate in a 5 V logic domain.
+If `expansion detach epd0` reports that the device is busy, run `sessions` and
+close the display session that owns `epd0` with `session close <id>` first.
 
 ### RFM95W on ESP32-S3-DevKitC-1
 

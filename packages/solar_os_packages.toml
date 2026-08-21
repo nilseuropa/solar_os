@@ -45,6 +45,7 @@ members = [
   "expansion_rfm69",
   "expansion_rfm95",
   "expansion_pcd8544",
+  "expansion_ssd1683",
   "expansion_ssd1306",
   "expansion_neopixel",
   "expansion_audio_pwm",
@@ -778,6 +779,16 @@ sources = [
   "services/solar_os_pcd8544.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_ssd1683]
+label = "expansion.ssd1683"
+depends = ["service_spi"]
+sources = [
+  "drivers/epd_ssd1683.c",
+  "services/solar_os_ssd1683.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_ssd1306]

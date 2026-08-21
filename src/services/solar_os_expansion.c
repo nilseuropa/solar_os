@@ -11,6 +11,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
 #include "solar_os_pcd8544.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1683
+#include "solar_os_ssd1683.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 #include "solar_os_rfm69.h"
 #endif
@@ -57,6 +60,16 @@ static const solar_os_expansion_binding_spec_t pcd8544_binding_specs[] = {
     {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
     {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
     {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .required = true},
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1683
+static const solar_os_expansion_binding_spec_t ssd1683_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
+    {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
+    {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .required = true},
+    {.key = "busy", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy", .required = true},
 };
 #endif
 
@@ -189,6 +202,20 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .binding_spec_count = sizeof(pcd8544_binding_specs) / sizeof(pcd8544_binding_specs[0]),
         .attach = solar_os_pcd8544_attach,
         .detach = solar_os_pcd8544_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SSD1683
+    {
+        .name = "ssd1683",
+        .summary = "Waveshare 4.2-inch V2 400x300 e-paper",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI |
+            SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = ssd1683_binding_specs,
+        .binding_spec_count = sizeof(ssd1683_binding_specs) /
+            sizeof(ssd1683_binding_specs[0]),
+        .attach = solar_os_ssd1683_attach,
+        .detach = solar_os_ssd1683_detach,
     },
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SSD1306

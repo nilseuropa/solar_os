@@ -22,7 +22,25 @@ typedef enum {
     EPD_SSD1683_PANEL_UNKNOWN = 0,
     EPD_SSD1683_PANEL_LEGACY,
     EPD_SSD1683_PANEL_GREEN_STICKER,
+    EPD_SSD1683_PANEL_WAVESHARE_V2,
 } epd_ssd1683_panel_variant_t;
+
+typedef struct {
+    const char *spi_bus;
+    spi_host_device_t spi_host;
+    int sclk_pin;
+    int mosi_pin;
+    int cs_pin;
+    int dc_pin;
+    int reset_pin;
+    int busy_pin;
+    int power_pin;
+    int spi_clock_hz;
+    int busy_level;
+    int power_active_level;
+    const u8g2_cb_t *rotation;
+    epd_ssd1683_panel_variant_t panel_variant;
+} epd_ssd1683_config_t;
 
 typedef struct {
     spi_device_handle_t spi;
@@ -38,13 +56,22 @@ typedef struct {
     epd_ssd1683_panel_variant_t panel_variant;
     uint8_t fast_refresh_count;
     uint8_t refresh_log_count;
+    int dc_pin;
+    int reset_pin;
+    int busy_pin;
+    int power_pin;
+    int busy_level;
+    int power_active_level;
+    spi_host_device_t spi_host;
     bool bus_initialized;
     bool controller_ready;
     bool shadow_valid;
+    bool partial_refresh_active;
     bool powered;
 } epd_ssd1683_t;
 
-esp_err_t epd_ssd1683_init(epd_ssd1683_t *display);
+esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
+                           const epd_ssd1683_config_t *config);
 esp_err_t epd_ssd1683_resume(epd_ssd1683_t *display);
 void epd_ssd1683_deinit(epd_ssd1683_t *display);
 u8g2_t *epd_ssd1683_get_u8g2(epd_ssd1683_t *display);

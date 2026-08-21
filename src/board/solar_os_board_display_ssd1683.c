@@ -25,7 +25,22 @@ esp_err_t solar_os_board_display_init(solar_os_board_display_t *display)
     }
 
     memset(display, 0, sizeof(*display));
-    const esp_err_t err = epd_ssd1683_init(&ssd1683_display);
+    const epd_ssd1683_config_t config = {
+        .spi_host = SOLAR_OS_BOARD_DISPLAY_SPI_HOST,
+        .sclk_pin = SOLAR_OS_BOARD_PIN_LCD_SCK,
+        .mosi_pin = SOLAR_OS_BOARD_PIN_LCD_MOSI,
+        .cs_pin = SOLAR_OS_BOARD_PIN_LCD_CS,
+        .dc_pin = SOLAR_OS_BOARD_PIN_LCD_DC,
+        .reset_pin = SOLAR_OS_BOARD_PIN_LCD_RST,
+        .busy_pin = SOLAR_OS_BOARD_PIN_LCD_BUSY,
+        .power_pin = SOLAR_OS_BOARD_PIN_LCD_POWER,
+        .spi_clock_hz = SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ,
+        .busy_level = SOLAR_OS_BOARD_LCD_BUSY_LEVEL,
+        .power_active_level = SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL,
+        .rotation = SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION,
+        .panel_variant = EPD_SSD1683_PANEL_UNKNOWN,
+    };
+    const esp_err_t err = epd_ssd1683_init(&ssd1683_display, &config);
     if (err != ESP_OK) {
         return err;
     }

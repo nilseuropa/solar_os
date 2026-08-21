@@ -31,6 +31,10 @@ runtime playback device even when no built-in codec or DAC exists.
 built-in audio. That capability guarantees a spare I2S controller and at least
 three runtime-safe output GPIOs, so the package is pruned from boards such as
 ODROID-GO that cannot expose all required signals.
+`expansion.ssd1683` reuses the 400x300 SSD1683 controller implementation with a
+named SPI bus and runtime-claimed CS, D/C, reset, and BUSY pins. It registers an
+auxiliary display target and uses changed-frame partial windows in automatic
+mode; it does not replace or suspend a built-in display.
 
 ## Ownership Rules
 

@@ -332,6 +332,10 @@ esp_err_t solar_os_display_init(solar_os_board_display_t *display)
 
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *target)
 {
+    const bool has_any_mode_callback = target != NULL &&
+        (target->controller_mode != NULL ||
+         target->controller_mode_values != NULL ||
+         target->set_controller_mode != NULL);
     if (target == NULL ||
         !display_target_name_valid(target->name, sizeof(target->name)) ||
         !display_target_name_valid(target->source, sizeof(target->source)) ||
@@ -339,7 +343,12 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
         target->width == 0 ||
         target->height == 0 ||
         target->u8g2 == NULL ||
-        u8g2_GetBufferPtr(target->u8g2) == NULL) {
+        u8g2_GetBufferPtr(target->u8g2) == NULL ||
+        (has_any_mode_callback &&
+         (target->controller_context == NULL ||
+          target->controller_mode == NULL ||
+          target->controller_mode_values == NULL ||
+          target->set_controller_mode == NULL))) {
         return ESP_ERR_INVALID_ARG;
     }
     portENTER_CRITICAL(&display_targets_lock);
@@ -723,10 +732,12 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
         *values = NULL;
     }
 
-#if !SOLAR_OS_BOARD_HAS_DISPLAY
-    return ESP_ERR_NOT_SUPPORTED;
-#else
+    void *controller_context = NULL;
+    solar_os_display_mode_getter_t controller_mode = NULL;
+    solar_os_display_mode_getter_t controller_mode_values = NULL;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display = NULL;
+#endif
     uint32_t generation = 0;
     size_t slot_index = 0;
     portENTER_CRITICAL(&display_targets_lock);
@@ -737,8 +748,19 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
     }
     slot_index = (size_t)found_index;
     display_target_slot_t *slot = &display_targets[slot_index];
+    controller_context = slot->target.controller_context;
+    controller_mode = slot->target.controller_mode;
+    controller_mode_values = slot->target.controller_mode_values;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
     board_display = slot->board_display;
-    if (board_display == NULL) {
+#endif
+    if (controller_context == NULL &&
+        controller_mode == NULL &&
+        controller_mode_values == NULL
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+        && board_display == NULL
+#endif
+    ) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -746,8 +768,17 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
     slot->refs++;
     portEXIT_CRITICAL(&display_targets_lock);
 
-    const char *mode_value = solar_os_board_display_controller_mode(board_display);
-    const char *mode_values = solar_os_board_display_controller_mode_values(board_display);
+    const char *mode_value = NULL;
+    const char *mode_values = NULL;
+    if (controller_context != NULL) {
+        mode_value = controller_mode(controller_context);
+        mode_values = controller_mode_values(controller_context);
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    } else {
+        mode_value = solar_os_board_display_controller_mode(board_display);
+        mode_values = solar_os_board_display_controller_mode_values(board_display);
+#endif
+    }
     portENTER_CRITICAL(&display_targets_lock);
     slot = &display_targets[slot_index];
     if (slot->generation == generation && slot->refs > 0) {
@@ -765,7 +796,6 @@ esp_err_t solar_os_display_get_controller_mode(const char *name,
         *values = mode_values;
     }
     return ESP_OK;
-#endif
 }
 
 esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode)
@@ -776,10 +806,12 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
         return ESP_ERR_INVALID_ARG;
     }
 
-#if !SOLAR_OS_BOARD_HAS_DISPLAY
-    return ESP_ERR_NOT_SUPPORTED;
-#else
+    void *controller_context = NULL;
+    solar_os_display_mode_getter_t controller_mode = NULL;
+    solar_os_display_mode_setter_t set_controller_mode = NULL;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display = NULL;
+#endif
     uint32_t generation = 0;
     size_t slot_index = 0;
     portENTER_CRITICAL(&display_targets_lock);
@@ -790,8 +822,19 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
     }
     slot_index = (size_t)found_index;
     display_target_slot_t *slot = &display_targets[slot_index];
+    controller_context = slot->target.controller_context;
+    controller_mode = slot->target.controller_mode;
+    set_controller_mode = slot->target.set_controller_mode;
+#if SOLAR_OS_BOARD_HAS_DISPLAY
     board_display = slot->board_display;
-    if (board_display == NULL) {
+#endif
+    if (controller_context == NULL &&
+        controller_mode == NULL &&
+        set_controller_mode == NULL
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+        && board_display == NULL
+#endif
+    ) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -799,9 +842,19 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
     slot->refs++;
     portEXIT_CRITICAL(&display_targets_lock);
 
-    const char *current = solar_os_board_display_controller_mode(board_display);
-    const esp_err_t ret = current != NULL && strcmp(current, mode) == 0 ?
-        ESP_OK : solar_os_board_display_set_controller_mode(board_display, mode);
+    const char *current = NULL;
+    esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
+    if (controller_context != NULL) {
+        current = controller_mode(controller_context);
+        ret = current != NULL && strcmp(current, mode) == 0 ?
+            ESP_OK : set_controller_mode(controller_context, mode);
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    } else {
+        current = solar_os_board_display_controller_mode(board_display);
+        ret = current != NULL && strcmp(current, mode) == 0 ?
+            ESP_OK : solar_os_board_display_set_controller_mode(board_display, mode);
+#endif
+    }
     portENTER_CRITICAL(&display_targets_lock);
     slot = &display_targets[slot_index];
     if (slot->generation == generation && slot->refs > 0) {
@@ -809,7 +862,6 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
     }
     portEXIT_CRITICAL(&display_targets_lock);
     return ret;
-#endif
 }
 
 esp_err_t solar_os_display_set_high_refresh_override(const char *name,

@@ -787,10 +787,12 @@ field, and `hpm-hz=<16|25.5|32|51>` changes the controller's HPM frame-rate
 field. These driver values are stored in NVS when changed. The ST7305
 `inverted=` setting controls panel polarity and remains independent of the
 terminal palette selected with `setterm palette`.
-On the CrowPanel SSD1683 path, `refresh=auto` uses a full waveform for the first
-changed frame and after every 19 fast updates, while unchanged frames are
-skipped. `refresh=fast` forces the faster waveform and `refresh=full` forces the
-full waveform on every changed frame.
+On SSD1683 board and expansion targets, `refresh=auto` uses a full waveform for
+the first changed frame and after every 19 non-full updates, while unchanged
+frames are skipped. Waveshare V2 expansion targets use the changed framebuffer
+rectangle and the controller's partial-window waveform for those intermediate
+updates. `refresh=fast` forces a fast full-frame waveform and `refresh=full`
+forces the full cleanup waveform on every changed frame.
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI
