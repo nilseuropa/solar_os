@@ -47,6 +47,7 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1683",
   "expansion_ssd1306",
+  "expansion_sdspi",
   "expansion_cardkb",
   "expansion_neopixel",
   "expansion_audio_pwm",
@@ -811,6 +812,17 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
+
+[packages.expansion_sdspi]
+label = "expansion.sdspi"
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_storage_sd.c",
+  "drivers/sd_card.c",
+  "services/solar_os_sdspi.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_sdspi", "fatfs", "heap", "sdmmc"]
+capabilities = ["expansion_spi"]
 
 [packages.expansion_neopixel]
 label = "expansion.neopixel"

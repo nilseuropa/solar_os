@@ -26,6 +26,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
 #include "solar_os_cardkb.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#include "solar_os_sdspi.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -106,6 +109,13 @@ static const solar_os_expansion_binding_spec_t cardkb_binding_specs[] = {
         .allowed_value_count = sizeof(cardkb_i2c_addresses) /
             sizeof(cardkb_i2c_addresses[0]),
     },
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+static const solar_os_expansion_binding_spec_t sdspi_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
 };
 #endif
 
@@ -271,6 +281,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
             sizeof(cardkb_binding_specs[0]),
         .attach = solar_os_cardkb_attach,
         .detach = solar_os_cardkb_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+    {
+        .name = "sdspi",
+        .summary = "SPI microSD card adapter",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
+        .probe_supported = true,
+        .binding_specs = sdspi_binding_specs,
+        .binding_spec_count = sizeof(sdspi_binding_specs) /
+            sizeof(sdspi_binding_specs[0]),
+        .attach = solar_os_sdspi_attach,
+        .detach = solar_os_sdspi_detach,
     },
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL

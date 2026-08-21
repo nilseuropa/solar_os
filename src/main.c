@@ -1164,9 +1164,7 @@ static void update_status(void)
 #endif
     const size_t keyboard_count = solar_os_input_keyboard_count();
     status.keyboard_count = keyboard_count > UINT8_MAX ? UINT8_MAX : (uint8_t)keyboard_count;
-    if (board_has(SOLAR_OS_BOARD_CAP_SD)) {
-        status.sd_mounted = solar_os_storage_sd_is_mounted();
-    }
+    status.sd_mounted = solar_os_storage_sd_is_mounted();
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     solar_os_audio_status_t audio;

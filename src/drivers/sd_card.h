@@ -39,11 +39,15 @@ typedef struct {
 } sd_card_block_t;
 
 esp_err_t sd_card_init(void);
+esp_err_t sd_card_configure_sdspi(int host, int cs_pin);
+esp_err_t sd_card_clear_sdspi_config(void);
+bool sd_card_sdspi_configured(void);
 esp_err_t sd_card_unmount(void);
 esp_err_t sd_card_mount_volume(const char *name, const char *mount_point);
 esp_err_t sd_card_unmount_volume(const char *target);
 esp_err_t sd_card_format(const char *name);
 bool sd_card_is_mounted(void);
+bool sd_card_has_mounts(void);
 void sd_card_get_status(char *buffer, size_t len);
 const char *sd_card_mount_point(void);
 esp_err_t sd_card_rescan(void);

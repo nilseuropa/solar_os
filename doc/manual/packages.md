@@ -38,6 +38,9 @@ mode; it does not replace or suspend a built-in display.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.
+`expansion.sdspi` adds removable SPI microSD storage to boards that do not have
+built-in SD hardware. It uses a named expansion SPI bus and mounts at
+`/sdcard` without changing the internal-flash root filesystem.
 
 ## Ownership Rules
 

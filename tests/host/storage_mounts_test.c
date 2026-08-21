@@ -28,6 +28,11 @@ size_t solar_os_board_storage_block_count(void)
     return 2;
 }
 
+bool solar_os_board_storage_available(void)
+{
+    return true;
+}
+
 bool solar_os_board_storage_get_block(size_t index, solar_os_board_storage_block_t *block)
 {
     if (block == NULL || index >= solar_os_board_storage_block_count()) {
