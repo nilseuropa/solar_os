@@ -5,6 +5,15 @@
 #include "epd_ssd1683.h"
 #include "solar_os_board.h"
 
+#ifndef SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT
+#error "SSD1683 board profiles must define SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT"
+#endif
+
+_Static_assert(SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT >= EPD_SSD1683_PANEL_UNKNOWN &&
+                   SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT <=
+                       EPD_SSD1683_PANEL_WAVESHARE_V2,
+               "invalid SSD1683 board panel variant");
+
 static epd_ssd1683_t ssd1683_display;
 
 static void display_bind_ssd1683(solar_os_board_display_t *display)
@@ -38,7 +47,7 @@ esp_err_t solar_os_board_display_init(solar_os_board_display_t *display)
         .busy_level = SOLAR_OS_BOARD_LCD_BUSY_LEVEL,
         .power_active_level = SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL,
         .rotation = SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION,
-        .panel_variant = EPD_SSD1683_PANEL_UNKNOWN,
+        .panel_variant = SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT,
     };
     const esp_err_t err = epd_ssd1683_init(&ssd1683_display, &config);
     if (err != ESP_OK) {
