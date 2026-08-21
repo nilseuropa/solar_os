@@ -792,7 +792,7 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     solar_os_audio_get_status(&audio_status);
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
+    if (solar_os_audio_output_available()) {
         solar_os_shell_io_printf(term,
                                  "Audio: %s, %" PRIu32 " Hz %uch %ubit, vol %u, mic ",
                                  audio_status.initialized ? "on" : "off",
