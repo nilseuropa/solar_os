@@ -694,7 +694,7 @@ available for the compiled board.
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
-| `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, peers, traffic, drops, conflicts, and last error. |
+| `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error. |
 | `espnow` | `espnow peers\|list` | List persistent configured and volatile learned Link-ID-to-MAC mappings. |
 | `espnow` | `espnow peer add <link-id> <mac>` | Save a persistent unicast peer mapping. |
 | `espnow` | `espnow peer remove <link-id>` | Remove a configured or learned peer mapping. |

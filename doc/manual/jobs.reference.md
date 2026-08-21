@@ -769,7 +769,7 @@ ESP-NOW adapter for the transport-independent SolarOS Link service.
 Usage:
 
 ```text
-job start espnow-link <link> [channel=auto|1..13] [inbox=off|on] [chat=off|on]
+job start espnow-link <link> [channel=auto|1..13] [phy=normal|lr500|lr250] [inbox=off|on] [chat=off|on]
 job stop espnow-link
 job status espnow-link
 espnow status
@@ -778,7 +778,7 @@ espnow status
 Example:
 
 ```text
-job start espnow-link link0 channel=6 chat=on
+job start espnow-link link0 channel=6 phy=lr500 chat=on
 link send link0 broadcast "hello"
 espnow peers
 ```
@@ -787,6 +787,14 @@ The job leases the Wi-Fi radio, creates a 250-byte-MTU Link, and moves complete
 Link frames through ESP-NOW. `channel=auto` follows an active station or AP and
 otherwise selects channel 6. `inbox=on` and `chat=on` have the same behavior and
 mutual exclusion as `radio-link`.
+
+`phy=normal` is the default. `phy=lr500` and `phy=lr250` enable Espressif's
+proprietary 500 kbit/s or 250 kbit/s Long Range PHY for ESP-NOW peers. Every
+device participating in an LR link must enable LR reception; use the same mode
+at both ends for symmetric throughput. The service adds LR receive support
+while it runs, applies the selected transmit rate to configured and learned
+peers, and restores the previous Wi-Fi protocol selection when it stops. Use
+`espnow status` to confirm the active PHY.
 
 Incoming frames learn volatile Link-ID-to-MAC mappings; `espnow peer add`
 stores a mapping in NVS for cold-start unicast. The service is bounded to 19

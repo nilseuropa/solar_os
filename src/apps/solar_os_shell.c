@@ -894,6 +894,9 @@ static const char * const espnow_link_option_values[] = {
     "channel=11",
     "channel=12",
     "channel=13",
+    "phy=normal",
+    "phy=lr500",
+    "phy=lr250",
     "inbox=off",
     "inbox=on",
     "chat=off",
@@ -1668,6 +1671,11 @@ static const char * const path_job_start_espnow_link_option2[] = {
 static const char * const path_job_start_espnow_link_option3[] = {
     "job", "start", "espnow-link", SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_espnow_link_option4[] = {
+    "job", "start", "espnow-link", SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY
 };
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
@@ -2634,6 +2642,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option2,
                             espnow_link_option_values),
     SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option3,
+                            espnow_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_espnow_link_option4,
                             espnow_link_option_values),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE

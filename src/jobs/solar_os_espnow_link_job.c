@@ -111,6 +111,7 @@ static bool parse_args(int argc,
                        char **argv,
                        const char **link,
                        uint8_t *channel,
+                       solar_os_espnow_phy_t *phy,
                        bool *inbox_enabled,
                        bool *chat_enabled)
 {
@@ -119,19 +120,22 @@ static bool parse_args(int argc,
         strcmp(argv[0], solar_os_espnow_link_job.name) == 0) {
         first = 1;
     }
-    if (argc - first < 1 || argc - first > 4) {
+    if (argc - first < 1 || argc - first > 5) {
         return false;
     }
 
     *link = argv[first];
     *channel = 0U;
+    *phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
     *inbox_enabled = false;
     *chat_enabled = false;
     bool channel_seen = false;
+    bool phy_seen = false;
     bool inbox_seen = false;
     bool chat_seen = false;
     for (int index = first + 1; index < argc; index++) {
         static const char channel_prefix[] = "channel=";
+        static const char phy_prefix[] = "phy=";
         static const char inbox_prefix[] = "inbox=";
         static const char chat_prefix[] = "chat=";
         if (strncmp(argv[index], channel_prefix, sizeof(channel_prefix) - 1U) == 0) {
@@ -140,6 +144,13 @@ static bool parse_args(int argc,
                 return false;
             }
             channel_seen = true;
+        } else if (strncmp(argv[index], phy_prefix, sizeof(phy_prefix) - 1U) == 0) {
+            if (phy_seen ||
+                !solar_os_espnow_parse_phy(
+                    argv[index] + sizeof(phy_prefix) - 1U, phy)) {
+                return false;
+            }
+            phy_seen = true;
         } else if (strncmp(argv[index], inbox_prefix, sizeof(inbox_prefix) - 1U) == 0) {
             if (inbox_seen ||
                 !parse_on_off(argv[index] + sizeof(inbox_prefix) - 1U,
@@ -385,12 +396,14 @@ static esp_err_t espnow_link_start(solar_os_context_t *ctx,
     espnow_link.start_error_detail[0] = '\0';
     const char *link = NULL;
     uint8_t requested_channel = 0U;
+    solar_os_espnow_phy_t phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
     bool inbox_enabled = false;
     bool chat_enabled = false;
     if (!parse_args(argc,
                     argv,
                     &link,
                     &requested_channel,
+                    &phy,
                     &inbox_enabled,
                     &chat_enabled)) {
         return ESP_ERR_INVALID_ARG;
@@ -407,6 +420,7 @@ static esp_err_t espnow_link_start(solar_os_context_t *ctx,
     espnow_link.status.inbox_enabled = inbox_enabled;
     espnow_link.status.chat_enabled = chat_enabled;
     espnow_link.status.channel_auto = requested_channel == 0U;
+    espnow_link.status.phy = phy;
     espnow_link.status.last_error = ESP_OK;
 
     esp_err_t ret = solar_os_jobs_owner_name(solar_os_espnow_link_job.name,
@@ -415,7 +429,7 @@ static esp_err_t espnow_link_start(solar_os_context_t *ctx,
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = solar_os_espnow_start(espnow_link.owner, requested_channel);
+    ret = solar_os_espnow_start(espnow_link.owner, requested_channel, phy);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -465,10 +479,11 @@ static esp_err_t espnow_link_start(solar_os_context_t *ctx,
                                       link,
                                       "SolarOS Link");
     SOLAR_OS_LOGI(TAG,
-                  "started link=%s channel=%u mode=%s inbox=%s chat=%s mtu=%u",
+                  "started link=%s channel=%u mode=%s phy=%s inbox=%s chat=%s mtu=%u",
                   link,
                   (unsigned)espnow_link.status.channel,
                   requested_channel == 0U ? "auto" : "fixed",
+                  solar_os_espnow_phy_name(phy),
                   inbox_enabled ? "on" : "off",
                   chat_enabled ? "on" : "off",
                   (unsigned)SOLAR_OS_ESPNOW_FRAME_MTU);

@@ -11,6 +11,12 @@
 #define SOLAR_OS_ESPNOW_PEER_MAX 19U
 #define SOLAR_OS_ESPNOW_OWNER_MAX 32U
 
+typedef enum {
+    SOLAR_OS_ESPNOW_PHY_NORMAL = 0,
+    SOLAR_OS_ESPNOW_PHY_LR500,
+    SOLAR_OS_ESPNOW_PHY_LR250,
+} solar_os_espnow_phy_t;
+
 typedef struct {
     uint32_t link_id;
     uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN];
@@ -24,6 +30,7 @@ typedef struct {
     bool channel_auto;
     bool send_inflight;
     uint8_t channel;
+    solar_os_espnow_phy_t phy;
     char owner[SOLAR_OS_ESPNOW_OWNER_MAX];
     size_t peer_count;
     size_t configured_peer_count;
@@ -42,7 +49,9 @@ typedef struct {
     uint8_t data[SOLAR_OS_ESPNOW_FRAME_MTU];
 } solar_os_espnow_packet_t;
 
-esp_err_t solar_os_espnow_start(const char *owner, uint8_t requested_channel);
+esp_err_t solar_os_espnow_start(const char *owner,
+                                uint8_t requested_channel,
+                                solar_os_espnow_phy_t phy);
 esp_err_t solar_os_espnow_stop(const char *owner);
 esp_err_t solar_os_espnow_prepare_sleep(void);
 esp_err_t solar_os_espnow_resume(void);
@@ -68,6 +77,8 @@ esp_err_t solar_os_espnow_receive(solar_os_espnow_packet_t *packet,
 
 bool solar_os_espnow_parse_mac(const char *text,
                               uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN]);
+bool solar_os_espnow_parse_phy(const char *text, solar_os_espnow_phy_t *phy);
+const char *solar_os_espnow_phy_name(solar_os_espnow_phy_t phy);
 void solar_os_espnow_format_mac(const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN],
                                char *text,
                                size_t text_len);

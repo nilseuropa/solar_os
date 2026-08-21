@@ -5,6 +5,7 @@
 
 #include "esp_err.h"
 #include "solar_os.h"
+#include "solar_os_espnow.h"
 #include "solar_os_link.h"
 
 typedef struct {
@@ -13,6 +14,7 @@ typedef struct {
     bool chat_enabled;
     bool channel_auto;
     uint8_t channel;
+    solar_os_espnow_phy_t phy;
     char link[SOLAR_OS_LINK_NAME_MAX];
     uint32_t transmitted;
     uint32_t received;

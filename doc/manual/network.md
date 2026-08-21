@@ -25,7 +25,9 @@ follows the active station or AP channel and otherwise uses channel 6. While
 the lease is active, scanning is rejected. A fixed ESP-NOW channel also rejects
 a new station connection or an AP configured for another channel. `wifi off`
 turns off station/AP networking but reports that the radio remains active until
-the ESP-NOW job stops.
+the ESP-NOW job stops. Optional `phy=lr500` and `phy=lr250` modes temporarily
+add Espressif Long Range support to the station interface; stopping the job
+restores the Wi-Fi protocol selection that was active before it started.
 
 From the shell, `wifi` opens the display TUI and `wifi status` works on every
 shell. A script can scan before connecting:

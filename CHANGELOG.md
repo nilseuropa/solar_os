@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.8.8** — 2026-08-21 — Added selectable Espressif Long Range PHY modes to
+  the ESP-NOW Link transport. Use `phy=lr500` or `phy=lr250` on participating
+  devices to trade throughput for additional receive sensitivity and range;
+  `phy=normal` remains the default. `espnow status` reports the active PHY, and
+  stopping the job restores the previous Wi-Fi protocol selection.
 - **4.8.7** — 2026-08-21 — Added a native ESP-IDF/lwIP WireGuard IPv4 client
   with `wireguard import`, `up`, `down`, `status`, and `forget` commands. It
   supports one peer, up to eight allowed-IP prefixes, split and full-tunnel

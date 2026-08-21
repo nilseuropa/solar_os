@@ -54,8 +54,12 @@ static void print_status(solar_os_shell_io_t *term)
                                  "Channel: %u (%s)\n",
                                  (unsigned)status.channel,
                                  status.channel_auto ? "auto" : "fixed");
+        solar_os_shell_io_printf(term,
+                                 "PHY: %s\n",
+                                 solar_os_espnow_phy_name(status.phy));
     } else {
         solar_os_shell_io_writeln(term, "Channel: -");
+        solar_os_shell_io_writeln(term, "PHY: -");
     }
     solar_os_shell_io_printf(term,
                              "Peers: %u configured, %u learned\n",
