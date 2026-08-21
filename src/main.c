@@ -1189,8 +1189,7 @@ static void update_status(void)
 #endif
 
     solar_os_datetime_t datetime;
-    if (board_has(SOLAR_OS_BOARD_CAP_RTC) &&
-        solar_os_time_get_datetime(&datetime) == ESP_OK &&
+    if (solar_os_time_get_datetime(&datetime) == ESP_OK &&
         solar_os_time_datetime_is_valid(&datetime) &&
         datetime.clock_integrity) {
         status.time_valid = true;
