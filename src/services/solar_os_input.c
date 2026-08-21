@@ -30,6 +30,8 @@
 
 typedef struct {
     bool active;
+    bool keyboard;
+    bool ready;
     char name[INPUT_SOURCE_NAME_MAX];
 } input_source_slot_t;
 
@@ -264,7 +266,10 @@ esp_err_t solar_os_input_init(void)
     return repeat_err != ESP_OK ? repeat_err : layout_err;
 }
 
-esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source)
+static esp_err_t input_source_open(const char *name,
+                                   bool keyboard,
+                                   bool ready,
+                                   solar_os_input_source_t *source)
 {
     if (name == NULL || name[0] == '\0' || source == NULL ||
         strlen(name) >= INPUT_SOURCE_NAME_MAX) {
@@ -275,8 +280,13 @@ esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *
     portENTER_CRITICAL(&input_lock);
     for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
         if (input_sources[i].active && strcmp(input_sources[i].name, name) == 0) {
-            *source = (solar_os_input_source_t)(i + 1U);
-            result = ESP_OK;
+            if (input_sources[i].keyboard == keyboard) {
+                input_sources[i].ready = ready;
+                *source = (solar_os_input_source_t)(i + 1U);
+                result = ESP_OK;
+            } else {
+                result = ESP_ERR_INVALID_STATE;
+            }
             break;
         }
     }
@@ -286,6 +296,8 @@ esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *
                 continue;
             }
             input_sources[i].active = true;
+            input_sources[i].keyboard = keyboard;
+            input_sources[i].ready = ready;
             strlcpy(input_sources[i].name, name, sizeof(input_sources[i].name));
             *source = (solar_os_input_source_t)(i + 1U);
             result = ESP_OK;
@@ -294,6 +306,45 @@ esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *
     }
     portEXIT_CRITICAL(&input_lock);
     return result;
+}
+
+esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source)
+{
+    return input_source_open(name, false, true, source);
+}
+
+esp_err_t solar_os_input_keyboard_source_open(const char *name,
+                                              bool ready,
+                                              solar_os_input_source_t *source)
+{
+    return input_source_open(name, true, ready, source);
+}
+
+esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t source,
+                                                   bool ready)
+{
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) || !input_sources[source - 1U].keyboard) {
+        result = ESP_ERR_INVALID_ARG;
+    } else {
+        input_sources[source - 1U].ready = ready;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
+size_t solar_os_input_keyboard_count(void)
+{
+    size_t count = 0;
+    portENTER_CRITICAL(&input_lock);
+    for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+        if (input_sources[i].active && input_sources[i].keyboard && input_sources[i].ready) {
+            count++;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return count;
 }
 
 void solar_os_input_source_release_all(solar_os_input_source_t source)

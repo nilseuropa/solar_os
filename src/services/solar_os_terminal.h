@@ -30,8 +30,8 @@ typedef struct {
     bool battery_valid;
     uint8_t battery_percent;
     bool battery_external_power;
-    bool ble_connected;
-    bool ble_scanning;
+    uint8_t keyboard_count;
+    bool keyboard_scanning;
     bool wifi_started;
     bool wifi_connected;
     bool wifi_has_ip;

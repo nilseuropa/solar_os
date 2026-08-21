@@ -1375,8 +1375,8 @@ static bool terminal_status_bar_equal(const solar_os_status_bar_t *a,
         a->battery_valid == b->battery_valid &&
         a->battery_percent == b->battery_percent &&
         a->battery_external_power == b->battery_external_power &&
-        a->ble_connected == b->ble_connected &&
-        a->ble_scanning == b->ble_scanning &&
+        a->keyboard_count == b->keyboard_count &&
+        a->keyboard_scanning == b->keyboard_scanning &&
         a->wifi_started == b->wifi_started &&
         a->wifi_connected == b->wifi_connected &&
         a->wifi_has_ip == b->wifi_has_ip &&
@@ -2382,7 +2382,7 @@ static void terminal_draw_plug_icon(u8g2_t *u8g2, int x, int y)
 static void terminal_draw_keyboard_icon(u8g2_t *u8g2,
                                         int x,
                                         int y,
-                                        bool connected,
+                                        uint8_t count,
                                         bool scanning)
 {
     u8g2_DrawFrame(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)(y + 1), 18, 10);
@@ -2397,7 +2397,22 @@ static void terminal_draw_keyboard_icon(u8g2_t *u8g2,
     if (scanning) {
         u8g2_DrawFrame(u8g2, (u8g2_uint_t)(x + 15), (u8g2_uint_t)y, 4, 4);
         terminal_draw_diag_down(u8g2, x + 18, y + 3, 4, 4);
-    } else if (!connected) {
+    } else if (count > 1) {
+        const int badge_x = x + 15;
+        u8g2_DrawBox(u8g2, (u8g2_uint_t)badge_x, (u8g2_uint_t)y, 5, 7);
+        u8g2_SetDrawColor(u8g2, 0);
+        u8g2_DrawHLine(u8g2, (u8g2_uint_t)(badge_x + 1), (u8g2_uint_t)(y + 1), 3);
+        u8g2_DrawHLine(u8g2, (u8g2_uint_t)(badge_x + 1), (u8g2_uint_t)(y + 3), 3);
+        u8g2_DrawHLine(u8g2, (u8g2_uint_t)(badge_x + 1), (u8g2_uint_t)(y + 5), 3);
+        if (count == 2) {
+            u8g2_DrawPixel(u8g2, (u8g2_uint_t)(badge_x + 3), (u8g2_uint_t)(y + 2));
+            u8g2_DrawPixel(u8g2, (u8g2_uint_t)(badge_x + 1), (u8g2_uint_t)(y + 4));
+        } else {
+            u8g2_DrawPixel(u8g2, (u8g2_uint_t)(badge_x + 3), (u8g2_uint_t)(y + 2));
+            u8g2_DrawPixel(u8g2, (u8g2_uint_t)(badge_x + 3), (u8g2_uint_t)(y + 4));
+        }
+        u8g2_SetDrawColor(u8g2, 1);
+    } else if (count == 0) {
         terminal_draw_status_slash(u8g2, x + 1, y + 2, 16, 8);
     }
 }
@@ -2575,7 +2590,8 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
                 u8g2, x, icon_y, status->battery_valid, status->battery_percent);
         }
         x += 28;
-        terminal_draw_keyboard_icon(u8g2, x, icon_y, status->ble_connected, status->ble_scanning);
+        terminal_draw_keyboard_icon(
+            u8g2, x, icon_y, status->keyboard_count, status->keyboard_scanning);
         x += 26;
         terminal_draw_wifi_icon(u8g2,
                                 x,
@@ -2599,10 +2615,10 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
             x += 20 + TERM_STATUS_BAR_ICON_GAP;
         }
 
-        if ((status->ble_connected || status->ble_scanning) &&
+        if ((status->keyboard_count > 0 || status->keyboard_scanning) &&
             terminal_status_icon_fits(x, 22, leading_icon_right_limit)) {
             terminal_draw_keyboard_icon(
-                u8g2, x, icon_y, status->ble_connected, status->ble_scanning);
+                u8g2, x, icon_y, status->keyboard_count, status->keyboard_scanning);
             x += 22 + TERM_STATUS_BAR_ICON_GAP;
         }
 

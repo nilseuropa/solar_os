@@ -76,6 +76,15 @@ esp_err_t solar_os_board_storage_init(void)
     return sd_card_init();
 }
 
+bool solar_os_board_storage_available(void)
+{
+#if SOLAR_OS_BOARD_HAS_SD
+    return true;
+#else
+    return sd_card_sdspi_configured();
+#endif
+}
+
 esp_err_t solar_os_board_storage_mount(void)
 {
     const esp_err_t err = storage_power_on();

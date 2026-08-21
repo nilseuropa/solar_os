@@ -2,6 +2,21 @@
 
 ## 4.x
 
+- **4.8.8** — 2026-08-21 — Added selectable Espressif Long Range PHY modes to
+  the ESP-NOW Link transport. Use `phy=lr500` or `phy=lr250` on participating
+  devices to trade throughput for additional receive sensitivity and range;
+  `phy=normal` remains the default. `espnow status` reports the active PHY, and
+  stopping the job restores the previous Wi-Fi protocol selection. Added a
+  runtime SSD1683 expansion for the Waveshare 4.2-inch V2 400x300 monochrome
+  e-paper module, with automatic partial updates, unchanged-frame suppression,
+  and periodic full refreshes to limit ghosting. Custom SSD1683 boards can now
+  select `EPD_SSD1683_PANEL_WAVESHARE_V2` explicitly. Added the M5Stack Unit
+  CardKB as an I2C keyboard expansion at address `0x5f`; BLE, PS/2, and I2C
+  keyboards now share one input path, and the status icon reports multiple
+  connected keyboards. Boards without built-in SD hardware can attach an
+  SDSPI expansion and mount removable FAT storage at `/sdcard` while internal
+  flash remains `/`. `cat` now adds a trailing newline when necessary so the
+  shell prompt starts on a new line.
 - **4.8.7** — 2026-08-21 — Added a native ESP-IDF/lwIP WireGuard IPv4 client
   with `wireguard import`, `up`, `down`, `status`, and `forget` commands. It
   supports one peer, up to eight allowed-IP prefixes, split and full-tunnel

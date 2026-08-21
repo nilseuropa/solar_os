@@ -10,6 +10,9 @@
 
 typedef struct solar_os_board_display solar_os_board_display_t;
 
+typedef const char *(*solar_os_display_mode_getter_t)(const void *context);
+typedef esp_err_t (*solar_os_display_mode_setter_t)(void *context, const char *mode);
+
 #define SOLAR_OS_DISPLAY_TARGET_MAX 6
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
 #define SOLAR_OS_DISPLAY_TARGET_SOURCE_MAX 12
@@ -31,6 +34,10 @@ typedef struct {
     bool brightness_supported;
     bool black_is_one;
     u8g2_t *u8g2;
+    void *controller_context;
+    solar_os_display_mode_getter_t controller_mode;
+    solar_os_display_mode_getter_t controller_mode_values;
+    solar_os_display_mode_setter_t set_controller_mode;
 } solar_os_display_target_t;
 
 typedef enum {

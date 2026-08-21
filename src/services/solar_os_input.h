@@ -59,6 +59,12 @@ typedef struct {
 
 esp_err_t solar_os_input_init(void);
 esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source);
+esp_err_t solar_os_input_keyboard_source_open(const char *name,
+                                              bool ready,
+                                              solar_os_input_source_t *source);
+esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t source,
+                                                   bool ready);
+size_t solar_os_input_keyboard_count(void);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 

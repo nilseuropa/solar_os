@@ -825,6 +825,7 @@ host:
 
 ```c
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683"
+#define SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT EPD_SSD1683_PANEL_UNKNOWN
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 400
 #define SOLAR_OS_BOARD_DISPLAY_HEIGHT 300
 
@@ -836,6 +837,14 @@ host:
 #define SOLAR_OS_BOARD_PIN_LCD_BUSY GPIO_NUM_48
 #define SOLAR_OS_BOARD_PIN_LCD_POWER GPIO_NUM_7
 ```
+
+Every board that selects `drivers/display_ssd1683.cmake` must define
+`SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT`. Use
+`EPD_SSD1683_PANEL_UNKNOWN` only when the board can contain either supported
+Elecrow panel revision and needs BUSY-based detection. A board built around the
+Waveshare 4.2-inch V2 module must select
+`EPD_SSD1683_PANEL_WAVESHARE_V2` explicitly. The other fixed values are
+`EPD_SSD1683_PANEL_LEGACY` and `EPD_SSD1683_PANEL_GREEN_STICKER`.
 
 Its `refresh=auto` default performs fast updates, skips unchanged frames, and
 inserts a full waveform on the first update and after every 19 fast updates to

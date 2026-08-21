@@ -45,7 +45,10 @@ members = [
   "expansion_rfm69",
   "expansion_rfm95",
   "expansion_pcd8544",
+  "expansion_ssd1683",
   "expansion_ssd1306",
+  "expansion_sdspi",
+  "expansion_cardkb",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -780,6 +783,16 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["expansion_gpio"]
 
+[packages.expansion_ssd1683]
+label = "expansion.ssd1683"
+depends = ["service_spi"]
+sources = [
+  "drivers/epd_ssd1683.c",
+  "services/solar_os_ssd1683.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_ssd1306]
 label = "expansion.ssd1306"
 depends = ["service_i2c"]
@@ -789,6 +802,27 @@ sources = [
 ]
 requires = ["esp_driver_i2c", "u8g2"]
 capabilities = ["expansion_i2c"]
+
+[packages.expansion_cardkb]
+label = "expansion.cardkb"
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_cardkb.c",
+  "services/solar_os_cardkb_codec.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["expansion_i2c"]
+
+[packages.expansion_sdspi]
+label = "expansion.sdspi"
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_storage_sd.c",
+  "drivers/sd_card.c",
+  "services/solar_os_sdspi.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_sdspi", "fatfs", "heap", "sdmmc"]
+capabilities = ["expansion_spi"]
 
 [packages.expansion_neopixel]
 label = "expansion.neopixel"

@@ -70,7 +70,7 @@ Inbox.
 Start the ESP-NOW adapter on two SolarOS devices using the same channel:
 
 ```text
-job start espnow-link link0 channel=6
+job start espnow-link link0 channel=6 phy=lr500
 link status link0
 link send link0 broadcast "hello"
 ```
@@ -81,6 +81,14 @@ station connection or an AP on another channel. Wi-Fi scanning is rejected
 while ESP-NOW is active because a scan leaves the transport channel. `wifi off`
 stops station and AP networking but retains the radio while `espnow-link` owns
 its connectionless lease.
+
+The default `phy=normal` uses the normal ESP-NOW PHY selection. Use
+`phy=lr500` or `phy=lr250` on every participating SolarOS device to select
+Espressif's proprietary 500 kbit/s or 250 kbit/s Long Range PHY. LR mode
+trades throughput for receive sensitivity and range. SolarOS enables LR receive
+support for the lifetime of the job, assigns the selected rate to configured
+and newly learned peers, and restores the previous Wi-Fi protocol selection on
+stop. `espnow status` reports the active PHY.
 
 An accepted incoming frame learns its Link source-ID-to-MAC mapping for the
 current boot. This permits unicast replies after the peer has sent a frame.
@@ -163,7 +171,7 @@ with retained messages from the previous sequence cycle.
 Usage:
 
 ```text
-job start espnow-link <link> [channel=auto|1..13] [inbox=off|on] [chat=off|on]
+job start espnow-link <link> [channel=auto|1..13] [phy=normal|lr500|lr250] [inbox=off|on] [chat=off|on]
 job status espnow-link
 job stop espnow-link
 ```
@@ -171,7 +179,9 @@ job stop espnow-link
 The job acquires the Wi-Fi radio through the connectionless lease, initializes
 ESP-NOW, creates a Link instance with a 250-byte frame MTU, and moves complete
 frames between the two services. Inbox and Chat behavior is the same as for
-`radio-link`; both options default to off and cannot be enabled together.
+`radio-link`; both options default to off and cannot be enabled together. The
+PHY defaults to `normal`; every LR peer must enable LR reception. Use the same
+`lr500` or `lr250` mode at both ends for symmetric throughput.
 
 The transport state and peer table live in PSRAM. Its bounded four-frame receive
 queue, two-entry send-completion queue, and 6144-byte time-critical worker stack
@@ -317,7 +327,7 @@ lora-eu868 [inbox=off|on] [chat=off|on]`. Use `link status link0`, `link send
 link0 broadcast "text"`, and `link receive link0`. Use `chat=on` for unified
 Link broadcast/direct conversations and discovered Contacts. Use `link stream
 create link0 vser0 PEER_ID` when a reliable virtual serial port is required.
-For ESP-NOW, use `job start espnow-link link0 [channel=auto|1..13]` and configure
+For ESP-NOW, use `job start espnow-link link0 [channel=auto|1..13] [phy=normal|lr500|lr250]` and configure
 cold-start unicast peers with `espnow peer add`.
 Unicast packet messages request acknowledgements. The base packet layer has no
 routing, fragmentation, encryption, mesh forwarding, or automatic

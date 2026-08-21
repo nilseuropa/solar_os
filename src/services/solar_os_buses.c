@@ -1465,6 +1465,40 @@ esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address)
     return ret;
 }
 
+esp_err_t solar_os_bus_i2c_receive(const char *name,
+                                   uint8_t address,
+                                   uint8_t *data,
+                                   size_t len)
+{
+    if (!name_valid(name) || address > 0x7fU || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin;
+    ret = pin_ready_bus(name, SOLAR_OS_BUS_PROTOCOL_I2C, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+    if (ret == ESP_OK) {
+        ret = i2c_bus_receive_handle(pin.i2c_handle,
+                                     pin.info.config.i2c.speed_hz,
+                                     address,
+                                     data,
+                                     len);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
 esp_err_t solar_os_bus_i2c_read_reg(const char *name,
                                     uint8_t address,
                                     uint8_t reg,

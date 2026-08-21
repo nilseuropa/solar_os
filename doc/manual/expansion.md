@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -41,6 +41,45 @@ expansion detach lcd0
 
 Detaching releases the resources. Do not invent a target name or copy bindings
 from a different board.
+
+A Waveshare 4.2-inch V2 monochrome e-paper module uses the SSD1683 expansion
+driver and registers a 400x300 display target:
+
+```text
+expansion attach ssd1683 epd0 spi=spi0 cs=gpio10 dc=gpio17 reset=gpio16 busy=gpio15
+display test epd0
+display mode epd0 refresh=fast
+expansion detach epd0
+```
+
+Use the module's eight-wire SPI connector and power it from the same 3.3 V
+logic domain as the ESP32. The module keeps its last image after detach.
+If SolarOS creates a display shell on `epd0`, run `sessions`, close that session
+with `session close <id>`, and then detach the expansion.
+
+An M5Stack Unit CardKB attaches at its fixed I2C address and becomes a shared
+keyboard source for the shell and foreground apps:
+
+```text
+expansion attach cardkb cardkb0 i2c=i2c0 addr=0x5f
+expansion detach cardkb0
+```
+
+The CardKB firmware produces characters after key release. SolarOS maps its
+four navigation values to the same logical arrow keys used by PS/2 and BLE
+keyboards. The module's Fn combinations are device-specific and are ignored.
+
+On a board without built-in SD hardware, an SPI microSD adapter can provide
+removable storage. The SPI bus must include MISO and declare the selected CS
+pin. Attaching mounts the detected FAT volume at `/sdcard`. Unmount it before
+detaching the adapter:
+
+```text
+expansion attach sdspi card0 spi=spi0 cs=gpio4
+disk lsblk
+disk umount
+expansion detach card0
+```
 
 An RFM95W wired to the ESP32-S3-DevKitC-1 `spi0` bus with NSS on GPIO4 and
 reset on GPIO5 attaches as a multimode packet radio:

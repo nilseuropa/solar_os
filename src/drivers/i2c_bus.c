@@ -332,6 +332,37 @@ esp_err_t i2c_bus_receive(uint8_t address, uint8_t *data, size_t len)
     return ret;
 }
 
+esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
+                                 uint32_t speed_hz,
+                                 uint8_t address,
+                                 uint8_t *data,
+                                 size_t len)
+{
+    if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
+        data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = i2c_bus_ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+
+    i2c_master_dev_handle_t dev_handle;
+    ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
+    if (ret == ESP_OK) {
+        ret = i2c_master_receive(dev_handle, data, len, I2C_XFER_TIMEOUT_MS);
+        esp_err_t rm_ret = i2c_master_bus_rm_device(dev_handle);
+        if (ret == ESP_OK) {
+            ret = rm_ret;
+        }
+    }
+
+    xSemaphoreGive(bus_mutex);
+    return ret;
+}
+
 esp_err_t i2c_bus_transmit_receive(uint8_t address,
                                    const uint8_t *tx_data,
                                    size_t tx_len,

@@ -104,7 +104,9 @@ static esp_err_t ps2_keyboard_start(solar_os_context_t *ctx, int argc, char **ar
     }
     ps2_keyboard.leased = true;
 
-    err = solar_os_input_source_open("ps2-keyboard", &ps2_keyboard.input_source);
+    err = solar_os_input_keyboard_source_open("ps2-keyboard",
+                                              true,
+                                              &ps2_keyboard.input_source);
     if (err == ESP_OK) {
         err = solar_os_ps2_bus_start(&ps2_keyboard.bus, &info.config.ps2);
     }

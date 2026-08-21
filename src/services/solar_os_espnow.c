@@ -50,7 +50,10 @@ typedef struct {
     bool suspended;
     bool channel_auto;
     bool send_inflight;
+    bool protocol_changed;
     uint8_t channel;
+    uint8_t previous_protocol;
+    solar_os_espnow_phy_t phy;
     char owner[SOLAR_OS_ESPNOW_OWNER_MAX];
     solar_os_espnow_peer_t peers[SOLAR_OS_ESPNOW_PEER_MAX];
     QueueHandle_t rx_queue;
@@ -68,6 +71,114 @@ static portMUX_TYPE espnow_lock = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool espnow_callbacks_active;
 static QueueHandle_t espnow_callback_rx_queue;
 static QueueHandle_t espnow_callback_tx_queue;
+
+static bool espnow_phy_valid(solar_os_espnow_phy_t phy)
+{
+    return phy == SOLAR_OS_ESPNOW_PHY_NORMAL ||
+        phy == SOLAR_OS_ESPNOW_PHY_LR500 ||
+        phy == SOLAR_OS_ESPNOW_PHY_LR250;
+}
+
+const char *solar_os_espnow_phy_name(solar_os_espnow_phy_t phy)
+{
+    switch (phy) {
+    case SOLAR_OS_ESPNOW_PHY_NORMAL:
+        return "normal";
+    case SOLAR_OS_ESPNOW_PHY_LR500:
+        return "lr500";
+    case SOLAR_OS_ESPNOW_PHY_LR250:
+        return "lr250";
+    default:
+        return "unknown";
+    }
+}
+
+bool solar_os_espnow_parse_phy(const char *text, solar_os_espnow_phy_t *phy)
+{
+    if (text == NULL || phy == NULL) {
+        return false;
+    }
+    if (strcmp(text, "normal") == 0) {
+        *phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
+        return true;
+    }
+    if (strcmp(text, "lr500") == 0) {
+        *phy = SOLAR_OS_ESPNOW_PHY_LR500;
+        return true;
+    }
+    if (strcmp(text, "lr250") == 0) {
+        *phy = SOLAR_OS_ESPNOW_PHY_LR250;
+        return true;
+    }
+    return false;
+}
+
+static esp_err_t espnow_prepare_protocol(solar_os_espnow_phy_t phy,
+                                         uint8_t *previous_protocol,
+                                         bool *changed)
+{
+    if (previous_protocol == NULL || changed == NULL ||
+        !espnow_phy_valid(phy)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *changed = false;
+    *previous_protocol = 0U;
+    if (phy == SOLAR_OS_ESPNOW_PHY_NORMAL) {
+        return ESP_OK;
+    }
+    esp_err_t ret = esp_wifi_get_protocol(WIFI_IF_STA, previous_protocol);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint8_t enabled_protocol = *previous_protocol | WIFI_PROTOCOL_LR;
+    if (enabled_protocol == *previous_protocol) {
+        return ESP_OK;
+    }
+    ret = esp_wifi_set_protocol(WIFI_IF_STA, enabled_protocol);
+    if (ret == ESP_OK) {
+        *changed = true;
+    }
+    return ret;
+}
+
+static esp_err_t espnow_reapply_protocol(void)
+{
+    portENTER_CRITICAL(&espnow_lock);
+    const solar_os_espnow_phy_t phy = espnow_state.phy;
+    const uint8_t previous_protocol = espnow_state.previous_protocol;
+    portEXIT_CRITICAL(&espnow_lock);
+    if (phy == SOLAR_OS_ESPNOW_PHY_NORMAL) {
+        return ESP_OK;
+    }
+    return esp_wifi_set_protocol(WIFI_IF_STA,
+                                 previous_protocol | WIFI_PROTOCOL_LR);
+}
+
+static esp_err_t espnow_restore_protocol(uint8_t previous_protocol,
+                                         bool changed)
+{
+    return changed ? esp_wifi_set_protocol(WIFI_IF_STA, previous_protocol) :
+        ESP_OK;
+}
+
+static esp_err_t espnow_driver_configure_peer_rate(
+    const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN])
+{
+    portENTER_CRITICAL(&espnow_lock);
+    const solar_os_espnow_phy_t phy = espnow_state.phy;
+    portEXIT_CRITICAL(&espnow_lock);
+    if (phy == SOLAR_OS_ESPNOW_PHY_NORMAL) {
+        return ESP_OK;
+    }
+    esp_now_rate_config_t config = {
+        .phymode = WIFI_PHY_MODE_LR,
+        .rate = phy == SOLAR_OS_ESPNOW_PHY_LR250 ?
+            WIFI_PHY_RATE_LORA_250K : WIFI_PHY_RATE_LORA_500K,
+        .ersu = false,
+        .dcm = false,
+    };
+    return esp_now_set_peer_rate_config(mac, &config);
+}
 
 static bool espnow_link_id_valid(uint32_t link_id)
 {
@@ -130,10 +241,13 @@ static esp_err_t espnow_driver_add_peer(
         .encrypt = false,
     };
     memcpy(driver_peer.peer_addr, mac, SOLAR_OS_ESPNOW_MAC_LEN);
+    esp_err_t ret = ESP_OK;
     if (esp_now_is_peer_exist(mac)) {
-        return esp_now_mod_peer(&driver_peer);
+        ret = esp_now_mod_peer(&driver_peer);
+    } else {
+        ret = esp_now_add_peer(&driver_peer);
     }
-    return esp_now_add_peer(&driver_peer);
+    return ret == ESP_OK ? espnow_driver_configure_peer_rate(mac) : ret;
 }
 
 static esp_err_t espnow_driver_reconcile_peers(
@@ -344,11 +458,13 @@ static esp_err_t espnow_driver_stop(void)
     return ret;
 }
 
-esp_err_t solar_os_espnow_start(const char *owner, uint8_t requested_channel)
+esp_err_t solar_os_espnow_start(const char *owner,
+                                uint8_t requested_channel,
+                                solar_os_espnow_phy_t phy)
 {
     if (owner == NULL || owner[0] == '\0' ||
         strnlen(owner, SOLAR_OS_ESPNOW_OWNER_MAX) >= SOLAR_OS_ESPNOW_OWNER_MAX ||
-        requested_channel > 13U) {
+        requested_channel > 13U || !espnow_phy_valid(phy)) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = espnow_load_configured_peers();
@@ -386,11 +502,34 @@ esp_err_t solar_os_espnow_start(const char *owner, uint8_t requested_channel)
         return ESP_ERR_NO_MEM;
     }
 
-    ret = espnow_driver_start(rx_queue, tx_queue);
+    uint8_t previous_protocol = 0U;
+    bool protocol_changed = false;
+    ret = espnow_prepare_protocol(phy,
+                                  &previous_protocol,
+                                  &protocol_changed);
     if (ret != ESP_OK) {
         vQueueDelete(rx_queue);
         vQueueDelete(tx_queue);
         (void)solar_os_wifi_connectionless_release(owner);
+        return ret;
+    }
+    portENTER_CRITICAL(&espnow_lock);
+    espnow_state.phy = phy;
+    espnow_state.previous_protocol = previous_protocol;
+    espnow_state.protocol_changed = protocol_changed;
+    portEXIT_CRITICAL(&espnow_lock);
+
+    ret = espnow_driver_start(rx_queue, tx_queue);
+    if (ret != ESP_OK) {
+        (void)espnow_restore_protocol(previous_protocol, protocol_changed);
+        vQueueDelete(rx_queue);
+        vQueueDelete(tx_queue);
+        (void)solar_os_wifi_connectionless_release(owner);
+        portENTER_CRITICAL(&espnow_lock);
+        espnow_state.phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
+        espnow_state.previous_protocol = 0U;
+        espnow_state.protocol_changed = false;
+        portEXIT_CRITICAL(&espnow_lock);
         return ret;
     }
 
@@ -412,10 +551,11 @@ esp_err_t solar_os_espnow_start(const char *owner, uint8_t requested_channel)
     portEXIT_CRITICAL(&espnow_lock);
 
     SOLAR_OS_LOGI(TAG,
-                  "started owner=%s channel=%u mode=%s mtu=%u",
+                  "started owner=%s channel=%u mode=%s phy=%s mtu=%u",
                   owner,
                   (unsigned)actual_channel,
                   requested_channel == 0U ? "auto" : "fixed",
+                  solar_os_espnow_phy_name(phy),
                   (unsigned)SOLAR_OS_ESPNOW_FRAME_MTU);
     return ESP_OK;
 }
@@ -438,15 +578,22 @@ esp_err_t solar_os_espnow_stop(const char *owner)
     QueueHandle_t rx_queue = espnow_state.rx_queue;
     QueueHandle_t tx_queue = espnow_state.tx_queue;
     const bool suspended = espnow_state.suspended;
+    const uint8_t previous_protocol = espnow_state.previous_protocol;
+    const bool protocol_changed = espnow_state.protocol_changed;
     espnow_state.running = false;
     espnow_state.suspended = false;
     espnow_state.send_inflight = false;
     espnow_state.rx_queue = NULL;
     espnow_state.tx_queue = NULL;
+    espnow_state.phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
+    espnow_state.previous_protocol = 0U;
+    espnow_state.protocol_changed = false;
     espnow_state.owner[0] = '\0';
     portEXIT_CRITICAL(&espnow_lock);
 
     const esp_err_t deinit_ret = suspended ? ESP_OK : espnow_driver_stop();
+    const esp_err_t protocol_ret =
+        espnow_restore_protocol(previous_protocol, protocol_changed);
     if (rx_queue != NULL) {
         vQueueDelete(rx_queue);
     }
@@ -455,7 +602,8 @@ esp_err_t solar_os_espnow_stop(const char *owner)
     }
     const esp_err_t release_ret = solar_os_wifi_connectionless_release(owner);
     SOLAR_OS_LOGI(TAG, "stopped owner=%s", owner);
-    return deinit_ret != ESP_OK ? deinit_ret : release_ret;
+    return deinit_ret != ESP_OK ? deinit_ret :
+        (protocol_ret != ESP_OK ? protocol_ret : release_ret);
 }
 
 esp_err_t solar_os_espnow_prepare_sleep(void)
@@ -496,7 +644,10 @@ esp_err_t solar_os_espnow_resume(void)
     QueueHandle_t tx_queue = espnow_state.tx_queue;
     portEXIT_CRITICAL(&espnow_lock);
 
-    const esp_err_t ret = espnow_driver_start(rx_queue, tx_queue);
+    esp_err_t ret = espnow_reapply_protocol();
+    if (ret == ESP_OK) {
+        ret = espnow_driver_start(rx_queue, tx_queue);
+    }
     portENTER_CRITICAL(&espnow_lock);
     if (ret == ESP_OK) {
         espnow_state.suspended = false;
@@ -523,6 +674,7 @@ void solar_os_espnow_get_status(solar_os_espnow_status_t *status)
         .running = espnow_state.running,
         .channel_auto = espnow_state.channel_auto,
         .send_inflight = espnow_state.send_inflight,
+        .phy = espnow_state.phy,
         .channel = espnow_state.running && wifi_status.connectionless_active ?
             wifi_status.connectionless_channel : espnow_state.channel,
         .tx_packets = espnow_state.tx_packets,

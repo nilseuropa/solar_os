@@ -310,6 +310,7 @@ static void keyboard_report_state_reset(bool is_connected)
 {
     if (input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         solar_os_input_source_release_all(input_source);
+        (void)solar_os_input_keyboard_source_set_ready(input_source, is_connected);
     }
     memset(previous_keys, 0, sizeof(previous_keys));
     previous_modifiers = 0;
@@ -2586,7 +2587,9 @@ esp_err_t solar_os_ble_keyboard_init(void)
 
     ESP_RETURN_ON_ERROR(ensure_runtime_objects(), TAG, "runtime object setup failed");
     if (input_source == SOLAR_OS_INPUT_SOURCE_INVALID) {
-        ESP_RETURN_ON_ERROR(solar_os_input_source_open("ble-keyboard", &input_source),
+        ESP_RETURN_ON_ERROR(solar_os_input_keyboard_source_open("ble-keyboard",
+                                                               false,
+                                                               &input_source),
                             TAG,
                             "input source setup failed");
     }
