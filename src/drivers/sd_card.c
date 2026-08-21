@@ -25,6 +25,11 @@
 #include "sdmmc_cmd.h"
 #include "sdkconfig.h"
 #include "solar_os_board.h"
+#include "solar_os_config.h"
+
+#ifndef SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+#error "solar_os_config.h must define SOLAR_OS_PACKAGE_EXPANSION_SDSPI"
+#endif
 
 #define SD_CARD_MAX_MOUNTS FF_VOLUMES
 #define SD_CARD_SECTOR_BYTES 512U

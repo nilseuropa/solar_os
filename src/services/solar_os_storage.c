@@ -11,7 +11,13 @@
 #include "ff.h"
 #include "flash_storage.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_config.h"
 #include "solar_os_ramfs.h"
+
+#ifndef SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+#error "solar_os_config.h must define SOLAR_OS_PACKAGE_EXPANSION_SDSPI"
+#endif
+
 #if SOLAR_OS_BOARD_HAS_SD || SOLAR_OS_PACKAGE_EXPANSION_SDSPI
 #include "solar_os_board_storage.h"
 #define SOLAR_OS_STORAGE_HAS_REMOVABLE 1
