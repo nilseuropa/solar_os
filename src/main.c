@@ -1166,10 +1166,30 @@ static void update_status(void)
     status.keyboard_count = keyboard_count > UINT8_MAX ? UINT8_MAX : (uint8_t)keyboard_count;
     status.sd_mounted = solar_os_storage_sd_is_mounted();
 
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+    status.radio_attached = solar_os_radio_count() > 0U;
+#endif
+
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK || SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+    solar_os_job_status_t link_job;
+#if SOLAR_OS_PACKAGE_JOB_RADIO_LINK
+    status.link_running =
+        solar_os_jobs_get_by_name("radio-link", &link_job) &&
+        link_job.state == SOLAR_OS_JOB_RUNNING;
+#endif
+#if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
+    if (!status.link_running) {
+        status.link_running =
+            solar_os_jobs_get_by_name("espnow-link", &link_job) &&
+            link_job.state == SOLAR_OS_JOB_RUNNING;
+    }
+#endif
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     solar_os_audio_status_t audio;
-    if (board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
-        solar_os_audio_get_status(&audio);
+    solar_os_audio_get_status(&audio);
+    if (solar_os_audio_output_available()) {
         status.audio_enabled = true;
         status.audio_volume = audio.volume;
     }
@@ -1189,8 +1209,7 @@ static void update_status(void)
 #endif
 
     solar_os_datetime_t datetime;
-    if (board_has(SOLAR_OS_BOARD_CAP_RTC) &&
-        solar_os_time_get_datetime(&datetime) == ESP_OK &&
+    if (solar_os_time_get_datetime(&datetime) == ESP_OK &&
         solar_os_time_datetime_is_valid(&datetime) &&
         datetime.clock_integrity) {
         status.time_valid = true;

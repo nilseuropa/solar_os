@@ -767,6 +767,47 @@ esp_err_t solar_os_audio_device_get_info(const char *id,
     return ESP_ERR_NOT_FOUND;
 }
 
+bool solar_os_audio_output_available(void)
+{
+    bool available = false;
+    portENTER_CRITICAL(&audio_devices_lock);
+    for (size_t i = 0; i < SOLAR_OS_AUDIO_DEVICE_MAX; i++) {
+        if (audio_devices[i].registered &&
+            (audio_devices[i].info.capabilities &
+             SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U &&
+            audio_devices[i].info.playback_stream[0] != '\0') {
+            available = true;
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&audio_devices_lock);
+    return available;
+}
+
+static bool audio_get_available_output(solar_os_audio_device_info_t *device)
+{
+    if (device == NULL) {
+        return false;
+    }
+
+    char preferred_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    if (solar_os_audio_get_default_output(preferred_id, sizeof(preferred_id)) &&
+        solar_os_audio_device_get_info(preferred_id, device) == ESP_OK &&
+        (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U &&
+        device->playback_stream[0] != '\0') {
+        return true;
+    }
+
+    for (size_t index = 0; index < solar_os_audio_device_count(); index++) {
+        if (solar_os_audio_device_get(index, device) &&
+            (device->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT) != 0U &&
+            device->playback_stream[0] != '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
 esp_err_t solar_os_audio_set_default_output(const char *id)
 {
     if (id == NULL || id[0] == '\0') {
@@ -3365,7 +3406,7 @@ void solar_os_audio_get_status(solar_os_audio_status_t *status)
 
 #if !SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
     *status = (solar_os_audio_status_t){
-        .initialized = false,
+        .initialized = solar_os_audio_output_available(),
         .sample_rate = 0U,
         .channels = 0U,
         .bits_per_sample = 0U,
@@ -3385,7 +3426,8 @@ void solar_os_audio_get_status(solar_os_audio_status_t *status)
     solar_os_board_audio_status_t board_status;
     solar_os_board_audio_get_status(&board_status);
 
-    status->initialized = board_status.initialized;
+    status->initialized =
+        board_status.initialized || solar_os_audio_output_available();
     status->sample_rate = board_status.sample_rate;
     status->channels = board_status.channels;
     status->bits_per_sample = board_status.bits_per_sample;
@@ -3401,4 +3443,13 @@ void solar_os_audio_get_status(solar_os_audio_status_t *status)
     status->output_codec = board_status.output_codec;
     status->input_codec = board_status.input_codec;
 #endif
+
+    if (status->sample_rate == 0U) {
+        solar_os_audio_device_info_t output;
+        if (audio_get_available_output(&output)) {
+            status->sample_rate = output.native_format.sample_rate;
+            status->channels = output.native_format.channels;
+            status->bits_per_sample = output.native_format.bits_per_sample;
+        }
+    }
 }

@@ -1386,7 +1386,9 @@ static bool terminal_status_bar_equal(const solar_os_status_bar_t *a,
         a->time_valid == b->time_valid &&
         a->hour == b->hour &&
         a->minute == b->minute &&
-        a->sd_mounted == b->sd_mounted;
+        a->sd_mounted == b->sd_mounted &&
+        a->radio_attached == b->radio_attached &&
+        a->link_running == b->link_running;
 }
 
 void solar_os_terminal_set_status_bar(solar_os_terminal_t *terminal,
@@ -2497,6 +2499,49 @@ static void terminal_draw_speaker_icon(u8g2_t *u8g2, int x, int y, bool enabled,
     }
 }
 
+static void terminal_draw_radio_icon(u8g2_t *u8g2, int x, int y)
+{
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 2), (u8g2_uint_t)y);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 1), (u8g2_uint_t)(y + 1));
+    u8g2_DrawVLine(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)(y + 2), 5);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 1), (u8g2_uint_t)(y + 7));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 2), (u8g2_uint_t)(y + 8));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 12), (u8g2_uint_t)y);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 13), (u8g2_uint_t)(y + 1));
+    u8g2_DrawVLine(u8g2, (u8g2_uint_t)(x + 14), (u8g2_uint_t)(y + 2), 5);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 13), (u8g2_uint_t)(y + 7));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 12), (u8g2_uint_t)(y + 8));
+
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 5), (u8g2_uint_t)(y + 1));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 4), (u8g2_uint_t)(y + 2));
+    u8g2_DrawVLine(u8g2, (u8g2_uint_t)(x + 3), (u8g2_uint_t)(y + 3), 3);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 4), (u8g2_uint_t)(y + 6));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 5), (u8g2_uint_t)(y + 7));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 9), (u8g2_uint_t)(y + 1));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 10), (u8g2_uint_t)(y + 2));
+    u8g2_DrawVLine(u8g2, (u8g2_uint_t)(x + 11), (u8g2_uint_t)(y + 3), 3);
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 10), (u8g2_uint_t)(y + 6));
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 9), (u8g2_uint_t)(y + 7));
+
+    u8g2_DrawPixel(u8g2, (u8g2_uint_t)(x + 7), (u8g2_uint_t)(y + 2));
+    u8g2_DrawBox(u8g2, (u8g2_uint_t)(x + 6), (u8g2_uint_t)(y + 3), 3, 2);
+    u8g2_DrawVLine(u8g2, (u8g2_uint_t)(x + 7), (u8g2_uint_t)(y + 5), 7);
+}
+
+static void terminal_draw_link_icon(u8g2_t *u8g2, int x, int y)
+{
+    static const uint8_t bolt_rows[][2] = {
+        {7, 3}, {6, 3}, {6, 2}, {5, 2}, {4, 2}, {2, 5},
+        {4, 5}, {5, 2}, {4, 2}, {3, 2}, {2, 2}, {1, 3},
+    };
+    for (size_t row = 0; row < sizeof(bolt_rows) / sizeof(bolt_rows[0]); row++) {
+        u8g2_DrawHLine(u8g2,
+                       (u8g2_uint_t)(x + bolt_rows[row][0]),
+                       (u8g2_uint_t)(y + (int)row),
+                       bolt_rows[row][1]);
+    }
+}
+
 static void terminal_draw_clock_icon(u8g2_t *u8g2, int x, int y, bool valid)
 {
     static const int8_t face[][2] = {
@@ -2538,6 +2583,24 @@ static void terminal_draw_clock_icon(u8g2_t *u8g2, int x, int y, bool valid)
 static bool terminal_status_icon_fits(int x, int icon_width, int right_limit)
 {
     return x + icon_width <= right_limit;
+}
+
+static int terminal_draw_radio_link_icons(u8g2_t *u8g2,
+                                          int x,
+                                          int y,
+                                          int right_limit,
+                                          bool radio_attached,
+                                          bool link_running)
+{
+    if (radio_attached && terminal_status_icon_fits(x, 15, right_limit)) {
+        terminal_draw_radio_icon(u8g2, x, y);
+        x += 15 + TERM_STATUS_BAR_ICON_GAP;
+    }
+    if (link_running && terminal_status_icon_fits(x, 11, right_limit)) {
+        terminal_draw_link_icon(u8g2, x, y);
+        x += 11 + TERM_STATUS_BAR_ICON_GAP;
+    }
+    return x;
 }
 
 static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2)
@@ -2603,7 +2666,13 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
         x += 22;
         terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
         x += 24;
+        x = terminal_draw_radio_link_icons(
+            u8g2, x, icon_y, leading_icon_right_limit,
+            status->radio_attached, status->link_running);
     } else {
+        x = terminal_draw_radio_link_icons(
+            u8g2, x, icon_y, leading_icon_right_limit,
+            status->radio_attached, status->link_running);
         if ((status->battery_external_power || status->battery_valid) &&
             terminal_status_icon_fits(x, 20, leading_icon_right_limit)) {
             if (status->battery_external_power) {

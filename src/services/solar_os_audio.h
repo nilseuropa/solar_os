@@ -164,6 +164,7 @@ size_t solar_os_audio_device_count(void);
 bool solar_os_audio_device_get(size_t index, solar_os_audio_device_info_t *device);
 esp_err_t solar_os_audio_device_get_info(const char *id,
                                          solar_os_audio_device_info_t *device);
+bool solar_os_audio_output_available(void);
 /* An empty ID restores automatic first-compatible-device selection. */
 esp_err_t solar_os_audio_set_default_output(const char *id);
 bool solar_os_audio_get_default_output(char *id, size_t id_len);

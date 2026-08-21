@@ -42,6 +42,8 @@ typedef struct {
     uint8_t hour;
     uint8_t minute;
     bool sd_mounted;
+    bool radio_attached;
+    bool link_running;
 } solar_os_status_bar_t;
 
 void solar_os_terminal_clear(solar_os_terminal_t *terminal);
