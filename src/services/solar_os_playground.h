@@ -101,6 +101,9 @@ bool solar_os_playground_get_installed_app_id(size_t index,
 bool solar_os_playground_find_app(const char *id,
                                   size_t *index,
                                   solar_os_playground_app_info_t *app);
+bool solar_os_playground_find_installed_app(
+    const char *id,
+    solar_os_playground_app_info_t *app);
 
 bool solar_os_playground_is_installed(const solar_os_playground_app_info_t *app,
                                       char *version,

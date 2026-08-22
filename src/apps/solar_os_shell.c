@@ -93,6 +93,7 @@
 #define SHELL_HISTORY_FILE "history"
 #define SHELL_STARTUP_FILE "startup"
 #define SHELL_ALIAS_FILE "alias"
+#define SHELL_PLAYGROUND_ALIAS_FILE "playground"
 #define SHELL_NVS_NAMESPACE "shell"
 #define SHELL_NVS_STARTUP_SOURCE_KEY "startup_src"
 #define SHELL_SCRIPT_MAX_DEPTH 3
@@ -3718,10 +3719,10 @@ static void shell_note_completion_match(char *match,
 
 typedef bool (*shell_alias_callback_t)(const char *name, int argc, char **argv, void *user);
 
-static bool shell_alias_path(char *path, size_t path_len)
+static bool shell_alias_path(char *path, size_t path_len, const char *file)
 {
-    return solar_os_storage_is_mounted() &&
-        shell_make_state_path(path, path_len, SHELL_ALIAS_FILE);
+    return file != NULL && solar_os_storage_is_mounted() &&
+        shell_make_state_path(path, path_len, file);
 }
 
 static void shell_discard_file_line(FILE *file)
@@ -3737,7 +3738,8 @@ static void shell_alias_ensure_file(void)
 {
     char path[SHELL_PATH_MAX];
 
-    if (!shell_ensure_state_dir() || !shell_alias_path(path, sizeof(path))) {
+    if (!shell_ensure_state_dir() ||
+        !shell_alias_path(path, sizeof(path), SHELL_ALIAS_FILE)) {
         return;
     }
 
@@ -3747,12 +3749,14 @@ static void shell_alias_ensure_file(void)
     }
 }
 
-static bool shell_for_each_alias(shell_alias_callback_t callback, void *user)
+static bool shell_for_each_alias_file(const char *path,
+                                      shell_alias_callback_t callback,
+                                      void *user,
+                                      bool *stopped)
 {
-    char path[SHELL_PATH_MAX];
     char line[SHELL_INPUT_MAX + 1];
 
-    if (callback == NULL || !shell_alias_path(path, sizeof(path))) {
+    if (path == NULL || callback == NULL || stopped == NULL) {
         return false;
     }
 
@@ -3782,6 +3786,7 @@ static bool shell_for_each_alias(shell_alias_callback_t callback, void *user)
         }
 
         if (!callback(alias_argv[0], parsed.argc, alias_argv, user)) {
+            *stopped = true;
             fclose(file);
             return true;
         }
@@ -3789,6 +3794,28 @@ static bool shell_for_each_alias(shell_alias_callback_t callback, void *user)
 
     fclose(file);
     return true;
+}
+
+static bool shell_for_each_alias(shell_alias_callback_t callback, void *user)
+{
+    char path[SHELL_PATH_MAX];
+    bool opened = false;
+    bool stopped = false;
+
+    if (callback == NULL ||
+        !shell_alias_path(path, sizeof(path), SHELL_ALIAS_FILE)) {
+        return false;
+    }
+    opened = shell_for_each_alias_file(path, callback, user, &stopped);
+    if (stopped) {
+        return opened;
+    }
+    if (!shell_alias_path(path,
+                          sizeof(path),
+                          SHELL_PLAYGROUND_ALIAS_FILE)) {
+        return opened;
+    }
+    return shell_for_each_alias_file(path, callback, user, &stopped) || opened;
 }
 
 static bool shell_append_token(char *line, size_t line_len, const char *token)
@@ -8044,17 +8071,11 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
             io, "watch: cannot launch foreground app: playground run");
         return true;
     }
-    if (solar_os_playground_init() != ESP_OK ||
-        !solar_os_playground_catalog_available()) {
-        solar_os_shell_io_writeln(
-            io, "playground: catalog unavailable; run playground refresh");
-        return true;
-    }
-
+    (void)solar_os_playground_init();
     solar_os_playground_app_info_t script;
-    if (!solar_os_playground_find_app(argv[2], NULL, &script)) {
+    if (!solar_os_playground_find_installed_app(argv[2], &script)) {
         solar_os_shell_io_printf(
-            io, "playground: application not found: %s\n", argv[2]);
+            io, "playground: application is not installed: %s\n", argv[2]);
         return true;
     }
     char path[SOLAR_OS_APP_ARG_LEN];

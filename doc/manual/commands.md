@@ -48,11 +48,14 @@ path directly; for example, `./somescript.sh` is equivalent to
 bit for this shorthand.
 
 History is kept in memory and cached at `/.shell/history` when storage is
-available. The optional alias file follows the default storage volume:
+available. The optional user alias file follows the default storage volume:
 
 ```text
 /.shell/alias
 ```
+
+Playground separately maintains `/.shell/playground`. Do not edit that file;
+installing, updating, or uninstalling community applications regenerates it.
 
 The startup script source is selected with `setterm startup [flash|sd]` and is
 stored in NVS. Internal flash is the default, including after `nvs clear`. On an
@@ -172,13 +175,16 @@ archive hash; after extraction every Markdown page is checked by size and
 SHA-256 before activation. `help reset` returns immediately to the embedded
 manual.
 
-Aliases are stored in `/.shell/alias`, one per line:
+User aliases are stored in `/.shell/alias`, one per line:
 
 ```text
 name command-or-app fixed-args...
 ```
 
 Arguments typed after the alias are appended.
+SolarOS reads the user file before the managed `/.shell/playground` aliases, so
+a user alias with the same name takes precedence. Native commands and firmware
+applications always take precedence over both alias files.
 Tab completion expands the complete fixed alias target. For example,
 `run playground run` completes installed application IDs after `run `.
 
