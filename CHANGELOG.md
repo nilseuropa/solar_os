@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.8.9** — 2026-08-22 — Python and Lua scripts can now capture bounded
+  signed 16-bit PCM blocks from the default audio input, including the native
+  sample rate and channel format; capture also works in generic builds with
+  runtime audio expansions. Installed Playground apps become direct shell
+  commands named by their app IDs, run from their installed manifests without
+  loading the catalog, and stay synchronized across installs, updates, and
+  removals. Added bounded asynchronous HTTP streams for Python and Lua, with
+  ordered response, header, data, completion, and error events suitable for
+  long-lived responses such as SSE. Script TUI input fields can mask UTF-8 text
+  while editing passwords and other secrets. The MeshCore EU868 radio profile
+  now uses the required 32-symbol preamble, restoring RFM95 reception with
+  compatible MeshCore nodes.
 - **4.8.8** — 2026-08-21 — Added selectable Espressif Long Range PHY modes to
   the ESP-NOW Link transport. Use `phy=lr500` or `phy=lr250` on participating
   devices to trade throughput for additional receive sensitivity and range;
