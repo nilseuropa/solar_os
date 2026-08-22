@@ -55,7 +55,7 @@ service packages are not available on that board.
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
-- `solaros.http`: `request`, `get`, `post`, `put`, `patch`, `delete`, `head` when `network.http-client` is compiled
+- `solaros.http`: `request`, `get`, `post`, `put`, `patch`, `delete`, `head`, `stream_open`, `stream_read`, `stream_close`, `stream_close_all` when `network.http-client` is compiled
 - `solaros.hid`: typed `keyboard`, `mouse`, and `gamepad` tables when `service.hid` is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
@@ -144,6 +144,9 @@ firmware certificate bundle. The mirrored call forms are:
 - `head(url[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]])`
 - `post`, `put`, `patch`, and `delete` use
   `(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
+- `stream_open(method, url[, body[, headers[, timeout_ms[, follow_redirects]]]])`
+- `stream_read(handle[, timeout_ms])`, `stream_close(handle)`, and
+  `stream_close_all()`
 
 URLs must use `http://` or `https://`. Headers are a table of up to 16 string
 pairs and 8192 bytes total; names and values cannot contain line breaks.
@@ -154,6 +157,19 @@ accepts 0 through 262144. The response table contains `status_code`, binary
 prefix with `truncated=true`. HTTP 4xx and 5xx statuses are normal responses;
 request, cancellation, deadline, DNS, TLS, and transport failures raise Lua
 errors. Exiting or interrupting Lua cancels an active request.
+
+`stream_open` runs the HTTP operation in a native worker without an end-to-end
+deadline. Its timeout bounds each transport operation and accepts 0 through
+60000 ms; zero selects the 10000 ms service default. `stream_read` returns
+`nil` on wait timeout. Otherwise it returns an
+ordered `header`, `response`, `data`, `complete`, or `error` event. Data events
+contain up to 1024 binary bytes. Terminal events include status, content
+length, received byte count, duration, cancellation flags, and ESP error
+details. The limits are two streams per runtime and four globally, with eight
+queued events per stream. A full queue terminates the stream instead of
+dropping bytes. Streams close at interpreter teardown; close them explicitly
+to release resources promptly. Protocol records such as SSE messages can cross
+data-event boundaries and must be reassembled by the script.
 
 ```lua
 local response = solaros.http.get("https://example.com/")
