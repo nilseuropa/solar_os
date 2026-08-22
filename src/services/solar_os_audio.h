@@ -21,6 +21,8 @@
 #define SOLAR_OS_AUDIO_DEVICE_MAX 4U
 #define SOLAR_OS_AUDIO_DEVICE_ID_MAX 16U
 #define SOLAR_OS_AUDIO_DEVICE_NAME_MAX 40U
+#define SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES 4096U
+#define SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS 2U
 
 typedef enum {
     SOLAR_OS_AUDIO_DEVICE_CAP_INPUT = 1U << 0,
@@ -204,6 +206,12 @@ esp_err_t solar_os_audio_input_stream_read(solar_os_audio_input_stream_t *stream
                                            void *data,
                                            size_t len);
 void solar_os_audio_input_stream_close(solar_os_audio_input_stream_t *stream);
+/* Capture exactly frames of interleaved native S16LE PCM from the default input. */
+esp_err_t solar_os_audio_capture(const char *owner,
+                                 size_t frames,
+                                 int16_t *samples,
+                                 size_t sample_capacity,
+                                 solar_os_audio_stream_format_t *format);
 esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz, uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_tone_enqueue(const solar_os_audio_tone_request_t *request,
                                       uint32_t *request_id);

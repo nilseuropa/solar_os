@@ -28,10 +28,11 @@ meshcore status
 chat
 ```
 
-`meshcore-eu868` is 869.618 MHz, 62.5 kHz, SF8, coding rate 4/8, sync word
-`0x12`, CRC, variable packet length, and 14 dBm. It is an EU868 profile; do not
-use it outside regions where that frequency and transmit behavior are legal.
-The profile argument is mandatory so SolarOS never silently chooses a region.
+`meshcore-eu868` is 869.618 MHz, 62.5 kHz, SF8, coding rate 4/8, a 32-symbol
+preamble, sync word `0x12`, CRC, variable packet length, and 14 dBm. It is an
+EU868 profile; do not use it outside regions where that frequency and transmit
+behavior are legal. The profile argument is mandatory so SolarOS never silently
+chooses a region.
 
 The job claims the radio, applies the complete profile, enters receive mode,
 and emits one zero-hop advert. It restores the previous radio configuration and

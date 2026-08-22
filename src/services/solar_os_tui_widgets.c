@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "solar_os_keys.h"
+#include "solar_os_terminal.h"
 
 static size_t tui_widget_decode(const char *text, uint32_t *codepoint)
 {
@@ -366,6 +367,27 @@ esp_err_t solar_os_tui_draw_input(solar_os_tui_t *tui,
                                   solar_os_tui_input_state_t *state,
                                   uint8_t attr)
 {
+    return solar_os_tui_draw_input_ex(tui,
+                                      row,
+                                      col,
+                                      width,
+                                      label,
+                                      text,
+                                      state,
+                                      attr,
+                                      false);
+}
+
+esp_err_t solar_os_tui_draw_input_ex(solar_os_tui_t *tui,
+                                     size_t row,
+                                     size_t col,
+                                     size_t width,
+                                     const char *label,
+                                     const char *text,
+                                     solar_os_tui_input_state_t *state,
+                                     uint8_t attr,
+                                     bool masked)
+{
     if (tui == NULL || label == NULL || text == NULL || state == NULL || width == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -379,8 +401,22 @@ esp_err_t solar_os_tui_draw_input(solar_os_tui_t *tui,
         err = solar_os_tui_write_cell(tui, row, col, label_cells, label, attr);
         if (err != ESP_OK) return err;
     }
+    const char *display_text = text + state->view;
+    char masked_text[SOLAR_OS_TERMINAL_MAX_COLS + 1U];
+    if (masked) {
+        size_t masked_len = 0;
+        for (size_t pos = state->view;
+             text[pos] != '\0' && masked_len < text_cells &&
+                 masked_len < sizeof(masked_text) - 1U;
+             masked_len++) {
+            masked_text[masked_len] = '*';
+            pos = tui_widget_next(text, pos);
+        }
+        masked_text[masked_len] = '\0';
+        display_text = masked_text;
+    }
     err = solar_os_tui_write_cell(tui, row, col + label_cells, text_cells,
-                                  text + state->view, attr);
+                                  display_text, attr);
     if (err != ESP_OK) return err;
     size_t cursor_cells = 0;
     for (size_t pos = state->view; pos < state->cursor; cursor_cells++) {

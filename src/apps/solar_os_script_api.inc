@@ -127,6 +127,10 @@ SOLAR_OS_SCRIPT_API_FUNCTION(http, put, put);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, patch, patch);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, delete, delete);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, head, head);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_open, stream_open);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_read, stream_read);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_close, stream_close);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_close_all, stream_close_all);
 SOLAR_OS_SCRIPT_API_MODULE_END(http);
 #endif
 
@@ -319,6 +323,7 @@ SOLAR_OS_SCRIPT_API_FUNCTION(audio, tone_async, tone_async);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, cancel, cancel);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, queue_status, queue_status);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, level, level);
+SOLAR_OS_SCRIPT_API_FUNCTION(audio, capture, capture);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, loopback, loopback);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, wav_info, wav_info);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, record_wav, record_wav);

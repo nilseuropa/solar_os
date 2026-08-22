@@ -69,6 +69,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
 #include "solar_os_http_client.h"
+#include "solar_os_http_stream.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
@@ -273,6 +274,9 @@ SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Python cadence")
 static uint32_t python_tick_interval_ms;
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 static solar_os_net_session_t *python_net_session;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+static solar_os_http_stream_session_t *python_http_stream_session;
 #endif
 
 static bool python_runtime_claim(python_runtime_owner_t owner)
@@ -1743,6 +1747,23 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_mqtt_read_obj, 0, 1, solaros_mqtt_re
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+static solar_os_http_stream_session_t *python_http_stream_get(void)
+{
+    if (python_http_stream_session == NULL) {
+        python_check_esp(solar_os_http_stream_session_create(
+            python_should_cancel,
+            NULL,
+            &python_http_stream_session));
+    }
+    return python_http_stream_session;
+}
+
+static void python_http_stream_destroy(void)
+{
+    solar_os_http_stream_session_destroy(python_http_stream_session);
+    python_http_stream_session = NULL;
+}
+
 static solar_os_http_header_t *python_http_headers_from_obj(mp_obj_t headers_obj,
                                                             size_t *header_count)
 {
@@ -1967,6 +1988,137 @@ PYTHON_HTTP_BODY_METHOD(put, SOLAR_OS_HTTP_METHOD_PUT);
 PYTHON_HTTP_BODY_METHOD(patch, SOLAR_OS_HTTP_METHOD_PATCH);
 PYTHON_HTTP_BODY_METHOD(delete, SOLAR_OS_HTTP_METHOD_DELETE);
 #undef PYTHON_HTTP_BODY_METHOD
+
+static mp_obj_t solaros_http_stream_open(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_http_method_t method;
+    if (!solar_os_http_method_parse(mp_obj_str_get_str(args[0]), &method)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected GET, POST, PUT, PATCH, DELETE, or HEAD"));
+    }
+
+    size_t url_len = 0;
+    const char *url = mp_obj_str_get_data(args[1], &url_len);
+    if (strlen(url) != url_len ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected http:// or https:// URL"));
+    }
+    mp_buffer_info_t body = {0};
+    if (n_args >= 3 && args[2] != mp_const_none) {
+        mp_get_buffer_raise(args[2], &body, MP_BUFFER_READ);
+    }
+    size_t header_count = 0;
+    solar_os_http_header_t *headers = python_http_headers_from_obj(
+        n_args >= 4 ? args[3] : mp_const_none,
+        &header_count);
+    const uint32_t timeout_ms = python_optional_u32(
+        n_args,
+        args,
+        4,
+        PYTHON_HTTP_DEFAULT_TIMEOUT_MS);
+    const solar_os_http_request_options_t options = {
+        .url = url,
+        .method = method,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body.buf,
+        .body_len = body.len,
+        .user_agent = "SolarOS/" SOLAR_OS_VERSION " script",
+        .follow_redirects = n_args < 6 || args[5] == mp_const_none ||
+            mp_obj_is_true(args[5]),
+        .timeout_ms = timeout_ms,
+        .read_poll_ms = PYTHON_HTTP_READ_POLL_MS,
+    };
+    uint32_t handle = 0;
+    const esp_err_t err = solar_os_http_stream_open(python_http_stream_get(),
+                                                    &options,
+                                                    &handle);
+    solar_os_memory_free(headers);
+    python_check_esp(err);
+    return mp_obj_new_int_from_uint(handle);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_http_stream_open_obj,
+                                    2,
+                                    6,
+                                    solaros_http_stream_open);
+
+static mp_obj_t python_http_stream_event_to_dict(
+    const solar_os_http_stream_event_t *event)
+{
+    mp_obj_t result = mp_obj_new_dict(12);
+    python_dict_store_cstr(result,
+                           "type",
+                           solar_os_http_stream_event_type_name(event->type));
+    python_dict_store_int(result, "status_code", event->status_code);
+    if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_RESPONSE) {
+        python_dict_store_i64(result, "content_length", event->content_length);
+    } else if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_HEADER) {
+        python_dict_store_cstr(result, "name", event->header_name);
+        python_dict_store_cstr(result, "value", event->header_value);
+        python_dict_store_bool(result, "truncated", event->truncated);
+    } else if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_DATA) {
+        mp_obj_dict_store(result,
+                          python_key("data"),
+                          mp_obj_new_bytes(event->data, event->data_len));
+    } else {
+        python_dict_store_i64(result, "content_length", event->content_length);
+        python_dict_store_u64(result, "bytes_received", event->bytes_received);
+        python_dict_store_uint(result, "duration_ms", event->duration_ms);
+        python_dict_store_int(result, "error", event->error);
+        python_dict_store_cstr(result, "error_name", esp_err_to_name(event->error));
+        python_dict_store_bool(result, "cancelled", event->cancelled);
+        python_dict_store_bool(result,
+                               "deadline_exceeded",
+                               event->deadline_exceeded);
+    }
+    return result;
+}
+
+static mp_obj_t solaros_http_stream_read(size_t n_args, const mp_obj_t *args)
+{
+    if (python_http_stream_session == NULL) {
+        return mp_const_none;
+    }
+    solar_os_http_stream_event_t event;
+    const esp_err_t err = solar_os_http_stream_read(
+        python_http_stream_session,
+        python_u32_from_obj(args[0]),
+        python_optional_u32(n_args, args, 1, 0),
+        &event);
+    if (err == ESP_ERR_TIMEOUT || err == ESP_ERR_INVALID_STATE) {
+        return mp_const_none;
+    }
+    python_check_esp(err);
+    return python_http_stream_event_to_dict(&event);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_http_stream_read_obj,
+                                    1,
+                                    2,
+                                    solaros_http_stream_read);
+
+static mp_obj_t solaros_http_stream_close(mp_obj_t handle_obj)
+{
+    if (python_http_stream_session != NULL) {
+        const esp_err_t err = solar_os_http_stream_close(
+            python_http_stream_session,
+            python_u32_from_obj(handle_obj));
+        if (err != ESP_ERR_NOT_FOUND) {
+            python_check_esp(err);
+        }
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_http_stream_close_obj,
+                          solaros_http_stream_close);
+
+static mp_obj_t solaros_http_stream_close_all(void)
+{
+    if (python_http_stream_session != NULL) {
+        solar_os_http_stream_close_all(python_http_stream_session);
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_http_stream_close_all_obj,
+                          solaros_http_stream_close_all);
 #endif
 
 static int python_gpio_pin_from_obj(mp_obj_t obj)
@@ -3746,6 +3898,46 @@ static mp_obj_t solaros_audio_level(mp_obj_t duration_obj)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_level_obj, solaros_audio_level);
+
+static mp_obj_t solaros_audio_capture(mp_obj_t frames_obj)
+{
+    const size_t frames = python_size_from_obj(frames_obj);
+    if (frames == 0U || frames > SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected frames 1..4096"));
+    }
+
+    const size_t sample_capacity =
+        frames * SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS;
+    int16_t *samples = (int16_t *)python_alloc_psram_first(
+        sample_capacity * sizeof(*samples));
+    if (samples == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    solar_os_audio_stream_format_t format;
+    const esp_err_t err = solar_os_audio_capture(
+        "python", frames, samples, sample_capacity, &format);
+    if (err != ESP_OK) {
+        solar_os_memory_free(samples);
+        python_check_esp(err);
+    }
+
+    const size_t data_bytes = frames * format.channels * sizeof(*samples);
+    mp_obj_t pcm = mp_obj_new_bytes((const byte *)samples, data_bytes);
+    solar_os_memory_free(samples);
+
+    mp_obj_t format_dict = mp_obj_new_dict(4);
+    python_dict_store_cstr(
+        format_dict,
+        "sample_format",
+        solar_os_stream_audio_sample_format_name(format.sample_format));
+    python_dict_store_uint(format_dict, "sample_rate", format.sample_rate);
+    python_dict_store_int(format_dict, "channels", format.channels);
+    python_dict_store_int(format_dict, "bits_per_sample", format.bits_per_sample);
+    mp_obj_t result[2] = {pcm, format_dict};
+    return mp_obj_new_tuple(2, result);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_capture_obj, solaros_audio_capture);
 
 static mp_obj_t solaros_audio_loopback(size_t n_args, const mp_obj_t *args)
 {
@@ -5628,12 +5820,14 @@ static mp_obj_t solaros_tui_input(size_t n_args, const mp_obj_t *args)
                           python_u16_from_size(python_size_from_obj(args[1])),
                           python_u16_from_size(python_size_from_obj(args[2])),
                           label, label_len, text, text_len,
-                          python_optional_tui_attr(n_args, args, 7), false,
+                          python_optional_tui_attr(n_args, args, 7),
+                          n_args > 8 && args[8] != mp_const_none &&
+                              mp_obj_is_true(args[8]),
                           (int32_t)python_size_from_obj(args[5]),
                           (int32_t)python_size_from_obj(args[6]));
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tui_input_obj, 7, 8, solaros_tui_input);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tui_input_obj, 7, 9, solaros_tui_input);
 
 static mp_obj_t solaros_tui_getch(size_t n_args, const mp_obj_t *args)
 {
@@ -6245,6 +6439,9 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+    python_http_stream_destroy();
+#endif
     mp_embed_deinit();
     python_app.vm_active = false;
     python_runner_control = NULL;
@@ -6416,6 +6613,9 @@ static void python_task(void *arg)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         python_net_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+        python_http_stream_destroy();
 #endif
         mp_embed_deinit();
         python_app.vm_active = false;
@@ -6841,6 +7041,9 @@ static void python_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+    python_http_stream_destroy();
+#endif
     python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
 }
 
@@ -6911,8 +7114,9 @@ static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t
         };
         const char *text = event->data_len + 1U < sizeof(event->data) ?
             event->data + event->data_len + 1U : "";
-        solar_os_tui_draw_input(&tui, event->row, event->col, event->width,
-                                event->data, text, &state, event->attr);
+        solar_os_tui_draw_input_ex(&tui, event->row, event->col, event->width,
+                                   event->data, text, &state, event->attr,
+                                   event->success);
         break;
     }
     default:

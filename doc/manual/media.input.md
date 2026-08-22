@@ -102,8 +102,10 @@ content after use.
 ## Quick reference
 
 solaros.audio provides status, deinit or off, set_volume, set_mic_gain, tone,
-tone_async, cancel, queue_status, level, loopback, wav_info, record_wav, and
-play_wav. solaros.synth provides status, configure, configure_oscillator2,
+tone_async, cancel, queue_status, level, capture, loopback, wav_info,
+record_wav, and play_wav. `capture(frames)` returns 1 through 4096 frames as
+interleaved little-endian signed-16 PCM plus its native sample format, rate,
+channel count, and sample width. solaros.synth provides status, configure, configure_oscillator2,
 configure_filter, configure_performance, note_on, note_off, all_notes_off, and
 stop. solaros.ble provides status, connected, pair, forget, layout, read.
 solaros.clipboard provides set, get, size, clear. Audio, synth, and BLE are

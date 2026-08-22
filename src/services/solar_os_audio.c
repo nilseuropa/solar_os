@@ -969,6 +969,85 @@ esp_err_t solar_os_audio_open_default(
     return ESP_ERR_NOT_FOUND;
 }
 
+esp_err_t solar_os_audio_capture(const char *owner,
+                                 size_t frames,
+                                 int16_t *samples,
+                                 size_t sample_capacity,
+                                 solar_os_audio_stream_format_t *format)
+{
+    if (owner == NULL || owner[0] == '\0' || frames == 0U ||
+        frames > SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES || samples == NULL ||
+        format == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(format, 0, sizeof(*format));
+
+    const solar_os_stream_open_options_t options = {
+        .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+        .timeout_ms = 0U,
+        .requested_audio = {
+            .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
+            .bits_per_sample = 16U,
+        },
+    };
+    solar_os_stream_handle_t stream = SOLAR_OS_STREAM_HANDLE_INIT;
+    esp_err_t err = solar_os_audio_open_default(
+        SOLAR_OS_STREAM_DIRECTION_SOURCE, owner, &options, &stream, NULL);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const solar_os_audio_stream_format_t captured_format = stream.audio;
+    if (captured_format.sample_format != SOLAR_OS_STREAM_AUDIO_S16_LE ||
+        captured_format.bits_per_sample != 16U ||
+        captured_format.sample_rate == 0U || captured_format.channels == 0U ||
+        captured_format.channels > SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS) {
+        solar_os_stream_close(&stream);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const size_t sample_count = frames * captured_format.channels;
+    if (sample_capacity < sample_count) {
+        solar_os_stream_close(&stream);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    const size_t target_bytes = sample_count * sizeof(*samples);
+    const size_t frame_bytes =
+        captured_format.channels * sizeof(*samples);
+    size_t captured_bytes = 0U;
+    while (captured_bytes < target_bytes) {
+        const size_t remaining_frames =
+            (target_bytes - captured_bytes) / frame_bytes;
+        size_t block_frames = captured_format.frames_per_block;
+        if (block_frames == 0U || block_frames > remaining_frames) {
+            block_frames = remaining_frames;
+        }
+        const size_t read_bytes = block_frames * frame_bytes;
+        size_t read_len = 0U;
+        err = solar_os_stream_read(&stream,
+                                   (uint8_t *)samples + captured_bytes,
+                                   read_bytes,
+                                   UINT32_MAX,
+                                   &read_len);
+        if (err != ESP_OK) {
+            break;
+        }
+        if (read_len == 0U || read_len > read_bytes ||
+            (read_len % frame_bytes) != 0U) {
+            err = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        captured_bytes += read_len;
+    }
+
+    solar_os_stream_close(&stream);
+    if (err == ESP_OK) {
+        *format = captured_format;
+    }
+    return err;
+}
+
 esp_err_t solar_os_audio_set_device_volume(const char *id, uint8_t volume)
 {
     if (!audio_device_id_valid(id) || volume > 100U) {

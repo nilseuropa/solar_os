@@ -86,3 +86,12 @@ esp_err_t solar_os_tui_draw_input(solar_os_tui_t *tui,
                                   const char *text,
                                   solar_os_tui_input_state_t *state,
                                   uint8_t attr);
+esp_err_t solar_os_tui_draw_input_ex(solar_os_tui_t *tui,
+                                     size_t row,
+                                     size_t col,
+                                     size_t width,
+                                     const char *label,
+                                     const char *text,
+                                     solar_os_tui_input_state_t *state,
+                                     uint8_t attr,
+                                     bool masked);

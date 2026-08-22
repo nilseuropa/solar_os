@@ -1074,17 +1074,18 @@ clears the loaded catalog from memory, and also removes the legacy hidden
 `.solar/playground` directory when present. Source and storage preferences are
 retained.
 
-The shell subcommands use the local catalog: `refresh` downloads and saves it,
-`reload` loads that saved copy without network access, `search` prints matches,
-`install` downloads and verifies an application by ID, and `run` launches an
-installed ID directly through its declared Python or Lua runtime without
-creating a Playground session. Tab completes installed catalog IDs after
-`playground install` and `playground run`. Arguments after the application ID
-are forwarded unchanged to the selected Python or Lua script. For example,
-`playground run qr-share --file /notes/wifi.txt` passes both options to QR
-Share. Opening the TUI reloads the saved catalog automatically and does not
-refresh it. At the top-level catalog tree, `Esc`, `q`, and the app-exit key exit
-Playground.
+The shell subcommands use the local catalog for browsing and installation:
+`refresh` downloads and saves it, `reload` loads that saved copy without network
+access, `search` prints matches, and `install` downloads and verifies an
+application by ID. `run` reads an installed application's own manifest, so it
+does not require a catalog reload. It launches the declared Python or Lua
+runtime without creating a Playground session. Installation also adds the app
+ID to the managed `/.shell/playground` aliases, so `qr-share --file
+/notes/wifi.txt` is equivalent to `playground run qr-share --file
+/notes/wifi.txt`. Uninstalling removes the generated alias. Arguments are
+forwarded unchanged to the selected script. Opening the TUI reloads the saved
+catalog automatically and does not refresh it. At the top-level catalog tree,
+`Esc`, `q`, and the app-exit key exit Playground.
 
 `playground storage` shows the persistent catalog and default application
 storage. Set it with `playground storage flash` or `playground storage sd`.

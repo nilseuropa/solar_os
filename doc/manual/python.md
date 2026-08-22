@@ -344,6 +344,10 @@ upstream MicroPython networking module is exposed.
 - `put(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
 - `patch(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
 - `delete(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
+- `stream_open(method, url[, body[, headers[, timeout_ms[, follow_redirects]]]])`
+- `stream_read(handle[, timeout_ms])`
+- `stream_close(handle)`
+- `stream_close_all()`
 
 Methods are case-insensitive in `request()`. Request bodies accept text or any
 readable buffer. URLs must use `http://` or `https://`. Headers are a dictionary
@@ -364,6 +368,29 @@ allocation failures, cancellation, deadlines, DNS failures, and transport
 errors raise `OSError("ESP_ERR_...")`. Exiting the Python app cancels an active
 request.
 
+`stream_open()` starts a native worker and returns an interpreter-owned opaque
+handle. Unlike `request()`, it has no end-to-end deadline: `timeout_ms` bounds
+each connect, header, write, or body-read operation and accepts 0 through 60000;
+zero selects the 10000 ms service default.
+`stream_read()` returns `None` when its wait expires. Otherwise it returns the
+next ordered event dictionary:
+
+- `header`: `status_code`, `name`, `value`, and `truncated`
+- `response`: `status_code` and `content_length`
+- `data`: `status_code` and up to 1024 binary bytes in `data`
+- `complete` or `error`: final status, content length, received byte count,
+  duration, cancellation/deadline flags, and ESP error details
+
+Each runtime can open two streams, with four streams globally. Each stream has
+an eight-event queue. If a script does not drain it, SolarOS terminates the
+stream with `ESP_ERR_NO_MEM`; it never silently drops body bytes. Handles close
+automatically at interpreter teardown. Always close them explicitly in
+`finally` so a completed stream releases its queue and handle immediately.
+
+The data boundary is a transport chunk, not an application record. For SSE,
+retain an incomplete line across `data` events and dispatch a message only at
+the blank line that terminates the SSE record.
+
 ```python
 import solaros
 
@@ -376,6 +403,28 @@ response = solaros.http.post(
     {"Content-Type": "application/json"},
 )
 print(response["status_code"], response["body"])
+```
+
+```python
+handle = solaros.http.stream_open(
+    "GET",
+    "https://example.com/events",
+    None,
+    {"Accept": "text/event-stream"},
+)
+pending = b""
+try:
+    while not solaros.should_exit():
+        event = solaros.http.stream_read(handle, 250)
+        if event and event["type"] == "data":
+            pending += event["data"]
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                print(line.rstrip(b"\r"))
+        elif event and event["type"] in ("complete", "error"):
+            break
+finally:
+    solaros.http.stream_close(handle)
 ```
 
 ## `solaros.gpio`
@@ -808,6 +857,10 @@ Audio functions expose the microphone, speaker, and WAV service.
 - `cancel(request_id)`: cancel a queued or playing asynchronous tone.
 - `queue_status()`: return asynchronous tone worker, queue, and result counters.
 - `level(duration_ms)`: measure input level and return samples, peak, and average percent.
+- `capture(frames)`: capture 1 through 4096 native input frames and return
+  `(pcm, format)`. `pcm` contains interleaved little-endian signed-16 samples.
+  `format` contains `sample_format`, `sample_rate`, `channels`, and
+  `bits_per_sample`.
 - `loopback(duration_ms[, volume])`: run microphone-to-speaker loopback.
 - `wav_info(path)`: inspect a WAV file.
 - `record_wav(path, duration_ms)`: record a native WAV file.
@@ -823,6 +876,8 @@ solaros.audio.tone(880, 200, 40)
 sound = solaros.audio.tone_async(1175, 70)
 print(solaros.audio.queue_status())
 print(solaros.audio.level(500))
+pcm, format = solaros.audio.capture(1024)
+print(len(pcm), format)
 ```
 
 ## `solaros.synth`

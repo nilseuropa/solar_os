@@ -42,22 +42,37 @@ The same operations are available directly from the shell. `search` prints
 matching catalog IDs, runtimes, names, and installation markers. `install`
 downloads and verifies one ID to the configured filesystem, or to an explicit
 `flash` or `sd` target. The omitted and `auto` targets both use the persistent
-Playground storage setting. `run` resolves the installed entry in the
-shell and launches its Python or Lua runtime directly; it does not create a
-Playground session. Additional arguments after the application ID are passed
-to Python through `sys.argv` or to Lua through `arg`. For example:
+Playground storage setting. `run` resolves the installed manifest and launches
+its Python or Lua runtime directly; it does not need the catalog to be loaded
+and does not create a Playground session. Additional arguments after the
+application ID are passed to Python through `sys.argv` or to Lua through `arg`.
+For example:
 
 ```text
 playground run qr-share --file /notes/wifi.txt
 ```
 
+Every valid installed application also becomes a command named by its ID. For
+example, installing `qr-share` makes this equivalent:
+
+```text
+qr-share --file /notes/wifi.txt
+```
+
+Playground rebuilds these aliases automatically in the managed
+`/.shell/playground` file after installation, update, uninstall, bulk deletion,
+and service initialization. User aliases in `/.shell/alias` take precedence;
+native firmware commands and applications cannot be replaced by a Playground
+alias. Use `playground run APP-ID` if an application ID has such a collision.
+
 `--file PATH` is the canonical optional convention for a Playground script's
 primary input file. After `--file`, Tab completes filesystem paths. This also
 works through a multi-token alias such as `run playground run`.
 
-After the catalog is loaded, Tab completes installed application IDs for both
-`install` and `run` without keeping a second ID list in memory. These commands
-use the loaded local catalog.
+After the catalog is loaded, Tab completes application IDs for `install` and
+installed IDs for `run` without keeping a second catalog list in memory. The
+generated direct commands participate in normal command completion even when
+the catalog is not loaded.
 
 Opening the Playground TUI never accesses the network automatically. It shows
 the catalog saved by the last successful refresh. Press `r` or run `playground
@@ -150,4 +165,5 @@ inspect or change the catalog source, and `playground storage [flash|sd]` to
 choose persistent catalog and application storage. Packages are hash-checked
 but scripts are not sandboxed. Shell automation can use `playground search
 QUERY`, `playground install ID [auto|flash|sd]`, `playground run ID [ARG...]`, and
-`playground delete`.
+`playground delete`. Installed IDs are also automatic shell commands backed by
+`/.shell/playground`.

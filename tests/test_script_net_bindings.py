@@ -93,8 +93,20 @@ class ScriptNetBindingsTest(unittest.TestCase):
         self.assertIn("net_remaining_ms(deadline_us)", NET_SOURCE)
 
     def test_both_interpreters_close_channels_before_vm_teardown(self):
-        self.assertIn("python_net_destroy();\n#endif\n    mp_embed_deinit();", PYTHON_SOURCE)
-        self.assertIn("solua_net_destroy();\n#endif\n    lua_close(L);", LUA_SOURCE)
+        self.assertIn(
+            "python_net_destroy();\n#endif\n"
+            "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
+            "    python_http_stream_destroy();\n#endif\n"
+            "    mp_embed_deinit();",
+            PYTHON_SOURCE,
+        )
+        self.assertIn(
+            "solua_net_destroy();\n#endif\n"
+            "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
+            "    solua_http_stream_destroy();\n#endif\n"
+            "    lua_close(L);",
+            LUA_SOURCE,
+        )
 
     def test_transport_service_is_only_required_by_script_runtimes(self):
         service_net = PACKAGE_SOURCE.split("[packages.service_net]", 1)[1].split(

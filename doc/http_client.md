@@ -13,7 +13,9 @@ and callback context must remain valid until `solar_os_http_request_perform()`
 returns. Perform is intentionally blocking: callers run it in their own worker
 task so the cooperative scheduler is never used for network I/O.
 
-Response headers and body chunks are delivered through the event callback.
+Response headers, final response metadata, and body chunks are delivered
+through the event callback. `SOLAR_OS_HTTP_EVENT_RESPONSE` reports the final
+status and content length after redirect handling and before body chunks.
 Returning an error stops the stream and returns that error from perform. The
 final `solar_os_http_response_t` reports status, content length, streamed byte
 count, duration, cancellation, and deadline expiry.
@@ -22,6 +24,13 @@ errors; callers decide how to handle them.
 
 Call `solar_os_http_request_cancel()` from another task to interrupt an active
 request. Once perform has returned, call `solar_os_http_request_destroy()`.
+
+`solar_os_http_stream.h` adds an owned asynchronous wrapper for script and UI
+consumers. It copies all request options, runs the blocking request on an
+internal-stack foreground worker, and exposes bounded `response`, `header`,
+`data`, `complete`, and `error` events through generation-checked handles. Use
+this wrapper when the consumer must continue its event loop while a long-lived
+HTTP response is open.
 
 ## Timing Controls
 

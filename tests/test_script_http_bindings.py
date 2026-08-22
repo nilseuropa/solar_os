@@ -18,7 +18,10 @@ HTTP_SOURCE = (REPOSITORY / "src/services/solar_os_http_client.c").read_text(
 
 class ScriptHttpBindingsTest(unittest.TestCase):
     def test_python_and_lua_register_the_same_http_methods(self):
-        for method in ("request", "get", "post", "put", "patch", "delete", "head"):
+        for method in (
+            "request", "get", "post", "put", "patch", "delete", "head",
+            "stream_open", "stream_read", "stream_close", "stream_close_all",
+        ):
             self.assertIn(
                 f"SOLAR_OS_SCRIPT_API_FUNCTION(http, {method}, {method});",
                 API_DESCRIPTOR,
@@ -28,6 +31,28 @@ class ScriptHttpBindingsTest(unittest.TestCase):
             self.assertIn('#include "solar_os_script_api.inc"', source)
             self.assertIn("solar_os_http_perform_buffered", source)
         self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT", API_DESCRIPTOR)
+
+    def test_stream_bindings_are_bounded_and_have_python_lua_parity(self):
+        stream_header = (
+            REPOSITORY / "src/services/solar_os_http_stream.h"
+        ).read_text(encoding="utf-8")
+        stream_source = (
+            REPOSITORY / "src/services/solar_os_http_stream.c"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "SOLAR_OS_HTTP_STREAM_SESSION_MAX_HANDLES 2U",
+            "SOLAR_OS_HTTP_STREAM_GLOBAL_MAX_HANDLES 4U",
+            "SOLAR_OS_HTTP_STREAM_EVENT_DATA_MAX 1024U",
+            "SOLAR_OS_HTTP_STREAM_EVENT_COMPLETE",
+            "SOLAR_OS_HTTP_STREAM_EVENT_ERROR",
+        ):
+            self.assertIn(token, stream_header)
+        self.assertIn("solar_os_queue_create(HTTP_STREAM_QUEUE_LEN", stream_source)
+        self.assertIn("return ESP_ERR_NO_MEM", stream_source)
+        self.assertIn("solar_os_task_create_pinned_internal", stream_source)
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn("solar_os_http_stream_session_destroy", source)
+            self.assertIn('"deadline_exceeded"', source)
 
     def test_python_and_lua_return_the_same_response_fields(self):
         for field in (
