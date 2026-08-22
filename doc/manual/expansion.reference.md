@@ -425,8 +425,8 @@ radio recv radio0 5000
 
 The built-in `meshcore-eu868` profile is specifically for MeshCore companion
 operation in the EU868 region: 869.618 MHz, 62.5 kHz, SF8, coding rate 4/8,
-private sync word `0x12`, CRC, variable length, and 14 dBm. MeshCore always
-requires an explicit profile:
+a 32-symbol preamble, private sync word `0x12`, CRC, variable length, and
+14 dBm. MeshCore always requires an explicit profile:
 
 ```text
 job start meshcore radio0 meshcore-eu868
