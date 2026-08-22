@@ -27,6 +27,8 @@ static void meshcore_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  meshcore advert zero|flood");
     solar_os_shell_io_writeln(io, "  meshcore channel list");
     solar_os_shell_io_writeln(
+        io, "  meshcore channel add <#hashtag>");
+    solar_os_shell_io_writeln(
         io, "  meshcore channel add <name> <base64-psk>");
     solar_os_shell_io_writeln(
         io, "  meshcore channel remove <name>");
@@ -186,7 +188,11 @@ static bool meshcore_channel(solar_os_shell_io_t *io,
     }
     esp_err_t error = ESP_ERR_INVALID_ARG;
     const char *operation = "channel";
-    if (argc == 5 && strcmp(argv[2], "add") == 0) {
+    if (argc == 4 && strcmp(argv[2], "add") == 0 &&
+        argv[3][0] == '#') {
+        operation = "channel add";
+        error = solar_os_meshcore_channel_add(argv[3], NULL);
+    } else if (argc == 5 && strcmp(argv[2], "add") == 0) {
         operation = "channel add";
         error = solar_os_meshcore_channel_add(argv[3], argv[4]);
     } else if (argc == 4 && strcmp(argv[2], "remove") == 0) {

@@ -80,6 +80,7 @@ esp_err_t solar_os_meshcore_name_set(const char *name);
 size_t solar_os_meshcore_channel_snapshot(
     solar_os_meshcore_channel_t *channels,
     size_t max_channels);
+/* Pass NULL for base64_psk to derive a public hashtag channel key. */
 esp_err_t solar_os_meshcore_channel_add(const char *name,
                                         const char *base64_psk);
 esp_err_t solar_os_meshcore_channel_remove(const char *name);

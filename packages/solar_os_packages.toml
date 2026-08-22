@@ -728,6 +728,7 @@ depends = [
 ]
 sources = [
   "services/solar_os_meshcore.cpp",
+  "services/solar_os_meshcore_channel_key.cpp",
   "vendor/meshcore/Dispatcher.cpp",
   "vendor/meshcore/Identity.cpp",
   "vendor/meshcore/Mesh.cpp",
