@@ -3747,6 +3747,46 @@ static mp_obj_t solaros_audio_level(mp_obj_t duration_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_level_obj, solaros_audio_level);
 
+static mp_obj_t solaros_audio_capture(mp_obj_t frames_obj)
+{
+    const size_t frames = python_size_from_obj(frames_obj);
+    if (frames == 0U || frames > SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected frames 1..4096"));
+    }
+
+    const size_t sample_capacity =
+        frames * SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS;
+    int16_t *samples = (int16_t *)python_alloc_psram_first(
+        sample_capacity * sizeof(*samples));
+    if (samples == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    solar_os_audio_stream_format_t format;
+    const esp_err_t err = solar_os_audio_capture(
+        "python", frames, samples, sample_capacity, &format);
+    if (err != ESP_OK) {
+        solar_os_memory_free(samples);
+        python_check_esp(err);
+    }
+
+    const size_t data_bytes = frames * format.channels * sizeof(*samples);
+    mp_obj_t pcm = mp_obj_new_bytes((const byte *)samples, data_bytes);
+    solar_os_memory_free(samples);
+
+    mp_obj_t format_dict = mp_obj_new_dict(4);
+    python_dict_store_cstr(
+        format_dict,
+        "sample_format",
+        solar_os_stream_audio_sample_format_name(format.sample_format));
+    python_dict_store_uint(format_dict, "sample_rate", format.sample_rate);
+    python_dict_store_int(format_dict, "channels", format.channels);
+    python_dict_store_int(format_dict, "bits_per_sample", format.bits_per_sample);
+    mp_obj_t result[2] = {pcm, format_dict};
+    return mp_obj_new_tuple(2, result);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_audio_capture_obj, solaros_audio_capture);
+
 static mp_obj_t solaros_audio_loopback(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t duration_ms = python_optional_u32(n_args, args, 0, 0);

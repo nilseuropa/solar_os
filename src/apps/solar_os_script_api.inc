@@ -319,6 +319,7 @@ SOLAR_OS_SCRIPT_API_FUNCTION(audio, tone_async, tone_async);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, cancel, cancel);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, queue_status, queue_status);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, level, level);
+SOLAR_OS_SCRIPT_API_FUNCTION(audio, capture, capture);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, loopback, loopback);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, wav_info, wav_info);
 SOLAR_OS_SCRIPT_API_FUNCTION(audio, record_wav, record_wav);

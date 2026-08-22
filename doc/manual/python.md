@@ -808,6 +808,10 @@ Audio functions expose the microphone, speaker, and WAV service.
 - `cancel(request_id)`: cancel a queued or playing asynchronous tone.
 - `queue_status()`: return asynchronous tone worker, queue, and result counters.
 - `level(duration_ms)`: measure input level and return samples, peak, and average percent.
+- `capture(frames)`: capture 1 through 4096 native input frames and return
+  `(pcm, format)`. `pcm` contains interleaved little-endian signed-16 samples.
+  `format` contains `sample_format`, `sample_rate`, `channels`, and
+  `bits_per_sample`.
 - `loopback(duration_ms[, volume])`: run microphone-to-speaker loopback.
 - `wav_info(path)`: inspect a WAV file.
 - `record_wav(path, duration_ms)`: record a native WAV file.
@@ -823,6 +827,8 @@ solaros.audio.tone(880, 200, 40)
 sound = solaros.audio.tone_async(1175, 70)
 print(solaros.audio.queue_status())
 print(solaros.audio.level(500))
+pcm, format = solaros.audio.capture(1024)
+print(len(pcm), format)
 ```
 
 ## `solaros.synth`

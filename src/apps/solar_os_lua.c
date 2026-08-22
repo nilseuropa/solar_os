@@ -3578,6 +3578,45 @@ static int solua_audio_level(lua_State *L)
     return 1;
 }
 
+static int solua_audio_capture(lua_State *L)
+{
+    const size_t frames = solua_check_size(L, 1);
+    if (frames == 0U || frames > SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES) {
+        return luaL_error(L, "expected frames 1..4096");
+    }
+
+    const size_t sample_capacity =
+        frames * SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS;
+    int16_t *samples = solar_os_memory_alloc(
+        sample_capacity * sizeof(*samples),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+        "lua.audio.capture");
+    if (samples == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+
+    solar_os_audio_stream_format_t format;
+    const esp_err_t err = solar_os_audio_capture(
+        "lua", frames, samples, sample_capacity, &format);
+    if (err != ESP_OK) {
+        solar_os_memory_free(samples);
+        return solua_check_esp(L, err);
+    }
+
+    lua_pushlstring(L,
+                    (const char *)samples,
+                    frames * format.channels * sizeof(*samples));
+    solar_os_memory_free(samples);
+
+    lua_newtable(L);
+    lua_pushstring(L, solar_os_stream_audio_sample_format_name(format.sample_format));
+    lua_setfield(L, -2, "sample_format");
+    solua_set_int(L, -1, "sample_rate", format.sample_rate);
+    solua_set_int(L, -1, "channels", format.channels);
+    solua_set_int(L, -1, "bits_per_sample", format.bits_per_sample);
+    return 2;
+}
+
 static int solua_audio_loopback(lua_State *L)
 {
     return solua_check_esp(L,
