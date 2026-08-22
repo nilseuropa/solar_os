@@ -1485,7 +1485,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 #endif
     solar_os_shell_io_writeln(term, "  setterm powerkey [sleep|suspend]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
-    solar_os_shell_io_writeln(term, "  setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
+    solar_os_shell_io_writeln(term, "  setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]");
     solar_os_shell_io_writeln(term, "  setterm startup [flash|sd]");
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     solar_os_shell_io_writeln(term, "  setterm otaurl [url]");
@@ -1944,13 +1944,13 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             if (strcmp(timezone, posix) != 0) {
                 solar_os_shell_io_printf(term, "posix: %s\n", posix);
             }
-            solar_os_shell_io_writeln(term, "values: UTC Europe/Berlin or POSIX TZ");
+            solar_os_shell_io_writeln(term, "values: UTC UTC+/-offset Europe/Berlin or POSIX TZ");
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(
                 term, "setterm timezone", argv[3],
-                "setterm timezone [UTC|Europe/Berlin|POSIX-TZ]");
+                "setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]");
             return;
         }
 
@@ -1958,8 +1958,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_diag_invalid(
                 term, "setterm timezone", "timezone", argv[2],
-                "UTC, Europe/Berlin, or a POSIX timezone",
-                "setterm timezone [UTC|Europe/Berlin|POSIX-TZ]", false);
+                "UTC, UTC+/-offset, Europe/Berlin, or a POSIX timezone",
+                "setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]", false);
             return;
         }
 

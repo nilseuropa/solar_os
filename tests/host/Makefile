@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -173,6 +173,12 @@ meshcore_channel_key_test: meshcore_channel_key_test.cpp \
 		$(ROOT)/src/vendor/meshcore/crypto/Hash.cpp \
 		$(ROOT)/src/vendor/meshcore/crypto/Crypto.cpp -o $@
 
+time_timezone_test: time_timezone_test.c \
+		$(ROOT)/src/services/solar_os_timezone.c \
+		$(ROOT)/src/services/solar_os_timezone.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services \
+		time_timezone_test.c $(ROOT)/src/services/solar_os_timezone.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -202,6 +208,7 @@ test: $(TARGETS)
 	./tui_widgets_test
 	./wireguard_crypto_test
 	./meshcore_channel_key_test
+	./time_timezone_test
 
 clean:
 	$(RM) $(TARGETS)
