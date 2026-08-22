@@ -31,6 +31,7 @@ class PlaygroundAliasPolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(launch)
         self.assertIn("solar_os_playground_find_installed_app", launch.group(0))
+        self.assertNotIn("solar_os_playground_init", launch.group(0))
         self.assertNotIn("solar_os_playground_catalog_available", launch.group(0))
         self.assertIn('"%s playground run %s\\n"', PLAYGROUND)
 

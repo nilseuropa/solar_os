@@ -8071,7 +8071,6 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
             io, "watch: cannot launch foreground app: playground run");
         return true;
     }
-    (void)solar_os_playground_init();
     solar_os_playground_app_info_t script;
     if (!solar_os_playground_find_installed_app(argv[2], &script)) {
         solar_os_shell_io_printf(
