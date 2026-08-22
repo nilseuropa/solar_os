@@ -252,6 +252,27 @@ static esp_err_t solar_os_http_deliver_data(solar_os_http_request_t *request,
     return err;
 }
 
+static esp_err_t solar_os_http_deliver_response(solar_os_http_request_t *request,
+                                                int status_code,
+                                                int64_t content_length)
+{
+    if (request->options.event_handler == NULL) {
+        return ESP_OK;
+    }
+
+    const solar_os_http_event_t event = {
+        .type = SOLAR_OS_HTTP_EVENT_RESPONSE,
+        .status_code = status_code,
+        .content_length = content_length,
+    };
+    const esp_err_t err = request->options.event_handler(&event,
+                                                         request->options.user_data);
+    if (err != ESP_OK) {
+        request->event_error = err;
+    }
+    return err;
+}
+
 static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
                                               esp_http_client_handle_t client,
                                               int *status_code,
@@ -310,6 +331,13 @@ static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
             (void)esp_http_client_clear_response_buffer(client);
             (void)esp_http_client_close(client);
             continue;
+        }
+
+        err = solar_os_http_deliver_response(request,
+                                             *status_code,
+                                             *content_length);
+        if (err != ESP_OK) {
+            return err;
         }
 
         if (request->options.method == SOLAR_OS_HTTP_METHOD_HEAD) {

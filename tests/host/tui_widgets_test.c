@@ -5,6 +5,72 @@
 #include "solar_os_keys.h"
 #include "solar_os_tui_widgets.h"
 
+#define TEST_ROWS 4U
+#define TEST_COLS 32U
+
+static uint32_t test_screen[TEST_ROWS][TEST_COLS];
+static size_t test_cursor_row;
+static size_t test_cursor_col;
+static bool test_cursor_visible;
+
+size_t solar_os_tui_rows(const solar_os_tui_t *tui)
+{
+    (void)tui;
+    return TEST_ROWS;
+}
+
+size_t solar_os_tui_cols(const solar_os_tui_t *tui)
+{
+    (void)tui;
+    return TEST_COLS;
+}
+
+esp_err_t solar_os_tui_fill(solar_os_tui_t *tui,
+                            size_t row,
+                            size_t col,
+                            size_t height,
+                            size_t width,
+                            uint32_t codepoint,
+                            uint8_t attr)
+{
+    (void)tui;
+    (void)attr;
+    for (size_t y = row; y < row + height && y < TEST_ROWS; y++) {
+        for (size_t x = col; x < col + width && x < TEST_COLS; x++) {
+            test_screen[y][x] = codepoint;
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_tui_putch(solar_os_tui_t *tui,
+                             size_t row,
+                             size_t col,
+                             uint32_t codepoint,
+                             uint8_t attr)
+{
+    (void)tui;
+    (void)attr;
+    assert(row < TEST_ROWS && col < TEST_COLS);
+    test_screen[row][col] = codepoint;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_tui_move(solar_os_tui_t *tui, size_t row, size_t col)
+{
+    (void)tui;
+    test_cursor_row = row;
+    test_cursor_col = col;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_tui_set_cursor_visible(solar_os_tui_t *tui, bool visible)
+{
+    (void)tui;
+    test_cursor_visible = visible;
+    return ESP_OK;
+}
+
 static void test_viewport(void)
 {
     solar_os_tui_viewport_t viewport = {.cursor = 0, .top = 0};
@@ -63,11 +129,39 @@ static void test_input(void)
                                   SOLAR_OS_KEY_ENTER, 2) == SOLAR_OS_TUI_INPUT_SUBMIT);
 }
 
+static void test_masked_input_draw(void)
+{
+    memset(test_screen, 0, sizeof(test_screen));
+    solar_os_tui_t tui = {0};
+    const char text[] = "p\xc3\xa4ss";
+    solar_os_tui_input_state_t state = {
+        .cursor = strlen(text),
+        .view = 0,
+    };
+    assert(solar_os_tui_draw_input_ex(&tui,
+                                      1,
+                                      0,
+                                      10,
+                                      "P:",
+                                      text,
+                                      &state,
+                                      SOLAR_OS_TUI_ATTR_NORMAL,
+                                      true) == ESP_OK);
+    assert(test_screen[1][0] == 'P' && test_screen[1][1] == ':');
+    for (size_t col = 2; col < 6; col++) {
+        assert(test_screen[1][col] == '*');
+    }
+    assert(test_screen[1][6] == ' ');
+    assert(test_cursor_row == 1 && test_cursor_col == 6);
+    assert(test_cursor_visible);
+}
+
 int main(void)
 {
     test_viewport();
     test_layout();
     test_input();
+    test_masked_input_draw();
     puts("tui_widgets_test: ok");
     return 0;
 }

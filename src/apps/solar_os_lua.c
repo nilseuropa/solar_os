@@ -59,6 +59,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
 #include "solar_os_http_client.h"
+#include "solar_os_http_stream.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
@@ -260,6 +261,9 @@ SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell and Playground Lua cadence")
 static uint32_t solua_tick_interval_ms;
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 static solar_os_net_session_t *solua_net_session;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+static solar_os_http_stream_session_t *solua_http_stream_session;
 #endif
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
@@ -1671,6 +1675,24 @@ static int solua_mqtt_read(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+static solar_os_http_stream_session_t *solua_http_stream_get(lua_State *L)
+{
+    if (solua_http_stream_session == NULL) {
+        (void)solua_check_esp(L,
+                              solar_os_http_stream_session_create(
+                                  solua_should_cancel,
+                                  NULL,
+                                  &solua_http_stream_session));
+    }
+    return solua_http_stream_session;
+}
+
+static void solua_http_stream_destroy(void)
+{
+    solar_os_http_stream_session_destroy(solua_http_stream_session);
+    solua_http_stream_session = NULL;
+}
+
 static solar_os_http_header_t *solua_http_headers_from_table(lua_State *L,
                                                              int index,
                                                              size_t *header_count)
@@ -1871,6 +1893,125 @@ SOLUA_HTTP_BODY_METHOD(put, SOLAR_OS_HTTP_METHOD_PUT)
 SOLUA_HTTP_BODY_METHOD(patch, SOLAR_OS_HTTP_METHOD_PATCH)
 SOLUA_HTTP_BODY_METHOD(delete, SOLAR_OS_HTTP_METHOD_DELETE)
 #undef SOLUA_HTTP_BODY_METHOD
+
+static int solua_http_stream_open(lua_State *L)
+{
+    solar_os_http_method_t method;
+    if (!solar_os_http_method_parse(luaL_checkstring(L, 1), &method)) {
+        return luaL_error(L, "expected GET, POST, PUT, PATCH, DELETE, or HEAD");
+    }
+    size_t url_len = 0;
+    const char *url = luaL_checklstring(L, 2, &url_len);
+    if (strlen(url) != url_len ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        return luaL_error(L, "expected http:// or https:// URL");
+    }
+    size_t body_len = 0;
+    const char *body = lua_isnoneornil(L, 3) ?
+        NULL : luaL_checklstring(L, 3, &body_len);
+    size_t header_count = 0;
+    solar_os_http_header_t *headers = solua_http_headers_from_table(
+        L,
+        4,
+        &header_count);
+    const solar_os_http_request_options_t options = {
+        .url = url,
+        .method = method,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body,
+        .body_len = body_len,
+        .user_agent = "SolarOS/" SOLAR_OS_VERSION " script",
+        .follow_redirects = lua_isnoneornil(L, 6) || lua_toboolean(L, 6),
+        .timeout_ms = solua_http_timeout_ms(L, 5),
+        .read_poll_ms = SOLUA_HTTP_READ_POLL_MS,
+    };
+    uint32_t handle = 0;
+    const esp_err_t err = solar_os_http_stream_open(solua_http_stream_get(L),
+                                                    &options,
+                                                    &handle);
+    solar_os_memory_free(headers);
+    (void)solua_check_esp(L, err);
+    lua_pushinteger(L, handle);
+    return 1;
+}
+
+static int solua_http_push_stream_event(
+    lua_State *L,
+    const solar_os_http_stream_event_t *event)
+{
+    lua_newtable(L);
+    const int result = lua_gettop(L);
+    solua_set_str(L,
+                  result,
+                  "type",
+                  solar_os_http_stream_event_type_name(event->type));
+    solua_set_int(L, result, "status_code", event->status_code);
+    if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_RESPONSE) {
+        solua_set_int(L, result, "content_length", event->content_length);
+    } else if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_HEADER) {
+        solua_set_str(L, result, "name", event->header_name);
+        solua_set_str(L, result, "value", event->header_value);
+        solua_set_bool(L, result, "truncated", event->truncated);
+    } else if (event->type == SOLAR_OS_HTTP_STREAM_EVENT_DATA) {
+        lua_pushlstring(L, (const char *)event->data, event->data_len);
+        lua_setfield(L, result, "data");
+    } else {
+        solua_set_int(L, result, "content_length", event->content_length);
+        solua_set_int(L, result, "bytes_received", event->bytes_received);
+        solua_set_int(L, result, "duration_ms", event->duration_ms);
+        solua_set_int(L, result, "error", event->error);
+        solua_set_str(L, result, "error_name", esp_err_to_name(event->error));
+        solua_set_bool(L, result, "cancelled", event->cancelled);
+        solua_set_bool(L,
+                       result,
+                       "deadline_exceeded",
+                       event->deadline_exceeded);
+    }
+    return 1;
+}
+
+static int solua_http_stream_read(lua_State *L)
+{
+    if (solua_http_stream_session == NULL) {
+        lua_pushnil(L);
+        return 1;
+    }
+    solar_os_http_stream_event_t event;
+    const esp_err_t err = solar_os_http_stream_read(
+        solua_http_stream_session,
+        solua_check_u32(L, 1),
+        solua_optional_u32(L, 2, 0),
+        &event);
+    if (err == ESP_ERR_TIMEOUT || err == ESP_ERR_INVALID_STATE) {
+        lua_pushnil(L);
+        return 1;
+    }
+    (void)solua_check_esp(L, err);
+    return solua_http_push_stream_event(L, &event);
+}
+
+static int solua_http_stream_close(lua_State *L)
+{
+    if (solua_http_stream_session != NULL) {
+        const esp_err_t err = solar_os_http_stream_close(
+            solua_http_stream_session,
+            solua_check_u32(L, 1));
+        if (err != ESP_ERR_NOT_FOUND) {
+            (void)solua_check_esp(L, err);
+        }
+    }
+    return 0;
+}
+
+static int solua_http_stream_close_all(lua_State *L)
+{
+    (void)L;
+    if (solua_http_stream_session != NULL) {
+        solar_os_http_stream_close_all(solua_http_stream_session);
+    }
+    return 0;
+}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
@@ -5044,7 +5185,8 @@ static int solua_tui_input(lua_State *L)
     solua_tui_text_event(L, SOLUA_EVENT_TUI_INPUT,
                          solua_check_u16_size(L, 1), solua_check_u16_size(L, 2),
                          solua_check_u16_size(L, 3), label, label_len, text, text_len,
-                         solua_optional_tui_attr(L, 8), false,
+                         solua_optional_tui_attr(L, 8),
+                         !lua_isnoneornil(L, 9) && lua_toboolean(L, 9),
                          (int32_t)solua_check_size(L, 6),
                          (int32_t)solua_check_size(L, 7));
     return 0;
@@ -5892,6 +6034,9 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+    solua_http_stream_destroy();
+#endif
     lua_close(L);
 
 cleanup:
@@ -5976,6 +6121,9 @@ done:
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         solua_net_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+        solua_http_stream_destroy();
 #endif
         lua_close(L);
     }
@@ -6244,6 +6392,9 @@ static void solua_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
+    solua_http_stream_destroy();
+#endif
     solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }
 
@@ -6428,8 +6579,9 @@ static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *
         };
         const char *text = event->data_len + 1U < sizeof(event->data) ?
             event->data + event->data_len + 1U : "";
-        solar_os_tui_draw_input(&tui, event->row, event->col, event->width,
-                                event->data, text, &state, event->attr);
+        solar_os_tui_draw_input_ex(&tui, event->row, event->col, event->width,
+                                   event->data, text, &state, event->attr,
+                                   event->success);
         break;
     }
     default:

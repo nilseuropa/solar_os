@@ -127,6 +127,10 @@ SOLAR_OS_SCRIPT_API_FUNCTION(http, put, put);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, patch, patch);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, delete, delete);
 SOLAR_OS_SCRIPT_API_FUNCTION(http, head, head);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_open, stream_open);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_read, stream_read);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_close, stream_close);
+SOLAR_OS_SCRIPT_API_FUNCTION(http, stream_close_all, stream_close_all);
 SOLAR_OS_SCRIPT_API_MODULE_END(http);
 #endif
 

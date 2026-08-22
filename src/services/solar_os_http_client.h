@@ -25,6 +25,7 @@ typedef struct {
 typedef enum {
     SOLAR_OS_HTTP_EVENT_HEADER = 0,
     SOLAR_OS_HTTP_EVENT_DATA,
+    SOLAR_OS_HTTP_EVENT_RESPONSE,
 } solar_os_http_event_type_t;
 
 typedef struct {
@@ -34,6 +35,7 @@ typedef struct {
     const char *header_value;
     const uint8_t *data;
     size_t data_len;
+    int64_t content_length;
 } solar_os_http_event_t;
 
 typedef esp_err_t (*solar_os_http_event_fn)(const solar_os_http_event_t *event,

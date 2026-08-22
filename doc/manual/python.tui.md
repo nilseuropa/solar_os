@@ -23,3 +23,9 @@ tui.help("Enter open  Esc exit")
 
 High-level: layout, cell, title, help, tab, list_move, input_edit, input.
 Rectangles are `(row, col, height, width)`. The low-level API remains.
+
+`input(row, col, width, label, text, cursor, view[, attr[, masked]])` draws an
+editable input row. Set `masked=True` to draw one `*` per UTF-8 character. The
+mask is render-only: `text` and the value returned by `input_edit()` remain
+unchanged, so a script must still avoid logging secrets and discard them when
+they are no longer needed.

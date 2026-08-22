@@ -132,7 +132,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
         )
         self.assertEqual(
             sum(map(len, entries.values())) + nested_count + hid_keycode_count,
-            447,
+            451,
         )
 
     def test_shared_tui_helpers_have_python_lua_parity(self):
@@ -144,6 +144,16 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             self.assertIn(entry, DESCRIPTOR)
             self.assertIn(f"solaros_tui_{name}_obj", PYTHON_BINDINGS)
             self.assertIn(f"solua_tui_{name}", LUA_BINDINGS)
+
+    def test_tui_input_mask_has_python_lua_parity(self):
+        self.assertIn(
+            "MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tui_input_obj, 7, 9",
+            PYTHON_SOURCE,
+        )
+        self.assertIn("n_args > 8", PYTHON_SOURCE)
+        self.assertIn("lua_isnoneornil(L, 9)", LUA_SOURCE)
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn("solar_os_tui_draw_input_ex", source)
 
 
 if __name__ == "__main__":
