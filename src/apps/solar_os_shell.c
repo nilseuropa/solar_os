@@ -98,6 +98,7 @@
 #define SHELL_NVS_STARTUP_SOURCE_KEY "startup_src"
 #define SHELL_SCRIPT_MAX_DEPTH 3
 #define SHELL_ALIAS_MAX_DEPTH 4
+#define SHELL_WAIT_MAX_SECONDS 86400U
 #define SHELL_WATCH_DEFAULT_INTERVAL_MS 2000U
 #define SHELL_WATCH_MIN_INTERVAL_MS 1000U
 #define SHELL_WATCH_MAX_INTERVAL_MS 86400000U
@@ -105,6 +106,8 @@
 #define SHELL_LOG_FOLLOW_BATCH 8
 #define SHELL_ARRAY_COUNT(array) (sizeof(array) / sizeof((array)[0]))
 #define SHELL_COMPLETION_ANY "*"
+/* Scripts and aliases nest dispatch, so keep large rare-path helper frames separate. */
+#define SHELL_NOINLINE __attribute__((noinline))
 #define SHELL_PORT_TERM_MIN_COLS 20U
 #define SHELL_PORT_TERM_MIN_ROWS 8U
 #define SHELL_PORT_TERM_MAX_COLS 300U
@@ -326,7 +329,9 @@ esp_err_t solar_os_shell_startup_path(char *path, size_t path_len)
 }
 
 static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_echo(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
+static void cmd_wait(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_watch(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_reboot(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv);
@@ -367,6 +372,8 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
     {"display", "list display targets", solar_os_shell_cmd_display},
     {"clear", "clear the screen", solar_os_shell_cmd_clear},
+    {"echo", "print text", cmd_echo},
+    {"wait", "pause the calling shell", cmd_wait},
     {"sleep", "enter light sleep", solar_os_shell_cmd_sleep},
     {"suspend", "keep services running with the display off", solar_os_shell_cmd_suspend},
     {"power", "power profile and sleep policy", solar_os_shell_cmd_power},
@@ -3039,6 +3046,50 @@ static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv)
     }
 }
 
+static void cmd_echo(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = shell_io(ctx);
+
+    for (int i = 1; i < argc; i++) {
+        if (i > 1) {
+            solar_os_shell_io_write(io, " ");
+        }
+        solar_os_shell_io_write(io, argv[i]);
+    }
+    solar_os_shell_io_newline(io);
+}
+
+static void cmd_wait(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = shell_io(ctx);
+
+    if (argc != 2) {
+        if (argc < 2) {
+            solar_os_shell_diag_missing(io, "wait", "seconds", "wait <seconds>");
+        } else {
+            solar_os_shell_diag_unexpected(io, "wait", argv[2], "wait <seconds>");
+        }
+        return;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const unsigned long seconds = strtoul(argv[1], &end, 10);
+    if (errno != 0 || end == argv[1] || *end != '\0' ||
+        seconds > SHELL_WAIT_MAX_SECONDS) {
+        solar_os_shell_diag_invalid(io,
+                                    "wait",
+                                    "seconds",
+                                    argv[1],
+                                    "0 through 86400",
+                                    "wait <seconds>",
+                                    false);
+        return;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS((uint32_t)seconds * 1000U));
+}
+
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
     return shell_io(ctx);
@@ -3906,12 +3957,12 @@ static bool shell_alias_expand_callback(const char *name, int argc, char **argv,
     return false;
 }
 
-static bool shell_try_alias(solar_os_context_t *ctx,
-                            int argc,
-                            char **argv,
-                            const char *source,
-                            size_t line_number,
-                            bool *matched)
+static bool SHELL_NOINLINE shell_try_alias(solar_os_context_t *ctx,
+                                           int argc,
+                                           char **argv,
+                                           const char *source,
+                                           size_t line_number,
+                                           bool *matched)
 {
     solar_os_shell_io_t *term = terminal(ctx);
     shell_alias_expand_t expand = {
@@ -8048,9 +8099,15 @@ static bool shell_prepare_app_launch_args(
 }
 
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
-static bool shell_launch_playground_script(solar_os_context_t *ctx,
-                                           int argc,
-                                           char **argv)
+static bool SHELL_NOINLINE shell_launch_playground_script(
+    solar_os_context_t *ctx,
+    int argc,
+    char **argv);
+
+static bool shell_launch_playground_script(
+    solar_os_context_t *ctx,
+    int argc,
+    char **argv)
 {
     solar_os_shell_io_t *io = terminal(ctx);
     if (argc < 3) {
@@ -8135,6 +8192,112 @@ static bool shell_launch_playground_script(solar_os_context_t *ctx,
     return false;
 }
 #endif
+
+static bool SHELL_NOINLINE shell_launch_registered_app(
+    solar_os_context_t *ctx,
+    const solar_os_app_registry_entry_t *app,
+    int argc,
+    char **argv,
+    const char *source,
+    size_t line_number)
+{
+    solar_os_shell_io_t *io = terminal(ctx);
+    char *launch_argv[SHELL_ARG_MAX];
+    shell_app_launch_storage_t launch_storage = {0};
+
+    if (shell_session(ctx)->watch_executing) {
+        solar_os_shell_io_printf(io,
+                                 "watch: cannot launch foreground app: %s\n",
+                                 app->name);
+        return true;
+    }
+    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT &&
+        (app->capabilities & SOLAR_OS_APP_CAP_PORT) == 0) {
+        solar_os_shell_io_printf(io,
+                                 "%s: display-only app; use the display shell\n",
+                                 app->name);
+        return true;
+    }
+
+    char owner[SOLAR_OS_APP_OWNER_MAX];
+    if (solar_os_app_registry_owner(app->app, owner, sizeof(owner))) {
+        solar_os_shell_io_printf(io,
+                                 "%s: already running on %s\n",
+                                 app->name,
+                                 owner[0] != '\0' ? owner : "another session");
+        return true;
+    }
+
+    solar_os_shell_diag_set_source(io, source, line_number);
+    if (!shell_prepare_app_launch_args(ctx,
+                                       app,
+                                       argc,
+                                       argv,
+                                       launch_argv,
+                                       &launch_storage)) {
+        solar_os_shell_diag_set_source(io, NULL, 0);
+        return true;
+    }
+    solar_os_shell_diag_set_source(io, NULL, 0);
+
+    const esp_err_t err =
+        solar_os_context_request_launch(ctx, app->app, argc, launch_argv);
+    if (err == ESP_OK) {
+        shell_session(ctx)->prompt_on_resume = true;
+        shell_session(ctx)->clear_on_resume =
+            (app->app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) == 0;
+        return false;
+    }
+
+    solar_os_shell_diag_set_source(io, source, line_number);
+    if (err == ESP_ERR_INVALID_ARG && app->usage != NULL) {
+        solar_os_shell_diag_problem(io,
+                                    app->name,
+                                    "invalid launch arguments",
+                                    app->usage,
+                                    NULL);
+    } else {
+        solar_os_shell_diag_esp(io,
+                                app->name,
+                                err,
+                                "application could not start",
+                                NULL);
+    }
+    solar_os_shell_diag_set_source(io, NULL, 0);
+    return true;
+}
+
+static void SHELL_NOINLINE shell_report_unknown_command(
+    solar_os_shell_io_t *io,
+    const char *command,
+    const char *source,
+    size_t line_number)
+{
+    const char *candidate_names[128];
+    size_t candidate_count = 0;
+    for (size_t i = 0; i < shell_builtin_command_count &&
+                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
+        candidate_names[candidate_count++] = shell_builtin_commands[i].name;
+    }
+    for (size_t i = 0; i < solar_os_app_registry_count() &&
+                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
+        const solar_os_app_registry_entry_t *candidate = solar_os_app_registry_get(i);
+        if (candidate != NULL && !shell_builtin_command_exists(candidate->name)) {
+            candidate_names[candidate_count++] = candidate->name;
+        }
+    }
+    const char *suggestion =
+        solar_os_shell_suggest(command, candidate_names, candidate_count);
+    char alias_suggestion[SHELL_INPUT_MAX];
+    if (suggestion == NULL) {
+        suggestion = shell_alias_suggestion(command,
+                                            alias_suggestion,
+                                            sizeof(alias_suggestion));
+    }
+    solar_os_shell_diag_set_source(io, source, line_number);
+    solar_os_shell_diag_unknown(io, "shell", "command", command, suggestion, NULL);
+    solar_os_shell_diag_set_source(io, NULL, 0);
+}
 
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
@@ -8227,61 +8390,12 @@ static bool shell_execute_line(solar_os_context_t *ctx,
 
     const solar_os_app_registry_entry_t *app = solar_os_app_registry_find(argv[0]);
     if (app != NULL) {
-        char *launch_argv[SHELL_ARG_MAX];
-        shell_app_launch_storage_t launch_storage = {0};
-
-        if (shell_session(ctx)->watch_executing) {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "watch: cannot launch foreground app: %s\n",
-                                     app->name);
-            return true;
-        }
-        if (solar_os_shell_io_kind(shell_io(ctx)) == SOLAR_OS_SHELL_IO_KIND_PORT &&
-            (app->capabilities & SOLAR_OS_APP_CAP_PORT) == 0) {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "%s: display-only app; use the display shell\n",
-                                     app->name);
-            return true;
-        }
-
-        char owner[SOLAR_OS_APP_OWNER_MAX];
-        if (solar_os_app_registry_owner(app->app, owner, sizeof(owner))) {
-            solar_os_shell_io_printf(terminal(ctx),
-                                     "%s: already running on %s\n",
-                                     app->name,
-                                     owner[0] != '\0' ? owner : "another session");
-            return true;
-        }
-
-        solar_os_shell_diag_set_source(io, source, line_number);
-        if (!shell_prepare_app_launch_args(ctx,
+        return shell_launch_registered_app(ctx,
                                            app,
                                            argc,
                                            argv,
-                                           launch_argv,
-                                           &launch_storage)) {
-            solar_os_shell_diag_set_source(io, NULL, 0);
-            return true;
-        }
-        solar_os_shell_diag_set_source(io, NULL, 0);
-
-        const esp_err_t err = solar_os_context_request_launch(ctx, app->app, argc, launch_argv);
-        if (err == ESP_OK) {
-            shell_session(ctx)->prompt_on_resume = true;
-            shell_session(ctx)->clear_on_resume =
-                (app->app->flags & SOLAR_OS_APP_FLAG_RESUMABLE) == 0;
-            return false;
-        }
-
-        solar_os_shell_diag_set_source(io, source, line_number);
-        if (err == ESP_ERR_INVALID_ARG && app->usage != NULL) {
-            solar_os_shell_diag_problem(io, app->name, "invalid launch arguments",
-                                        app->usage, NULL);
-        } else {
-            solar_os_shell_diag_esp(io, app->name, err, "application could not start", NULL);
-        }
-        solar_os_shell_diag_set_source(io, NULL, 0);
-        return true;
+                                           source,
+                                           line_number);
     }
 
     bool alias_matched = false;
@@ -8291,29 +8405,7 @@ static bool shell_execute_line(solar_os_context_t *ctx,
         return alias_should_prompt;
     }
 
-    const char *candidate_names[128];
-    size_t candidate_count = 0;
-    for (size_t i = 0; i < shell_builtin_command_count &&
-                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
-        candidate_names[candidate_count++] = shell_builtin_commands[i].name;
-    }
-    for (size_t i = 0; i < solar_os_app_registry_count() &&
-                       candidate_count < SHELL_ARRAY_COUNT(candidate_names); i++) {
-        const solar_os_app_registry_entry_t *candidate = solar_os_app_registry_get(i);
-        if (candidate != NULL && !shell_builtin_command_exists(candidate->name)) {
-            candidate_names[candidate_count++] = candidate->name;
-        }
-    }
-    const char *suggestion =
-        solar_os_shell_suggest(argv[0], candidate_names, candidate_count);
-    char alias_suggestion[SHELL_INPUT_MAX];
-    if (suggestion == NULL) {
-        suggestion = shell_alias_suggestion(argv[0], alias_suggestion,
-                                            sizeof(alias_suggestion));
-    }
-    solar_os_shell_diag_set_source(io, source, line_number);
-    solar_os_shell_diag_unknown(io, "shell", "command", argv[0], suggestion, NULL);
-    solar_os_shell_diag_set_source(io, NULL, 0);
+    shell_report_unknown_command(io, argv[0], source, line_number);
     return true;
 }
 
