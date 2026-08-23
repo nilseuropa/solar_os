@@ -59,6 +59,19 @@ int main(void)
     assert(solar_os_shell_suggest("can", ambiguous, 2) == NULL);
     assert(solar_os_shell_suggest("completely-different", commands, 3) == NULL);
 
+    uint32_t color = 0;
+    assert(solar_os_shell_parse_rgb888("#12AbEF", &color));
+    assert(color == 0x12abef);
+    assert(solar_os_shell_parse_rgb888("12abef", &color));
+    assert(color == 0x12abef);
+    assert(solar_os_shell_parse_rgb888("0x12ABEF", &color));
+    assert(color == 0x12abef);
+    assert(!solar_os_shell_parse_rgb888("#fff", &color));
+    assert(!solar_os_shell_parse_rgb888("#12abeg", &color));
+    assert(!solar_os_shell_parse_rgb888("0x1234567", &color));
+    assert(!solar_os_shell_parse_rgb888(NULL, &color));
+    assert(!solar_os_shell_parse_rgb888("#123456", NULL));
+
     puts("shell_parse_test: ok");
     return 0;
 }

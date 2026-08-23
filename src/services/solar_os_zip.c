@@ -880,6 +880,44 @@ static esp_err_t zip_copy_stored(FILE *archive,
     return ESP_OK;
 }
 
+#ifdef CONFIG_IDF_TARGET_ESP32
+static esp_err_t zip_inflate_full_input(FILE *archive,
+                                        const zip_reader_entry_t *entry,
+                                        uint8_t *output,
+                                        uint32_t *crc32,
+                                        uint32_t *bytes_written)
+{
+    uint8_t *compressed = zip_malloc(entry->compressed_size);
+    if (compressed == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    const size_t compressed_read =
+        fread(compressed, 1, entry->compressed_size, archive);
+    if (compressed_read != entry->compressed_size) {
+        solar_os_memory_free(compressed);
+        return ESP_FAIL;
+    }
+
+    const size_t inflated = tinfl_decompress_mem_to_mem(
+        output,
+        entry->uncompressed_size,
+        compressed,
+        entry->compressed_size,
+        0);
+    solar_os_memory_free(compressed);
+    if (inflated == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED) {
+        return ESP_FAIL;
+    }
+    if (inflated != entry->uncompressed_size) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    *crc32 = (uint32_t)mz_crc32(MZ_CRC32_INIT, output, inflated);
+    *bytes_written = (uint32_t)inflated;
+    return ESP_OK;
+}
+#endif
+
 static esp_err_t zip_inflate_file(FILE *archive,
                                   FILE *output,
                                   const zip_reader_entry_t *entry,
@@ -888,6 +926,39 @@ static esp_err_t zip_inflate_file(FILE *archive,
                                   uint32_t *crc32,
                                   uint32_t *bytes_written)
 {
+#ifdef CONFIG_IDF_TARGET_ESP32
+    /* The original ESP32 ROM inflater corrupts resumed raw-deflate output
+     * after its input buffer is refilled.  Keep the bounded streaming path
+     * for small entries, and use the ROM one-shot helper for larger entries. */
+    if (entry->compressed_size > ZIP_IO_BUFFER_SIZE) {
+        const size_t output_size = entry->uncompressed_size > 0U ?
+            entry->uncompressed_size : 1U;
+        uint8_t *inflated = zip_malloc(output_size);
+        if (inflated == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        esp_err_t ret = zip_inflate_full_input(archive,
+                                               entry,
+                                               inflated,
+                                               crc32,
+                                               bytes_written);
+        size_t offset = 0U;
+        while (ret == ESP_OK && offset < *bytes_written) {
+            const size_t remaining = *bytes_written - offset;
+            const size_t chunk = remaining > ZIP_IO_BUFFER_SIZE ?
+                ZIP_IO_BUFFER_SIZE : remaining;
+            if (!zip_write_all(output, &inflated[offset], chunk)) {
+                ret = ESP_FAIL;
+                break;
+            }
+            offset += chunk;
+            zip_yield();
+        }
+        solar_os_memory_free(inflated);
+        return ret;
+    }
+#endif
+
     tinfl_decompressor *decompressor = zip_calloc(1, sizeof(*decompressor));
     if (decompressor == NULL) {
         return ESP_ERR_NO_MEM;
@@ -1017,6 +1088,16 @@ static esp_err_t zip_inflate_memory(FILE *archive,
                                     uint32_t *crc32,
                                     uint32_t *bytes_written)
 {
+#ifdef CONFIG_IDF_TARGET_ESP32
+    if (entry->compressed_size > ZIP_IO_BUFFER_SIZE) {
+        return zip_inflate_full_input(archive,
+                                      entry,
+                                      output,
+                                      crc32,
+                                      bytes_written);
+    }
+#endif
+
     tinfl_decompressor *decompressor = zip_calloc(1, sizeof(*decompressor));
     if (decompressor == NULL) {
         return ESP_ERR_NO_MEM;

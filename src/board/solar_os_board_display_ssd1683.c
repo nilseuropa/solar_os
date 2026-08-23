@@ -133,6 +133,16 @@ esp_err_t solar_os_board_display_set_brightness(solar_os_board_display_t *displa
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t solar_os_board_display_set_colors(solar_os_board_display_t *display,
+                                            uint32_t foreground_rgb888,
+                                            uint32_t background_rgb888)
+{
+    (void)display;
+    (void)foreground_rgb888;
+    (void)background_rgb888;
+    return ESP_OK;
+}
+
 const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *display)
 {
     if (display == NULL || display->driver == NULL) {

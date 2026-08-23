@@ -193,3 +193,38 @@ const char *solar_os_shell_suggest(const char *input,
     }
     return best_distance <= limit && !ambiguous ? best : NULL;
 }
+
+bool solar_os_shell_parse_rgb888(const char *text, uint32_t *rgb888)
+{
+    if (text == NULL || rgb888 == NULL) {
+        return false;
+    }
+
+    if (text[0] == '#') {
+        text++;
+    } else if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+        text += 2;
+    }
+    if (strlen(text) != 6) {
+        return false;
+    }
+
+    uint32_t value = 0;
+    for (size_t i = 0; i < 6; i++) {
+        const unsigned char ch = (unsigned char)text[i];
+        uint8_t digit = 0;
+        if (ch >= '0' && ch <= '9') {
+            digit = (uint8_t)(ch - '0');
+        } else if (ch >= 'a' && ch <= 'f') {
+            digit = (uint8_t)(ch - 'a' + 10);
+        } else if (ch >= 'A' && ch <= 'F') {
+            digit = (uint8_t)(ch - 'A' + 10);
+        } else {
+            return false;
+        }
+        value = (value << 4) | digit;
+    }
+
+    *rgb888 = value;
+    return true;
+}

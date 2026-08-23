@@ -45,7 +45,11 @@ ordinary argument text containing punctuation remain valid.
 Shell scripts use the `.sh` extension. Run one with `sh <file>` or invoke its
 path directly; for example, `./somescript.sh` is equivalent to
 `sh ./somescript.sh`. SolarOS storage does not require an executable permission
-bit for this shorthand.
+bit for this shorthand. Use `echo` for script progress messages and `wait` to
+insert a whole-second delay between commands. `wait` does not put the device
+into light sleep. A foreground application
+launch ends the current script; the script does not resume after the application
+closes.
 
 History is kept in memory and cached at `/.shell/history` when storage is
 available. The optional user alias file follows the default storage volume:
@@ -83,6 +87,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `help` | `help [TOPIC]`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. |
 | `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
 | `clear` | `clear` | Clear the active shell terminal. |
+| `echo` | `echo [text...]` | Print the arguments separated by spaces, followed by a newline. Quotes preserve spaces and are not printed. |
+| `wait` | `wait <seconds>` | Pause the calling shell or shell script for 0 through 86400 seconds. |
 | `watch` | `watch [-n seconds] <command> [args...]` | Repeat another shell command until `Esc`, `q`, or the app-exit key is pressed. |
 | `sh` | `sh <file>` | Run a simple SolarOS shell script from storage. |
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
@@ -268,6 +274,8 @@ setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
+setterm foreground [#RRGGBB]
+setterm background [#RRGGBB]
 setterm statusbar [show|hide]
 setterm brightness [0..100]
 setterm backlight [0..100]
@@ -319,6 +327,14 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`foreground` and `background` select the RGB colors that the built-in color
+display uses when it converts the monochrome framebuffer for scanout. Use six
+hexadecimal digits, for example `setterm foreground '#d8e8ff'` and
+`setterm background '#102030'`; the leading `#` can be omitted. The defaults
+are `#000000` and `#ffffff`. These settings are persistent, do not change the
+framebuffer format, and have no visible effect on monochrome displays.
+`palette inverted` continues to exchange the foreground and background roles.
 
 `setterm statusbar hide` removes the top status bar from graphical shell
 sessions and gives its space to the terminal. `show` restores it. The default is

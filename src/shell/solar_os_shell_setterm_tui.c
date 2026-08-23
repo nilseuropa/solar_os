@@ -2,6 +2,7 @@
 #include "solar_os_shell_common.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -41,6 +42,8 @@ typedef enum {
     SETTERM_TUI_FONT,
     SETTERM_TUI_TEXTSIZE,
     SETTERM_TUI_PALETTE,
+    SETTERM_TUI_FOREGROUND,
+    SETTERM_TUI_BACKGROUND,
     SETTERM_TUI_STATUSBAR,
     SETTERM_TUI_BRIGHTNESS,
     SETTERM_TUI_KEYBOARD,
@@ -62,6 +65,7 @@ typedef struct {
     solar_os_context_t *ctx;
     solar_os_tui_t tui;
     size_t selected;
+    size_t first_visible;
     bool editing;
     bool cursor_visible;
     uint32_t last_cursor_blink_ms;
@@ -78,6 +82,8 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_FONT] = {.label = "font"},
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
+    [SETTERM_TUI_FOREGROUND] = {.label = "foreground"},
+    [SETTERM_TUI_BACKGROUND] = {.label = "background"},
     [SETTERM_TUI_STATUSBAR] = {.label = "statusbar"},
     [SETTERM_TUI_BRIGHTNESS] = {.label = "brightness"},
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
@@ -122,6 +128,16 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
                 solar_os_terminal_palette_inverted(term) ? "inverted" : "normal",
                 buffer_len);
         break;
+    case SETTERM_TUI_FOREGROUND:
+    case SETTERM_TUI_BACKGROUND: {
+        uint32_t foreground_rgb888 = 0;
+        uint32_t background_rgb888 = 0;
+        (void)solar_os_display_get_colors(&foreground_rgb888, &background_rgb888);
+        const uint32_t color = item == SETTERM_TUI_FOREGROUND ?
+            foreground_rgb888 : background_rgb888;
+        snprintf(buffer, buffer_len, "#%06" PRIx32, color);
+        break;
+    }
     case SETTERM_TUI_STATUSBAR:
         strlcpy(buffer,
                 solar_os_terminal_status_bar_visible(term) ? "show" : "hide",
@@ -223,7 +239,18 @@ static void setterm_tui_render(void)
 
     const size_t value_col = split + 1;
     const size_t value_width = setterm_tui_visible_width(cols, value_col);
-    for (size_t i = 0; i < SETTERM_TUI_ITEM_COUNT && i + 1 < rows; i++) {
+    const size_t visible_items = rows > 2 ? rows - 2 : 0;
+    if (setterm_tui.selected < setterm_tui.first_visible) {
+        setterm_tui.first_visible = setterm_tui.selected;
+    } else if (visible_items > 0 &&
+               setterm_tui.selected >= setterm_tui.first_visible + visible_items) {
+        setterm_tui.first_visible = setterm_tui.selected - visible_items + 1;
+    }
+    for (size_t row = 0; row < visible_items; row++) {
+        const size_t i = setterm_tui.first_visible + row;
+        if (i >= SETTERM_TUI_ITEM_COUNT) {
+            break;
+        }
         char value[SETTERM_TUI_EDIT_MAX];
         uint8_t label_attr = SOLAR_OS_TUI_ATTR_NORMAL;
         uint8_t value_attr = SOLAR_OS_TUI_ATTR_NORMAL;
@@ -239,13 +266,18 @@ static void setterm_tui_render(void)
             value_attr = SOLAR_OS_TUI_ATTR_BOLD | SOLAR_OS_TUI_ATTR_INVERSE;
         }
 
-        solar_os_tui_write_cell(&setterm_tui.tui, i + 1,
+        solar_os_tui_write_cell(&setterm_tui.tui, row + 1,
                                0,
                                split,
                                setterm_tui_items[i].label,
                                label_attr);
         if (value_width > 0) {
-            solar_os_tui_write_cell(&setterm_tui.tui, i + 1, value_col, value_width, value, value_attr);
+            solar_os_tui_write_cell(&setterm_tui.tui,
+                                    row + 1,
+                                    value_col,
+                                    value_width,
+                                    value,
+                                    value_attr);
         }
     }
 
@@ -256,13 +288,15 @@ static void setterm_tui_render(void)
                 "arrows select/change  enter edit  esc exits");
     }
 
-    if (setterm_tui.editing && value_width > 0) {
+    if (setterm_tui.editing && value_width > 0 && visible_items > 0) {
         const size_t edit_len = strlen(setterm_tui.edit_text);
         size_t cursor_col = value_col + edit_len;
         if (cursor_col >= cols) {
             cursor_col = cols - 1;
         }
-        solar_os_tui_move(tui, setterm_tui.selected + 1, cursor_col);
+        solar_os_tui_move(tui,
+                          setterm_tui.selected - setterm_tui.first_visible + 1,
+                          cursor_col);
     }
 
     solar_os_tui_set_cursor_visible(tui, setterm_tui.editing && setterm_tui.cursor_visible);
@@ -447,6 +481,16 @@ static bool setterm_tui_apply_selected(void)
             return solar_os_sessions_set_terminal_palette_inverted(term, true) == ESP_OK;
         }
         return false;
+    case SETTERM_TUI_FOREGROUND:
+    case SETTERM_TUI_BACKGROUND: {
+        uint32_t rgb888 = 0;
+        if (!solar_os_shell_parse_rgb888(setterm_tui.edit_text, &rgb888)) {
+            return false;
+        }
+        return ((setterm_tui_item_t)setterm_tui.selected == SETTERM_TUI_FOREGROUND ?
+                    solar_os_display_set_foreground_color(rgb888) :
+                    solar_os_display_set_background_color(rgb888)) == ESP_OK;
+    }
     case SETTERM_TUI_STATUSBAR:
         if (strcmp(setterm_tui.edit_text, "show") == 0) {
             return solar_os_sessions_set_terminal_status_bar_visible(term, true) == ESP_OK;

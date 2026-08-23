@@ -60,6 +60,13 @@
 static const char *TAG = "tft_ili9341";
 static tft_ili9341_t *active_display;
 
+static uint16_t ili9341_rgb888_to_rgb565(uint32_t rgb888)
+{
+    return (uint16_t)(((rgb888 >> 8) & 0xf800U) |
+                      ((rgb888 >> 5) & 0x07e0U) |
+                      ((rgb888 >> 3) & 0x001fU));
+}
+
 static const u8x8_display_info_t ili9341_display_info = {
     .chip_enable_level = 0,
     .chip_disable_level = 1,
@@ -377,8 +384,8 @@ static void ili9341_line_from_tile(tft_ili9341_t *display,
     solar_os_vector_expand_1bpp_to_rgb565_be(display->line_buffer,
                                              tile_data,
                                              (unsigned)row,
-                                             ILI9341_RGB565_BLACK,
-                                             ILI9341_RGB565_WHITE,
+                                             display->foreground_rgb565,
+                                             display->background_rgb565,
                                              (size_t)width);
 }
 
@@ -494,7 +501,7 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display)
 
     vTaskDelay(pdMS_TO_TICKS(120));
 
-    ESP_RETURN_ON_ERROR(ili9341_fill_screen(display, ILI9341_RGB565_WHITE),
+    ESP_RETURN_ON_ERROR(ili9341_fill_screen(display, display->background_rgb565),
                         TAG,
                         "screen clear failed");
 
@@ -563,6 +570,8 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display)
     memset(display, 0, sizeof(*display));
     display->last_error = ESP_OK;
     display->backlight_percent = 100;
+    display->foreground_rgb565 = ILI9341_RGB565_BLACK;
+    display->background_rgb565 = ILI9341_RGB565_WHITE;
 
     ESP_RETURN_ON_ERROR(ili9341_configure_control_pins(), TAG, "control pin config failed");
     ili9341_set_backlight_power(display, false);
@@ -641,6 +650,25 @@ esp_err_t tft_ili9341_resume(tft_ili9341_t *display)
     u8g2_InitDisplay(&display->u8g2);
     u8g2_SetPowerSave(&display->u8g2, 0);
     return display->last_error;
+}
+
+esp_err_t tft_ili9341_set_colors(tft_ili9341_t *display,
+                                 uint32_t foreground_rgb888,
+                                 uint32_t background_rgb888)
+{
+    if (display == NULL || foreground_rgb888 > 0xffffffU || background_rgb888 > 0xffffffU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const uint16_t foreground_rgb565 = ili9341_rgb888_to_rgb565(foreground_rgb888);
+    const uint16_t background_rgb565 = ili9341_rgb888_to_rgb565(background_rgb888);
+    if (display->foreground_rgb565 != foreground_rgb565 ||
+        display->background_rgb565 != background_rgb565) {
+        display->foreground_rgb565 = foreground_rgb565;
+        display->background_rgb565 = background_rgb565;
+        ili9341_invalidate_shadow(display);
+    }
+    return ESP_OK;
 }
 
 void tft_ili9341_deinit(tft_ili9341_t *display)
