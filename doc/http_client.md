@@ -32,6 +32,15 @@ internal-stack foreground worker, and exposes bounded `response`, `header`,
 this wrapper when the consumer must continue its event loop while a long-lived
 HTTP response is open.
 
+Persistent clients use `solar_os_http_session_context_t`. A caller creates one
+context, opens up to two origin-scoped handles, and makes synchronous bounded
+requests with `solar_os_http_session_request()`. Four handles are allowed
+globally. The retained ESP-IDF client reuses an HTTP/TLS connection only for
+the exact scheme and authority. Redirect following is rejected, request
+headers are cleared between calls, and runtime context destruction closes all
+handles. When an idle connection has gone stale, the service retries GET or
+HEAD once before any response starts; it never retries writes.
+
 ## Timing Controls
 
 - `timeout_ms` limits each connect, write, header, or read operation. Zero uses

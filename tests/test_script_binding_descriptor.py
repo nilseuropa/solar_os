@@ -132,7 +132,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
         )
         self.assertEqual(
             sum(map(len, entries.values())) + nested_count + hid_keycode_count,
-            451,
+            455,
         )
 
     def test_shared_tui_helpers_have_python_lua_parity(self):

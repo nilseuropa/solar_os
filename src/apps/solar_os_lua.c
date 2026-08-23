@@ -264,6 +264,7 @@ static solar_os_net_session_t *solua_net_session;
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
 static solar_os_http_stream_session_t *solua_http_stream_session;
+static solar_os_http_session_context_t *solua_http_session_context;
 #endif
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
@@ -1693,6 +1694,24 @@ static void solua_http_stream_destroy(void)
     solua_http_stream_session = NULL;
 }
 
+static solar_os_http_session_context_t *solua_http_session_get(lua_State *L)
+{
+    if (solua_http_session_context == NULL) {
+        (void)solua_check_esp(L,
+                              solar_os_http_session_context_create(
+                                  solua_should_cancel,
+                                  NULL,
+                                  &solua_http_session_context));
+    }
+    return solua_http_session_context;
+}
+
+static void solua_http_session_destroy(void)
+{
+    solar_os_http_session_context_destroy(solua_http_session_context);
+    solua_http_session_context = NULL;
+}
+
 static solar_os_http_header_t *solua_http_headers_from_table(lua_State *L,
                                                              int index,
                                                              size_t *header_count)
@@ -1847,7 +1866,7 @@ static int solua_http_perform(lua_State *L,
         .deadline_ms = timeout_ms,
         .should_cancel = solua_should_cancel,
     };
-    solar_os_http_buffered_response_t response;
+    solar_os_http_buffered_response_t response = {0};
     const esp_err_t err = solar_os_http_perform_buffered(&options,
                                                          method == SOLAR_OS_HTTP_METHOD_HEAD ?
                                                              0U : max_bytes,
@@ -1861,6 +1880,95 @@ static int solua_http_perform(lua_State *L,
     const int result_count = solua_http_push_response(L, &response);
     solar_os_http_buffered_response_clear(&response);
     return result_count;
+}
+
+static int solua_http_session_open(lua_State *L)
+{
+    size_t origin_len = 0;
+    const char *origin = luaL_checklstring(L, 1, &origin_len);
+    if (strlen(origin) != origin_len) {
+        return luaL_error(L, "invalid HTTP origin");
+    }
+    uint32_t handle = 0;
+    (void)solua_check_esp(L,
+                          solar_os_http_session_open(
+                              solua_http_session_get(L),
+                              origin,
+                              "SolarOS/" SOLAR_OS_VERSION " script",
+                              &handle));
+    lua_pushinteger(L, handle);
+    return 1;
+}
+
+static int solua_http_session_request(lua_State *L)
+{
+    solar_os_http_method_t method;
+    if (!solar_os_http_method_parse(luaL_checkstring(L, 2), &method)) {
+        return luaL_error(L, "expected GET, POST, PUT, PATCH, DELETE, or HEAD");
+    }
+    size_t url_len = 0;
+    const char *url = luaL_checklstring(L, 3, &url_len);
+    if (strlen(url) != url_len ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        return luaL_error(L, "expected http:// or https:// URL");
+    }
+    size_t body_len = 0;
+    const char *body = lua_isnoneornil(L, 4) ?
+        NULL : luaL_checklstring(L, 4, &body_len);
+    size_t header_count = 0;
+    solar_os_http_header_t *headers = solua_http_headers_from_table(
+        L,
+        5,
+        &header_count);
+    const uint32_t timeout_ms = solua_http_timeout_ms(L, 6);
+    const size_t max_bytes = solua_http_max_bytes(L, 7);
+    const solar_os_http_request_options_t options = {
+        .url = url,
+        .method = method,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body,
+        .body_len = body_len,
+        .timeout_ms = timeout_ms,
+        .deadline_ms = timeout_ms,
+    };
+    solar_os_http_buffered_response_t response = {0};
+    const esp_err_t err = solar_os_http_session_request(
+        solua_http_session_get(L),
+        solua_check_u32(L, 1),
+        &options,
+        method == SOLAR_OS_HTTP_METHOD_HEAD ? 0U : max_bytes,
+        &response);
+    solar_os_memory_free(headers);
+    if (err != ESP_OK) {
+        solar_os_http_buffered_response_clear(&response);
+        return solua_check_esp(L, err);
+    }
+    const int result_count = solua_http_push_response(L, &response);
+    solar_os_http_buffered_response_clear(&response);
+    return result_count;
+}
+
+static int solua_http_session_close(lua_State *L)
+{
+    if (solua_http_session_context != NULL) {
+        const esp_err_t err = solar_os_http_session_close(
+            solua_http_session_context,
+            solua_check_u32(L, 1));
+        if (err != ESP_ERR_NOT_FOUND) {
+            (void)solua_check_esp(L, err);
+        }
+    }
+    return 0;
+}
+
+static int solua_http_session_close_all(lua_State *L)
+{
+    (void)L;
+    if (solua_http_session_context != NULL) {
+        solar_os_http_session_close_all(solua_http_session_context);
+    }
+    return 0;
 }
 
 static int solua_http_request(lua_State *L)
@@ -6036,6 +6144,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
+    solua_http_session_destroy();
 #endif
     lua_close(L);
 
@@ -6124,6 +6233,7 @@ done:
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
+        solua_http_session_destroy();
 #endif
         lua_close(L);
     }
@@ -6394,6 +6504,7 @@ static void solua_stop(solar_os_context_t *ctx)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
+    solua_http_session_destroy();
 #endif
     solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }

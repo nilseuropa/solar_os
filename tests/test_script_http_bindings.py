@@ -20,6 +20,8 @@ class ScriptHttpBindingsTest(unittest.TestCase):
     def test_python_and_lua_register_the_same_http_methods(self):
         for method in (
             "request", "get", "post", "put", "patch", "delete", "head",
+            "session_open", "session_request", "session_close",
+            "session_close_all",
             "stream_open", "stream_read", "stream_close", "stream_close_all",
         ):
             self.assertIn(
@@ -89,6 +91,32 @@ class ScriptHttpBindingsTest(unittest.TestCase):
         self.assertIn("request->options.should_cancel", HTTP_SOURCE)
         self.assertIn("response->body_truncated = true", HTTP_SOURCE)
         self.assertIn("response->headers_truncated = true", HTTP_SOURCE)
+
+    def test_http_client_expands_tx_buffer_for_long_request_headers(self):
+        self.assertIn("solar_os_http_transmit_buffer_size", HTTP_SOURCE)
+        self.assertIn("SOLAR_OS_HTTP_HEADER_LINE_RESERVE", HTTP_SOURCE)
+        self.assertIn("if (configured < required)", HTTP_SOURCE)
+        self.assertIn(".buffer_size_tx = transmit_buffer_size", HTTP_SOURCE)
+
+    def test_persistent_sessions_are_bounded_same_origin_and_runtime_owned(self):
+        for token in (
+            "SOLAR_OS_HTTP_SESSION_MAX_HANDLES 2U",
+            "SOLAR_OS_HTTP_SESSION_GLOBAL_MAX_HANDLES 4U",
+            "solar_os_http_url_matches_origin",
+            "esp_http_client_delete_all_headers",
+            "esp_http_client_set_user_data",
+            '"Host",\n                                         connection->host_header',
+            "solar_os_task_create_pinned_internal",
+            "solar_os_http_request_abort",
+            "err == ESP_ERR_NOT_SUPPORTED",
+            "esp_http_client_get_status_code(connection->client) == 401",
+            "request->options.method == SOLAR_OS_HTTP_METHOD_GET",
+            "request->options.method == SOLAR_OS_HTTP_METHOD_HEAD",
+        ):
+            self.assertIn(token, HTTP_HEADER + HTTP_SOURCE)
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn("solar_os_http_session_context_destroy", source)
+            self.assertIn("solar_os_http_session_request", source)
 
 
 if __name__ == "__main__":
