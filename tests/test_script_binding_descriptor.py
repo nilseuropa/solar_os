@@ -132,8 +132,21 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
         )
         self.assertEqual(
             sum(map(len, entries.values())) + nested_count + hid_keycode_count,
-            455,
+            459,
         )
+
+    def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):
+        for module in ("tui", "gfx"):
+            self.assertIn(
+                f"SOLAR_OS_SCRIPT_API_INT({module}, KEY_CTRL_LEFT, "
+                "SOLAR_OS_KEY_CTRL_LEFT);",
+                DESCRIPTOR,
+            )
+            self.assertIn(
+                f"SOLAR_OS_SCRIPT_API_INT({module}, KEY_CTRL_RIGHT, "
+                "SOLAR_OS_KEY_CTRL_RIGHT);",
+                DESCRIPTOR,
+            )
 
     def test_shared_tui_helpers_have_python_lua_parity(self):
         for name in (

@@ -1225,7 +1225,7 @@ Functions:
 - `cols()`: return terminal columns.
 - `size()`: return `(rows, cols)`.
 - `clear()`: clear the terminal.
-- `refresh()`: force a display refresh.
+- `refresh()`: atomically commit the buffered TUI frame and flush it.
 - `move(row, col)`: move the terminal cursor.
 - `write(text[, attr])`: write at the current cursor.
 - `addstr(row, col, text[, attr])`: move and write text.
@@ -1237,7 +1237,9 @@ Functions:
 - `fill(row, col, height, width[, ch[, attr]])`: fill a rectangle.
 - `getch([timeout_ms])`: return a key code or `None`.
 
-Common key constants include `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_DELETE`, `KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
+Common key constants include `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`,
+`KEY_CTRL_LEFT`, `KEY_CTRL_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_DELETE`,
+`KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
 
 Example:
 

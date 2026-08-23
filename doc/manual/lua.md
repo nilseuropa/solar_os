@@ -463,7 +463,11 @@ their corresponding NVS keys are absent.
 
 ## TUI
 
-`solaros.tui` draws through the foreground UI queue. It exposes constants `NORMAL`, `BOLD`, `INVERSE`, plus common key constants such as `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
+`solaros.tui` draws into one buffered foreground frame. `refresh()` atomically
+commits the changed cells. It exposes constants
+`NORMAL`, `BOLD`, `INVERSE`, plus common key constants such as `KEY_UP`,
+`KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_CTRL_LEFT`, `KEY_CTRL_RIGHT`,
+`KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
 
 Functions:
 

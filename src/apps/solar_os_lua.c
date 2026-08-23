@@ -134,6 +134,8 @@
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_TASK_PRIORITY 5
 #define SOLUA_STOP_WAIT_MS 800
+#define SOLUA_DRAIN_EVENTS_PER_TICK 24U
+#define SOLUA_DRAIN_TUI_EVENTS_PER_TICK 128U
 #define SOLUA_HOOK_INSTRUCTION_COUNT 10000
 #define SOLUA_EXIT_MARKER "__solaros_lua_exit__"
 #define SOLUA_SLEEP_MAX_MS (60U * 60U * 1000U)
@@ -210,6 +212,8 @@ typedef struct {
     solar_os_terminal_t *session_terminal;
     solar_os_shell_io_t *session_io;
     solar_os_gfx_t *session_gfx;
+    solar_os_tui_t tui;
+    bool tui_active;
     solar_os_shell_io_t fallback_io;
     QueueHandle_t events;
     QueueHandle_t input;
@@ -6480,6 +6484,10 @@ static void solua_stop(solar_os_context_t *ctx)
         }
     }
 
+    if (solua.tui_active) {
+        solar_os_tui_end(&solua.tui);
+        solua.tui_active = false;
+    }
     if (solua.events != NULL) {
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
@@ -6625,41 +6633,47 @@ static void solua_repl_submit(solar_os_context_t *ctx)
 
 static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *event)
 {
-    solar_os_tui_t tui;
-    if (event == NULL || solar_os_tui_begin(&tui, ctx) != ESP_OK) {
+    if (event == NULL) {
         return;
     }
+    if (!solua.tui_active) {
+        if (solar_os_tui_screen_begin(&solua.tui, ctx) != ESP_OK) {
+            return;
+        }
+        solua.tui_active = true;
+    }
+    solar_os_tui_t *tui = &solua.tui;
 
     switch (event->type) {
     case SOLUA_EVENT_TUI_CLEAR:
-        solar_os_tui_clear(&tui);
+        solar_os_tui_clear(tui);
         break;
     case SOLUA_EVENT_TUI_REFRESH:
-        solar_os_tui_refresh(&tui);
+        solar_os_tui_refresh(tui);
         break;
     case SOLUA_EVENT_TUI_MOVE:
-        solar_os_tui_move(&tui, event->row, event->col);
+        solar_os_tui_move(tui, event->row, event->col);
         break;
     case SOLUA_EVENT_TUI_WRITE:
-        solar_os_tui_write(&tui, event->data, event->attr);
+        solar_os_tui_write(tui, event->data, event->attr);
         break;
     case SOLUA_EVENT_TUI_PUTCH:
-        solar_os_tui_putch(&tui, event->row, event->col, event->codepoint, event->attr);
+        solar_os_tui_putch(tui, event->row, event->col, event->codepoint, event->attr);
         break;
     case SOLUA_EVENT_TUI_HLINE:
-        solar_os_tui_hline(&tui, event->row, event->col, event->width, 0, event->attr);
+        solar_os_tui_hline(tui, event->row, event->col, event->width, 0, event->attr);
         break;
     case SOLUA_EVENT_TUI_VLINE:
-        solar_os_tui_vline(&tui, event->row, event->col, event->height, 0, event->attr);
+        solar_os_tui_vline(tui, event->row, event->col, event->height, 0, event->attr);
         break;
     case SOLUA_EVENT_TUI_VRULE:
-        solar_os_tui_vrule(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_vrule(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case SOLUA_EVENT_TUI_BOX:
-        solar_os_tui_box(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_box(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case SOLUA_EVENT_TUI_FILL:
-        solar_os_tui_fill(&tui,
+        solar_os_tui_fill(tui,
                           event->row,
                           event->col,
                           event->height,
@@ -6668,19 +6682,19 @@ static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *
                           event->attr);
         break;
     case SOLUA_EVENT_TUI_CELL:
-        solar_os_tui_write_cell(&tui, event->row, event->col, event->width,
+        solar_os_tui_write_cell(tui, event->row, event->col, event->width,
                                 event->data, event->attr);
         break;
     case SOLUA_EVENT_TUI_TITLE:
-        solar_os_tui_draw_title(&tui, event->data,
+        solar_os_tui_draw_title(tui, event->data,
                                 event->data_len + 1U < sizeof(event->data) ?
                                     event->data + event->data_len + 1U : "");
         break;
     case SOLUA_EVENT_TUI_HELP:
-        solar_os_tui_draw_help(&tui, event->data);
+        solar_os_tui_draw_help(tui, event->data);
         break;
     case SOLUA_EVENT_TUI_TAB:
-        solar_os_tui_draw_tab(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_tab(tui, event->row, event->col, event->width,
                               event->data, event->success);
         break;
     case SOLUA_EVENT_TUI_INPUT: {
@@ -6690,7 +6704,7 @@ static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *
         };
         const char *text = event->data_len + 1U < sizeof(event->data) ?
             event->data + event->data_len + 1U : "";
-        solar_os_tui_draw_input_ex(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_input_ex(tui, event->row, event->col, event->width,
                                    event->data, text, &state, event->attr,
                                    event->success);
         break;
@@ -6794,7 +6808,16 @@ static void solua_drain_events(solar_os_context_t *ctx)
     solar_os_shell_io_t *io = solua_io(ctx);
     solua_event_t event;
     uint32_t drained = 0;
-    while (drained++ < 24 && xQueueReceive(solua.events, &event, 0) == pdPASS) {
+    uint32_t drain_limit = SOLUA_DRAIN_EVENTS_PER_TICK;
+    while (drained < drain_limit &&
+           xQueueReceive(solua.events, &event, 0) == pdPASS) {
+        drained++;
+        if (event.type >= SOLUA_EVENT_TUI_CLEAR &&
+            event.type <= SOLUA_EVENT_TUI_INPUT) {
+            drain_limit = event.type == SOLUA_EVENT_TUI_REFRESH ?
+                SOLUA_DRAIN_EVENTS_PER_TICK :
+                SOLUA_DRAIN_TUI_EVENTS_PER_TICK;
+        }
         switch (event.type) {
         case SOLUA_EVENT_OUTPUT:
             for (size_t i = 0; i < event.data_len; i++) {
@@ -6849,6 +6872,10 @@ static void solua_drain_events(solar_os_context_t *ctx)
         case SOLUA_EVENT_DONE:
             solua.running = false;
             solua.task_done = true;
+            if (solua.tui_active) {
+                solar_os_tui_end(&solua.tui);
+                solua.tui_active = false;
+            }
             solua_gfx_release_target();
             solar_os_context_set_graphics_active(ctx, false);
             if (solua.mode == SOLUA_MODE_SCRIPT || solua.repl_exit_requested) {
