@@ -7,7 +7,8 @@ static const char * const ota_commands[] = {"status", "check", "upgrade", "url",
 #endif
 static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
-    "orientation", "font", "textsize", "palette", "statusbar", "brightness", "backlight",
+    "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
+    "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
     "repeat", "timezone", "startup", "otaurl", "ota",
 };
@@ -1476,6 +1477,8 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [10|12|14|16|18|20]");
     solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
+    solar_os_shell_io_writeln(term, "  setterm foreground [#RRGGBB]");
+    solar_os_shell_io_writeln(term, "  setterm background [#RRGGBB]");
     solar_os_shell_io_writeln(term, "  setterm statusbar [show|hide]");
     solar_os_shell_io_writeln(term, "  setterm brightness [0..100]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
@@ -1536,6 +1539,25 @@ static void setterm_print_keyrate_result(solar_os_shell_io_t *term, esp_err_t er
         solar_os_shell_io_printf(term,
                                  "keyrate: applied but save failed: %s\n",
                                  solar_os_shell_error_text(err));
+    }
+}
+
+static void setterm_print_color(solar_os_shell_io_t *term,
+                                const char *setting,
+                                uint32_t rgb888)
+{
+    solar_os_shell_io_printf(term, "%s: #%06" PRIx32 "\n", setting, rgb888);
+}
+
+static void setterm_print_color_result(solar_os_shell_io_t *term,
+                                       const char *setting,
+                                       uint32_t rgb888,
+                                       esp_err_t err)
+{
+    if (err == ESP_OK) {
+        setterm_print_color(term, setting, rgb888);
+    } else {
+        setterm_print_save_result(term, setting, "color", err);
     }
 }
 
@@ -1666,6 +1688,50 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t err =
             solar_os_sessions_set_terminal_palette_inverted(display, inverted);
         setterm_print_save_result(term, "palette", argv[2], err);
+        return;
+    }
+
+    if (strcmp(argv[1], "foreground") == 0 || strcmp(argv[1], "background") == 0) {
+        const bool foreground = strcmp(argv[1], "foreground") == 0;
+        const char *setting = foreground ? "foreground" : "background";
+        if (argc == 2) {
+            uint32_t foreground_rgb888 = 0;
+            uint32_t background_rgb888 = 0;
+            (void)solar_os_display_get_colors(&foreground_rgb888, &background_rgb888);
+            setterm_print_color(term,
+                                setting,
+                                foreground ? foreground_rgb888 : background_rgb888);
+            return;
+        }
+        if (argc != 3) {
+            char command[32];
+            char usage[48];
+            snprintf(command, sizeof(command), "setterm %s", setting);
+            snprintf(usage, sizeof(usage), "setterm %s [#RRGGBB]", setting);
+            solar_os_shell_diag_unexpected(term, command, argv[3], usage);
+            return;
+        }
+
+        uint32_t rgb888 = 0;
+        if (!solar_os_shell_parse_rgb888(argv[2], &rgb888)) {
+            char command[32];
+            char usage[48];
+            snprintf(command, sizeof(command), "setterm %s", setting);
+            snprintf(usage, sizeof(usage), "%s [#RRGGBB]", command);
+            solar_os_shell_diag_invalid(term,
+                                        command,
+                                        "color",
+                                        argv[2],
+                                        "#RRGGBB, RRGGBB, or 0xRRGGBB",
+                                        usage,
+                                        false);
+            return;
+        }
+
+        const esp_err_t err = foreground ?
+            solar_os_display_set_foreground_color(rgb888) :
+            solar_os_display_set_background_color(rgb888);
+        setterm_print_color_result(term, setting, rgb888, err);
         return;
     }
 
@@ -2062,7 +2128,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|statusbar|brightness|backlight|profile|charset|keyboard|powerkey|keyrate|timezone|startup|otaurl",
+                                   "setterm orientation|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|powerkey|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }

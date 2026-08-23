@@ -4,18 +4,22 @@
 
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
+#include "nvs.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_gfx_internal.h"
 #include "solar_os_memory.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
-#include "nvs.h"
 #include "solar_os_board_display.h"
 #endif
 
 #define DISPLAY_NVS_NAMESPACE "display"
 #define DISPLAY_NVS_BRIGHTNESS_KEY "brightness"
+#define DISPLAY_NVS_FOREGROUND_KEY "foreground"
+#define DISPLAY_NVS_BACKGROUND_KEY "background"
 #define DISPLAY_DEFAULT_BRIGHTNESS 100U
+#define DISPLAY_DEFAULT_FOREGROUND_RGB888 0x000000U
+#define DISPLAY_DEFAULT_BACKGROUND_RGB888 0xffffffU
 #define DISPLAY_BOARD_TARGET_NAME "display0"
 #define DISPLAY_BOARD_SOURCE "board"
 #define DISPLAY_BOARD_ROLE "primary"
@@ -45,6 +49,9 @@ typedef struct {
 
 static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
 static portMUX_TYPE display_targets_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t display_foreground_rgb888 = DISPLAY_DEFAULT_FOREGROUND_RGB888;
+static uint32_t display_background_rgb888 = DISPLAY_DEFAULT_BACKGROUND_RGB888;
+static bool display_colors_loaded;
 
 static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target);
 static void display_publish_frame(u8g2_t *u8g2);
@@ -99,6 +106,46 @@ static uint8_t *display_detach_export_buffer_locked(display_target_slot_t *slot)
     slot->export_native_stride = 0;
     slot->export_rotation = SOLAR_OS_DISPLAY_ROTATION_0;
     return buffer;
+}
+
+static esp_err_t display_save_color(const char *key, uint32_t rgb888)
+{
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(DISPLAY_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_u32(nvs, key, rgb888);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return ret;
+}
+
+static void display_load_colors(void)
+{
+    if (display_colors_loaded) {
+        return;
+    }
+    display_colors_loaded = true;
+
+    nvs_handle_t nvs;
+    if (nvs_open(DISPLAY_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return;
+    }
+
+    uint32_t stored = 0;
+    if (nvs_get_u32(nvs, DISPLAY_NVS_FOREGROUND_KEY, &stored) == ESP_OK &&
+        stored <= 0xffffffU) {
+        display_foreground_rgb888 = stored;
+    }
+    if (nvs_get_u32(nvs, DISPLAY_NVS_BACKGROUND_KEY, &stored) == ESP_OK &&
+        stored <= 0xffffffU) {
+        display_background_rgb888 = stored;
+    }
+    nvs_close(nvs);
 }
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -320,6 +367,13 @@ esp_err_t solar_os_display_init(solar_os_board_display_t *display)
 
     display_handle = display;
     ESP_RETURN_ON_ERROR(display_register_board_target(display), "display", "register board target failed");
+
+    display_load_colors();
+    ESP_RETURN_ON_ERROR(solar_os_board_display_set_colors(display_handle,
+                                                          display_foreground_rgb888,
+                                                          display_background_rgb888),
+                        "display",
+                        "apply colors failed");
 
     display_brightness = display_load_brightness();
     const esp_err_t err = solar_os_board_display_set_brightness(display_handle, display_brightness);
@@ -640,6 +694,65 @@ esp_err_t solar_os_display_set_brightness(uint8_t percent)
     ret = display_save_brightness(percent);
     return ret;
 #endif
+}
+
+esp_err_t solar_os_display_get_colors(uint32_t *foreground_rgb888,
+                                      uint32_t *background_rgb888)
+{
+    if (foreground_rgb888 == NULL && background_rgb888 == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    display_load_colors();
+    if (foreground_rgb888 != NULL) {
+        *foreground_rgb888 = display_foreground_rgb888;
+    }
+    if (background_rgb888 != NULL) {
+        *background_rgb888 = display_background_rgb888;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_set_foreground_color(uint32_t rgb888)
+{
+    if (rgb888 > 0xffffffU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    display_load_colors();
+
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    if (display_handle != NULL) {
+        const esp_err_t err = solar_os_board_display_set_colors(display_handle,
+                                                                rgb888,
+                                                                display_background_rgb888);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+#endif
+    display_foreground_rgb888 = rgb888;
+    return display_save_color(DISPLAY_NVS_FOREGROUND_KEY, rgb888);
+}
+
+esp_err_t solar_os_display_set_background_color(uint32_t rgb888)
+{
+    if (rgb888 > 0xffffffU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    display_load_colors();
+
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    if (display_handle != NULL) {
+        const esp_err_t err = solar_os_board_display_set_colors(display_handle,
+                                                                display_foreground_rgb888,
+                                                                rgb888);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+#endif
+    display_background_rgb888 = rgb888;
+    return display_save_color(DISPLAY_NVS_BACKGROUND_KEY, rgb888);
 }
 
 esp_err_t solar_os_display_suspend_primary(void)

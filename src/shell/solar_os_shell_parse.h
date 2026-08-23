@@ -1,6 +1,8 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
     SOLAR_OS_SHELL_PARSE_OK = 0,
@@ -26,3 +28,4 @@ int solar_os_shell_edit_distance(const char *left, const char *right, int limit)
 const char *solar_os_shell_suggest(const char *input,
                                    const char * const *candidates,
                                    size_t candidate_count);
+bool solar_os_shell_parse_rgb888(const char *text, uint32_t *rgb888);

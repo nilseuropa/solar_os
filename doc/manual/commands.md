@@ -274,6 +274,8 @@ setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
 setterm palette [normal|inverted]
+setterm foreground [#RRGGBB]
+setterm background [#RRGGBB]
 setterm statusbar [show|hide]
 setterm brightness [0..100]
 setterm backlight [0..100]
@@ -325,6 +327,14 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`foreground` and `background` select the RGB colors that the built-in color
+display uses when it converts the monochrome framebuffer for scanout. Use six
+hexadecimal digits, for example `setterm foreground '#d8e8ff'` and
+`setterm background '#102030'`; the leading `#` can be omitted. The defaults
+are `#000000` and `#ffffff`. These settings are persistent, do not change the
+framebuffer format, and have no visible effect on monochrome displays.
+`palette inverted` continues to exchange the foreground and background roles.
 
 `setterm statusbar hide` removes the top status bar from graphical shell
 sessions and gives its space to the terminal. `show` restores it. The default is

@@ -31,6 +31,9 @@ esp_err_t solar_os_board_display_get_brightness(const solar_os_board_display_t *
                                                 uint8_t *percent);
 esp_err_t solar_os_board_display_set_brightness(solar_os_board_display_t *display,
                                                 uint8_t percent);
+esp_err_t solar_os_board_display_set_colors(solar_os_board_display_t *display,
+                                            uint32_t foreground_rgb888,
+                                            uint32_t background_rgb888);
 const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *display);
 const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *display);
 esp_err_t solar_os_board_display_set_controller_mode(solar_os_board_display_t *display,
