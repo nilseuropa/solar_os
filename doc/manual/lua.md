@@ -55,7 +55,7 @@ service packages are not available on that board.
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
-- `solaros.http`: `request`, `get`, `post`, `put`, `patch`, `delete`, `head`, `stream_open`, `stream_read`, `stream_close`, `stream_close_all` when `network.http-client` is compiled
+- `solaros.http`: bounded requests, retained same-origin sessions, and streaming handles when `network.http-client` is compiled
 - `solaros.hid`: typed `keyboard`, `mouse`, and `gamepad` tables when `service.hid` is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
@@ -144,6 +144,9 @@ firmware certificate bundle. The mirrored call forms are:
 - `head(url[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]])`
 - `post`, `put`, `patch`, and `delete` use
   `(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
+- `session_open(origin)`
+- `session_request(handle, method, url[, body[, headers[, timeout_ms[, max_bytes]]]])`
+- `session_close(handle)` and `session_close_all()`
 - `stream_open(method, url[, body[, headers[, timeout_ms[, follow_redirects]]]])`
 - `stream_read(handle[, timeout_ms])`, `stream_close(handle)`, and
   `stream_close_all()`
@@ -157,6 +160,14 @@ accepts 0 through 262144. The response table contains `status_code`, binary
 prefix with `truncated=true`. HTTP 4xx and 5xx statuses are normal responses;
 request, cancellation, deadline, DNS, TLS, and transport failures raise Lua
 errors. Exiting or interrupting Lua cancels an active request.
+
+`session_open` retains one same-origin HTTP/TLS client. Its origin contains
+only scheme and authority. `session_request` rejects redirects and cross-origin
+URLs, clears previous request headers, and returns the same bounded response
+table as `request`. A stale connection is retried once only for GET or HEAD
+before any response starts; writes are never retried. Each runtime can retain
+two sessions, with four globally. Session handles close automatically at
+interpreter teardown, but scripts should close them explicitly.
 
 `stream_open` runs the HTTP operation in a native worker without an end-to-end
 deadline. Its timeout bounds each transport operation and accepts 0 through
@@ -181,6 +192,13 @@ response = solaros.http.post(
     { ["Content-Type"] = "application/json" }
 )
 print(response.status_code, response.body)
+```
+
+```lua
+local handle = solaros.http.session_open("https://example.com")
+local first = solaros.http.session_request(handle, "GET", "https://example.com/a")
+local second = solaros.http.session_request(handle, "GET", "https://example.com/b")
+solaros.http.session_close(handle)
 ```
 
 A script-driven continuous control uses the same target mappings as an ADC
@@ -445,7 +463,11 @@ their corresponding NVS keys are absent.
 
 ## TUI
 
-`solaros.tui` draws through the foreground UI queue. It exposes constants `NORMAL`, `BOLD`, `INVERSE`, plus common key constants such as `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
+`solaros.tui` draws into one buffered foreground frame. `refresh()` atomically
+commits the changed cells. It exposes constants
+`NORMAL`, `BOLD`, `INVERSE`, plus common key constants such as `KEY_UP`,
+`KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_CTRL_LEFT`, `KEY_CTRL_RIGHT`,
+`KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
 
 Functions:
 

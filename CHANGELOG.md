@@ -2,6 +2,16 @@
 
 ## 4.x
 
+- **4.8.10** — 2026-08-23 — Added public MeshCore hashtag channels: names
+  such as `#hansemesh` derive a compatible shared key without requiring a
+  Base64 pre-shared key, while explicit keys remain available for private
+  channels. Fixed conventional UTC-offset handling so values such as `UTC-8`
+  and `UTC+5:30` now select the expected local time. Added bounded,
+  same-origin persistent HTTP/TLS sessions for Python and Lua, with exact
+  origin enforcement, redirect rejection, isolated request headers, automatic
+  interpreter teardown, and safe pre-response retry for GET and HEAD. HTTP
+  transmit buffers now grow to fit long request headers such as bearer tokens,
+  and retained connections make repeated REST calls substantially faster.
 - **4.8.9** — 2026-08-22 — Python and Lua scripts can now capture bounded
   signed 16-bit PCM blocks from the default audio input, including the native
   sample rate and channel format; capture also works in generic builds with

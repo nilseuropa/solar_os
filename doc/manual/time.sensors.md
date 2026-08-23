@@ -36,3 +36,9 @@ solaros.time provides uptime_ms, uptime, datetime, utc_datetime, set_datetime,
 set_utc_datetime, utc_to_local, local_to_utc, is_valid, timezone,
 set_timezone, and ntp_sync. solaros.battery.status and
 solaros.sensors.environment are package-gated.
+
+`set_timezone()` accepts conventional fixed UTC offsets such as `UTC-8` and
+`UTC+5:30`. Fixed offsets do not apply daylight-saving transitions. Other
+accepted timezone expressions use POSIX TZ syntax and its POSIX sign
+convention. SolarOS does not include the IANA timezone database;
+`Europe/Berlin` is a built-in daylight-saving alias.

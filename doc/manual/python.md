@@ -344,6 +344,10 @@ upstream MicroPython networking module is exposed.
 - `put(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
 - `patch(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
 - `delete(url[, body[, headers[, timeout_ms[, max_bytes[, follow_redirects]]]]])`
+- `session_open(origin)`
+- `session_request(handle, method, url[, body[, headers[, timeout_ms[, max_bytes]]]])`
+- `session_close(handle)`
+- `session_close_all()`
 - `stream_open(method, url[, body[, headers[, timeout_ms[, follow_redirects]]]])`
 - `stream_read(handle[, timeout_ms])`
 - `stream_close(handle)`
@@ -367,6 +371,17 @@ HTTP error statuses such as 404 and 500 are normal results. Invalid requests,
 allocation failures, cancellation, deadlines, DNS failures, and transport
 errors raise `OSError("ESP_ERR_...")`. Exiting the Python app cancels an active
 request.
+
+`session_open()` retains one same-origin HTTP/TLS client and returns an
+interpreter-owned opaque handle. `origin` contains only the scheme and
+authority, for example `https://example.com`; credentials, paths, queries, and
+fragments are rejected. `session_request()` has the same response and body
+limits as `request()`, but redirects are always disabled and the full request
+URL must match the opened origin. Per-request headers are removed before every
+request. A stale retained connection is retried once only for GET or HEAD and
+only before response headers or body data arrive. Writes are never retried.
+Each runtime can retain two sessions, with four sessions globally. Close
+handles in `finally`; all retained clients also close at interpreter teardown.
 
 `stream_open()` starts a native worker and returns an interpreter-owned opaque
 handle. Unlike `request()`, it has no end-to-end deadline: `timeout_ms` bounds
@@ -403,6 +418,15 @@ response = solaros.http.post(
     {"Content-Type": "application/json"},
 )
 print(response["status_code"], response["body"])
+```
+
+```python
+handle = solaros.http.session_open("https://example.com")
+try:
+    first = solaros.http.session_request(handle, "GET", "https://example.com/a")
+    second = solaros.http.session_request(handle, "GET", "https://example.com/b")
+finally:
+    solaros.http.session_close(handle)
 ```
 
 ```python
@@ -1201,7 +1225,7 @@ Functions:
 - `cols()`: return terminal columns.
 - `size()`: return `(rows, cols)`.
 - `clear()`: clear the terminal.
-- `refresh()`: force a display refresh.
+- `refresh()`: atomically commit the buffered TUI frame and flush it.
 - `move(row, col)`: move the terminal cursor.
 - `write(text[, attr])`: write at the current cursor.
 - `addstr(row, col, text[, attr])`: move and write text.
@@ -1213,7 +1237,9 @@ Functions:
 - `fill(row, col, height, width[, ch[, attr]])`: fill a rectangle.
 - `getch([timeout_ms])`: return a key code or `None`.
 
-Common key constants include `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_DELETE`, `KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
+Common key constants include `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`,
+`KEY_CTRL_LEFT`, `KEY_CTRL_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_DELETE`,
+`KEY_ESCAPE`, `KEY_PAGE_UP`, and `KEY_PAGE_DOWN`.
 
 Example:
 

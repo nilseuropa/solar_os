@@ -134,6 +134,8 @@
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_TASK_PRIORITY 5
 #define SOLUA_STOP_WAIT_MS 800
+#define SOLUA_DRAIN_EVENTS_PER_TICK 24U
+#define SOLUA_DRAIN_TUI_EVENTS_PER_TICK 128U
 #define SOLUA_HOOK_INSTRUCTION_COUNT 10000
 #define SOLUA_EXIT_MARKER "__solaros_lua_exit__"
 #define SOLUA_SLEEP_MAX_MS (60U * 60U * 1000U)
@@ -210,6 +212,8 @@ typedef struct {
     solar_os_terminal_t *session_terminal;
     solar_os_shell_io_t *session_io;
     solar_os_gfx_t *session_gfx;
+    solar_os_tui_t tui;
+    bool tui_active;
     solar_os_shell_io_t fallback_io;
     QueueHandle_t events;
     QueueHandle_t input;
@@ -264,6 +268,7 @@ static solar_os_net_session_t *solua_net_session;
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
 static solar_os_http_stream_session_t *solua_http_stream_session;
+static solar_os_http_session_context_t *solua_http_session_context;
 #endif
 
 static bool solua_runtime_claim(solua_runtime_owner_t owner)
@@ -1693,6 +1698,24 @@ static void solua_http_stream_destroy(void)
     solua_http_stream_session = NULL;
 }
 
+static solar_os_http_session_context_t *solua_http_session_get(lua_State *L)
+{
+    if (solua_http_session_context == NULL) {
+        (void)solua_check_esp(L,
+                              solar_os_http_session_context_create(
+                                  solua_should_cancel,
+                                  NULL,
+                                  &solua_http_session_context));
+    }
+    return solua_http_session_context;
+}
+
+static void solua_http_session_destroy(void)
+{
+    solar_os_http_session_context_destroy(solua_http_session_context);
+    solua_http_session_context = NULL;
+}
+
 static solar_os_http_header_t *solua_http_headers_from_table(lua_State *L,
                                                              int index,
                                                              size_t *header_count)
@@ -1847,7 +1870,7 @@ static int solua_http_perform(lua_State *L,
         .deadline_ms = timeout_ms,
         .should_cancel = solua_should_cancel,
     };
-    solar_os_http_buffered_response_t response;
+    solar_os_http_buffered_response_t response = {0};
     const esp_err_t err = solar_os_http_perform_buffered(&options,
                                                          method == SOLAR_OS_HTTP_METHOD_HEAD ?
                                                              0U : max_bytes,
@@ -1861,6 +1884,95 @@ static int solua_http_perform(lua_State *L,
     const int result_count = solua_http_push_response(L, &response);
     solar_os_http_buffered_response_clear(&response);
     return result_count;
+}
+
+static int solua_http_session_open(lua_State *L)
+{
+    size_t origin_len = 0;
+    const char *origin = luaL_checklstring(L, 1, &origin_len);
+    if (strlen(origin) != origin_len) {
+        return luaL_error(L, "invalid HTTP origin");
+    }
+    uint32_t handle = 0;
+    (void)solua_check_esp(L,
+                          solar_os_http_session_open(
+                              solua_http_session_get(L),
+                              origin,
+                              "SolarOS/" SOLAR_OS_VERSION " script",
+                              &handle));
+    lua_pushinteger(L, handle);
+    return 1;
+}
+
+static int solua_http_session_request(lua_State *L)
+{
+    solar_os_http_method_t method;
+    if (!solar_os_http_method_parse(luaL_checkstring(L, 2), &method)) {
+        return luaL_error(L, "expected GET, POST, PUT, PATCH, DELETE, or HEAD");
+    }
+    size_t url_len = 0;
+    const char *url = luaL_checklstring(L, 3, &url_len);
+    if (strlen(url) != url_len ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        return luaL_error(L, "expected http:// or https:// URL");
+    }
+    size_t body_len = 0;
+    const char *body = lua_isnoneornil(L, 4) ?
+        NULL : luaL_checklstring(L, 4, &body_len);
+    size_t header_count = 0;
+    solar_os_http_header_t *headers = solua_http_headers_from_table(
+        L,
+        5,
+        &header_count);
+    const uint32_t timeout_ms = solua_http_timeout_ms(L, 6);
+    const size_t max_bytes = solua_http_max_bytes(L, 7);
+    const solar_os_http_request_options_t options = {
+        .url = url,
+        .method = method,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body,
+        .body_len = body_len,
+        .timeout_ms = timeout_ms,
+        .deadline_ms = timeout_ms,
+    };
+    solar_os_http_buffered_response_t response = {0};
+    const esp_err_t err = solar_os_http_session_request(
+        solua_http_session_get(L),
+        solua_check_u32(L, 1),
+        &options,
+        method == SOLAR_OS_HTTP_METHOD_HEAD ? 0U : max_bytes,
+        &response);
+    solar_os_memory_free(headers);
+    if (err != ESP_OK) {
+        solar_os_http_buffered_response_clear(&response);
+        return solua_check_esp(L, err);
+    }
+    const int result_count = solua_http_push_response(L, &response);
+    solar_os_http_buffered_response_clear(&response);
+    return result_count;
+}
+
+static int solua_http_session_close(lua_State *L)
+{
+    if (solua_http_session_context != NULL) {
+        const esp_err_t err = solar_os_http_session_close(
+            solua_http_session_context,
+            solua_check_u32(L, 1));
+        if (err != ESP_ERR_NOT_FOUND) {
+            (void)solua_check_esp(L, err);
+        }
+    }
+    return 0;
+}
+
+static int solua_http_session_close_all(lua_State *L)
+{
+    (void)L;
+    if (solua_http_session_context != NULL) {
+        solar_os_http_session_close_all(solua_http_session_context);
+    }
+    return 0;
 }
 
 static int solua_http_request(lua_State *L)
@@ -6036,6 +6148,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
+    solua_http_session_destroy();
 #endif
     lua_close(L);
 
@@ -6124,6 +6237,7 @@ done:
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
+        solua_http_session_destroy();
 #endif
         lua_close(L);
     }
@@ -6370,6 +6484,10 @@ static void solua_stop(solar_os_context_t *ctx)
         }
     }
 
+    if (solua.tui_active) {
+        solar_os_tui_end(&solua.tui);
+        solua.tui_active = false;
+    }
     if (solua.events != NULL) {
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
@@ -6394,6 +6512,7 @@ static void solua_stop(solar_os_context_t *ctx)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
+    solua_http_session_destroy();
 #endif
     solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }
@@ -6514,41 +6633,47 @@ static void solua_repl_submit(solar_os_context_t *ctx)
 
 static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *event)
 {
-    solar_os_tui_t tui;
-    if (event == NULL || solar_os_tui_begin(&tui, ctx) != ESP_OK) {
+    if (event == NULL) {
         return;
     }
+    if (!solua.tui_active) {
+        if (solar_os_tui_screen_begin(&solua.tui, ctx) != ESP_OK) {
+            return;
+        }
+        solua.tui_active = true;
+    }
+    solar_os_tui_t *tui = &solua.tui;
 
     switch (event->type) {
     case SOLUA_EVENT_TUI_CLEAR:
-        solar_os_tui_clear(&tui);
+        solar_os_tui_clear(tui);
         break;
     case SOLUA_EVENT_TUI_REFRESH:
-        solar_os_tui_refresh(&tui);
+        solar_os_tui_refresh(tui);
         break;
     case SOLUA_EVENT_TUI_MOVE:
-        solar_os_tui_move(&tui, event->row, event->col);
+        solar_os_tui_move(tui, event->row, event->col);
         break;
     case SOLUA_EVENT_TUI_WRITE:
-        solar_os_tui_write(&tui, event->data, event->attr);
+        solar_os_tui_write(tui, event->data, event->attr);
         break;
     case SOLUA_EVENT_TUI_PUTCH:
-        solar_os_tui_putch(&tui, event->row, event->col, event->codepoint, event->attr);
+        solar_os_tui_putch(tui, event->row, event->col, event->codepoint, event->attr);
         break;
     case SOLUA_EVENT_TUI_HLINE:
-        solar_os_tui_hline(&tui, event->row, event->col, event->width, 0, event->attr);
+        solar_os_tui_hline(tui, event->row, event->col, event->width, 0, event->attr);
         break;
     case SOLUA_EVENT_TUI_VLINE:
-        solar_os_tui_vline(&tui, event->row, event->col, event->height, 0, event->attr);
+        solar_os_tui_vline(tui, event->row, event->col, event->height, 0, event->attr);
         break;
     case SOLUA_EVENT_TUI_VRULE:
-        solar_os_tui_vrule(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_vrule(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case SOLUA_EVENT_TUI_BOX:
-        solar_os_tui_box(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_box(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case SOLUA_EVENT_TUI_FILL:
-        solar_os_tui_fill(&tui,
+        solar_os_tui_fill(tui,
                           event->row,
                           event->col,
                           event->height,
@@ -6557,19 +6682,19 @@ static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *
                           event->attr);
         break;
     case SOLUA_EVENT_TUI_CELL:
-        solar_os_tui_write_cell(&tui, event->row, event->col, event->width,
+        solar_os_tui_write_cell(tui, event->row, event->col, event->width,
                                 event->data, event->attr);
         break;
     case SOLUA_EVENT_TUI_TITLE:
-        solar_os_tui_draw_title(&tui, event->data,
+        solar_os_tui_draw_title(tui, event->data,
                                 event->data_len + 1U < sizeof(event->data) ?
                                     event->data + event->data_len + 1U : "");
         break;
     case SOLUA_EVENT_TUI_HELP:
-        solar_os_tui_draw_help(&tui, event->data);
+        solar_os_tui_draw_help(tui, event->data);
         break;
     case SOLUA_EVENT_TUI_TAB:
-        solar_os_tui_draw_tab(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_tab(tui, event->row, event->col, event->width,
                               event->data, event->success);
         break;
     case SOLUA_EVENT_TUI_INPUT: {
@@ -6579,7 +6704,7 @@ static void solua_apply_tui_event(solar_os_context_t *ctx, const solua_event_t *
         };
         const char *text = event->data_len + 1U < sizeof(event->data) ?
             event->data + event->data_len + 1U : "";
-        solar_os_tui_draw_input_ex(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_input_ex(tui, event->row, event->col, event->width,
                                    event->data, text, &state, event->attr,
                                    event->success);
         break;
@@ -6683,7 +6808,16 @@ static void solua_drain_events(solar_os_context_t *ctx)
     solar_os_shell_io_t *io = solua_io(ctx);
     solua_event_t event;
     uint32_t drained = 0;
-    while (drained++ < 24 && xQueueReceive(solua.events, &event, 0) == pdPASS) {
+    uint32_t drain_limit = SOLUA_DRAIN_EVENTS_PER_TICK;
+    while (drained < drain_limit &&
+           xQueueReceive(solua.events, &event, 0) == pdPASS) {
+        drained++;
+        if (event.type >= SOLUA_EVENT_TUI_CLEAR &&
+            event.type <= SOLUA_EVENT_TUI_INPUT) {
+            drain_limit = event.type == SOLUA_EVENT_TUI_REFRESH ?
+                SOLUA_DRAIN_EVENTS_PER_TICK :
+                SOLUA_DRAIN_TUI_EVENTS_PER_TICK;
+        }
         switch (event.type) {
         case SOLUA_EVENT_OUTPUT:
             for (size_t i = 0; i < event.data_len; i++) {
@@ -6738,6 +6872,10 @@ static void solua_drain_events(solar_os_context_t *ctx)
         case SOLUA_EVENT_DONE:
             solua.running = false;
             solua.task_done = true;
+            if (solua.tui_active) {
+                solar_os_tui_end(&solua.tui);
+                solua.tui_active = false;
+            }
             solua_gfx_release_target();
             solar_os_context_set_graphics_active(ctx, false);
             if (solua.mode == SOLUA_MODE_SCRIPT || solua.repl_exit_requested) {

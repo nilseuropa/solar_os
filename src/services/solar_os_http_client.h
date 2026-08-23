@@ -7,6 +7,7 @@
 #include "esp_err.h"
 
 typedef struct solar_os_http_request solar_os_http_request_t;
+typedef struct solar_os_http_session_context solar_os_http_session_context_t;
 
 typedef enum {
     SOLAR_OS_HTTP_METHOD_GET = 0,
@@ -100,6 +101,10 @@ typedef struct {
 #define SOLAR_OS_HTTP_BUFFERED_MAX_HEADERS 24U
 #define SOLAR_OS_HTTP_BUFFERED_MAX_HEADER_BYTES (8U * 1024U)
 
+#define SOLAR_OS_HTTP_SESSION_MAX_HANDLES 2U
+#define SOLAR_OS_HTTP_SESSION_GLOBAL_MAX_HANDLES 4U
+#define SOLAR_OS_HTTP_SESSION_MAX_TIMEOUT_MS 60000U
+
 /*
  * Requests are one-shot objects. The options and all memory referenced by them
  * must remain valid until perform returns. This includes cancel_flag when set.
@@ -131,6 +136,41 @@ esp_err_t solar_os_http_perform_buffered(
     solar_os_http_buffered_response_t *response);
 void solar_os_http_buffered_response_clear(
     solar_os_http_buffered_response_t *response);
+
+/*
+ * Persistent sessions are scoped to one caller-owned runtime context. Each
+ * handle retains one ESP-IDF client and may reuse its same-origin HTTP/TLS
+ * connection after a response is consumed completely. Redirects are rejected
+ * because a retained authenticated connection must never cross origins.
+ *
+ * session_request is synchronous and generation-checks its handle. A stale
+ * keep-alive connection is retried once only for GET or HEAD, and only before
+ * response headers or body data were received. Per-request headers are removed
+ * before the next request. Destroying a context closes every retained client.
+ */
+esp_err_t solar_os_http_session_context_create(
+    solar_os_http_cancel_fn should_cancel,
+    void *cancel_user_data,
+    solar_os_http_session_context_t **out_context);
+void solar_os_http_session_context_destroy(
+    solar_os_http_session_context_t *context);
+
+esp_err_t solar_os_http_session_open(
+    solar_os_http_session_context_t *context,
+    const char *origin,
+    const char *user_agent,
+    uint32_t *out_handle);
+esp_err_t solar_os_http_session_request(
+    solar_os_http_session_context_t *context,
+    uint32_t handle,
+    const solar_os_http_request_options_t *options,
+    size_t max_body_bytes,
+    solar_os_http_buffered_response_t *response);
+esp_err_t solar_os_http_session_close(
+    solar_os_http_session_context_t *context,
+    uint32_t handle);
+void solar_os_http_session_close_all(
+    solar_os_http_session_context_t *context);
 
 bool solar_os_http_method_parse(const char *text,
                                 solar_os_http_method_t *method);

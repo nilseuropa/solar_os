@@ -26,6 +26,7 @@ extern "C" {
 #include "solar_os_identity.h"
 #include "solar_os_memory.h"
 #include "solar_os_messaging.h"
+#include "solar_os_meshcore_channel_key.h"
 #include "solar_os_radio.h"
 #include "solar_os_time.h"
 }
@@ -1818,9 +1819,11 @@ extern "C" esp_err_t solar_os_meshcore_channel_add(
     const char *base64_psk)
 {
     ESP_RETURN_ON_ERROR(solar_os_meshcore_init(), "meshcore", "init failed");
+    const bool hashtag = name != nullptr && name[0] == '#';
     if (!text_valid(name, SOLAR_OS_MESHCORE_GROUP_NAME_MAX, false) ||
         strcmp(name, SOLAR_OS_MESHCORE_PUBLIC_GROUP) == 0 ||
-        base64_psk == nullptr) {
+        (hashtag && (name[1] == '\0' || base64_psk != nullptr)) ||
+        (!hashtag && base64_psk == nullptr)) {
         return ESP_ERR_INVALID_ARG;
     }
     StoppedTransition transition;
@@ -1848,8 +1851,17 @@ extern "C" esp_err_t solar_os_meshcore_channel_add(
     }
     uint8_t secret[PUB_KEY_SIZE]{};
     size_t secret_length = 0;
-    esp_err_t error = solar_os_crypto_base64_decode(
-        base64_psk, secret, sizeof(secret), &secret_length);
+    esp_err_t error = ESP_OK;
+    if (hashtag) {
+        if (!solar_os_meshcore_channel_key_derive_hashtag(name, secret)) {
+            error = ESP_ERR_INVALID_ARG;
+        } else {
+            secret_length = SOLAR_OS_MESHCORE_HASHTAG_KEY_LEN;
+        }
+    } else {
+        error = solar_os_crypto_base64_decode(
+            base64_psk, secret, sizeof(secret), &secret_length);
+    }
     if (error == ESP_OK && secret_length != 16U && secret_length != 32U) {
         error = ESP_ERR_INVALID_SIZE;
     }

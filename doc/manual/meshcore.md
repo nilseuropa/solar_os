@@ -93,6 +93,7 @@ the radio finishes because groups have no recipient ACK.
 meshcore channel list
 meshcore channel public off
 meshcore channel public on
+meshcore channel add '#hansemesh'
 meshcore channel add team BASE64_PSK
 meshcore channel remove team
 ```
@@ -100,6 +101,13 @@ meshcore channel remove team
 There are eight total group slots including Public. Custom keys must decode to
 16 or 32 bytes and remain confined to Credentials; they are not shown by
 Inbox, logs, autocomplete, agent tools, Python, or Lua.
+
+A channel name that starts with `#` is a public hashtag channel. SolarOS derives
+its 16-byte key from the first 16 bytes of the SHA-256 digest of the exact
+channel name, including the leading `#`. Hashtag names are case-sensitive and
+do not take a pre-shared-key argument. Anyone who knows or guesses the name can
+derive the same key, so hashtag channels are not private. Use the explicit
+Base64 key form only for private channels without the `#` prefix.
 
 ## Implementation and limits
 
@@ -125,6 +133,7 @@ meshcore identity export --private
 meshcore name [name]
 meshcore advert zero|flood
 meshcore channel list
+meshcore channel add <#hashtag>
 meshcore channel add <name> <base64-psk>
 meshcore channel remove <name>
 meshcore channel public on|off

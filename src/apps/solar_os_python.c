@@ -148,6 +148,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_REPL_SOURCE_MAX (2U * 1024U)
 #define PYTHON_STOP_WAIT_MS 1500
 #define PYTHON_DRAIN_EVENTS_PER_TICK 8U
+#define PYTHON_DRAIN_TUI_EVENTS_PER_TICK 128U
 #define PYTHON_SLEEP_MAX_MS (60U * 60U * 1000U)
 #define PYTHON_HTTP_MAX_REQUEST_HEADERS 16U
 #define PYTHON_HTTP_DEFAULT_TIMEOUT_MS 10000U
@@ -226,6 +227,8 @@ typedef struct {
     solar_os_terminal_t *session_terminal;
     solar_os_shell_io_t *session_io;
     solar_os_gfx_t *session_gfx;
+    solar_os_tui_t tui;
+    bool tui_active;
     volatile bool stop_requested;
     volatile bool task_done;
     volatile bool vm_active;
@@ -277,6 +280,7 @@ static solar_os_net_session_t *python_net_session;
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
 static solar_os_http_stream_session_t *python_http_stream_session;
+static solar_os_http_session_context_t *python_http_session_context;
 #endif
 
 static bool python_runtime_claim(python_runtime_owner_t owner)
@@ -1764,6 +1768,23 @@ static void python_http_stream_destroy(void)
     python_http_stream_session = NULL;
 }
 
+static solar_os_http_session_context_t *python_http_session_get(void)
+{
+    if (python_http_session_context == NULL) {
+        python_check_esp(solar_os_http_session_context_create(
+            python_should_cancel,
+            NULL,
+            &python_http_session_context));
+    }
+    return python_http_session_context;
+}
+
+static void python_http_session_destroy(void)
+{
+    solar_os_http_session_context_destroy(python_http_session_context);
+    python_http_session_context = NULL;
+}
+
 static solar_os_http_header_t *python_http_headers_from_obj(mp_obj_t headers_obj,
                                                             size_t *header_count)
 {
@@ -1893,7 +1914,7 @@ static mp_obj_t python_http_perform(solar_os_http_method_t method,
         .deadline_ms = timeout_ms,
         .should_cancel = python_should_cancel,
     };
-    solar_os_http_buffered_response_t response;
+    solar_os_http_buffered_response_t response = {0};
     const esp_err_t err = solar_os_http_perform_buffered(&options,
                                                          method == SOLAR_OS_HTTP_METHOD_HEAD ?
                                                              0U : max_bytes,
@@ -1908,6 +1929,115 @@ static mp_obj_t python_http_perform(solar_os_http_method_t method,
     solar_os_http_buffered_response_clear(&response);
     return result;
 }
+
+static mp_obj_t solaros_http_session_open(mp_obj_t origin_obj)
+{
+    size_t origin_len = 0;
+    const char *origin = mp_obj_str_get_data(origin_obj, &origin_len);
+    if (strlen(origin) != origin_len) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid HTTP origin"));
+    }
+    uint32_t handle = 0;
+    python_check_esp(solar_os_http_session_open(
+        python_http_session_get(),
+        origin,
+        "SolarOS/" SOLAR_OS_VERSION " script",
+        &handle));
+    return mp_obj_new_int_from_uint(handle);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_http_session_open_obj,
+                          solaros_http_session_open);
+
+static mp_obj_t solaros_http_session_request(size_t n_args,
+                                             const mp_obj_t *args)
+{
+    solar_os_http_method_t method;
+    if (!solar_os_http_method_parse(mp_obj_str_get_str(args[1]), &method)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected GET, POST, PUT, PATCH, DELETE, or HEAD"));
+    }
+    const size_t max_bytes = python_optional_u32(
+        n_args,
+        args,
+        6,
+        SOLAR_OS_HTTP_BUFFERED_DEFAULT_MAX_BODY);
+    if (max_bytes > PYTHON_HTTP_MAX_BODY) {
+        mp_raise_ValueError(MP_ERROR_TEXT("HTTP max_bytes exceeds 262144"));
+    }
+
+    size_t url_len = 0;
+    const char *url = mp_obj_str_get_data(args[2], &url_len);
+    if (strlen(url) != url_len ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected http:// or https:// URL"));
+    }
+    mp_buffer_info_t body = {0};
+    if (n_args >= 4 && args[3] != mp_const_none) {
+        mp_get_buffer_raise(args[3], &body, MP_BUFFER_READ);
+    }
+    size_t header_count = 0;
+    solar_os_http_header_t *headers = python_http_headers_from_obj(
+        n_args >= 5 ? args[4] : mp_const_none,
+        &header_count);
+    const uint32_t timeout_ms = python_optional_u32(
+        n_args,
+        args,
+        5,
+        PYTHON_HTTP_DEFAULT_TIMEOUT_MS);
+    const solar_os_http_request_options_t options = {
+        .url = url,
+        .method = method,
+        .headers = headers,
+        .header_count = header_count,
+        .body = body.buf,
+        .body_len = body.len,
+        .timeout_ms = timeout_ms,
+        .deadline_ms = timeout_ms,
+    };
+    solar_os_http_buffered_response_t response = {0};
+    const esp_err_t err = solar_os_http_session_request(
+        python_http_session_get(),
+        python_u32_from_obj(args[0]),
+        &options,
+        method == SOLAR_OS_HTTP_METHOD_HEAD ? 0U : max_bytes,
+        &response);
+    solar_os_memory_free(headers);
+    if (err != ESP_OK) {
+        solar_os_http_buffered_response_clear(&response);
+        python_raise_esp(err);
+    }
+    mp_obj_t result = python_http_response_to_dict(&response);
+    solar_os_http_buffered_response_clear(&response);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_http_session_request_obj,
+                                    3,
+                                    7,
+                                    solaros_http_session_request);
+
+static mp_obj_t solaros_http_session_close(mp_obj_t handle_obj)
+{
+    if (python_http_session_context != NULL) {
+        const esp_err_t err = solar_os_http_session_close(
+            python_http_session_context,
+            python_u32_from_obj(handle_obj));
+        if (err != ESP_ERR_NOT_FOUND) {
+            python_check_esp(err);
+        }
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_http_session_close_obj,
+                          solaros_http_session_close);
+
+static mp_obj_t solaros_http_session_close_all(void)
+{
+    if (python_http_session_context != NULL) {
+        solar_os_http_session_close_all(python_http_session_context);
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_http_session_close_all_obj,
+                          solaros_http_session_close_all);
 
 static mp_obj_t solaros_http_request(size_t n_args, const mp_obj_t *args)
 {
@@ -6441,6 +6571,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
+    python_http_session_destroy();
 #endif
     mp_embed_deinit();
     python_app.vm_active = false;
@@ -6616,6 +6747,7 @@ static void python_task(void *arg)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         python_http_stream_destroy();
+        python_http_session_destroy();
 #endif
         mp_embed_deinit();
         python_app.vm_active = false;
@@ -7019,6 +7151,10 @@ static void python_stop(solar_os_context_t *ctx)
              python_app.task_done,
              python_app.vm_active);
 
+    if (python_app.tui_active) {
+        solar_os_tui_end(&python_app.tui);
+        python_app.tui_active = false;
+    }
     if (python_app.events != NULL) {
         solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
@@ -7043,47 +7179,54 @@ static void python_stop(solar_os_context_t *ctx)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
+    python_http_session_destroy();
 #endif
     python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
 }
 
 static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t *event)
 {
-    solar_os_tui_t tui;
-    if (event == NULL || solar_os_tui_begin(&tui, ctx) != ESP_OK) {
+    if (event == NULL) {
         return;
     }
+    if (!python_app.tui_active) {
+        if (solar_os_tui_screen_begin(&python_app.tui, ctx) != ESP_OK) {
+            return;
+        }
+        python_app.tui_active = true;
+    }
+    solar_os_tui_t *tui = &python_app.tui;
 
     switch (event->type) {
     case PYTHON_EVENT_TUI_CLEAR:
-        solar_os_tui_clear(&tui);
+        solar_os_tui_clear(tui);
         break;
     case PYTHON_EVENT_TUI_REFRESH:
-        solar_os_tui_refresh(&tui);
+        solar_os_tui_refresh(tui);
         break;
     case PYTHON_EVENT_TUI_MOVE:
-        solar_os_tui_move(&tui, event->row, event->col);
+        solar_os_tui_move(tui, event->row, event->col);
         break;
     case PYTHON_EVENT_TUI_WRITE:
-        solar_os_tui_write(&tui, event->data, event->attr);
+        solar_os_tui_write(tui, event->data, event->attr);
         break;
     case PYTHON_EVENT_TUI_PUTCH:
-        solar_os_tui_putch(&tui, event->row, event->col, event->codepoint, event->attr);
+        solar_os_tui_putch(tui, event->row, event->col, event->codepoint, event->attr);
         break;
     case PYTHON_EVENT_TUI_HLINE:
-        solar_os_tui_hline(&tui, event->row, event->col, event->width, 0, event->attr);
+        solar_os_tui_hline(tui, event->row, event->col, event->width, 0, event->attr);
         break;
     case PYTHON_EVENT_TUI_VLINE:
-        solar_os_tui_vline(&tui, event->row, event->col, event->height, 0, event->attr);
+        solar_os_tui_vline(tui, event->row, event->col, event->height, 0, event->attr);
         break;
     case PYTHON_EVENT_TUI_VRULE:
-        solar_os_tui_vrule(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_vrule(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case PYTHON_EVENT_TUI_BOX:
-        solar_os_tui_box(&tui, event->row, event->col, event->height, event->width, event->attr);
+        solar_os_tui_box(tui, event->row, event->col, event->height, event->width, event->attr);
         break;
     case PYTHON_EVENT_TUI_FILL:
-        solar_os_tui_fill(&tui,
+        solar_os_tui_fill(tui,
                           event->row,
                           event->col,
                           event->height,
@@ -7092,19 +7235,19 @@ static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t
                           event->attr);
         break;
     case PYTHON_EVENT_TUI_CELL:
-        solar_os_tui_write_cell(&tui, event->row, event->col, event->width,
+        solar_os_tui_write_cell(tui, event->row, event->col, event->width,
                                 event->data, event->attr);
         break;
     case PYTHON_EVENT_TUI_TITLE:
-        solar_os_tui_draw_title(&tui, event->data,
+        solar_os_tui_draw_title(tui, event->data,
                                 event->data_len + 1U < sizeof(event->data) ?
                                     event->data + event->data_len + 1U : "");
         break;
     case PYTHON_EVENT_TUI_HELP:
-        solar_os_tui_draw_help(&tui, event->data);
+        solar_os_tui_draw_help(tui, event->data);
         break;
     case PYTHON_EVENT_TUI_TAB:
-        solar_os_tui_draw_tab(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_tab(tui, event->row, event->col, event->width,
                               event->data, event->success);
         break;
     case PYTHON_EVENT_TUI_INPUT: {
@@ -7114,7 +7257,7 @@ static void python_apply_tui_event(solar_os_context_t *ctx, const python_event_t
         };
         const char *text = event->data_len + 1U < sizeof(event->data) ?
             event->data + event->data_len + 1U : "";
-        solar_os_tui_draw_input_ex(&tui, event->row, event->col, event->width,
+        solar_os_tui_draw_input_ex(tui, event->row, event->col, event->width,
                                    event->data, text, &state, event->attr,
                                    event->success);
         break;
@@ -7218,9 +7361,16 @@ static void python_drain_events(solar_os_context_t *ctx)
     solar_os_shell_io_t *io = python_io(ctx);
     python_event_t event;
     uint32_t drained = 0;
-    while (drained < PYTHON_DRAIN_EVENTS_PER_TICK &&
+    uint32_t drain_limit = PYTHON_DRAIN_EVENTS_PER_TICK;
+    while (drained < drain_limit &&
            xQueueReceive(python_app.events, &event, 0) == pdPASS) {
         drained++;
+        if (event.type >= PYTHON_EVENT_TUI_CLEAR &&
+            event.type <= PYTHON_EVENT_TUI_INPUT) {
+            drain_limit = event.type == PYTHON_EVENT_TUI_REFRESH ?
+                PYTHON_DRAIN_EVENTS_PER_TICK :
+                PYTHON_DRAIN_TUI_EVENTS_PER_TICK;
+        }
         switch (event.type) {
         case PYTHON_EVENT_OUTPUT:
             for (size_t i = 0; i < event.data_len; i++) {
@@ -7279,6 +7429,10 @@ static void python_drain_events(solar_os_context_t *ctx)
         case PYTHON_EVENT_DONE:
             python_app.running = false;
             python_app.done = true;
+            if (python_app.tui_active) {
+                solar_os_tui_end(&python_app.tui);
+                python_app.tui_active = false;
+            }
             python_gfx_release_target();
             solar_os_context_set_graphics_active(ctx, false);
             if (python_app.mode == PYTHON_MODE_SCRIPT) {

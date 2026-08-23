@@ -260,9 +260,6 @@ static esp_err_t tui_prepare_diff_buffers(solar_os_tui_t *tui)
     if (!tui_valid(tui)) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (solar_os_shell_io_kind(tui->io) != SOLAR_OS_SHELL_IO_KIND_PORT) {
-        return ESP_OK;
-    }
     if (!solar_os_shell_io_is_cursor_addressable(tui->io)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -760,7 +757,6 @@ static esp_err_t tui_refresh_diff(solar_os_tui_t *tui)
 void solar_os_tui_refresh(solar_os_tui_t *tui)
 {
     if (tui != NULL && tui->diff_enabled &&
-        solar_os_shell_io_kind(tui->io) == SOLAR_OS_SHELL_IO_KIND_PORT &&
         solar_os_shell_io_is_cursor_addressable(tui->io)) {
         if (tui_prepare_diff_buffers(tui) == ESP_OK) {
             (void)tui_refresh_diff(tui);

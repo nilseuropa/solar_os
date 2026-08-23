@@ -276,7 +276,7 @@ setterm charset [utf8|ascii]
 setterm keyboard [us|de]
 setterm powerkey [sleep|suspend]
 setterm keyrate [off|1..60 [delay-ms]]
-setterm timezone [UTC|Europe/Berlin|POSIX-TZ]
+setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
 setterm startup [flash|sd]
 setterm otaurl [url]
 ```
@@ -284,6 +284,13 @@ setterm otaurl [url]
 `setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
 board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
 The value is stored in NVS and is available on builds without BLE.
+
+`setterm timezone` accepts fixed offsets with the conventional UTC sign:
+`UTC-8` is eight hours behind UTC and `UTC+5:30` is five hours and 30 minutes
+ahead. Fixed offsets do not apply daylight-saving transitions. Other accepted
+timezone expressions use POSIX TZ syntax and its POSIX sign convention.
+SolarOS does not include the IANA timezone database; `Europe/Berlin` is a
+built-in daylight-saving alias.
 
 `setterm powerkey` selects the dedicated KEY short-press action. `sleep`
 enters explicit light sleep; `suspend` turns off the display while jobs and
@@ -696,7 +703,7 @@ available for the compiled board.
 | `meshcore` | `meshcore identity show\|generate\|import\|export` | Inspect or explicitly manage the private MeshCore identity. |
 | `meshcore` | `meshcore name [name]` | Show or set the MeshCore-specific advertised name. |
 | `meshcore` | `meshcore advert zero\|flood` | Queue a local or explicitly network-wide advert. |
-| `meshcore` | `meshcore channel list\|add\|remove\|public` | Manage bounded shared-key groups while the job is stopped. |
+| `meshcore` | `meshcore channel list\|add\|remove\|public` | Join public hashtag channels or manage bounded shared-key groups while the job is stopped. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |

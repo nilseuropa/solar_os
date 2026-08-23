@@ -260,6 +260,7 @@ sources = [
   "services/solar_os_terminal.c",
   "services/solar_os_terminal_geometry.c",
   "services/solar_os_time.c",
+  "services/solar_os_timezone.c",
   "services/solar_os_tui.c",
   "services/solar_os_tui_widgets.c",
 ]
@@ -728,6 +729,7 @@ depends = [
 ]
 sources = [
   "services/solar_os_meshcore.cpp",
+  "services/solar_os_meshcore_channel_key.cpp",
   "vendor/meshcore/Dispatcher.cpp",
   "vendor/meshcore/Identity.cpp",
   "vendor/meshcore/Mesh.cpp",
