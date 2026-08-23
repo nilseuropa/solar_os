@@ -3,3 +3,4 @@
 mp_obj_list_t mp_sys_argv_obj;
 mp_obj_t sys_mutable[MP_SYS_MUTABLE_NUM];
 mp_sched_item_t sched_queue[(4)];
+void *solar_os_active_parse_tree_chunk;

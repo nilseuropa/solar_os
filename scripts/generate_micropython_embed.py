@@ -30,13 +30,38 @@ SELECTED_EXTMOD_SUPPORT = (
     Path("lib/crypto-algorithms/sha256.h"),
 )
 SOURCE_REPLACEMENTS = {
+    Path("py/compile.c"): (
+        (
+            "#if MICROPY_ENABLE_COMPILER\n\n",
+            "#if MICROPY_ENABLE_COMPILER\n\n"
+            "MP_REGISTER_ROOT_POINTER(void *solar_os_active_parse_tree_chunk);\n\n",
+        ),
+        (
+            "void mp_compile_to_raw_code(mp_parse_tree_t *parse_tree, qstr source_file, bool is_repl, mp_compiled_module_t *cm) {\n"
+            "    // put compiler state on the stack, it's relatively small\n",
+            "void mp_compile_to_raw_code(mp_parse_tree_t *parse_tree, qstr source_file, bool is_repl, mp_compiled_module_t *cm) {\n"
+            "    // Keep the parse chunks alive even if a collection cannot find the\n"
+            "    // caller's parse_tree local through the native task stack.\n"
+            "    MP_STATE_VM(solar_os_active_parse_tree_chunk) = parse_tree->chunk;\n\n"
+            "    // put compiler state on the stack, it's relatively small\n",
+        ),
+        (
+            "    mp_parse_tree_clear(parse_tree);\n\n"
+            "    // free the scopes\n",
+            "    mp_parse_tree_clear(parse_tree);\n"
+            "    MP_STATE_VM(solar_os_active_parse_tree_chunk) = NULL;\n\n"
+            "    // free the scopes\n",
+        ),
+    ),
     Path("py/reader.c"): (
-        "int fd = open(qstr_str(filename), O_RDONLY, 0644);\n",
-        "char resolved[SOLAR_OS_MICROPYTHON_PATH_MAX];\n"
-        "    if (solar_os_micropython_resolve_path(qstr_str(filename), resolved, sizeof(resolved)) != 0) {\n"
-        "        mp_raise_OSError_with_filename(errno, qstr_str(filename));\n"
-        "    }\n"
-        "    int fd = open(resolved, O_RDONLY, 0644);\n",
+        (
+            "int fd = open(qstr_str(filename), O_RDONLY, 0644);\n",
+            "char resolved[SOLAR_OS_MICROPYTHON_PATH_MAX];\n"
+            "    if (solar_os_micropython_resolve_path(qstr_str(filename), resolved, sizeof(resolved)) != 0) {\n"
+            "        mp_raise_OSError_with_filename(errno, qstr_str(filename));\n"
+            "    }\n"
+            "    int fd = open(resolved, O_RDONLY, 0644);\n",
+        ),
     ),
 }
 
@@ -137,12 +162,14 @@ def prepare_upstream(repository: Path | None, temporary: Path) -> Path:
 def generate(source: Path, temporary: Path) -> Path:
     build = temporary / "build"
     package = temporary / "micropython_embed"
-    for relative, (original, replacement) in SOURCE_REPLACEMENTS.items():
+    for relative, replacements in SOURCE_REPLACEMENTS.items():
         path = source / relative
         text = path.read_text(encoding="utf-8")
-        if text.count(original) != 1:
-            raise RuntimeError(f"unexpected upstream content in {relative}")
-        path.write_text(text.replace(original, replacement), encoding="utf-8")
+        for original, replacement in replacements:
+            if text.count(original) != 1:
+                raise RuntimeError(f"unexpected upstream content in {relative}")
+            text = text.replace(original, replacement)
+        path.write_text(text, encoding="utf-8")
 
     upstream_port = source / "ports" / "embed" / "port"
     for override in sorted(PORT_OVERRIDES.iterdir()):

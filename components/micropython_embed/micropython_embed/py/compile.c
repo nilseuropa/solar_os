@@ -41,6 +41,8 @@
 
 #if MICROPY_ENABLE_COMPILER
 
+MP_REGISTER_ROOT_POINTER(void *solar_os_active_parse_tree_chunk);
+
 #define INVALID_LABEL (0xffff)
 
 typedef enum {
@@ -3482,6 +3484,10 @@ static void scope_compute_things(scope_t *scope) {
 static
 #endif
 void mp_compile_to_raw_code(mp_parse_tree_t *parse_tree, qstr source_file, bool is_repl, mp_compiled_module_t *cm) {
+    // Keep the parse chunks alive even if a collection cannot find the
+    // caller's parse_tree local through the native task stack.
+    MP_STATE_VM(solar_os_active_parse_tree_chunk) = parse_tree->chunk;
+
     // put compiler state on the stack, it's relatively small
     compiler_t comp_state = {0};
     compiler_t *comp = &comp_state;
@@ -3681,6 +3687,7 @@ emit_finished:
 
     // free the parse tree
     mp_parse_tree_clear(parse_tree);
+    MP_STATE_VM(solar_os_active_parse_tree_chunk) = NULL;
 
     // free the scopes
     for (scope_t *s = module_scope; s;) {

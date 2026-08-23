@@ -113,6 +113,34 @@ class MicroPythonEmbedTest(unittest.TestCase):
             source,
         )
 
+    def test_compiler_roots_active_parse_tree(self):
+        source = (
+            generate_micropython_embed.PACKAGE / "py" / "compile.c"
+        ).read_text(encoding="utf-8")
+        roots = (
+            generate_micropython_embed.PACKAGE / "genhdr" / "root_pointers.h"
+        ).read_text(encoding="utf-8")
+        override = (
+            generate_micropython_embed.PORT_OVERRIDES / "embed_util.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "MP_REGISTER_ROOT_POINTER(void *solar_os_active_parse_tree_chunk);",
+            source,
+        )
+        self.assertIn(
+            "MP_STATE_VM(solar_os_active_parse_tree_chunk) = parse_tree->chunk;",
+            source,
+        )
+        self.assertIn(
+            "MP_STATE_VM(solar_os_active_parse_tree_chunk) = NULL;",
+            source,
+        )
+        self.assertIn("void *solar_os_active_parse_tree_chunk;", roots)
+        self.assertIn(
+            "MP_STATE_VM(solar_os_active_parse_tree_chunk) = NULL;",
+            override,
+        )
+
     def test_native_i64_values_use_small_int_aware_conversion(self):
         source_paths = [REPOSITORY / "src/apps/solar_os_python.c"]
         source_paths.extend(
