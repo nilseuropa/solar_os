@@ -158,7 +158,8 @@ def _static_bus_pins(macros: dict[str, str]) -> dict[str, set[int]]:
         body = value[match.end():end]
         pins: set[int] = set()
         for token in re.findall(
-            r"\.(?:sda_pin|scl_pin|sclk_pin|miso_pin|mosi_pin|tx_pin|rx_pin|pin)\s*=\s*"
+            r"\.(?:sda_pin|scl_pin|sclk_pin|miso_pin|mosi_pin|tx_pin|rx_pin|"
+            r"clock_pin|data_pin|pin)\s*=\s*"
             r"([A-Z][A-Z0-9_]*|\d+)",
             body,
         ):
@@ -373,7 +374,7 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
     if len(bus_names) != len(set(bus_names)):
         errors.append(f"{board.board_id}: static bus names are not unique")
     for name, protocol in board.static_buses:
-        capability = "GPIO" if protocol == "ONEWIRE" else protocol
+        capability = "GPIO" if protocol in ("ONEWIRE", "PS2") else protocol
         if capability not in board.capabilities:
             errors.append(
                 f"{board.board_id}: static bus {name} uses {protocol} without "

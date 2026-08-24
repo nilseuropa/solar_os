@@ -19,7 +19,10 @@ from solaros_build_lock import acquire_project_build_lock
 
 
 def _selected_flavor() -> str:
-    return os.environ.get("SOLAR_OS_FLAVOR") or "full"
+    return (
+        os.environ.get("SOLAR_OS_FLAVOR")
+        or env.GetProjectOption("custom_solaros_default_flavor", "full")
+    )
 
 
 def _selected_board() -> str:

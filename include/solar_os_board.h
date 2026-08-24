@@ -10,6 +10,8 @@
 #include "boards/freenove_esp32_wrover_v3.h"
 #elif defined(SOLAR_OS_BOARD_ELECROW_CROWPANEL_ESP32_S3_4_2_EPAPER)
 #include "boards/elecrow_crowpanel_esp32_s3_4_2_epaper.h"
+#elif defined(SOLAR_OS_BOARD_TTGO_VGA32_V14)
+#include "boards/ttgo_vga32_v14.h"
 #else
 #error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/<target>.cmake profile."
 #endif

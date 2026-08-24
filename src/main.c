@@ -254,7 +254,18 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
-#ifdef SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO
+#ifdef SOLAR_OS_BOARD_PIN_VGA_HSYNC
+    SOLAR_OS_LOGI(TAG,
+                  "VGA pins: R=%d/%d G=%d/%d B=%d/%d HSYNC=%d VSYNC=%d",
+                  SOLAR_OS_BOARD_PIN_VGA_RED0,
+                  SOLAR_OS_BOARD_PIN_VGA_RED1,
+                  SOLAR_OS_BOARD_PIN_VGA_GREEN0,
+                  SOLAR_OS_BOARD_PIN_VGA_GREEN1,
+                  SOLAR_OS_BOARD_PIN_VGA_BLUE0,
+                  SOLAR_OS_BOARD_PIN_VGA_BLUE1,
+                  SOLAR_OS_BOARD_PIN_VGA_HSYNC,
+                  SOLAR_OS_BOARD_PIN_VGA_VSYNC);
+#elif defined(SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO)
     SOLAR_OS_LOGI(TAG,
                   "Display pin: CVBS=%d",
                   SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO);
