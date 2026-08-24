@@ -54,6 +54,11 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
   required package is an error.
 - Board capability pruning is applied to the resolved graph. If a dependency is
   unavailable, its dependants are removed as well.
+- A board can require packages that implement inseparable onboard hardware.
+  These packages and their dependencies are enabled in every flavor before
+  capability pruning; generation fails if the board cannot support them. For
+  example, TTGO VGA32 v1.4 requires the PS/2 keyboard job that its boot profile
+  starts automatically.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,

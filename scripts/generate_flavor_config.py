@@ -89,6 +89,14 @@ def parse_capability_list(text: str) -> set[str]:
     }
 
 
+def parse_package_list(text: str) -> set[str]:
+    return {
+        value.strip()
+        for value in text.replace(",", " ").split()
+        if value.strip()
+    }
+
+
 def package_macro(name: str) -> str:
     return f"SOLAR_OS_PACKAGE_{name.upper()}"
 
@@ -298,6 +306,24 @@ def capabilities_supported(required: tuple[str, ...],
     return True
 
 
+def enable_required_packages(catalog: PackageCatalog,
+                             packages_enabled: dict[str, bool],
+                             required_packages: set[str]) -> dict[str, bool]:
+    unknown = sorted(required_packages - set(catalog.packages))
+    if unknown:
+        raise ValueError(f"unknown board-required package(s): {', '.join(unknown)}")
+
+    result = dict(packages_enabled)
+    pending = list(required_packages)
+    while pending:
+        package = pending.pop()
+        if result[package]:
+            continue
+        result[package] = True
+        pending.extend(catalog.package_defs[package].depends)
+    return result
+
+
 def apply_board_capability_pruning(catalog: PackageCatalog,
                                    groups_enabled: dict[str, bool],
                                    packages_enabled: dict[str, bool],
@@ -473,6 +499,7 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--packages", default=DEFAULT_PACKAGE_CATALOG, type=Path)
     parser.add_argument("--board-capabilities", default="")
+    parser.add_argument("--board-required-packages", default="")
     parser.add_argument("--header", required=True, type=Path)
     parser.add_argument("--cmake", required=True, type=Path)
     args = parser.parse_args()
@@ -480,12 +507,26 @@ def main() -> int:
     try:
         catalog = load_catalog(args.packages)
         name, description, groups_enabled, packages_enabled = load_flavor(args.input, catalog)
+        required_packages = parse_package_list(args.board_required_packages)
+        packages_enabled = enable_required_packages(
+            catalog,
+            packages_enabled,
+            required_packages,
+        )
         groups_enabled, packages_enabled = apply_board_capability_pruning(
             catalog,
             groups_enabled,
             packages_enabled,
             parse_capability_list(args.board_capabilities),
         )
+        unavailable_required = sorted(
+            package for package in required_packages if not packages_enabled[package]
+        )
+        if unavailable_required:
+            raise ValueError(
+                "board-required package(s) unavailable after capability pruning: "
+                + ", ".join(unavailable_required)
+            )
         write_if_changed(args.header,
                          generate_header(name,
                                          description,

@@ -942,6 +942,11 @@ job status ps2-keyboard
 job stop ps2-keyboard
 ```
 
+These commands cover an expansion bus. Boards with an integrated PS/2 keyboard
+declare the bus and include and start this job automatically. On TTGO VGA32
+v1.4, `ps2kbd0` is running before the shell starts; `job status` and `job stop`
+continue to manage the same ordinary job instance.
+
 The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the running
 job holds an exclusive lease and appears as `job:ps2-keyboard`. Normal and
 extended keys, modifiers, navigation keys, function keys, and keypad usages are

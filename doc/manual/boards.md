@@ -4,7 +4,7 @@ title = "Boards and hardware targets"
 section = "build"
 summary = "Supported boards, capabilities, porting structure, and validation"
 aliases = ["board", "targets"]
-keywords = "boards targets waveshare devkit odroid elecrow freenove wrover composite capabilities porting validation"
+keywords = "boards targets waveshare devkit odroid elecrow freenove wrover ttgo vga32 composite vga capabilities porting validation"
 packages_any = []
 +++
 # Defining SolarOS Boards
@@ -74,6 +74,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
+| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, an automatically started PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
@@ -207,6 +208,7 @@ Current built-in driver selector values:
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
 | `DISPLAY` | `drivers/display_ili9341.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ili9341` |
 | `DISPLAY` | `drivers/display_cvbs_pal.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=cvbs_pal` |
+| `DISPLAY` | `drivers/display_vga32.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=vga32` |
 | `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
 | `SD` | `drivers/storage_sdspi.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdspi` |
 | `I2C` | `drivers/i2c_esp_idf.cmake` | `SOLAR_OS_BOARD_I2C_DRIVER=esp_idf` |
@@ -241,6 +243,7 @@ The current capability flags are:
 | `AUDIO_INPUT` | Microphone/audio-input path is available. Usually paired with `AUDIO` on codec boards. |
 | `WIFI` | Wi-Fi station/AP services. |
 | `BLE` | BLE keyboard and BLE/GATT services. |
+| `PS2_KEYBOARD` | A board-integrated PS/2 keyboard bus is available. Requires `GPIO`. |
 | `GPIO` | Runtime-safe GPIO service. |
 | `ADC` | Runtime-safe ADC service. |
 | `PWM` | Runtime-safe PWM service. |
@@ -596,6 +599,72 @@ slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
 `rover-python`, `rover-lua`, `rover-synth`, and `rover-retro` flavors do not use
 a dual-OTA layout on 4 MB flash. Install firmware through the CH340 serial
 connection; this partition layout does not support on-device OTA updates.
+
+## LilyGO TTGO VGA32 v1.4
+
+The `ttgo_vga32_v14` target covers the ESP32-PICO-D4 VGA32 revision 1.4 with
+8 MB external PSRAM. It uses the onboard RGB222 resistor DAC for VGA, the
+USB-UART bridge on UART0, mono ESP32 DAC audio on GPIO25, a PS/2 keyboard on
+GPIO32/GPIO33, and the revision 1.4 microSD wiring on HSPI: MOSI GPIO12, MISO
+GPIO2, clock GPIO14, and chip select GPIO13. These SD pins differ from the older
+revision 1.2 board.
+
+VGA scanout continuously streams a short line ring through I2S1 DMA. A level-3
+IRAM interrupt on CPU1 refills completed line groups. Frame submissions are
+coalesced, and a CPU1 presentation worker converts the newest monochrome
+snapshot into the scanout buffer at a bounded rate. The SolarOS canvas stays
+monochrome, while a lookup table expands the configured foreground and
+background colors to the board's two-bit-per-channel VGA output. I2S1 and the
+VGA GPIOs remain fixed resources while the display is active.
+
+The onboard audio path takes the ESP32 DAC1 signal from GPIO25 and routes the
+same mono output to the 3.5 mm jack and the NS4150 speaker amplifier. SolarOS
+uses the shared ESP32-DAC backend at 16 kHz. This is output-only hardware; the
+board does not advertise microphone or audio-input support. Test it with
+`audio tone 880 500`.
+
+The default mode is 640x480@60 Hz. Select another mode at build time with
+`SOLAR_OS_VGA_MODE`:
+
+```sh
+pio run -e ttgo_vga32_v14
+SOLAR_OS_VGA_MODE=320x200 pio run -e ttgo_vga32_v14
+SOLAR_OS_VGA_MODE=320x240 pio run -e ttgo_vga32_v14
+SOLAR_OS_VGA_MODE=640x400 pio run -e ttgo_vga32_v14
+```
+
+The 320x200 and 320x240 modes use double scan and two internal monochrome
+scanout buffers. The 320x240 mode derives its 60 Hz timing from 640x480 VGA.
+The 640x400@70 Hz and 640x480@60 Hz modes use the standard 25.175 MHz VGA pixel
+clock and one internal monochrome scanout buffer to preserve heap for SolarOS.
+Updating a high-resolution frame can therefore produce a brief tear while the
+new image is copied. Changing `SOLAR_OS_VGA_MODE` causes PlatformIO to
+reconfigure CMake automatically.
+
+The board has 4 MB flash, so its PlatformIO environment defaults to the focused
+`rover` flavor instead of `full`:
+
+```sh
+pio run -e ttgo_vga32_v14
+```
+
+The board profile includes the PS/2 keyboard job in every flavor and starts it
+on `ps2kbd0` automatically before the shell. It is still a normal managed job,
+so its state and resource ownership remain visible:
+
+```text
+job status ps2-keyboard
+job stop ps2-keyboard
+```
+
+BLE remains available but defaults to off on this board to preserve internal
+heap. Use `setterm ble on` and reboot to enable it. `setterm ble default` clears
+the user override and restores the board default.
+
+The onboard PS/2 mouse connector is reserved in the board pin map but does not
+yet have a SolarOS input driver. The microSD signals are fixed board resources;
+GPIO34 and GPIO39 are the only header pins available for runtime GPIO/ADC, and
+both are input-only.
 
 ## ODROID-GO
 

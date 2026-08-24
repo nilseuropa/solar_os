@@ -237,6 +237,7 @@ sources = [
   "apps/solar_os_app_registry.c",
   "jobs/solar_os_job_registry.c",
   "services/solar_os_board_caps.c",
+  "services/solar_os_board_boot.c",
   "services/solar_os_cdc.c",
   "services/solar_os_clipboard.c",
   "services/solar_os_display.c",

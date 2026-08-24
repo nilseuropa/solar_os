@@ -27,17 +27,24 @@ platform:
 pio run -e waveshare_esp32_s3_rlcd_4_2
 pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 pio run -e odroid_go
+pio run -e ttgo_vga32_v14
 pio run -e esp32_s3_devkitc1_n16r8
 pio run -t upload
 pio device monitor -b 115200
 ```
 
-The default build uses the full firmware flavor. For a smaller image:
+The default build uses the full firmware flavor, except the 4 MB VGA32 target,
+which defaults to `rover`. For a smaller image or an explicit override:
 
 ```sh
 SOLAR_OS_FLAVOR=core pio run -e waveshare_esp32_s3_rlcd_4_2
 SOLAR_OS_FLAVOR=writerdeck pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
+SOLAR_OS_VGA_MODE=320x200 pio run -e ttgo_vga32_v14
+SOLAR_OS_VGA_MODE=320x240 pio run -e ttgo_vga32_v14
 ```
+
+The VGA32 target supports build-time `640x480` (default), `640x400`, `320x240`,
+and `320x200` VGA modes through `SOLAR_OS_VGA_MODE`.
 
 See [Boards and hardware targets](doc/manual/boards.md) and
 [Firmware packages and flavors](doc/manual/packages.md) for the complete build

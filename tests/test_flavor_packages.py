@@ -32,6 +32,27 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(groups["games"], flavor_path.stem)
             self.assertFalse(packages["app_invaders"], flavor_path.stem)
 
+    def test_board_required_package_enables_dependencies(self):
+        _, _, _, packages = self.resolve("core")
+        enabled = generate_flavor_config.enable_required_packages(
+            self.catalog,
+            packages,
+            {"job_ps2_keyboard"},
+        )
+
+        self.assertTrue(enabled["job_ps2_keyboard"])
+        self.assertTrue(enabled["service_ps2"])
+        self.assertTrue(enabled["service_resources"])
+
+    def test_unknown_board_required_package_is_rejected(self):
+        _, _, _, packages = self.resolve("core")
+        with self.assertRaisesRegex(ValueError, "unknown board-required package"):
+            generate_flavor_config.enable_required_packages(
+                self.catalog,
+                packages,
+                {"job_missing"},
+            )
+
     def test_granular_group_ownership(self):
         self.assertEqual(
             set(self.catalog.group_defs["maintenance_jobs"].members),

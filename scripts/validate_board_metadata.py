@@ -20,6 +20,7 @@ CAPABILITY_DEPENDENCIES = {
     "DISPLAY": ("GFX",),
     "DISPLAY_BRIGHTNESS": ("DISPLAY",),
     "AUDIO_INPUT": ("AUDIO",),
+    "PS2_KEYBOARD": ("GPIO",),
     "EXPANSION_GPIO": ("GPIO",),
     "EXPANSION_I2C": ("I2C",),
     "EXPANSION_SPI": ("SPI",),
@@ -45,6 +46,7 @@ class BoardMetadata:
     capabilities: frozenset[str]
     macros: dict[str, str]
     static_buses: tuple[tuple[str, str], ...]
+    required_packages: frozenset[str]
 
 
 def _logical_lines(text: str) -> list[str]:
@@ -83,6 +85,16 @@ def _cmake_value(text: str, name: str) -> str | None:
     if not match:
         return None
     return match.group(1) if match.group(1) is not None else match.group(2)
+
+
+def _cmake_list(text: str, name: str) -> frozenset[str]:
+    match = re.search(rf"set\(\s*{re.escape(name)}\s+(.*?)\)", text, re.DOTALL)
+    if not match:
+        return frozenset()
+    values: set[str] = set()
+    for quoted, bare in re.findall(r'"([^"]+)"|([^\s\)]+)', match.group(1)):
+        values.update(value for value in (quoted or bare).split(";") if value)
+    return frozenset(values)
 
 
 def _mask_pins(macros: dict[str, str], name: str, seen: frozenset[str] = frozenset()) -> set[int]:
@@ -158,7 +170,8 @@ def _static_bus_pins(macros: dict[str, str]) -> dict[str, set[int]]:
         body = value[match.end():end]
         pins: set[int] = set()
         for token in re.findall(
-            r"\.(?:sda_pin|scl_pin|sclk_pin|miso_pin|mosi_pin|tx_pin|rx_pin|pin)\s*=\s*"
+            r"\.(?:sda_pin|scl_pin|sclk_pin|miso_pin|mosi_pin|tx_pin|rx_pin|"
+            r"clock_pin|data_pin|pin)\s*=\s*"
             r"([A-Z][A-Z0-9_]*|\d+)",
             body,
         ):
@@ -304,6 +317,7 @@ def _load_board(
         capabilities=frozenset(capabilities),
         macros=macros,
         static_buses=_static_buses(macros),
+        required_packages=_cmake_list(cmake_text, "SOLAR_OS_BOARD_REQUIRED_PACKAGES"),
     ), errors
 
 
@@ -373,12 +387,41 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
     if len(bus_names) != len(set(bus_names)):
         errors.append(f"{board.board_id}: static bus names are not unique")
     for name, protocol in board.static_buses:
-        capability = "GPIO" if protocol == "ONEWIRE" else protocol
+        capability = "GPIO" if protocol in ("ONEWIRE", "PS2") else protocol
         if capability not in board.capabilities:
             errors.append(
                 f"{board.board_id}: static bus {name} uses {protocol} without "
                 f"{capability} capability"
             )
+
+    ps2_buses = {name for name, protocol in board.static_buses if protocol == "PS2"}
+    autostart_ps2 = _quoted_macro(macros, "SOLAR_OS_BOARD_AUTOSTART_PS2_BUS")
+    if "PS2_KEYBOARD" in board.capabilities:
+        if not autostart_ps2:
+            errors.append(
+                f"{board.board_id}: PS2_KEYBOARD requires "
+                "SOLAR_OS_BOARD_AUTOSTART_PS2_BUS"
+            )
+        elif autostart_ps2 not in ps2_buses:
+            errors.append(
+                f"{board.board_id}: PS/2 autostart bus {autostart_ps2!r} "
+                "is not a static PS2 bus"
+            )
+        if "job_ps2_keyboard" not in board.required_packages:
+            errors.append(
+                f"{board.board_id}: PS2_KEYBOARD requires board package "
+                "job_ps2_keyboard"
+            )
+    elif autostart_ps2:
+        errors.append(
+            f"{board.board_id}: PS/2 autostart bus requires PS2_KEYBOARD capability"
+        )
+
+    ble_default = macros.get("SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED")
+    if ble_default is not None and ble_default not in ("0", "1"):
+        errors.append(
+            f"{board.board_id}: SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED must be 0 or 1"
+        )
 
     for mask_name, required in (
         ("SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK", ("SPI", "EXPANSION_SPI")),

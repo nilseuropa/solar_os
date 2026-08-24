@@ -18,6 +18,7 @@ typedef struct solar_os_board_display {
 } solar_os_board_display_t;
 
 esp_err_t solar_os_board_display_init(solar_os_board_display_t *display);
+esp_err_t solar_os_board_display_runtime_ready(solar_os_board_display_t *display);
 esp_err_t solar_os_board_display_resume(solar_os_board_display_t *display);
 void solar_os_board_display_deinit(solar_os_board_display_t *display);
 u8g2_t *solar_os_board_display_u8g2(solar_os_board_display_t *display);

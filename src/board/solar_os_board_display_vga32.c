@@ -3,15 +3,15 @@
 #include <string.h>
 
 #include "solar_os_board.h"
-#include "tft_ili9341.h"
+#include "vga32.h"
 
-static tft_ili9341_t ili9341_display;
+static vga32_t vga_display;
 
-static void display_bind_ili9341(solar_os_board_display_t *display)
+static void display_bind_vga32(solar_os_board_display_t *display)
 {
-    display->driver = &ili9341_display;
-    display->driver_name = "ili9341";
-    display->u8g2 = tft_ili9341_get_u8g2(&ili9341_display);
+    display->driver = &vga_display;
+    display->driver_name = "vga32";
+    display->u8g2 = vga32_get_u8g2(&vga_display);
     display->controller = SOLAR_OS_BOARD_DISPLAY_CONTROLLER;
     display->width = SOLAR_OS_BOARD_DISPLAY_WIDTH;
     display->height = SOLAR_OS_BOARD_DISPLAY_HEIGHT;
@@ -23,21 +23,21 @@ esp_err_t solar_os_board_display_init(solar_os_board_display_t *display)
     if (display == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-
     memset(display, 0, sizeof(*display));
-    const esp_err_t err = tft_ili9341_init(&ili9341_display);
+    const esp_err_t err = vga32_init(&vga_display);
     if (err != ESP_OK) {
         return err;
     }
-
-    display_bind_ili9341(display);
+    display_bind_vga32(display);
     return ESP_OK;
 }
 
 esp_err_t solar_os_board_display_runtime_ready(solar_os_board_display_t *display)
 {
-    return display != NULL && display->driver != NULL ?
-        ESP_OK : ESP_ERR_INVALID_STATE;
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return vga32_start_async_present((vga32_t *)display->driver);
 }
 
 esp_err_t solar_os_board_display_resume(solar_os_board_display_t *display)
@@ -45,21 +45,19 @@ esp_err_t solar_os_board_display_resume(solar_os_board_display_t *display)
     if (display == NULL || display->driver == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-
-    const esp_err_t err = tft_ili9341_resume((tft_ili9341_t *)display->driver);
+    const esp_err_t err = vga32_resume((vga32_t *)display->driver);
     if (err != ESP_OK) {
         display->ready = false;
         return err;
     }
-
-    display_bind_ili9341(display);
+    display_bind_vga32(display);
     return ESP_OK;
 }
 
 void solar_os_board_display_deinit(solar_os_board_display_t *display)
 {
     if (display != NULL && display->driver != NULL) {
-        tft_ili9341_deinit((tft_ili9341_t *)display->driver);
+        vga32_deinit((vga32_t *)display->driver);
         memset(display, 0, sizeof(*display));
     }
 }
@@ -71,12 +69,16 @@ u8g2_t *solar_os_board_display_u8g2(solar_os_board_display_t *display)
 
 const char *solar_os_board_display_driver_name(const solar_os_board_display_t *display)
 {
-    return display != NULL && display->driver_name != NULL ? display->driver_name : "unknown";
+    return display != NULL && display->driver_name != NULL
+               ? display->driver_name
+               : "unknown";
 }
 
 const char *solar_os_board_display_controller(const solar_os_board_display_t *display)
 {
-    return display != NULL && display->controller != NULL ? display->controller : "unknown";
+    return display != NULL && display->controller != NULL
+               ? display->controller
+               : "unknown";
 }
 
 uint16_t solar_os_board_display_width(const solar_os_board_display_t *display)
@@ -97,25 +99,25 @@ bool solar_os_board_display_ready(const solar_os_board_display_t *display)
 bool solar_os_board_display_brightness_supported(const solar_os_board_display_t *display)
 {
     (void)display;
-    return tft_ili9341_backlight_supported();
+    return false;
 }
 
 esp_err_t solar_os_board_display_get_brightness(const solar_os_board_display_t *display,
                                                 uint8_t *percent)
 {
-    if (display == NULL || display->driver == NULL) {
-        return ESP_ERR_INVALID_STATE;
+    (void)display;
+    if (percent != NULL) {
+        *percent = 100;
     }
-    return tft_ili9341_get_backlight((const tft_ili9341_t *)display->driver, percent);
+    return percent != NULL ? ESP_ERR_NOT_SUPPORTED : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t solar_os_board_display_set_brightness(solar_os_board_display_t *display,
                                                 uint8_t percent)
 {
-    if (display == NULL || display->driver == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    return tft_ili9341_set_backlight((tft_ili9341_t *)display->driver, percent);
+    (void)display;
+    (void)percent;
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t solar_os_board_display_set_colors(solar_os_board_display_t *display,
@@ -125,9 +127,9 @@ esp_err_t solar_os_board_display_set_colors(solar_os_board_display_t *display,
     if (display == NULL || display->driver == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    return tft_ili9341_set_colors((tft_ili9341_t *)display->driver,
-                                  foreground_rgb888,
-                                  background_rgb888);
+    return vga32_set_colors((vga32_t *)display->driver,
+                            foreground_rgb888,
+                            background_rgb888);
 }
 
 const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *display)
@@ -171,14 +173,16 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                                   uint16_t stride,
                                                   bool palette_inverted)
 {
-    (void)display;
-    (void)bitmap;
-    (void)bitmap_size;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    (void)stride;
-    (void)palette_inverted;
-    return ESP_ERR_NOT_SUPPORTED;
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return vga32_present_mono_xbm((vga32_t *)display->driver,
+                                  bitmap,
+                                  bitmap_size,
+                                  x,
+                                  y,
+                                  width,
+                                  height,
+                                  stride,
+                                  palette_inverted);
 }

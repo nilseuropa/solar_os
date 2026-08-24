@@ -54,6 +54,7 @@ while remaining blocked from runtime use.
 | ESP32-S3-DevKitC-1-N16R8 | ESP32-S3 signals broken out on the DevKitC headers | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18, GPIO21, GPIO39-GPIO42, GPIO47 | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18 | GPIO0 is BOOT/KEY; GPIO3/GPIO45/GPIO46 are other strapping pins; GPIO19/GPIO20 are native USB; GPIO35-GPIO37 are Octal PSRAM; GPIO38/GPIO48 are reserved for either RGB LED revision; GPIO43/GPIO44 are `uart0`. |
 | ODROID-GO | External IO GPIO4 and GPIO15 | GPIO4, GPIO15 | None | Both pins are also the allowed external chip-select slots on the shared VSPI bus. |
 | ESP32-WROVER v3.0 | GPIO0-GPIO5, GPIO12-GPIO15, GPIO18, GPIO19, GPIO21-GPIO23, GPIO25-GPIO27, GPIO32-GPIO36, GPIO39 | GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32-GPIO36, GPIO39; PWM excludes input-only GPIO34-GPIO36 and GPIO39 | GPIO32-GPIO36, GPIO39 | GPIO0 is BOOT/KEY; GPIO1/GPIO3 are CH340 `uart0`; GPIO2/GPIO14/GPIO15 are SDMMC; GPIO25 is PAL; GPIO5 is a strapping pin; GPIO34-GPIO36/GPIO39 are input-only. |
+| TTGO VGA32 v1.4 | GPIO2, GPIO12-GPIO14, GPIO34, GPIO39 | GPIO34, GPIO39 | GPIO34, GPIO39 | GPIO34/GPIO39 are input-only. GPIO2/GPIO12-GPIO14 belong to the onboard v1.4 microSD interface; GPIO25 audio, VGA, and PS/2 signals are fixed board resources. |
 
 Power and ground pins are physical wiring resources and are not managed by the
 SolarOS pin-claim system. Check the board schematic and the external module's
@@ -68,6 +69,7 @@ voltage and current requirements before connecting it.
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 | ESP32-WROVER v3.0 | `uart0`: TX GPIO1, RX GPIO3 | I2C, SPI on `spi2`/`spi3`, UART on `uart1`/`uart2`, or 1-Wire, using free output-capable GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32, or GPIO33 | The rear SD slot uses the dedicated one-bit SDMMC host. GPIO34-GPIO36 and GPIO39 are available only for input signals and ADC. |
+| TTGO VGA32 v1.4 | `spi0`: SCK GPIO14, MISO GPIO2, MOSI GPIO12, CS GPIO13; `uart0`: TX GPIO1, RX GPIO3; `ps2kbd0`: clock GPIO33, data GPIO32 | None | The built-in keyboard starts automatically. GPIO25 is the fixed mono audio DAC output. I2S1 and the six RGB plus two sync pins are permanently reserved for VGA DMA scanout. |
 
 I2C and SPI buses accept shared logical leases. UART, MIDI, and registered 1-Wire bus
 instances are exclusive. Registered 1-Wire buses appear in expansion status
