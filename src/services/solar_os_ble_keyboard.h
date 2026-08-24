@@ -26,6 +26,12 @@ typedef enum {
     SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE,
 } solar_os_ble_keyboard_layout_t;
 
+typedef enum {
+    SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT,
+    SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED,
+    SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED,
+} solar_os_ble_keyboard_boot_setting_t;
+
 typedef struct {
     bool connected;
     uint8_t modifiers;
@@ -72,6 +78,15 @@ esp_err_t solar_os_ble_keyboard_init(void);
 esp_err_t solar_os_ble_keyboard_apply_boot_policy(void);
 bool solar_os_ble_keyboard_enabled_for_current_boot(void);
 bool solar_os_ble_keyboard_enabled_for_next_boot(void);
+bool solar_os_ble_keyboard_board_default_enabled(void);
+solar_os_ble_keyboard_boot_setting_t solar_os_ble_keyboard_boot_setting(void);
+const char *solar_os_ble_keyboard_boot_setting_name(
+    solar_os_ble_keyboard_boot_setting_t setting);
+bool solar_os_ble_keyboard_parse_boot_setting(
+    const char *name,
+    solar_os_ble_keyboard_boot_setting_t *setting);
+esp_err_t solar_os_ble_keyboard_set_boot_setting(
+    solar_os_ble_keyboard_boot_setting_t setting);
 esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled);
 esp_err_t solar_os_ble_keyboard_start_pairing(void);
 esp_err_t solar_os_ble_keyboard_scan(solar_os_ble_keyboard_scan_result_t *results,

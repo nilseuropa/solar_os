@@ -284,6 +284,7 @@ setterm charset [utf8|ascii]
 setterm keyboard [us|de]
 setterm powerkey [sleep|suspend]
 setterm keyrate [off|1..60 [delay-ms]]
+setterm ble [default|on|off]
 setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
 setterm startup [flash|sd]
 setterm otaurl [url]
@@ -292,6 +293,10 @@ setterm otaurl [url]
 `setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
 board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
 The value is stored in NVS and is available on builds without BLE.
+
+`setterm ble` selects the next-boot BLE preference. `default` clears the saved
+override and follows the active board profile; `on` and `off` remain in effect
+across firmware updates until changed. The current boot is unchanged.
 
 `setterm timezone` accepts fixed offsets with the conventional UTC sign:
 `UTC-8` is eight hours behind UTC and `UTC+5:30` is five hours and 30 minutes
@@ -565,6 +570,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ble` | `ble [status]` | Show BLE keyboard state and the current/next boot setting. |
 | `ble` | `ble enable` | Save BLE enabled for the next boot. The current boot is unchanged. |
 | `ble` | `ble disable` | Save BLE disabled for the next boot. The current boot is unchanged. |
+| `ble` | `ble default` | Clear the saved override and use the board default on the next boot. |
 | `ble` | `ble scan` | Scan nearby BLE devices. |
 | `ble` | `ble pair` | Start keyboard pairing. |
 | `ble` | `ble forget` | Erase the remembered keyboard from NVS and remove its BLE bond. |
@@ -586,11 +592,14 @@ client subset are rejected. Use `wireguard down` before importing a replacement
 profile or using `wireguard forget`. See [WireGuard VPN client](network.md#wireguard)
 for routing, secret, and disconnect behavior.
 
-BLE is enabled by default when no saved setting exists, including after `nvs
-clear`. The `ble enable` and `ble disable` settings take effect only after a
-reboot. Disabling BLE does not forget the remembered keyboard or erase its BLE
-bond. On a BLE-disabled boot, SolarOS returns the unused Bluetooth controller
-and host memory to the internal heap before normal service initialization.
+When no saved preference exists, including after `nvs clear`, BLE follows the
+board default. Most boards enable it; TTGO VGA32 v1.4 disables it to preserve
+internal heap. `setterm ble on|off|default` stores or clears the preference for
+the next boot. `ble enable`, `ble disable`, and `ble default` are equivalent
+compatibility commands. Disabling BLE does not forget the remembered keyboard
+or erase its BLE bond. On a BLE-disabled boot, SolarOS returns the unused
+Bluetooth controller and host memory to the internal heap before normal service
+initialization.
 
 BLE GATT usage:
 

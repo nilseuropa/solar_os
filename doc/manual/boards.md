@@ -74,7 +74,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
-| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, PS/2 keyboard bus, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE, and two input-only expansion GPIOs. |
+| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, an automatically started PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 ## Board Profile
@@ -243,6 +243,7 @@ The current capability flags are:
 | `AUDIO_INPUT` | Microphone/audio-input path is available. Usually paired with `AUDIO` on codec boards. |
 | `WIFI` | Wi-Fi station/AP services. |
 | `BLE` | BLE keyboard and BLE/GATT services. |
+| `PS2_KEYBOARD` | A board-integrated PS/2 keyboard bus is available. Requires `GPIO`. |
 | `GPIO` | Runtime-safe GPIO service. |
 | `ADC` | Runtime-safe ADC service. |
 | `PWM` | Runtime-safe PWM service. |
@@ -638,11 +639,18 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
-After boot, start the onboard PS/2 keyboard with:
+The board profile includes the PS/2 keyboard job in every flavor and starts it
+on `ps2kbd0` automatically before the shell. It is still a normal managed job,
+so its state and resource ownership remain visible:
 
 ```text
-job start ps2-keyboard ps2kbd0
+job status ps2-keyboard
+job stop ps2-keyboard
 ```
+
+BLE remains available but defaults to off on this board to preserve internal
+heap. Use `setterm ble on` and reboot to enable it. `setterm ble default` clears
+the user override and restores the board default.
 
 The onboard PS/2 mouse connector is reserved in the board pin map but does not
 yet have a SolarOS input driver. The microSD signals are fixed board resources;

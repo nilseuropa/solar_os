@@ -51,7 +51,7 @@ static const char * const disk_subcommands[] = {
 };
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
 static const char * const ble_subcommands[] = {
-    "status", "enable", "disable", "scan", "pair", "forget", "gatt",
+    "status", "enable", "disable", "default", "scan", "pair", "forget", "gatt",
 };
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
@@ -1341,6 +1341,8 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     const bool current_boot_enabled = solar_os_ble_keyboard_enabled_for_current_boot();
     const bool next_boot_enabled = solar_os_ble_keyboard_enabled_for_next_boot();
+    const solar_os_ble_keyboard_boot_setting_t boot_setting =
+        solar_os_ble_keyboard_boot_setting();
 
     if (argc <= 1 || strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
@@ -1363,23 +1365,35 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
                                  next_boot_enabled ? "enabled" : "disabled",
                                  current_boot_enabled == next_boot_enabled ? "" :
                                      " (reboot to apply)");
+        solar_os_shell_io_printf(
+            term,
+            "BLE preference: %s (board default %s)\n",
+            solar_os_ble_keyboard_boot_setting_name(boot_setting),
+            solar_os_ble_keyboard_board_default_enabled() ? "on" : "off");
         return;
     }
 
-    if (strcmp(argv[1], "enable") == 0 || strcmp(argv[1], "disable") == 0) {
-        const bool enable = strcmp(argv[1], "enable") == 0;
+    if (strcmp(argv[1], "enable") == 0 || strcmp(argv[1], "disable") == 0 ||
+        strcmp(argv[1], "default") == 0) {
+        solar_os_ble_keyboard_boot_setting_t setting =
+            SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT;
+        (void)solar_os_ble_keyboard_parse_boot_setting(argv[1], &setting);
         if (argc != 2) {
             solar_os_shell_diag_unexpected(term,
-                                           enable ? "ble enable" : "ble disable",
+                                           "ble boot setting",
                                            argv[2],
-                                           enable ? "ble enable" : "ble disable");
+                                           "ble enable|disable|default");
             return;
         }
-        const esp_err_t err = solar_os_ble_keyboard_set_enabled_for_next_boot(enable);
+        const esp_err_t err = solar_os_ble_keyboard_set_boot_setting(setting);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(term,
-                                     "BLE boot setting saved: %s. Current boot is unchanged; reboot to apply.\n",
-                                     enable ? "enabled" : "disabled");
+                                     "BLE preference saved: %s; next boot %s. "
+                                     "Current boot is unchanged.\n",
+                                     solar_os_ble_keyboard_boot_setting_name(setting),
+                                     solar_os_ble_keyboard_enabled_for_next_boot()
+                                         ? "enabled"
+                                         : "disabled");
         } else {
             solar_os_shell_io_printf(term,
                                      "BLE boot setting save failed: %s\n",
@@ -1391,7 +1405,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     if (!current_boot_enabled) {
         solar_os_shell_io_writeln(
             term,
-            "BLE is disabled for this boot; run 'ble enable' and reboot first");
+            "BLE is disabled for this boot; run 'setterm ble on' and reboot first");
         return;
     }
 
@@ -1434,7 +1448,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "ble", argc, argv,
-                                   "ble [status|enable|disable|scan|pair|forget|gatt] ...",
+                                   "ble [status|enable|disable|default|scan|pair|forget|gatt] ...",
                                    ble_subcommands,
                                    sizeof(ble_subcommands) / sizeof(ble_subcommands[0]));
 }

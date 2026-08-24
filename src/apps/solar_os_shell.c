@@ -554,6 +554,9 @@ static const char * const setterm_subcommands[] = {
     "charset",
     "keyboard",
     "keymap",
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    "ble",
+#endif
     "powerkey",
     "key",
     "keyrate",
@@ -574,6 +577,9 @@ static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", 
 static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
 static const char * const setterm_charset_values[] = {"utf8", "ascii"};
 static const char * const setterm_keyboard_values[] = {"us", "de"};
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+static const char * const setterm_ble_values[] = {"default", "on", "off"};
+#endif
 static const char * const setterm_powerkey_values[] = {"sleep", "suspend"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
@@ -598,6 +604,7 @@ static const char * const ble_subcommands[] = {
     "status",
     "enable",
     "disable",
+    "default",
     "scan",
     "pair",
     "forget",
@@ -1474,6 +1481,9 @@ static const char * const path_setterm_profile[] = {"setterm", "profile"};
 static const char * const path_setterm_charset[] = {"setterm", "charset"};
 static const char * const path_setterm_keyboard[] = {"setterm", "keyboard"};
 static const char * const path_setterm_keymap[] = {"setterm", "keymap"};
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+static const char * const path_setterm_ble[] = {"setterm", "ble"};
+#endif
 static const char * const path_setterm_powerkey[] = {"setterm", "powerkey"};
 static const char * const path_setterm_key[] = {"setterm", "key"};
 static const char * const path_setterm_keyrate[] = {"setterm", "keyrate"};
@@ -2562,6 +2572,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_charset, setterm_charset_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyboard, setterm_keyboard_values),
     SHELL_COMPLETION_STATIC(path_setterm_keymap, setterm_keyboard_values),
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    SHELL_COMPLETION_STATIC(path_setterm_ble, setterm_ble_values),
+#endif
     SHELL_COMPLETION_STATIC(path_setterm_powerkey, setterm_powerkey_values),
     SHELL_COMPLETION_STATIC(path_setterm_key, setterm_powerkey_values),
     SHELL_COMPLETION_STATIC(path_setterm_keyrate, setterm_keyrate_values),

@@ -44,6 +44,7 @@ typedef uint64_t solar_os_board_capability_t;
 #define SOLAR_OS_BOARD_CAP_EXPANSION_PWM (1ULL << 30)
 #define SOLAR_OS_BOARD_CAP_SIMD (1ULL << 31)
 #define SOLAR_OS_BOARD_CAP_EXPANSION_I2S (1ULL << 32)
+#define SOLAR_OS_BOARD_CAP_PS2_KEYBOARD (1ULL << 33)
 
 #ifndef SOLAR_OS_BOARD_HAS_PSRAM
 #define SOLAR_OS_BOARD_HAS_PSRAM 0
@@ -89,6 +90,9 @@ typedef uint64_t solar_os_board_capability_t;
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_BLE
 #define SOLAR_OS_BOARD_HAS_BLE 0
+#endif
+#ifndef SOLAR_OS_BOARD_HAS_PS2_KEYBOARD
+#define SOLAR_OS_BOARD_HAS_PS2_KEYBOARD 0
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_GPIO
 #define SOLAR_OS_BOARD_HAS_GPIO 0

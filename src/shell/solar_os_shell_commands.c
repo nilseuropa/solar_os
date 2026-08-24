@@ -10,6 +10,9 @@ static const char * const setterm_commands[] = {
     "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
     "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    "ble",
+#endif
     "repeat", "timezone", "startup", "otaurl", "ota",
 };
 static const char * const stream_commands[] = {"list", "status"};
@@ -1485,6 +1488,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
+    solar_os_shell_io_writeln(term, "  setterm ble [default|on|off]");
 #endif
     solar_os_shell_io_writeln(term, "  setterm powerkey [sleep|suspend]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
@@ -1903,6 +1907,60 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+    if (strcmp(argv[1], "ble") == 0) {
+        if (argc == 2) {
+            const solar_os_ble_keyboard_boot_setting_t setting =
+                solar_os_ble_keyboard_boot_setting();
+            solar_os_shell_io_printf(
+                term,
+                "ble: %s (next boot %s, board default %s)\n",
+                solar_os_ble_keyboard_boot_setting_name(setting),
+                solar_os_ble_keyboard_enabled_for_next_boot() ? "on" : "off",
+                solar_os_ble_keyboard_board_default_enabled() ? "on" : "off");
+            solar_os_shell_io_printf(
+                term,
+                "current boot: %s\n",
+                solar_os_ble_keyboard_enabled_for_current_boot() ? "on" : "off");
+            solar_os_shell_io_writeln(term, "values: default on off");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "setterm ble",
+                                           argv[3],
+                                           "setterm ble [default|on|off]");
+            return;
+        }
+
+        solar_os_ble_keyboard_boot_setting_t setting;
+        if (!solar_os_ble_keyboard_parse_boot_setting(argv[2], &setting)) {
+            solar_os_shell_diag_invalid(term,
+                                        "setterm ble",
+                                        "preference",
+                                        argv[2],
+                                        "default, on, or off",
+                                        "setterm ble [default|on|off]",
+                                        false);
+            return;
+        }
+        const esp_err_t err = solar_os_ble_keyboard_set_boot_setting(setting);
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "ble: save failed: %s\n",
+                                     solar_os_shell_error_text(err));
+            return;
+        }
+        solar_os_shell_io_printf(
+            term,
+            "ble: %s; next boot %s\n",
+            solar_os_ble_keyboard_boot_setting_name(setting),
+            solar_os_ble_keyboard_enabled_for_next_boot() ? "on" : "off");
+        solar_os_shell_io_writeln(term, "The current boot is unchanged; reboot to apply.");
+        return;
+    }
+#endif
+
     if (strcmp(argv[1], "powerkey") == 0 || strcmp(argv[1], "key") == 0) {
         if (argc == 2) {
             solar_os_power_status_t status;
@@ -2128,7 +2186,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|powerkey|keyrate|timezone|startup|otaurl",
+                                   "setterm orientation|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|ble|powerkey|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }

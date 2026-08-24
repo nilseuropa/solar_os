@@ -22,6 +22,7 @@
 #include "esp_private/esp_hidh_private.h"
 #include "soc/soc_caps.h"
 #include "solar_os_hid_keyboard_report.h"
+#include "solar_os_board.h"
 #include "solar_os_log.h"
 #include "solar_os_input.h"
 #include "solar_os_power.h"
@@ -146,8 +147,10 @@ static bool hidh_initialized;
 static bool classic_bt_memory_released;
 /* Freeze the current-boot policy before shell changes update the next boot. */
 static bool boot_policy_loaded;
-static bool enabled_for_current_boot = true;
-static bool enabled_for_next_boot = true;
+static bool enabled_for_current_boot = SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED != 0;
+static bool enabled_for_next_boot = SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED != 0;
+static solar_os_ble_keyboard_boot_setting_t next_boot_setting =
+    SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT;
 static bool disabled_boot_memory_release_attempted;
 static esp_err_t disabled_boot_memory_release_result = ESP_OK;
 static bool connected;
@@ -193,8 +196,9 @@ static esp_err_t load_boot_policy(void)
         return ESP_OK;
     }
 
-    enabled_for_current_boot = true;
-    enabled_for_next_boot = true;
+    enabled_for_current_boot = solar_os_ble_keyboard_board_default_enabled();
+    enabled_for_next_boot = enabled_for_current_boot;
+    next_boot_setting = SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT;
 
     esp_err_t ret = init_nvs();
     if (ret != ESP_OK) {
@@ -227,6 +231,9 @@ static esp_err_t load_boot_policy(void)
 
     enabled_for_current_boot = stored != 0U;
     enabled_for_next_boot = enabled_for_current_boot;
+    next_boot_setting = enabled_for_current_boot
+                            ? SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED
+                            : SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED;
     boot_policy_loaded = true;
     return ESP_OK;
 }
@@ -235,7 +242,7 @@ bool solar_os_ble_keyboard_enabled_for_current_boot(void)
 {
     const esp_err_t ret = load_boot_policy();
     if (ret != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "load BLE boot policy failed; defaulting to enabled: %s",
+        SOLAR_OS_LOGW(TAG, "load BLE boot policy failed; using board default: %s",
                       esp_err_to_name(ret));
     }
     return enabled_for_current_boot;
@@ -247,8 +254,64 @@ bool solar_os_ble_keyboard_enabled_for_next_boot(void)
     return enabled_for_next_boot;
 }
 
-esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled)
+bool solar_os_ble_keyboard_board_default_enabled(void)
 {
+    return SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED != 0;
+}
+
+solar_os_ble_keyboard_boot_setting_t solar_os_ble_keyboard_boot_setting(void)
+{
+    (void)solar_os_ble_keyboard_enabled_for_current_boot();
+    return next_boot_setting;
+}
+
+const char *solar_os_ble_keyboard_boot_setting_name(
+    solar_os_ble_keyboard_boot_setting_t setting)
+{
+    switch (setting) {
+    case SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT:
+        return "default";
+    case SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED:
+        return "on";
+    case SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED:
+        return "off";
+    default:
+        return "unknown";
+    }
+}
+
+bool solar_os_ble_keyboard_parse_boot_setting(
+    const char *name,
+    solar_os_ble_keyboard_boot_setting_t *setting)
+{
+    if (name == NULL || setting == NULL) {
+        return false;
+    }
+    if (strcmp(name, "default") == 0) {
+        *setting = SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT;
+        return true;
+    }
+    if (strcmp(name, "on") == 0 || strcmp(name, "enable") == 0 ||
+        strcmp(name, "enabled") == 0) {
+        *setting = SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED;
+        return true;
+    }
+    if (strcmp(name, "off") == 0 || strcmp(name, "disable") == 0 ||
+        strcmp(name, "disabled") == 0) {
+        *setting = SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED;
+        return true;
+    }
+    return false;
+}
+
+esp_err_t solar_os_ble_keyboard_set_boot_setting(
+    solar_os_ble_keyboard_boot_setting_t setting)
+{
+    if (setting != SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT &&
+        setting != SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED &&
+        setting != SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED) {
+        return ESP_ERR_INVALID_ARG;
+    }
     ESP_RETURN_ON_ERROR(init_nvs(), TAG, "nvs init failed");
     (void)solar_os_ble_keyboard_enabled_for_current_boot();
 
@@ -258,16 +321,35 @@ esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled)
         return ret;
     }
 
-    ret = nvs_set_u8(nvs, BLE_KEYBOARD_NVS_ENABLED_KEY, enabled ? 1U : 0U);
+    if (setting == SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT) {
+        ret = nvs_erase_key(nvs, BLE_KEYBOARD_NVS_ENABLED_KEY);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            ret = ESP_OK;
+        }
+    } else {
+        ret = nvs_set_u8(nvs,
+                         BLE_KEYBOARD_NVS_ENABLED_KEY,
+                         setting == SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED ? 1U : 0U);
+    }
     if (ret == ESP_OK) {
         ret = nvs_commit(nvs);
     }
     nvs_close(nvs);
 
     if (ret == ESP_OK) {
-        enabled_for_next_boot = enabled;
+        next_boot_setting = setting;
+        enabled_for_next_boot = setting == SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT
+                                    ? solar_os_ble_keyboard_board_default_enabled()
+                                    : setting == SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED;
     }
     return ret;
+}
+
+esp_err_t solar_os_ble_keyboard_set_enabled_for_next_boot(bool enabled)
+{
+    return solar_os_ble_keyboard_set_boot_setting(
+        enabled ? SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED
+                : SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED);
 }
 
 esp_err_t solar_os_ble_keyboard_apply_boot_policy(void)

@@ -35,6 +35,10 @@ expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
 job start ps2-keyboard ps2kbd
 ```
 
+This manual setup is for an attached expansion keyboard. A board with an
+integrated PS/2 keyboard capability, such as TTGO VGA32 v1.4, declares its bus
+and starts the required job automatically during boot.
+
 The receiver supports keyboard scan-code set 2, including normal and extended
 press/release sequences. SolarOS supplies repeat through the generic input
 service, so keyboard typematic make codes do not create duplicate presses.
@@ -81,12 +85,14 @@ rather than overriding it.
 The BLE service manages one remembered keyboard and publishes its HID report
 transitions through the generic input service. Pairing and scanning are system
 operations; a script can inspect state and read translated key events.
-BLE is enabled by default. `ble disable` prevents the BLE stack from starting
-on the next boot, and `ble enable` enables it again for the next boot. Both
-commands leave the current boot unchanged, and neither command forgets the
-remembered keyboard or its bond. On a BLE-disabled boot, the unused Bluetooth
-controller and host memory is returned to the internal heap before normal
-service initialization.
+BLE follows the board default when no user preference is saved. Most boards
+enable it; TTGO VGA32 v1.4 disables it to preserve internal heap. Use `setterm
+ble on|off|default` to select an explicit next-boot value or return to the board
+default. The compatible `ble enable`, `ble disable`, and `ble default` commands
+provide the same settings. These commands leave the current boot unchanged and
+do not forget the remembered keyboard or its bond. On a BLE-disabled boot, the
+unused Bluetooth controller and host memory is returned to the internal heap
+before normal service initialization.
 `ble forget` erases the remembered keyboard from SolarOS NVS and removes its BLE
 bond. On boards with a system KEY, a long press performs that forget operation
 and then starts a new pairing scan. Pairing has no user cancellation path. The

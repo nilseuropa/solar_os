@@ -45,6 +45,7 @@ set(SOLAR_OS_BOARD_CAPABILITY_NAMES
     AUDIO_INPUT
     WIFI
     BLE
+    PS2_KEYBOARD
     GPIO
     ADC
     PWM
@@ -104,6 +105,7 @@ solar_os_require_capability(EXPANSION_SPI SPI)
 solar_os_require_capability(EXPANSION_UART UART)
 solar_os_require_capability(EXPANSION_I2S GPIO)
 solar_os_require_capability(EXPANSION_I2S EXPANSION_GPIO)
+solar_os_require_capability(PS2_KEYBOARD GPIO)
 
 if(NOT DEFINED SOLAR_OS_BOARD_PSRAM_BYTES OR
         "${SOLAR_OS_BOARD_PSRAM_BYTES}" STREQUAL "")
@@ -186,12 +188,19 @@ endif()
 set(SOLAR_OS_GENERATED_DIR "${SOLAR_OS_GENERATED_BASE}/generated/solar_os")
 set(SOLAR_OS_GENERATED_HEADER "${SOLAR_OS_GENERATED_DIR}/solar_os_config.h")
 set(SOLAR_OS_GENERATED_CMAKE "${SOLAR_OS_GENERATED_DIR}/solar_os_config.cmake")
+if(NOT DEFINED SOLAR_OS_BOARD_REQUIRED_PACKAGES)
+    set(SOLAR_OS_BOARD_REQUIRED_PACKAGES)
+endif()
+string(REPLACE ";" " " SOLAR_OS_BOARD_REQUIRED_PACKAGE_LIST
+    "${SOLAR_OS_BOARD_REQUIRED_PACKAGES}"
+)
 execute_process(
     COMMAND "${Python3_EXECUTABLE}"
             "${SOLAR_OS_PROJECT_DIR}/scripts/generate_flavor_config.py"
             "--input" "${SOLAR_OS_FLAVOR_INPUT}"
             "--packages" "${SOLAR_OS_PACKAGE_CATALOG}"
             "--board-capabilities" "${SOLAR_OS_BOARD_AVAILABLE_CAPABILITY_LIST}"
+            "--board-required-packages" "${SOLAR_OS_BOARD_REQUIRED_PACKAGE_LIST}"
             "--header" "${SOLAR_OS_GENERATED_HEADER}"
             "--cmake" "${SOLAR_OS_GENERATED_CMAKE}"
     RESULT_VARIABLE SOLAR_OS_FLAVOR_GENERATE_RESULT
