@@ -19,6 +19,7 @@ typedef struct {
 
 struct solar_os_terminal {
     u8g2_t *u8g2;
+    const u8g2_cb_t *base_rotation;
     solar_os_terminal_cell_t lines[SOLAR_OS_TERMINAL_MAX_ROWS][SOLAR_OS_TERMINAL_MAX_COLS + 1];
     uint32_t bold[SOLAR_OS_TERMINAL_MAX_ROWS][SOLAR_OS_TERMINAL_ATTR_WORDS];
     uint32_t italic[SOLAR_OS_TERMINAL_MAX_ROWS][SOLAR_OS_TERMINAL_ATTR_WORDS];
@@ -64,6 +65,9 @@ struct solar_os_terminal {
 };
 
 void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2);
+void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
+                                          u8g2_t *u8g2,
+                                          const u8g2_cb_t *base_rotation);
 void solar_os_terminal_deinit(solar_os_terminal_t *terminal);
 void solar_os_terminal_inherit_text_profile(solar_os_terminal_t *terminal,
                                             const solar_os_terminal_t *source);

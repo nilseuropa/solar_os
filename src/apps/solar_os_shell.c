@@ -543,6 +543,7 @@ static bool shell_builtin_command_exists(const char *name)
 }
 
 static const char * const setterm_subcommands[] = {
+    "--display",
     "orientation",
     "font",
     "textsize",
@@ -566,6 +567,10 @@ static const char * const setterm_subcommands[] = {
     "startup",
     "otaurl",
     "ota",
+};
+
+static const char * const setterm_display_settings[] = {
+    "orientation", "font", "textsize", "palette", "statusbar",
 };
 
 static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
@@ -1470,6 +1475,25 @@ static const char * const man_options[] = {"--list", "--apropos", "-k"};
 static const char * const path_help[] = {"help"};
 static const char * const help_subcommands[] = {"status", "update", "reset"};
 static const char * const path_setterm[] = {"setterm"};
+static const char * const path_setterm_display[] = {"setterm", "--display"};
+static const char * const path_setterm_display_target[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY,
+};
+static const char * const path_setterm_display_orientation[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "orientation",
+};
+static const char * const path_setterm_display_font[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "font",
+};
+static const char * const path_setterm_display_textsize[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "textsize",
+};
+static const char * const path_setterm_display_palette[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "palette",
+};
+static const char * const path_setterm_display_statusbar[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "statusbar",
+};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
@@ -2561,6 +2585,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_COMMANDS(path_watch),
     SHELL_COMPLETION_COMMANDS(path_watch_n_interval),
     SHELL_COMPLETION_STATIC(path_setterm, setterm_subcommands),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_setterm_display),
+    SHELL_COMPLETION_STATIC(path_setterm_display_target, setterm_display_settings),
+    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_font, setterm_font_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_textsize, setterm_textsize_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_palette, setterm_palette_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_statusbar, setterm_statusbar_values),
     SHELL_COMPLETION_STATIC(path_setterm_orientation, setterm_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),

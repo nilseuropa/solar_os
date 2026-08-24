@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_gfx.h"
+#include "solar_os_terminal.h"
 #include "u8g2.h"
 
 typedef struct solar_os_board_display solar_os_board_display_t;
@@ -34,6 +35,7 @@ typedef struct {
     bool brightness_supported;
     bool black_is_one;
     u8g2_t *u8g2;
+    const u8g2_cb_t *base_rotation;
     void *controller_context;
     solar_os_display_mode_getter_t controller_mode;
     solar_os_display_mode_getter_t controller_mode_values;
@@ -76,6 +78,12 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
 bool solar_os_display_target_name_for_u8g2(const u8g2_t *u8g2,
                                            char *name,
                                            size_t name_len);
+esp_err_t solar_os_display_get_terminal_profile(
+    const char *name,
+    solar_os_terminal_profile_t *profile);
+esp_err_t solar_os_display_set_terminal_profile(
+    const char *name,
+    const solar_os_terminal_profile_t *profile);
 /* Claims are reference-counted per owner; every successful claim needs a release. */
 esp_err_t solar_os_display_claim(const char *name,
                                  const char *owner,

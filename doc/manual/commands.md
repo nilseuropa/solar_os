@@ -270,6 +270,7 @@ unchanged.
 
 ```text
 setterm
+setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
@@ -332,6 +333,23 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`setterm --display <target>` reads or changes the volatile terminal profile of
+a named runtime display target, even when a TUI application rather than a shell
+owns that display. The target profile is initialized from the single global NVS
+parameter set when the display registers. Orientation is relative to the
+target's native panel rotation, so `0` keeps every display in its normal
+mounting even when their drivers use different U8g2 rotations. A targeted
+change applies to current and future sessions on that display until reboot or
+until the display target is unregistered; it does not create or update
+per-display NVS keys. Without a setting, the command prints the target's
+complete volatile profile. For example:
+
+```text
+setterm --display oled0 statusbar hide
+setterm --display oled0 textsize 10
+setterm --display oled0 palette inverted
+```
 
 `foreground` and `background` select the RGB colors that the built-in color
 display uses when it converts the monochrome framebuffer for scanout. Use six
