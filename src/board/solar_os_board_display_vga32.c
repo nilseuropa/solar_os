@@ -32,6 +32,14 @@ esp_err_t solar_os_board_display_init(solar_os_board_display_t *display)
     return ESP_OK;
 }
 
+esp_err_t solar_os_board_display_runtime_ready(solar_os_board_display_t *display)
+{
+    if (display == NULL || display->driver == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return vga32_start_async_present((vga32_t *)display->driver);
+}
+
 esp_err_t solar_os_board_display_resume(solar_os_board_display_t *display)
 {
     if (display == NULL || display->driver == NULL) {

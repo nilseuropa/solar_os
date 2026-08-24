@@ -155,6 +155,8 @@ static bool key_ignore_until_released;
 static uint32_t key_pressed_ms;
 static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
+static uint32_t last_terminal_draw_ms;
+static uint32_t last_session_overlay_draw_ms;
 
 static void process_app_requests(void);
 static void maybe_enter_idle_sleep(void);
@@ -350,6 +352,14 @@ static void draw_terminal_if_needed(void)
     if (!solar_os_context_graphics_active(&os_ctx) &&
         terminal != NULL &&
         solar_os_terminal_needs_draw(terminal)) {
+        const uint32_t now_ms = millis_u32();
+        if (SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS != 0U &&
+            last_terminal_draw_ms != 0U &&
+            now_ms - last_terminal_draw_ms <
+                SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS) {
+            return;
+        }
+        last_terminal_draw_ms = now_ms;
         solar_os_terminal_draw(terminal);
     }
 }
@@ -364,6 +374,7 @@ static void draw_session_overlay_if_needed(void)
     if ((int32_t)(now_ms - session_overlay_until_ms) >= 0) {
         session_overlay_until_ms = 0;
         session_overlay_title[0] = '\0';
+        last_session_overlay_draw_ms = 0U;
         if (solar_os_context_graphics_active(&os_ctx)) {
             solar_os_sessions_dispatch_resume(now_ms);
         } else {
@@ -371,6 +382,14 @@ static void draw_session_overlay_if_needed(void)
         }
         return;
     }
+
+    if (SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS != 0U &&
+        last_session_overlay_draw_ms != 0U &&
+        now_ms - last_session_overlay_draw_ms <
+            SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS) {
+        return;
+    }
+    last_session_overlay_draw_ms = now_ms;
 
     u8g2_t *u8g2 = display_u8g2;
     const int display_width = (int)u8g2_GetDisplayWidth(u8g2);
@@ -420,6 +439,7 @@ static void session_overlay_requested(const char *title, void *user)
 
     strlcpy(session_overlay_title, title, sizeof(session_overlay_title));
     session_overlay_until_ms = millis_u32() + SESSION_OVERLAY_MS;
+    last_session_overlay_draw_ms = 0U;
 }
 
 static void dispatch_app_resume(uint32_t now_ms)
@@ -1672,6 +1692,17 @@ void app_main(void)
 
     ESP_LOGI(TAG, "boot milestone: starting peripherals");
     init_peripherals();
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    if (display_u8g2 != NULL) {
+        const esp_err_t display_runtime_err =
+            solar_os_board_display_runtime_ready(&board_display);
+        if (display_runtime_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "Display runtime worker unavailable: %s",
+                          esp_err_to_name(display_runtime_err));
+        }
+    }
+#endif
     ESP_LOGI(TAG, "boot milestone: peripherals ready");
     const esp_err_t board_jobs_err = solar_os_board_boot_start_jobs(&os_ctx);
     if (board_jobs_err != ESP_OK) {

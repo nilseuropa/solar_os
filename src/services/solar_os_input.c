@@ -95,6 +95,7 @@ static bool input_key_repeatable(uint8_t key)
 {
     return key != 0 &&
         key != SOLAR_OS_KEY_ENTER &&
+        key != '\t' &&
         key != SOLAR_OS_KEY_APP_EXIT &&
         key != SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE &&
         key != SOLAR_OS_KEY_ALT_PREFIX;

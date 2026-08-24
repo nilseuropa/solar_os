@@ -15,6 +15,7 @@
 #include "esp_heap_caps.h"
 #include "esp_ipc.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_private/periph_ctrl.h"
 #include "esp_rom_gpio.h"
 #include "esp_rom_sys.h"
@@ -137,7 +138,10 @@
 #define VGA32_SYNC_IDLE (VGA32_HSYNC_IDLE | VGA32_VSYNC_IDLE)
 
 #define VGA32_INTERRUPT_CORE 1U
-#define VGA32_PRESENT_CORE 0U
+#define VGA32_PRESENT_CORE 1U
+#define VGA32_PRESENT_FRAME_INTERVAL_MS 33U
+#define VGA32_PRESENT_TASK_PRIORITY 2U
+#define VGA32_PRESENT_TASK_STACK_SIZE 4096U
 
 static const char *TAG = "vga32";
 static vga32_t *active_display;
@@ -584,8 +588,12 @@ static void vga32_commit_copy_buffer(vga32_t *display, int8_t target)
     portEXIT_CRITICAL(&display->buffer_lock);
 }
 
-static esp_err_t vga32_present_on_current_core(vga32_t *display)
+static esp_err_t vga32_present_on_current_core(vga32_t *display,
+                                               const uint8_t *source_buffer)
 {
+    if (source_buffer == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     const int8_t target = vga32_acquire_copy_buffer(display);
     if (target < 0) {
         return ESP_ERR_INVALID_STATE;
@@ -593,7 +601,7 @@ static esp_err_t vga32_present_on_current_core(vga32_t *display)
     uint8_t *scanout = display->scanout_buffers[target];
     for (size_t group = 0; group < VGA32_SCANOUT_STRIDE; group++) {
         const uint8_t *source =
-            &display->draw_buffer[group * VGA32_NATIVE_WIDTH];
+            &source_buffer[group * VGA32_NATIVE_WIDTH];
         for (size_t y = 0; y < VGA32_HEIGHT; y++) {
             scanout[y * VGA32_SCANOUT_STRIDE + group] =
                 source[VGA32_NATIVE_WIDTH - 1U - y];
@@ -604,15 +612,129 @@ static esp_err_t vga32_present_on_current_core(vga32_t *display)
     return ESP_OK;
 }
 
-typedef struct {
-    vga32_t *display;
-    esp_err_t result;
-} vga32_present_context_t;
-
-static void vga32_present_on_cpu0(void *arg)
+static int8_t vga32_take_pending_present(vga32_t *display)
 {
-    vga32_present_context_t *context = (vga32_present_context_t *)arg;
-    context->result = vga32_present_on_current_core(context->display);
+    int8_t source = -1;
+    portENTER_CRITICAL(&display->present_lock);
+    if (!display->present_stop_requested &&
+        display->pending_present_buffer >= 0) {
+        source = display->pending_present_buffer;
+        display->pending_present_buffer = -1;
+        display->rendering_present_buffer = source;
+    }
+    portEXIT_CRITICAL(&display->present_lock);
+    return source;
+}
+
+static void vga32_present_task(void *arg)
+{
+    vga32_t *display = (vga32_t *)arg;
+    TickType_t last_frame_tick = 0;
+
+    while (true) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (true) {
+            portENTER_CRITICAL(&display->present_lock);
+            const bool stop = display->present_stop_requested;
+            portEXIT_CRITICAL(&display->present_lock);
+            if (stop) {
+                goto stopped;
+            }
+
+            const int8_t source = vga32_take_pending_present(display);
+            if (source < 0) {
+                break;
+            }
+
+            const TickType_t now = xTaskGetTickCount();
+            const TickType_t interval = pdMS_TO_TICKS(VGA32_PRESENT_FRAME_INTERVAL_MS);
+            if (last_frame_tick != 0 && now - last_frame_tick < interval) {
+                vTaskDelay(interval - (now - last_frame_tick));
+            }
+
+            const int64_t started_us = esp_timer_get_time();
+            const esp_err_t err = vga32_present_on_current_core(
+                display,
+                display->present_buffers[source]);
+            const uint32_t render_us =
+                (uint32_t)(esp_timer_get_time() - started_us);
+            last_frame_tick = xTaskGetTickCount();
+
+            portENTER_CRITICAL(&display->present_lock);
+            display->rendering_present_buffer = -1;
+            if (err == ESP_OK) {
+                display->present_rendered_frames++;
+            }
+            if (render_us > display->present_max_render_us) {
+                display->present_max_render_us = render_us;
+            }
+            const bool more = display->pending_present_buffer >= 0;
+            portEXIT_CRITICAL(&display->present_lock);
+
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "asynchronous present failed: %s",
+                         esp_err_to_name(err));
+            }
+            if (!more) {
+                break;
+            }
+        }
+    }
+
+stopped:
+    portENTER_CRITICAL(&display->present_lock);
+    display->present_task = NULL;
+    display->rendering_present_buffer = -1;
+    portEXIT_CRITICAL(&display->present_lock);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t vga32_start_present_task(vga32_t *display)
+{
+    for (size_t i = 0; i < VGA32_PRESENT_BUFFER_COUNT; i++) {
+        if (display->present_buffers[i] == NULL) {
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        vga32_present_task,
+        "vga32-present",
+        VGA32_PRESENT_TASK_STACK_SIZE,
+        display,
+        VGA32_PRESENT_TASK_PRIORITY,
+        &display->present_task,
+        VGA32_PRESENT_CORE);
+    if (created != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG,
+             "asynchronous present ready: CPU%u, max %u fps",
+             (unsigned)VGA32_PRESENT_CORE,
+             (unsigned)(1000U / VGA32_PRESENT_FRAME_INTERVAL_MS));
+    return ESP_OK;
+}
+
+static void vga32_stop_present_task(vga32_t *display)
+{
+    TaskHandle_t task = NULL;
+    portENTER_CRITICAL(&display->present_lock);
+    display->present_stop_requested = true;
+    task = display->present_task;
+    portEXIT_CRITICAL(&display->present_lock);
+    if (task != NULL) {
+        xTaskNotifyGive(task);
+        for (unsigned attempt = 0; attempt < 100U; attempt++) {
+            portENTER_CRITICAL(&display->present_lock);
+            const bool stopped = display->present_task == NULL;
+            portEXIT_CRITICAL(&display->present_lock);
+            if (stopped) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1U));
+        }
+    }
 }
 
 static esp_err_t vga32_present(vga32_t *display)
@@ -620,17 +742,52 @@ static esp_err_t vga32_present(vga32_t *display)
     if (display == NULL || display->draw_buffer == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (xPortGetCoreID() == VGA32_PRESENT_CORE) {
-        return vga32_present_on_current_core(display);
+    if (display->present_task == NULL) {
+        return vga32_present_on_current_core(display, display->draw_buffer);
     }
-    vga32_present_context_t context = {
-        .display = display,
-        .result = ESP_FAIL,
-    };
-    const esp_err_t ipc_err = esp_ipc_call_blocking(VGA32_PRESENT_CORE,
-                                                    vga32_present_on_cpu0,
-                                                    &context);
-    return ipc_err == ESP_OK ? context.result : ipc_err;
+
+    int8_t target = -1;
+    bool coalesced = false;
+    portENTER_CRITICAL(&display->present_lock);
+    if (!display->present_stop_requested &&
+        display->copying_present_buffer < 0) {
+        if (display->pending_present_buffer >= 0) {
+            target = display->pending_present_buffer;
+            display->pending_present_buffer = -1;
+            coalesced = true;
+        } else {
+            target = display->rendering_present_buffer == 0 ? 1 : 0;
+        }
+        display->copying_present_buffer = target;
+    }
+    portEXIT_CRITICAL(&display->present_lock);
+    if (target < 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const int64_t started_us = esp_timer_get_time();
+    memcpy(display->present_buffers[target],
+           display->draw_buffer,
+           display->draw_buffer_size);
+    const uint32_t copy_us = (uint32_t)(esp_timer_get_time() - started_us);
+
+    TaskHandle_t task = NULL;
+    portENTER_CRITICAL(&display->present_lock);
+    display->copying_present_buffer = -1;
+    display->pending_present_buffer = target;
+    display->present_queued_frames++;
+    if (coalesced) {
+        display->present_coalesced_frames++;
+    }
+    if (copy_us > display->present_max_copy_us) {
+        display->present_max_copy_us = copy_us;
+    }
+    task = display->present_task;
+    portEXIT_CRITICAL(&display->present_lock);
+    if (task != NULL) {
+        xTaskNotifyGive(task);
+    }
+    return ESP_OK;
 }
 
 static uint8_t vga32_u8x8_display_cb(u8x8_t *u8x8,
@@ -679,9 +836,13 @@ esp_err_t vga32_init(vga32_t *display)
     }
     memset(display, 0, sizeof(*display));
     display->buffer_lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
+    display->present_lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
     display->current_buffer = 0;
     display->pending_buffer = -1;
     display->copying_buffer = -1;
+    display->pending_present_buffer = -1;
+    display->rendering_present_buffer = -1;
+    display->copying_present_buffer = -1;
     display->foreground = 0x00U;
     display->background = VGA32_COLOR_MASK;
     vga32_rebuild_pixel_lut(display);
@@ -710,6 +871,24 @@ esp_err_t vga32_init(vga32_t *display)
         return ESP_ERR_NO_MEM;
     }
 
+    bool present_buffers_ready = true;
+    for (size_t i = 0; i < VGA32_PRESENT_BUFFER_COUNT; i++) {
+        display->present_buffers[i] = heap_caps_malloc(
+            display->draw_buffer_size,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        present_buffers_ready = present_buffers_ready &&
+            display->present_buffers[i] != NULL;
+    }
+    if (!present_buffers_ready) {
+        ESP_LOGW(TAG,
+                 "asynchronous present unavailable; using synchronous fallback: %s",
+                 esp_err_to_name(ESP_ERR_NO_MEM));
+        for (size_t i = 0; i < VGA32_PRESENT_BUFFER_COUNT; i++) {
+            heap_caps_free(display->present_buffers[i]);
+            display->present_buffers[i] = NULL;
+        }
+    }
+
     u8g2_SetupDisplay(&display->u8g2,
                       vga32_u8x8_display_cb,
                       u8x8_cad_empty,
@@ -731,6 +910,24 @@ esp_err_t vga32_init(vga32_t *display)
     return ESP_OK;
 }
 
+esp_err_t vga32_start_async_present(vga32_t *display)
+{
+    if (display == NULL || display->draw_buffer == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    portENTER_CRITICAL(&display->present_lock);
+    const bool already_started = display->present_task != NULL;
+    const bool stopping = display->present_stop_requested;
+    portEXIT_CRITICAL(&display->present_lock);
+    if (already_started) {
+        return ESP_OK;
+    }
+    if (stopping) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return vga32_start_present_task(display);
+}
+
 esp_err_t vga32_resume(vga32_t *display)
 {
     if (display == NULL || display->draw_buffer == NULL) {
@@ -747,6 +944,7 @@ void vga32_deinit(vga32_t *display)
         return;
     }
     vga32_stop_signal(display);
+    vga32_stop_present_task(display);
     if (active_display == display) {
         active_display = NULL;
     }
@@ -755,6 +953,10 @@ void vga32_deinit(vga32_t *display)
     for (size_t i = 0; i < VGA32_SCANOUT_BUFFER_COUNT; i++) {
         heap_caps_free(display->scanout_buffers[i]);
         display->scanout_buffers[i] = NULL;
+    }
+    for (size_t i = 0; i < VGA32_PRESENT_BUFFER_COUNT; i++) {
+        heap_caps_free(display->present_buffers[i]);
+        display->present_buffers[i] = NULL;
     }
 }
 
