@@ -16,6 +16,9 @@
 #include "solar_os_expansion.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#include "solar_os_sdspi.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 #include "solar_os_uart.h"
 #endif
@@ -835,7 +838,7 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term,
 {
     switch (err) {
     case ESP_ERR_NOT_SUPPORTED:
-        solar_os_shell_io_writeln(term, "expansion: no expansion resources on this board");
+        solar_os_shell_io_writeln(term, "expansion attach: operation not supported");
         break;
     case ESP_ERR_NOT_FOUND:
         solar_os_shell_io_printf(term,
@@ -867,6 +870,21 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term, "expansion attach failed: %s\n", solar_os_shell_error_text(err));
         break;
     }
+}
+
+static void expansion_print_attach_diagnostics(solar_os_shell_io_t *term, const char *driver)
+{
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+    if (driver != NULL && strcmp(driver, "sdspi") == 0) {
+        char diagnostics[SOLAR_OS_SDSPI_DIAGNOSTICS_MAX];
+        if (solar_os_sdspi_format_last_diagnostics(diagnostics, sizeof(diagnostics)) > 0) {
+            solar_os_shell_io_write(term, diagnostics);
+        }
+    }
+#else
+    (void)term;
+    (void)driver;
+#endif
 }
 
 static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **argv)
@@ -950,6 +968,7 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
     }
 
     const esp_err_t err = solar_os_expansion_attach(argv[2], argv[3], bindings, binding_count);
+    expansion_print_attach_diagnostics(term, driver.name);
     if (err != ESP_OK) {
         expansion_print_attach_error(term, driver.name, err);
         return;

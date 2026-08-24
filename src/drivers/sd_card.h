@@ -13,6 +13,36 @@
 #define SD_CARD_TYPE_NAME_MAX 12
 #define SD_CARD_MOUNT_POINT_MAX 32
 #define SD_CARD_LOGICAL_VOLUME_INVALID UINT8_MAX
+#define SD_CARD_DIAGNOSTIC_OPERATION_MAX 12
+
+typedef enum {
+    SD_CARD_KIND_SDSC,
+    SD_CARD_KIND_SDHC,
+    SD_CARD_KIND_SDHC_UHS1,
+    SD_CARD_KIND_SDIO,
+    SD_CARD_KIND_MMC,
+} sd_card_kind_t;
+
+typedef struct {
+    bool attempted;
+    bool card_initialized;
+    sd_card_kind_t kind;
+    bool ddr;
+    char name[8];
+    uint32_t real_freq_khz;
+    uint32_t max_freq_khz;
+    uint64_t size_bytes;
+    int csd_version;
+    int sector_size;
+    int capacity_sectors;
+    int read_block_len;
+    uint32_t bus_width;
+    esp_err_t init_error;
+    esp_err_t mount_error;
+    esp_err_t diskio_error;
+    char diskio_operation[SD_CARD_DIAGNOSTIC_OPERATION_MAX];
+    int fatfs_result;
+} sd_card_diagnostics_t;
 
 typedef enum {
     SD_CARD_BLOCK_DISK,
@@ -53,3 +83,4 @@ const char *sd_card_mount_point(void);
 esp_err_t sd_card_rescan(void);
 size_t sd_card_block_count(void);
 bool sd_card_get_block(size_t index, sd_card_block_t *block);
+bool sd_card_get_last_diagnostics(sd_card_diagnostics_t *diagnostics);
