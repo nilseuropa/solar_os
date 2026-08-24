@@ -40,11 +40,11 @@ def _selected_cvbs_mode() -> str:
 
 
 def _selected_vga_mode() -> str:
-    mode = os.environ.get("SOLAR_OS_VGA_MODE") or "320x200"
-    if mode not in ("320x200", "640x400", "640x480"):
+    mode = os.environ.get("SOLAR_OS_VGA_MODE") or "640x480"
+    if mode not in ("320x200", "320x240", "640x400", "640x480"):
         raise SystemExit(
             "Unsupported SOLAR_OS_VGA_MODE "
-            f"{mode!r}; expected '320x200', '640x400', or '640x480'"
+            f"{mode!r}; expected '320x200', '320x240', '640x400', or '640x480'"
         )
     return mode
 
