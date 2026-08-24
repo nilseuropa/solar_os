@@ -70,8 +70,8 @@ Built-in targets include:
 - `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 e-paper HMI with rotary
   controls and microSD.
 - `odroid_go`: classic ESP32 handheld.
-- `ttgo_vga32_v14`: classic ESP32 desktop terminal with VGA, PS/2 keyboard,
-  and microSD.
+- `ttgo_vga32_v14`: classic ESP32 desktop terminal with VGA, mono DAC audio,
+  PS/2 keyboard, and microSD.
 - `esp32_s3_devkitc1_n16r8`: minimal headless ESP32-S3 target.
 
 See `man boards` for the complete board table, capability flags, pins, build

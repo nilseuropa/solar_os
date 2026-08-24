@@ -50,6 +50,12 @@
 /* VGA scanout continuously owns I2S1 in LCD/parallel mode. */
 #define SOLAR_OS_BOARD_VGA_I2S_PORT I2S_NUM_1
 
+/* GPIO25 feeds the board's mono line output and NS4150 speaker amplifier. */
+#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS GPIO_NUM_25
+#define SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG GPIO_NUM_NC
+#define SOLAR_OS_BOARD_AUDIO_CODEC_OUT "ESP32-DAC"
+#define SOLAR_OS_BOARD_AUDIO_CODEC_IN "-"
+
 /* TTGO VGA32 v1.4 SD differs from v1.2 on MOSI and MISO. */
 #define SOLAR_OS_BOARD_SPI_HOST SPI2_HOST
 #define SOLAR_OS_BOARD_SPI_NAME "HSPI"
@@ -154,6 +160,7 @@
     {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "VGA red0"}, \
     {.pin = 22, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "VGA red1"}, \
     {.pin = 23, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "VGA HSync"}, \
+    {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "mono audio DAC"}, \
     {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "PS/2 mouse clock"}, \
     {.pin = 27, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "PS/2 mouse data"}, \
     {.pin = 32, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "PS/2 keyboard data"}, \

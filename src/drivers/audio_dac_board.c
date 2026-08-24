@@ -25,6 +25,9 @@
 
 #ifndef SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN
 #define SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN GPIO_NUM_NC
+#define AUDIO_DAC_BOARD_HAS_AMP_ENABLE 0
+#else
+#define AUDIO_DAC_BOARD_HAS_AMP_ENABLE 1
 #endif
 
 #ifndef SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL
@@ -71,7 +74,12 @@ static uint8_t audio_dac_output_channels(void)
 
 static uint8_t audio_dac_output_samples_per_frame(void)
 {
-    return audio_dac_output_channels();
+    /*
+     * PLL_D2 requires at least 19.6 kHz on ESP32. Repeat mono samples so the
+     * 16 kHz input stream drives the DAC at 32 kHz without changing pitch or
+     * duration. Stereo already emits two samples per input frame.
+     */
+    return 2U;
 }
 
 static uint32_t audio_dac_output_rate(void)
@@ -81,25 +89,23 @@ static uint32_t audio_dac_output_rate(void)
 
 static dac_continuous_digi_clk_src_t audio_dac_clock_source(void)
 {
-    return DAC_DIGI_CLK_SRC_APLL;
+    /* Keep the shared APLL available for timing-sensitive display drivers. */
+    return DAC_DIGI_CLK_SRC_DEFAULT;
 }
 
 static void audio_dac_set_amp_enabled(bool enabled)
 {
-    if (SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN == GPIO_NUM_NC) {
-        return;
-    }
-
+#if AUDIO_DAC_BOARD_HAS_AMP_ENABLE
     const int active = SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL ? 1 : 0;
     gpio_set_level(SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN, enabled ? active : !active);
+#else
+    (void)enabled;
+#endif
 }
 
 static esp_err_t audio_dac_init_amp(void)
 {
-    if (SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN == GPIO_NUM_NC) {
-        return ESP_OK;
-    }
-
+#if AUDIO_DAC_BOARD_HAS_AMP_ENABLE
     const gpio_config_t config = {
         .pin_bit_mask = 1ULL << SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN,
         .mode = GPIO_MODE_OUTPUT,
@@ -112,6 +118,9 @@ static esp_err_t audio_dac_init_amp(void)
         audio_dac_set_amp_enabled(false);
     }
     return ret;
+#else
+    return ESP_OK;
+#endif
 }
 
 static void audio_dac_board_close(bool write_silence)
