@@ -39,6 +39,16 @@ def _selected_cvbs_mode() -> str:
     return mode
 
 
+def _selected_vga_mode() -> str:
+    mode = os.environ.get("SOLAR_OS_VGA_MODE") or "320x200"
+    if mode not in ("320x200", "640x400", "640x480"):
+        raise SystemExit(
+            "Unsupported SOLAR_OS_VGA_MODE "
+            f"{mode!r}; expected '320x200', '640x400', or '640x480'"
+        )
+    return mode
+
+
 def _append_cmake_arg(arg: str) -> None:
     board_config = env.BoardConfig()
     current = board_config.get("build.cmake_extra_args", "") or ""
@@ -59,6 +69,7 @@ build_dir = Path(env.subst("$BUILD_DIR"))
 flavor = _selected_flavor()
 board = _selected_board()
 cvbs_mode = _selected_cvbs_mode()
+vga_mode = _selected_vga_mode()
 
 acquire_project_build_lock(project_dir, env["PIOENV"])
 
@@ -68,6 +79,7 @@ if not flavor_file.exists():
 
 _append_cmake_arg(f"-DSOLAR_OS_FLAVOR={flavor}")
 _append_cmake_arg(f"-DSOLAR_OS_CVBS_MODE={cvbs_mode}")
+_append_cmake_arg(f"-DSOLAR_OS_VGA_MODE={vga_mode}")
 if os.environ.get("SOLAR_OS_BOARD"):
     _append_cmake_arg(f"-DSOLAR_OS_BOARD={board}")
 
@@ -90,7 +102,12 @@ tracked_files = (
     project_dir / "doc" / "manual" / "boards.md",
     project_dir / "doc" / "manual" / "expansion.reference.md",
 ) + board_files + board_headers + sdkconfig_default_files
-stamp = f"board={board}\nflavor={flavor}\ncvbs={cvbs_mode}\n"
+stamp = (
+    f"board={board}\n"
+    f"flavor={flavor}\n"
+    f"cvbs={cvbs_mode}\n"
+    f"vga={vga_mode}\n"
+)
 for tracked_file in tracked_files:
     stat = tracked_file.stat()
     stamp += (
@@ -103,7 +120,7 @@ previous = stamp_path.read_text(encoding="utf-8") if stamp_path.exists() else ""
 if previous != stamp and (previous or (build_dir / "CMakeCache.txt").exists()):
     print(
         f"SolarOS build selection changed to {board}/{flavor} "
-        f"(CVBS {cvbs_mode}); reconfiguring CMake"
+        f"(CVBS {cvbs_mode}, VGA {vga_mode}); reconfiguring CMake"
     )
     for entry in (
         build_dir / "CMakeCache.txt",

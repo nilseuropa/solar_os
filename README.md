@@ -39,7 +39,11 @@ which defaults to `rover`. For a smaller image or an explicit override:
 ```sh
 SOLAR_OS_FLAVOR=core pio run -e waveshare_esp32_s3_rlcd_4_2
 SOLAR_OS_FLAVOR=writerdeck pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
+SOLAR_OS_VGA_MODE=640x480 pio run -e ttgo_vga32_v14
 ```
+
+The VGA32 target supports build-time `320x200` (default), `640x400`, and
+`640x480` VGA modes through `SOLAR_OS_VGA_MODE`.
 
 See [Boards and hardware targets](doc/manual/boards.md) and
 [Firmware packages and flavors](doc/manual/packages.md) for the complete build

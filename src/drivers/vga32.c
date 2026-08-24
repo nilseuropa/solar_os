@@ -2,8 +2,8 @@
  * SolarOS VGA scanout for the LilyGO/TTGO VGA32 v1.4 resistor DAC.
  *
  * I2S1 continuously streams a short scanline ring. An IRAM interrupt on CPU1
- * refills completed pairs of double-scanned lines, so VGA consumes only a few
- * KiB of DMA-capable memory and does not create a scheduler-visible task.
+ * refills completed line groups, so VGA consumes only a few KiB of DMA-capable
+ * line memory and does not create a scheduler-visible task.
  */
 
 #include "vga32.h"
@@ -34,25 +34,74 @@
 #define VGA32_SCANOUT_STRIDE (VGA32_WIDTH / 8U)
 #define VGA32_SCANOUT_BUFFER_SIZE (VGA32_SCANOUT_STRIDE * VGA32_HEIGHT)
 
-/* FabGL's 320x200@70Hz modeline, double-scanned to 31.5 kHz. */
+#if (SOLAR_OS_VGA_MODE_320X200 + SOLAR_OS_VGA_MODE_640X400 + \
+     SOLAR_OS_VGA_MODE_640X480) != 1
+#error "Exactly one SolarOS VGA mode must be selected"
+#endif
+
+/* FabGL-compatible 31.5 kHz VGA modelines. */
+#if SOLAR_OS_VGA_MODE_320X200
 #define VGA32_H_VISIBLE 320U
 #define VGA32_H_FRONT_PORCH 8U
 #define VGA32_H_SYNC 48U
 #define VGA32_H_BACK_PORCH 24U
+#define VGA32_V_VISIBLE 200U
+#define VGA32_V_FRONT_PORCH 6U
+#define VGA32_V_SYNC 1U
+#define VGA32_V_BACK_PORCH 17U
+#define VGA32_SCAN_COUNT 2U
+#define VGA32_REFRESH_HZ 70U
+#define VGA32_PIXEL_CLOCK_HZ 12587500UL
+#define VGA32_APLL_O_DIV 5U
+#define VGA32_APLL_SDM0 174U
+#define VGA32_APLL_SDM1 207U
+#define VGA32_APLL_SDM2 4U
+#define VGA32_DMA_INTERRUPT_LINES 2U
+#elif SOLAR_OS_VGA_MODE_640X400
+#define VGA32_H_VISIBLE 640U
+#define VGA32_H_FRONT_PORCH 16U
+#define VGA32_H_SYNC 96U
+#define VGA32_H_BACK_PORCH 48U
+#define VGA32_V_VISIBLE 400U
+#define VGA32_V_FRONT_PORCH 12U
+#define VGA32_V_SYNC 2U
+#define VGA32_V_BACK_PORCH 35U
+#define VGA32_SCAN_COUNT 1U
+#define VGA32_REFRESH_HZ 70U
+#define VGA32_PIXEL_CLOCK_HZ 25175000UL
+#define VGA32_APLL_O_DIV 2U
+#define VGA32_APLL_SDM0 235U
+#define VGA32_APLL_SDM1 17U
+#define VGA32_APLL_SDM2 6U
+#define VGA32_DMA_INTERRUPT_LINES 4U
+#else
+#define VGA32_H_VISIBLE 640U
+#define VGA32_H_FRONT_PORCH 16U
+#define VGA32_H_SYNC 96U
+#define VGA32_H_BACK_PORCH 48U
+#define VGA32_V_VISIBLE 480U
+#define VGA32_V_FRONT_PORCH 10U
+#define VGA32_V_SYNC 2U
+#define VGA32_V_BACK_PORCH 33U
+#define VGA32_SCAN_COUNT 1U
+#define VGA32_REFRESH_HZ 60U
+#define VGA32_PIXEL_CLOCK_HZ 25175000UL
+#define VGA32_APLL_O_DIV 2U
+#define VGA32_APLL_SDM0 235U
+#define VGA32_APLL_SDM1 17U
+#define VGA32_APLL_SDM2 6U
+#define VGA32_DMA_INTERRUPT_LINES 4U
+#endif
+
 #define VGA32_H_TOTAL \
     (VGA32_H_VISIBLE + VGA32_H_FRONT_PORCH + VGA32_H_SYNC + \
      VGA32_H_BACK_PORCH)
 #define VGA32_H_SYNC_START (VGA32_H_VISIBLE + VGA32_H_FRONT_PORCH)
 #define VGA32_H_SYNC_END (VGA32_H_SYNC_START + VGA32_H_SYNC)
 
-#define VGA32_V_VISIBLE 200U
-#define VGA32_V_FRONT_PORCH 6U
-#define VGA32_V_SYNC 1U
-#define VGA32_V_BACK_PORCH 17U
 #define VGA32_V_TOTAL \
     (VGA32_V_VISIBLE + VGA32_V_FRONT_PORCH + VGA32_V_SYNC + \
      VGA32_V_BACK_PORCH)
-#define VGA32_SCAN_COUNT 2U
 #define VGA32_PHYSICAL_LINE_COUNT (VGA32_V_TOTAL * VGA32_SCAN_COUNT)
 #define VGA32_V_SYNC_START (VGA32_V_VISIBLE + VGA32_V_FRONT_PORCH)
 #define VGA32_V_SYNC_END (VGA32_V_SYNC_START + VGA32_V_SYNC)
@@ -70,14 +119,6 @@
 #define VGA32_VSYNC_IDLE (1U << VGA32_VSYNC_BIT)
 #define VGA32_SYNC_IDLE (VGA32_HSYNC_IDLE | VGA32_VSYNC_IDLE)
 
-/*
- * A valid 352.45 MHz APLL VCO divided by 14 and then by I2S /2 gives
- * 12.587498 MHz. Keep SDM2 in the ESP32 APLL's supported 4..8 range.
- */
-#define VGA32_APLL_O_DIV 5U
-#define VGA32_APLL_SDM0 174U
-#define VGA32_APLL_SDM1 207U
-#define VGA32_APLL_SDM2 4U
 #define VGA32_INTERRUPT_CORE 1U
 #define VGA32_PRESENT_CORE 0U
 
@@ -87,7 +128,7 @@ static vga32_t *active_display;
 static const u8x8_display_info_t vga32_display_info = {
     .chip_enable_level = 0,
     .chip_disable_level = 1,
-    .sck_clock_hz = 12587500UL,
+    .sck_clock_hz = VGA32_PIXEL_CLOCK_HZ,
     .i2c_bus_clock_100kHz = 0,
     .tile_width = VGA32_TILE_WIDTH,
     .tile_height = VGA32_TILE_HEIGHT,
@@ -95,12 +136,24 @@ static const u8x8_display_info_t vga32_display_info = {
     .pixel_height = VGA32_NATIVE_HEIGHT,
 };
 
-static inline void IRAM_ATTR vga32_write_sample(uint8_t *line,
-                                                 size_t output_x,
-                                                 uint8_t value)
+static void vga32_rebuild_pixel_lut(vga32_t *display)
 {
-    /* I2S1's 8-bit LCD stream transmits bytes 2,3,0,1 within each word. */
-    line[output_x ^ 2U] = value;
+    for (size_t packed = 0; packed < 256U; packed++) {
+        uint8_t pixel[8];
+        for (size_t bit = 0; bit < 8U; bit++) {
+            const uint8_t color = (packed & (1U << bit)) != 0U
+                                      ? display->background
+                                      : display->foreground;
+            pixel[bit] = VGA32_SYNC_IDLE | color;
+        }
+        /* I2S1 transmits bytes 2,3,0,1 within each 32-bit word. */
+        display->pixel_lut[packed][0] =
+            (uint32_t)pixel[2] | ((uint32_t)pixel[3] << 8U) |
+            ((uint32_t)pixel[0] << 16U) | ((uint32_t)pixel[1] << 24U);
+        display->pixel_lut[packed][1] =
+            (uint32_t)pixel[6] | ((uint32_t)pixel[7] << 8U) |
+            ((uint32_t)pixel[4] << 16U) | ((uint32_t)pixel[5] << 24U);
+    }
 }
 
 static void IRAM_ATTR vga32_render_scanline(vga32_t *display,
@@ -121,11 +174,17 @@ static void IRAM_ATTR vga32_render_scanline(vga32_t *display,
     const bool vsync_asserted = logical_line >= VGA32_V_SYNC_START &&
                                 logical_line < VGA32_V_SYNC_END;
     const uint8_t vertical = vsync_asserted ? 0U : VGA32_VSYNC_IDLE;
-    for (size_t x = 0; x < VGA32_H_TOTAL; x++) {
-        const bool hsync_asserted =
-            x >= VGA32_H_SYNC_START && x < VGA32_H_SYNC_END;
-        const uint8_t horizontal = hsync_asserted ? 0U : VGA32_HSYNC_IDLE;
-        vga32_write_sample(line, x, vertical | horizontal);
+    const uint32_t blank = (uint32_t)(vertical | VGA32_HSYNC_IDLE) *
+                           0x01010101U;
+    const uint32_t sync = (uint32_t)vertical * 0x01010101U;
+    uint32_t *words = (uint32_t *)line;
+    for (size_t word = 0; word < VGA32_H_TOTAL / 4U; word++) {
+        words[word] = blank;
+    }
+    for (size_t word = VGA32_H_SYNC_START / 4U;
+         word < VGA32_H_SYNC_END / 4U;
+         word++) {
+        words[word] = sync;
     }
 
     if (logical_line >= VGA32_V_VISIBLE) {
@@ -137,14 +196,8 @@ static void IRAM_ATTR vga32_render_scanline(vga32_t *display,
             (size_t)logical_line * VGA32_SCANOUT_STRIDE];
     for (size_t group = 0; group < VGA32_SCANOUT_STRIDE; group++) {
         const uint8_t packed = row[group];
-        for (size_t pixel = 0; pixel < 8U; pixel++) {
-            const uint8_t color = (packed & (1U << pixel)) != 0U
-                                      ? display->background
-                                      : display->foreground;
-            vga32_write_sample(line,
-                               group * 8U + pixel,
-                               VGA32_SYNC_IDLE | color);
-        }
+        words[group * 2U] = display->pixel_lut[packed][0];
+        words[group * 2U + 1U] = display->pixel_lut[packed][1];
     }
 }
 
@@ -191,6 +244,7 @@ static void IRAM_ATTR vga32_i2s_isr(void *arg)
         }
 
         uint8_t *buffer = &display->dma_buffer[slot * VGA32_H_TOTAL];
+#if VGA32_SCAN_COUNT == 2U
         if ((refill & 1U) != 0U) {
             const uint8_t previous =
                 (uint8_t)((slot + VGA32_DMA_DESCRIPTOR_COUNT - 1U) %
@@ -201,6 +255,9 @@ static void IRAM_ATTR vga32_i2s_isr(void *arg)
         } else {
             vga32_render_scanline(display, buffer, refill);
         }
+#else
+        vga32_render_scanline(display, buffer, refill);
+#endif
     }
 
     uint16_t transmitted =
@@ -353,8 +410,7 @@ static void vga32_stop_signal(vga32_t *display)
 
 static esp_err_t vga32_start_signal(vga32_t *display)
 {
-    if (display == NULL || display->scanout_buffers[0] == NULL ||
-        display->scanout_buffers[1] == NULL) {
+    if (display == NULL || display->scanout_buffers[0] == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
     if (display->signal_started) {
@@ -376,11 +432,16 @@ static esp_err_t vga32_start_signal(vga32_t *display)
         memset(descriptor, 0, sizeof(*descriptor));
         descriptor->buf = &display->dma_buffer[i * VGA32_H_TOTAL];
         descriptor->owner = 1;
-        descriptor->eof = (i & 1U) != 0U ? 1U : 0U;
+        descriptor->eof =
+            i % VGA32_DMA_INTERRUPT_LINES ==
+                    VGA32_DMA_INTERRUPT_LINES - 1U
+                ? 1U
+                : 0U;
         descriptor->length = VGA32_H_TOTAL;
         descriptor->size = VGA32_H_TOTAL;
         descriptor->empty = (uint32_t)&display->dma_desc[
             (i + 1U) % VGA32_DMA_DESCRIPTOR_COUNT];
+#if VGA32_SCAN_COUNT == 2U
         if ((i & 1U) == 0U) {
             vga32_render_scanline(
                 display,
@@ -391,6 +452,11 @@ static esp_err_t vga32_start_signal(vga32_t *display)
                    &display->dma_buffer[(i - 1U) * VGA32_H_TOTAL],
                    VGA32_H_TOTAL);
         }
+#else
+        vga32_render_scanline(display,
+                              &display->dma_buffer[i * VGA32_H_TOTAL],
+                              (uint16_t)i);
+#endif
     }
     display->last_eof_descriptor = VGA32_DMA_DESCRIPTOR_COUNT - 1U;
     display->last_eof_scanline = VGA32_PHYSICAL_LINE_COUNT - 1U;
@@ -462,9 +528,10 @@ static esp_err_t vga32_start_signal(vga32_t *display)
     }
 
     ESP_LOGI(TAG,
-             "VGA output ready: %ux%u@70Hz, I2S1 DMA ISR CPU%d",
+             "VGA output ready: %ux%u@%uHz, I2S1 DMA ISR CPU%d",
              VGA32_WIDTH,
              VGA32_HEIGHT,
+             VGA32_REFRESH_HZ,
              esp_intr_get_cpu(display->interrupt));
     return ESP_OK;
 }
@@ -474,10 +541,14 @@ static int8_t vga32_acquire_copy_buffer(vga32_t *display)
     int8_t target = -1;
     portENTER_CRITICAL(&display->buffer_lock);
     if (display->copying_buffer < 0) {
+#if VGA32_SCANOUT_BUFFER_COUNT == 1U
+        target = display->current_buffer;
+#else
         target = display->pending_buffer >= 0
                      ? display->pending_buffer
                      : (int8_t)(1 - display->current_buffer);
         display->pending_buffer = -1;
+#endif
         display->copying_buffer = target;
     }
     portEXIT_CRITICAL(&display->buffer_lock);
@@ -489,7 +560,9 @@ static void vga32_commit_copy_buffer(vga32_t *display, int8_t target)
     portENTER_CRITICAL(&display->buffer_lock);
     if (display->copying_buffer == target) {
         display->copying_buffer = -1;
+#if VGA32_SCANOUT_BUFFER_COUNT > 1U
         display->pending_buffer = target;
+#endif
     }
     portEXIT_CRITICAL(&display->buffer_lock);
 }
@@ -594,13 +667,14 @@ esp_err_t vga32_init(vga32_t *display)
     display->copying_buffer = -1;
     display->foreground = 0x00U;
     display->background = VGA32_COLOR_MASK;
+    vga32_rebuild_pixel_lut(display);
     display->draw_buffer_size = VGA32_DRAW_BUFFER_SIZE;
     display->scanout_buffer_size = VGA32_SCANOUT_BUFFER_SIZE;
     display->draw_buffer = heap_caps_calloc(
         1,
         display->draw_buffer_size,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    for (size_t i = 0; i < 2U; i++) {
+    for (size_t i = 0; i < VGA32_SCANOUT_BUFFER_COUNT; i++) {
         display->scanout_buffers[i] = heap_caps_malloc(
             display->scanout_buffer_size,
             MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -610,8 +684,11 @@ esp_err_t vga32_init(vga32_t *display)
                    display->scanout_buffer_size);
         }
     }
-    if (display->draw_buffer == NULL || display->scanout_buffers[0] == NULL ||
-        display->scanout_buffers[1] == NULL) {
+    if (display->draw_buffer == NULL || display->scanout_buffers[0] == NULL
+#if VGA32_SCANOUT_BUFFER_COUNT > 1U
+        || display->scanout_buffers[1] == NULL
+#endif
+    ) {
         vga32_deinit(display);
         return ESP_ERR_NO_MEM;
     }
@@ -658,7 +735,7 @@ void vga32_deinit(vga32_t *display)
     }
     heap_caps_free(display->draw_buffer);
     display->draw_buffer = NULL;
-    for (size_t i = 0; i < 2U; i++) {
+    for (size_t i = 0; i < VGA32_SCANOUT_BUFFER_COUNT; i++) {
         heap_caps_free(display->scanout_buffers[i]);
         display->scanout_buffers[i] = NULL;
     }
@@ -678,6 +755,7 @@ esp_err_t vga32_set_colors(vga32_t *display,
     }
     display->foreground = vga32_rgb222(foreground_rgb888);
     display->background = vga32_rgb222(background_rgb888);
+    vga32_rebuild_pixel_lut(display);
     return ESP_OK;
 }
 
