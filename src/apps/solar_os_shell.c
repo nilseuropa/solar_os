@@ -809,7 +809,8 @@ static const char * const expansion_subcommands[] = {
 static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const midi_subcommands[] = {
-    "status", "note-on", "note-off", "cc", "program", "send", "stream",
+    "status", "monitor", "note-on", "note-off", "cc", "program", "send",
+    "stream",
 };
 static const char * const midi_stream_subcommands[] = {
     "list", "add", "remove", "clear",

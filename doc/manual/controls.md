@@ -88,13 +88,26 @@ control-to-parameter path as an ADC or other measurement:
 
 ```text
 expansion bus create midi midi0 tx=gpio2 rx=gpio3
+job start midi midi0
+midi monitor
 midi stream add 1 74
 control create cutoff midi.cc.1.74 0 127
 control bind cutoff parameter synth.filter.cutoff pickup=off
-job start midi midi0
 job start controls
 synth
 ```
+
+Move a controller while `midi monitor` is running to discover its channel and
+controller number. It prints mapping-oriented lines such as:
+
+```text
+CC: 1 74 64
+KEY: 1 60 100
+KEY: 1 60 0
+```
+
+The fields are channel, controller/note, and value/velocity. Stop the monitor
+with the app-exit key, `Esc`, or `q`, then create the matching stream.
 
 `midi stream add <channel> <controller>` registers an exact scalar stream named
 `midi.cc.<channel>.<controller>`. It reports `0..127` and retains the latest

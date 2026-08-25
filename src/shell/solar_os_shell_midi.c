@@ -1,4 +1,5 @@
 #include "solar_os_shell_commands.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
@@ -8,6 +9,15 @@
 #include <string.h>
 
 #include "solar_os_midi.h"
+#include "solar_os_keys.h"
+
+typedef struct {
+    solar_os_midi_subscription_t subscription;
+    bool subscribed;
+} midi_monitor_state_t;
+
+static void *midi_monitor_state;
+#define midi_monitor (*(midi_monitor_state_t *)midi_monitor_state)
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
@@ -18,6 +28,7 @@ static void midi_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  midi status");
+    solar_os_shell_io_writeln(term, "  midi monitor");
     solar_os_shell_io_writeln(term, "  midi note-on <channel> <note> [velocity]");
     solar_os_shell_io_writeln(term, "  midi note-off <channel> <note> [velocity]");
     solar_os_shell_io_writeln(term, "  midi cc <channel> <controller> <value>");
@@ -28,6 +39,87 @@ static void midi_print_usage(solar_os_shell_io_t *term)
                               "  midi stream add|remove <channel> <controller>");
     solar_os_shell_io_writeln(term, "  midi stream clear");
 }
+
+static esp_err_t midi_monitor_start(solar_os_context_t *ctx)
+{
+    midi_monitor.subscription =
+        (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
+    const esp_err_t error = solar_os_midi_subscribe(
+        "midi-monitor", &midi_monitor.subscription);
+    if (error != ESP_OK) {
+        return error;
+    }
+    midi_monitor.subscribed = true;
+    solar_os_shell_io_t *term = solar_os_context_shell_io(ctx);
+    solar_os_shell_io_writeln(term, "CC: channel controller value");
+    solar_os_shell_io_writeln(term, "KEY: channel note velocity");
+    solar_os_shell_io_printf(term, "%s, Esc, or q stops the monitor\n",
+                             solar_os_shell_io_app_exit_key(term));
+    solar_os_shell_io_flush(term);
+    return ESP_OK;
+}
+
+static void midi_monitor_stop(solar_os_context_t *ctx)
+{
+    if (midi_monitor.subscribed) {
+        (void)solar_os_midi_unsubscribe(&midi_monitor.subscription);
+        midi_monitor.subscribed = false;
+    }
+    solar_os_shell_io_t *term = solar_os_context_shell_io(ctx);
+    solar_os_shell_io_writeln(term, "MIDI monitor stopped");
+    solar_os_shell_io_flush(term);
+}
+
+static bool midi_monitor_event(solar_os_context_t *ctx,
+                               const solar_os_event_t *event)
+{
+    if (event == NULL) {
+        return false;
+    }
+    if (event->type == SOLAR_OS_EVENT_CHAR) {
+        const uint8_t ch = (uint8_t)event->data.ch;
+        if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
+            ch == 'q' || ch == 'Q') {
+            solar_os_context_request_terminal_preserve(ctx);
+            solar_os_context_request_exit(ctx);
+        }
+        return true;
+    }
+    if (event->type != SOLAR_OS_EVENT_TICK) {
+        return false;
+    }
+    solar_os_shell_io_t *term = solar_os_context_shell_io(ctx);
+    bool printed = false;
+    for (;;) {
+        solar_os_midi_message_t message;
+        const esp_err_t error = solar_os_midi_receive(
+            &midi_monitor.subscription, &message);
+        if (error != ESP_OK) {
+            break;
+        }
+        char line[32];
+        if (solar_os_midi_format_monitor(&message, line, sizeof(line)) > 0U) {
+            solar_os_shell_io_writeln(term, line);
+            printed = true;
+        }
+    }
+    if (printed) {
+        solar_os_shell_io_flush(term);
+    }
+    return true;
+}
+
+static const solar_os_app_t midi_monitor_app = {
+    .name = "midi-monitor",
+    .summary = "live MIDI CC and key monitor",
+    .flags = SOLAR_OS_APP_FLAG_SHELL_INLINE,
+    .start = midi_monitor_start,
+    .stop = midi_monitor_stop,
+    .event = midi_monitor_event,
+    .state_slot = &midi_monitor_state,
+    .state_size = sizeof(midi_monitor_state_t),
+    .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+};
 
 static bool midi_parse_range(const char *text, uint8_t minimum, uint8_t maximum,
                              uint8_t *value)
@@ -186,6 +278,24 @@ void solar_os_shell_cmd_midi(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     if (argc == 2 && strcmp(argv[1], "status") == 0) {
         midi_cmd_status(term);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "monitor") == 0) {
+        solar_os_midi_status_t status;
+        solar_os_midi_get_status(&status);
+        if (!status.running) {
+            solar_os_shell_io_writeln(
+                term, "midi: monitor requires a running MIDI job");
+            return;
+        }
+        const esp_err_t error = solar_os_context_request_launch(
+            ctx, &midi_monitor_app, 0, NULL);
+        if (error != ESP_OK) {
+            solar_os_shell_io_printf(term, "midi: monitor failed: %s\n",
+                                     solar_os_shell_error_text(error));
+        } else {
+            solar_os_shell_session_prepare_foreground_launch(ctx, false);
+        }
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "stream") == 0) {

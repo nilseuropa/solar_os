@@ -156,6 +156,7 @@ An incoming MIDI controller can use the same parameter path through an explicit
 scalar stream:
 
 ```text
+midi monitor
 midi stream add 1 74
 control create cutoff midi.cc.1.74 0 127
 control bind cutoff parameter synth.filter.cutoff pickup=off
@@ -165,7 +166,8 @@ synth
 ```
 
 The MIDI service retains the latest matching CC value while its job runs, and
-the controls service applies the Synth parameter's logarithmic curve.
+the controls service applies the Synth parameter's logarithmic curve. Use the
+monitor first to discover the controller's channel and CC number.
 
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support

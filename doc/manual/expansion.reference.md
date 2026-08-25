@@ -134,6 +134,7 @@ expansion bus remove uart1
 expansion bus create midi midi0 tx=gpio1 rx=gpio2
 job start midi midi0
 midi status
+midi monitor
 midi note-on 1 60 100
 midi note-off 1 60
 midi stream add 1 74

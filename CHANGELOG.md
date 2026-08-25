@@ -8,8 +8,9 @@
   peer filtering, and named outbound scalar-stream, sampled-event, and
   normalized-control bindings on user-selected OSC addresses. Incoming MIDI CC
   values can now be registered as bounded scalar streams and mapped through
-  controls to native application parameters. Fixed long shell diagnostics so
-  command usage is not truncated before the prompt. Added
+  controls to native application parameters; `midi monitor` prints incoming CC
+  and key identifiers for mapping. Fixed long shell diagnostics so command
+  usage is not truncated before the prompt. Added
   volatile per-display terminal profiles for secondary and virtual displays,
   including live geometry redraw without changing input focus. Expanded SDSPI
   failure diagnostics with card-command and electrical-stage details, and

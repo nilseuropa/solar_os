@@ -721,6 +721,7 @@ available for the compiled board.
 | `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |
 | `neopixel` | `neopixel clear\|show <name>` | Clear a strip immediately, or transmit its buffered colors. |
 | `midi` | `midi status` | Show MIDI worker, traffic, parser, and queue status. |
+| `midi` | `midi monitor` | Print incoming CC and key messages until the app-exit key, `Esc`, or `q` is pressed. |
 | `midi` | `midi note-on\|note-off <channel> <note> [velocity]` | Queue a MIDI note message for transmission. |
 | `midi` | `midi cc <channel> <controller> <value>` | Queue a MIDI control-change message. |
 | `midi` | `midi program <channel> <program>` | Queue a MIDI program-change message. |

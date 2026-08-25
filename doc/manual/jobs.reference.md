@@ -1008,6 +1008,11 @@ queued with `midi note-on`, `midi note-off`, `midi cc`, `midi program`, or
 `midi send`. Status reports RX and TX byte/message counts, unsupported parser
 input, queue drops, and the last transport error.
 
+Run `midi monitor` and move a controller to identify its mapping. The monitor
+prints `CC: <channel> <controller> <value>` for control changes and
+`KEY: <channel> <note> <velocity>` for note activity. Note releases use velocity
+zero. The app-exit key, `Esc`, or `q` returns to the shell.
+
 Up to 16 exact incoming MIDI CC addresses can also be registered as scalar
 streams. This lets the controls job map a MIDI controller through the standard
 normalized control path to any live application parameter:
