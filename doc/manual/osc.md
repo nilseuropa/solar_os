@@ -27,20 +27,27 @@ job start osc listen=9000
 ```
 
 The default port is `9000`. Incoming addresses map automatically to parameters
-registered by the currently running application:
+registered by the currently running application. Use the parameter address for
+native units, or append `/normalized` for a normalized value:
 
 ```text
 /solaros/parameter/synth/filter/cutoff
+/solaros/parameter/synth/filter/cutoff/normalized
 /solaros/parameter/synth/osc2/mix
 /solaros/parameter/funcgen/frequency
 ```
 
-Each message must contain exactly one OSC float32, int32, `True`, or `False`
-argument. SolarOS converts the address after `/solaros/parameter/` from slash
-components to the native dotted path and calls the shared parameter setter.
-The parameter service remains authoritative for range checks and step
-quantization. Synth and Funcgen publish their parameters only while they are
-running, so a write to a closed application increments the `unknown` counter.
+The native address accepts exactly one OSC float32, int32, `True`, or `False`
+argument in the parameter's native unit. The `/normalized` address accepts one
+float32 in the range `0.0..1.0`, or `True` and `False` for the endpoints. It
+rejects int32 arguments so integer native values cannot be mistaken for
+normalized values.
+
+SolarOS converts the address after `/solaros/parameter/` from slash components
+to the native dotted path. The parameter service applies the declared range,
+linear or logarithmic curve, and step quantization. Synth and Funcgen publish
+their parameters only while they are running, so a write to a closed
+application increments the `unknown` counter.
 
 Immediate OSC bundles are accepted with at most two bundle levels and eight
 messages per packet. Future timetags, address patterns, blobs, MIDI values,
@@ -91,6 +98,29 @@ osc clear
 
 Bindings are volatile. Put the `osc bind` and `job start osc` commands in
 `/.shell/startup` when they must be restored after reboot.
+
+## SolarOS controller and synth devices
+
+A normalized address lets one SolarOS device use a calibrated physical control
+to drive a parameter on another device without duplicating its native range or
+curve. On the controller device:
+
+```text
+control create cutoff adc1 100 3200 smooth=20 deadband=8
+osc bind cutoff-out control cutoff /solaros/parameter/synth/filter/cutoff/normalized
+job start controls
+job start osc target=192.168.1.40:9000
+```
+
+On the synth device:
+
+```text
+job start osc listen=9000 peer=192.168.1.30
+synth
+```
+
+The controller sends `0.0..1.0`. The synth device converts it through the live
+parameter's logarithmic cutoff curve and native range.
 
 ## Status and filtering
 

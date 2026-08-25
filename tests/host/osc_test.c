@@ -89,6 +89,35 @@ static void test_codec_and_dispatch(void)
     assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
     assert(test_value == 440.0f);
 
+    const float midpoint = 0.5f;
+    memcpy(&raw, &midpoint, sizeof(raw));
+    length = make_message(
+        packet, "/solaros/parameter/synth/filter/cutoff/normalized", 'f', raw);
+    assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
+    assert(result.applied == 1U && test_value >= 632.0f && test_value <= 633.0f);
+
+    const float outside = 1.01f;
+    memcpy(&raw, &outside, sizeof(raw));
+    length = make_message(
+        packet, "/solaros/parameter/synth/filter/cutoff/normalized", 'f', raw);
+    assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
+    assert(result.rejected_values == 1U && test_value <= 633.0f);
+
+    length = make_message(
+        packet, "/solaros/parameter/synth/filter/cutoff/normalized", 'i', 1U);
+    assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
+    assert(result.rejected_values == 1U && test_value <= 633.0f);
+
+    length = make_message(
+        packet, "/solaros/parameter/synth/filter/cutoff/normalized", 'T', 0U);
+    assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
+    assert(result.applied == 1U && test_value == 20000.0f);
+
+    length = make_message(
+        packet, "/solaros/parameter/synth/filter/cutoff/normalized", 'F', 0U);
+    assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);
+    assert(result.applied == 1U && test_value == 20.0f);
+
     length = make_message(packet,
                           "/solaros/parameter/missing/value", 'T', 0U);
     assert(solar_os_osc_dispatch_packet(packet, length, &result) == ESP_OK);

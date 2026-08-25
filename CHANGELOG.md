@@ -3,9 +3,10 @@
 ## 4.x
 
 - **4.8.13** — 2026-08-25 — Added bounded OSC 1.0 over IPv4 UDP with automatic
-  incoming Synth and Funcgen parameter addresses, immediate bundle support,
-  optional peer filtering, and named outbound scalar-stream, sampled-event,
-  and normalized-control bindings on user-selected OSC addresses. Fixed long
+  incoming Synth and Funcgen parameter addresses in native units or through an
+  optional final `/normalized` component, immediate bundle support, optional
+  peer filtering, and named outbound scalar-stream, sampled-event, and
+  normalized-control bindings on user-selected OSC addresses. Fixed long
   shell diagnostics so command usage is not truncated before the prompt. Added
   volatile per-display terminal profiles for secondary and virtual displays,
   including live geometry redraw without changing input focus. Expanded SDSPI

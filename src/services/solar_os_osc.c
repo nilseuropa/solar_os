@@ -9,6 +9,7 @@
 #include "solar_os_parameters.h"
 
 #define OSC_PARAMETER_PREFIX "/solaros/parameter/"
+#define OSC_PARAMETER_NORMALIZED_SUFFIX "/normalized"
 
 typedef struct {
     bool active;
@@ -347,17 +348,29 @@ static esp_err_t osc_read_string(const uint8_t *packet,
 static esp_err_t osc_parameter_path(const char *address,
                                     size_t address_len,
                                     char *path,
-                                    size_t path_len)
+                                    size_t path_len,
+                                    bool *normalized)
 {
     const size_t prefix_len = sizeof(OSC_PARAMETER_PREFIX) - 1U;
-    if (address_len <= prefix_len ||
-        memcmp(address, OSC_PARAMETER_PREFIX, prefix_len) != 0 ||
-        address_len - prefix_len >= path_len) {
+    const size_t suffix_len = sizeof(OSC_PARAMETER_NORMALIZED_SUFFIX) - 1U;
+    if (normalized == NULL || address_len <= prefix_len ||
+        memcmp(address, OSC_PARAMETER_PREFIX, prefix_len) != 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    size_t effective_len = address_len;
+    *normalized = false;
+    if (address_len > prefix_len + suffix_len &&
+        memcmp(address + address_len - suffix_len,
+               OSC_PARAMETER_NORMALIZED_SUFFIX, suffix_len) == 0) {
+        effective_len -= suffix_len;
+        *normalized = true;
+    }
+    if (effective_len - prefix_len >= path_len) {
         return ESP_ERR_NOT_FOUND;
     }
     size_t out = 0U;
     bool component = false;
-    for (size_t i = prefix_len; i < address_len; i++) {
+    for (size_t i = prefix_len; i < effective_len; i++) {
         const unsigned char ch = (unsigned char)address[i];
         if (ch == '/') {
             if (!component) {
@@ -421,7 +434,9 @@ static esp_err_t osc_dispatch_message(const uint8_t *packet,
     }
 
     char path[SOLAR_OS_PARAMETER_PATH_MAX];
-    err = osc_parameter_path(address, address_len, path, sizeof(path));
+    bool normalized = false;
+    err = osc_parameter_path(address, address_len, path, sizeof(path),
+                             &normalized);
     if (err == ESP_ERR_NOT_FOUND) {
         result->unknown_paths++;
         result->messages++;
@@ -430,7 +445,21 @@ static esp_err_t osc_dispatch_message(const uint8_t *packet,
     if (err != ESP_OK) {
         return err;
     }
-    err = solar_os_parameter_set(path, value);
+    if (normalized) {
+        solar_os_parameter_info_t info;
+        err = solar_os_parameter_find(path, &info);
+        if (err == ESP_OK &&
+            (types[1] == 'i' || value < 0.0f || value > 1.0f)) {
+            err = ESP_ERR_INVALID_ARG;
+        }
+        if (err == ESP_OK) {
+            const uint16_t normalized_value = (uint16_t)lroundf(
+                value * (float)SOLAR_OS_PARAMETER_NORMALIZED_MAX);
+            err = solar_os_parameter_set_normalized(path, normalized_value);
+        }
+    } else {
+        err = solar_os_parameter_set(path, value);
+    }
     result->messages++;
     if (err == ESP_OK) {
         result->applied++;

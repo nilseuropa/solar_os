@@ -38,8 +38,8 @@ directed graph. They are not one generic event bus or an arbitrary patch bay.
 
   OSC peer
       |
-      | exact /solaros/parameter/<owner>/<name> address
-      | one native float32, int32, True, or False value
+      | exact /solaros/parameter/<owner>/<name>[/normalized] address
+      | one native value, or normalized float32 0.0..1.0
       v
   +----------------+       +----------------------+       +------------------+
   | job.osc UDP    |------>| parameter registry   |------>| application      |
@@ -64,7 +64,7 @@ The two OSC directions are deliberately different:
 | Parameter | App callback, native range, unit, step, and curve | App-defined native value | Present while the owning app registers it |
 | Control binding | One named control to one parameter or MIDI CC target | Normalized conversion | Volatile runtime configuration |
 | OSC binding | One stream or control source to one OSC address | OSC float32 or int32 | Volatile runtime configuration |
-| OSC parameter mapping | One exact incoming OSC namespace to a live parameter | Native parameter value | Automatic; no stored binding |
+| OSC parameter mapping | One exact incoming OSC namespace to a live parameter | Native value, or normalized `0.0..1.0` with the final `/normalized` suffix | Automatic; no stored binding |
 
 Numeric binding IDs are internal bookkeeping. Shell commands use semantic names
 such as `cutoff`, `ambient`, and `button`.
@@ -78,7 +78,8 @@ scalar stream -> named control -> outbound OSC float32 0.0..1.0
 scalar stream -----------------> outbound OSC float32 in native units
 event stream ------------------> outbound OSC int32 0 or 1 on selected edges
 manual/script value -> named control -> the same control targets
-incoming OSC value ------------> live app parameter in native units
+incoming OSC native value -----> live app parameter in native units
+incoming OSC normalized value -> parameter curve -> live app parameter
 ```
 
 The following routes do not exist in this version:
@@ -111,13 +112,16 @@ named control 0..65535
 
 scalar stream OSC binding -----------------------------> native float32
 event stream OSC binding ------------------------------> int32 0 or 1
-incoming OSC parameter message ------------------------> native parameter value
+incoming OSC native parameter message -----------------> native parameter value
+incoming OSC normalized message --> declared curve ----> native parameter value
 ```
 
-An incoming OSC value for `synth.filter.cutoff` is therefore expressed in Hz,
-not as `0.0..1.0`. The parameter registry applies its declared range and step.
-The logarithmic or linear curve is used when a normalized control is converted
-to that parameter.
+An incoming OSC value for `/solaros/parameter/synth/filter/cutoff` is expressed
+in Hz. Appending `/normalized` selects `0.0..1.0` instead. The normalized route
+accepts float32, `True`, and `False`, but rejects int32 to keep its meaning
+unambiguous. In both cases the parameter registry remains authoritative for the
+declared range and step; normalized values also use its logarithmic or linear
+curve.
 
 ## Example: one knob, local Synth, and remote OSC
 
@@ -173,6 +177,43 @@ OSC /solaros/parameter/synth/filter/cutoff ,f 1200.0
 
 There is no stored incoming binding. The address is derived from the parameter
 path. If Synth is closed, the path is unknown and the job records that result.
+
+The normalized form uses the same parameter without requiring the sender to
+know its native range or curve:
+
+```text
+OSC /solaros/parameter/synth/filter/cutoff/normalized ,f 0.5
+  -> synth.filter.cutoff normalized midpoint
+  -> logarithmic curve and step quantization
+  -> Synth setter receives approximately 632 Hz
+```
+
+## Example: one SolarOS device controls another
+
+```text
+controller device                                      synth device
+
+adc1 -> control "cutoff" -> OSC 0.0..1.0   UDP   /normalized -> cutoff parameter
+```
+
+On the controller device:
+
+```sh
+control create cutoff adc1 100 3200 smooth=20 deadband=8
+osc bind cutoff-out control cutoff /solaros/parameter/synth/filter/cutoff/normalized
+job start controls
+job start osc target=192.168.1.40:9000
+```
+
+On the synth device:
+
+```sh
+job start osc listen=9000 peer=192.168.1.30
+synth
+```
+
+The ADC calibration stays on the controller. The cutoff range, curve, and step
+stay on the synth device.
 
 ## Example: sampled GPIO event
 
