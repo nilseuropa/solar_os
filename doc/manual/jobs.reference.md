@@ -428,6 +428,32 @@ Control definitions are runtime configuration. Put the `control create`,
 restore a hardware setup after reboot. See `man controls` for calibration,
 manual script inputs, MIDI examples, and inspection commands.
 
+## osc
+
+OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and
+explicit named outbound stream, event-stream, or normalized-control bindings.
+
+```text
+job start osc [listen=port] [target=host:port] [peer=ipv4]
+job status osc
+job stop osc
+```
+
+The listening port defaults to `9000`. `target=` is optional for an
+incoming-only job and is required before an outbound binding can send.
+`peer=` accepts one exact IPv4 address and drops all other incoming sources.
+
+The worker owns one UDP socket and a 6 KiB internal stack. It accepts packets
+up to 512 bytes, at most eight parameter updates per packet, immediate bundles
+only, and at most 100 accepted packets per second. Detailed status includes the
+listener, target, peer filter, inbound apply/error counters, outbound
+send/source errors, and the current binding count.
+
+OSC has no authentication or encryption. Start the job only on a trusted LAN,
+SoftAP, or WireGuard path. Bindings are volatile and can be restored from
+`/.shell/startup`. See `man osc` for address mapping, binding syntax, limits,
+and the sampled-event caveat.
+
 ## displayd
 
 Authenticated HTTP display and remote control. It has two modes:

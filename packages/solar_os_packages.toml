@@ -122,6 +122,7 @@ members = [
   "service_wireguard",
   "service_espnow",
   "service_net",
+  "service_osc",
   "service_mqtt",
   "service_ssh",
   "service_mail",
@@ -143,6 +144,7 @@ members = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_osc",
   "job_espnow_link",
 ]
 triggers = [
@@ -161,6 +163,7 @@ triggers = [
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
+  "job_osc",
   "job_espnow_link",
 ]
 
@@ -406,6 +409,14 @@ depends = ["service_wifi"]
 sources = ["services/solar_os_net.c"]
 requires = ["lwip"]
 capabilities = ["wifi"]
+
+[packages.service_osc]
+label = "service.osc"
+depends = ["service_controls", "service_streams"]
+sources = [
+  "services/solar_os_osc.c",
+  "shell/solar_os_shell_osc.c",
+]
 
 [packages.service_script_net]
 label = "service.script-network"
@@ -1296,6 +1307,13 @@ capabilities = ["cdc", "gpio"]
 label = "job.ntp-sync"
 depends = ["service_net"]
 sources = ["jobs/solar_os_ntp_sync_job.c"]
+capabilities = ["wifi"]
+
+[packages.job_osc]
+label = "job.osc"
+depends = ["service_net", "service_osc"]
+sources = ["jobs/solar_os_osc_job.c"]
+requires = ["lwip"]
 capabilities = ["wifi"]
 
 [packages.job_pocsag]

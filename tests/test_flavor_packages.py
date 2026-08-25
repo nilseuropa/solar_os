@@ -166,6 +166,16 @@ class FlavorPackagesTest(unittest.TestCase):
             ("service_wifi",),
         )
         self.assertIn("service_wireguard", self.catalog.group_defs["net"].members)
+        self.assertIn("service_osc", self.catalog.group_defs["net"].members)
+        self.assertIn("job_osc", self.catalog.group_defs["net"].members)
+        self.assertEqual(
+            self.catalog.package_defs["service_osc"].depends,
+            ("service_controls", "service_streams"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["job_osc"].depends,
+            ("service_net", "service_osc"),
+        )
         self.assertEqual(
             self.catalog.package_defs["service_wireguard"].depends,
             ("service_wifi",),

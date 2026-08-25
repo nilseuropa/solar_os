@@ -463,6 +463,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     {"control", "map continuous controls", solar_os_shell_cmd_control},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+    {"osc", "configure OSC bindings", solar_os_shell_cmd_osc},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
@@ -845,6 +848,12 @@ static const char * const neopixel_subcommands[] = {
     "clear",
     "show",
 };
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static const char * const osc_subcommands[] = {
+    "bindings", "bind", "unbind", "clear",
+};
+static const char * const osc_source_types[] = {"stream", "control"};
 #endif
 
 static const char * const radio_subcommands[] = {
@@ -2082,6 +2091,18 @@ static const char * const path_control_set[] = {"control", "set"};
 static const char * const path_control_unbind[] = {"control", "unbind"};
 static const char * const path_control_parameter[] = {"control", "parameter"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static const char * const path_osc[] = {"osc"};
+static const char * const path_osc_bind_type[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY
+};
+static const char * const path_osc_bind_stream[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY, "stream"
+};
+static const char * const path_osc_bind_control[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY, "control"
+};
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const path_neopixel[] = {"neopixel"};
 static const char * const path_neopixel_status[] = {"neopixel", "status"};
@@ -2944,6 +2965,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_CONTROLS(path_control_unbind),
     SHELL_COMPLETION_STATIC(path_control_parameter,
                             control_parameter_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+    SHELL_COMPLETION_STATIC(path_osc, osc_subcommands),
+    SHELL_COMPLETION_STATIC(path_osc_bind_type, osc_source_types),
+    SHELL_COMPLETION_STREAMS(path_osc_bind_stream),
+    SHELL_COMPLETION_CONTROLS(path_osc_bind_control),
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),

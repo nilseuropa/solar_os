@@ -733,6 +733,11 @@ available for the compiled board.
 | `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
+| `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
+| `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
+| `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |
+| `osc` | `osc unbind <name>` or `osc clear` | Remove one outbound binding or all outbound bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |

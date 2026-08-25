@@ -111,11 +111,17 @@ audio backend while
 composite scanout owns I2S0, so Game Boy runs without MiniGB APU or synth output
 in this flavor.
 
-Network ownership is intentionally split. `network.base`, `network.wireguard`, `network.mqtt`,
+Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
 `network.http-server` own their individual implementations. Image and document
 decoding are separate `media.image` and `media.document` packages, so selecting
 `app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
+
+`service.osc` owns the bounded OSC 1.0 codec, incoming native-parameter
+mapping, named volatile outbound bindings, and the `osc` shell command.
+`job.osc` owns the IPv4 UDP socket, peer filtering, rate limit, source sampling,
+and counters. It consumes the existing stream and control services without
+making either core service depend on networking.
 
 `network.wireguard` depends directly on `service.wifi` and lwIP. It owns the
 native tunnel, its bounded route table, the lwIP route hook, persistent client

@@ -48,6 +48,7 @@ typedef struct {
     uint32_t last_tick_ms;
     uint32_t generation;
     bool has_event;
+    void (*detail)(solar_os_context_t *ctx);
     uint32_t worker_stack_bytes;
     bool worker_stack_external;
     solar_os_tick_stats_t tick_stats;

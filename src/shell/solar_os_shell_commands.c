@@ -1329,6 +1329,9 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_shell_io_writeln(term, "NAME         STATE    STACK KIND        EVT  TICKS RES");
         job_print_status(term, &status, true);
+        if (status.detail != NULL) {
+            status.detail(ctx);
+        }
         return;
     }
 

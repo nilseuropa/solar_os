@@ -2,6 +2,15 @@
 
 ## 4.x
 
+- **4.8.13** — 2026-08-25 — Added bounded OSC 1.0 over IPv4 UDP with automatic
+  incoming Synth and Funcgen parameter addresses, immediate bundle support,
+  optional peer filtering, and named outbound scalar-stream, sampled-event,
+  and normalized-control bindings on user-selected OSC addresses. Fixed long
+  shell diagnostics so command usage is not truncated before the prompt. Added
+  volatile per-display terminal profiles for secondary and virtual displays,
+  including live geometry redraw without changing input focus. Expanded SDSPI
+  failure diagnostics with card-command and electrical-stage details, and
+  corrected the default flavor selection for affected boards.
 - **4.8.10** — 2026-08-23 — Added public MeshCore hashtag channels: names
   such as `#hansemesh` derive a compatible shared key without requiring a
   Base64 pre-shared key, while explicit keys remain available for private

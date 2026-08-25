@@ -120,12 +120,22 @@ void solar_os_shell_diag_problem(solar_os_shell_io_t *io,
         solar_os_shell_io_printf(io, "%s:%u: ", io->diagnostic_source,
                                  (unsigned)io->diagnostic_line);
     }
-    solar_os_shell_io_printf(io, "%s: %s\n", command, problem);
+    solar_os_shell_io_write(io, command);
+    solar_os_shell_io_write(io, ": ");
+    solar_os_shell_io_writeln(io, problem);
     if (usage != NULL && usage[0] != '\0') {
-        solar_os_shell_io_printf(io, "usage: %s\n", usage);
+        solar_os_shell_io_write(io, "usage: ");
+        solar_os_shell_io_write(io, usage);
+        if (usage[strlen(usage) - 1U] != '\n') {
+            solar_os_shell_io_newline(io);
+        }
     }
     if (hint != NULL && hint[0] != '\0') {
-        solar_os_shell_io_printf(io, "hint: %s\n", hint);
+        solar_os_shell_io_write(io, "hint: ");
+        solar_os_shell_io_write(io, hint);
+        if (hint[strlen(hint) - 1U] != '\n') {
+            solar_os_shell_io_newline(io);
+        }
     }
 }
 
