@@ -20,7 +20,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio state, global speaker level, tone queue, and active synth telemetry.
 - [battery command](commands.md) — Show voltage, estimated charge, power source, config, and monitor trend.
-- [ble command](commands.md) — Show BLE keyboard state.
+- [ble command](commands.md) — Show BLE keyboard state and the current/next boot setting.
 - [board command](commands.md) — Print board ID, name, and capabilities.
 - [cat command](commands.md) — Print a small text file.
 - [cd command](commands.md) — Change current shell directory.
@@ -36,12 +36,12 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [disk command](commands.md) — Show persistent-storage status.
 - [display command](commands.md) — List drawable display targets, draw a test pattern, or change driver-specific display settings.
 - [dpad command](commands.md) — Show ADC D-pad pins, raw values, zones, and calibration thresholds.
+- [echo command](commands.md) — Print the arguments separated by spaces, followed by a newline. Quotes preserve spaces and are not printed.
 - [email command](commands.md) — Open the receive-only email app.
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
-- [espnow command](commands.md) — Inspect ESP-NOW transport state and manage Link-ID-to-MAC peer mappings.
+- [espnow command](commands.md) — Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
 - [expansion command](expansion.md) — Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims.
-- [flash command](flash.md) — Download verified factory artifacts to SD and program another ESP board over UART.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
@@ -68,8 +68,9 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
 - [ntp command](commands.md) — Sync the wall clock from NTP.
-- [nvs command](commands.md) — Inspect, back up, restore, or clear the default NVS partition.
+- [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
 - [onewire command](commands.md) — Show every registered named 1-Wire bus, or one selected bus.
+- [osc command](commands.md) — Inspect named outbound OSC bindings and their live source, value, send, and error state.
 - [ota command](commands.md) — Show running and configured OTA state.
 - [outbox command](commands.md) — List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox.
 - [ping command](commands.md) — Send ICMP echo requests. Without count, ping runs until app-exit.
@@ -87,11 +88,11 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [setterm command](commands.md) — Configure terminal/input preferences. Without arguments, opens the display TUI when available.
 - [sh command](commands.md) — Run a simple SolarOS shell script from storage.
 - [sleep command](commands.md) — Enter explicit light sleep.
-- [suspend command](commands.md) — Keep services running in low power with the display off.
 - [spi command](commands.md) — Show every named SPI bus, or one selected bus.
 - [sshkey command](commands.md) — Show default SSH key status.
 - [status command](commands.md) — Print a compact system status summary.
-- [stream command](commands.md) — List timestamped data streams.
+- [stream command](commands.md) — List dynamic typed stream endpoints.
+- [suspend command](commands.md) — Turn off the primary display and temporarily use the lowpower profile while services and jobs continue. Press KEY to resume.
 - [temperature command](commands.md) — Read the board temperature sensor when available.
 - [time command](commands.md) — Show or set the local time.
 - [top command](commands.md) — Print FreeRTOS task resource information when available.
@@ -99,9 +100,10 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [unzip command](commands.md) — List or extract a ZIP archive.
 - [uptime command](commands.md) — Print elapsed time since boot.
 - [version command](commands.md) — Print the SolarOS version and firmware flavor.
+- [wait command](commands.md) — Pause the calling shell or shell script for 0 through 86400 seconds.
 - [watch command](commands.md) — Repeat another shell command until Esc, q, or the app-exit key is pressed.
 - [wifi command](commands.md) — Open the Wi-Fi display TUI when launched from the display shell.
-- [wireguard command](commands.md) — Import and control the native WireGuard VPN client.
+- [wireguard command](commands.md) — Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material.
 - [xfer command](commands.md) — Send or receive files over a byte-stream port.
 - [zip command](commands.md) — Create a ZIP archive. -0 stores without compression.
 
@@ -109,15 +111,11 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [agent application](apps.md#agent) — Native Responses/Chat-Completions LLM client and SolarOS agent control plane. It streams model text directly to the active shell and exposes typed system-status, storage-listing, job-listing, display-discovery, and optional Python/Lua execution tools. agent tools shows risk, policy, and runtime availability.
 - [Agent service and tool reference](agent.service.md) — Provider contract, typed tools, policy, resource bounds, and roadmap
-- [aplay application](apps.md#aplay) — Play audio files through the board audio output. WAV and MP3 are supported when the audio package is compiled and the board has audio hardware.
+- [aplay application](apps.md#aplay) — Play audio files through the default registered playback endpoint. WAV and MP3 are supported when an output device is present. MP3 decoding is provided by the shared, device-independent audio codec service. aplay prints the source details, plays the file once through the shared background audio player, and then returns to the prompt without clearing existing terminal output.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
-- [arecord application](apps.md#arecord) — Record a registered audio capture stream to a WAV file.
-- [recorder application](apps.md#recorder) — Interactive GUI/TUI WAV recorder with stream and format selection, no-file live input monitoring, hardware gain control, playback, shared widgets, and a `--tui` override.
-- [funcgen application](apps.md#funcgen) — Audio function generator with GUI/TUI controls, selectable playback streams, six waveforms, sweeps, a live oscilloscope, and bindable parameters.
-- [flash application](flash.md) — Browse the signed factory-image catalog, cache artifacts on SD, and program another ESP board over UART.
-- [player application](apps.md#player) — Persistent WAV/MP3 playlist player with graphical visualizers, a text playlist, and a `--tui` override.
-- [calc application](apps.md#calc) — Scientific calculator and function plotter with a `--tui` override for its text REPL.
-- [chat application](apps.md#chat) — Tabbed provider-neutral conversation client. The Channels tab lists gateway and radio conversations; Enter joins a known gateway room when necessary and opens its bounded shared history in the Chat tab. It opens and remains useful offline; network or radio transport jobs connect independently.
+- [arecord application](apps.md#arecord) — Record the default registered capture endpoint to a WAV file. This requires a registered input device; it does not require built-in board audio. With -d, recording stops after the specified number of seconds. Without -d, recording continues until app-exit, the storage fills, or the WAV size limit is reached.
+- [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --tui forces that REPL even when graphics are available.
+- [chat application](apps.md#chat) — Tabbed provider-neutral conversation client. The Channels tab lists gateway and radio conversations. Enter selects a conversation and opens its bounded shared history on the Chat tab, which also contains the message/command input. The app opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
 - [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART or a virtual port such as a peer-bound SolarOS Link stream.
 - [contacts application](apps.md#contacts) — Provider-neutral address book for gateway and MeshCore identities. Contacts can carry multiple provider endpoints while retaining trust independently for each endpoint. A signed MeshCore advert creates a discovered endpoint: the signature proves possession of the advertised key, not the human identity behind it.
@@ -125,8 +123,11 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [edit application](apps.md#edit) — Text editor for files on mounted storage. It supports cursor navigation, selection, clipboard operations, text-size changes, and syntax highlighting for known source files. The editor supports files up to 256 KiB on boards with PSRAM and 32 KiB on boards without PSRAM. Use hexedit for binary files.
 - [email application](apps.md#email) — Receive-only IMAPS client for the configured mailbox. The app shows the provider-specific message list while every newly synchronized message is also published to the universal inbox and its shared status-bar unread counter.
 - [files application](apps.md#files) — File manager inspired by Midnight Commander. Its normal mode provides two panes for copy, move, delete, and launch workflows on mounted storage. Launcher mode provides a minimal single-pane application menu suitable for a startup script.
+- [Flash another ESP board](flash.md) — Download verified SolarOS factory images and program another ESP board over UART
+- [flash application](apps.md#flash) — Download verified SolarOS factory artifacts to SD and program another supported ESP board over UART. The browser refreshes the signed catalog on request and shows which board, flavor, and version artifacts are already cached. Its tree starts folded and retains its selection and fold state after operations. Delete removes a selected cached artifact after confirmation. The shell form accepts a named UART plus optional boot and reset GPIO pins.
+- [funcgen application](apps.md#funcgen) — Audio-only function generator built on the shared real-time Synth service. It emits signed 16-bit stereo PCM and can use the default playback device or an explicitly selected runtime playback stream, including an attached LEDC PWM audio expansion.
 - [gameboy application](apps.md#gameboy) — Experimental original Game Boy (DMG) emulator for the Waveshare ESP32-S3-RLCD-4.2 and the full-PAL Freenove ESP32-WROVER v3.0 target. It is included in the retro and rover-retro flavors. The application loads a user-supplied ROM into PSRAM, renders its four shades as a 320x288 dithered image, and writes battery-backed cartridge RAM beside the ROM as a .sav file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
-- [help application](apps.md#help) — Foreground browser for the package-aware SolarOS manual. The foldable tree groups the topics compiled for the current firmware and shows whether it is using the embedded copy or a verified downloaded revision.
+- [help application](apps.md#help) — Foreground browser for the package-aware SolarOS manual. The foldable tree groups the topics compiled for the current firmware and shows whether it is using the embedded copy or a verified downloaded revision. All groups start folded. The selection, scroll position, and fold state remain unchanged after a topic closes.
 - [hexedit application](apps.md#hexedit) — Two-pane binary editor for files on mounted storage. Each row shows a file offset, hexadecimal bytes, and their synchronized printable ASCII view. The number of bytes per row adapts to the terminal width. It uses the same 256 KiB PSRAM and 32 KiB internal-memory limits as edit.
 - [inbox application](apps.md#inbox) — Universal incoming-message browser for pages, chat notifications, mail, and other background producers. It reads the same shared inbox that supplies the status-bar unread count. Messages and read state survive reboot in the bounded /.inbox/messages.bin store; the service retains at most 64 entries and keeps the file below 32 KB even when internal flash is the only storage.
 - [invaders application](apps.md#invaders) — Graphical arcade shooter.
@@ -135,12 +136,14 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [logic application](apps.md#logic) — On-device logic analyzer waveform viewer. It displays the latest capture made by the shared logic analyzer service or the SUMP job. With pin arguments it makes a new local capture before opening the viewer.
 - [lua application](apps.md#lua) — Embedded Lua runtime. It can run an interactive REPL or execute .lua scripts from storage. Lua scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages.
 - [Native SolarOS agent](agent.md) — Configure and use the resumable LLM agent and its typed tools
-- [notes application](apps.md#notes) — Markdown-backed checklist and category manager with category reordering, one-level folding, and bulk cleanup of completed items.
+- [notes application](apps.md#notes) — Markdown-backed checklist and category manager. It stores unchecked and checked items and supports one level of category folding. A persistent bottom help bar shows the available controls, with status or text input directly above it.
+- [player application](apps.md#player) — Interactive WAV/MP3 player and the user-facing counterpart to aplay. player keeps a persistent playlist under .player on the current storage root. Opening an audio file from Files adds it to that playlist, selects it, and starts playback. Missing files remain listed so removable media can be reattached.
 - [Playground](playground.md) — Browse, install, uninstall, and run community Python and Lua applications
 - [playground application](apps.md#playground) — Browse the configured community catalog as a foldable category tree, search applications, and install, update, uninstall, or run Python and Lua scripts.
 - [plot application](apps.md#plot) — Graphical plotter for DAQ CSV files and live scalar streams. It is compatible with CSV generated by the daq job.
 - [python application](apps.md#python) — Embedded MicroPython runtime. It can run an interactive REPL, .py scripts, or .mpy files from storage. Python scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages.
 - [reader application](apps.md#reader) — Graphical document reader for plain text, Markdown, and EPUB. It remembers reading position and zoom per opened file when storage is available.
+- [recorder application](apps.md#recorder) — Interactive GUI/TUI counterpart to arecord. Recorder writes PCM WAV files so the channel count, sample rate, and resolution travel with the recording and the result can be played immediately. It accepts any registered signed-16-bit PCM capture stream. On the Waveshare board it initially selects audio0.capture. Mono/stereo output, 8/16-bit file resolution, and sample rates from 8 kHz through 48 kHz are converted from the selected stream as necessary.
 - [scp application](apps.md#scp) — SCP file transfer over SSH. It supports password or key authentication through the shared SSH transport and host lookup/known-host storage. When user@ is omitted, SCP uses the NVS-backed SolarOS identity user.
 - [sheet application](apps.md#sheet) — CSV viewer for small data tables. It is intended as a companion to daq logs and simple spreadsheet-like inspection.
 - [ssh application](apps.md#ssh) — Interactive SSH client. It supports password and key authentication, known hosts, hostname lookup through /.ssh/hosts, UTF-8 text, VT-style controls, and remote full-screen terminal applications. When user@ is omitted, SSH uses the NVS-backed SolarOS identity user.
@@ -148,7 +151,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [telnet application](apps.md#telnet) — Telnet client for classic TCP terminal sessions. It supports basic Telnet option negotiation, terminal type reporting, window size reporting, and raw mode.
 - [view application](apps.md#view) — Graphical image viewer. It supports the image formats compiled into the current firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF playback when the media package is enabled.
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible.
-- [webradio application](apps.md#webradio) — Direct MP3 internet-radio player with GUI/TUI station controls, reusable visualizers, a persistent catalog, and a `--tui` override.
+- [webradio application](apps.md#webradio) — Stream a direct MP3 URL through the default registered audio output. On a graphical display shell, WebRadio opens a two-tab media-player GUI. On UART, USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 - [writer application](apps.md#writer) — Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks are formatted like reader; the block containing the cursor and every block touched by a selection show their exact Markdown source. edit remains the portable text editor for port shells and boards without graphics or PSRAM.
 
 ## Background jobs
@@ -159,7 +162,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two byte-stream ports, or between one byte-stream port and an active SolarOS Link instance.
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
 - [controls job](jobs.reference.md#controls) — Continuous-control mapper. It samples every configured scalar-stream control at 50 Hz, applies smoothing, deadband, calibration, and inversion, then updates changed native parameter and MIDI CC bindings.
-- [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar streams to timestamped CSV, or one byte stream directly to a raw file.
+- [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar and event streams to timestamped CSV, or one byte or PCM audio source directly to a raw file.
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
 - [espnow-link job](jobs.reference.md#espnow-link) — ESP-NOW adapter for the transport-independent SolarOS Link service.
@@ -170,6 +173,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion provider for Contacts and Messages.
 - [midi job](jobs.reference.md#midi) — Bidirectional MIDI transport on an exclusive named MIDI bus. The bus selects an available UART controller internally; users supply only its MIDI name, TX and RX pins, and an optional baud rate.
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
+- [osc job](jobs.reference.md#osc) — OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and explicit named outbound stream, event-stream, or normalized-control bindings.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
 - [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
@@ -179,9 +183,9 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Networking and security
 
+- [Open Sound Control](osc.md) — Control live app parameters and publish named stream or control bindings over OSC 1.0 UDP
 - [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
-- [Wi-Fi, MQTT, and network APIs](network.md) — Connect, inspect, and communicate over installed network services
-- [WireGuard VPN client](network.md#wireguard) — Import an IPv4 client profile, select leak behavior, and inspect tunnel state
+- [Wi-Fi, WireGuard, MQTT, and network APIs](network.md) — Connect, inspect, and communicate over installed network services
 
 ## Hardware and expansion
 
@@ -195,7 +199,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Scripting APIs
 
 - [Compatibility I/O modules](compatibility.io.md) — Use the legacy single-bus I2C, SPI, UART, and OneWire APIs
-- [Digital signal processing](dsp.md) — Use portable Q15 blocks, streaming filters, decimation, and FFT contexts
+- [Digital signal processing](dsp.md) — Portable fixed-point DSP operations, streaming contexts, and script APIs
 - [Lua API reference](lua.md) — Complete Lua service API, conventions, and examples
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua text user-interface API](lua.tui.md) — Build terminal applications from Lua

@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "solar_os_midi_codec.h"
 
@@ -66,6 +67,40 @@ int main(void)
     assert(solar_os_midi_message_valid(&control));
     assert(solar_os_midi_encode(&control, encoded) == 3U);
     assert(encoded[0] == 0xb4U && encoded[1] == 64U && encoded[2] == 127U);
+
+    char monitor[32];
+    const solar_os_midi_message_t monitor_cc = {
+        .status = 0xb0U,
+        .data1 = 74U,
+        .data2 = 64U,
+        .length = 3U,
+    };
+    assert(solar_os_midi_format_monitor(&monitor_cc, monitor,
+                                        sizeof(monitor)) > 0U);
+    assert(strcmp(monitor, "CC: 1 74 64") == 0);
+
+    const solar_os_midi_message_t monitor_key = {
+        .status = 0x92U,
+        .data1 = 60U,
+        .data2 = 100U,
+        .length = 3U,
+    };
+    assert(solar_os_midi_format_monitor(&monitor_key, monitor,
+                                        sizeof(monitor)) > 0U);
+    assert(strcmp(monitor, "KEY: 3 60 100") == 0);
+
+    const solar_os_midi_message_t monitor_release = {
+        .status = 0x82U,
+        .data1 = 60U,
+        .data2 = 55U,
+        .length = 3U,
+    };
+    assert(solar_os_midi_format_monitor(&monitor_release, monitor,
+                                        sizeof(monitor)) > 0U);
+    assert(strcmp(monitor, "KEY: 3 60 0") == 0);
+    assert(solar_os_midi_format_monitor(&message, monitor, sizeof(monitor)) ==
+           0U);
+    assert(solar_os_midi_format_monitor(&monitor_cc, monitor, 4U) == 0U);
 
     puts("midi_codec_test: ok");
     return 0;

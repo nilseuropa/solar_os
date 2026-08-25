@@ -81,6 +81,10 @@ disk umount
 expansion detach card0
 ```
 
+The `sdspi` attach command prints the card probe result to the invoking shell.
+The report includes the card identity, type, negotiated speed, capacity, CSD/SSR
+details, mount point, and any underlying block-I/O or FatFs mount error.
+
 An RFM95W wired to the ESP32-S3-DevKitC-1 `spi0` bus with NSS on GPIO4 and
 reset on GPIO5 attaches as a multimode packet radio:
 

@@ -270,6 +270,7 @@ unchanged.
 
 ```text
 setterm
+setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [10|12|14|16|18|20]
@@ -332,6 +333,23 @@ remains independent of hardware inversion modes exposed by `display mode`, and
 does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
+
+`setterm --display <target>` reads or changes the volatile terminal profile of
+a named runtime display target, even when a TUI application rather than a shell
+owns that display. The target profile is initialized from the single global NVS
+parameter set when the display registers. Orientation is relative to the
+target's native panel rotation, so `0` keeps every display in its normal
+mounting even when their drivers use different U8g2 rotations. A targeted
+change applies to current and future sessions on that display until reboot or
+until the display target is unregistered; it does not create or update
+per-display NVS keys. Without a setting, the command prints the target's
+complete volatile profile. For example:
+
+```text
+setterm --display oled0 statusbar hide
+setterm --display oled0 textsize 10
+setterm --display oled0 palette inverted
+```
 
 `foreground` and `background` select the RGB colors that the built-in color
 display uses when it converts the monochrome framebuffer for scanout. Use six
@@ -703,10 +721,14 @@ available for the compiled board.
 | `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |
 | `neopixel` | `neopixel clear\|show <name>` | Clear a strip immediately, or transmit its buffered colors. |
 | `midi` | `midi status` | Show MIDI worker, traffic, parser, and queue status. |
+| `midi` | `midi monitor` | Print incoming CC and key messages until the app-exit key, `Esc`, or `q` is pressed. |
 | `midi` | `midi note-on\|note-off <channel> <note> [velocity]` | Queue a MIDI note message for transmission. |
 | `midi` | `midi cc <channel> <controller> <value>` | Queue a MIDI control-change message. |
 | `midi` | `midi program <channel> <program>` | Queue a MIDI program-change message. |
 | `midi` | `midi send <status> [data1] [data2]` | Queue one validated raw MIDI message. |
+| `midi` | `midi stream list` | List configured incoming MIDI CC scalar streams and their latest values. |
+| `midi` | `midi stream add\|remove <channel> <controller>` | Register or remove `midi.cc.<channel>.<controller>` as a scalar stream. |
+| `midi` | `midi stream clear` | Remove all configured MIDI CC scalar streams. |
 | `control` | `control list\|parameters\|bindings` | Inspect normalized controls, native app parameters, or target bindings. |
 | `control` | `control create <name> <stream> <min> <max> [smooth=ms] [deadband=value] [invert]` | Normalize a scalar stream as a named continuous control; use `manual` for script-supplied values. |
 | `control` | `control bind <name> parameter <path> [pickup=on\|off]` | Bind a control to a typed native-app parameter with optional soft takeover. |
@@ -715,6 +737,11 @@ available for the compiled board.
 | `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
+| `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
+| `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
+| `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |
+| `osc` | `osc unbind <name>` or `osc clear` | Remove one outbound binding or all outbound bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |

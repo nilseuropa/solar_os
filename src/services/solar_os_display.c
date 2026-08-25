@@ -8,6 +8,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_gfx_internal.h"
 #include "solar_os_memory.h"
+#include "solar_os_terminal_preferences.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "solar_os_board_display.h"
@@ -42,6 +43,7 @@ typedef struct {
     bool export_enabled;
     bool export_publishing;
     bool palette_inverted;
+    solar_os_terminal_profile_t terminal_profile;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
 #endif
@@ -405,6 +407,9 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
           target->set_controller_mode == NULL))) {
         return ESP_ERR_INVALID_ARG;
     }
+    solar_os_terminal_profile_t terminal_profile;
+    solar_os_terminal_profile_load_preferences(&terminal_profile);
+
     portENTER_CRITICAL(&display_targets_lock);
     if (display_find_slot_locked(target->name) >= 0 ||
         display_find_slot_by_u8g2_locked(target->u8g2) >= 0 ||
@@ -431,6 +436,9 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.controller[sizeof(slot->target.controller) - 1] = '\0';
     slot->target.role[sizeof(slot->target.role) - 1] = '\0';
     slot->target.owner[0] = '\0';
+    slot->target.base_rotation = target->u8g2->cb;
+    slot->terminal_profile = terminal_profile;
+    slot->palette_inverted = terminal_profile.palette_inverted;
     display_init_slot_gfx(slot);
     portEXIT_CRITICAL(&display_targets_lock);
     return ESP_OK;
@@ -530,6 +538,49 @@ bool solar_os_display_target_name_for_u8g2(const u8g2_t *u8g2,
     }
     portEXIT_CRITICAL(&display_targets_lock);
     return slot_index >= 0;
+}
+
+esp_err_t solar_os_display_get_terminal_profile(
+    const char *name,
+    solar_os_terminal_profile_t *profile)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        profile == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    *profile = display_targets[slot_index].terminal_profile;
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_set_terminal_profile(
+    const char *name,
+    const solar_os_terminal_profile_t *profile)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        !solar_os_terminal_profile_is_valid(profile)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    portENTER_CRITICAL(&display_targets_lock);
+    const int slot_index = display_find_slot_locked(name);
+    if (slot_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    display_target_slot_t *slot = &display_targets[slot_index];
+    slot->terminal_profile = *profile;
+    slot->palette_inverted = profile->palette_inverted;
+    solar_os_gfx_set_palette_inverted(&slot->gfx, profile->palette_inverted);
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ESP_OK;
 }
 
 esp_err_t solar_os_display_claim(const char *name,

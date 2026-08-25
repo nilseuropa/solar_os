@@ -1,5 +1,6 @@
 #include "solar_os_midi_codec.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static bool midi_status_supported(uint8_t status)
@@ -73,6 +74,32 @@ size_t solar_os_midi_encode(const solar_os_midi_message_t *message,
         output[2] = message->data2;
     }
     return message->length;
+}
+
+size_t solar_os_midi_format_monitor(const solar_os_midi_message_t *message,
+                                    char *output,
+                                    size_t output_len)
+{
+    if (!solar_os_midi_message_valid(message) || output == NULL ||
+        output_len == 0U || message->status >= 0xf0U) {
+        return 0U;
+    }
+    const uint8_t kind = message->status & 0xf0U;
+    const unsigned channel = (unsigned)(message->status & 0x0fU) + 1U;
+    int written = 0;
+    if (kind == 0xb0U) {
+        written = snprintf(output, output_len, "CC: %u %u %u", channel,
+                           (unsigned)message->data1,
+                           (unsigned)message->data2);
+    } else if (kind == 0x90U) {
+        written = snprintf(output, output_len, "KEY: %u %u %u", channel,
+                           (unsigned)message->data1,
+                           (unsigned)message->data2);
+    } else if (kind == 0x80U) {
+        written = snprintf(output, output_len, "KEY: %u %u 0", channel,
+                           (unsigned)message->data1);
+    }
+    return written > 0 && (size_t)written < output_len ? (size_t)written : 0U;
 }
 
 void solar_os_midi_decoder_reset(solar_os_midi_decoder_t *decoder)

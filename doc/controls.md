@@ -1,5 +1,8 @@
 # Native Continuous-Parameter Contract
 
+See the [stream, control, parameter, and OSC binding model](binding-model.md)
+for the complete routing graph, value conversions, and runtime ownership.
+
 Native foreground applications can expose tunable continuous parameters
 through `solar_os_parameters.h`. The registry is independent of any physical
 input. ADC potentiometers, script-provided controls, MIDI-oriented controls,

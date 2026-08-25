@@ -134,8 +134,13 @@ expansion bus remove uart1
 expansion bus create midi midi0 tx=gpio1 rx=gpio2
 job start midi midi0
 midi status
+midi monitor
 midi note-on 1 60 100
 midi note-off 1 60
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start controls
 job stop midi
 expansion bus remove midi0
 ```
@@ -146,6 +151,11 @@ resolved `uartN` appears in status output only to help diagnose controller
 allocation. A standard DIN connection requires an optoisolated MIDI IN circuit
 and a current-limited MIDI OUT driver. Never connect DIN MIDI pins directly to
 ESP32 GPIOs.
+
+An explicitly configured `midi.cc.<channel>.<controller>` scalar stream retains
+the latest matching incoming CC value while the MIDI job runs. The controls job
+can normalize its `0..127` range and bind it to one or more application
+parameters without consuming messages from MIDI subscribers.
 
 On the Waveshare board, `uart0` owns the releasable GPIO43/GPIO44 pair while it
 is attached. From a display or other non-`uart0` shell, detach it before reusing

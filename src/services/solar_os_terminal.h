@@ -26,6 +26,14 @@ typedef enum {
 } solar_os_terminal_text_size_t;
 
 typedef struct {
+    uint16_t orientation_degrees;
+    solar_os_terminal_font_t font;
+    solar_os_terminal_text_size_t text_size;
+    bool palette_inverted;
+    bool status_bar_visible;
+} solar_os_terminal_profile_t;
+
+typedef struct {
     uint16_t inbox_unread;
     bool battery_valid;
     uint8_t battery_percent;
@@ -124,5 +132,10 @@ esp_err_t solar_os_terminal_set_text_size_transient(solar_os_terminal_t *termina
                                                     solar_os_terminal_text_size_t text_size);
 const char *solar_os_terminal_text_size_name(solar_os_terminal_text_size_t text_size);
 bool solar_os_terminal_parse_text_size(const char *name, solar_os_terminal_text_size_t *text_size);
+void solar_os_terminal_get_profile(const solar_os_terminal_t *terminal,
+                                   solar_os_terminal_profile_t *profile);
+esp_err_t solar_os_terminal_apply_profile_transient(
+    solar_os_terminal_t *terminal,
+    const solar_os_terminal_profile_t *profile);
 bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal);
 void solar_os_terminal_draw(solar_os_terminal_t *terminal);

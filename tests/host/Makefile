@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test parameters_test controls_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -38,6 +38,13 @@ shell_launch_test: shell_launch_test.c $(ROOT)/src/shell/solar_os_shell_launch.c
 shell_line_test: shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c $(ROOT)/src/shell/solar_os_shell_line.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c -o $@
+
+shell_diag_test: shell_diag_test.c $(ROOT)/src/shell/solar_os_shell_common.c $(ROOT)/src/shell/solar_os_shell_common.h $(ROOT)/src/shell/solar_os_shell_io.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
+		-include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/shell \
+		shell_diag_test.c $(ROOT)/src/shell/solar_os_shell_common.c \
+		-Wl,--gc-sections -o $@
 
 app_file_types_test: app_file_types_test.c $(ROOT)/src/apps/solar_os_app_file_types.c $(ROOT)/src/apps/solar_os_app_file_types.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/apps \
@@ -101,6 +108,13 @@ midi_codec_test: midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c $(
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c -o $@
 
+midi_service_test: midi_service_test.c $(ROOT)/src/services/solar_os_midi.c $(ROOT)/src/services/solar_os_midi.h $(ROOT)/src/services/solar_os_midi_codec.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_stream.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h freertos/portmacro.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/include \
+		-I$(ROOT)/src/services \
+		midi_service_test.c $(ROOT)/src/services/solar_os_midi.c \
+		$(ROOT)/src/services/solar_os_midi_codec.c \
+		$(ROOT)/src/services/solar_os_stream.c -o $@
+
 parameters_test: parameters_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		parameters_test.c $(ROOT)/src/services/solar_os_parameters.c -lm -o $@
@@ -108,6 +122,11 @@ parameters_test: parameters_test.c $(ROOT)/src/services/solar_os_parameters.c $(
 controls_test: controls_test.c $(ROOT)/src/services/solar_os_controls.c $(ROOT)/src/services/solar_os_controls.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		controls_test.c $(ROOT)/src/services/solar_os_controls.c -lm -o $@
+
+osc_test: osc_test.c $(ROOT)/src/services/solar_os_osc.c $(ROOT)/src/services/solar_os_osc.h $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		osc_test.c $(ROOT)/src/services/solar_os_osc.c \
+		$(ROOT)/src/services/solar_os_parameters.c -lm -o $@
 
 dsp_test: dsp_test.c $(ROOT)/src/services/solar_os_dsp.c $(ROOT)/src/services/solar_os_dsp.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_DSP_HOST_TEST -I. -I$(ROOT)/src/services \
@@ -145,6 +164,10 @@ agent_reference_test: agent_reference_test.c $(MANUAL_GENERATED_HEADER) $(ROOT)/
 terminal_geometry_test: terminal_geometry_test.c $(ROOT)/src/services/solar_os_terminal_geometry.c $(ROOT)/src/services/solar_os_terminal_geometry.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services terminal_geometry_test.c \
 		$(ROOT)/src/services/solar_os_terminal_geometry.c -o $@
+
+terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
 
 tui_widgets_test: tui_widgets_test.c $(ROOT)/src/services/solar_os_tui_widgets.c $(ROOT)/src/services/solar_os_tui_widgets.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -I. \
@@ -186,6 +209,7 @@ test: $(TARGETS)
 	./shell_parse_test
 	./shell_launch_test
 	./shell_line_test
+	./shell_diag_test
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
@@ -196,8 +220,10 @@ test: $(TARGETS)
 	./ps2_keyboard_test
 	./cardkb_codec_test
 	./midi_codec_test
+	./midi_service_test
 	./parameters_test
 	./controls_test
+	./osc_test
 	./dsp_test
 	./stream_test
 	./audio_codec_test
@@ -205,6 +231,7 @@ test: $(TARGETS)
 	./nvs_backup_test
 	./agent_reference_test
 	./terminal_geometry_test
+	./terminal_preferences_test
 	./tui_widgets_test
 	./wireguard_crypto_test
 	./meshcore_channel_key_test

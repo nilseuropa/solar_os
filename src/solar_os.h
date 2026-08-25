@@ -149,6 +149,8 @@ struct solar_os_job {
     /* Deadlines are execution-time budgets, not preemptive limits. */
     uint32_t tick_interval_ms;
     uint32_t tick_deadline_ms;
+    /* Optional job-specific lines appended by `job status <name>`. */
+    void (*detail)(solar_os_context_t *ctx);
     /* Optional detail for the most recent start failure. */
     void (*error_detail)(char *buffer, size_t buffer_len);
 };

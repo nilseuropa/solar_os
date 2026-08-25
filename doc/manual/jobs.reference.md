@@ -428,6 +428,32 @@ Control definitions are runtime configuration. Put the `control create`,
 restore a hardware setup after reboot. See `man controls` for calibration,
 manual script inputs, MIDI examples, and inspection commands.
 
+## osc
+
+OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and
+explicit named outbound stream, event-stream, or normalized-control bindings.
+
+```text
+job start osc [listen=port] [target=host:port] [peer=ipv4]
+job status osc
+job stop osc
+```
+
+The listening port defaults to `9000`. `target=` is optional for an
+incoming-only job and is required before an outbound binding can send.
+`peer=` accepts one exact IPv4 address and drops all other incoming sources.
+
+The worker owns one UDP socket and a 6 KiB internal stack. It accepts packets
+up to 512 bytes, at most eight parameter updates per packet, immediate bundles
+only, and at most 100 accepted packets per second. Detailed status includes the
+listener, target, peer filter, inbound apply/error counters, outbound
+send/source errors, and the current binding count.
+
+OSC has no authentication or encryption. Start the job only on a trusted LAN,
+SoftAP, or WireGuard path. Bindings are volatile and can be restored from
+`/.shell/startup`. See `man osc` for address mapping, binding syntax, limits,
+and the sampled-event caveat.
+
 ## displayd
 
 Authenticated HTTP display and remote control. It has two modes:
@@ -981,6 +1007,27 @@ and published to subscribers such as the Synth app. Outgoing messages are
 queued with `midi note-on`, `midi note-off`, `midi cc`, `midi program`, or
 `midi send`. Status reports RX and TX byte/message counts, unsupported parser
 input, queue drops, and the last transport error.
+
+Run `midi monitor` and move a controller to identify its mapping. The monitor
+prints `CC: <channel> <controller> <value>` for control changes and
+`KEY: <channel> <note> <velocity>` for note activity. Note releases use velocity
+zero. The app-exit key, `Esc`, or `q` returns to the shell.
+
+Up to 16 exact incoming MIDI CC addresses can also be registered as scalar
+streams. This lets the controls job map a MIDI controller through the standard
+normalized control path to any live application parameter:
+
+```text
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start controls
+synth
+```
+
+Use `midi stream list`, `midi stream remove <channel> <controller>`, and
+`midi stream clear` to inspect or remove the volatile definitions. A stream is
+waiting until the running MIDI job receives its first matching value.
 
 Use a compliant electrical interface: MIDI IN requires an optoisolated
 receiver and MIDI OUT requires a current-limited driver. Do not connect DIN

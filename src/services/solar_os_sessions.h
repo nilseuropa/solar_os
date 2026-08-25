@@ -35,6 +35,9 @@ esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *t
                                                           bool inverted);
 esp_err_t solar_os_sessions_set_terminal_status_bar_visible(solar_os_terminal_t *terminal,
                                                             bool visible);
+esp_err_t solar_os_sessions_set_display_terminal_profile(
+    const char *target_name,
+    const solar_os_terminal_profile_t *profile);
 
 bool solar_os_sessions_switch_to_app(const solar_os_app_t *app);
 bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,

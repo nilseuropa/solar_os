@@ -37,6 +37,7 @@ typedef struct {
     bool close_on_exit;
     bool has_return_session;
     bool graphics_active;
+    bool terminal_redraw_requested;
     uint8_t id;
     uint8_t return_session_id;
     int argc;
@@ -187,6 +188,33 @@ static void session_inherit_status_bar(solar_os_terminal_t *terminal)
     solar_os_status_bar_t status;
     solar_os_terminal_get_status_bar(source, &status);
     solar_os_terminal_set_status_bar(terminal, &status);
+}
+
+static bool session_apply_registered_display_profile(
+    solar_os_terminal_t *terminal,
+    const char *target_name,
+    const u8g2_t *u8g2)
+{
+    if (terminal == NULL) {
+        return false;
+    }
+
+    char resolved_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
+    if (target_name != NULL && target_name[0] != '\0') {
+        strlcpy(resolved_target, target_name, sizeof(resolved_target));
+    } else {
+        (void)solar_os_display_target_name_for_u8g2(
+            u8g2, resolved_target, sizeof(resolved_target));
+    }
+    if (resolved_target[0] == '\0') {
+        return false;
+    }
+
+    solar_os_terminal_profile_t profile;
+    if (solar_os_display_get_terminal_profile(resolved_target, &profile) != ESP_OK) {
+        return false;
+    }
+    return solar_os_terminal_apply_profile_transient(terminal, &profile) == ESP_OK;
 }
 
 static void set_current_terminal(solar_os_terminal_t *terminal)
@@ -620,20 +648,23 @@ static void session_set_gfx_palette_inverted(const solar_os_session_entry_t *ses
     }
 }
 
-static uint16_t session_terminal_orientation_for_u8g2(const u8g2_t *u8g2)
+static const u8g2_cb_t *session_terminal_base_rotation(
+    const char *target_name,
+    const u8g2_t *u8g2)
 {
-    if (u8g2 != NULL) {
-        if (u8g2->cb == U8G2_R1) {
-            return 0;
-        }
-        if (u8g2->cb == U8G2_R2) {
-            return 90;
-        }
-        if (u8g2->cb == U8G2_R3) {
-            return 180;
-        }
+    solar_os_display_target_t target;
+    if (target_name != NULL && target_name[0] != '\0' &&
+        solar_os_display_find_target(target_name, &target)) {
+        return target.base_rotation;
     }
-    return 270;
+
+    char resolved_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    if (solar_os_display_target_name_for_u8g2(
+            u8g2, resolved_target, sizeof(resolved_target)) &&
+        solar_os_display_find_target(resolved_target, &target)) {
+        return target.base_rotation;
+    }
+    return u8g2 != NULL ? u8g2->cb : U8G2_R0;
 }
 
 static void session_free_terminal(solar_os_session_entry_t *session)
@@ -715,10 +746,15 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
     if (session_terminal == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    const uint16_t orientation = session_terminal_orientation_for_u8g2(u8g2);
-    solar_os_terminal_init(session_terminal, u8g2);
-    solar_os_terminal_inherit_text_profile(session_terminal, session_text_profile_source());
-    (void)solar_os_terminal_set_orientation_transient(session_terminal, orientation);
+    solar_os_terminal_init_with_rotation(
+        session_terminal,
+        u8g2,
+        session_terminal_base_rotation(session->display_target, u8g2));
+    if (!session_apply_registered_display_profile(
+            session_terminal, session->display_target, u8g2)) {
+        solar_os_terminal_inherit_text_profile(session_terminal, session_text_profile_source());
+        (void)solar_os_terminal_set_orientation_transient(session_terminal, 0);
+    }
     session_inherit_status_bar(session_terminal);
     solar_os_terminal_set_black_is_one(session_terminal, black_is_one);
 
@@ -970,6 +1006,7 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
         session->app->resume(session_state.ctx);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    session->terminal_redraw_requested = false;
 
     session_state.foreground_session = session;
     session_state.foreground_app = session->app;
@@ -1029,6 +1066,7 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
     }
 
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    session->terminal_redraw_requested = false;
     session->suspended = false;
     session_update_title(session);
     session_mark_dirty(session);
@@ -1615,8 +1653,24 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
                                    const solar_os_event_t *event)
 {
     if (session == NULL || !session->used || session->suspended ||
-        session->app == NULL ||
-        session->app->event == NULL || event == NULL) {
+        session->app == NULL || event == NULL) {
+        return;
+    }
+
+    if (session->terminal_redraw_requested) {
+        session->terminal_redraw_requested = false;
+        session_prepare_context(session);
+        if (session->app->resume != NULL) {
+            session->app->resume(session_state.ctx);
+        } else if (session->app->event != NULL) {
+            const solar_os_event_t resume_event = {
+                .type = SOLAR_OS_EVENT_RESUME,
+            };
+            session->app->event(session_state.ctx, &resume_event);
+        }
+        session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    }
+    if (session->app->event == NULL) {
         return;
     }
 
@@ -1794,6 +1848,104 @@ void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status)
     }
 }
 
+static bool session_terminal_target_name(
+    const solar_os_session_entry_t *session,
+    const solar_os_terminal_t *terminal,
+    char *target_name,
+    size_t target_name_len)
+{
+    if (target_name == NULL || target_name_len == 0) {
+        return false;
+    }
+    target_name[0] = '\0';
+    if (session != NULL && session->display_target[0] != '\0') {
+        strlcpy(target_name, session->display_target, target_name_len);
+        return true;
+    }
+    return terminal != NULL &&
+        solar_os_display_target_name_for_u8g2(
+            terminal->u8g2, target_name, target_name_len);
+}
+
+static void session_store_terminal_profile(
+    const solar_os_session_entry_t *session,
+    const solar_os_terminal_t *terminal)
+{
+    char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    if (!session_terminal_target_name(
+            session, terminal, target_name, sizeof(target_name))) {
+        return;
+    }
+
+    solar_os_terminal_profile_t profile;
+    solar_os_terminal_get_profile(terminal, &profile);
+    (void)solar_os_display_set_terminal_profile(target_name, &profile);
+}
+
+static bool session_terminal_layout_changed(
+    const solar_os_terminal_profile_t *before,
+    const solar_os_terminal_profile_t *after)
+{
+    return before != NULL && after != NULL &&
+        (before->orientation_degrees != after->orientation_degrees ||
+         before->font != after->font ||
+         before->text_size != after->text_size ||
+         before->status_bar_visible != after->status_bar_visible);
+}
+
+esp_err_t solar_os_sessions_set_display_terminal_profile(
+    const char *target_name,
+    const solar_os_terminal_profile_t *profile)
+{
+    esp_err_t err = solar_os_display_set_terminal_profile(target_name, profile);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    bool shell_terminal_applied = false;
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        solar_os_session_entry_t *session = &session_state.sessions[i];
+        char session_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+        if (!session->used || session->terminal == NULL ||
+            !session_terminal_target_name(
+                session, session->terminal, session_target, sizeof(session_target)) ||
+            strcmp(session_target, target_name) != 0) {
+            continue;
+        }
+        solar_os_terminal_profile_t previous_profile;
+        solar_os_terminal_get_profile(session->terminal, &previous_profile);
+        const esp_err_t apply_err = solar_os_terminal_apply_profile_transient(
+            session->terminal, profile);
+        if (err == ESP_OK && apply_err != ESP_OK) {
+            err = apply_err;
+        }
+        if (apply_err == ESP_OK && session->started && !session->suspended &&
+            !session->graphics_active && session->app != solar_os_shell_app() &&
+            session_terminal_layout_changed(&previous_profile, profile)) {
+            session->terminal_redraw_requested = true;
+        }
+        if (session->terminal == session_state.shell_terminal) {
+            shell_terminal_applied = true;
+        }
+    }
+
+    if (!shell_terminal_applied && session_state.shell_terminal != NULL) {
+        char shell_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+        if (session_terminal_target_name(NULL,
+                                         session_state.shell_terminal,
+                                         shell_target,
+                                         sizeof(shell_target)) &&
+            strcmp(shell_target, target_name) == 0) {
+            const esp_err_t apply_err = solar_os_terminal_apply_profile_transient(
+                session_state.shell_terminal, profile);
+            if (err == ESP_OK && apply_err != ESP_OK) {
+                err = apply_err;
+            }
+        }
+    }
+    return err;
+}
+
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
                                                      uint16_t degrees)
 {
@@ -1804,6 +1956,7 @@ esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *termin
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_store_terminal_profile(owner, terminal);
 
     if (owner != NULL) {
         for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
@@ -1829,6 +1982,7 @@ esp_err_t solar_os_sessions_set_terminal_font(solar_os_terminal_t *terminal,
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_store_terminal_profile(owner, terminal);
 
     if (owner != NULL) {
         for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
@@ -1854,6 +2008,7 @@ esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_store_terminal_profile(owner, terminal);
 
     if (owner != NULL) {
         for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
@@ -1883,6 +2038,7 @@ esp_err_t solar_os_sessions_set_terminal_palette_inverted(solar_os_terminal_t *t
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_store_terminal_profile(owner, terminal);
     session_set_gfx_palette_inverted(owner, inverted);
 
     if (owner != NULL) {
@@ -1914,6 +2070,7 @@ esp_err_t solar_os_sessions_set_terminal_status_bar_visible(solar_os_terminal_t 
     if (err == ESP_ERR_INVALID_ARG) {
         return err;
     }
+    session_store_terminal_profile(owner, terminal);
 
     if (owner != NULL) {
         for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
@@ -2482,10 +2639,12 @@ static esp_err_t create_display_shell(const char *target_name,
         session_dispose_unstarted(session);
         return ESP_ERR_NO_MEM;
     }
-    const uint16_t orientation = session_terminal_orientation_for_u8g2(target.u8g2);
-    solar_os_terminal_init(terminal, target.u8g2);
-    solar_os_terminal_inherit_text_profile(terminal, session_text_profile_source());
-    (void)solar_os_terminal_set_orientation_transient(terminal, orientation);
+    solar_os_terminal_init_with_rotation(
+        terminal, target.u8g2, target.base_rotation);
+    if (!session_apply_registered_display_profile(terminal, target.name, target.u8g2)) {
+        solar_os_terminal_inherit_text_profile(terminal, session_text_profile_source());
+        (void)solar_os_terminal_set_orientation_transient(terminal, 0);
+    }
     session_inherit_status_bar(terminal);
     solar_os_terminal_set_black_is_one(terminal, target.black_is_one);
 

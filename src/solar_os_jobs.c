@@ -188,6 +188,7 @@ static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
         .last_tick_ms = runtime->last_tick_ms,
         .generation = runtime->generation,
         .has_event = runtime->entry->job != NULL && runtime->entry->job->event != NULL,
+        .detail = runtime->entry->job != NULL ? runtime->entry->job->detail : NULL,
         .worker_stack_bytes =
             runtime->entry->job != NULL ? runtime->entry->job->worker_stack_bytes : 0,
         .worker_stack_external =

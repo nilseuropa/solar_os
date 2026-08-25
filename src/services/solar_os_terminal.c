@@ -11,18 +11,12 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_terminal_geometry.h"
-#include "nvs.h"
+#include "solar_os_terminal_preferences.h"
 
 #define TERM_MARGIN_X 4
 #define TERM_STATUS_BAR_HEIGHT 16
 #define TERM_STATUS_BAR_COMPACT_MAX_WIDTH 160
 #define TERM_STATUS_BAR_ICON_GAP 4
-#define TERM_NVS_NAMESPACE "terminal"
-#define TERM_NVS_ORIENTATION_KEY "orientation"
-#define TERM_NVS_FONT_KEY "font"
-#define TERM_NVS_TEXT_SIZE_KEY "textsize"
-#define TERM_NVS_PALETTE_KEY "palette"
-#define TERM_NVS_STATUS_BAR_KEY "statusbar"
 #define TERM_DEFAULT_FONT SOLAR_OS_TERMINAL_FONT_COMPACT
 #define TERM_DEFAULT_TEXT_SIZE SOLAR_OS_TERMINAL_TEXT_SIZE_16
 
@@ -401,25 +395,34 @@ static size_t terminal_line_len(const solar_os_terminal_t *terminal,
     return len;
 }
 
-static const u8g2_cb_t *terminal_rotation_cb(uint16_t degrees)
+static uint8_t terminal_rotation_quarters(const u8g2_cb_t *rotation)
 {
-    switch (degrees) {
-    case 0:
-        return U8G2_R1;
-    case 90:
-        return U8G2_R2;
-    case 180:
-        return U8G2_R3;
-    case 270:
-        return U8G2_R0;
-    default:
-        return NULL;
+    if (rotation == U8G2_R1) {
+        return 1;
     }
+    if (rotation == U8G2_R2) {
+        return 2;
+    }
+    if (rotation == U8G2_R3) {
+        return 3;
+    }
+    return 0;
+}
+
+static const u8g2_cb_t *terminal_rotation_cb(const solar_os_terminal_t *terminal,
+                                             uint16_t degrees)
+{
+    static const u8g2_cb_t * const rotations[] = {
+        U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3,
+    };
+    const uint8_t base = terminal != NULL ?
+        terminal_rotation_quarters(terminal->base_rotation) : 0;
+    return rotations[(base + (degrees / 90U)) % 4U];
 }
 
 static bool terminal_orientation_is_valid(uint16_t degrees)
 {
-    return terminal_rotation_cb(degrees) != NULL;
+    return degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270;
 }
 
 static bool terminal_text_size_is_valid(solar_os_terminal_text_size_t text_size)
@@ -428,99 +431,43 @@ static bool terminal_text_size_is_valid(solar_os_terminal_text_size_t text_size)
         terminal_text_sizes[text_size].name != NULL;
 }
 
-static esp_err_t terminal_save_u16(const char *key, uint16_t value)
-{
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(TERM_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = nvs_set_u16(nvs, key, value);
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs);
-    }
-    nvs_close(nvs);
-    return ret;
-}
-
 bool solar_os_terminal_palette_preference_inverted(void)
 {
-    nvs_handle_t nvs;
-    if (nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
-        return false;
-    }
-
-    uint16_t value = 0;
-    const esp_err_t err = nvs_get_u16(nvs, TERM_NVS_PALETTE_KEY, &value);
-    nvs_close(nvs);
-    return err == ESP_OK && value == 1;
+    solar_os_terminal_profile_t profile;
+    solar_os_terminal_profile_load_preferences(&profile);
+    return profile.palette_inverted;
 }
 
 esp_err_t solar_os_terminal_set_palette_preference(bool inverted)
 {
-    return terminal_save_u16(TERM_NVS_PALETTE_KEY, inverted ? 1 : 0);
+    return solar_os_terminal_profile_save_palette(inverted);
 }
 
 bool solar_os_terminal_status_bar_preference_visible(void)
 {
-    nvs_handle_t nvs;
-    if (nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
-        return true;
-    }
-
-    uint16_t value = 1;
-    const esp_err_t err = nvs_get_u16(nvs, TERM_NVS_STATUS_BAR_KEY, &value);
-    nvs_close(nvs);
-    if (err != ESP_OK || value > 1) {
-        return true;
-    }
-    return value != 0;
+    solar_os_terminal_profile_t profile;
+    solar_os_terminal_profile_load_preferences(&profile);
+    return profile.status_bar_visible;
 }
 
 esp_err_t solar_os_terminal_set_status_bar_preference(bool visible)
 {
-    return terminal_save_u16(TERM_NVS_STATUS_BAR_KEY, visible ? 1 : 0);
+    return solar_os_terminal_profile_save_status_bar(visible);
 }
 
 static void terminal_load_settings(solar_os_terminal_t *terminal)
 {
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (ret != ESP_OK) {
+    if (terminal == NULL) {
         return;
     }
 
-    uint16_t value = 0;
-    ret = nvs_get_u16(nvs, TERM_NVS_ORIENTATION_KEY, &value);
-    if (ret == ESP_OK && terminal_orientation_is_valid(value)) {
-        terminal->orientation_degrees = value;
-    }
-
-    ret = nvs_get_u16(nvs, TERM_NVS_FONT_KEY, &value);
-    if (ret == ESP_OK &&
-        value < sizeof(terminal_font_families) / sizeof(terminal_font_families[0])) {
-        terminal->font = (solar_os_terminal_font_t)value;
-    }
-
-    ret = nvs_get_u16(nvs, TERM_NVS_TEXT_SIZE_KEY, &value);
-    if (ret == ESP_OK &&
-        value < sizeof(terminal_text_sizes) / sizeof(terminal_text_sizes[0]) &&
-        terminal_text_sizes[value].name != NULL) {
-        terminal->text_size = (solar_os_terminal_text_size_t)value;
-    }
-
-    ret = nvs_get_u16(nvs, TERM_NVS_PALETTE_KEY, &value);
-    if (ret == ESP_OK && value <= 1) {
-        terminal->palette_inverted = value != 0;
-    }
-
-    ret = nvs_get_u16(nvs, TERM_NVS_STATUS_BAR_KEY, &value);
-    if (ret == ESP_OK && value <= 1) {
-        terminal->status_bar_visible = value != 0;
-    }
-
-    nvs_close(nvs);
+    solar_os_terminal_profile_t profile;
+    solar_os_terminal_profile_load_preferences(&profile);
+    terminal->orientation_degrees = profile.orientation_degrees;
+    terminal->font = profile.font;
+    terminal->text_size = profile.text_size;
+    terminal->palette_inverted = profile.palette_inverted;
+    terminal->status_bar_visible = profile.status_bar_visible;
 }
 
 static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_screen)
@@ -530,7 +477,8 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
     }
 
     u8g2_t *u8g2 = terminal->u8g2;
-    const u8g2_cb_t *rotation = terminal_rotation_cb(terminal->orientation_degrees);
+    const u8g2_cb_t *rotation = terminal_rotation_cb(
+        terminal, terminal->orientation_degrees);
     if (rotation != NULL) {
         u8g2_SetDisplayRotation(u8g2, rotation);
     }
@@ -908,6 +856,14 @@ static void terminal_alloc_scrollback(solar_os_terminal_t *terminal)
 
 void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
 {
+    solar_os_terminal_init_with_rotation(
+        terminal, u8g2, u8g2 != NULL ? u8g2->cb : U8G2_R0);
+}
+
+void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
+                                          u8g2_t *u8g2,
+                                          const u8g2_cb_t *base_rotation)
+{
     if (terminal == NULL) {
         return;
     }
@@ -915,6 +871,7 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2)
     memset(terminal, 0, sizeof(*terminal));
     terminal_alloc_scrollback(terminal);
     terminal->u8g2 = u8g2;
+    terminal->base_rotation = base_rotation;
     terminal->orientation_degrees = SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION;
     terminal->font = TERM_DEFAULT_FONT;
     terminal->text_size = TERM_DEFAULT_TEXT_SIZE;
@@ -1679,7 +1636,7 @@ esp_err_t solar_os_terminal_set_orientation(solar_os_terminal_t *terminal, uint1
 
     terminal->orientation_degrees = degrees;
     terminal_apply_settings(terminal, true);
-    return terminal_save_u16(TERM_NVS_ORIENTATION_KEY, degrees);
+    return solar_os_terminal_profile_save_orientation(degrees);
 }
 
 esp_err_t solar_os_terminal_set_orientation_transient(solar_os_terminal_t *terminal,
@@ -1714,7 +1671,7 @@ esp_err_t solar_os_terminal_set_font(solar_os_terminal_t *terminal, solar_os_ter
 
     terminal->font = font;
     terminal_apply_settings(terminal, true);
-    return terminal_save_u16(TERM_NVS_FONT_KEY, (uint16_t)font);
+    return solar_os_terminal_profile_save_font(font);
 }
 
 esp_err_t solar_os_terminal_set_font_transient(solar_os_terminal_t *terminal,
@@ -1775,7 +1732,7 @@ esp_err_t solar_os_terminal_set_text_size(solar_os_terminal_t *terminal,
 
     terminal->text_size = text_size;
     terminal_apply_settings(terminal, true);
-    return terminal_save_u16(TERM_NVS_TEXT_SIZE_KEY, (uint16_t)text_size);
+    return solar_os_terminal_profile_save_text_size(text_size);
 }
 
 esp_err_t solar_os_terminal_set_text_size_transient(solar_os_terminal_t *terminal,
@@ -1825,6 +1782,53 @@ bool solar_os_terminal_parse_text_size(const char *name, solar_os_terminal_text_
     }
 
     return false;
+}
+
+void solar_os_terminal_get_profile(const solar_os_terminal_t *terminal,
+                                   solar_os_terminal_profile_t *profile)
+{
+    if (profile == NULL) {
+        return;
+    }
+    if (terminal == NULL) {
+        solar_os_terminal_profile_load_preferences(profile);
+        return;
+    }
+
+    *profile = (solar_os_terminal_profile_t) {
+        .orientation_degrees = terminal->orientation_degrees,
+        .font = terminal->font,
+        .text_size = terminal->text_size,
+        .palette_inverted = terminal->palette_inverted,
+        .status_bar_visible = terminal->status_bar_visible,
+    };
+}
+
+esp_err_t solar_os_terminal_apply_profile_transient(
+    solar_os_terminal_t *terminal,
+    const solar_os_terminal_profile_t *profile)
+{
+    if (terminal == NULL || !solar_os_terminal_profile_is_valid(profile)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = solar_os_terminal_set_orientation_transient(
+        terminal, profile->orientation_degrees);
+    if (err == ESP_OK) {
+        err = solar_os_terminal_set_font_transient(terminal, profile->font);
+    }
+    if (err == ESP_OK) {
+        err = solar_os_terminal_set_text_size_transient(terminal, profile->text_size);
+    }
+    if (err == ESP_OK) {
+        err = solar_os_terminal_set_palette_inverted_transient(
+            terminal, profile->palette_inverted);
+    }
+    if (err == ESP_OK) {
+        err = solar_os_terminal_set_status_bar_visible_transient(
+            terminal, profile->status_bar_visible);
+    }
+    return err;
 }
 
 bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)

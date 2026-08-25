@@ -1,5 +1,6 @@
 #include "solar_os_midi.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -18,7 +19,18 @@ typedef struct {
     size_t count;
 } solar_os_midi_subscriber_t;
 
+typedef struct {
+    bool active;
+    uint8_t channel;
+    uint8_t controller;
+    bool has_value;
+    uint8_t value;
+    uint32_t updates;
+} solar_os_midi_cc_stream_t;
+
 static solar_os_midi_subscriber_t midi_subscribers[SOLAR_OS_MIDI_SUBSCRIBER_MAX];
+static solar_os_midi_cc_stream_t
+    midi_cc_streams[SOLAR_OS_MIDI_CC_STREAM_MAX];
 static solar_os_midi_message_t midi_tx_queue[SOLAR_OS_MIDI_TX_QUEUE_DEPTH];
 static size_t midi_tx_head;
 static size_t midi_tx_count;
@@ -26,6 +38,58 @@ static solar_os_midi_status_t midi_status;
 static SemaphoreHandle_t midi_mutex;
 static StaticSemaphore_t midi_mutex_buffer;
 static uint32_t midi_next_token;
+
+static esp_err_t midi_ensure_mutex(void);
+
+static bool midi_cc_stream_address_valid(uint8_t channel, uint8_t controller)
+{
+    return channel >= 1U && channel <= 16U && controller <= 127U;
+}
+
+static void midi_cc_stream_id(uint8_t channel,
+                              uint8_t controller,
+                              char *id,
+                              size_t id_len)
+{
+    snprintf(id, id_len, "midi.cc.%u.%u", (unsigned)channel,
+             (unsigned)controller);
+}
+
+static int midi_cc_stream_find_locked(uint8_t channel, uint8_t controller)
+{
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        if (midi_cc_streams[i].active &&
+            midi_cc_streams[i].channel == channel &&
+            midi_cc_streams[i].controller == controller) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static esp_err_t midi_cc_stream_read_scalar(
+    void *user,
+    const solar_os_stream_read_options_t *options,
+    float *value)
+{
+    (void)options;
+    if (user == NULL || value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t error = midi_ensure_mutex();
+    if (error != ESP_OK) {
+        return error;
+    }
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    const solar_os_midi_cc_stream_t *stream = user;
+    const bool available = stream->active && midi_status.running &&
+        stream->has_value;
+    if (available) {
+        *value = (float)stream->value;
+    }
+    xSemaphoreGive(midi_mutex);
+    return available ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
 
 static esp_err_t midi_ensure_mutex(void)
 {
@@ -161,6 +225,165 @@ void solar_os_midi_get_status(solar_os_midi_status_t *status)
     xSemaphoreGive(midi_mutex);
 }
 
+esp_err_t solar_os_midi_cc_stream_add(uint8_t channel, uint8_t controller)
+{
+    if (!midi_cc_stream_address_valid(channel, controller)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t error = midi_ensure_mutex();
+    if (error != ESP_OK) {
+        return error;
+    }
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    if (midi_cc_stream_find_locked(channel, controller) >= 0) {
+        xSemaphoreGive(midi_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    solar_os_midi_cc_stream_t *slot = NULL;
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        if (!midi_cc_streams[i].active) {
+            slot = &midi_cc_streams[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        xSemaphoreGive(midi_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+    *slot = (solar_os_midi_cc_stream_t) {
+        .active = true,
+        .channel = channel,
+        .controller = controller,
+    };
+    solar_os_stream_driver_t driver = {
+        .info = {
+            .type = SOLAR_OS_STREAM_TYPE_SCALAR,
+            .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+            .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
+        },
+        .read_scalar = midi_cc_stream_read_scalar,
+        .user = slot,
+    };
+    midi_cc_stream_id(channel, controller, driver.info.id,
+                      sizeof(driver.info.id));
+    strlcpy(driver.info.provider, "midi", sizeof(driver.info.provider));
+    strlcpy(driver.info.device, "midi", sizeof(driver.info.device));
+    strlcpy(driver.info.unit, "CC", sizeof(driver.info.unit));
+    strlcpy(driver.info.format, "f32", sizeof(driver.info.format));
+    snprintf(driver.info.summary, sizeof(driver.info.summary),
+             "MIDI channel %u controller %u", (unsigned)channel,
+             (unsigned)controller);
+    error = solar_os_stream_register(&driver);
+    if (error != ESP_OK) {
+        memset(slot, 0, sizeof(*slot));
+    }
+    xSemaphoreGive(midi_mutex);
+    return error;
+}
+
+esp_err_t solar_os_midi_cc_stream_remove(uint8_t channel, uint8_t controller)
+{
+    if (!midi_cc_stream_address_valid(channel, controller)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t init_error = midi_ensure_mutex();
+    if (init_error != ESP_OK) {
+        return init_error;
+    }
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    const int index = midi_cc_stream_find_locked(channel, controller);
+    if (index < 0) {
+        xSemaphoreGive(midi_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    char id[SOLAR_OS_STREAM_ID_MAX];
+    midi_cc_stream_id(channel, controller, id, sizeof(id));
+    const esp_err_t error = solar_os_stream_unregister(id);
+    if (error == ESP_OK) {
+        memset(&midi_cc_streams[index], 0, sizeof(midi_cc_streams[index]));
+    }
+    xSemaphoreGive(midi_mutex);
+    return error;
+}
+
+esp_err_t solar_os_midi_cc_stream_clear(size_t *removed)
+{
+    if (removed != NULL) {
+        *removed = 0U;
+    }
+    if (midi_ensure_mutex() != ESP_OK) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t first_error = ESP_OK;
+    size_t count = 0U;
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        solar_os_midi_cc_stream_t *slot = &midi_cc_streams[i];
+        if (!slot->active) {
+            continue;
+        }
+        char id[SOLAR_OS_STREAM_ID_MAX];
+        midi_cc_stream_id(slot->channel, slot->controller, id, sizeof(id));
+        const esp_err_t error = solar_os_stream_unregister(id);
+        if (error == ESP_OK) {
+            memset(slot, 0, sizeof(*slot));
+            count++;
+        } else if (first_error == ESP_OK) {
+            first_error = error;
+        }
+    }
+    xSemaphoreGive(midi_mutex);
+    if (removed != NULL) {
+        *removed = count;
+    }
+    return first_error;
+}
+
+size_t solar_os_midi_cc_stream_count(void)
+{
+    if (midi_ensure_mutex() != ESP_OK) {
+        return 0U;
+    }
+    size_t count = 0U;
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        count += midi_cc_streams[i].active ? 1U : 0U;
+    }
+    xSemaphoreGive(midi_mutex);
+    return count;
+}
+
+bool solar_os_midi_cc_stream_get(size_t index,
+                                 solar_os_midi_cc_stream_info_t *info)
+{
+    if (info == NULL || midi_ensure_mutex() != ESP_OK) {
+        return false;
+    }
+    size_t seen = 0U;
+    xSemaphoreTake(midi_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        const solar_os_midi_cc_stream_t *slot = &midi_cc_streams[i];
+        if (!slot->active) {
+            continue;
+        }
+        if (seen++ == index) {
+            *info = (solar_os_midi_cc_stream_info_t) {
+                .channel = slot->channel,
+                .controller = slot->controller,
+                .has_value = slot->has_value && midi_status.running,
+                .value = slot->value,
+                .updates = slot->updates,
+            };
+            midi_cc_stream_id(slot->channel, slot->controller, info->id,
+                              sizeof(info->id));
+            xSemaphoreGive(midi_mutex);
+            return true;
+        }
+    }
+    xSemaphoreGive(midi_mutex);
+    return false;
+}
+
 esp_err_t solar_os_midi_worker_start(const char *bus_name)
 {
     if (bus_name == NULL || bus_name[0] == '\0' ||
@@ -177,6 +400,9 @@ esp_err_t solar_os_midi_worker_start(const char *bus_name)
     strlcpy(midi_status.bus_name, bus_name, sizeof(midi_status.bus_name));
     midi_tx_head = 0U;
     midi_tx_count = 0U;
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        midi_cc_streams[i].has_value = false;
+    }
     xSemaphoreGive(midi_mutex);
     return ESP_OK;
 }
@@ -194,6 +420,9 @@ void solar_os_midi_worker_stop(void)
         midi_subscribers[i].head = 0U;
         midi_subscribers[i].count = 0U;
     }
+    for (size_t i = 0; i < SOLAR_OS_MIDI_CC_STREAM_MAX; i++) {
+        midi_cc_streams[i].has_value = false;
+    }
     xSemaphoreGive(midi_mutex);
 }
 
@@ -204,6 +433,16 @@ void solar_os_midi_worker_publish(const solar_os_midi_message_t *message)
     }
     xSemaphoreTake(midi_mutex, portMAX_DELAY);
     midi_status.rx_messages++;
+    if ((message->status & 0xf0U) == 0xb0U) {
+        const uint8_t channel = (uint8_t)((message->status & 0x0fU) + 1U);
+        const int index = midi_cc_stream_find_locked(channel, message->data1);
+        if (index >= 0) {
+            solar_os_midi_cc_stream_t *stream = &midi_cc_streams[index];
+            stream->has_value = true;
+            stream->value = message->data2;
+            stream->updates++;
+        }
+    }
     for (size_t i = 0; i < SOLAR_OS_MIDI_SUBSCRIBER_MAX; i++) {
         solar_os_midi_subscriber_t *subscriber = &midi_subscribers[i];
         if (!subscriber->active) {

@@ -7,7 +7,7 @@ static const char * const ota_commands[] = {"status", "check", "upgrade", "url",
 #endif
 static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
-    "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
+    "--display", "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
     "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -1329,6 +1329,9 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_shell_io_writeln(term, "NAME         STATE    STACK KIND        EVT  TICKS RES");
         job_print_status(term, &status, true);
+        if (status.detail != NULL) {
+            status.detail(ctx);
+        }
         return;
     }
 
@@ -1476,6 +1479,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  setterm");
+    solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [10|12|14|16|18|20]");
@@ -1565,10 +1569,98 @@ static void setterm_print_color_result(solar_os_shell_io_t *term,
     }
 }
 
+static bool setterm_display_setting(const char *setting)
+{
+    return setting != NULL &&
+        (strcmp(setting, "orientation") == 0 ||
+         strcmp(setting, "font") == 0 ||
+         strcmp(setting, "textsize") == 0 ||
+         strcmp(setting, "palette") == 0 ||
+         strcmp(setting, "statusbar") == 0);
+}
+
+static void setterm_print_display_profile(
+    solar_os_shell_io_t *term,
+    const char *target_name,
+    const solar_os_terminal_profile_t *profile)
+{
+    solar_os_shell_io_printf(term, "display: %s\n", target_name);
+    solar_os_shell_io_printf(term, "orientation: %u\n",
+                             (unsigned)profile->orientation_degrees);
+    solar_os_shell_io_printf(term, "font: %s\n",
+                             solar_os_terminal_font_name(profile->font));
+    solar_os_shell_io_printf(
+        term, "textsize: %s\n",
+        solar_os_terminal_text_size_name(profile->text_size));
+    solar_os_shell_io_printf(term, "palette: %s\n",
+                             profile->palette_inverted ? "inverted" : "normal");
+    solar_os_shell_io_printf(term, "statusbar: %s\n",
+                             profile->status_bar_visible ? "show" : "hide");
+}
+
+static void setterm_print_display_result(solar_os_shell_io_t *term,
+                                         const char *target_name,
+                                         const char *setting,
+                                         const char *value,
+                                         esp_err_t err)
+{
+    if (err == ESP_OK) {
+        solar_os_shell_io_printf(term, "%s %s: %s\n", target_name, setting, value);
+    } else {
+        solar_os_shell_io_printf(term,
+                                 "setterm: %s update failed: %s\n",
+                                 target_name,
+                                 solar_os_shell_error_text(err));
+    }
+}
+
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
     solar_os_terminal_t *display = display_terminal(ctx);
+    const char *display_target = NULL;
+    solar_os_terminal_profile_t display_profile = {0};
+
+    if (argc >= 2 && strcmp(argv[1], "--display") == 0) {
+        if (argc < 3) {
+            solar_os_shell_diag_missing(term,
+                                        "setterm --display",
+                                        "display target",
+                                        "setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
+            return;
+        }
+        display_target = argv[2];
+        const esp_err_t profile_err =
+            solar_os_display_get_terminal_profile(display_target, &display_profile);
+        if (profile_err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_printf(term,
+                                     "setterm: display target not found: %s\n",
+                                     display_target);
+            return;
+        }
+        if (profile_err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "setterm: display unavailable: %s\n",
+                                     solar_os_shell_error_text(profile_err));
+            return;
+        }
+        argc -= 2;
+        argv += 2;
+        if (argc == 1) {
+            setterm_print_display_profile(term, display_target, &display_profile);
+            return;
+        }
+        if (!setterm_display_setting(argv[1])) {
+            solar_os_shell_io_printf(
+                term,
+                "setterm: %s is not a display terminal setting\n",
+                argv[1]);
+            solar_os_shell_io_writeln(
+                term,
+                "values: orientation font textsize palette statusbar");
+            return;
+        }
+    }
 
     if (argc == 1) {
         const esp_err_t err = solar_os_shell_launch_setterm_tui(ctx);
@@ -1584,7 +1676,9 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         if (argc == 2) {
             solar_os_shell_io_printf(term,
                                      "orientation: %u\n",
-                                     (unsigned)solar_os_terminal_orientation(display));
+                                     (unsigned)(display_target != NULL ?
+                                         display_profile.orientation_degrees :
+                                         solar_os_terminal_orientation(display)));
             solar_os_shell_io_writeln(term, "values: 0 90 180 270");
             return;
         }
@@ -1604,8 +1698,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         const esp_err_t err =
-            solar_os_sessions_set_terminal_orientation(display, (uint16_t)degrees);
-        setterm_print_save_result(term, "orientation", argv[2], err);
+            display_target != NULL ?
+                (display_profile.orientation_degrees = (uint16_t)degrees,
+                 solar_os_sessions_set_display_terminal_profile(display_target,
+                                                                &display_profile)) :
+                solar_os_sessions_set_terminal_orientation(display, (uint16_t)degrees);
+        if (display_target != NULL) {
+            setterm_print_display_result(term, display_target, "orientation", argv[2], err);
+        } else {
+            setterm_print_save_result(term, "orientation", argv[2], err);
+        }
         return;
     }
 
@@ -1613,7 +1715,10 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         if (argc == 2) {
             solar_os_shell_io_printf(term,
                                      "font: %s\n",
-                                     solar_os_terminal_font_name(solar_os_terminal_font(display)));
+                                     solar_os_terminal_font_name(
+                                         display_target != NULL ?
+                                             display_profile.font :
+                                             solar_os_terminal_font(display)));
             solar_os_shell_io_writeln(term, "values: mono compact");
             return;
         }
@@ -1630,8 +1735,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_sessions_set_terminal_font(display, font);
-        setterm_print_save_result(term, "font", argv[2], err);
+        const esp_err_t err = display_target != NULL ?
+            (display_profile.font = font,
+             solar_os_sessions_set_display_terminal_profile(display_target,
+                                                            &display_profile)) :
+            solar_os_sessions_set_terminal_font(display, font);
+        if (display_target != NULL) {
+            setterm_print_display_result(term, display_target, "font", argv[2], err);
+        } else {
+            setterm_print_save_result(term, "font", argv[2], err);
+        }
         return;
     }
 
@@ -1640,8 +1753,11 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(
                 term,
                 "textsize: %s\n",
-                solar_os_terminal_text_size_name(solar_os_terminal_text_size(display)));
-            solar_os_shell_io_writeln(term, "values: 12 14 16 18 20");
+                solar_os_terminal_text_size_name(
+                    display_target != NULL ?
+                        display_profile.text_size :
+                        solar_os_terminal_text_size(display)));
+            solar_os_shell_io_writeln(term, "values: 10 12 14 16 18 20");
             return;
         }
         if (argc != 3) {
@@ -1658,8 +1774,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        const esp_err_t err = solar_os_sessions_set_terminal_text_size(display, text_size);
-        setterm_print_save_result(term, "textsize", argv[2], err);
+        const esp_err_t err = display_target != NULL ?
+            (display_profile.text_size = text_size,
+             solar_os_sessions_set_display_terminal_profile(display_target,
+                                                            &display_profile)) :
+            solar_os_sessions_set_terminal_text_size(display, text_size);
+        if (display_target != NULL) {
+            setterm_print_display_result(term, display_target, "textsize", argv[2], err);
+        } else {
+            setterm_print_save_result(term, "textsize", argv[2], err);
+        }
         return;
     }
 
@@ -1668,7 +1792,9 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_printf(
                 term,
                 "palette: %s\n",
-                (display != NULL ?
+                (display_target != NULL ?
+                     display_profile.palette_inverted :
+                 display != NULL ?
                      solar_os_terminal_palette_inverted(display) :
                      solar_os_terminal_palette_preference_inverted()) ?
                     "inverted" :
@@ -1689,9 +1815,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         const bool inverted = strcmp(argv[2], "inverted") == 0;
-        const esp_err_t err =
+        const esp_err_t err = display_target != NULL ?
+            (display_profile.palette_inverted = inverted,
+             solar_os_sessions_set_display_terminal_profile(display_target,
+                                                            &display_profile)) :
             solar_os_sessions_set_terminal_palette_inverted(display, inverted);
-        setterm_print_save_result(term, "palette", argv[2], err);
+        if (display_target != NULL) {
+            setterm_print_display_result(term, display_target, "palette", argv[2], err);
+        } else {
+            setterm_print_save_result(term, "palette", argv[2], err);
+        }
         return;
     }
 
@@ -1741,9 +1874,11 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "statusbar") == 0) {
         if (argc == 2) {
-            const bool visible = display != NULL ?
-                solar_os_terminal_status_bar_visible(display) :
-                solar_os_terminal_status_bar_preference_visible();
+            const bool visible = display_target != NULL ?
+                display_profile.status_bar_visible :
+                (display != NULL ?
+                    solar_os_terminal_status_bar_visible(display) :
+                    solar_os_terminal_status_bar_preference_visible());
             solar_os_shell_io_printf(term, "statusbar: %s\n", visible ? "show" : "hide");
             solar_os_shell_io_writeln(term, "values: show hide");
             return;
@@ -1761,9 +1896,16 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         }
 
         const bool visible = strcmp(argv[2], "show") == 0;
-        const esp_err_t err =
+        const esp_err_t err = display_target != NULL ?
+            (display_profile.status_bar_visible = visible,
+             solar_os_sessions_set_display_terminal_profile(display_target,
+                                                            &display_profile)) :
             solar_os_sessions_set_terminal_status_bar_visible(display, visible);
-        setterm_print_save_result(term, "statusbar", argv[2], err);
+        if (display_target != NULL) {
+            setterm_print_display_result(term, display_target, "statusbar", argv[2], err);
+        } else {
+            setterm_print_save_result(term, "statusbar", argv[2], err);
+        }
         return;
     }
 

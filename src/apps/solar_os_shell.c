@@ -463,6 +463,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     {"control", "map continuous controls", solar_os_shell_cmd_control},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+    {"osc", "configure OSC bindings", solar_os_shell_cmd_osc},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     {"i2c", "I2C bus tools", solar_os_shell_cmd_i2c},
 #endif
@@ -543,6 +546,7 @@ static bool shell_builtin_command_exists(const char *name)
 }
 
 static const char * const setterm_subcommands[] = {
+    "--display",
     "orientation",
     "font",
     "textsize",
@@ -566,6 +570,10 @@ static const char * const setterm_subcommands[] = {
     "startup",
     "otaurl",
     "ota",
+};
+
+static const char * const setterm_display_settings[] = {
+    "orientation", "font", "textsize", "palette", "statusbar",
 };
 
 static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
@@ -801,7 +809,11 @@ static const char * const expansion_subcommands[] = {
 static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const midi_subcommands[] = {
-    "status", "note-on", "note-off", "cc", "program", "send",
+    "status", "monitor", "note-on", "note-off", "cc", "program", "send",
+    "stream",
+};
+static const char * const midi_stream_subcommands[] = {
+    "list", "add", "remove", "clear",
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
@@ -840,6 +852,12 @@ static const char * const neopixel_subcommands[] = {
     "clear",
     "show",
 };
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static const char * const osc_subcommands[] = {
+    "bindings", "bind", "unbind", "clear",
+};
+static const char * const osc_source_types[] = {"stream", "control"};
 #endif
 
 static const char * const radio_subcommands[] = {
@@ -1470,6 +1488,25 @@ static const char * const man_options[] = {"--list", "--apropos", "-k"};
 static const char * const path_help[] = {"help"};
 static const char * const help_subcommands[] = {"status", "update", "reset"};
 static const char * const path_setterm[] = {"setterm"};
+static const char * const path_setterm_display[] = {"setterm", "--display"};
+static const char * const path_setterm_display_target[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY,
+};
+static const char * const path_setterm_display_orientation[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "orientation",
+};
+static const char * const path_setterm_display_font[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "font",
+};
+static const char * const path_setterm_display_textsize[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "textsize",
+};
+static const char * const path_setterm_display_palette[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "palette",
+};
+static const char * const path_setterm_display_statusbar[] = {
+    "setterm", "--display", SHELL_COMPLETION_ANY, "statusbar",
+};
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
@@ -2040,6 +2077,7 @@ static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const path_midi[] = {"midi"};
+static const char * const path_midi_stream[] = {"midi", "stream"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static const char * const path_control[] = {"control"};
@@ -2057,6 +2095,18 @@ static const char * const path_control_get[] = {"control", "get"};
 static const char * const path_control_set[] = {"control", "set"};
 static const char * const path_control_unbind[] = {"control", "unbind"};
 static const char * const path_control_parameter[] = {"control", "parameter"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static const char * const path_osc[] = {"osc"};
+static const char * const path_osc_bind_type[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY
+};
+static const char * const path_osc_bind_stream[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY, "stream"
+};
+static const char * const path_osc_bind_control[] = {
+    "osc", "bind", SHELL_COMPLETION_ANY, "control"
+};
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const path_neopixel[] = {"neopixel"};
@@ -2561,6 +2611,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_COMMANDS(path_watch),
     SHELL_COMPLETION_COMMANDS(path_watch_n_interval),
     SHELL_COMPLETION_STATIC(path_setterm, setterm_subcommands),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_setterm_display),
+    SHELL_COMPLETION_STATIC(path_setterm_display_target, setterm_display_settings),
+    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_font, setterm_font_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_textsize, setterm_textsize_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_palette, setterm_palette_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_statusbar, setterm_statusbar_values),
     SHELL_COMPLETION_STATIC(path_setterm_orientation, setterm_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
@@ -2900,6 +2957,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
     SHELL_COMPLETION_STATIC(path_midi, midi_subcommands),
+    SHELL_COMPLETION_STATIC(path_midi_stream, midi_stream_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     SHELL_COMPLETION_STATIC(path_control, control_subcommands),
@@ -2913,6 +2971,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_CONTROLS(path_control_unbind),
     SHELL_COMPLETION_STATIC(path_control_parameter,
                             control_parameter_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+    SHELL_COMPLETION_STATIC(path_osc, osc_subcommands),
+    SHELL_COMPLETION_STATIC(path_osc_bind_type, osc_source_types),
+    SHELL_COMPLETION_STREAMS(path_osc_bind_stream),
+    SHELL_COMPLETION_CONTROLS(path_osc_bind_control),
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),
