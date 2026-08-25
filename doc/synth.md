@@ -152,6 +152,21 @@ linear physical potentiometer has musically useful travel across the audible
 range. Parameters disappear while Synth is suspended or stopped; bindings stay
 configured and reconnect when Synth resumes.
 
+An incoming MIDI controller can use the same parameter path through an explicit
+scalar stream:
+
+```text
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start midi midi0
+job start controls
+synth
+```
+
+The MIDI service retains the latest matching CC value while its job runs, and
+the controls service applies the Synth parameter's logarithmic curve.
+
 The app also shows current octave and velocity, active voices, sample rate, and
 audio errors. Keyboard press and release events sustain held notes and support
 chords. Waveform and envelope edits keep oscillator phase and pitch continuous.

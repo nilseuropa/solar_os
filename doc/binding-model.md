@@ -1,8 +1,9 @@
-# Stream, Control, Parameter, and OSC Binding Model
+# Stream, Control, Parameter, MIDI, and OSC Binding Model
 
-SolarOS uses four different concepts for values that can be measured, mapped,
-controlled, or sent over the network. They fit together as a constrained
-directed graph. They are not one generic event bus or an arbitrary patch bay.
+SolarOS uses four core concepts for values that can be measured, mapped, or
+controlled: streams, controls, parameters, and bindings. MIDI and OSC connect
+to that model through bounded transports. Together they form a constrained
+directed graph, not one generic event bus or an arbitrary patch bay.
 
 ## Overview
 
@@ -10,6 +11,11 @@ directed graph. They are not one generic event bus or an arbitrary patch bay.
                                  SolarOS
 
   VALUE SOURCES                  POLICY / STATE                 TARGETS
+
+  MIDI IN -- configured CC --> midi.cc.<channel>.<cc>
+                               native scalar 0..127
+                                         |
+                                         v
 
   +----------------+             +------------------+           +-------------+
   | scalar stream  |-- sample -->| named control    |-- bind -->| app         |
@@ -59,6 +65,7 @@ The two OSC directions are deliberately different:
 | Object | Owns | Value domain | Lifetime |
 | --- | --- | --- | --- |
 | Scalar stream | A readable measurement or signal source | Native float and unit | Registered by its provider |
+| MIDI CC stream | The latest value for one configured incoming channel/controller pair | Native `0..127` | Volatile definition; readable after MIDI receives a value |
 | Event stream | A readable boolean/event source | Currently one sampled byte for GPIO | Registered by its provider |
 | Named control | Calibration, smoothing, deadband, inversion, normalized state | `0..65535` internally | Volatile runtime configuration |
 | Parameter | App callback, native range, unit, step, and curve | App-defined native value | Present while the owning app registers it |
@@ -74,6 +81,7 @@ such as `cutoff`, `ambient`, and `button`.
 ```text
 scalar stream -> named control -> app parameter
 scalar stream -> named control -> MIDI CC
+incoming MIDI CC -> configured scalar stream -> named control -> app parameter
 scalar stream -> named control -> outbound OSC float32 0.0..1.0
 scalar stream -----------------> outbound OSC float32 in native units
 event stream ------------------> outbound OSC int32 0 or 1 on selected edges
@@ -114,6 +122,9 @@ scalar stream OSC binding -----------------------------> native float32
 event stream OSC binding ------------------------------> int32 0 or 1
 incoming OSC native parameter message -----------------> native parameter value
 incoming OSC normalized message --> declared curve ----> native parameter value
+
+incoming MIDI CC 0..127 -> configured scalar stream -> named control 0..65535
+                            -> declared curve ---------> native parameter value
 ```
 
 An incoming OSC value for `/solaros/parameter/synth/filter/cutoff` is expressed
@@ -215,6 +226,28 @@ synth
 The ADC calibration stays on the controller. The cutoff range, curve, and step
 stay on the synth device.
 
+## Example: incoming MIDI CC controls Synth cutoff
+
+```text
+MIDI channel 1 CC 74 -> midi.cc.1.74 -> control "cutoff"
+  -> synth.filter.cutoff normalized mapping
+  -> logarithmic cutoff curve and native step
+```
+
+```sh
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start midi midi0
+job start controls
+synth
+```
+
+The MIDI CC stream is an explicit, non-consuming view of the latest matching
+value. Synth and other MIDI subscribers still receive the original message. Up
+to 16 CC streams can be configured without reserving entries for every possible
+channel/controller pair.
+
 ## Example: sampled GPIO event
 
 ```sh
@@ -230,6 +263,8 @@ timestamped fan-out event provider.
 
 - `job start controls` samples configured scalar streams at 50 Hz and applies
   control-to-parameter or control-to-MIDI bindings.
+- `midi stream add` registers a volatile scalar stream for one incoming MIDI
+  channel/controller pair. It waits for a value whenever the MIDI job starts.
 - A manual control can be changed with `control set` without a source stream.
 - `job start osc` owns UDP input and independently samples outbound OSC sources
   at each binding's `rate=`.
@@ -256,13 +291,15 @@ Use `pickup=on` for physical controls when another writer can move the target.
 
 ```sh
 stream
+midi stream list
 control list
 control bindings
 control parameters
 osc bindings
 job status controls
+job status midi
 job status osc
 ```
 
-These commands show the four relevant layers: registered providers, normalized
-control state, live parameter targets, and OSC transport/binding state.
+These commands show registered providers, MIDI CC sources, normalized control
+state, live parameter targets, and OSC transport/binding state.

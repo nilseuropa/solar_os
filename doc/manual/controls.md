@@ -66,7 +66,9 @@ control parameter set synth.filter.cutoff 1200
 
 ## MIDI CC
 
-The same control can drive a MIDI controller after the MIDI bus and worker are
+### Control to MIDI CC
+
+A control can drive a MIDI controller after the MIDI bus and worker are
 running:
 
 ```text
@@ -78,6 +80,42 @@ job start controls
 
 The normalized 16-bit control value is scaled to the MIDI range `0..127`.
 Channel numbers are `1..16`; controller numbers are `0..127`.
+
+### MIDI CC to application parameter
+
+Expose an incoming MIDI controller as a scalar stream, then use the same
+control-to-parameter path as an ADC or other measurement:
+
+```text
+expansion bus create midi midi0 tx=gpio2 rx=gpio3
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start midi midi0
+job start controls
+synth
+```
+
+`midi stream add <channel> <controller>` registers an exact scalar stream named
+`midi.cc.<channel>.<controller>`. It reports `0..127` and retains the latest
+matching value while the MIDI job is running. It is non-consuming, so MIDI
+subscribers such as Synth still receive the original message.
+
+Up to 16 MIDI CC streams can be configured. Explicit registration avoids
+reserving stream-registry entries for all 2,048 possible channel/controller
+pairs. A new stream reports `waiting` until its first matching message. It
+returns to that state whenever the MIDI job stops or restarts.
+
+Inspect or remove the definitions with:
+
+```text
+midi stream list
+midi stream remove 1 74
+midi stream clear
+```
+
+MIDI CC stream definitions are volatile. Restore `midi stream add` commands
+from `/.shell/startup` with the related control and job commands when needed.
 
 ## Manual and script controls
 

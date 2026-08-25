@@ -725,6 +725,9 @@ available for the compiled board.
 | `midi` | `midi cc <channel> <controller> <value>` | Queue a MIDI control-change message. |
 | `midi` | `midi program <channel> <program>` | Queue a MIDI program-change message. |
 | `midi` | `midi send <status> [data1] [data2]` | Queue one validated raw MIDI message. |
+| `midi` | `midi stream list` | List configured incoming MIDI CC scalar streams and their latest values. |
+| `midi` | `midi stream add\|remove <channel> <controller>` | Register or remove `midi.cc.<channel>.<controller>` as a scalar stream. |
+| `midi` | `midi stream clear` | Remove all configured MIDI CC scalar streams. |
 | `control` | `control list\|parameters\|bindings` | Inspect normalized controls, native app parameters, or target bindings. |
 | `control` | `control create <name> <stream> <min> <max> [smooth=ms] [deadband=value] [invert]` | Normalize a scalar stream as a named continuous control; use `manual` for script-supplied values. |
 | `control` | `control bind <name> parameter <path> [pickup=on\|off]` | Bind a control to a typed native-app parameter with optional soft takeover. |

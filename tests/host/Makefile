@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -107,6 +107,13 @@ cardkb_codec_test: cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_code
 midi_codec_test: midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c $(ROOT)/src/services/solar_os_midi_codec.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c -o $@
+
+midi_service_test: midi_service_test.c $(ROOT)/src/services/solar_os_midi.c $(ROOT)/src/services/solar_os_midi.h $(ROOT)/src/services/solar_os_midi_codec.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_stream.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h freertos/portmacro.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/include \
+		-I$(ROOT)/src/services \
+		midi_service_test.c $(ROOT)/src/services/solar_os_midi.c \
+		$(ROOT)/src/services/solar_os_midi_codec.c \
+		$(ROOT)/src/services/solar_os_stream.c -o $@
 
 parameters_test: parameters_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
@@ -213,6 +220,7 @@ test: $(TARGETS)
 	./ps2_keyboard_test
 	./cardkb_codec_test
 	./midi_codec_test
+	./midi_service_test
 	./parameters_test
 	./controls_test
 	./osc_test

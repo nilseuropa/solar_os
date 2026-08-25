@@ -60,7 +60,8 @@ launch or runtime error.
 
 The `midi` job owns one named MIDI bus and moves messages in both directions.
 Create the bus with `expansion bus create midi`, then use `midi status` to
-inspect its counters.
+inspect its counters. `midi stream add <channel> <controller>` exposes an exact
+incoming CC as a scalar `midi.cc.<channel>.<controller>` stream.
 
 The `controls` job samples configured scalar streams at 50 Hz and sends changed
 normalized values to native application parameters and MIDI CC targets. Create

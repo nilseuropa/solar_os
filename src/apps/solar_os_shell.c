@@ -809,7 +809,10 @@ static const char * const expansion_subcommands[] = {
 static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const midi_subcommands[] = {
-    "status", "note-on", "note-off", "cc", "program", "send",
+    "status", "note-on", "note-off", "cc", "program", "send", "stream",
+};
+static const char * const midi_stream_subcommands[] = {
+    "list", "add", "remove", "clear",
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
@@ -2073,6 +2076,7 @@ static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const path_midi[] = {"midi"};
+static const char * const path_midi_stream[] = {"midi", "stream"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static const char * const path_control[] = {"control"};
@@ -2952,6 +2956,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
     SHELL_COMPLETION_STATIC(path_midi, midi_subcommands),
+    SHELL_COMPLETION_STATIC(path_midi_stream, midi_stream_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     SHELL_COMPLETION_STATIC(path_control, control_subcommands),

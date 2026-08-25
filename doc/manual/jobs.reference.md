@@ -1008,6 +1008,22 @@ queued with `midi note-on`, `midi note-off`, `midi cc`, `midi program`, or
 `midi send`. Status reports RX and TX byte/message counts, unsupported parser
 input, queue drops, and the last transport error.
 
+Up to 16 exact incoming MIDI CC addresses can also be registered as scalar
+streams. This lets the controls job map a MIDI controller through the standard
+normalized control path to any live application parameter:
+
+```text
+midi stream add 1 74
+control create cutoff midi.cc.1.74 0 127
+control bind cutoff parameter synth.filter.cutoff pickup=off
+job start controls
+synth
+```
+
+Use `midi stream list`, `midi stream remove <channel> <controller>`, and
+`midi stream clear` to inspect or remove the volatile definitions. A stream is
+waiting until the running MIDI job receives its first matching value.
+
 Use a compliant electrical interface: MIDI IN requires an optoisolated
 receiver and MIDI OUT requires a current-limited driver. Do not connect DIN
 MIDI pins directly to ESP32 GPIOs.

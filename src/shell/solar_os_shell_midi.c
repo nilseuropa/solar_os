@@ -23,6 +23,10 @@ static void midi_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  midi cc <channel> <controller> <value>");
     solar_os_shell_io_writeln(term, "  midi program <channel> <program>");
     solar_os_shell_io_writeln(term, "  midi send <status> [data1] [data2]");
+    solar_os_shell_io_writeln(term, "  midi stream list");
+    solar_os_shell_io_writeln(term,
+                              "  midi stream add|remove <channel> <controller>");
+    solar_os_shell_io_writeln(term, "  midi stream clear");
 }
 
 static bool midi_parse_range(const char *text, uint8_t minimum, uint8_t maximum,
@@ -72,6 +76,77 @@ static void midi_cmd_status(solar_os_shell_io_t *term)
     if (status.last_error != ESP_OK) {
         solar_os_shell_io_printf(term, "Last error: %s\n", esp_err_to_name(status.last_error));
     }
+    solar_os_shell_io_printf(term, "CC streams: %u/%u\n",
+                             (unsigned)solar_os_midi_cc_stream_count(),
+                             (unsigned)SOLAR_OS_MIDI_CC_STREAM_MAX);
+}
+
+static void midi_cmd_stream_list(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_midi_cc_stream_count();
+    if (count == 0U) {
+        solar_os_shell_io_writeln(term, "No MIDI CC streams configured");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        solar_os_midi_cc_stream_info_t info;
+        if (!solar_os_midi_cc_stream_get(i, &info)) {
+            continue;
+        }
+        solar_os_shell_io_printf(term, "%s: channel=%u cc=%u ", info.id,
+                                 (unsigned)info.channel,
+                                 (unsigned)info.controller);
+        if (info.has_value) {
+            solar_os_shell_io_printf(term, "value=%u ", (unsigned)info.value);
+        } else {
+            solar_os_shell_io_write(term, "value=waiting ");
+        }
+        solar_os_shell_io_printf(term, "updates=%" PRIu32 "\n", info.updates);
+    }
+}
+
+static void midi_cmd_stream(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 3 && strcmp(argv[2], "list") == 0) {
+        midi_cmd_stream_list(term);
+        return;
+    }
+    if (argc == 3 && strcmp(argv[2], "clear") == 0) {
+        size_t removed = 0U;
+        const esp_err_t error = solar_os_midi_cc_stream_clear(&removed);
+        solar_os_shell_io_printf(term, "MIDI CC streams cleared: %u\n",
+                                 (unsigned)removed);
+        if (error != ESP_OK) {
+            solar_os_shell_io_printf(term, "midi: stream clear failed: %s\n",
+                                     solar_os_shell_error_text(error));
+        }
+        return;
+    }
+    if (argc == 5 && (strcmp(argv[2], "add") == 0 ||
+                      strcmp(argv[2], "remove") == 0)) {
+        uint8_t channel = 0U;
+        uint8_t controller = 0U;
+        if (!midi_parse_range(argv[3], 1U, 16U, &channel) ||
+            !midi_parse_range(argv[4], 0U, 127U, &controller)) {
+            solar_os_shell_io_writeln(
+                term, "midi: channel must be 1..16 and controller 0..127");
+            return;
+        }
+        const bool add = strcmp(argv[2], "add") == 0;
+        const esp_err_t error = add ?
+            solar_os_midi_cc_stream_add(channel, controller) :
+            solar_os_midi_cc_stream_remove(channel, controller);
+        if (error != ESP_OK) {
+            solar_os_shell_io_printf(term, "midi: stream %s failed: %s\n",
+                                     argv[2], solar_os_shell_error_text(error));
+            return;
+        }
+        solar_os_shell_io_printf(term, "MIDI CC stream midi.cc.%u.%u %s\n",
+                                 (unsigned)channel, (unsigned)controller,
+                                 add ? "added" : "removed");
+        return;
+    }
+    midi_print_usage(term);
 }
 
 static bool midi_parse_channel_message(solar_os_shell_io_t *term,
@@ -111,6 +186,10 @@ void solar_os_shell_cmd_midi(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     if (argc == 2 && strcmp(argv[1], "status") == 0) {
         midi_cmd_status(term);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "stream") == 0) {
+        midi_cmd_stream(term, argc, argv);
         return;
     }
 

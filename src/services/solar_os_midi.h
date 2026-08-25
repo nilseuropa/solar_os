@@ -7,8 +7,10 @@
 #include "esp_err.h"
 #include "solar_os_bus_types.h"
 #include "solar_os_midi_codec.h"
+#include "solar_os_stream.h"
 
 #define SOLAR_OS_MIDI_OWNER_MAX 24
+#define SOLAR_OS_MIDI_CC_STREAM_MAX 16U
 
 typedef struct {
     int index;
@@ -30,6 +32,15 @@ typedef struct {
     esp_err_t last_error;
 } solar_os_midi_status_t;
 
+typedef struct {
+    char id[SOLAR_OS_STREAM_ID_MAX];
+    uint8_t channel;
+    uint8_t controller;
+    bool has_value;
+    uint8_t value;
+    uint32_t updates;
+} solar_os_midi_cc_stream_info_t;
+
 esp_err_t solar_os_midi_subscribe(const char *owner,
                                   solar_os_midi_subscription_t *subscription);
 esp_err_t solar_os_midi_unsubscribe(solar_os_midi_subscription_t *subscription);
@@ -38,6 +49,13 @@ esp_err_t solar_os_midi_receive(solar_os_midi_subscription_t *subscription,
 
 esp_err_t solar_os_midi_send(const solar_os_midi_message_t *message);
 void solar_os_midi_get_status(solar_os_midi_status_t *status);
+
+esp_err_t solar_os_midi_cc_stream_add(uint8_t channel, uint8_t controller);
+esp_err_t solar_os_midi_cc_stream_remove(uint8_t channel, uint8_t controller);
+esp_err_t solar_os_midi_cc_stream_clear(size_t *removed);
+size_t solar_os_midi_cc_stream_count(void);
+bool solar_os_midi_cc_stream_get(size_t index,
+                                 solar_os_midi_cc_stream_info_t *info);
 
 /* MIDI job integration. */
 esp_err_t solar_os_midi_worker_start(const char *bus_name);
