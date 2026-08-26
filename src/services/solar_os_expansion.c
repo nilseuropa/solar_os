@@ -26,8 +26,25 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
 #include "solar_os_cardkb.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_GPIO_KEYS
+#include "solar_os_gpio_keys.h"
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
+#include "solar_os_ps2_keyboard_device.h"
+#endif
 #if SOLAR_OS_BOARD_HAS_POINTER
 #include "solar_os_ft6336.h"
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
+static const solar_os_expansion_binding_spec_t ps2_keyboard_binding_specs[] = {
+    {
+        .key = "ps2",
+        .value_hint = "bus",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+        .required = true,
+    },
+};
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
@@ -114,7 +131,6 @@ static const solar_os_expansion_binding_spec_t cardkb_binding_specs[] = {
     },
 };
 #endif
-
 #if SOLAR_OS_BOARD_HAS_POINTER
 #define FT6336_ADDRESS 0x38
 
@@ -319,6 +335,30 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .detach = solar_os_cardkb_detach,
     },
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_GPIO_KEYS
+    {
+        .name = "gpio-keys",
+        .summary = "pull-up GPIO keyboard buttons",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .allow_unlisted_bindings = true,
+        .attach = solar_os_gpio_keys_attach,
+        .detach = solar_os_gpio_keys_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
+    {
+        .name = "ps2-keyboard",
+        .summary = "PS/2 keyboard",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = ps2_keyboard_binding_specs,
+        .binding_spec_count = sizeof(ps2_keyboard_binding_specs) /
+            sizeof(ps2_keyboard_binding_specs[0]),
+        .attach = solar_os_ps2_keyboard_attach,
+        .detach = solar_os_ps2_keyboard_detach,
+    },
+#endif
 #if SOLAR_OS_BOARD_HAS_POINTER
     {
         .name = "ft6336",
@@ -516,6 +556,8 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
         return "cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return "ps2";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0' ? binding->role : "parameter";
     default:
@@ -678,6 +720,8 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         /* The named UART bus owns its controller; the device owns a bus lease. */
         return ESP_OK;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
@@ -727,6 +771,10 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         return solar_os_expansion_find_uart_port(binding->target, &port, NULL) &&
             port.port == binding->value;
     }
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return solar_os_bus_find(binding->target,
+                                 SOLAR_OS_BUS_PROTOCOL_PS2,
+                                 NULL);
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0';
     default:
@@ -770,6 +818,12 @@ static bool binding_bus_ref(const solar_os_expansion_binding_t *binding,
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         *ref = (expansion_bus_ref_t) {
             .protocol = SOLAR_OS_BUS_PROTOCOL_UART,
+            .name = binding->target,
+        };
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_PS2,
             .name = binding->target,
         };
         return true;
@@ -1470,6 +1524,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "spi_cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return "ps2";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return "parameter";
     default:

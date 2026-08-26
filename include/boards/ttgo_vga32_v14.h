@@ -72,7 +72,6 @@
 #define SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_CLOCK GPIO_NUM_33
 #define SOLAR_OS_BOARD_PIN_PS2_MOUSE_DATA GPIO_NUM_27
 #define SOLAR_OS_BOARD_PIN_PS2_MOUSE_CLOCK GPIO_NUM_26
-#define SOLAR_OS_BOARD_AUTOSTART_PS2_BUS "ps2kbd0"
 #define SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED 0
 
 #define SOLAR_OS_BOARD_BUSES { \
@@ -113,6 +112,21 @@
         .config.ps2 = { \
             .clock_pin = SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_CLOCK, \
             .data_pin = SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_DATA, \
+        }, \
+    }, \
+}
+
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "ps2-keyboard", \
+        .name = "keyboard0", \
+        .binding_count = 1, \
+        .bindings = { \
+            { \
+                .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS, \
+                .target = "ps2kbd0", \
+            }, \
         }, \
     }, \
 }

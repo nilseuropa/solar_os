@@ -10,35 +10,22 @@
 #include <strings.h>
 
 #include "solar_os_gpio.h"
-#include "solar_os_input.h"
-#include "solar_os_jobs.h"
+#include "solar_os_expansion.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_shell.h"
 
-#define GPIO_KEYS_MAX SOLAR_OS_RESOURCE_BUNDLE_MAX
-#define GPIO_KEYS_DEBOUNCE_MS 25U
-#define GPIO_KEYS_POLL_MS 10U
+#define GPIO_KEYS_MAX SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX
 #define GPIO_KEYS_LINE_MAX 96U
 
 typedef struct {
     int pin;
     uint8_t key;
     char label[SOLAR_OS_RESOURCE_LABEL_MAX];
-    bool last_raw_pressed;
-    bool stable_pressed;
-    uint32_t raw_changed_ms;
 } gpio_key_mapping_t;
 
 typedef struct {
     bool running;
-    size_t mapping_count;
-    gpio_key_mapping_t mappings[GPIO_KEYS_MAX];
-    solar_os_input_source_t input_source;
-    uint32_t presses;
-    uint32_t dropped;
-    uint32_t read_errors;
-    char owner[SOLAR_OS_JOB_OWNER_MAX];
 } gpio_keys_state_t;
 
 static const char *TAG = "solar_os_gpio_keys";
@@ -211,13 +198,12 @@ static esp_err_t load_config(solar_os_context_t *ctx,
     return err;
 }
 
+#define GPIO_KEYS_JOB_DEVICE "gpio-keys-job"
+
 static void gpio_keys_cleanup(void)
 {
-    if (gpio_keys.input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        solar_os_input_source_close(gpio_keys.input_source);
-    }
-    for (size_t i = 0; i < gpio_keys.mapping_count; i++) {
-        (void)solar_os_gpio_release_owned(gpio_keys.mappings[i].pin, gpio_keys.owner);
+    if (gpio_keys.running) {
+        (void)solar_os_expansion_detach(GPIO_KEYS_JOB_DEVICE);
     }
     memset(&gpio_keys, 0, sizeof(gpio_keys));
 }
@@ -255,150 +241,38 @@ static esp_err_t gpio_keys_start(solar_os_context_t *ctx, int argc, char **argv)
         }
     }
 
-    memset(&gpio_keys, 0, sizeof(gpio_keys));
-    gpio_keys.mapping_count = mapping_count;
-    memcpy(gpio_keys.mappings, mappings, mapping_count * sizeof(mappings[0]));
-    esp_err_t err = solar_os_jobs_owner_name("gpio-keys",
-                                             gpio_keys.owner,
-                                             sizeof(gpio_keys.owner));
-    if (err != ESP_OK) {
-        gpio_keys_cleanup();
-        return err;
-    }
-
-    int pins[GPIO_KEYS_MAX];
-    const char *labels[GPIO_KEYS_MAX];
+    solar_os_expansion_binding_t bindings[GPIO_KEYS_MAX] = {0};
     for (size_t i = 0; i < mapping_count; i++) {
-        pins[i] = gpio_keys.mappings[i].pin;
-        labels[i] = gpio_keys.mappings[i].label;
-    }
-    solar_os_resource_conflict_t conflict;
-    err = solar_os_gpio_claim_pins(pins,
-                                   labels,
-                                   mapping_count,
-                                   gpio_keys.owner,
-                                   &conflict);
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_STATE) {
-            SOLAR_OS_LOGW(TAG,
-                          "GPIO%d is owned by %s",
-                          pins[conflict.request_index],
-                          conflict.existing.owner);
+        bindings[i].kind = SOLAR_OS_EXPANSION_BINDING_GPIO;
+        bindings[i].value = mappings[i].pin;
+        const char *key_name = solar_os_key_name(mappings[i].key);
+        if (key_name != NULL) {
+            strlcpy(bindings[i].role, key_name, sizeof(bindings[i].role));
+        } else if (isprint(mappings[i].key)) {
+            bindings[i].role[0] = (char)mappings[i].key;
+            bindings[i].role[1] = '\0';
+        } else {
+            return ESP_ERR_INVALID_ARG;
         }
-        gpio_keys_cleanup();
-        return err;
     }
-
-    for (size_t i = 0; i < mapping_count; i++) {
-        gpio_key_mapping_t *mapping = &gpio_keys.mappings[i];
-        err = solar_os_gpio_configure_owned(mapping->pin,
-                                            SOLAR_OS_GPIO_MODE_INPUT,
-                                            SOLAR_OS_GPIO_PULL_UP,
-                                            gpio_keys.owner);
-        bool level = true;
-        if (err == ESP_OK) {
-            err = solar_os_gpio_read_owned(mapping->pin, gpio_keys.owner, &level);
-        }
-        if (err != ESP_OK) {
-            gpio_keys_cleanup();
-            return err;
-        }
-        const bool pressed = !level;
-        mapping->last_raw_pressed = pressed;
-        mapping->stable_pressed = pressed;
-        mapping->raw_changed_ms = 0;
-    }
-
-    err = solar_os_input_key_source_open("gpio-keys",
-                                         SOLAR_OS_INPUT_SOURCE_KEYBOARD,
-                                         &gpio_keys.input_source);
-    if (err != ESP_OK) {
-        gpio_keys_cleanup();
-        return err;
-    }
-
-    char detail[24];
-    snprintf(detail, sizeof(detail), "%u pins", (unsigned)mapping_count);
-    (void)solar_os_jobs_note_resource("gpio-keys",
-                                      SOLAR_OS_JOB_RESOURCE_CUSTOM,
-                                      "gpio-keys",
-                                      detail);
-    if (config_path[0] != '\0') {
-        (void)solar_os_jobs_note_resource("gpio-keys",
-                                          SOLAR_OS_JOB_RESOURCE_FILE,
-                                          config_path,
-                                          "config");
-    }
-    gpio_keys.running = true;
-    SOLAR_OS_LOGI(TAG, "%u press-only GPIO keys ready", (unsigned)mapping_count);
-    return ESP_OK;
+    const esp_err_t err = solar_os_expansion_attach("gpio-keys",
+                                                    GPIO_KEYS_JOB_DEVICE,
+                                                    bindings,
+                                                    mapping_count);
+    gpio_keys.running = err == ESP_OK;
+    return err;
 }
 
 static void gpio_keys_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
-    if (gpio_keys.running) {
-        SOLAR_OS_LOGI(TAG,
-                      "stopped: presses=%u dropped=%u read_errors=%u",
-                      (unsigned)gpio_keys.presses,
-                      (unsigned)gpio_keys.dropped,
-                      (unsigned)gpio_keys.read_errors);
-    }
     gpio_keys_cleanup();
-}
-
-static bool gpio_keys_event(solar_os_context_t *ctx, const solar_os_event_t *event)
-{
-    (void)ctx;
-    if (!gpio_keys.running || event == NULL || event->type != SOLAR_OS_EVENT_TICK) {
-        return false;
-    }
-
-    const uint32_t now_ms = event->data.tick_ms;
-    for (size_t i = 0; i < gpio_keys.mapping_count; i++) {
-        gpio_key_mapping_t *mapping = &gpio_keys.mappings[i];
-        bool level = true;
-        if (solar_os_gpio_read_owned(mapping->pin, gpio_keys.owner, &level) != ESP_OK) {
-            gpio_keys.read_errors++;
-            continue;
-        }
-        const bool pressed = !level;
-        if (pressed != mapping->last_raw_pressed) {
-            mapping->last_raw_pressed = pressed;
-            mapping->raw_changed_ms = now_ms;
-            continue;
-        }
-        if (pressed == mapping->stable_pressed ||
-            (uint32_t)(now_ms - mapping->raw_changed_ms) < GPIO_KEYS_DEBOUNCE_MS) {
-            continue;
-        }
-
-        mapping->stable_pressed = pressed;
-        if (solar_os_input_write_key(gpio_keys.input_source,
-                                     (uint16_t)mapping->pin + 1U,
-                                     SOLAR_OS_INPUT_USAGE_NONE,
-                                     mapping->key,
-                                     0,
-                                     pressed ? SOLAR_OS_INPUT_KEY_PRESS :
-                                         SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK) {
-            if (!pressed) {
-                continue;
-            }
-            gpio_keys.presses++;
-        } else {
-            gpio_keys.dropped++;
-        }
-    }
-    return false;
 }
 
 const solar_os_job_t solar_os_gpio_keys_job = {
     .name = "gpio-keys",
-    .summary = "map pull-up GPIO presses to keyboard input",
+    .summary = "attach pull-up GPIO keyboard buttons",
     .kind = SOLAR_OS_JOB_KIND_BACKGROUND,
     .start = gpio_keys_start,
     .stop = gpio_keys_stop,
-    .event = gpio_keys_event,
-    .tick_interval_ms = GPIO_KEYS_POLL_MS,
-    .tick_deadline_ms = 2U,
 };

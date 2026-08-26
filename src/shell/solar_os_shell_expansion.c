@@ -14,6 +14,7 @@
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
@@ -387,6 +388,8 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
             return "SPI";
         case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
             return "UART";
+        case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+            return "PS/2";
         default:
             break;
         }
@@ -426,6 +429,7 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         solar_os_shell_io_printf(term,
                                  " %s=%s",
                                  solar_os_expansion_binding_kind_name(binding->kind),
@@ -749,6 +753,15 @@ static bool parse_binding_token(const char *arg,
                                  port.port,
                                  -1);
         }
+        if (solar_os_bus_find(arg, SOLAR_OS_BUS_PROTOCOL_PS2, NULL)) {
+            return binding_store(bindings,
+                                 binding_count,
+                                 SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+                                 "",
+                                 arg,
+                                 -1,
+                                 -1);
+        }
         return false;
     }
 
@@ -779,6 +792,16 @@ static bool parse_binding_token(const char *arg,
                           port.port,
                           -1);
     }
+    if (strcmp(key, "ps2") == 0) {
+        return solar_os_bus_find(value, SOLAR_OS_BUS_PROTOCOL_PS2, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+                          "",
+                          value,
+                          -1,
+                          -1);
+    }
     if (strcmp(key, "addr") == 0) {
         int address = 0;
         return parse_int_arg(value, 0x03, 0x77, &address) &&
@@ -799,6 +822,17 @@ static bool parse_binding_token(const char *arg,
     int pin = -1;
     if (!parse_int_arg(value, 0, 63, &pin)) {
         return false;
+    }
+    if (strncmp(key, "key:", 4) == 0 && key[4] != '\0') {
+        uint8_t parsed_key = 0;
+        return solar_os_key_parse(key + 4, &parsed_key) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_GPIO,
+                          key + 4,
+                          "",
+                          pin,
+                          -1);
     }
     if (strcmp(key, "cs") == 0 || strcmp(key, "ce") == 0) {
         char spi_target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};

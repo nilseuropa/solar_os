@@ -3204,9 +3204,9 @@ static int solua_expansion_devices(lua_State *L)
 static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
-        "spi", "cs", "ce", "i2c", "addr", "uart", "gpio", "irq", "reset",
+        "spi", "cs", "ce", "i2c", "addr", "uart", "ps2", "gpio", "irq", "reset",
         "rst", "data", "bck", "din", "rck", "dc", "busy", "adc", "pwm",
-        "count",
+        "count", "keys",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -3290,6 +3290,7 @@ static int solua_expansion_attach(lua_State *L)
     const char *spi = solua_table_optional_string(L, 3, "spi");
     const char *i2c = solua_table_optional_string(L, 3, "i2c");
     const char *uart = solua_table_optional_string(L, 3, "uart");
+    const char *ps2 = solua_table_optional_string(L, 3, "ps2");
     int value = 0;
 
     if (spi != NULL) {
@@ -3359,6 +3360,42 @@ static int solua_expansion_attach(lua_State *L)
                                     port.port,
                                     -1);
     }
+    if (ps2 != NULL) {
+        if (!solar_os_bus_find(ps2, SOLAR_OS_BUS_PROTOCOL_PS2, NULL)) {
+            return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+        }
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+                                    "",
+                                    ps2,
+                                    -1,
+                                    -1);
+    }
+
+    lua_getfield(L, 3, "keys");
+    if (!lua_isnil(L, -1)) {
+        luaL_checktype(L, -1, LUA_TTABLE);
+        lua_pushnil(L);
+        while (lua_next(L, -2) != 0) {
+            const char *role = luaL_checkstring(L, -2);
+            uint8_t parsed_key = 0;
+            if (!solar_os_key_parse(role, &parsed_key)) {
+                return luaL_error(L, "unknown key %s", role);
+            }
+            solua_expansion_add_binding(L,
+                                        bindings,
+                                        &binding_count,
+                                        SOLAR_OS_EXPANSION_BINDING_GPIO,
+                                        role,
+                                        "",
+                                        (int)luaL_checkinteger(L, -1),
+                                        -1);
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
 
     static const struct {
         const char *key;

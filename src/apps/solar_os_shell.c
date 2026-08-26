@@ -6731,6 +6731,7 @@ static const solar_os_expansion_binding_spec_t shell_manual_expansion_specs[] = 
     {.key = "spi", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS},
     {.key = "cs", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS},
     {.key = "uart", .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT},
+    {.key = "ps2", .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS},
     {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},
     {.key = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "gpio"},
     {.key = "irq", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
@@ -6847,6 +6848,15 @@ static void shell_completion_emit_expansion_spec(
             solar_os_expansion_uart_port_t port;
             if (solar_os_expansion_get_uart_port(i, &port)) {
                 snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, port.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2); i++) {
+            solar_os_bus_info_t bus;
+            if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &bus)) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
                 shell_completion_emit(state, candidate);
             }
         }

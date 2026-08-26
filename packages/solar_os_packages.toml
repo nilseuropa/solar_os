@@ -49,6 +49,8 @@ members = [
   "expansion_ssd1306",
   "expansion_sdspi",
   "expansion_cardkb",
+  "expansion_gpio_keys",
+  "expansion_ps2_keyboard",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -839,6 +841,18 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_gpio_keys]
+label = "expansion.gpio-keys"
+depends = ["service_expansion", "service_gpio"]
+sources = ["services/solar_os_gpio_keys.c"]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_ps2_keyboard]
+label = "expansion.ps2-keyboard"
+depends = ["service_expansion", "service_ps2"]
+sources = ["services/solar_os_ps2_keyboard_device.c"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_sdspi]
 label = "expansion.sdspi"
 depends = ["service_expansion", "service_spi"]
@@ -1291,15 +1305,15 @@ sources = ["jobs/solar_os_controls_job.c"]
 
 [packages.job_gpio_keys]
 label = "job.gpio-keys"
-depends = ["service_gpio"]
+depends = ["expansion_gpio_keys"]
 sources = ["jobs/solar_os_gpio_keys_job.c"]
-capabilities = ["gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.job_ps2_keyboard]
 label = "job.ps2-keyboard"
-depends = ["service_ps2", "service_resources"]
+depends = ["expansion_ps2_keyboard"]
 sources = ["jobs/solar_os_ps2_keyboard_job.c"]
-capabilities = ["gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.job_midi]
 label = "job.midi"
