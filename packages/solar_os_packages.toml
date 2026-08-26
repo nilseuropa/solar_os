@@ -475,7 +475,7 @@ capabilities = ["psram"]
 
 [packages.chat_transport_gateway]
 label = "chat.transport.gateway"
-depends = ["service_gateway", "service_wifi"]
+depends = ["service_gateway", "service_json_scan", "service_wifi"]
 sources = ["services/solar_os_chat_transport_gateway.c"]
 requires = ["esp-tls"]
 capabilities = ["psram", "wifi"]
@@ -876,8 +876,13 @@ capabilities = ["expansion_i2s"]
 
 [packages.service_json]
 label = "service.json"
+depends = ["service_json_scan"]
 sources = ["services/solar_os_json.c"]
 requires = ["json"]
+
+[packages.service_json_scan]
+label = "service.json-scan"
+sources = ["services/solar_os_json_scan.c"]
 
 [packages.service_crypto]
 label = "service.crypto"
@@ -1218,7 +1223,7 @@ capabilities = ["gfx", "psram", "wifi"]
 
 [packages.job_chatd]
 label = "job.chatd"
-depends = ["service_wifi"]
+depends = ["service_json_scan", "service_wifi"]
 sources = ["jobs/solar_os_chatd_job.c"]
 requires = ["heap"]
 capabilities = ["psram", "wifi"]

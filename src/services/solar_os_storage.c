@@ -886,6 +886,76 @@ esp_err_t solar_os_storage_rename(const char *old_path, const char *new_path)
     return rename(old_path, new_path) == 0 ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t solar_os_storage_sync_file(FILE *file)
+{
+    if (file == NULL) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (fflush(file) != 0) {
+        return ESP_FAIL;
+    }
+    const int fd = fileno(file);
+    return fd >= 0 && fsync(fd) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_sibling_path(const char *path,
+                                        const char *suffix,
+                                        char *out,
+                                        size_t out_len)
+{
+    if (path == NULL || path[0] == '\0' || suffix == NULL || suffix[0] == '\0' ||
+        out == NULL || out_len == 0U) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int written = snprintf(out, out_len, "%s%s", path, suffix);
+    return written >= 0 && (size_t)written < out_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t solar_os_storage_replace_file(const char *staged_path,
+                                        const char *active_path,
+                                        const char *backup_path)
+{
+    if (staged_path == NULL || staged_path[0] == '\0' ||
+        active_path == NULL || active_path[0] == '\0' ||
+        backup_path == NULL || backup_path[0] == '\0' ||
+        strcmp(staged_path, active_path) == 0 ||
+        strcmp(staged_path, backup_path) == 0 ||
+        strcmp(active_path, backup_path) == 0) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat info;
+    if (stat(staged_path, &info) != 0 || !S_ISREG(info.st_mode)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const bool had_active = stat(active_path, &info) == 0;
+    if (stat(backup_path, &info) == 0 && remove(backup_path) != 0) {
+        return ESP_FAIL;
+    }
+    if (had_active && rename(active_path, backup_path) != 0) {
+        return ESP_FAIL;
+    }
+
+    if (rename(staged_path, active_path) != 0) {
+        const int replace_errno = errno;
+        if (had_active && rename(backup_path, active_path) != 0) {
+            ESP_LOGW(TAG, "file replacement rollback failed: %s", active_path);
+        }
+        errno = replace_errno;
+        return ESP_FAIL;
+    }
+
+    if (had_active && remove(backup_path) != 0) {
+        ESP_LOGW(TAG, "stale replacement backup remains: %s", backup_path);
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_storage_read_file(const char *path,
                                      void *buffer,
                                      size_t buffer_len,

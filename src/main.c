@@ -56,6 +56,9 @@
 #endif
 #include "solar_os_joystick.h"
 #include "solar_os_jobs.h"
+#if SOLAR_OS_PACKAGE_SERVICE_JSON
+#include "solar_os_json.h"
+#endif
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_onewire.h"
@@ -1254,6 +1257,13 @@ static void update_status(void)
 
 static void init_peripherals(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_JSON
+    const esp_err_t json_err = solar_os_json_init();
+    if (json_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "JSON service unavailable: %s", esp_err_to_name(json_err));
+    }
+#endif
+
     const esp_err_t stream_err = solar_os_stream_init();
     if (stream_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Stream service unavailable: %s",

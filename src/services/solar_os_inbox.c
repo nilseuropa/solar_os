@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -232,15 +231,6 @@ static uint64_t inbox_dedupe_hash(const solar_os_inbox_publish_t *message)
     return hash != 0 ? hash : 1U;
 }
 
-static esp_err_t inbox_sync_file(FILE *file)
-{
-    if (fflush(file) != 0) {
-        return ESP_FAIL;
-    }
-    const int fd = fileno(file);
-    return fd >= 0 && fsync(fd) == 0 ? ESP_OK : ESP_FAIL;
-}
-
 static void inbox_make_header(inbox_store_header_t *header, uint32_t generation)
 {
     memset(header, 0, sizeof(*header));
@@ -326,7 +316,7 @@ static esp_err_t inbox_store_reset_locked(void)
             break;
         }
     }
-    esp_err_t err = ok ? inbox_sync_file(file) : ESP_FAIL;
+    esp_err_t err = ok ? solar_os_storage_sync_file(file) : ESP_FAIL;
     if (fclose(file) != 0 && err == ESP_OK) {
         err = ESP_FAIL;
     }
@@ -362,7 +352,7 @@ static esp_err_t inbox_store_write_locked(size_t index, bool update_header)
         err = ESP_FAIL;
     }
     if (err == ESP_OK) {
-        err = inbox_sync_file(file);
+        err = solar_os_storage_sync_file(file);
     }
 
     uint32_t generation = inbox_store_generation;
@@ -380,7 +370,7 @@ static esp_err_t inbox_store_write_locked(size_t index, bool update_header)
             err = ESP_FAIL;
         }
         if (err == ESP_OK) {
-            err = inbox_sync_file(file);
+            err = solar_os_storage_sync_file(file);
         }
     }
 
@@ -400,10 +390,10 @@ static esp_err_t inbox_store_rewrite_locked(void)
 {
     char temporary[SOLAR_OS_STORAGE_PATH_MAX];
     char backup[SOLAR_OS_STORAGE_PATH_MAX];
-    if (snprintf(temporary, sizeof(temporary), "%s.tmp", inbox_store_path) >=
-            (int)sizeof(temporary) ||
-        snprintf(backup, sizeof(backup), "%s.bak", inbox_store_path) >=
-            (int)sizeof(backup)) {
+    if (solar_os_storage_sibling_path(
+            inbox_store_path, ".tmp", temporary, sizeof(temporary)) != ESP_OK ||
+        solar_os_storage_sibling_path(
+            inbox_store_path, ".bak", backup, sizeof(backup)) != ESP_OK) {
         inbox_storage_error = ESP_ERR_INVALID_SIZE;
         return inbox_storage_error;
     }
@@ -441,7 +431,7 @@ static esp_err_t inbox_store_rewrite_locked(void)
         }
     }
     if (err == ESP_OK) {
-        err = inbox_sync_file(file);
+        err = solar_os_storage_sync_file(file);
     }
     if (fclose(file) != 0 && err == ESP_OK) {
         err = ESP_FAIL;
@@ -452,27 +442,12 @@ static esp_err_t inbox_store_rewrite_locked(void)
         return err;
     }
 
-    (void)solar_os_storage_remove(backup);
-    err = solar_os_storage_rename(inbox_store_path, backup);
-    if (err == ESP_OK) {
-        err = solar_os_storage_rename(temporary, inbox_store_path);
-        if (err != ESP_OK) {
-            const esp_err_t restore_error =
-                solar_os_storage_rename(backup, inbox_store_path);
-            if (restore_error != ESP_OK) {
-                SOLAR_OS_LOGE(TAG,
-                              "store rewrite rollback failed: %s",
-                              esp_err_to_name(restore_error));
-            }
-        }
-    }
+    err = solar_os_storage_replace_file(temporary, inbox_store_path, backup);
     if (err != ESP_OK) {
         (void)solar_os_storage_remove(temporary);
         inbox_storage_error = err;
         return err;
     }
-    (void)solar_os_storage_remove(backup);
-
     inbox_store_generation = generation;
     inbox_persistent = true;
     inbox_storage_error = ESP_OK;

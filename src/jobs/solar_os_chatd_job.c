@@ -20,6 +20,7 @@
 #include "lwip/sockets.h"
 #include "solar_os_chat_protocol.h"
 #include "solar_os_jobs.h"
+#include "solar_os_json_scan.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
@@ -589,227 +590,6 @@ static bool chatd_channel_valid(const char *channel)
     return true;
 }
 
-static const char *chatd_skip_ws(const char *p)
-{
-    while (p != NULL && isspace((unsigned char)*p)) {
-        p++;
-    }
-    return p;
-}
-
-static const char *chatd_parse_json_string(const char *p,
-                                           char *out,
-                                           size_t out_len,
-                                           bool *truncated)
-{
-    if (p == NULL || *p != '"' || out == NULL || out_len == 0) {
-        return NULL;
-    }
-    if (truncated != NULL) {
-        *truncated = false;
-    }
-
-    p++;
-    size_t out_pos = 0;
-    while (*p != '\0') {
-        unsigned char ch = (unsigned char)*p++;
-        if (ch == '"') {
-            out[out_pos] = '\0';
-            return p;
-        }
-        if (ch == '\\') {
-            ch = (unsigned char)*p++;
-            switch (ch) {
-            case '"':
-            case '\\':
-            case '/':
-                break;
-            case 'b':
-                ch = '\b';
-                break;
-            case 'f':
-                ch = '\f';
-                break;
-            case 'n':
-                ch = '\n';
-                break;
-            case 'r':
-                ch = '\r';
-                break;
-            case 't':
-                ch = '\t';
-                break;
-            case 'u':
-                if (!isxdigit((unsigned char)p[0]) ||
-                    !isxdigit((unsigned char)p[1]) ||
-                    !isxdigit((unsigned char)p[2]) ||
-                    !isxdigit((unsigned char)p[3])) {
-                    return NULL;
-                }
-                p += 4;
-                ch = '?';
-                break;
-            default:
-                return NULL;
-            }
-        }
-        if (out_pos + 1U < out_len) {
-            out[out_pos++] = (char)ch;
-        } else if (truncated != NULL) {
-            *truncated = true;
-        }
-    }
-    return NULL;
-}
-
-static const char *chatd_skip_json_value(const char *p)
-{
-    p = chatd_skip_ws(p);
-    if (p == NULL) {
-        return NULL;
-    }
-    if (*p == '"') {
-        char scratch[2];
-        return chatd_parse_json_string(p, scratch, sizeof(scratch), NULL);
-    }
-    if (*p == '{' || *p == '[') {
-        const char open = *p++;
-        const char close = open == '{' ? '}' : ']';
-        int depth = 1;
-        while (*p != '\0') {
-            if (*p == '"') {
-                char scratch[2];
-                p = chatd_parse_json_string(p, scratch, sizeof(scratch), NULL);
-                if (p == NULL) {
-                    return NULL;
-                }
-                continue;
-            }
-            if (*p == open) {
-                depth++;
-            } else if (*p == close) {
-                depth--;
-                if (depth == 0) {
-                    return p + 1;
-                }
-            }
-            p++;
-        }
-        return NULL;
-    }
-    while (*p != '\0' && *p != ',' && *p != '}') {
-        p++;
-    }
-    return p;
-}
-
-static bool chatd_json_get_string(const char *json,
-                                  const char *key,
-                                  char *out,
-                                  size_t out_len)
-{
-    if (json == NULL || key == NULL || out == NULL || out_len == 0) {
-        return false;
-    }
-    out[0] = '\0';
-
-    const char *p = chatd_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-
-    while (*p != '\0') {
-        p = chatd_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-
-        char member[32];
-        p = chatd_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chatd_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chatd_skip_ws(p + 1);
-
-        if (strcmp(member, key) == 0 && *p == '"') {
-            return chatd_parse_json_string(p, out, out_len, NULL) != NULL;
-        }
-
-        p = chatd_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chatd_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-    return false;
-}
-
-static bool chatd_json_get_u64(const char *json,
-                               const char *key,
-                               uint64_t *value)
-{
-    if (json == NULL || key == NULL || value == NULL) {
-        return false;
-    }
-    const char *p = chatd_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-    while (*p != '\0') {
-        p = chatd_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-        char member[32];
-        p = chatd_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chatd_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chatd_skip_ws(p + 1);
-        if (strcmp(member, key) == 0) {
-            if (!isdigit((unsigned char)*p)) {
-                return false;
-            }
-            uint64_t parsed = 0;
-            while (isdigit((unsigned char)*p)) {
-                const uint8_t digit = (uint8_t)(*p++ - '0');
-                if (parsed > (UINT64_MAX - digit) / 10U) {
-                    return false;
-                }
-                parsed = parsed * 10U + digit;
-            }
-            *value = parsed;
-            return true;
-        }
-        p = chatd_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chatd_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-    return false;
-}
-
 static int chatd_find_channel(chatd_job_state_t *state, const char *channel)
 {
     if (state == NULL || channel == NULL) {
@@ -1117,9 +897,9 @@ static void chatd_handle_hello(chatd_job_state_t *state, size_t client_index, co
     char user[SOLAR_OS_CHAT_USER_MAX] = {0};
     char device[SOLAR_OS_CHAT_DEVICE_MAX] = {0};
 
-    (void)chatd_json_get_string(line, "token", token, sizeof(token));
-    (void)chatd_json_get_string(line, "user", user, sizeof(user));
-    (void)chatd_json_get_string(line, "device", device, sizeof(device));
+    (void)solar_os_json_scan_object_string(line, "token", token, sizeof(token), NULL);
+    (void)solar_os_json_scan_object_string(line, "user", user, sizeof(user), NULL);
+    (void)solar_os_json_scan_object_string(line, "device", device, sizeof(device), NULL);
 
     if (state->token_set && strcmp(token, state->token) != 0) {
         (void)chatd_send_event(state,
@@ -1171,7 +951,7 @@ static void chatd_process_line(chatd_job_state_t *state, size_t client_index, co
     char type[24] = {0};
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX] = {0};
 
-    if (!chatd_json_get_string(line, "type", type, sizeof(type))) {
+    if (!solar_os_json_scan_object_string(line, "type", type, sizeof(type), NULL)) {
         (void)chatd_send_event(state,
                                client,
                                "error",
@@ -1205,18 +985,21 @@ static void chatd_process_line(chatd_job_state_t *state, size_t client_index, co
 
     if (strcmp(type, "join") == 0) {
         uint64_t cursor = 0;
-        if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
+        if (!solar_os_json_scan_object_string(
+                line, "channel", channel, sizeof(channel), NULL)) {
             strlcpy(channel, CHATD_DEFAULT_CHANNEL, sizeof(channel));
         }
-        (void)chatd_json_get_u64(line, "cursor", &cursor);
+        (void)solar_os_json_scan_object_uint64(line, "cursor", &cursor);
         chatd_client_join(state, client_index, channel, cursor);
     } else if (strcmp(type, "leave") == 0) {
-        if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
+        if (!solar_os_json_scan_object_string(
+                line, "channel", channel, sizeof(channel), NULL)) {
             strlcpy(channel, CHATD_DEFAULT_CHANNEL, sizeof(channel));
         }
         chatd_client_leave(state, client_index, channel);
     } else if (strcmp(type, "delete") == 0) {
-        if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
+        if (!solar_os_json_scan_object_string(
+                line, "channel", channel, sizeof(channel), NULL)) {
             (void)chatd_send_event(state,
                                    client,
                                    "error",
@@ -1230,10 +1013,12 @@ static void chatd_process_line(chatd_job_state_t *state, size_t client_index, co
         }
         chatd_client_delete_channel(state, client_index, channel);
     } else if (strcmp(type, "msg") == 0) {
-        if (!chatd_json_get_string(line, "channel", channel, sizeof(channel))) {
+        if (!solar_os_json_scan_object_string(
+                line, "channel", channel, sizeof(channel), NULL)) {
             strlcpy(channel, CHATD_DEFAULT_CHANNEL, sizeof(channel));
         }
-        if (!chatd_json_get_string(line, "text", state->text_arg, SOLAR_OS_CHAT_TEXT_MAX)) {
+        if (!solar_os_json_scan_object_string(
+                line, "text", state->text_arg, SOLAR_OS_CHAT_TEXT_MAX, NULL)) {
             (void)chatd_send_event(state,
                                    client,
                                    "error",

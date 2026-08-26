@@ -200,6 +200,59 @@ static void assert_copy_cancel(void)
     assert(remove(source) == 0);
 }
 
+static void write_text(const char *path, const char *text)
+{
+    FILE *file = fopen(path, "wb");
+    assert(file != NULL);
+    assert(fputs(text, file) >= 0);
+    assert(solar_os_storage_sync_file(file) == ESP_OK);
+    assert(fclose(file) == 0);
+}
+
+static void assert_file_text(const char *path, const char *expected)
+{
+    FILE *file = fopen(path, "rb");
+    assert(file != NULL);
+    char actual[32];
+    assert(fgets(actual, sizeof(actual), file) != NULL);
+    assert(fclose(file) == 0);
+    assert(strcmp(actual, expected) == 0);
+}
+
+static void assert_replace_file(void)
+{
+    char active[] = "/tmp/solaros-storage-active-XXXXXX";
+    const int active_fd = mkstemp(active);
+    assert(active_fd >= 0);
+    assert(close(active_fd) == 0);
+
+    char staged[SOLAR_OS_STORAGE_PATH_MAX];
+    char backup[SOLAR_OS_STORAGE_PATH_MAX];
+    assert(solar_os_storage_sibling_path(
+        active, ".tmp", staged, sizeof(staged)) == ESP_OK);
+    assert(solar_os_storage_sibling_path(
+        active, ".bak", backup, sizeof(backup)) == ESP_OK);
+
+    write_text(active, "old");
+    write_text(staged, "new");
+    write_text(backup, "stale");
+    assert(solar_os_storage_replace_file(staged, active, backup) == ESP_OK);
+    assert_file_text(active, "new");
+    assert(access(staged, F_OK) != 0);
+    assert(access(backup, F_OK) != 0);
+
+    write_text(staged, "first");
+    assert(remove(active) == 0);
+    assert(solar_os_storage_replace_file(staged, active, backup) == ESP_OK);
+    assert_file_text(active, "first");
+    assert(remove(active) == 0);
+
+    assert(solar_os_storage_replace_file(staged, active, backup) ==
+           ESP_ERR_NOT_FOUND);
+    assert(solar_os_storage_sibling_path(
+        active, ".too-long", staged, 4U) == ESP_ERR_INVALID_SIZE);
+}
+
 int main(void)
 {
     assert(solar_os_storage_block_count() == 3);
@@ -217,6 +270,7 @@ int main(void)
 
     assert_copy_progress();
     assert_copy_cancel();
+    assert_replace_file();
 
     puts("storage mount tests: ok");
     return 0;

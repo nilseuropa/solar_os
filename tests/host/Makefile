@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -62,6 +62,10 @@ storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage
 		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
 		-Wl,--gc-sections -o $@
+
+json_scan_test: json_scan_test.c $(ROOT)/src/services/solar_os_json_scan.c $(ROOT)/src/services/solar_os_json_scan.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		json_scan_test.c $(ROOT)/src/services/solar_os_json_scan.c -o $@
 
 keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -213,6 +217,7 @@ test: $(TARGETS)
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
+	./json_scan_test
 	./keys_test
 	./input_test
 	./board_caps_test

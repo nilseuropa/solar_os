@@ -106,6 +106,42 @@ esp_err_t solar_os_storage_rename(const char *old_path, const char *new_path)
     return rename(old_path, new_path) == 0 ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t solar_os_storage_sync_file(FILE *file)
+{
+    return file != NULL && fflush(file) == 0 && fsync(fileno(file)) == 0 ?
+        ESP_OK : ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_sibling_path(const char *path,
+                                        const char *suffix,
+                                        char *out,
+                                        size_t out_len)
+{
+    const int written = snprintf(out, out_len, "%s%s", path, suffix);
+    return written >= 0 && (size_t)written < out_len ?
+        ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t solar_os_storage_replace_file(const char *staged_path,
+                                        const char *active_path,
+                                        const char *backup_path)
+{
+    struct stat info;
+    const bool had_active = stat(active_path, &info) == 0;
+    (void)unlink(backup_path);
+    if (had_active && rename(active_path, backup_path) != 0) {
+        return ESP_FAIL;
+    }
+    if (rename(staged_path, active_path) != 0) {
+        if (had_active) {
+            (void)rename(backup_path, active_path);
+        }
+        return ESP_FAIL;
+    }
+    (void)unlink(backup_path);
+    return ESP_OK;
+}
+
 esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
 {
     assert(strcmp(name, "webradio") == 0);
