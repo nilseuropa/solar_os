@@ -1,13 +1,38 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "nvs.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 
 static int64_t now_us;
+static size_t pointer_queue_allocations;
+static size_t pointer_queue_frees;
+
+void *solar_os_memory_calloc(size_t count,
+                             size_t size,
+                             solar_os_memory_class_t memory_class,
+                             const char *tag)
+{
+    assert(count == 32);
+    assert(size == sizeof(solar_os_input_pointer_event_t));
+    assert(memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED);
+    assert(strcmp(tag, "input-pointer") == 0);
+    pointer_queue_allocations++;
+    return calloc(count, size);
+}
+
+void solar_os_memory_free(void *ptr)
+{
+    if (ptr != NULL) {
+        pointer_queue_frees++;
+        free(ptr);
+    }
+}
 
 int64_t esp_timer_get_time(void)
 {
@@ -95,6 +120,7 @@ int main(void)
     assert(solar_os_input_source_open("buttons", &buttons) == ESP_OK);
     assert(keyboard != buttons);
     assert(solar_os_input_keyboard_count() == 0);
+    assert(pointer_queue_allocations == 0);
 
     solar_os_input_source_t keyboard_status = SOLAR_OS_INPUT_SOURCE_INVALID;
     assert(solar_os_input_keyboard_source_open("keyboard-status",
@@ -213,17 +239,29 @@ int main(void)
         .delta_y = -2,
         .target = "display0",
     };
-    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_OK);
+    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_ERR_INVALID_STATE);
+    assert(pointer_queue_allocations == 0);
+    solar_os_input_source_t pointer_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    solar_os_input_source_t pointer_source_2 = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_pointer_source_open("touch0", &pointer_source) == ESP_OK);
+    assert(pointer_queue_allocations == 1);
+    assert(solar_os_input_pointer_source_open("mouse0", &pointer_source_2) == ESP_OK);
+    assert(pointer_queue_allocations == 1);
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
     solar_os_input_pointer_event_t pointer_read = {0};
     assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
-    assert(pointer_read.source == buttons);
+    assert(pointer_read.source == pointer_source);
     assert(pointer_read.pointer_id == 2);
     assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
     assert(pointer_read.x == 123 && pointer_read.y == 45);
     assert(strcmp(pointer_read.target, "display0") == 0);
-    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_OK);
-    solar_os_input_source_close(buttons);
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
+    solar_os_input_source_close(pointer_source);
     assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 0);
+    assert(pointer_queue_frees == 0);
+    solar_os_input_source_close(pointer_source_2);
+    assert(pointer_queue_frees == 1);
+    solar_os_input_source_close(buttons);
 
     assert(solar_os_input_get_pressed(pressed, 2) == 1);
     solar_os_input_source_close(keyboard);

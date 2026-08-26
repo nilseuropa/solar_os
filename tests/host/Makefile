@@ -83,8 +83,8 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h esp_timer.h nvs.h freertos/FreeRTOS.h
-	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src/services \
+input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		input_test.c $(ROOT)/src/services/solar_os_input.c -o $@
 
 board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(ROOT)/src/services/solar_os_board_caps.h solar_os_board.h

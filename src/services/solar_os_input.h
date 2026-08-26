@@ -86,6 +86,8 @@ typedef struct {
 
 esp_err_t solar_os_input_init(void);
 esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source);
+esp_err_t solar_os_input_pointer_source_open(const char *name,
+                                             solar_os_input_source_t *source);
 esp_err_t solar_os_input_keyboard_source_open(const char *name,
                                               bool ready,
                                               solar_os_input_source_t *source);
