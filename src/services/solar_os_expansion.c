@@ -8,6 +8,9 @@
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
 #include "solar_os_pins.h"
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+#include "solar_os_analog_joystick.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
 #include "solar_os_pcd8544.h"
 #endif
@@ -59,8 +62,58 @@ static const solar_os_expansion_binding_spec_t ps2_keyboard_binding_specs[] = {
 #include "solar_os_pcm5102.h"
 #endif
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
+
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+static const solar_os_expansion_binding_spec_t analog_joystick_binding_specs[] = {
+    {
+        .key = "x",
+        .value_hint = "scalar-stream",
+        .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+        .role = "x",
+        .required = true,
+    },
+    {
+        .key = "y",
+        .value_hint = "scalar-stream",
+        .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+        .role = "y",
+        .required = true,
+    },
+    {
+        .key = "min",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "min",
+        .required = true,
+    },
+    {
+        .key = "center",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "center",
+        .required = true,
+    },
+    {
+        .key = "max",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "max",
+        .required = true,
+    },
+    {
+        .key = "deadzone",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "deadzone",
+        .has_value_range = true,
+        .min_value = 0,
+        .max_value = 1000000,
+    },
+};
+#endif
 
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 static const solar_os_expansion_binding_spec_t rfm69_binding_specs[] = {
@@ -239,6 +292,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .probe_supported = false,
         .allow_unlisted_bindings = true,
     },
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+    {
+        .name = "analog-joystick",
+        .summary = "two-axis joystick from scalar streams",
+        .required_capabilities = 0,
+        .probe_supported = false,
+        .binding_specs = analog_joystick_binding_specs,
+        .binding_spec_count = sizeof(analog_joystick_binding_specs) /
+            sizeof(analog_joystick_binding_specs[0]),
+        .attach = solar_os_analog_joystick_attach,
+        .detach = solar_os_analog_joystick_detach,
+    },
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     {
         .name = "rfm69",
@@ -558,6 +624,8 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
         return "uart";
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         return "ps2";
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return binding->role[0] != '\0' ? binding->role : "stream";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0' ? binding->role : "parameter";
     default:
@@ -722,6 +790,8 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
         return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         return ESP_OK;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
@@ -775,6 +845,12 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         return solar_os_bus_find(binding->target,
                                  SOLAR_OS_BUS_PROTOCOL_PS2,
                                  NULL);
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
+        solar_os_stream_info_t info;
+        return solar_os_stream_get_info(binding->target, &info) == ESP_OK &&
+            info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+            info.direction != SOLAR_OS_STREAM_DIRECTION_SINK;
+    }
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0';
     default:
@@ -1526,6 +1602,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "uart";
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         return "ps2";
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return "scalar";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return "parameter";
     default:

@@ -27,6 +27,8 @@ typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 #define SOLAR_OS_APP_FLAG_KEY_EVENTS (1U << 2)
 /* Receive generic absolute or relative pointer events. */
 #define SOLAR_OS_APP_FLAG_POINTER_EVENTS (1U << 3)
+/* Receive normalized analog axis events. */
+#define SOLAR_OS_APP_FLAG_AXIS_EVENTS (1U << 4)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -82,6 +84,7 @@ typedef enum {
     SOLAR_OS_EVENT_CHAR,
     SOLAR_OS_EVENT_KEY,
     SOLAR_OS_EVENT_POINTER,
+    SOLAR_OS_EVENT_AXIS,
     SOLAR_OS_EVENT_TICK,
     SOLAR_OS_EVENT_RESUME,
 } solar_os_event_type_t;
@@ -92,6 +95,7 @@ typedef struct {
         char ch;
         solar_os_input_key_event_t key;
         solar_os_input_pointer_event_t pointer;
+        solar_os_input_axis_event_t axis;
         uint32_t tick_ms;
     } data;
 } solar_os_event_t;

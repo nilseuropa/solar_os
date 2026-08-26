@@ -3206,7 +3206,7 @@ static bool solua_expansion_key_known(const char *key)
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "ps2", "gpio", "irq", "reset",
         "rst", "data", "bck", "din", "rck", "dc", "busy", "adc", "pwm",
-        "count", "keys",
+        "count", "keys", "x", "y", "min", "center", "max", "deadzone",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -3291,6 +3291,8 @@ static int solua_expansion_attach(lua_State *L)
     const char *i2c = solua_table_optional_string(L, 3, "i2c");
     const char *uart = solua_table_optional_string(L, 3, "uart");
     const char *ps2 = solua_table_optional_string(L, 3, "ps2");
+    const char *x = solua_table_optional_string(L, 3, "x");
+    const char *y = solua_table_optional_string(L, 3, "y");
     int value = 0;
 
     if (spi != NULL) {
@@ -3373,6 +3375,26 @@ static int solua_expansion_attach(lua_State *L)
                                     -1,
                                     -1);
     }
+    if (x != NULL) {
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                                    "x",
+                                    x,
+                                    -1,
+                                    -1);
+    }
+    if (y != NULL) {
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                                    "y",
+                                    y,
+                                    -1,
+                                    -1);
+    }
 
     lua_getfield(L, 3, "keys");
     if (!lua_isnil(L, -1)) {
@@ -3428,6 +3450,24 @@ static int solua_expansion_attach(lua_State *L)
                                     &binding_count,
                                     SOLAR_OS_EXPANSION_BINDING_PARAMETER,
                                     "count",
+                                    "",
+                                    value,
+                                    -1);
+    }
+    static const char *const parameter_bindings[] = {
+        "min", "center", "max", "deadzone",
+    };
+    for (size_t i = 0;
+         i < sizeof(parameter_bindings) / sizeof(parameter_bindings[0]);
+         i++) {
+        if (!solua_table_optional_int(L, 3, parameter_bindings[i], &value)) {
+            continue;
+        }
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                                    parameter_bindings[i],
                                     "",
                                     value,
                                     -1);

@@ -3396,7 +3396,7 @@ static bool python_expansion_key_known(const char *key)
     static const char *const keys[] = {
         "spi", "cs", "ce", "i2c", "addr", "uart", "ps2", "gpio", "irq", "reset",
         "rst", "data", "bck", "din", "rck", "dc", "busy", "adc", "pwm",
-        "count", "keys",
+        "count", "keys", "x", "y", "min", "center", "max", "deadzone",
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
         if (strcmp(key, keys[i]) == 0) {
@@ -3457,10 +3457,14 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
     const mp_obj_t i2c_obj = python_get_dict_obj(config_obj, "i2c", false);
     const mp_obj_t uart_obj = python_get_dict_obj(config_obj, "uart", false);
     const mp_obj_t ps2_obj = python_get_dict_obj(config_obj, "ps2", false);
+    const mp_obj_t x_obj = python_get_dict_obj(config_obj, "x", false);
+    const mp_obj_t y_obj = python_get_dict_obj(config_obj, "y", false);
     const char *spi = spi_obj != MP_OBJ_NULL ? mp_obj_str_get_str(spi_obj) : NULL;
     const char *i2c = i2c_obj != MP_OBJ_NULL ? mp_obj_str_get_str(i2c_obj) : NULL;
     const char *uart = uart_obj != MP_OBJ_NULL ? mp_obj_str_get_str(uart_obj) : NULL;
     const char *ps2 = ps2_obj != MP_OBJ_NULL ? mp_obj_str_get_str(ps2_obj) : NULL;
+    const char *x = x_obj != MP_OBJ_NULL ? mp_obj_str_get_str(x_obj) : NULL;
+    const char *y = y_obj != MP_OBJ_NULL ? mp_obj_str_get_str(y_obj) : NULL;
 
     if (spi != NULL) {
         python_expansion_add_binding(bindings,
@@ -3536,6 +3540,24 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
                                      -1,
                                      -1);
     }
+    if (x != NULL) {
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                                     "x",
+                                     x,
+                                     -1,
+                                     -1);
+    }
+    if (y != NULL) {
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                                     "y",
+                                     y,
+                                     -1,
+                                     -1);
+    }
 
     const mp_obj_t keys_obj = python_get_dict_obj(config_obj, "keys", false);
     if (keys_obj != MP_OBJ_NULL) {
@@ -3595,6 +3617,26 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
                                      "count",
                                      "",
                                      mp_obj_get_int(count_obj),
+                                     -1);
+    }
+    static const char *const parameter_bindings[] = {
+        "min", "center", "max", "deadzone",
+    };
+    for (size_t i = 0;
+         i < sizeof(parameter_bindings) / sizeof(parameter_bindings[0]);
+         i++) {
+        const mp_obj_t value = python_get_dict_obj(config_obj,
+                                                   parameter_bindings[i],
+                                                   false);
+        if (value == MP_OBJ_NULL) {
+            continue;
+        }
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                                     parameter_bindings[i],
+                                     "",
+                                     mp_obj_get_int(value),
                                      -1);
     }
     for (size_t i = 0; i < sizeof(pin_bindings) / sizeof(pin_bindings[0]); i++) {

@@ -13,6 +13,7 @@
 #define INPUT_SOURCE_MAX 8U
 #define INPUT_QUEUE_MAX 64U
 #define INPUT_POINTER_QUEUE_MAX 32U
+#define INPUT_AXIS_QUEUE_MAX 32U
 #define INPUT_REPEAT_RATE_DEFAULT 15U
 #define INPUT_REPEAT_DELAY_DEFAULT_MS 450U
 #define INPUT_NVS_NAMESPACE "input"
@@ -59,6 +60,9 @@ static size_t input_queue_count;
 static solar_os_input_pointer_event_t *input_pointer_queue;
 static size_t input_pointer_queue_head;
 static size_t input_pointer_queue_count;
+static solar_os_input_axis_event_t *input_axis_queue;
+static size_t input_axis_queue_head;
+static size_t input_axis_queue_count;
 static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
@@ -162,6 +166,30 @@ static bool input_pointer_queue_push_locked(const solar_os_input_pointer_event_t
         (input_pointer_queue_head + input_pointer_queue_count) % INPUT_POINTER_QUEUE_MAX;
     input_pointer_queue[index] = *event;
     input_pointer_queue_count++;
+    return true;
+}
+
+static bool input_axis_queue_push_locked(const solar_os_input_axis_event_t *event)
+{
+    if (event == NULL || input_axis_queue == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < input_axis_queue_count; i++) {
+        const size_t index = (input_axis_queue_head + i) % INPUT_AXIS_QUEUE_MAX;
+        if (input_axis_queue[index].source == event->source &&
+            input_axis_queue[index].axis == event->axis) {
+            input_axis_queue[index].value = event->value;
+            input_axis_queue[index].delta += event->delta;
+            return true;
+        }
+    }
+    if (input_axis_queue_count >= INPUT_AXIS_QUEUE_MAX) {
+        return false;
+    }
+    const size_t index =
+        (input_axis_queue_head + input_axis_queue_count) % INPUT_AXIS_QUEUE_MAX;
+    input_axis_queue[index] = *event;
+    input_axis_queue_count++;
     return true;
 }
 
@@ -353,12 +381,19 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
         return ESP_ERR_INVALID_ARG;
     }
 
-    solar_os_input_pointer_event_t *candidate = NULL;
+    solar_os_input_pointer_event_t *pointer_candidate = NULL;
+    solar_os_input_axis_event_t *axis_candidate = NULL;
     for (;;) {
         portENTER_CRITICAL(&input_lock);
         const bool needs_pointer_queue =
             (capabilities & INPUT_POINTER_CAPABILITIES) != 0;
-        if (!needs_pointer_queue || input_pointer_queue != NULL || candidate != NULL) {
+        const bool needs_axis_queue =
+            (capabilities & SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0;
+        const bool pointer_ready = !needs_pointer_queue ||
+            input_pointer_queue != NULL || pointer_candidate != NULL;
+        const bool axis_ready = !needs_axis_queue ||
+            input_axis_queue != NULL || axis_candidate != NULL;
+        if (pointer_ready && axis_ready) {
             const esp_err_t result = input_source_open_locked(name,
                                                               source_class,
                                                               capabilities,
@@ -366,21 +401,41 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
                                                               source);
             if (result == ESP_OK && needs_pointer_queue &&
                 input_pointer_queue == NULL) {
-                input_pointer_queue = candidate;
-                candidate = NULL;
+                input_pointer_queue = pointer_candidate;
+                pointer_candidate = NULL;
+            }
+            if (result == ESP_OK && needs_axis_queue && input_axis_queue == NULL) {
+                input_axis_queue = axis_candidate;
+                axis_candidate = NULL;
             }
             portEXIT_CRITICAL(&input_lock);
-            solar_os_memory_free(candidate);
+            solar_os_memory_free(pointer_candidate);
+            solar_os_memory_free(axis_candidate);
             return result;
         }
         portEXIT_CRITICAL(&input_lock);
 
-        candidate = solar_os_memory_calloc(INPUT_POINTER_QUEUE_MAX,
-                                           sizeof(*candidate),
-                                           SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                           "input-pointer");
-        if (candidate == NULL) {
-            return ESP_ERR_NO_MEM;
+        if (!pointer_ready) {
+            pointer_candidate = solar_os_memory_calloc(
+                INPUT_POINTER_QUEUE_MAX,
+                sizeof(*pointer_candidate),
+                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                "input-pointer");
+            if (pointer_candidate == NULL) {
+                solar_os_memory_free(axis_candidate);
+                return ESP_ERR_NO_MEM;
+            }
+        }
+        if (!axis_ready) {
+            axis_candidate = solar_os_memory_calloc(
+                INPUT_AXIS_QUEUE_MAX,
+                sizeof(*axis_candidate),
+                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                "input-axis");
+            if (axis_candidate == NULL) {
+                solar_os_memory_free(pointer_candidate);
+                return ESP_ERR_NO_MEM;
+            }
         }
     }
 }
@@ -438,6 +493,16 @@ esp_err_t solar_os_input_mouse_source_open(const char *name,
             SOLAR_OS_INPUT_CAP_SCROLL,
         true,
         source);
+}
+
+esp_err_t solar_os_input_joystick_source_open(const char *name,
+                                              solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(name,
+                                            SOLAR_OS_INPUT_SOURCE_JOYSTICK,
+                                            SOLAR_OS_INPUT_CAP_AXIS_EVENTS,
+                                            true,
+                                            source);
 }
 
 esp_err_t solar_os_input_keyboard_source_open(const char *name,
@@ -577,6 +642,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
 
     solar_os_input_pointer_event_t *pointer_queue_to_free = NULL;
+    solar_os_input_axis_event_t *axis_queue_to_free = NULL;
     portENTER_CRITICAL(&input_lock);
     if (!input_source_valid_locked(source)) {
         portEXIT_CRITICAL(&input_lock);
@@ -608,6 +674,20 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     if (input_pointer_queue_count == 0) {
         input_pointer_queue_head = 0;
     }
+    const size_t axis_event_count = input_axis_queue_count;
+    for (size_t i = 0; i < axis_event_count; i++) {
+        const solar_os_input_axis_event_t event =
+            input_axis_queue[input_axis_queue_head];
+        input_axis_queue_head =
+            (input_axis_queue_head + 1U) % INPUT_AXIS_QUEUE_MAX;
+        input_axis_queue_count--;
+        if (event.source != source) {
+            (void)input_axis_queue_push_locked(&event);
+        }
+    }
+    if (input_axis_queue_count == 0) {
+        input_axis_queue_head = 0;
+    }
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
             memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
@@ -618,6 +698,9 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
     const bool pointer_source =
         (input_sources[source - 1U].capabilities & INPUT_POINTER_CAPABILITIES) != 0;
+    const bool axis_source =
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0;
     memset(&input_sources[source - 1U], 0, sizeof(input_sources[source - 1U]));
     if (pointer_source) {
         bool another_pointer_source = false;
@@ -635,8 +718,26 @@ void solar_os_input_source_close(solar_os_input_source_t source)
             input_pointer_queue_count = 0;
         }
     }
+    if (axis_source) {
+        bool another_axis_source = false;
+        for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+            if (input_sources[i].active &&
+                (input_sources[i].capabilities &
+                 SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0) {
+                another_axis_source = true;
+                break;
+            }
+        }
+        if (!another_axis_source) {
+            axis_queue_to_free = input_axis_queue;
+            input_axis_queue = NULL;
+            input_axis_queue_head = 0;
+            input_axis_queue_count = 0;
+        }
+    }
     portEXIT_CRITICAL(&input_lock);
     solar_os_memory_free(pointer_queue_to_free);
+    solar_os_memory_free(axis_queue_to_free);
 }
 
 esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
@@ -768,6 +869,32 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
     return result;
 }
 
+esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
+                                    const solar_os_input_axis_event_t *event)
+{
+    if (event == NULL || event->axis < SOLAR_OS_INPUT_AXIS_X ||
+        event->axis >= SOLAR_OS_INPUT_AXIS_COUNT) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_AXIS_EVENTS) == 0 ||
+        input_axis_queue == NULL) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        solar_os_input_axis_event_t queued = *event;
+        queued.source = source;
+        if (!input_axis_queue_push_locked(&queued)) {
+            result = ESP_ERR_NO_MEM;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count)
 {
     if (events == NULL || event_count == 0) {
@@ -807,6 +934,29 @@ size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events
     }
     if (input_pointer_queue_count == 0) {
         input_pointer_queue_head = 0;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return count;
+}
+
+size_t solar_os_input_read_axis_events(solar_os_input_axis_event_t *events,
+                                       size_t event_count)
+{
+    if (events == NULL || event_count == 0) {
+        return 0;
+    }
+
+    portENTER_CRITICAL(&input_lock);
+    size_t count = 0;
+    while (input_axis_queue != NULL && count < event_count &&
+           input_axis_queue_count > 0) {
+        events[count++] = input_axis_queue[input_axis_queue_head];
+        input_axis_queue_head =
+            (input_axis_queue_head + 1U) % INPUT_AXIS_QUEUE_MAX;
+        input_axis_queue_count--;
+    }
+    if (input_axis_queue_count == 0) {
+        input_axis_queue_head = 0;
     }
     portEXIT_CRITICAL(&input_lock);
     return count;

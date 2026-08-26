@@ -40,7 +40,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
-#include "solar_os_joystick.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -1097,6 +1096,26 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
     }
 }
 
+static void dispatch_input_axis(const solar_os_input_axis_event_t *axis)
+{
+    if (axis == NULL) {
+        return;
+    }
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    if (input_app == NULL ||
+        (input_app->flags & SOLAR_OS_APP_FLAG_AXIS_EVENTS) == 0) {
+        return;
+    }
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_AXIS,
+        .data.axis = *axis,
+    };
+    if (solar_os_sessions_dispatch_input_event(&event)) {
+        solar_os_power_note_activity(millis_u32());
+        process_app_requests();
+    }
+}
+
 static void poll_local_input_sources(void)
 {
 #if SOLAR_OS_BOARD_HAS_POINTER
@@ -1107,11 +1126,6 @@ static void poll_local_input_sources(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
     if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
         solar_os_buttons_poll();
-    }
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    if (board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
-        solar_os_joystick_poll();
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
@@ -1140,6 +1154,14 @@ static void dispatch_input_sources(void)
             dispatch_input_pointer(&pointer_events[i]);
         }
     }
+    solar_os_input_axis_event_t axis_events[8];
+    while ((count = solar_os_input_read_axis_events(
+                axis_events,
+                sizeof(axis_events) / sizeof(axis_events[0]))) > 0) {
+        for (size_t i = 0; i < count; i++) {
+            dispatch_input_axis(&axis_events[i]);
+        }
+    }
 }
 
 static uint32_t requested_tick_interval_ms(void)
@@ -1162,11 +1184,6 @@ static bool runtime_requires_fast_poll(void)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
     if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
-        return true;
-    }
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    if (board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
         return true;
     }
 #endif

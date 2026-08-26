@@ -32,7 +32,6 @@ members = [
   "service_adc",
   "service_pwm",
   "service_buttons",
-  "service_joystick",
   "service_adc_dpad",
 ]
 
@@ -49,6 +48,7 @@ members = [
   "expansion_ssd1306",
   "expansion_sdspi",
   "expansion_cardkb",
+  "expansion_analog_joystick",
   "expansion_gpio_keys",
   "expansion_ps2_keyboard",
   "expansion_neopixel",
@@ -841,6 +841,11 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_analog_joystick]
+label = "expansion.analog-joystick"
+depends = ["service_expansion", "service_streams"]
+sources = ["services/solar_os_analog_joystick.c"]
+
 [packages.expansion_gpio_keys]
 label = "expansion.gpio-keys"
 depends = ["service_expansion", "service_gpio"]
@@ -950,12 +955,6 @@ label = "service.buttons"
 sources = ["services/solar_os_buttons.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["buttons"]
-
-[packages.service_joystick]
-label = "service.joystick"
-sources = ["services/solar_os_joystick.c"]
-requires = ["esp_adc", "esp_driver_gpio"]
-capabilities = ["joystick"]
 
 [packages.service_adc_dpad]
 label = "service.adc-dpad"

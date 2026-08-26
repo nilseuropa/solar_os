@@ -17,6 +17,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
 #endif
@@ -390,6 +391,8 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
             return "UART";
         case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
             return "PS/2";
+        case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+            return "STREAM";
         default:
             break;
         }
@@ -433,6 +436,12 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         solar_os_shell_io_printf(term,
                                  " %s=%s",
                                  solar_os_expansion_binding_kind_name(binding->kind),
+                                 binding->target);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        solar_os_shell_io_printf(term,
+                                 " %s=%s",
+                                 binding->role,
                                  binding->target);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -807,6 +816,18 @@ static bool parse_binding_token(const char *arg,
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
     }
+    if ((strcmp(key, "x") == 0 || strcmp(key, "y") == 0)) {
+        solar_os_stream_info_t info;
+        return solar_os_stream_get_info(value, &info) == ESP_OK &&
+            info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                          key,
+                          value,
+                          -1,
+                          -1);
+    }
     if (strcmp(key, "count") == 0) {
         int count = 0;
         return parse_int_arg(value, 1, 4096, &count) &&
@@ -816,6 +837,19 @@ static bool parse_binding_token(const char *arg,
                           "count",
                           "",
                           count,
+                          -1);
+    }
+    if (strcmp(key, "min") == 0 || strcmp(key, "center") == 0 ||
+        strcmp(key, "max") == 0 || strcmp(key, "deadzone") == 0) {
+        int parameter = 0;
+        const int minimum = strcmp(key, "deadzone") == 0 ? 0 : -1000000;
+        return parse_int_arg(value, minimum, 1000000, &parameter) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          key,
+                          "",
+                          parameter,
                           -1);
     }
 

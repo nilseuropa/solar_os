@@ -441,9 +441,6 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
     {"dpad", "ADC D-pad tools", solar_os_shell_cmd_dpad},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    {"joystick", "analog joystick tools", solar_os_shell_cmd_joystick},
-#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     {"ble", "BLE keyboard control", solar_os_shell_cmd_ble},
 #endif
@@ -1186,15 +1183,6 @@ static const char * const dpad_subcommands[] = {
 
 static const char * const dpad_calibrate_subcommands[] = {
     "idle",
-    "reset",
-};
-
-static const char * const joystick_subcommands[] = {
-    "status",
-    "calibrate",
-};
-
-static const char * const joystick_calibrate_subcommands[] = {
     "reset",
 };
 
@@ -2077,8 +2065,6 @@ static const char * const path_adc[] = {"adc"};
 static const char * const path_adc_read[] = {"adc", "read"};
 static const char * const path_dpad[] = {"dpad"};
 static const char * const path_dpad_calibrate[] = {"dpad", "calibrate"};
-static const char * const path_joystick[] = {"joystick"};
-static const char * const path_joystick_calibrate[] = {"joystick", "calibrate"};
 static const char * const path_pwm[] = {"pwm"};
 static const char * const path_pwm_set[] = {"pwm", "set"};
 static const char * const path_pwm_set_pin[] = {"pwm", "set", SHELL_COMPLETION_ANY};
@@ -2967,8 +2953,6 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_adc_read),
     SHELL_COMPLETION_STATIC(path_dpad, dpad_subcommands),
     SHELL_COMPLETION_STATIC(path_dpad_calibrate, dpad_calibrate_subcommands),
-    SHELL_COMPLETION_STATIC(path_joystick, joystick_subcommands),
-    SHELL_COMPLETION_STATIC(path_joystick_calibrate, joystick_calibrate_subcommands),
     SHELL_COMPLETION_STATIC(path_pwm, pwm_subcommands),
     SHELL_COMPLETION_GPIO_PINS(path_pwm_set),
     SHELL_COMPLETION_STATIC(path_pwm_set_pin, pwm_freq_values),
@@ -6732,12 +6716,18 @@ static const solar_os_expansion_binding_spec_t shell_manual_expansion_specs[] = 
     {.key = "cs", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS},
     {.key = "uart", .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT},
     {.key = "ps2", .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS},
+    {.key = "x", .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM, .role = "x"},
+    {.key = "y", .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM, .role = "y"},
     {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},
     {.key = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "gpio"},
     {.key = "irq", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
     {.key = "reset", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
     {.key = "dc", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc"},
     {.key = "busy", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy"},
+    {.key = "min", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "min"},
+    {.key = "center", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "center"},
+    {.key = "max", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "max"},
+    {.key = "deadzone", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "deadzone"},
 };
 
 static bool shell_expansion_find_driver(const char *name,
@@ -6857,6 +6847,17 @@ static void shell_completion_emit_expansion_spec(
             solar_os_bus_info_t bus;
             if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &bus)) {
                 snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        for (size_t i = 0; i < solar_os_stream_count(); i++) {
+            solar_os_stream_info_t info;
+            if (solar_os_stream_get(i, &info) &&
+                info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+                info.direction != SOLAR_OS_STREAM_DIRECTION_SINK) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, info.id);
                 shell_completion_emit(state, candidate);
             }
         }

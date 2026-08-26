@@ -12,6 +12,10 @@
 static int64_t now_us;
 static size_t pointer_queue_allocations;
 static size_t pointer_queue_frees;
+static size_t axis_queue_allocations;
+static size_t axis_queue_frees;
+static void *pointer_queue_allocation;
+static void *axis_queue_allocation;
 
 void *solar_os_memory_calloc(size_t count,
                              size_t size,
@@ -19,17 +23,35 @@ void *solar_os_memory_calloc(size_t count,
                              const char *tag)
 {
     assert(count == 32);
-    assert(size == sizeof(solar_os_input_pointer_event_t));
     assert(memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED);
-    assert(strcmp(tag, "input-pointer") == 0);
-    pointer_queue_allocations++;
-    return calloc(count, size);
+    void *allocation = calloc(count, size);
+    assert(allocation != NULL);
+    if (strcmp(tag, "input-pointer") == 0) {
+        assert(size == sizeof(solar_os_input_pointer_event_t));
+        assert(pointer_queue_allocation == NULL);
+        pointer_queue_allocation = allocation;
+        pointer_queue_allocations++;
+    } else {
+        assert(strcmp(tag, "input-axis") == 0);
+        assert(size == sizeof(solar_os_input_axis_event_t));
+        assert(axis_queue_allocation == NULL);
+        axis_queue_allocation = allocation;
+        axis_queue_allocations++;
+    }
+    return allocation;
 }
 
 void solar_os_memory_free(void *ptr)
 {
     if (ptr != NULL) {
-        pointer_queue_frees++;
+        if (ptr == pointer_queue_allocation) {
+            pointer_queue_allocation = NULL;
+            pointer_queue_frees++;
+        } else {
+            assert(ptr == axis_queue_allocation);
+            axis_queue_allocation = NULL;
+            axis_queue_frees++;
+        }
         free(ptr);
     }
 }
@@ -284,6 +306,30 @@ int main(void)
     assert(pointer_queue_frees == 0);
     solar_os_input_source_close(pointer_source_2);
     assert(pointer_queue_frees == 1);
+
+    solar_os_input_source_t joystick = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_joystick_source_open("joystick0", &joystick) == ESP_OK);
+    assert(axis_queue_allocations == 1);
+    solar_os_input_axis_event_t axis = {
+        .axis = SOLAR_OS_INPUT_AXIS_X,
+        .value = 12000,
+        .delta = 12000,
+    };
+    assert(solar_os_input_write_axis(buttons, &axis) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    axis.value = 14000;
+    axis.delta = 2000;
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    solar_os_input_axis_event_t axis_read = {0};
+    assert(solar_os_input_read_axis_events(&axis_read, 1) == 1);
+    assert(axis_read.source == joystick);
+    assert(axis_read.axis == SOLAR_OS_INPUT_AXIS_X);
+    assert(axis_read.value == 14000);
+    assert(axis_read.delta == 14000);
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    solar_os_input_source_close(joystick);
+    assert(solar_os_input_read_axis_events(&axis_read, 1) == 0);
+    assert(axis_queue_frees == 1);
     solar_os_input_source_close(buttons);
 
     assert(solar_os_input_get_pressed(pressed, 2) == 1);
