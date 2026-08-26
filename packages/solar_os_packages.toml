@@ -248,7 +248,6 @@ sources = [
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
-  "services/solar_os_pointer.c",
   "services/solar_os_keys.c",
   "services/solar_os_log.c",
   "services/solar_os_manual.c",

@@ -41,7 +41,6 @@
 #endif
 #include "solar_os_port.h"
 #include "solar_os_power.h"
-#include "solar_os_pointer.h"
 #include "solar_os_pwm.h"
 #include "solar_os_radio.h"
 #include "solar_os_resources.h"
@@ -282,16 +281,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
         if (i2c_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "I2C unavailable: %s", esp_err_to_name(i2c_err));
         } else {
-#if SOLAR_OS_BOARD_HAS_POINTER
-            if (solar_os_board_has(SOLAR_OS_BOARD_CAP_POINTER)) {
-                const esp_err_t pointer_err = solar_os_pointer_init();
-                if (pointer_err != ESP_OK) {
-                    SOLAR_OS_LOGW(TAG,
-                                  "Pointer unavailable: %s",
-                                  esp_err_to_name(pointer_err));
-                }
-            }
-#endif
 #if SOLAR_OS_PACKAGE_SERVICE_RTC
             if (solar_os_board_has(SOLAR_OS_BOARD_CAP_RTC)) {
                 const esp_err_t rtc_err = solar_os_time_init();

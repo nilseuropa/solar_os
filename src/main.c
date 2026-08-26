@@ -46,7 +46,9 @@
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
 #include "solar_os_power.h"
-#include "solar_os_pointer.h"
+#if SOLAR_OS_BOARD_HAS_POINTER
+#include "solar_os_ft6336.h"
+#endif
 #include "solar_os_radio.h"
 #include "solar_os_sessions.h"
 #include "solar_os_shell.h"
@@ -1099,7 +1101,7 @@ static void poll_local_input_sources(void)
 {
 #if SOLAR_OS_BOARD_HAS_POINTER
     if (board_has(SOLAR_OS_BOARD_CAP_POINTER)) {
-        solar_os_pointer_poll();
+        solar_os_ft6336_poll();
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS

@@ -26,6 +26,9 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
 #include "solar_os_cardkb.h"
 #endif
+#if SOLAR_OS_BOARD_HAS_POINTER
+#include "solar_os_ft6336.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
 #endif
@@ -108,6 +111,39 @@ static const solar_os_expansion_binding_spec_t cardkb_binding_specs[] = {
         .allowed_values = cardkb_i2c_addresses,
         .allowed_value_count = sizeof(cardkb_i2c_addresses) /
             sizeof(cardkb_i2c_addresses[0]),
+    },
+};
+#endif
+
+#if SOLAR_OS_BOARD_HAS_POINTER
+#define FT6336_ADDRESS 0x38
+
+static const int ft6336_i2c_addresses[] = {FT6336_ADDRESS};
+
+static const solar_os_expansion_binding_spec_t ft6336_binding_specs[] = {
+    {.key = "i2c", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .required = true},
+    {
+        .key = "addr",
+        .value_hint = "0x38",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .required = true,
+        .allowed_values = ft6336_i2c_addresses,
+        .allowed_value_count = sizeof(ft6336_i2c_addresses) /
+            sizeof(ft6336_i2c_addresses[0]),
+    },
+    {
+        .key = "reset",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "reset",
+        .required = true,
+    },
+    {
+        .key = "irq",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "irq",
+        .required = true,
     },
 };
 #endif
@@ -281,6 +317,20 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
             sizeof(cardkb_binding_specs[0]),
         .attach = solar_os_cardkb_attach,
         .detach = solar_os_cardkb_detach,
+    },
+#endif
+#if SOLAR_OS_BOARD_HAS_POINTER
+    {
+        .name = "ft6336",
+        .summary = "FocalTech FT6336 capacitive touchscreen",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_POINTER |
+            SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+        .probe_supported = true,
+        .binding_specs = ft6336_binding_specs,
+        .binding_spec_count = sizeof(ft6336_binding_specs) /
+            sizeof(ft6336_binding_specs[0]),
+        .attach = solar_os_ft6336_attach,
+        .detach = solar_os_ft6336_detach,
     },
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
@@ -638,15 +688,22 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
 
 static bool binding_valid(const solar_os_expansion_binding_t *binding,
                           const solar_os_expansion_binding_t *bindings,
-                          size_t binding_count)
+                          size_t binding_count,
+                          bool allow_board_pins)
 {
     switch (binding->kind) {
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
-        return pin_is_expansion_gpio(binding->value);
+        return pin_is_expansion_gpio(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_ADC:
-        return pin_is_expansion_adc(binding->value);
+        return pin_is_expansion_adc(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_PWM:
-        return pin_is_expansion_pwm(binding->value);
+        return pin_is_expansion_pwm(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return solar_os_expansion_find_i2c_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -660,7 +717,9 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
         return solar_os_expansion_find_spi_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-        return pin_is_expansion_gpio(binding->value) &&
+        return (pin_is_expansion_gpio(binding->value) ||
+                (allow_board_pins &&
+                 solar_os_pin_get_info_by_pin(binding->value, NULL))) &&
             solar_os_expansion_spi_cs_allowed(binding->target[0] != '\0' ? binding->target : NULL,
                                               binding->value);
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT: {
@@ -822,11 +881,12 @@ bool solar_os_expansion_driver_supported(const char *name)
         (caps & driver->required_capabilities) == driver->required_capabilities;
 }
 
-esp_err_t solar_os_expansion_validate_bindings(
+static esp_err_t validate_bindings(
     const char *driver,
     const solar_os_expansion_binding_t *bindings,
     size_t binding_count,
-    solar_os_expansion_binding_validation_t *validation)
+    solar_os_expansion_binding_validation_t *validation,
+    bool allow_board_pins)
 {
     if (validation != NULL) {
         memset(validation, 0, sizeof(*validation));
@@ -923,7 +983,10 @@ esp_err_t solar_os_expansion_validate_bindings(
     }
 
     for (size_t i = 0; i < binding_count; i++) {
-        if (!binding_valid(&bindings[i], bindings, binding_count)) {
+        if (!binding_valid(&bindings[i],
+                           bindings,
+                           binding_count,
+                           allow_board_pins)) {
             set_binding_validation(validation,
                                    SOLAR_OS_EXPANSION_BINDINGS_UNAVAILABLE,
                                    binding_key(&bindings[i]));
@@ -931,6 +994,19 @@ esp_err_t solar_os_expansion_validate_bindings(
         }
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_validate_bindings(
+    const char *driver,
+    const solar_os_expansion_binding_t *bindings,
+    size_t binding_count,
+    solar_os_expansion_binding_validation_t *validation)
+{
+    return validate_bindings(driver,
+                             bindings,
+                             binding_count,
+                             validation,
+                             false);
 }
 
 size_t solar_os_expansion_i2c_bus_count(void)
@@ -1159,10 +1235,11 @@ static esp_err_t expansion_attach(const char *driver,
     if (driver_def == NULL || !solar_os_expansion_driver_supported(driver)) {
         return ESP_ERR_NOT_FOUND;
     }
-    ESP_RETURN_ON_ERROR(solar_os_expansion_validate_bindings(driver,
-                                                              bindings,
-                                                              binding_count,
-                                                              NULL),
+    ESP_RETURN_ON_ERROR(validate_bindings(driver,
+                                          bindings,
+                                          binding_count,
+                                          NULL,
+                                          origin == SOLAR_OS_EXPANSION_ORIGIN_BOARD),
                         "expansion",
                         "invalid bindings");
     solar_os_expansion_binding_t normalized[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
