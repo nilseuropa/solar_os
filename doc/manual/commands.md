@@ -225,6 +225,9 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
+| `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons]` | List all input sources or filter them by semantic class. |
+| `input` | `input test <source>` | Show event counters and the last key, pointer, or axis event accepted from one source. |
+| `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
 | `status` | `status` | Print a compact system status summary. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
@@ -291,8 +294,9 @@ setterm startup [flash|sd]
 setterm otaurl [url]
 ```
 
-`setterm keyrate` configures the shared repeat policy for BLE keyboards, fixed
-board buttons, `gpio-keys`, joysticks, ADC D-pads, and future keyboard buses.
+`setterm keyrate` configures the shared repeat policy for BLE, PS/2, and CardKB
+keyboards, fixed board buttons, `gpio-keys`, and ADC D-pads. Analog joysticks
+publish axes and do not generate key events.
 The value is stored in NVS and is available on builds without BLE.
 
 `setterm ble` selects the next-boot BLE preference. `default` clears the saved
@@ -793,9 +797,6 @@ available for the compiled board.
 | `dpad` | `dpad [status]` | Show ADC D-pad pins, raw values, zones, and calibration thresholds. |
 | `dpad` | `dpad calibrate [idle]` | Calibrate the current D-pad idle value. |
 | `dpad` | `dpad calibrate reset` | Restore the compiled D-pad calibration. |
-| `joystick` | `joystick [status]` | Show joystick axes, raw values, direction, and thresholds. |
-| `joystick` | `joystick calibrate` | Calibrate the current joystick center. |
-| `joystick` | `joystick calibrate reset` | Restore the compiled joystick calibration. |
 | `pwm` | `pwm status` | Show PWM state. |
 | `pwm` | `pwm set <pin> <freq-hz> <duty-percent>` | Start LEDC PWM on a runtime pin. |
 | `pwm` | `pwm off <pin>` | Stop PWM on a pin. |

@@ -608,9 +608,11 @@ static const char * const display_subcommands[] = {
     "mode",
 };
 static const char * const input_subcommands[] = {
-    "status", "keyboard", "touch", "mouse", "joystick", "dpad", "buttons",
+    "status", "test", "calibrate", "keyboard", "touch", "mouse", "joystick",
+    "dpad", "buttons",
 };
 static const char * const input_class_subcommands[] = {"status"};
+static const char * const input_calibration_subcommands[] = {"set", "reset"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
@@ -1543,6 +1545,9 @@ static const char * const path_input_mouse[] = {"input", "mouse"};
 static const char * const path_input_joystick[] = {"input", "joystick"};
 static const char * const path_input_dpad[] = {"input", "dpad"};
 static const char * const path_input_buttons[] = {"input", "buttons"};
+static const char * const path_input_calibrate_source[] = {
+    "input", "calibrate", SHELL_COMPLETION_ANY,
+};
 #if SOLAR_OS_PACKAGE_APP_INBOX
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
@@ -2656,6 +2661,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_input_joystick, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_dpad, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_buttons, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_calibrate_source, input_calibration_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),

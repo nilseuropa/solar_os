@@ -75,7 +75,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
-| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, an automatically started PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
+| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, a default-attached PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 
 All built-in 16 MiB targets use `partitions.csv`: each OTA application slot
@@ -269,7 +269,7 @@ The current capability flags are:
 | `EXPANSION_I2S` | Board has a spare I2S controller and at least three runtime-safe output GPIOs for an external three-wire I2S device. |
 | `KEY` | Built-in board key for sleep/pairing control. |
 | `BUTTONS` | Built-in digital buttons are available for keyboard/app input. |
-| `JOYSTICK` | Built-in analog joystick axes are available for keyboard/app input. |
+| `JOYSTICK` | Built-in analog joystick axes are available as generic axis input. |
 | `ADC_DPAD` | Built-in ADC D-pad axes are available for keyboard/app input. |
 | `STATUS_LED` | Board status LED output is available. |
 | `DISPLAY_BRIGHTNESS` | Display backlight or brightness control is available. |
@@ -664,23 +664,25 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
-The board profile includes the PS/2 keyboard job in every flavor and starts it
-on `ps2kbd0` automatically before the shell. It is still a normal managed job,
-so its state and resource ownership remain visible:
+The board profile declares `ps2kbd0` and creates the default `keyboard0`
+`ps2-keyboard` expansion attachment before the shell. Its topology and input
+state remain visible through the generic commands:
 
 ```text
-job status ps2-keyboard
-job stop ps2-keyboard
+expansion devices
+input keyboard
+input test keyboard0
 ```
 
 BLE remains available but defaults to off on this board to preserve internal
 heap. Use `setterm ble on` and reboot to enable it. `setterm ble default` clears
 the user override and restores the board default.
 
-The onboard PS/2 mouse connector is reserved in the board pin map but does not
-yet have a SolarOS input driver. The microSD signals are fixed board resources;
-GPIO34 and GPIO39 are the only header pins available for runtime GPIO/ADC, and
-both are input-only.
+The onboard PS/2 mouse connector is registered as the fixed `ps2mouse0` bus.
+Attach a mouse when one is connected with `expansion attach ps2-mouse mouse0
+ps2=ps2mouse0`; it is not a default attachment because the connector can be
+empty. The microSD signals are fixed board resources; GPIO34 and GPIO39 are the
+only header pins available for runtime GPIO/ADC, and both are input-only.
 
 ## ODROID-GO
 
@@ -722,6 +724,10 @@ PWM. The FT6336 touch controller shares `i2c0` with the ES8311 codec and emits
 generic absolute pointer events targeted at `display0`. Native apps opt in with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS`; pointer events include press, move, and
 release state rather than exposing FT6336 registers to applications.
+The board profile creates this as the default `ft6336` expansion attachment
+named `touch0`; inspect it with `expansion devices`, `input touch`, and `input
+test touch0`. Optional logical-range correction is stored with `input calibrate
+touch0 ...`.
 
 The ES8311 is configured as one duplex codec: GPIO8 carries playback data to
 the codec, GPIO6 carries microphone data to the ESP32-S3, and GPIO1 controls

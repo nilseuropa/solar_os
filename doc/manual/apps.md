@@ -900,12 +900,12 @@ Controls:
 - `p` pauses and `r` resets.
 - `q`, `Esc`, or the app-exit key exits.
 
-Game Boy reads the generic SolarOS held-key state. BLE keyboards, fixed board
-buttons, `gpio-keys`, joysticks, and ADC D-pads therefore remain active until
+Game Boy reads the generic SolarOS held-key state. BLE/PS/2 keyboards, fixed board
+buttons, `gpio-keys`, and ADC D-pads therefore remain active until
 release, and combinations such as diagonal movement or direction plus A/B work
 simultaneously. USB HID usages preserve the physical Z/X positions across
 keyboard layouts. Character-only inputs such as port-shell input retain the
-short button-pulse fallback.
+short button-pulse fallback. Analog joystick axes do not become Game Boy keys.
 
 ## less
 

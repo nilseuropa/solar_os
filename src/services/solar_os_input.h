@@ -130,6 +130,30 @@ typedef struct {
     int32_t delta;
 } solar_os_input_axis_event_t;
 
+typedef struct {
+    int16_t min_x;
+    int16_t max_x;
+    int16_t min_y;
+    int16_t max_y;
+    uint16_t width;
+    uint16_t height;
+} solar_os_input_pointer_calibration_t;
+
+typedef struct {
+    uint32_t key_events;
+    uint32_t pointer_events;
+    uint32_t axis_events;
+    bool has_key;
+    bool has_pointer;
+    bool has_axis;
+    solar_os_input_key_event_t last_key;
+    solar_os_input_pointer_event_t last_pointer;
+    solar_os_input_pointer_event_t last_pointer_raw;
+    solar_os_input_axis_event_t last_axis;
+    bool calibration_enabled;
+    solar_os_input_pointer_calibration_t calibration;
+} solar_os_input_source_diagnostics_t;
+
 esp_err_t solar_os_input_init(void);
 esp_err_t solar_os_input_source_open_typed(const char *name,
                                            solar_os_input_source_class_t source_class,
@@ -158,6 +182,10 @@ esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t sourc
 size_t solar_os_input_keyboard_count(void);
 size_t solar_os_input_source_count(void);
 bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info);
+bool solar_os_input_source_find(const char *name, solar_os_input_source_info_t *info);
+bool solar_os_input_source_get_diagnostics(
+    solar_os_input_source_t source,
+    solar_os_input_source_diagnostics_t *diagnostics);
 const char *solar_os_input_source_class_name(solar_os_input_source_class_t source_class);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
@@ -174,6 +202,14 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event);
 esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
                                     const solar_os_input_axis_event_t *event);
+esp_err_t solar_os_input_pointer_calibration_get(
+    solar_os_input_source_t source,
+    bool *enabled,
+    solar_os_input_pointer_calibration_t *calibration);
+esp_err_t solar_os_input_pointer_calibration_set(
+    solar_os_input_source_t source,
+    const solar_os_input_pointer_calibration_t *calibration);
+esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source);
 
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count);
 size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events,

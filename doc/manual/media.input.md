@@ -1,13 +1,13 @@
 +++
 id = "media.input"
-title = "Audio, keyboard input, and clipboard APIs"
+title = "Audio, input, and clipboard APIs"
 section = "hardware"
-summary = "Use installed media and input services"
-aliases = ["audio", "ble", "clipboard"]
-keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard clipboard"
+summary = "Use installed media and generic input services"
+aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick"]
+keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick calibration clipboard"
 packages_any = []
 +++
-# Audio, keyboard input, and clipboard APIs
+# Audio, input, and clipboard APIs
 
 These services are independent even though they are often used by foreground
 applications. Inspect availability before calling an optional audio or BLE
@@ -18,9 +18,10 @@ operation.
 Local hardware input uses structured press, release, and repeat events. The
 input service tracks held keys by source and stable physical identity, while
 legacy shell and text applications continue to receive translated characters.
-BLE and PS/2 keyboards, fixed board buttons, `gpio-keys`, joysticks, and ADC D-pads share
-one repeat policy. Configure it with `setterm keyrate`; the setting applies even
-on a build without BLE.
+BLE, PS/2, and CardKB keyboards, fixed board buttons, `gpio-keys`, and ADC
+D-pads share one repeat policy. Configure it with `setterm keyrate`; the
+setting applies even on a build without BLE. Analog joysticks are different:
+they publish normalized axes and never synthesize key events.
 
 Keyboard transports can additionally supply a canonical USB HID usage and
 modifier mask. This keeps physical controls independent of the selected text
@@ -28,26 +29,84 @@ layout and lets BLE and PS/2 share the same US or German keymap.
 
 ## PS/2 keyboard
 
-PS/2 uses a named, exclusive CLOCK/DATA bus and a background input job:
+PS/2 uses a named, exclusive CLOCK/DATA bus. Attach a keyboard device to that
+bus:
 
 ```text
 expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
-job start ps2-keyboard ps2kbd
+expansion attach ps2-keyboard keyboard0 ps2=ps2kbd
+input keyboard
+input test keyboard0
 ```
 
 This manual setup is for an attached expansion keyboard. A board with an
 integrated PS/2 keyboard capability, such as TTGO VGA32 v1.4, declares its bus
-and starts the required job automatically during boot.
+and default expansion attachment automatically during boot. The compatible
+`ps2-keyboard` job remains as a wrapper for existing scripts.
 
 The receiver supports keyboard scan-code set 2, including normal and extended
 press/release sequences. SolarOS supplies repeat through the generic input
 service, so keyboard typematic make codes do not create duplicate presses.
-This first implementation is receive-only: keyboard LEDs and host-to-keyboard
-commands are not implemented.
+The keyboard attachment is receive-only: keyboard LEDs and keyboard-specific
+host commands are not implemented.
 
 ESP32 pins are not 5 V tolerant. Use proper level shifting, or otherwise ensure
 that neither PS/2 signal can be pulled above 3.3 V. Do not connect a 5 V signal
 directly to a GPIO merely because PS/2 uses open-collector signalling.
+
+## Pointers and axes
+
+Use `input` to inspect semantic sources independently of their transport:
+
+```text
+input touch
+input mouse
+input joystick
+input test touch0
+```
+
+Touch and other absolute pointers report positions; mice report relative
+deltas; analog joysticks report normalized X/Y axes. Pointer and axis queues
+are allocated only when the first matching source attaches. `input test`
+retains counters and the most recent accepted event, so it also works for
+polling touch controllers while the shell is active.
+
+Absolute-pointer calibration maps a source's raw logical coordinates into a
+target extent and stores the mapping in NVS under that source name:
+
+```text
+input calibrate touch0
+input calibrate touch0 set 0 479 0 319 480 320
+input calibrate touch0 reset
+```
+
+The device driver still owns physical orientation. Calibration only clamps and
+scales the already oriented X/Y values. Mouse deltas and joystick axes do not
+use pointer calibration.
+
+Attach a standard relative PS/2 mouse to a named bus with:
+
+```text
+expansion bus create ps2 ps2mouse clock=gpio17 data=gpio18
+expansion attach ps2-mouse mouse0 ps2=ps2mouse
+input test mouse0
+```
+
+The mouse attachment enables standard three-byte reporting and publishes
+relative motion plus the primary, secondary, and middle buttons. Confirm the
+connector's pinout, supply, and signal voltage before wiring it; ESP32 GPIOs
+are not 5 V tolerant.
+
+An analog joystick consumes two existing scalar streams. Use `stream list` and
+`adc status` to find the actual stream names, then bind the measured range:
+
+```text
+expansion attach analog-joystick joystick0 x=adc2 y=adc4 min=0 center=1650 max=3300 deadzone=100
+input test joystick0
+```
+
+The attachment normalizes both streams as axes. Applications decide what those
+axes mean; SolarOS does not turn them into arrows or other keys.
 
 ## Audio
 

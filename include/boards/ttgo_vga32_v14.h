@@ -114,6 +114,16 @@
             .data_pin = SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_DATA, \
         }, \
     }, \
+    { \
+        .name = "ps2mouse0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_PS2, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_EXCLUSIVE, \
+        .config.ps2 = { \
+            .clock_pin = SOLAR_OS_BOARD_PIN_PS2_MOUSE_CLOCK, \
+            .data_pin = SOLAR_OS_BOARD_PIN_PS2_MOUSE_DATA, \
+        }, \
+    }, \
 }
 
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
