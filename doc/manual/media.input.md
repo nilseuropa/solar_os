@@ -27,6 +27,12 @@ Keyboard transports can additionally supply a canonical USB HID usage and
 modifier mask. This keeps physical controls independent of the selected text
 layout and lets BLE and PS/2 share the same US or German keymap.
 
+`input test <source>` counters are cumulative from the time that source
+attached. Each accepted key press, release, or repeat increments `key`; it is
+not a count of currently held keys. Character-only devices such as CardKB emit
+one press and one release per character, so one tap normally adds two events.
+Their last event has `physical=0` and `usage=0`; `key=10` is newline/Enter.
+
 ## PS/2 keyboard
 
 PS/2 uses a named, exclusive CLOCK/DATA bus. Attach a keyboard device to that
@@ -70,6 +76,18 @@ deltas; analog joysticks report normalized X/Y axes. Pointer and axis queues
 are allocated only when the first matching source attaches. `input test`
 retains counters and the most recent accepted event, so it also works for
 polling touch controllers while the shell is active.
+
+Native foreground applications opt in to structured pointer input with
+`SOLAR_OS_APP_FLAG_POINTER_EVENTS` and to axis input with
+`SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Their event callback then receives
+`SOLAR_OS_EVENT_POINTER` in `event.data.pointer` or `SOLAR_OS_EVENT_AXIS` in
+`event.data.axis`. Pointer events contain the source, pointer ID, absolute or
+relative mode, action, coordinates, deltas, buttons, and optional display
+target. A non-empty target routes to the active opted-in application on that
+display; an empty target follows local input focus. Axis events contain the
+source, X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input
+focus. Applications without the matching flag do not receive those structured
+events.
 
 Absolute-pointer calibration maps a source's raw logical coordinates into a
 target extent and stores the mapping in NVS under that source name:

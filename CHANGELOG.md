@@ -6,13 +6,34 @@
   target with a landscape 480x320 ST7796 display, PWM backlight, FT6336
   capacitive touch, duplex ES8311 speaker/microphone audio, four-bit SDMMC,
   battery ADC, native USB CDC, BOOT/KEY input, and UART/I2C/GPIO expansion
-  metadata. Added generic display-targeted absolute/relative pointer events
-  with pointer identity, coordinates, deltas, buttons, and press/move/release
-  actions for native applications that opt in. Standardized 16 MiB targets on
-  two 7 MiB OTA slots and a nearly 2 MiB internal FAT filesystem. Existing
-  devices retain their installed partition layout through normal OTA updates;
-  adopting the common `/flash` layout requires a full USB/factory flash and
-  reformats that volume.
+  metadata. Corrected its panel color polarity. Added a typed input registry
+  and `input` diagnostics for keyboards, touch, relative mice, analog
+  joysticks, D-pads, and buttons. `input test` reports source capabilities,
+  event counters, and the latest accepted event; `input calibrate` stores
+  optional absolute-pointer coordinate mappings. Source names and calibration
+  actions are available through shell completion. Added generic
+  display-targeted absolute/relative pointer events and normalized axis events
+  for native applications that opt in. Pointer and axis queues are allocated
+  only while matching sources exist. Integrated input hardware now uses the
+  expansion lifecycle: Freenove touch and the TTGO VGA32 PS/2 keyboard start as
+  board attachments, while CardKB, GPIO keys, PS/2 keyboards, standard
+  three-button PS/2 mice, and two-stream analog joysticks can be attached at
+  runtime. Existing `ps2-keyboard` and `gpio-keys` jobs remain as compatibility
+  wrappers. Cursor-based applications launched on a dumb terminal now report
+  the terminal limitation directly. Standardized 16 MiB targets on two 7 MiB
+  OTA slots and a nearly 2 MiB internal FAT filesystem. Existing devices retain
+  their installed partition layout through normal OTA updates; adopting the
+  common `/flash` layout requires a full USB/factory flash and reformats that
+  volume.
+- **4.8.15** — 2026-08-26 — Reduced idle runtime wakeups and consolidated boot,
+  bus-capability, script-lifecycle, BLE-lifecycle, JSON scanning, safe file
+  replacement, and shell-completion infrastructure. Shell completion now uses
+  a compact indexed rule table while preserving the existing command surface.
+- **4.8.14** — 2026-08-26 — Fixed Gateway Chat reconnect replay and room join
+  state. Rejoins now send the greatest retained message ID and replay only newer
+  messages; conversations open after the server confirms membership. Hardened
+  Messaging/Inbox clearing and transport backpressure so stale notification
+  links cannot target reused entries and queued provider state is preserved.
 - **4.8.13** — 2026-08-25 — Added bounded OSC 1.0 over IPv4 UDP with automatic
   incoming Synth and Funcgen parameter addresses in native units or through an
   optional final `/normalized` component, immediate bundle support, optional

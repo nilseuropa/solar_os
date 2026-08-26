@@ -237,6 +237,10 @@ job for periodic polling.
 | `power` | See below | Inspect and configure power policy. |
 | `setterm` | See below | Configure terminal/input preferences. Without arguments, opens the display TUI when available. |
 
+Input completion lists every current source after `input test`, only absolute
+pointer sources after `input calibrate`, `status` after an input class, and
+`set` or `reset` after a calibration source.
+
 `power` usage:
 
 ```text
@@ -395,6 +399,9 @@ sessions and gives its space to the terminal. `show` restores it. The default is
 Port shells default to `--term auto`. Auto mode sends a terminal Device
 Attributes probe; a recognizable response enables VT100-style cursor controls
 and a size probe, while no response falls back to a dumb line-oriented shell.
+The dumb profile can run line-oriented shell commands, but cursor-addressable
+TUI applications cannot run on it and report
+`<app>: can't run on a dumb terminal`.
 Use `--term vt100` or `--term ansi` to force escape-sequence output,
 `--term dumb` for plain text, and `--size COLSxROWS` to set the terminal
 dimensions without probing. Character encoding is independent of that profile:
