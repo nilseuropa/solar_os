@@ -78,13 +78,29 @@ typedef struct {
     solar_os_expansion_detach_fn_t detach;
 } solar_os_expansion_driver_t;
 
+typedef enum {
+    SOLAR_OS_EXPANSION_ORIGIN_BOARD,
+    SOLAR_OS_EXPANSION_ORIGIN_RUNTIME,
+} solar_os_expansion_origin_t;
+
 typedef struct {
     bool active;
+    bool ready;
+    bool autostart;
+    bool detachable;
+    solar_os_expansion_origin_t origin;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char driver[SOLAR_OS_EXPANSION_DRIVER_NAME_MAX];
     size_t binding_count;
     solar_os_expansion_binding_t bindings[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
 } solar_os_expansion_device_t;
+
+typedef struct {
+    const char *driver;
+    const char *name;
+    size_t binding_count;
+    solar_os_expansion_binding_t bindings[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
+} solar_os_expansion_default_device_t;
 
 esp_err_t solar_os_expansion_init(void);
 bool solar_os_expansion_available(void);
@@ -122,8 +138,10 @@ esp_err_t solar_os_expansion_attach(const char *driver,
                                     const solar_os_expansion_binding_t *bindings,
                                     size_t binding_count);
 esp_err_t solar_os_expansion_detach(const char *name);
+esp_err_t solar_os_expansion_device_set_ready(const char *name, bool ready);
 size_t solar_os_expansion_device_count(void);
 /* Returns a caller-owned snapshot; no registry pointer is borrowed. */
 bool solar_os_expansion_get_device(size_t index, solar_os_expansion_device_t *device);
 
 const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind_t kind);
+const char *solar_os_expansion_origin_name(solar_os_expansion_origin_t origin);

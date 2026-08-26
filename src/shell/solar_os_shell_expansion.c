@@ -461,7 +461,14 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
         if (!solar_os_expansion_get_device(i, &device)) {
             continue;
         }
-        solar_os_shell_io_printf(term, "%s driver=%s", device.name, device.driver);
+        solar_os_shell_io_printf(term,
+                                 "%s driver=%s origin=%s ready=%s autostart=%s %s",
+                                 device.name,
+                                 device.driver,
+                                 solar_os_expansion_origin_name(device.origin),
+                                 device.ready ? "yes" : "no",
+                                 device.autostart ? "yes" : "no",
+                                 device.detachable ? "detachable" : "fixed");
         for (size_t b = 0; b < device.binding_count; b++) {
             expansion_print_binding(term, &device.bindings[b]);
         }

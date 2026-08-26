@@ -327,7 +327,9 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (solar_os_expansion_available()) {
         const esp_err_t expansion_err = solar_os_expansion_init();
         if (expansion_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Expansion service unavailable: %s", esp_err_to_name(expansion_err));
+            SOLAR_OS_LOGW(TAG,
+                          "Expansion initialization incomplete: %s",
+                          esp_err_to_name(expansion_err));
         }
     }
 #endif

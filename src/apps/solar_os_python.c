@@ -3370,9 +3370,15 @@ static mp_obj_t solaros_expansion_devices(void)
         if (!solar_os_expansion_get_device(i, &device)) {
             continue;
         }
-        mp_obj_t item = mp_obj_new_dict(3);
+        mp_obj_t item = mp_obj_new_dict(7);
         python_dict_store_cstr(item, "name", device.name);
         python_dict_store_cstr(item, "driver", device.driver);
+        python_dict_store_cstr(item,
+                               "origin",
+                               solar_os_expansion_origin_name(device.origin));
+        python_dict_store_bool(item, "ready", device.ready);
+        python_dict_store_bool(item, "autostart", device.autostart);
+        python_dict_store_bool(item, "detachable", device.detachable);
         mp_obj_t bindings = mp_obj_new_list(0, NULL);
         for (size_t j = 0; j < device.binding_count; j++) {
             mp_obj_list_append(bindings,

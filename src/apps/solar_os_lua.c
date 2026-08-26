@@ -3183,6 +3183,13 @@ static int solua_expansion_devices(lua_State *L)
         lua_newtable(L);
         solua_set_str(L, -1, "name", device.name);
         solua_set_str(L, -1, "driver", device.driver);
+        solua_set_str(L,
+                      -1,
+                      "origin",
+                      solar_os_expansion_origin_name(device.origin));
+        solua_set_bool(L, -1, "ready", device.ready);
+        solua_set_bool(L, -1, "autostart", device.autostart);
+        solua_set_bool(L, -1, "detachable", device.detachable);
         lua_newtable(L);
         for (size_t j = 0; j < device.binding_count; j++) {
             solua_push_expansion_binding(L, &device.bindings[j]);

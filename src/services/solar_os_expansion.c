@@ -349,6 +349,23 @@ static expansion_slot_state_t device_states[SOLAR_OS_EXPANSION_DEVICE_MAX];
 static uint32_t device_generations[SOLAR_OS_EXPANSION_DEVICE_MAX];
 static portMUX_TYPE devices_lock = portMUX_INITIALIZER_UNLOCKED;
 
+#if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
+static const solar_os_expansion_default_device_t board_default_devices[] =
+    SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES;
+
+_Static_assert(sizeof(board_default_devices) / sizeof(board_default_devices[0]) ==
+                   SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT,
+               "board expansion-device count does not match its definitions");
+#endif
+
+static esp_err_t expansion_attach(const char *driver,
+                                  const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count,
+                                  solar_os_expansion_origin_t origin,
+                                  bool autostart,
+                                  bool detachable);
+
 static bool mask_contains(uint64_t mask, int pin)
 {
     return pin >= 0 && pin < 64 && (mask & (1ULL << (uint32_t)pin)) != 0;
@@ -739,7 +756,22 @@ static esp_err_t acquire_binding_buses(const solar_os_expansion_binding_t *bindi
 esp_err_t solar_os_expansion_init(void)
 {
     ESP_RETURN_ON_ERROR(solar_os_resources_init(), "expansion", "resource init failed");
-    return solar_os_buses_init();
+    ESP_RETURN_ON_ERROR(solar_os_buses_init(), "expansion", "bus init failed");
+#if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
+    for (size_t i = 0; i < SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT; i++) {
+        const solar_os_expansion_default_device_t *device = &board_default_devices[i];
+        ESP_RETURN_ON_ERROR(expansion_attach(device->driver,
+                                             device->name,
+                                             device->bindings,
+                                             device->binding_count,
+                                             SOLAR_OS_EXPANSION_ORIGIN_BOARD,
+                                             true,
+                                             false),
+                            "expansion",
+                            "board device attach failed");
+    }
+#endif
+    return ESP_OK;
 }
 
 bool solar_os_expansion_available(void)
@@ -1106,10 +1138,13 @@ bool solar_os_expansion_find_onewire_bus(const char *name,
     return true;
 }
 
-esp_err_t solar_os_expansion_attach(const char *driver,
-                                    const char *name,
-                                    const solar_os_expansion_binding_t *bindings,
-                                    size_t binding_count)
+static esp_err_t expansion_attach(const char *driver,
+                                  const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count,
+                                  solar_os_expansion_origin_t origin,
+                                  bool autostart,
+                                  bool detachable)
 {
     if (driver == NULL || driver[0] == '\0' ||
         !device_name_valid(name) ||
@@ -1164,6 +1199,9 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     memset(&devices[device_index], 0, sizeof(devices[device_index]));
     strlcpy(devices[device_index].name, name, sizeof(devices[device_index].name));
     strlcpy(devices[device_index].driver, driver, sizeof(devices[device_index].driver));
+    devices[device_index].origin = origin;
+    devices[device_index].autostart = autostart;
+    devices[device_index].detachable = detachable;
     devices[device_index].binding_count = binding_count;
     memcpy(devices[device_index].bindings,
            normalized,
@@ -1208,9 +1246,24 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         return ESP_ERR_INVALID_STATE;
     }
     devices[device_index].active = true;
+    devices[device_index].ready = true;
     device_states[device_index] = EXPANSION_SLOT_ACTIVE;
     portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_attach(const char *driver,
+                                    const char *name,
+                                    const solar_os_expansion_binding_t *bindings,
+                                    size_t binding_count)
+{
+    return expansion_attach(driver,
+                            name,
+                            bindings,
+                            binding_count,
+                            SOLAR_OS_EXPANSION_ORIGIN_RUNTIME,
+                            false,
+                            true);
 }
 
 esp_err_t solar_os_expansion_detach(const char *name)
@@ -1229,6 +1282,10 @@ esp_err_t solar_os_expansion_detach(const char *name)
     if (device_states[device_index] != EXPANSION_SLOT_ACTIVE) {
         portEXIT_CRITICAL(&devices_lock);
         return ESP_ERR_INVALID_STATE;
+    }
+    if (!devices[device_index].detachable) {
+        portEXIT_CRITICAL(&devices_lock);
+        return ESP_ERR_NOT_SUPPORTED;
     }
     generation = device_generations[device_index];
     device = devices[device_index];
@@ -1261,6 +1318,26 @@ esp_err_t solar_os_expansion_detach(const char *name)
     }
     portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_device_set_ready(const char *name, bool ready)
+{
+    if (!device_name_valid(name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&devices_lock);
+    const int found_index = find_device_locked(name);
+    if (found_index < 0) {
+        result = ESP_ERR_NOT_FOUND;
+    } else if (device_states[found_index] != EXPANSION_SLOT_ACTIVE) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        devices[found_index].ready = ready;
+    }
+    portEXIT_CRITICAL(&devices_lock);
+    return result;
 }
 
 size_t solar_os_expansion_device_count(void)
@@ -1321,4 +1398,9 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
     default:
         return "unknown";
     }
+}
+
+const char *solar_os_expansion_origin_name(solar_os_expansion_origin_t origin)
+{
+    return origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME ? "runtime" : "board";
 }
