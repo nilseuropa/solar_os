@@ -202,6 +202,29 @@ int main(void)
     assert(solar_os_input_read_source_chars(buttons, chars, sizeof(chars)) == 1);
     assert(chars[0] == 'b');
 
+    solar_os_input_pointer_event_t pointer = {
+        .pointer_id = 2,
+        .buttons = SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY,
+        .mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE,
+        .action = SOLAR_OS_INPUT_POINTER_PRESS,
+        .x = 123,
+        .y = 45,
+        .delta_x = 3,
+        .delta_y = -2,
+        .target = "display0",
+    };
+    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_OK);
+    solar_os_input_pointer_event_t pointer_read = {0};
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
+    assert(pointer_read.source == buttons);
+    assert(pointer_read.pointer_id == 2);
+    assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
+    assert(pointer_read.x == 123 && pointer_read.y == 45);
+    assert(strcmp(pointer_read.target, "display0") == 0);
+    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_OK);
+    solar_os_input_source_close(buttons);
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 0);
+
     assert(solar_os_input_get_pressed(pressed, 2) == 1);
     solar_os_input_source_close(keyboard);
     assert(solar_os_input_get_pressed(pressed, 2) == 0);

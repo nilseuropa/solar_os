@@ -2,15 +2,24 @@
 
 #include <string.h>
 
+#include "solar_os_board.h"
+
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+#include "driver/i2s_std.h"
+#else
 #include "driver/i2s_tdm.h"
+#endif
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "i2c_bus.h"
-#include "solar_os_board.h"
 
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+#define AUDIO_CODEC_I2S_MCLK_MULTIPLE I2S_MCLK_MULTIPLE_256
+#else
 #define AUDIO_CODEC_I2S_MCLK_MULTIPLE I2S_MCLK_MULTIPLE_384
+#endif
 #define AUDIO_CODEC_DMA_DESC_NUM 4
 #define AUDIO_CODEC_DMA_FRAME_NUM 128
 #define AUDIO_CODEC_TDM_SLOT_MASK \
@@ -63,6 +72,7 @@ static esp_err_t audio_codec_handle_init_error(esp_err_t ret)
     return ret;
 }
 
+#ifndef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
 static i2s_tdm_config_t audio_codec_i2s_tdm_config(void)
 {
     i2s_tdm_config_t tdm_cfg = {
@@ -82,6 +92,31 @@ static i2s_tdm_config_t audio_codec_i2s_tdm_config(void)
     tdm_cfg.clk_cfg.mclk_multiple = AUDIO_CODEC_I2S_MCLK_MULTIPLE;
     return tdm_cfg;
 }
+#else
+static i2s_std_config_t audio_codec_i2s_std_config(void)
+{
+    i2s_std_config_t std_cfg = {
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+            AUDIO_CODEC_BOARD_DEFAULT_BITS,
+            I2S_SLOT_MODE_STEREO),
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_CODEC_BOARD_DEFAULT_SAMPLE_RATE),
+        .gpio_cfg = {
+            .mclk = SOLAR_OS_BOARD_PIN_I2S_MCLK,
+            .bclk = SOLAR_OS_BOARD_PIN_I2S_BCLK,
+            .ws = SOLAR_OS_BOARD_PIN_I2S_WS,
+            .dout = SOLAR_OS_BOARD_PIN_I2S_DOUT,
+            .din = SOLAR_OS_BOARD_PIN_I2S_DIN,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+    std_cfg.clk_cfg.mclk_multiple = AUDIO_CODEC_I2S_MCLK_MULTIPLE;
+    return std_cfg;
+}
+#endif
 
 static esp_err_t audio_codec_i2s_ensure_channels(void)
 {
@@ -110,8 +145,13 @@ static esp_err_t audio_codec_i2s_ensure_tx(void)
         return ret;
     }
 
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+    i2s_std_config_t std_cfg = audio_codec_i2s_std_config();
+    ret = i2s_channel_init_std_mode(audio_codec.tx_handle, &std_cfg);
+#else
     i2s_tdm_config_t tdm_cfg = audio_codec_i2s_tdm_config();
     ret = i2s_channel_init_tdm_mode(audio_codec.tx_handle, &tdm_cfg);
+#endif
     if (ret != ESP_OK) {
         return ret;
     }
@@ -135,8 +175,13 @@ static esp_err_t audio_codec_i2s_ensure_rx(void)
         return ret;
     }
 
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+    i2s_std_config_t std_cfg = audio_codec_i2s_std_config();
+    ret = i2s_channel_init_std_mode(audio_codec.rx_handle, &std_cfg);
+#else
     i2s_tdm_config_t tdm_cfg = audio_codec_i2s_tdm_config();
     ret = i2s_channel_init_tdm_mode(audio_codec.rx_handle, &tdm_cfg);
+#endif
     if (ret != ESP_OK) {
         return ret;
     }
@@ -193,6 +238,13 @@ static esp_err_t audio_codec_ensure_output(void)
     if (ret != ESP_OK) {
         return ret;
     }
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+    /* The IN_OUT codec device receives both channel handles when it opens. */
+    ret = audio_codec_i2s_ensure_rx();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+#endif
     ret = audio_codec_ensure_common_interfaces();
     if (ret != ESP_OK) {
         return ret;
@@ -219,10 +271,17 @@ static esp_err_t audio_codec_ensure_output(void)
 
     if (audio_codec.out_codec_if == NULL) {
         es8311_codec_cfg_t es8311_cfg = {
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+            .codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH,
+#else
             .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
+#endif
             .ctrl_if = audio_codec.out_ctrl_if,
             .gpio_if = audio_codec.gpio_if,
             .pa_pin = SOLAR_OS_BOARD_PIN_AUDIO_PA,
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+            .pa_reverted = true,
+#endif
             .use_mclk = true,
             .hw_gain.pa_gain = 6.0f,
         };
@@ -235,7 +294,11 @@ static esp_err_t audio_codec_ensure_output(void)
 
     if (audio_codec.playback == NULL) {
         esp_codec_dev_cfg_t playback_cfg = {
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+            .dev_type = ESP_CODEC_DEV_TYPE_IN_OUT,
+#else
             .dev_type = ESP_CODEC_DEV_TYPE_OUT,
+#endif
             .codec_if = audio_codec.out_codec_if,
             .data_if = audio_codec.data_if,
         };
@@ -282,6 +345,30 @@ static esp_err_t audio_codec_ensure_input(void)
         return ESP_OK;
     }
 
+#ifdef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
+    esp_err_t ret = audio_codec_ensure_output();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = audio_codec_i2s_ensure_rx();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const float mic_gain = audio_codec.mic_gain_valid ?
+        audio_codec.mic_gain_db :
+        AUDIO_CODEC_BOARD_DEFAULT_MIC_GAIN_DB;
+    i2c_bus_lock();
+    ret = esp_codec_dev_set_in_gain(audio_codec.playback, mic_gain) == ESP_CODEC_DEV_OK ?
+        ESP_OK : ESP_FAIL;
+    i2c_bus_unlock();
+    if (ret == ESP_OK) {
+        audio_codec.record = audio_codec.playback;
+        audio_codec.mic_gain_db = mic_gain;
+        audio_codec.mic_gain_valid = true;
+        audio_codec.input_initialized = true;
+    }
+    return ret;
+#else
     esp_err_t ret = i2c_bus_init();
     if (ret != ESP_OK) {
         return ret;
@@ -368,6 +455,7 @@ static esp_err_t audio_codec_ensure_input(void)
 out:
     i2c_bus_unlock();
     return ret;
+#endif
 }
 
 esp_err_t audio_codec_board_init(void)
@@ -405,10 +493,12 @@ void audio_codec_board_deinit(void)
         esp_codec_dev_close(audio_codec.playback);
         esp_codec_dev_delete(audio_codec.playback);
     }
+#ifndef SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX
     if (audio_codec.record != NULL) {
         esp_codec_dev_close(audio_codec.record);
         esp_codec_dev_delete(audio_codec.record);
     }
+#endif
     if (audio_codec.in_codec_if != NULL) {
         audio_codec_delete_codec_if(audio_codec.in_codec_if);
     }

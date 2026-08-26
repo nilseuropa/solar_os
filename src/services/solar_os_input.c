@@ -12,6 +12,7 @@
 #define INPUT_SOURCE_MAX 8U
 #define INPUT_SOURCE_NAME_MAX 16U
 #define INPUT_QUEUE_MAX 64U
+#define INPUT_POINTER_QUEUE_MAX 32U
 #define INPUT_REPEAT_RATE_DEFAULT 15U
 #define INPUT_REPEAT_DELAY_DEFAULT_MS 450U
 #define INPUT_NVS_NAMESPACE "input"
@@ -52,6 +53,9 @@ static input_pressed_slot_t input_pressed[SOLAR_OS_INPUT_MAX_PRESSED_KEYS];
 static solar_os_input_key_event_t input_queue[INPUT_QUEUE_MAX];
 static size_t input_queue_head;
 static size_t input_queue_count;
+static solar_os_input_pointer_event_t input_pointer_queue[INPUT_POINTER_QUEUE_MAX];
+static size_t input_pointer_queue_head;
+static size_t input_pointer_queue_count;
 static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
@@ -132,6 +136,18 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
     const size_t index = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
     input_queue[index] = *event;
     input_queue_count++;
+    return true;
+}
+
+static bool input_pointer_queue_push_locked(const solar_os_input_pointer_event_t *event)
+{
+    if (event == NULL || input_pointer_queue_count >= INPUT_POINTER_QUEUE_MAX) {
+        return false;
+    }
+    const size_t index =
+        (input_pointer_queue_head + input_pointer_queue_count) % INPUT_POINTER_QUEUE_MAX;
+    input_pointer_queue[index] = *event;
+    input_pointer_queue_count++;
     return true;
 }
 
@@ -394,6 +410,20 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     memcpy(input_queue, retained, kept * sizeof(retained[0]));
     input_queue_head = 0;
     input_queue_count = kept;
+    solar_os_input_pointer_event_t retained_pointer[INPUT_POINTER_QUEUE_MAX];
+    size_t kept_pointer = 0;
+    for (size_t i = 0; i < input_pointer_queue_count; i++) {
+        const size_t read_index =
+            (input_pointer_queue_head + i) % INPUT_POINTER_QUEUE_MAX;
+        if (input_pointer_queue[read_index].source != source) {
+            retained_pointer[kept_pointer++] = input_pointer_queue[read_index];
+        }
+    }
+    memcpy(input_pointer_queue,
+           retained_pointer,
+           kept_pointer * sizeof(retained_pointer[0]));
+    input_pointer_queue_head = 0;
+    input_pointer_queue_count = kept_pointer;
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
             memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
@@ -500,6 +530,30 @@ esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
     return result;
 }
 
+esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
+                                       const solar_os_input_pointer_event_t *event)
+{
+    if (event == NULL || event->mode > SOLAR_OS_INPUT_POINTER_RELATIVE ||
+        event->action > SOLAR_OS_INPUT_POINTER_RELEASE ||
+        event->target[SOLAR_OS_INPUT_POINTER_TARGET_MAX - 1U] != '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source)) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        solar_os_input_pointer_event_t queued = *event;
+        queued.source = source;
+        if (!input_pointer_queue_push_locked(&queued)) {
+            result = ESP_ERR_NO_MEM;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count)
 {
     if (events == NULL || event_count == 0) {
@@ -516,6 +570,28 @@ size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t eve
     }
     if (input_queue_count == 0) {
         input_queue_head = 0;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return count;
+}
+
+size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events,
+                                          size_t event_count)
+{
+    if (events == NULL || event_count == 0) {
+        return 0;
+    }
+
+    portENTER_CRITICAL(&input_lock);
+    size_t count = 0;
+    while (count < event_count && input_pointer_queue_count > 0) {
+        events[count++] = input_pointer_queue[input_pointer_queue_head];
+        input_pointer_queue_head =
+            (input_pointer_queue_head + 1U) % INPUT_POINTER_QUEUE_MAX;
+        input_pointer_queue_count--;
+    }
+    if (input_pointer_queue_count == 0) {
+        input_pointer_queue_head = 0;
     }
     portEXIT_CRITICAL(&input_lock);
     return count;

@@ -2118,6 +2118,13 @@ bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *sess
     return true;
 }
 
+bool solar_os_sessions_display_accepts_pointer_events(const char *target_name)
+{
+    solar_os_session_entry_t *session = session_active_for_display(target_name);
+    return session != NULL && session->app != NULL &&
+        (session->app->flags & SOLAR_OS_APP_FLAG_POINTER_EVENTS) != 0;
+}
+
 bool solar_os_sessions_context_uses_display(solar_os_context_t *ctx,
                                             const char *target_name)
 {

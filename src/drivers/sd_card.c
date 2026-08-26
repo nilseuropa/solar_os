@@ -251,11 +251,24 @@ static void sd_card_deinit_host(void)
 static void sd_card_make_slot_config(sdmmc_slot_config_t *slot_config)
 {
     *slot_config = (sdmmc_slot_config_t)SDMMC_SLOT_CONFIG_DEFAULT();
+#if defined(SOLAR_OS_BOARD_PIN_SDMMC_D1) && \
+    defined(SOLAR_OS_BOARD_PIN_SDMMC_D2) && \
+    defined(SOLAR_OS_BOARD_PIN_SDMMC_D3)
+    slot_config->width = 4;
+#else
     slot_config->width = 1;
+#endif
 #ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
     slot_config->clk = SOLAR_OS_BOARD_PIN_SDMMC_CLK;
     slot_config->cmd = SOLAR_OS_BOARD_PIN_SDMMC_CMD;
     slot_config->d0 = SOLAR_OS_BOARD_PIN_SDMMC_D0;
+#if defined(SOLAR_OS_BOARD_PIN_SDMMC_D1) && \
+    defined(SOLAR_OS_BOARD_PIN_SDMMC_D2) && \
+    defined(SOLAR_OS_BOARD_PIN_SDMMC_D3)
+    slot_config->d1 = SOLAR_OS_BOARD_PIN_SDMMC_D1;
+    slot_config->d2 = SOLAR_OS_BOARD_PIN_SDMMC_D2;
+    slot_config->d3 = SOLAR_OS_BOARD_PIN_SDMMC_D3;
+#endif
 #endif
     slot_config->flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 }

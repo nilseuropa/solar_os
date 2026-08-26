@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.8.16** — 2026-08-26 — Added the Freenove FNK0104S ESP32-S3 4.0-inch
+  target with a landscape 480x320 ST7796 display, PWM backlight, FT6336
+  capacitive touch, duplex ES8311 speaker/microphone audio, four-bit SDMMC,
+  battery ADC, native USB CDC, BOOT/KEY input, and UART/I2C/GPIO expansion
+  metadata. Added generic display-targeted absolute/relative pointer events
+  with pointer identity, coordinates, deltas, buttons, and press/move/release
+  actions for native applications that opt in. Standardized 16 MiB targets on
+  two 7 MiB OTA slots and a nearly 2 MiB internal FAT filesystem. Existing
+  devices retain their installed partition layout through normal OTA updates;
+  adopting the common `/flash` layout requires a full USB/factory flash and
+  reformats that volume.
 - **4.8.13** — 2026-08-25 — Added bounded OSC 1.0 over IPv4 UDP with automatic
   incoming Synth and Funcgen parameter addresses in native units or through an
   optional final `/normalized` component, immediate bundle support, optional

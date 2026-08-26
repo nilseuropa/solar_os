@@ -21,6 +21,7 @@ typedef esp_err_t (*solar_os_display_mode_setter_t)(void *context, const char *m
 #define SOLAR_OS_DISPLAY_TARGET_CONTROLLER_MAX 20
 #define SOLAR_OS_DISPLAY_TARGET_ROLE_MAX 16
 #define SOLAR_OS_DISPLAY_TARGET_OWNER_MAX 32
+#define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
 
 typedef struct {
     char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];

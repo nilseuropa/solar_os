@@ -1,8 +1,8 @@
 # Name,   Type, SubType, Offset,  Size, Flags
-# 16 MB flash, two large ESP-IDF OTA app slots, no factory app.
+# 16 MB flash, two 7 MiB ESP-IDF OTA app slots, and nearly 2 MiB of local storage.
 nvs,      data, nvs,     ,        0x4000,
 otadata,  data, ota,     ,        0x2000,
 phy_init, data, phy,     ,        0x1000,
-ota_0,    app,  ota_0,   ,        0x7F0000,
-ota_1,    app,  ota_1,   ,        0x7F0000,
-flash,    data, fat,     ,        0x10000,
+ota_0,    app,  ota_0,   ,        0x700000,
+ota_1,    app,  ota_1,   ,        0x700000,
+flash,    data, fat,     ,        0x1F0000,

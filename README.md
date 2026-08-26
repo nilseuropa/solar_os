@@ -25,6 +25,7 @@ platform:
 
 ```sh
 pio run -e waveshare_esp32_s3_rlcd_4_2
+pio run -e freenove_esp32_s3_display_4_0
 pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 pio run -e odroid_go
 pio run -e ttgo_vga32_v14

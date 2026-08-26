@@ -10,7 +10,11 @@ static tft_ili9341_t ili9341_display;
 static void display_bind_ili9341(solar_os_board_display_t *display)
 {
     display->driver = &ili9341_display;
+#ifdef SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME
+    display->driver_name = SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME;
+#else
     display->driver_name = "ili9341";
+#endif
     display->u8g2 = tft_ili9341_get_u8g2(&ili9341_display);
     display->controller = SOLAR_OS_BOARD_DISPLAY_CONTROLLER;
     display->width = SOLAR_OS_BOARD_DISPLAY_WIDTH;

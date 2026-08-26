@@ -10,6 +10,8 @@
 #define SOLAR_OS_INPUT_PHYSICAL_NONE 0U
 #define SOLAR_OS_INPUT_USAGE_NONE 0U
 #define SOLAR_OS_INPUT_MAX_PRESSED_KEYS 24U
+#define SOLAR_OS_INPUT_POINTER_TARGET_MAX 16U
+#define SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY (1U << 0)
 
 #define SOLAR_OS_INPUT_REPEAT_RATE_MIN 1U
 #define SOLAR_OS_INPUT_REPEAT_RATE_MAX 60U
@@ -57,6 +59,31 @@ typedef struct {
     solar_os_input_key_action_t action;
 } solar_os_input_key_event_t;
 
+typedef enum {
+    SOLAR_OS_INPUT_POINTER_ABSOLUTE,
+    SOLAR_OS_INPUT_POINTER_RELATIVE,
+} solar_os_input_pointer_mode_t;
+
+typedef enum {
+    SOLAR_OS_INPUT_POINTER_MOVE,
+    SOLAR_OS_INPUT_POINTER_PRESS,
+    SOLAR_OS_INPUT_POINTER_RELEASE,
+} solar_os_input_pointer_action_t;
+
+typedef struct {
+    solar_os_input_source_t source;
+    uint8_t pointer_id;
+    uint8_t buttons;
+    solar_os_input_pointer_mode_t mode;
+    solar_os_input_pointer_action_t action;
+    int16_t x;
+    int16_t y;
+    int16_t delta_x;
+    int16_t delta_y;
+    /* Empty routes through input focus; a name routes to that display session. */
+    char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
+} solar_os_input_pointer_event_t;
+
 esp_err_t solar_os_input_init(void);
 esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source);
 esp_err_t solar_os_input_keyboard_source_open(const char *name,
@@ -76,8 +103,12 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
                                    solar_os_input_key_action_t action);
 /* Compatibility helper for sources that can only provide a character tap. */
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch);
+esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
+                                       const solar_os_input_pointer_event_t *event);
 
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count);
+size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events,
+                                          size_t event_count);
 size_t solar_os_input_read_chars(char *buffer, size_t buffer_len);
 size_t solar_os_input_read_source_chars(solar_os_input_source_t source,
                                         char *buffer,
