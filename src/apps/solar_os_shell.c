@@ -1,6 +1,7 @@
 #include "solar_os_shell.h"
 
 #include "solar_os_shell_commands.h"
+#include "solar_os_shell_completion.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_launch.h"
@@ -19,6 +20,7 @@
 #include "esp_attr.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_app_registry.h"
@@ -126,59 +128,68 @@ typedef struct {
     char scp_paths[2][SHELL_PATH_MAX];
 } shell_app_launch_storage_t;
 
+typedef enum {
+    SHELL_COMPLETION_SOURCE_NONE,
+    SHELL_COMPLETION_SOURCE_COMMANDS,
+    SHELL_COMPLETION_SOURCE_APPS,
+    SHELL_COMPLETION_SOURCE_JOBS,
+    SHELL_COMPLETION_SOURCE_MANUAL_PAGES,
+    SHELL_COMPLETION_SOURCE_MANUAL_REFERENCES,
+    SHELL_COMPLETION_SOURCE_AGENT_CONVERSATIONS,
+    SHELL_COMPLETION_SOURCE_INBOX_IDS,
+    SHELL_COMPLETION_SOURCE_MESSAGE_IDS,
+    SHELL_COMPLETION_SOURCE_CONTACT_IDS,
+    SHELL_COMPLETION_SOURCE_ENDPOINT_IDS,
+    SHELL_COMPLETION_SOURCE_PLAYGROUND_APPS,
+    SHELL_COMPLETION_SOURCE_AUDIO_OUTPUTS,
+    SHELL_COMPLETION_SOURCE_EXPANSION_DRIVERS,
+    SHELL_COMPLETION_SOURCE_EXPANSION_DEVICES,
+    SHELL_COMPLETION_SOURCE_CONNECTORS,
+    SHELL_COMPLETION_SOURCE_DISPLAY_SESSION_IDS,
+    SHELL_COMPLETION_SOURCE_SESSION_IDS,
+    SHELL_COMPLETION_SOURCE_PORTS,
+    SHELL_COMPLETION_SOURCE_RADIOS,
+    SHELL_COMPLETION_SOURCE_LINKS,
+    SHELL_COMPLETION_SOURCE_LINK_STREAMS,
+    SHELL_COMPLETION_SOURCE_RADIO_PROFILES,
+    SHELL_COMPLETION_SOURCE_USER_RADIO_PROFILES,
+    SHELL_COMPLETION_SOURCE_RAMFS_MOUNTS,
+    SHELL_COMPLETION_SOURCE_STORAGE_MOUNTABLES,
+    SHELL_COMPLETION_SOURCE_STORAGE_BLOCKS,
+    SHELL_COMPLETION_SOURCE_STORAGE_UNMOUNT_TARGETS,
+    SHELL_COMPLETION_SOURCE_DISPLAY_TARGETS,
+    SHELL_COMPLETION_SOURCE_DISPLAY_MODES,
+    SHELL_COMPLETION_SOURCE_GPIO_PINS,
+    SHELL_COMPLETION_SOURCE_I2C_ARGUMENTS,
+    SHELL_COMPLETION_SOURCE_ONEWIRE_BUSES,
+    SHELL_COMPLETION_SOURCE_PS2_BUSES,
+    SHELL_COMPLETION_SOURCE_MIDI_BUSES,
+    SHELL_COMPLETION_SOURCE_SPI_BUSES,
+    SHELL_COMPLETION_SOURCE_UART_BUSES,
+    SHELL_COMPLETION_SOURCE_COM_ARGUMENTS,
+    SHELL_COMPLETION_SOURCE_UART_ARGUMENTS,
+    SHELL_COMPLETION_SOURCE_BUSES,
+    SHELL_COMPLETION_SOURCE_SPI_CS,
+    SHELL_COMPLETION_SOURCE_STREAMS,
+    SHELL_COMPLETION_SOURCE_CONTROLS,
+    SHELL_COMPLETION_SOURCE_PARAMETERS,
+    SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
+} shell_completion_source_t;
+
+enum {
+    SHELL_COMPLETION_FLAG_PATH = 1U << 0,
+    SHELL_COMPLETION_FLAG_DIRS_ONLY = 1U << 1,
+    SHELL_COMPLETION_FLAG_SCALAR_STREAMS = 1U << 2,
+};
+
 typedef struct {
     const char * const *path;
     size_t path_count;
     const char * const *values;
     size_t value_count;
     const char *required_prefix;
-    bool complete_commands;
-    bool complete_apps;
-    bool complete_jobs;
-    bool complete_manual_pages;
-    bool complete_manual_references;
-    bool complete_agent_conversations;
-    bool complete_inbox_ids;
-    bool complete_message_ids;
-    bool complete_contact_ids;
-    bool complete_endpoint_ids;
-    bool complete_playground_apps;
-    bool complete_audio_outputs;
-    bool complete_expansion_drivers;
-    bool complete_expansion_devices;
-    bool complete_connectors;
-    bool complete_display_session_ids;
-    bool complete_session_ids;
-    bool complete_ports;
-    bool complete_radios;
-    bool complete_links;
-    bool complete_link_streams;
-    bool complete_radio_profiles;
-    bool complete_user_radio_profiles;
-    bool complete_ramfs_mounts;
-    bool complete_storage_mountables;
-    bool complete_storage_blocks;
-    bool complete_storage_unmount_targets;
-    bool complete_display_targets;
-    bool complete_display_modes;
-    bool complete_gpio_pins;
-    bool complete_i2c_arguments;
-    bool complete_onewire_buses;
-    bool complete_ps2_buses;
-    bool complete_midi_buses;
-    bool complete_spi_buses;
-    bool complete_uart_buses;
-    bool complete_com_arguments;
-    bool complete_uart_arguments;
-    bool complete_buses;
-    bool complete_spi_cs;
-    bool complete_streams;
-    bool scalar_streams_only;
-    bool complete_controls;
-    bool complete_parameters;
-    bool complete_wifi_ssids;
-    bool complete_path;
-    bool dirs_only;
+    shell_completion_source_t source;
+    uint8_t flags;
 } shell_completion_rule_t;
 
 struct solar_os_shell_session {
@@ -2222,79 +2233,79 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_commands = true, \
+        .source = SHELL_COMPLETION_SOURCE_COMMANDS, \
     }
 #define SHELL_COMPLETION_APPS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_apps = true, \
+        .source = SHELL_COMPLETION_SOURCE_APPS, \
     }
 #define SHELL_COMPLETION_JOBS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_jobs = true, \
+        .source = SHELL_COMPLETION_SOURCE_JOBS, \
     }
 #define SHELL_COMPLETION_AGENT_CONVERSATIONS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_agent_conversations = true, \
+        .source = SHELL_COMPLETION_SOURCE_AGENT_CONVERSATIONS, \
     }
 #define SHELL_COMPLETION_INBOX_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_inbox_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_INBOX_IDS, \
     }
 #define SHELL_COMPLETION_MESSAGE_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_message_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_MESSAGE_IDS, \
     }
 #define SHELL_COMPLETION_CONTACT_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_contact_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_CONTACT_IDS, \
     }
 #define SHELL_COMPLETION_ENDPOINT_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_endpoint_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_ENDPOINT_IDS, \
     }
 #define SHELL_COMPLETION_PLAYGROUND_APPS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_playground_apps = true, \
+        .source = SHELL_COMPLETION_SOURCE_PLAYGROUND_APPS, \
     }
 #define SHELL_COMPLETION_AUDIO_OUTPUTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_audio_outputs = true, \
+        .source = SHELL_COMPLETION_SOURCE_AUDIO_OUTPUTS, \
     }
 #define SHELL_COMPLETION_EXPANSION_DRIVERS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_expansion_drivers = true, \
+        .source = SHELL_COMPLETION_SOURCE_EXPANSION_DRIVERS, \
     }
 #define SHELL_COMPLETION_EXPANSION_DEVICES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_expansion_devices = true, \
+        .source = SHELL_COMPLETION_SOURCE_EXPANSION_DEVICES, \
     }
 #define SHELL_COMPLETION_CONNECTORS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_connectors = true, \
+        .source = SHELL_COMPLETION_SOURCE_CONNECTORS, \
     }
 #define SHELL_COMPLETION_MANUAL(path_array, value_array) \
     { \
@@ -2302,202 +2313,202 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .values = value_array, \
         .value_count = SHELL_ARRAY_COUNT(value_array), \
-        .complete_manual_pages = true, \
+        .source = SHELL_COMPLETION_SOURCE_MANUAL_PAGES, \
     }
 #define SHELL_COMPLETION_MANUAL_REFERENCES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .required_prefix = "man:", \
-        .complete_manual_references = true, \
+        .source = SHELL_COMPLETION_SOURCE_MANUAL_REFERENCES, \
     }
 #define SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_display_session_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_DISPLAY_SESSION_IDS, \
     }
 #define SHELL_COMPLETION_SESSION_IDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_session_ids = true, \
+        .source = SHELL_COMPLETION_SOURCE_SESSION_IDS, \
     }
 #define SHELL_COMPLETION_PORTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_ports = true, \
+        .source = SHELL_COMPLETION_SOURCE_PORTS, \
     }
 #define SHELL_COMPLETION_RADIOS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_radios = true, \
+        .source = SHELL_COMPLETION_SOURCE_RADIOS, \
     }
 #define SHELL_COMPLETION_LINKS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_links = true, \
+        .source = SHELL_COMPLETION_SOURCE_LINKS, \
     }
 #define SHELL_COMPLETION_LINK_STREAMS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_link_streams = true, \
+        .source = SHELL_COMPLETION_SOURCE_LINK_STREAMS, \
     }
 #define SHELL_COMPLETION_RADIO_PROFILES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_radio_profiles = true, \
+        .source = SHELL_COMPLETION_SOURCE_RADIO_PROFILES, \
     }
 #define SHELL_COMPLETION_USER_RADIO_PROFILES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_user_radio_profiles = true, \
+        .source = SHELL_COMPLETION_SOURCE_USER_RADIO_PROFILES, \
     }
 #define SHELL_COMPLETION_RAMFS_MOUNTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_ramfs_mounts = true, \
+        .source = SHELL_COMPLETION_SOURCE_RAMFS_MOUNTS, \
     }
 #define SHELL_COMPLETION_STORAGE_MOUNTABLES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_storage_mountables = true, \
+        .source = SHELL_COMPLETION_SOURCE_STORAGE_MOUNTABLES, \
     }
 #define SHELL_COMPLETION_STORAGE_BLOCKS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_storage_blocks = true, \
+        .source = SHELL_COMPLETION_SOURCE_STORAGE_BLOCKS, \
     }
 #define SHELL_COMPLETION_STORAGE_UNMOUNT_TARGETS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_storage_unmount_targets = true, \
+        .source = SHELL_COMPLETION_SOURCE_STORAGE_UNMOUNT_TARGETS, \
     }
 #define SHELL_COMPLETION_DISPLAY_TARGETS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_display_targets = true, \
+        .source = SHELL_COMPLETION_SOURCE_DISPLAY_TARGETS, \
     }
 #define SHELL_COMPLETION_DISPLAY_MODES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_display_modes = true, \
+        .source = SHELL_COMPLETION_SOURCE_DISPLAY_MODES, \
     }
 #define SHELL_COMPLETION_GPIO_PINS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_gpio_pins = true, \
+        .source = SHELL_COMPLETION_SOURCE_GPIO_PINS, \
     }
 #define SHELL_COMPLETION_I2C_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_i2c_arguments = true, \
+        .source = SHELL_COMPLETION_SOURCE_I2C_ARGUMENTS, \
     }
 #define SHELL_COMPLETION_ONEWIRE_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_onewire_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_ONEWIRE_BUSES, \
     }
 #define SHELL_COMPLETION_SPI_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_spi_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_SPI_BUSES, \
     }
 #define SHELL_COMPLETION_UART_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_uart_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_UART_BUSES, \
     }
 #define SHELL_COMPLETION_COM_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_com_arguments = true, \
+        .source = SHELL_COMPLETION_SOURCE_COM_ARGUMENTS, \
     }
 #define SHELL_COMPLETION_UART_ARGUMENTS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_uart_arguments = true, \
+        .source = SHELL_COMPLETION_SOURCE_UART_ARGUMENTS, \
     }
 #define SHELL_COMPLETION_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_BUSES, \
     }
 #define SHELL_COMPLETION_PS2_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_ps2_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_PS2_BUSES, \
     }
 #define SHELL_COMPLETION_MIDI_BUSES(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_midi_buses = true, \
+        .source = SHELL_COMPLETION_SOURCE_MIDI_BUSES, \
     }
 #define SHELL_COMPLETION_SPI_CS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_spi_cs = true, \
+        .source = SHELL_COMPLETION_SOURCE_SPI_CS, \
     }
 #define SHELL_COMPLETION_STREAMS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_streams = true, \
+        .source = SHELL_COMPLETION_SOURCE_STREAMS, \
     }
 #define SHELL_COMPLETION_SCALAR_STREAMS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_streams = true, \
-        .scalar_streams_only = true, \
+        .source = SHELL_COMPLETION_SOURCE_STREAMS, \
+        .flags = SHELL_COMPLETION_FLAG_SCALAR_STREAMS, \
     }
 #define SHELL_COMPLETION_CONTROLS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_controls = true, \
+        .source = SHELL_COMPLETION_SOURCE_CONTROLS, \
     }
 #define SHELL_COMPLETION_PARAMETERS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_parameters = true, \
+        .source = SHELL_COMPLETION_SOURCE_PARAMETERS, \
     }
 #define SHELL_COMPLETION_WIFI_SSIDS(path_array) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_wifi_ssids = true, \
+        .source = SHELL_COMPLETION_SOURCE_WIFI_SSIDS, \
     }
 #define SHELL_COMPLETION_PATH(path_array, only_dirs) \
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .complete_path = true, \
-        .dirs_only = only_dirs, \
+        .flags = SHELL_COMPLETION_FLAG_PATH | \
+            ((only_dirs) ? SHELL_COMPLETION_FLAG_DIRS_ONLY : 0U), \
     }
 
 static const shell_completion_rule_t shell_completion_rules[] = {
@@ -3056,6 +3067,89 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_ota, ota_subcommands),
     SHELL_COMPLETION_STATIC(path_ota_boot, ota_boot_values),
 };
+
+#define SHELL_COMPLETION_INDEX_BUCKETS 128U
+#define SHELL_COMPLETION_RULE_NONE UINT16_MAX
+
+typedef struct {
+    uint16_t heads[SHELL_COMPLETION_INDEX_BUCKETS];
+    uint16_t next[SHELL_ARRAY_COUNT(shell_completion_rules)];
+    bool ready;
+} shell_completion_index_t;
+
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell completion command index")
+static shell_completion_index_t shell_completion_index;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shell completion index initialization lock")
+static portMUX_TYPE shell_completion_index_lock = portMUX_INITIALIZER_UNLOCKED;
+
+_Static_assert(SHELL_ARRAY_COUNT(shell_completion_rules) < UINT16_MAX,
+               "shell completion rule index exceeds uint16_t");
+
+static uint32_t shell_completion_command_hash(const char *command)
+{
+    uint32_t hash = 2166136261U;
+    if (command == NULL) {
+        return hash;
+    }
+    for (const unsigned char *p = (const unsigned char *)command;
+         *p != '\0';
+         p++) {
+        hash ^= *p;
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
+static void shell_completion_index_init(void)
+{
+    portENTER_CRITICAL(&shell_completion_index_lock);
+    if (!shell_completion_index.ready) {
+        for (size_t i = 0U; i < SHELL_COMPLETION_INDEX_BUCKETS; i++) {
+            shell_completion_index.heads[i] = SHELL_COMPLETION_RULE_NONE;
+        }
+        for (size_t remaining = SHELL_ARRAY_COUNT(shell_completion_rules);
+             remaining > 0U;
+             remaining--) {
+            const size_t i = remaining - 1U;
+            const char *command = shell_completion_rules[i].path[0];
+            const size_t bucket =
+                shell_completion_command_hash(command) % SHELL_COMPLETION_INDEX_BUCKETS;
+            shell_completion_index.next[i] = shell_completion_index.heads[bucket];
+            shell_completion_index.heads[bucket] = (uint16_t)i;
+        }
+        shell_completion_index.ready = true;
+    }
+    portEXIT_CRITICAL(&shell_completion_index_lock);
+}
+
+static uint16_t shell_completion_rule_first(const char *command)
+{
+    if (command == NULL || command[0] == '\0') {
+        return SHELL_COMPLETION_RULE_NONE;
+    }
+    shell_completion_index_init();
+    const size_t bucket =
+        shell_completion_command_hash(command) % SHELL_COMPLETION_INDEX_BUCKETS;
+    uint16_t index = shell_completion_index.heads[bucket];
+    while (index != SHELL_COMPLETION_RULE_NONE &&
+           strcmp(shell_completion_rules[index].path[0], command) != 0) {
+        index = shell_completion_index.next[index];
+    }
+    return index;
+}
+
+static uint16_t shell_completion_rule_next(uint16_t index, const char *command)
+{
+    if (index == SHELL_COMPLETION_RULE_NONE) {
+        return index;
+    }
+    index = shell_completion_index.next[index];
+    while (index != SHELL_COMPLETION_RULE_NONE &&
+           strcmp(shell_completion_rules[index].path[0], command) != 0) {
+        index = shell_completion_index.next[index];
+    }
+    return index;
+}
 
 #undef SHELL_COMPLETION_PATH
 #undef SHELL_COMPLETION_WIFI_SSIDS
@@ -4822,16 +4916,11 @@ static shell_path_completion_work_t *shell_alloc_path_completion_work(void)
 
 static void shell_update_common_prefix(char *common, size_t common_len, const char *name)
 {
-    size_t i = 0;
-
     if (common == NULL || common_len == 0 || name == NULL) {
         return;
     }
-
-    while (common[i] != '\0' && name[i] != '\0' && common[i] == name[i]) {
-        i++;
-    }
-    common[i] = '\0';
+    const size_t length = solar_os_shell_completion_common_prefix(common, name);
+    common[length < common_len ? length : common_len - 1U] = '\0';
 }
 
 static bool shell_path_entry_matches(const char *name, const char *prefix, bool prefix_has_wildcards)
@@ -5047,7 +5136,13 @@ static void shell_completion_emit(shell_completion_match_t *state, const char *v
         return;
     }
 
-    strlcpy(state->match, value, sizeof(state->match));
+    if (state->count == 0U) {
+        strlcpy(state->match, value, sizeof(state->match));
+    } else {
+        const size_t common =
+            solar_os_shell_completion_common_prefix(state->match, value);
+        state->match[common] = '\0';
+    }
     state->count++;
     if (state->print) {
         solar_os_shell_io_writeln(state->io, value);
@@ -6400,6 +6495,18 @@ static bool shell_complete_daq_kind(solar_os_context_t *ctx,
         return true;
     }
 
+    if (!show_matches && strlen(state.match) > strlen(prefix)) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+
     if (show_matches) {
         char original[SHELL_INPUT_MAX];
         strlcpy(original, shell_session(ctx)->input, sizeof(original));
@@ -6838,7 +6945,7 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     bool rule_seen = false;
     size_t best_wildcards = SHELL_ARG_MAX + 1U;
 
-    if (state == NULL) {
+    if (state == NULL || tokens == NULL || token_count == 0U) {
         return false;
     }
 
@@ -6848,11 +6955,13 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->prefix = prefix;
     state->print = print;
 
-    for (size_t i = 0; i < SHELL_ARRAY_COUNT(shell_completion_rules); i++) {
-        const shell_completion_rule_t *rule = &shell_completion_rules[i];
+    for (uint16_t rule_index = shell_completion_rule_first(tokens[0]);
+         rule_index != SHELL_COMPLETION_RULE_NONE;
+         rule_index = shell_completion_rule_next(rule_index, tokens[0])) {
+        const shell_completion_rule_t *rule = &shell_completion_rules[rule_index];
         size_t wildcards = 0;
 
-        if (rule->complete_path ||
+        if ((rule->flags & SHELL_COMPLETION_FLAG_PATH) != 0U ||
             !shell_completion_path_matches(rule, tokens, token_count, &wildcards)) {
             continue;
         }
@@ -6865,11 +6974,13 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         }
     }
 
-    for (size_t i = 0; i < SHELL_ARRAY_COUNT(shell_completion_rules); i++) {
-        const shell_completion_rule_t *rule = &shell_completion_rules[i];
+    for (uint16_t rule_index = shell_completion_rule_first(tokens[0]);
+         rule_index != SHELL_COMPLETION_RULE_NONE;
+         rule_index = shell_completion_rule_next(rule_index, tokens[0])) {
+        const shell_completion_rule_t *rule = &shell_completion_rules[rule_index];
         size_t wildcards = 0;
 
-        if (rule->complete_path ||
+        if ((rule->flags & SHELL_COMPLETION_FLAG_PATH) != 0U ||
             !shell_completion_path_matches(rule, tokens, token_count, &wildcards) ||
             wildcards != best_wildcards) {
             continue;
@@ -6883,139 +6994,149 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         for (size_t value_index = 0; value_index < rule->value_count; value_index++) {
             shell_completion_emit(state, rule->values[value_index]);
         }
-        if (rule->complete_commands) {
+        switch (rule->source) {
+        case SHELL_COMPLETION_SOURCE_NONE:
+            break;
+        case SHELL_COMPLETION_SOURCE_COMMANDS:
             shell_completion_emit_commands(state);
-        }
-        if (rule->complete_apps) {
+            break;
+        case SHELL_COMPLETION_SOURCE_APPS:
             shell_completion_emit_apps(state);
-        }
-        if (rule->complete_jobs) {
+            break;
+        case SHELL_COMPLETION_SOURCE_JOBS:
             shell_completion_emit_jobs(state);
-        }
-        if (rule->complete_agent_conversations) {
-            shell_completion_emit_agent_conversations(state);
-        }
-        if (rule->complete_inbox_ids) {
-            shell_completion_emit_inbox_ids(state);
-        }
-        if (rule->complete_message_ids) {
-            shell_completion_emit_message_ids(state);
-        }
-        if (rule->complete_contact_ids) {
-            shell_completion_emit_contact_ids(state);
-        }
-        if (rule->complete_endpoint_ids) {
-            shell_completion_emit_endpoint_ids(state);
-        }
-        if (rule->complete_playground_apps) {
-            shell_completion_emit_playground_apps(state);
-        }
-        if (rule->complete_audio_outputs) {
-            shell_completion_emit_audio_outputs(state);
-        }
-        if (rule->complete_expansion_drivers) {
-            shell_completion_emit_expansion_drivers(state);
-        }
-        if (rule->complete_expansion_devices) {
-            shell_completion_emit_expansion_devices(state);
-        }
-        if (rule->complete_connectors) {
-            shell_completion_emit_connectors(state);
-        }
-        if (rule->complete_manual_pages) {
+            break;
+        case SHELL_COMPLETION_SOURCE_MANUAL_PAGES:
             shell_completion_emit_manual_pages(state);
-        }
-        if (rule->complete_manual_references) {
+            break;
+        case SHELL_COMPLETION_SOURCE_MANUAL_REFERENCES:
             shell_completion_emit_manual_references(state);
-        }
-        if (rule->complete_display_session_ids) {
+            break;
+        case SHELL_COMPLETION_SOURCE_AGENT_CONVERSATIONS:
+            shell_completion_emit_agent_conversations(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_INBOX_IDS:
+            shell_completion_emit_inbox_ids(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_MESSAGE_IDS:
+            shell_completion_emit_message_ids(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_CONTACT_IDS:
+            shell_completion_emit_contact_ids(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_ENDPOINT_IDS:
+            shell_completion_emit_endpoint_ids(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_PLAYGROUND_APPS:
+            shell_completion_emit_playground_apps(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_AUDIO_OUTPUTS:
+            shell_completion_emit_audio_outputs(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_EXPANSION_DRIVERS:
+            shell_completion_emit_expansion_drivers(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_EXPANSION_DEVICES:
+            shell_completion_emit_expansion_devices(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_CONNECTORS:
+            shell_completion_emit_connectors(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_DISPLAY_SESSION_IDS:
             shell_completion_emit_display_session_ids(state);
-        }
-        if (rule->complete_session_ids) {
+            break;
+        case SHELL_COMPLETION_SOURCE_SESSION_IDS:
             shell_completion_emit_session_ids(state);
-        }
-        if (rule->complete_ports) {
+            break;
+        case SHELL_COMPLETION_SOURCE_PORTS:
             shell_completion_emit_ports(state);
-        }
-        if (rule->complete_radios) {
+            break;
+        case SHELL_COMPLETION_SOURCE_RADIOS:
             shell_completion_emit_radios(state);
-        }
-        if (rule->complete_links) {
+            break;
+        case SHELL_COMPLETION_SOURCE_LINKS:
             shell_completion_emit_links(state);
-        }
-        if (rule->complete_link_streams) {
+            break;
+        case SHELL_COMPLETION_SOURCE_LINK_STREAMS:
             shell_completion_emit_link_streams(state);
-        }
-        if (rule->complete_radio_profiles) {
+            break;
+        case SHELL_COMPLETION_SOURCE_RADIO_PROFILES:
             shell_completion_emit_radio_profiles(state, false);
-        }
-        if (rule->complete_user_radio_profiles) {
+            break;
+        case SHELL_COMPLETION_SOURCE_USER_RADIO_PROFILES:
             shell_completion_emit_radio_profiles(state, true);
-        }
-        if (rule->complete_ramfs_mounts) {
+            break;
+        case SHELL_COMPLETION_SOURCE_RAMFS_MOUNTS:
             shell_completion_emit_ramfs_mounts(state);
-        }
-        if (rule->complete_storage_mountables) {
+            break;
+        case SHELL_COMPLETION_SOURCE_STORAGE_MOUNTABLES:
             shell_completion_emit_storage_mountables(state);
-        }
-        if (rule->complete_storage_blocks) {
+            break;
+        case SHELL_COMPLETION_SOURCE_STORAGE_BLOCKS:
             shell_completion_emit_storage_blocks(state);
-        }
-        if (rule->complete_storage_unmount_targets) {
+            break;
+        case SHELL_COMPLETION_SOURCE_STORAGE_UNMOUNT_TARGETS:
             shell_completion_emit_storage_unmount_targets(state);
-        }
-        if (rule->complete_display_targets) {
+            break;
+        case SHELL_COMPLETION_SOURCE_DISPLAY_TARGETS:
             shell_completion_emit_display_targets(state);
-        }
-        if (rule->complete_display_modes) {
+            break;
+        case SHELL_COMPLETION_SOURCE_DISPLAY_MODES:
             shell_completion_emit_display_modes(state, tokens, token_count);
-        }
-        if (rule->complete_gpio_pins) {
+            break;
+        case SHELL_COMPLETION_SOURCE_GPIO_PINS:
             shell_completion_emit_gpio_pins(state);
-        }
-        if (rule->complete_i2c_arguments) {
+            break;
+        case SHELL_COMPLETION_SOURCE_I2C_ARGUMENTS:
             shell_completion_emit_i2c_arguments(state, tokens, token_count);
-        }
-        if (rule->complete_onewire_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_ONEWIRE_BUSES:
             shell_completion_emit_onewire_buses(state);
-        }
-        if (rule->complete_ps2_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_PS2_BUSES:
             shell_completion_emit_ps2_buses(state);
-        }
-        if (rule->complete_midi_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_MIDI_BUSES:
             shell_completion_emit_midi_buses(state);
-        }
-        if (rule->complete_spi_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_SPI_BUSES:
             shell_completion_emit_spi_buses(state);
-        }
-        if (rule->complete_uart_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_UART_BUSES:
             shell_completion_emit_uart_buses(state);
-        }
-        if (rule->complete_com_arguments) {
+            break;
+        case SHELL_COMPLETION_SOURCE_COM_ARGUMENTS:
             shell_completion_emit_com_arguments(state, tokens, token_count);
-        }
-        if (rule->complete_uart_arguments) {
+            break;
+        case SHELL_COMPLETION_SOURCE_UART_ARGUMENTS:
             shell_completion_emit_uart_arguments(state, tokens, token_count);
-        }
-        if (rule->complete_buses) {
+            break;
+        case SHELL_COMPLETION_SOURCE_BUSES:
             shell_completion_emit_buses(state);
-        }
-        if (rule->complete_spi_cs) {
+            break;
+        case SHELL_COMPLETION_SOURCE_SPI_CS:
             shell_completion_emit_spi_cs(state, tokens, token_count);
-        }
-        if (rule->complete_streams) {
-            shell_completion_emit_streams(state, rule->scalar_streams_only);
-        }
+            break;
+        case SHELL_COMPLETION_SOURCE_STREAMS:
+            shell_completion_emit_streams(
+                state,
+                (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_STREAMS) != 0U);
+            break;
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
-        if (rule->complete_controls) {
+        case SHELL_COMPLETION_SOURCE_CONTROLS:
             shell_completion_emit_controls(state);
-        }
-        if (rule->complete_parameters) {
+            break;
+        case SHELL_COMPLETION_SOURCE_PARAMETERS:
             shell_completion_emit_parameters(state);
-        }
+            break;
+#else
+        case SHELL_COMPLETION_SOURCE_CONTROLS:
+        case SHELL_COMPLETION_SOURCE_PARAMETERS:
+            break;
 #endif
-        if (rule->complete_wifi_ssids) {
+        case SHELL_COMPLETION_SOURCE_WIFI_SSIDS:
             shell_completion_emit_wifi_ssids(state);
+            break;
         }
     }
 
@@ -7028,11 +7149,17 @@ static const shell_completion_rule_t *shell_completion_find_path_rule(const char
     const shell_completion_rule_t *best = NULL;
     size_t best_wildcards = SHELL_ARG_MAX + 1;
 
-    for (size_t i = 0; i < SHELL_ARRAY_COUNT(shell_completion_rules); i++) {
-        const shell_completion_rule_t *rule = &shell_completion_rules[i];
+    if (tokens == NULL || token_count == 0U) {
+        return NULL;
+    }
+
+    for (uint16_t rule_index = shell_completion_rule_first(tokens[0]);
+         rule_index != SHELL_COMPLETION_RULE_NONE;
+         rule_index = shell_completion_rule_next(rule_index, tokens[0])) {
+        const shell_completion_rule_t *rule = &shell_completion_rules[rule_index];
         size_t wildcards = 0;
 
-        if (!rule->complete_path ||
+        if ((rule->flags & SHELL_COMPLETION_FLAG_PATH) == 0U ||
             !shell_completion_path_matches(rule, tokens, token_count, &wildcards)) {
             continue;
         }
@@ -7155,14 +7282,22 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                                                             &state);
     if (!rule_seen) {
         if (path_rule != NULL) {
-            shell_complete_path(ctx, token_start, path_rule->dirs_only, show_matches);
+            shell_complete_path(
+                ctx,
+                token_start,
+                (path_rule->flags & SHELL_COMPLETION_FLAG_DIRS_ONLY) != 0U,
+                show_matches);
             return true;
         }
         return false;
     }
     if (state.count == 0) {
         if (path_rule != NULL) {
-            shell_complete_path(ctx, token_start, path_rule->dirs_only, show_matches);
+            shell_complete_path(
+                ctx,
+                token_start,
+                (path_rule->flags & SHELL_COMPLETION_FLAG_DIRS_ONLY) != 0U,
+                show_matches);
             return true;
         }
         return false;
@@ -7176,6 +7311,18 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         snprintf(completed,
                  sizeof(completed),
                  "%.*s%s ",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+
+    if (!show_matches && strlen(state.match) > strlen(prefix)) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s",
                  (int)token_start,
                  shell_session(ctx)->input,
                  state.match);

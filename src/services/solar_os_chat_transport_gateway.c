@@ -18,6 +18,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "solar_os_identity.h"
+#include "solar_os_json_scan.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_queue.h"
@@ -32,13 +33,15 @@
 #define CHAT_EVENT_QUEUE_LEN 12
 #define CHAT_EVENT_QUEUE_WAIT_MS 20U
 #define CHAT_TX_QUEUE_LEN 8
+#define CHAT_JSON_ESCAPED_MAX(source_max) ((source_max) * 6U + 1U)
 #define CHAT_TEXT_ESC_MAX (SOLAR_OS_CHAT_TEXT_MAX * 6U + 1U)
 #define CHAT_TX_LINE_MAX (CHAT_TEXT_ESC_MAX + SOLAR_OS_CHAT_CHANNEL_MAX * 2U + 64U)
 #define CHAT_LINE_MAX (CHAT_TX_LINE_MAX + SOLAR_OS_CHAT_USER_MAX * 2U + 256U)
 #define CHAT_HOST_MAX 128
 #define CHAT_HELLO_LINE_MAX \
-    (SOLAR_OS_CHAT_TOKEN_MAX * 2U + SOLAR_OS_CHAT_USER_MAX * 2U + \
-     SOLAR_OS_CHAT_DEVICE_MAX * 2U + 80U)
+    (CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_TOKEN_MAX) + \
+     CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_USER_MAX) + \
+     CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_DEVICE_MAX) + 80U)
 
 typedef struct {
     bool tls;
@@ -301,273 +304,6 @@ static void chat_queue_simple_event(solar_os_chat_event_type_t type, const char 
     (void)chat_queue_event_owned(event);
 }
 
-static size_t chat_json_escape(const char *text, char *out, size_t out_len)
-{
-    if (out == NULL || out_len == 0) {
-        return 0;
-    }
-
-    size_t used = 0;
-    if (text == NULL) {
-        out[0] = '\0';
-        return 0;
-    }
-
-    for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; p++) {
-        char esc[7] = {0};
-        const char *write = esc;
-        size_t write_len = 0;
-
-        switch (*p) {
-        case '"':
-            write = "\\\"";
-            write_len = 2;
-            break;
-        case '\\':
-            write = "\\\\";
-            write_len = 2;
-            break;
-        case '\n':
-            write = "\\n";
-            write_len = 2;
-            break;
-        case '\r':
-            write = "\\r";
-            write_len = 2;
-            break;
-        case '\t':
-            write = "\\t";
-            write_len = 2;
-            break;
-        default:
-            if (*p < 0x20) {
-                snprintf(esc, sizeof(esc), "\\u%04x", (unsigned)*p);
-                write_len = 6;
-            } else {
-                esc[0] = (char)*p;
-                write_len = 1;
-            }
-            break;
-        }
-
-        if (used + write_len >= out_len) {
-            break;
-        }
-        memcpy(out + used, write, write_len);
-        used += write_len;
-    }
-    out[used] = '\0';
-    return used;
-}
-
-static const char *chat_skip_ws(const char *p)
-{
-    while (p != NULL && isspace((unsigned char)*p)) {
-        p++;
-    }
-    return p;
-}
-
-static const char *chat_parse_json_string(const char *p, char *out, size_t out_len, bool *truncated)
-{
-    if (p == NULL || *p != '"' || out == NULL || out_len == 0) {
-        return NULL;
-    }
-
-    p++;
-    size_t used = 0;
-    bool was_truncated = false;
-    while (*p != '\0' && *p != '"') {
-        char ch = *p++;
-        if (ch == '\\') {
-            ch = *p++;
-            switch (ch) {
-            case '"':
-            case '\\':
-            case '/':
-                break;
-            case 'n':
-                ch = '\n';
-                break;
-            case 'r':
-                ch = '\r';
-                break;
-            case 't':
-                ch = '\t';
-                break;
-            case 'b':
-            case 'f':
-                ch = ' ';
-                break;
-            case 'u':
-                for (int i = 0; i < 4 && isxdigit((unsigned char)*p); i++) {
-                    p++;
-                }
-                ch = '?';
-                break;
-            default:
-                if (ch == '\0') {
-                    return NULL;
-                }
-                break;
-            }
-        }
-
-        if (used + 1 < out_len) {
-            out[used++] = ch;
-        } else {
-            was_truncated = true;
-        }
-    }
-
-    if (*p != '"') {
-        return NULL;
-    }
-    out[used] = '\0';
-    if (truncated != NULL && was_truncated) {
-        *truncated = true;
-    }
-    return p + 1;
-}
-
-static const char *chat_skip_json_value(const char *p)
-{
-    p = chat_skip_ws(p);
-    if (p == NULL) {
-        return NULL;
-    }
-    if (*p == '"') {
-        char scratch[2];
-        return chat_parse_json_string(p, scratch, sizeof(scratch), NULL);
-    }
-
-    int depth = 0;
-    while (*p != '\0') {
-        if (*p == '{' || *p == '[') {
-            depth++;
-        } else if (*p == '}' || *p == ']') {
-            if (depth == 0) {
-                return p;
-            }
-            depth--;
-        } else if (*p == ',' && depth == 0) {
-            return p;
-        }
-        p++;
-    }
-    return p;
-}
-
-static bool chat_json_get_string(const char *json,
-                                 const char *key,
-                                 char *out,
-                                 size_t out_len,
-                                 bool *truncated)
-{
-    if (json == NULL || key == NULL || out == NULL || out_len == 0) {
-        return false;
-    }
-    out[0] = '\0';
-
-    const char *p = chat_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-
-    while (*p != '\0') {
-        p = chat_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-
-        char member[32];
-        p = chat_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chat_skip_ws(p + 1);
-
-        if (strcmp(member, key) == 0 && *p == '"') {
-            return chat_parse_json_string(p, out, out_len, truncated) != NULL;
-        }
-
-        p = chat_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-
-    return false;
-}
-
-static bool chat_json_get_u64(const char *json, const char *key, uint64_t *out)
-{
-    if (json == NULL || key == NULL || out == NULL) {
-        return false;
-    }
-
-    const char *p = chat_skip_ws(json);
-    if (p == NULL || *p != '{') {
-        return false;
-    }
-    p++;
-
-    while (*p != '\0') {
-        p = chat_skip_ws(p);
-        if (*p == '}') {
-            return false;
-        }
-
-        char member[32];
-        p = chat_parse_json_string(p, member, sizeof(member), NULL);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p != ':') {
-            return false;
-        }
-        p = chat_skip_ws(p + 1);
-
-        if (strcmp(member, key) == 0 && isdigit((unsigned char)*p)) {
-            uint64_t value = 0;
-            while (isdigit((unsigned char)*p)) {
-                const uint8_t digit = (uint8_t)(*p - '0');
-                if (value > (UINT64_MAX - digit) / 10U) {
-                    return false;
-                }
-                value = value * 10U + digit;
-                p++;
-            }
-            *out = value;
-            return true;
-        }
-
-        p = chat_skip_json_value(p);
-        if (p == NULL) {
-            return false;
-        }
-        p = chat_skip_ws(p);
-        if (*p == ',') {
-            p++;
-        } else if (*p == '}') {
-            return false;
-        }
-    }
-    return false;
-}
-
 static void chat_handle_gateway_line(const char *line)
 {
     if (line == NULL || line[0] == '\0') {
@@ -582,7 +318,7 @@ static void chat_handle_gateway_line(const char *line)
 
     char type[24];
     bool truncated = false;
-    if (!chat_json_get_string(line, "type", type, sizeof(type), NULL)) {
+    if (!solar_os_json_scan_object_string(line, "type", type, sizeof(type), NULL)) {
         strlcpy(event->text, line, sizeof(event->text));
         event->truncated = strlen(line) >= sizeof(event->text);
         (void)chat_queue_event_owned(event);
@@ -610,15 +346,19 @@ static void chat_handle_gateway_line(const char *line)
     }
 
     truncated = false;
-    (void)chat_json_get_string(line, "channel", event->channel, sizeof(event->channel), &truncated);
-    (void)chat_json_get_string(line, "from", event->from, sizeof(event->from), &truncated);
-    if (!chat_json_get_string(line, "text", event->text, sizeof(event->text), &truncated)) {
-        (void)chat_json_get_string(line, "name", event->text, sizeof(event->text), &truncated);
+    (void)solar_os_json_scan_object_string(
+        line, "channel", event->channel, sizeof(event->channel), &truncated);
+    (void)solar_os_json_scan_object_string(
+        line, "from", event->from, sizeof(event->from), &truncated);
+    if (!solar_os_json_scan_object_string(
+            line, "text", event->text, sizeof(event->text), &truncated)) {
+        (void)solar_os_json_scan_object_string(
+            line, "name", event->text, sizeof(event->text), &truncated);
     }
-    (void)chat_json_get_u64(line, "ts", &event->timestamp);
-    (void)chat_json_get_u64(line, "id", &event->message_key);
+    (void)solar_os_json_scan_object_uint64(line, "ts", &event->timestamp);
+    (void)solar_os_json_scan_object_uint64(line, "id", &event->message_key);
     uint64_t code = 0;
-    if (chat_json_get_u64(line, "code", &code)) {
+    if (solar_os_json_scan_object_uint64(line, "code", &code)) {
         event->code = (int)code;
     }
     event->truncated = truncated;
@@ -709,12 +449,12 @@ static esp_err_t chat_send_hello(esp_tls_t *tls)
     strlcpy(token, chat_state.token, sizeof(token));
     chat_unlock();
 
-    char user_esc[SOLAR_OS_CHAT_USER_MAX * 2];
-    char device_esc[SOLAR_OS_CHAT_DEVICE_MAX * 2];
-    char token_esc[SOLAR_OS_CHAT_TOKEN_MAX * 2];
-    chat_json_escape(user, user_esc, sizeof(user_esc));
-    chat_json_escape(device, device_esc, sizeof(device_esc));
-    chat_json_escape(token, token_esc, sizeof(token_esc));
+    char user_esc[CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_USER_MAX)];
+    char device_esc[CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_DEVICE_MAX)];
+    char token_esc[CHAT_JSON_ESCAPED_MAX(SOLAR_OS_CHAT_TOKEN_MAX)];
+    (void)solar_os_json_escape_string(user, user_esc, sizeof(user_esc));
+    (void)solar_os_json_escape_string(device, device_esc, sizeof(device_esc));
+    (void)solar_os_json_escape_string(token, token_esc, sizeof(token_esc));
 
     char line[CHAT_HELLO_LINE_MAX];
     if (token_esc[0] != '\0') {
@@ -1170,7 +910,7 @@ static esp_err_t chat_gateway_join(uint32_t command_id,
     }
 
     char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
+    (void)solar_os_json_escape_string(channel, channel_esc, sizeof(channel_esc));
 
     char line[CHAT_HELLO_LINE_MAX];
     snprintf(line,
@@ -1188,7 +928,7 @@ static esp_err_t chat_gateway_leave(uint32_t command_id, const char *channel)
     }
 
     char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
+    (void)solar_os_json_escape_string(channel, channel_esc, sizeof(channel_esc));
 
     char line[CHAT_HELLO_LINE_MAX];
     snprintf(line, sizeof(line), "{\"type\":\"leave\",\"channel\":\"%s\"}\n", channel_esc);
@@ -1202,7 +942,7 @@ static esp_err_t chat_gateway_delete_channel(uint32_t command_id, const char *ch
     }
 
     char channel_esc[SOLAR_OS_CHAT_CHANNEL_MAX * 2];
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
+    (void)solar_os_json_escape_string(channel, channel_esc, sizeof(channel_esc));
 
     char line[CHAT_HELLO_LINE_MAX];
     snprintf(line, sizeof(line), "{\"type\":\"delete\",\"channel\":\"%s\"}\n", channel_esc);
@@ -1227,8 +967,8 @@ static esp_err_t chat_gateway_send(uint32_t command_id,
         return ESP_ERR_NO_MEM;
     }
 
-    chat_json_escape(channel, channel_esc, sizeof(channel_esc));
-    chat_json_escape(text, text_esc, CHAT_TEXT_ESC_MAX);
+    (void)solar_os_json_escape_string(channel, channel_esc, sizeof(channel_esc));
+    (void)solar_os_json_escape_string(text, text_esc, CHAT_TEXT_ESC_MAX);
 
     snprintf(line,
              CHAT_TX_LINE_MAX,

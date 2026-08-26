@@ -86,3 +86,67 @@ bool solar_os_tick_should_log_miss(const solar_os_tick_stats_t *stats)
     const uint32_t count = stats->deadline_miss_count;
     return (count & (count - 1U)) == 0;
 }
+
+uint32_t solar_os_runtime_wait_ms(uint32_t requested_interval_ms,
+                                  bool requires_fast_poll)
+{
+    const uint32_t maximum_ms = requires_fast_poll ?
+        SOLAR_OS_RUNTIME_WAIT_POLL_MAX_MS : SOLAR_OS_RUNTIME_WAIT_EVENT_MAX_MS;
+    if (requested_interval_ms == 0U) {
+        return 1U;
+    }
+    return requested_interval_ms < maximum_ms ? requested_interval_ms : maximum_ms;
+}
+
+void solar_os_runtime_loop_note(solar_os_runtime_loop_stats_t *stats,
+                                uint32_t now_ms,
+                                uint32_t planned_wait_ms)
+{
+    if (stats == NULL) {
+        return;
+    }
+    if (!stats->initialized) {
+        memset(stats, 0, sizeof(*stats));
+        stats->initialized = true;
+        stats->sample_started_ms = now_ms;
+        stats->planned_wait_min_ms = UINT32_MAX;
+    }
+
+    stats->loop_count++;
+    stats->planned_wait_total_ms += planned_wait_ms;
+    if (planned_wait_ms < stats->planned_wait_min_ms) {
+        stats->planned_wait_min_ms = planned_wait_ms;
+    }
+    if (planned_wait_ms > stats->planned_wait_max_ms) {
+        stats->planned_wait_max_ms = planned_wait_ms;
+    }
+}
+
+bool solar_os_runtime_loop_take_report(solar_os_runtime_loop_stats_t *stats,
+                                       uint32_t now_ms,
+                                       uint32_t report_interval_ms,
+                                       solar_os_runtime_loop_report_t *report)
+{
+    if (stats == NULL || report == NULL || !stats->initialized ||
+        report_interval_ms == 0U) {
+        return false;
+    }
+
+    const uint32_t elapsed_ms = now_ms - stats->sample_started_ms;
+    if (elapsed_ms < report_interval_ms) {
+        return false;
+    }
+
+    report->elapsed_ms = elapsed_ms;
+    report->loop_count = stats->loop_count;
+    report->planned_wait_total_ms = stats->planned_wait_total_ms;
+    report->planned_wait_min_ms = stats->loop_count != 0U ?
+        stats->planned_wait_min_ms : 0U;
+    report->planned_wait_max_ms = stats->planned_wait_max_ms;
+
+    memset(stats, 0, sizeof(*stats));
+    stats->initialized = true;
+    stats->sample_started_ms = now_ms;
+    stats->planned_wait_min_ms = UINT32_MAX;
+    return true;
+}

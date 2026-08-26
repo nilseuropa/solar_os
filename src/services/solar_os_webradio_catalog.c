@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "esp_attr.h"
 #include "esp_check.h"
@@ -203,10 +201,10 @@ static esp_err_t webradio_catalog_persist(void)
 
     char temporary[SOLAR_OS_STORAGE_PATH_MAX];
     char backup[SOLAR_OS_STORAGE_PATH_MAX];
-    if (snprintf(temporary, sizeof(temporary), "%s.tmp", catalog.path) >=
-            (int)sizeof(temporary) ||
-        snprintf(backup, sizeof(backup), "%s.bak", catalog.path) >=
-            (int)sizeof(backup)) {
+    if (solar_os_storage_sibling_path(
+            catalog.path, ".tmp", temporary, sizeof(temporary)) != ESP_OK ||
+        solar_os_storage_sibling_path(
+            catalog.path, ".bak", backup, sizeof(backup)) != ESP_OK) {
         solar_os_memory_free(blob);
         return ESP_ERR_INVALID_SIZE;
     }
@@ -218,32 +216,15 @@ static esp_err_t webradio_catalog_persist(void)
     }
     esp_err_t err = fwrite(blob, sizeof(*blob), 1U, file) == 1U ?
         ESP_OK : ESP_FAIL;
-    if (err == ESP_OK && fflush(file) != 0) {
-        err = ESP_FAIL;
-    }
-    if (err == ESP_OK && fsync(fileno(file)) != 0) {
-        err = ESP_FAIL;
+    if (err == ESP_OK) {
+        err = solar_os_storage_sync_file(file);
     }
     if (fclose(file) != 0 && err == ESP_OK) {
         err = ESP_FAIL;
     }
 
     if (err == ESP_OK) {
-        struct stat info;
-        const bool had_active = stat(catalog.path, &info) == 0;
-        (void)solar_os_storage_remove(backup);
-        if (had_active) {
-            err = solar_os_storage_rename(catalog.path, backup);
-        }
-        if (err == ESP_OK) {
-            err = solar_os_storage_rename(temporary, catalog.path);
-        }
-        if (err != ESP_OK && had_active) {
-            (void)solar_os_storage_rename(backup, catalog.path);
-        }
-        if (err == ESP_OK) {
-            (void)solar_os_storage_remove(backup);
-        }
+        err = solar_os_storage_replace_file(temporary, catalog.path, backup);
     }
     if (err != ESP_OK) {
         (void)solar_os_storage_remove(temporary);

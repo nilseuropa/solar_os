@@ -12,7 +12,10 @@ def source(path: str) -> str:
 class GatewayReplayProtocolTest(unittest.TestCase):
     def test_transport_exchanges_numeric_message_ids_and_room_cursors(self):
         transport = source("src/services/solar_os_chat_transport_gateway.c")
-        self.assertIn('chat_json_get_u64(line, "id", &event->message_key)', transport)
+        self.assertIn(
+            'solar_os_json_scan_object_uint64(line, "id", &event->message_key)',
+            transport,
+        )
         self.assertIn('\\"cursor\\":%" PRIu64', transport)
         self.assertIn("command->cursor", transport)
 
@@ -46,7 +49,10 @@ class GatewayReplayProtocolTest(unittest.TestCase):
 
     def test_native_chatd_replays_only_messages_newer_than_cursor(self):
         chatd = source("src/jobs/solar_os_chatd_job.c")
-        self.assertIn('chatd_json_get_u64(line, "cursor", &cursor)', chatd)
+        self.assertIn(
+            'solar_os_json_scan_object_uint64(line, "cursor", &cursor)',
+            chatd,
+        )
         self.assertIn("entry->message_id <= cursor", chatd)
         self.assertIn('",\\\"id\\\":"', chatd)
         self.assertNotIn(

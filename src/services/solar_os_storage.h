@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "esp_err.h"
 
@@ -116,6 +117,16 @@ esp_err_t solar_os_storage_mkdir(const char *path);
 esp_err_t solar_os_storage_rmdir(const char *path);
 esp_err_t solar_os_storage_remove(const char *path);
 esp_err_t solar_os_storage_rename(const char *old_path, const char *new_path);
+esp_err_t solar_os_storage_sync_file(FILE *file);
+esp_err_t solar_os_storage_sibling_path(const char *path,
+                                        const char *suffix,
+                                        char *out,
+                                        size_t out_len);
+// Replaces active_path with an already-written and synced staged file. The
+// previous active file is restored if the staged rename fails.
+esp_err_t solar_os_storage_replace_file(const char *staged_path,
+                                        const char *active_path,
+                                        const char *backup_path);
 esp_err_t solar_os_storage_read_file(const char *path,
                                      void *buffer,
                                      size_t buffer_len,

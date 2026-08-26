@@ -241,6 +241,7 @@ sources = [
   "jobs/solar_os_job_registry.c",
   "services/solar_os_board_caps.c",
   "services/solar_os_board_boot.c",
+  "services/solar_os_boot_services.c",
   "services/solar_os_cdc.c",
   "services/solar_os_clipboard.c",
   "services/solar_os_display.c",
@@ -332,6 +333,7 @@ sources = [
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
+  "shell/solar_os_shell_completion.c",
   "shell/solar_os_shell_io.c",
   "shell/solar_os_shell_manual.c",
   "shell/solar_os_shell_line.c",
@@ -475,7 +477,7 @@ capabilities = ["psram"]
 
 [packages.chat_transport_gateway]
 label = "chat.transport.gateway"
-depends = ["service_gateway", "service_wifi"]
+depends = ["service_gateway", "service_json_scan", "service_wifi"]
 sources = ["services/solar_os_chat_transport_gateway.c"]
 requires = ["esp-tls"]
 capabilities = ["psram", "wifi"]
@@ -524,7 +526,10 @@ capabilities = ["psram", "wifi"]
 
 [packages.service_script_runner]
 label = "service.script_runner"
-sources = ["services/solar_os_script_runner.c"]
+sources = [
+  "services/solar_os_script_lifecycle.c",
+  "services/solar_os_script_runner.c",
+]
 
 [packages.service_image]
 label = "media.image"
@@ -543,6 +548,7 @@ sources = [
 label = "service.ble"
 sources = [
   "services/solar_os_ble_keyboard.c",
+  "services/solar_os_ble_keyboard_scan_policy.c",
   "services/solar_os_hid_keyboard_report.c",
 ]
 requires = ["bt", "esp_hid", "nvs_flash"]
@@ -876,8 +882,13 @@ capabilities = ["expansion_i2s"]
 
 [packages.service_json]
 label = "service.json"
+depends = ["service_json_scan"]
 sources = ["services/solar_os_json.c"]
 requires = ["json"]
+
+[packages.service_json_scan]
+label = "service.json-scan"
+sources = ["services/solar_os_json_scan.c"]
 
 [packages.service_crypto]
 label = "service.crypto"
@@ -1218,7 +1229,7 @@ capabilities = ["gfx", "psram", "wifi"]
 
 [packages.job_chatd]
 label = "job.chatd"
-depends = ["service_wifi"]
+depends = ["service_json_scan", "service_wifi"]
 sources = ["jobs/solar_os_chatd_job.c"]
 requires = ["heap"]
 capabilities = ["psram", "wifi"]

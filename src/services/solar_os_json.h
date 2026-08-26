@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_json_scan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,7 @@ extern "C" {
 typedef struct solar_os_json_doc solar_os_json_doc_t;
 typedef struct cJSON solar_os_json_value_t;
 
+esp_err_t solar_os_json_init(void);
 esp_err_t solar_os_json_parse(const char *source,
                               size_t source_len,
                               solar_os_json_doc_t **out_doc);
@@ -67,7 +69,6 @@ bool solar_os_json_array_contains_string(const solar_os_json_value_t *array,
 bool solar_os_json_path_array_contains_string(const solar_os_json_value_t *value,
                                               const char *path,
                                               const char *text);
-esp_err_t solar_os_json_escape_string(const char *source, char *out, size_t out_len);
 
 #ifdef __cplusplus
 }

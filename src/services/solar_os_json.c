@@ -7,6 +7,8 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "solar_os_memory.h"
 
 struct solar_os_json_doc {
@@ -14,6 +16,7 @@ struct solar_os_json_doc {
 };
 
 static bool json_hooks_initialized;
+static portMUX_TYPE json_hooks_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void *json_malloc(size_t size)
 {
@@ -31,18 +34,19 @@ static void json_free(void *ptr)
     solar_os_memory_free(ptr);
 }
 
-static void json_init_hooks(void)
+esp_err_t solar_os_json_init(void)
 {
-    if (json_hooks_initialized) {
-        return;
+    portENTER_CRITICAL(&json_hooks_lock);
+    if (!json_hooks_initialized) {
+        cJSON_Hooks hooks = {
+            .malloc_fn = json_malloc,
+            .free_fn = json_free,
+        };
+        cJSON_InitHooks(&hooks);
+        json_hooks_initialized = true;
     }
-
-    cJSON_Hooks hooks = {
-        .malloc_fn = json_malloc,
-        .free_fn = json_free,
-    };
-    cJSON_InitHooks(&hooks);
-    json_hooks_initialized = true;
+    portEXIT_CRITICAL(&json_hooks_lock);
+    return ESP_OK;
 }
 
 static bool json_copy_key(const char *start, size_t len, char *out, size_t out_len)
@@ -72,7 +76,10 @@ esp_err_t solar_os_json_parse_ex(const char *source,
         return ESP_ERR_INVALID_ARG;
     }
 
-    json_init_hooks();
+    esp_err_t err = solar_os_json_init();
+    if (err != ESP_OK) {
+        return err;
+    }
 
     const char *parse_end = NULL;
     cJSON *root = cJSON_ParseWithLengthOpts(source, source_len, &parse_end, false);
@@ -399,62 +406,4 @@ bool solar_os_json_path_array_contains_string(const solar_os_json_value_t *value
                                               const char *text)
 {
     return solar_os_json_array_contains_string(solar_os_json_path_get(value, path), text);
-}
-
-esp_err_t solar_os_json_escape_string(const char *source, char *out, size_t out_len)
-{
-    if (source == NULL || out == NULL || out_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    size_t written = 0;
-    out[0] = '\0';
-
-    for (const unsigned char *p = (const unsigned char *)source; *p != '\0'; p++) {
-        char escaped[7];
-        const char *chunk = escaped;
-
-        switch (*p) {
-        case '\"':
-            chunk = "\\\"";
-            break;
-        case '\\':
-            chunk = "\\\\";
-            break;
-        case '\b':
-            chunk = "\\b";
-            break;
-        case '\f':
-            chunk = "\\f";
-            break;
-        case '\n':
-            chunk = "\\n";
-            break;
-        case '\r':
-            chunk = "\\r";
-            break;
-        case '\t':
-            chunk = "\\t";
-            break;
-        default:
-            if (*p < 0x20) {
-                snprintf(escaped, sizeof(escaped), "\\u%04x", (unsigned)*p);
-            } else {
-                escaped[0] = (char)*p;
-                escaped[1] = '\0';
-            }
-            break;
-        }
-
-        const size_t chunk_len = strlen(chunk);
-        if (written + chunk_len >= out_len) {
-            out[out_len - 1U] = '\0';
-            return ESP_ERR_INVALID_SIZE;
-        }
-        memcpy(out + written, chunk, chunk_len);
-        written += chunk_len;
-        out[written] = '\0';
-    }
-
-    return ESP_OK;
 }
