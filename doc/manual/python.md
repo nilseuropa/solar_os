@@ -631,6 +631,38 @@ solaros.midi.note_on(1, 60, 100)
 message = solaros.midi.read(1000)
 ```
 
+## `solaros.osc`
+
+OSC bindings configure the native `osc` job; start and stop that worker through
+`solaros.jobs`. The scripting API does not replace its bounded UDP transport,
+peer filtering, or rate limiting.
+
+- `bindings()`: return complete source configuration and runtime availability,
+  value, timing, send, and error telemetry.
+- `bind_stream(name, source, address[, rate_hz, delta, send_always])`: publish
+  a scalar stream and return its binding ID.
+- `bind_event(name, source, address[, edge, rate_hz])`: publish sampled event
+  edges. `edge` is `"rising"`, `"falling"`, or `"both"`.
+- `bind_control(name, control, address[, rate_hz, send_always])`: publish a
+  normalized named control and return its binding ID.
+- `unbind(name)` and `clear()`: remove one or all bindings. `clear()` returns
+  the number removed.
+- `encode_float(address, value)` and `encode_int(address, value)`: return a
+  bounded OSC message as `bytes`, suitable for `solaros.net.udp_send()`.
+- `dispatch(packet)`: validate a message or immediate bundle and apply its
+  native parameter routes; return message, applied, unknown, and rejected
+  counts.
+- `limits()`: return packet, address, binding, bundle/update, and rate limits.
+
+```python
+solaros.osc.bind_stream(
+    "ambient", "temperature", "/room/temperature", 2.0, 0.1
+)
+solaros.jobs.start(
+    "osc", ["listen=9000", "target=192.168.1.50:9001"]
+)
+```
+
 ## `solaros.pwm`
 
 PWM functions expose LEDC PWM output on runtime-safe expansion pins. Active PWM outputs share one LEDC timer, so changing the frequency changes the frequency for all active PWM outputs.

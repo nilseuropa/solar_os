@@ -220,6 +220,21 @@ SOLAR_OS_SCRIPT_API_FUNCTION(midi, stream_clear, stream_clear);
 SOLAR_OS_SCRIPT_API_MODULE_END(midi);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(osc);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bindings, bindings);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_stream, bind_stream);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_event, bind_event);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_control, bind_control);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, unbind, unbind);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, encode_float, encode_float);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, encode_int, encode_int);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, dispatch, dispatch);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, limits, limits);
+SOLAR_OS_SCRIPT_API_MODULE_END(osc);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(dsp);
 SOLAR_OS_SCRIPT_API_FUNCTION(dsp, backend, backend);

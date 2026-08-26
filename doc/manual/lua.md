@@ -64,6 +64,7 @@ service packages are not available on that board.
 - `solaros.controls`: `list`, `get`, `set`, `create`, `delete`, `clear`, `bindings`, `bind_parameter`, `bind_midi`, `unbind` when continuous controls are compiled. Values use the normalized range `0.0..1.0`.
 - `solaros.parameters`: `list`, `get`, `set` for dynamic native application parameters when continuous controls are compiled.
 - `solaros.midi`: `status`, `send`, `note_on`, `note_off`, `cc`, `program`, `read`/`receive`, `close`, `streams`, `stream_add`, `stream_remove`, `stream_clear` when MIDI support is compiled.
+- `solaros.osc`: `bindings`, `bind_stream`, `bind_event`, `bind_control`, `unbind`, `clear`, `encode_float`, `encode_int`, `dispatch`, `limits` when OSC support is compiled.
 - `solaros.dsp`: `backend`, `capabilities`, `dot`, `gain`, `mix`, `clip`, `level`, `window`, `fir`, and `fft` when `service.dsp` is compiled. Binary strings contain native little-endian signed 16-bit values; FIR and FFT constructors return caller-owned userdata.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `create_midi`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
@@ -248,6 +249,30 @@ released when Lua exits; `close()` releases it earlier.
 Use `streams()`, `stream_add(channel, controller)`, `stream_remove(...)`, and
 `stream_clear()` to manage incoming CC scalar streams. Message tables contain
 `status`, `length`, `type`, and applicable channel/data fields.
+
+### Open Sound Control
+
+Lua configures native OSC bindings while the `osc` job retains UDP socket,
+filtering, and rate-limit ownership:
+
+```lua
+solaros.osc.bind_stream(
+    "ambient", "temperature", "/room/temperature", 2.0, 0.1
+)
+solaros.jobs.start(
+    "osc", { "listen=9000", "target=192.168.1.50:9001" }
+)
+```
+
+`bindings()` returns source configuration plus availability, values, timing,
+send counters, and errors. `bind_stream`, `bind_event`, and `bind_control`
+return numeric IDs; `unbind` and `clear` remove definitions. Event edges are
+`"rising"`, `"falling"`, or `"both"`; rates are `0.1..100` Hz.
+
+`encode_float()` and `encode_int()` return binary OSC messages that can be sent
+with `solaros.net.udp_send()`. `dispatch(packet)` validates a message or
+immediate bundle and applies the same native parameter routes as the job.
+`limits()` reports all public codec and binding bounds.
 
 For example, this plays a short saw-wave chord without running Lua in the
 real-time render callback:

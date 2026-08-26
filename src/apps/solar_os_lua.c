@@ -93,6 +93,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 #include "solar_os_onewire.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+#include "solar_os_osc.h"
+#endif
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
@@ -2896,6 +2899,223 @@ static int solua_midi_stream_clear(lua_State *L)
     size_t removed = 0U;
     (void)solua_check_esp(L, solar_os_midi_cc_stream_clear(&removed));
     lua_pushinteger(L, (lua_Integer)removed);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static void solua_push_osc_binding(lua_State *L,
+                                   const solar_os_osc_binding_info_t *info)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_int(L, item, "id", info->id);
+    solua_set_str(L, item, "name", info->config.name);
+    solua_set_str(L, item, "source_type",
+                  solar_os_osc_source_name(info->config.source_type));
+    solua_set_str(L, item, "value_type",
+                  solar_os_osc_value_name(info->config.value_type));
+    solua_set_str(L, item, "source", info->config.source);
+    solua_set_str(L, item, "address", info->config.address);
+    solua_set_int(L, item, "interval_ms", info->config.interval_ms);
+    solua_set_num(L, item, "rate_hz",
+                  1000.0 / (lua_Number)info->config.interval_ms);
+    solua_set_num(L, item, "delta", info->config.delta);
+    solua_set_bool(L, item, "send_always", info->config.send_always);
+    solua_set_str(L, item, "edge", solar_os_osc_edge_name(info->config.edge));
+    solua_set_bool(L, item, "source_available", info->source_available);
+    solua_set_bool(L, item, "has_value", info->has_value);
+    if (info->has_value) {
+        solua_set_num(L, item, "last_value", info->last_value);
+    }
+    solua_set_bool(L, item, "has_sent_value", info->has_sent_value);
+    if (info->has_sent_value) {
+        solua_set_num(L, item, "last_sent_value", info->last_sent_value);
+    }
+    solua_set_int(L, item, "last_sample_ms", (lua_Integer)info->last_sample_ms);
+    solua_set_int(L, item, "last_send_ms", (lua_Integer)info->last_send_ms);
+    solua_set_int(L, item, "sent", info->sent);
+    solua_set_int(L, item, "send_errors", info->send_errors);
+    solua_set_int(L, item, "source_errors", info->source_errors);
+    solua_set_int(L, item, "last_error", info->last_error);
+    solua_set_str(L, item, "last_error_name", esp_err_to_name(info->last_error));
+}
+
+static int solua_osc_bindings(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    const size_t count = solar_os_osc_binding_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_osc_binding_info_t info;
+        if (solar_os_osc_binding_get(i, &info)) {
+            solua_push_osc_binding(L, &info);
+            lua_rawseti(L, list, out++);
+        }
+    }
+    return 1;
+}
+
+static uint32_t solua_osc_interval(lua_State *L, int index)
+{
+    const float rate = (float)luaL_checknumber(L, index);
+    if (!isfinite(rate) || rate * 1000.0f < SOLAR_OS_OSC_RATE_MIN_MILLIHZ ||
+        rate * 1000.0f > SOLAR_OS_OSC_RATE_MAX_MILLIHZ) {
+        luaL_error(L, "expected OSC rate 0.1..100 Hz");
+    }
+    return (uint32_t)lroundf(1000.0f / rate);
+}
+
+static void solua_osc_binding_strings(lua_State *L,
+                                      solar_os_osc_binding_config_t *config)
+{
+    const char *name = luaL_checkstring(L, 1);
+    const char *source = luaL_checkstring(L, 2);
+    const char *address = luaL_checkstring(L, 3);
+    if (strlen(name) >= sizeof(config->name) ||
+        strlen(source) >= sizeof(config->source) ||
+        strlen(address) >= sizeof(config->address)) {
+        luaL_error(L, "OSC name, source, or address is too long");
+    }
+    strlcpy(config->name, name, sizeof(config->name));
+    strlcpy(config->source, source, sizeof(config->source));
+    strlcpy(config->address, address, sizeof(config->address));
+}
+
+static int solua_osc_bind_config(lua_State *L,
+                                 const solar_os_osc_binding_config_t *config)
+{
+    uint32_t id = 0U;
+    (void)solua_check_esp(L, solar_os_osc_bind(config, &id));
+    lua_pushinteger(L, (lua_Integer)id);
+    return 1;
+}
+
+static int solua_osc_bind_stream(lua_State *L)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_STREAM,
+        .value_type = SOLAR_OS_OSC_VALUE_SCALAR,
+        .interval_ms = lua_isnoneornil(L, 4) ? 20U :
+                                                  solua_osc_interval(L, 4),
+        .delta = (float)luaL_optnumber(L, 5, 0.0),
+        .send_always = !lua_isnoneornil(L, 6) && lua_toboolean(L, 6),
+        .edge = SOLAR_OS_OSC_EDGE_BOTH,
+    };
+    solua_osc_binding_strings(L, &config);
+    return solua_osc_bind_config(L, &config);
+}
+
+static solar_os_osc_edge_t solua_osc_edge(lua_State *L, int index)
+{
+    const char *edge = luaL_checkstring(L, index);
+    if (strcmp(edge, "rising") == 0) {
+        return SOLAR_OS_OSC_EDGE_RISING;
+    }
+    if (strcmp(edge, "falling") == 0) {
+        return SOLAR_OS_OSC_EDGE_FALLING;
+    }
+    if (strcmp(edge, "both") == 0) {
+        return SOLAR_OS_OSC_EDGE_BOTH;
+    }
+    luaL_error(L, "expected edge rising, falling, or both");
+}
+
+static int solua_osc_bind_event(lua_State *L)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_STREAM,
+        .value_type = SOLAR_OS_OSC_VALUE_EVENT,
+        .interval_ms = lua_isnoneornil(L, 5) ? 20U :
+                                                  solua_osc_interval(L, 5),
+        .edge = lua_isnoneornil(L, 4) ? SOLAR_OS_OSC_EDGE_BOTH :
+                                        solua_osc_edge(L, 4),
+    };
+    solua_osc_binding_strings(L, &config);
+    return solua_osc_bind_config(L, &config);
+}
+
+static int solua_osc_bind_control(lua_State *L)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_CONTROL,
+        .value_type = SOLAR_OS_OSC_VALUE_SCALAR,
+        .interval_ms = lua_isnoneornil(L, 4) ? 20U :
+                                                  solua_osc_interval(L, 4),
+        .send_always = !lua_isnoneornil(L, 5) && lua_toboolean(L, 5),
+        .edge = SOLAR_OS_OSC_EDGE_BOTH,
+    };
+    solua_osc_binding_strings(L, &config);
+    return solua_osc_bind_config(L, &config);
+}
+
+static int solua_osc_unbind(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_osc_unbind(luaL_checkstring(L, 1)));
+}
+
+static int solua_osc_clear(lua_State *L)
+{
+    const size_t removed = solar_os_osc_binding_count();
+    solar_os_osc_clear();
+    lua_pushinteger(L, (lua_Integer)removed);
+    return 1;
+}
+
+static int solua_osc_encode_float(lua_State *L)
+{
+    uint8_t packet[SOLAR_OS_OSC_PACKET_MAX];
+    size_t length = 0U;
+    (void)solua_check_esp(L, solar_os_osc_encode_float(
+        luaL_checkstring(L, 1), (float)luaL_checknumber(L, 2),
+        packet, sizeof(packet), &length));
+    lua_pushlstring(L, (const char *)packet, length);
+    return 1;
+}
+
+static int solua_osc_encode_int(lua_State *L)
+{
+    const lua_Integer value = luaL_checkinteger(L, 2);
+    if (value < INT32_MIN || value > INT32_MAX) {
+        return luaL_error(L, "OSC integer out of range");
+    }
+    uint8_t packet[SOLAR_OS_OSC_PACKET_MAX];
+    size_t length = 0U;
+    (void)solua_check_esp(L, solar_os_osc_encode_int(
+        luaL_checkstring(L, 1), (int32_t)value,
+        packet, sizeof(packet), &length));
+    lua_pushlstring(L, (const char *)packet, length);
+    return 1;
+}
+
+static int solua_osc_dispatch(lua_State *L)
+{
+    size_t length = 0U;
+    const char *packet = luaL_checklstring(L, 1, &length);
+    solar_os_osc_dispatch_result_t result;
+    (void)solua_check_esp(L, solar_os_osc_dispatch_packet(
+        (const uint8_t *)packet, length, &result));
+    lua_newtable(L);
+    solua_set_int(L, -1, "messages", result.messages);
+    solua_set_int(L, -1, "applied", result.applied);
+    solua_set_int(L, -1, "unknown_paths", result.unknown_paths);
+    solua_set_int(L, -1, "rejected_values", result.rejected_values);
+    return 1;
+}
+
+static int solua_osc_limits(lua_State *L)
+{
+    lua_newtable(L);
+    solua_set_int(L, -1, "packet_max", SOLAR_OS_OSC_PACKET_MAX);
+    solua_set_int(L, -1, "address_max", SOLAR_OS_OSC_ADDRESS_MAX - 1U);
+    solua_set_int(L, -1, "bindings_max", SOLAR_OS_OSC_BINDING_MAX);
+    solua_set_int(L, -1, "bundle_depth_max", SOLAR_OS_OSC_BUNDLE_DEPTH_MAX);
+    solua_set_int(L, -1, "packet_updates_max", SOLAR_OS_OSC_PACKET_UPDATE_MAX);
+    solua_set_num(L, -1, "rate_min_hz",
+                  SOLAR_OS_OSC_RATE_MIN_MILLIHZ / 1000.0);
+    solua_set_num(L, -1, "rate_max_hz",
+                  SOLAR_OS_OSC_RATE_MAX_MILLIHZ / 1000.0);
     return 1;
 }
 #endif

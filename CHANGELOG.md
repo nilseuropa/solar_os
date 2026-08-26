@@ -25,9 +25,10 @@
   their installed partition layout through normal OTA updates; adopting the
   common `/flash` layout requires a full USB/factory flash and reformats that
   volume. Completed mirrored Python/Lua continuous-control, native-parameter,
-  and MIDI bindings, including runtime diagnostics, typed binding management,
-  validated transmission helpers, non-consuming receive subscriptions, and CC
-  scalar-stream management.
+  MIDI, and OSC bindings, including runtime diagnostics, typed binding
+  management, validated MIDI transmission helpers, non-consuming receive
+  subscriptions, CC scalar-stream management, OSC binding telemetry, and
+  bounded OSC encoding and parameter dispatch.
 - **4.8.15** — 2026-08-26 — Reduced idle runtime wakeups and consolidated boot,
   bus-capability, script-lifecycle, BLE-lifecycle, JSON scanning, safe file
   replacement, and shell-completion infrastructure. Shell completion now uses

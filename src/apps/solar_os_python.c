@@ -99,6 +99,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 #include "solar_os_onewire.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+#include "solar_os_osc.h"
+#endif
 #include "solar_os_port_shell.h"
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
@@ -3108,6 +3111,233 @@ static mp_obj_t solaros_midi_stream_clear(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_midi_stream_clear_obj,
                           solaros_midi_stream_clear);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static mp_obj_t python_osc_binding_to_dict(
+    const solar_os_osc_binding_info_t *info)
+{
+    mp_obj_t dict = mp_obj_new_dict(22);
+    python_dict_store_uint(dict, "id", info->id);
+    python_dict_store_cstr(dict, "name", info->config.name);
+    python_dict_store_cstr(dict, "source_type",
+                           solar_os_osc_source_name(info->config.source_type));
+    python_dict_store_cstr(dict, "value_type",
+                           solar_os_osc_value_name(info->config.value_type));
+    python_dict_store_cstr(dict, "source", info->config.source);
+    python_dict_store_cstr(dict, "address", info->config.address);
+    python_dict_store_uint(dict, "interval_ms", info->config.interval_ms);
+    python_dict_store_float(dict, "rate_hz",
+                            1000.0f / (float)info->config.interval_ms);
+    python_dict_store_float(dict, "delta", info->config.delta);
+    python_dict_store_bool(dict, "send_always", info->config.send_always);
+    python_dict_store_cstr(dict, "edge",
+                           solar_os_osc_edge_name(info->config.edge));
+    python_dict_store_bool(dict, "source_available", info->source_available);
+    python_dict_store_bool(dict, "has_value", info->has_value);
+    mp_obj_dict_store(dict, python_key("last_value"),
+                      info->has_value ? mp_obj_new_float(info->last_value) :
+                                        mp_const_none);
+    python_dict_store_bool(dict, "has_sent_value", info->has_sent_value);
+    mp_obj_dict_store(dict, python_key("last_sent_value"),
+                      info->has_sent_value ?
+                          mp_obj_new_float(info->last_sent_value) : mp_const_none);
+    python_dict_store_u64(dict, "last_sample_ms", info->last_sample_ms);
+    python_dict_store_u64(dict, "last_send_ms", info->last_send_ms);
+    python_dict_store_uint(dict, "sent", info->sent);
+    python_dict_store_uint(dict, "send_errors", info->send_errors);
+    python_dict_store_uint(dict, "source_errors", info->source_errors);
+    python_dict_store_int(dict, "last_error", info->last_error);
+    python_dict_store_cstr(dict, "last_error_name",
+                           esp_err_to_name(info->last_error));
+    return dict;
+}
+
+static mp_obj_t solaros_osc_bindings(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_osc_binding_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_osc_binding_info_t info;
+        if (solar_os_osc_binding_get(i, &info)) {
+            mp_obj_list_append(list, python_osc_binding_to_dict(&info));
+        }
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_osc_bindings_obj, solaros_osc_bindings);
+
+static uint32_t python_osc_interval(mp_obj_t rate_obj)
+{
+    const float rate = (float)mp_obj_get_float(rate_obj);
+    if (!isfinite(rate) || rate * 1000.0f < SOLAR_OS_OSC_RATE_MIN_MILLIHZ ||
+        rate * 1000.0f > SOLAR_OS_OSC_RATE_MAX_MILLIHZ) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected OSC rate 0.1..100 Hz"));
+    }
+    return (uint32_t)lroundf(1000.0f / rate);
+}
+
+static void python_osc_binding_strings(solar_os_osc_binding_config_t *config,
+                                       mp_obj_t name_obj,
+                                       mp_obj_t source_obj,
+                                       mp_obj_t address_obj)
+{
+    const char *name = mp_obj_str_get_str(name_obj);
+    const char *source = mp_obj_str_get_str(source_obj);
+    const char *address = mp_obj_str_get_str(address_obj);
+    if (strlen(name) >= sizeof(config->name) ||
+        strlen(source) >= sizeof(config->source) ||
+        strlen(address) >= sizeof(config->address)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("OSC name, source, or address is too long"));
+    }
+    strlcpy(config->name, name, sizeof(config->name));
+    strlcpy(config->source, source, sizeof(config->source));
+    strlcpy(config->address, address, sizeof(config->address));
+}
+
+static mp_obj_t python_osc_bind_config(
+    const solar_os_osc_binding_config_t *config)
+{
+    uint32_t id = 0U;
+    python_check_esp(solar_os_osc_bind(config, &id));
+    return mp_obj_new_int_from_uint(id);
+}
+
+static mp_obj_t solaros_osc_bind_stream(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_STREAM,
+        .value_type = SOLAR_OS_OSC_VALUE_SCALAR,
+        .interval_ms = n_args > 3 ? python_osc_interval(args[3]) : 20U,
+        .delta = n_args > 4 ? (float)mp_obj_get_float(args[4]) : 0.0f,
+        .send_always = n_args > 5 && mp_obj_is_true(args[5]),
+        .edge = SOLAR_OS_OSC_EDGE_BOTH,
+    };
+    python_osc_binding_strings(&config, args[0], args[1], args[2]);
+    return python_osc_bind_config(&config);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_osc_bind_stream_obj,
+                                    3, 6, solaros_osc_bind_stream);
+
+static solar_os_osc_edge_t python_osc_edge(mp_obj_t edge_obj)
+{
+    const char *edge = mp_obj_str_get_str(edge_obj);
+    if (strcmp(edge, "rising") == 0) {
+        return SOLAR_OS_OSC_EDGE_RISING;
+    }
+    if (strcmp(edge, "falling") == 0) {
+        return SOLAR_OS_OSC_EDGE_FALLING;
+    }
+    if (strcmp(edge, "both") == 0) {
+        return SOLAR_OS_OSC_EDGE_BOTH;
+    }
+    mp_raise_ValueError(MP_ERROR_TEXT("expected edge rising, falling, or both"));
+}
+
+static mp_obj_t solaros_osc_bind_event(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_STREAM,
+        .value_type = SOLAR_OS_OSC_VALUE_EVENT,
+        .interval_ms = n_args > 4 ? python_osc_interval(args[4]) : 20U,
+        .edge = n_args > 3 ? python_osc_edge(args[3]) :
+                             SOLAR_OS_OSC_EDGE_BOTH,
+    };
+    python_osc_binding_strings(&config, args[0], args[1], args[2]);
+    return python_osc_bind_config(&config);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_osc_bind_event_obj,
+                                    3, 5, solaros_osc_bind_event);
+
+static mp_obj_t solaros_osc_bind_control(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_osc_binding_config_t config = {
+        .source_type = SOLAR_OS_OSC_SOURCE_CONTROL,
+        .value_type = SOLAR_OS_OSC_VALUE_SCALAR,
+        .interval_ms = n_args > 3 ? python_osc_interval(args[3]) : 20U,
+        .send_always = n_args > 4 && mp_obj_is_true(args[4]),
+        .edge = SOLAR_OS_OSC_EDGE_BOTH,
+    };
+    python_osc_binding_strings(&config, args[0], args[1], args[2]);
+    return python_osc_bind_config(&config);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_osc_bind_control_obj,
+                                    3, 5, solaros_osc_bind_control);
+
+static mp_obj_t solaros_osc_unbind(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_osc_unbind(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_osc_unbind_obj, solaros_osc_unbind);
+
+static mp_obj_t solaros_osc_clear(void)
+{
+    const size_t removed = solar_os_osc_binding_count();
+    solar_os_osc_clear();
+    return mp_obj_new_int_from_uint(removed);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_osc_clear_obj, solaros_osc_clear);
+
+static mp_obj_t solaros_osc_encode_float(mp_obj_t address_obj,
+                                         mp_obj_t value_obj)
+{
+    uint8_t packet[SOLAR_OS_OSC_PACKET_MAX];
+    size_t length = 0U;
+    python_check_esp(solar_os_osc_encode_float(
+        mp_obj_str_get_str(address_obj), (float)mp_obj_get_float(value_obj),
+        packet, sizeof(packet), &length));
+    return mp_obj_new_bytes(packet, length);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_osc_encode_float_obj,
+                          solaros_osc_encode_float);
+
+static mp_obj_t solaros_osc_encode_int(mp_obj_t address_obj,
+                                       mp_obj_t value_obj)
+{
+    uint8_t packet[SOLAR_OS_OSC_PACKET_MAX];
+    size_t length = 0U;
+    python_check_esp(solar_os_osc_encode_int(
+        mp_obj_str_get_str(address_obj), python_i32_from_obj(value_obj),
+        packet, sizeof(packet), &length));
+    return mp_obj_new_bytes(packet, length);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_osc_encode_int_obj,
+                          solaros_osc_encode_int);
+
+static mp_obj_t solaros_osc_dispatch(mp_obj_t packet_obj)
+{
+    mp_buffer_info_t packet;
+    mp_get_buffer_raise(packet_obj, &packet, MP_BUFFER_READ);
+    solar_os_osc_dispatch_result_t result;
+    python_check_esp(solar_os_osc_dispatch_packet(
+        packet.buf, packet.len, &result));
+    mp_obj_t dict = mp_obj_new_dict(4);
+    python_dict_store_uint(dict, "messages", result.messages);
+    python_dict_store_uint(dict, "applied", result.applied);
+    python_dict_store_uint(dict, "unknown_paths", result.unknown_paths);
+    python_dict_store_uint(dict, "rejected_values", result.rejected_values);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_osc_dispatch_obj, solaros_osc_dispatch);
+
+static mp_obj_t solaros_osc_limits(void)
+{
+    mp_obj_t dict = mp_obj_new_dict(7);
+    python_dict_store_uint(dict, "packet_max", SOLAR_OS_OSC_PACKET_MAX);
+    python_dict_store_uint(dict, "address_max", SOLAR_OS_OSC_ADDRESS_MAX - 1U);
+    python_dict_store_uint(dict, "bindings_max", SOLAR_OS_OSC_BINDING_MAX);
+    python_dict_store_uint(dict, "bundle_depth_max",
+                           SOLAR_OS_OSC_BUNDLE_DEPTH_MAX);
+    python_dict_store_uint(dict, "packet_updates_max",
+                           SOLAR_OS_OSC_PACKET_UPDATE_MAX);
+    python_dict_store_float(dict, "rate_min_hz",
+                            SOLAR_OS_OSC_RATE_MIN_MILLIHZ / 1000.0f);
+    python_dict_store_float(dict, "rate_max_hz",
+                            SOLAR_OS_OSC_RATE_MAX_MILLIHZ / 1000.0f);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_osc_limits_obj, solaros_osc_limits);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
