@@ -7,12 +7,8 @@
 #include "esp_err.h"
 #include "solar_os_chat.h"
 
-#define SOLAR_OS_CHAT_TRANSPORT_CURSOR_MAX 128
-
 typedef struct {
     solar_os_chat_event_t event;
-    /* Opaque resume token owned by gateway-sync; empty for push-only transports. */
-    char cursor[SOLAR_OS_CHAT_TRANSPORT_CURSOR_MAX];
 } solar_os_chat_transport_event_t;
 
 typedef struct {
@@ -30,8 +26,7 @@ typedef struct {
 typedef struct {
     const char *name;
     esp_err_t (*init)(void);
-    esp_err_t (*connect)(const solar_os_chat_config_t *config,
-                         const char *cursor);
+    esp_err_t (*connect)(const solar_os_chat_config_t *config);
     esp_err_t (*request_stop)(void);
     esp_err_t (*reap)(void);
     esp_err_t (*disconnect)(void);

@@ -115,6 +115,9 @@ typedef struct {
     uint32_t messaging_generation;
     bool messaging_dirty;
     bool initial_selection_pending;
+    bool gateway_join_pending;
+    solar_os_conversation_id_t gateway_join_conversation_id;
+    char gateway_join_provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
     bool confirm_untrusted;
     char *pending_untrusted;
     size_t message_head;
@@ -1413,7 +1416,9 @@ static void chat_render(void)
     chat_app.redraw = false;
 }
 
-static bool chat_gateway_channel_is_joined(const char *provider_key)
+static bool chat_gateway_channel_state(const char *provider_key,
+                                       bool *desired,
+                                       bool *joined)
 {
     if (provider_key == NULL || provider_key[0] == '\0') {
         return false;
@@ -1429,15 +1434,17 @@ static bool chat_gateway_channel_is_joined(const char *provider_key)
     const size_t count = solar_os_chat_channel_snapshot(
         channels,
         SOLAR_OS_CHAT_CHANNEL_CAPACITY);
-    bool joined = false;
+    bool found = false;
     for (size_t i = 0; i < count; i++) {
         if (strcmp(channels[i].name, provider_key) == 0) {
-            joined = channels[i].joined;
+            *desired = channels[i].desired;
+            *joined = channels[i].joined;
+            found = true;
             break;
         }
     }
     solar_os_memory_free(channels);
-    return joined;
+    return found;
 }
 
 static bool chat_join_channel(const chat_app_channel_t *channel)
@@ -1450,8 +1457,21 @@ static bool chat_join_channel(const chat_app_channel_t *channel)
     }
     const char *provider_key = channel->provider_key[0] != '\0' ?
         channel->provider_key : channel->name;
-    if (chat_gateway_channel_is_joined(provider_key)) {
+    bool desired = false;
+    bool joined = false;
+    (void)chat_gateway_channel_state(provider_key, &desired, &joined);
+    if (joined) {
+        chat_app.gateway_join_pending = false;
         return true;
+    }
+    chat_app.gateway_join_pending = true;
+    chat_app.gateway_join_conversation_id = channel->conversation_id;
+    strlcpy(chat_app.gateway_join_provider_key,
+            provider_key,
+            sizeof(chat_app.gateway_join_provider_key));
+    if (desired) {
+        chat_set_status("waiting for join confirmation");
+        return false;
     }
     const esp_err_t error = solar_os_chat_join(provider_key);
     if (error != ESP_OK) {
@@ -1461,6 +1481,7 @@ static bool chat_join_channel(const chat_app_channel_t *channel)
                  "join failed: %s",
                  esp_err_to_name(error));
         chat_set_status(status);
+        chat_app.gateway_join_pending = false;
         return false;
     }
     char label[SOLAR_OS_MESSAGING_TITLE_MAX + 2U];
@@ -1468,7 +1489,7 @@ static bool chat_join_channel(const chat_app_channel_t *channel)
     chat_format_channel_label(channel, label, sizeof(label));
     snprintf(status, sizeof(status), "joining %s", label);
     chat_set_status(status);
-    return true;
+    return false;
 }
 
 static void chat_select_channel(uint8_t index, bool join)
@@ -1499,6 +1520,39 @@ static void chat_select_channel(uint8_t index, bool join)
     if (chat_app.channels[index].system) {
         chat_set_status("system events");
     }
+}
+
+static void chat_check_pending_gateway_join(void)
+{
+    if (!chat_app.gateway_join_pending) {
+        return;
+    }
+    bool desired = false;
+    bool joined = false;
+    if (!chat_gateway_channel_state(chat_app.gateway_join_provider_key,
+                                    &desired,
+                                    &joined) ||
+        !joined) {
+        if (!desired) {
+            chat_app.gateway_join_pending = false;
+            chat_set_status("join was not confirmed");
+        }
+        return;
+    }
+
+    chat_app.gateway_join_pending = false;
+    for (uint8_t i = 0; i < chat_app.channel_count; i++) {
+        if (chat_app.channels[i].conversation_id ==
+                chat_app.gateway_join_conversation_id ||
+            strcmp(chat_app.channels[i].provider_key,
+                   chat_app.gateway_join_provider_key) == 0) {
+            chat_select_channel(i, false);
+            chat_app.tab = CHAT_APP_TAB_CHAT;
+            chat_set_status("joined");
+            return;
+        }
+    }
+    chat_set_status("joined room is unavailable");
 }
 
 static void chat_handle_messaging_event(
@@ -2075,6 +2129,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_TICK) {
         chat_drain_messaging_events();
         chat_check_messaging_generation();
+        chat_check_pending_gateway_join();
         if (!chat_app.active) {
             solar_os_context_request_exit(ctx);
             return true;

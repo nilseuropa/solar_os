@@ -64,9 +64,11 @@ static void gateway_rooms(solar_os_shell_io_t *io)
     const size_t count = solar_os_chat_channel_snapshot(
         rooms, SOLAR_OS_CHAT_CHANNEL_CAPACITY);
     for (size_t i = 0; i < count; i++) {
+        const char *state = rooms[i].joined ? "joined" :
+            (rooms[i].desired ? "joining" : "known");
         solar_os_shell_io_printf(io,
                                  "%-7s %s\n",
-                                 rooms[i].joined ? "joined" : "known",
+                                 state,
                                  rooms[i].name);
     }
     if (count == 0U) {

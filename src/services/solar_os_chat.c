@@ -115,10 +115,15 @@ static int chat_channel_index_locked(const char *channel)
     return -1;
 }
 
-static int chat_add_channel_locked(const char *channel, bool joined)
+static int chat_add_channel_locked(const char *channel,
+                                   bool desired,
+                                   bool joined)
 {
     int index = chat_channel_index_locked(channel);
     if (index >= 0) {
+        if (desired) {
+            chat.channels[index].desired = true;
+        }
         if (joined) {
             chat.channels[index].joined = true;
         }
@@ -131,6 +136,7 @@ static int chat_add_channel_locked(const char *channel, bool joined)
     strlcpy(chat.channels[index].name,
             channel,
             sizeof(chat.channels[index].name));
+    chat.channels[index].desired = desired;
     chat.channels[index].joined = joined;
     return index;
 }
@@ -179,7 +185,8 @@ static void chat_publish_event_locked(const solar_os_chat_event_t *event,
 }
 
 static esp_err_t chat_queue_command_locked(solar_os_chat_command_type_t type,
-                                           const char *channel)
+                                           const char *channel,
+                                           uint64_t cursor)
 {
     if (chat.command_count >= SOLAR_OS_CHAT_OUTBOX_CAPACITY) {
         chat.dropped_count++;
@@ -189,6 +196,7 @@ static esp_err_t chat_queue_command_locked(solar_os_chat_command_type_t type,
     memset(command, 0, sizeof(*command));
     command->id = chat_next_id(&chat.next_command_id);
     command->type = type;
+    command->cursor = cursor;
     strlcpy(command->channel, channel, sizeof(command->channel));
     chat.command_head =
         (chat.command_head + 1U) % SOLAR_OS_CHAT_OUTBOX_CAPACITY;
@@ -306,7 +314,7 @@ esp_err_t solar_os_chat_init(void)
     chat.next_event_id = 1U;
     chat.next_command_id = 1U;
     chat_load_config();
-    (void)chat_add_channel_locked(CHAT_DEFAULT_CHANNEL, true);
+    (void)chat_add_channel_locked(CHAT_DEFAULT_CHANNEL, true, false);
     chat.initialized = true;
     (void)solar_os_messaging_provider_register(
         SOLAR_OS_MESSAGING_PROVIDER_GATEWAY,
@@ -396,14 +404,23 @@ esp_err_t solar_os_chat_join(const char *channel)
     if (error != ESP_OK) {
         return error;
     }
+    const uint64_t cursor = solar_os_chat_channel_cursor(channel);
     chat_lock();
-    if (chat_channel_index_locked(channel) < 0 &&
+    const int existing_index = chat_channel_index_locked(channel);
+    if (existing_index >= 0 && chat.channels[existing_index].desired) {
+        error = ESP_OK;
+    } else if (existing_index < 0 &&
         chat.channel_count >= SOLAR_OS_CHAT_CHANNEL_CAPACITY) {
         error = ESP_ERR_NO_MEM;
     } else {
-        error = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_JOIN, channel);
+        error = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_JOIN,
+                                          channel,
+                                          cursor);
         if (error == ESP_OK) {
-            (void)chat_add_channel_locked(channel, true);
+            const int index = chat_add_channel_locked(channel, true, false);
+            if (index >= 0) {
+                chat.channels[index].desired = true;
+            }
         }
     }
     chat_unlock();
@@ -424,9 +441,9 @@ esp_err_t solar_os_chat_leave(const char *channel)
     }
     chat_lock();
     const int index = chat_channel_index_locked(channel);
-    error = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_LEAVE, channel);
+    error = chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_LEAVE, channel, 0);
     if (error == ESP_OK && index >= 0) {
-        chat.channels[index].joined = false;
+        chat.channels[index].desired = false;
     }
     chat_unlock();
     return error;
@@ -445,9 +462,10 @@ esp_err_t solar_os_chat_delete_channel(const char *channel)
     const int index = chat_channel_index_locked(channel);
     error =
         chat_queue_command_locked(SOLAR_OS_CHAT_COMMAND_DELETE_CHANNEL,
-                                  channel);
+                                  channel,
+                                  0);
     if (error == ESP_OK && index >= 0) {
-        chat.channels[index].joined = false;
+        chat.channels[index].desired = false;
     }
     chat_unlock();
     if (error == ESP_OK) {
@@ -724,6 +742,16 @@ size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
     return count;
 }
 
+uint64_t solar_os_chat_channel_cursor(const char *channel)
+{
+    if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
+        return 0;
+    }
+    return solar_os_messaging_provider_cursor(
+        SOLAR_OS_MESSAGING_PROVIDER_GATEWAY,
+        channel);
+}
+
 esp_err_t solar_os_gateway_sync_set_status(bool running,
                                         bool connected,
                                         esp_err_t error,
@@ -736,6 +764,11 @@ esp_err_t solar_os_gateway_sync_set_status(bool running,
     chat_lock();
     chat.sync_running = running;
     chat.connected = connected;
+    if (!connected) {
+        for (size_t i = 0; i < chat.channel_count; i++) {
+            chat.channels[i].joined = false;
+        }
+    }
     chat.last_esp_error = error;
     strlcpy(chat.last_error,
             message != NULL ? message : "",
@@ -792,16 +825,23 @@ esp_err_t solar_os_gateway_sync_publish(const solar_os_chat_event_t *event,
         }
     }
     chat_lock();
+    if (event->type == SOLAR_OS_CHAT_EVENT_CONNECTED ||
+        event->type == SOLAR_OS_CHAT_EVENT_DISCONNECTED) {
+        for (size_t i = 0; i < chat.channel_count; i++) {
+            chat.channels[i].joined = false;
+        }
+    }
     if (event->type == SOLAR_OS_CHAT_EVENT_CHANNEL &&
         event->channel[0] != '\0') {
-        (void)chat_add_channel_locked(event->channel, false);
+        (void)chat_add_channel_locked(event->channel, false, false);
     } else if (event->type == SOLAR_OS_CHAT_EVENT_JOINED &&
                event->channel[0] != '\0') {
-        (void)chat_add_channel_locked(event->channel, true);
+        (void)chat_add_channel_locked(event->channel, false, true);
     } else if (event->type == SOLAR_OS_CHAT_EVENT_LEFT &&
                event->channel[0] != '\0') {
         const int index = chat_channel_index_locked(event->channel);
         if (index >= 0) {
+            chat.channels[index].desired = false;
             chat.channels[index].joined = false;
         }
     } else if (event->type == SOLAR_OS_CHAT_EVENT_CHANNEL_DELETED &&

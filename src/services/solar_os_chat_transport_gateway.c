@@ -30,6 +30,7 @@
 #define CHAT_TASK_STACK 8192
 #define CHAT_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define CHAT_EVENT_QUEUE_LEN 12
+#define CHAT_EVENT_QUEUE_WAIT_MS 20U
 #define CHAT_TX_QUEUE_LEN 8
 #define CHAT_TEXT_ESC_MAX (SOLAR_OS_CHAT_TEXT_MAX * 6U + 1U)
 #define CHAT_TX_LINE_MAX (CHAT_TEXT_ESC_MAX + SOLAR_OS_CHAT_CHANNEL_MAX * 2U + 64U)
@@ -275,12 +276,16 @@ static bool chat_queue_event_owned(solar_os_chat_event_t *event)
         return false;
     }
 
-    if (xQueueSend(chat_state.events, &event, 0) != pdPASS) {
-        solar_os_memory_free(event);
-        chat_count_dropped_event();
-        return false;
+    while (!chat_state.stop_requested) {
+        if (xQueueSend(chat_state.events,
+                       &event,
+                       pdMS_TO_TICKS(CHAT_EVENT_QUEUE_WAIT_MS)) == pdPASS) {
+            return true;
+        }
     }
-    return true;
+
+    solar_os_memory_free(event);
+    return false;
 }
 
 static void chat_queue_simple_event(solar_os_chat_event_type_t type, const char *text)
@@ -538,7 +543,11 @@ static bool chat_json_get_u64(const char *json, const char *key, uint64_t *out)
         if (strcmp(member, key) == 0 && isdigit((unsigned char)*p)) {
             uint64_t value = 0;
             while (isdigit((unsigned char)*p)) {
-                value = value * 10ULL + (uint64_t)(*p - '0');
+                const uint8_t digit = (uint8_t)(*p - '0');
+                if (value > (UINT64_MAX - digit) / 10U) {
+                    return false;
+                }
+                value = value * 10U + digit;
                 p++;
             }
             *out = value;
@@ -607,6 +616,7 @@ static void chat_handle_gateway_line(const char *line)
         (void)chat_json_get_string(line, "name", event->text, sizeof(event->text), &truncated);
     }
     (void)chat_json_get_u64(line, "ts", &event->timestamp);
+    (void)chat_json_get_u64(line, "id", &event->message_key);
     uint64_t code = 0;
     if (chat_json_get_u64(line, "code", &code)) {
         event->code = (int)code;
@@ -1151,7 +1161,9 @@ static esp_err_t chat_queue_tx_line(uint32_t command_id, const char *line)
     return ESP_OK;
 }
 
-static esp_err_t chat_gateway_join(uint32_t command_id, const char *channel)
+static esp_err_t chat_gateway_join(uint32_t command_id,
+                                   const char *channel,
+                                   uint64_t cursor)
 {
     if (!chat_string_is_valid(channel, SOLAR_OS_CHAT_CHANNEL_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
@@ -1161,7 +1173,11 @@ static esp_err_t chat_gateway_join(uint32_t command_id, const char *channel)
     chat_json_escape(channel, channel_esc, sizeof(channel_esc));
 
     char line[CHAT_HELLO_LINE_MAX];
-    snprintf(line, sizeof(line), "{\"type\":\"join\",\"channel\":\"%s\"}\n", channel_esc);
+    snprintf(line,
+             sizeof(line),
+             "{\"type\":\"join\",\"channel\":\"%s\",\"cursor\":%" PRIu64 "}\n",
+             channel_esc,
+             cursor);
     return chat_queue_tx_line(command_id, line);
 }
 
@@ -1232,7 +1248,9 @@ static esp_err_t solar_os_chat_gateway_submit(const solar_os_chat_command_t *com
     }
     switch (command->type) {
     case SOLAR_OS_CHAT_COMMAND_JOIN:
-        return chat_gateway_join(command->id, command->channel);
+        return chat_gateway_join(command->id,
+                                 command->channel,
+                                 command->cursor);
     case SOLAR_OS_CHAT_COMMAND_LEAVE:
         return chat_gateway_leave(command->id, command->channel);
     case SOLAR_OS_CHAT_COMMAND_DELETE_CHANNEL:
@@ -1292,10 +1310,9 @@ static esp_err_t solar_os_chat_gateway_get_status(solar_os_chat_transport_status
     return ESP_OK;
 }
 
-static esp_err_t solar_os_chat_gateway_connect(const solar_os_chat_config_t *config,
-                                               const char *cursor)
+static esp_err_t solar_os_chat_gateway_connect(
+    const solar_os_chat_config_t *config)
 {
-    (void)cursor;
     if (config == NULL || !config->configured) {
         return ESP_ERR_INVALID_ARG;
     }

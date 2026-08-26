@@ -346,7 +346,10 @@ unread conversation. A provider name filters the list. A decimal conversation
 ID opens exactly that conversation.
 
 The background `gateway-sync` job owns the gateway transport connection, retries, and
-joined-channel replay. The shared messaging service owns queued outbound
+joined-channel replay. Each join sends the greatest stable message ID retained
+for that room as its cursor; the gateway replays only newer messages. Requested
+membership and server-confirmed membership are separate, connection-scoped
+states. The shared messaging service owns queued outbound
 messages and `gateway-sync` consumes only gateway requests. Start it explicitly with
 `job start gateway-sync`, just like `email-sync`. Closing or suspending `chat` does
 not disconnect an already-running synchronizer. Incoming messages remain in the
@@ -366,7 +369,7 @@ Gateway setup and room lifecycle use `gateway status`, `gateway configure`,
 `gateway connect`, `gateway disconnect`, `gateway rooms`, `gateway join`,
 `gateway leave`, and `gateway delete`. Gateway synchronization runs only under
 the `gateway-sync` job name. Selecting a known gateway room in the Channels tab
-joins it automatically before opening the conversation.
+requests a join automatically and opens it after the server confirms `joined`.
 
 Conversation rows show provider, unread, and security state. Outbound rows show
 queued/sending/sent/delivered/failed state. Use `/new CONTACT_ID` to open a

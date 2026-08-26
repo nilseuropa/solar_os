@@ -73,6 +73,7 @@ typedef bool (*solar_os_chat_message_visitor_t)(
 typedef struct {
     uint32_t id;
     solar_os_chat_command_type_t type;
+    uint64_t cursor;
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX];
     char text[SOLAR_OS_CHAT_TEXT_MAX];
 } solar_os_chat_command_t;
@@ -89,6 +90,7 @@ typedef struct {
 
 typedef struct {
     char name[SOLAR_OS_CHAT_CHANNEL_MAX];
+    bool desired;
     bool joined;
 } solar_os_chat_channel_t;
 
@@ -143,6 +145,7 @@ esp_err_t solar_os_chat_get_status(solar_os_chat_status_t *status);
 esp_err_t solar_os_chat_get_config(solar_os_chat_config_t *config);
 size_t solar_os_chat_channel_snapshot(solar_os_chat_channel_t *channels,
                                       size_t max_channels);
+uint64_t solar_os_chat_channel_cursor(const char *channel);
 
 /* Synchronizer-facing store/outbox API. */
 esp_err_t solar_os_gateway_sync_set_status(bool running,
