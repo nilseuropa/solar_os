@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -38,6 +38,10 @@ shell_launch_test: shell_launch_test.c $(ROOT)/src/shell/solar_os_shell_launch.c
 shell_line_test: shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c $(ROOT)/src/shell/solar_os_shell_line.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c -o $@
+
+shell_completion_test: shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c $(ROOT)/src/shell/solar_os_shell_completion.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
+		shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c -o $@
 
 shell_diag_test: shell_diag_test.c $(ROOT)/src/shell/solar_os_shell_common.c $(ROOT)/src/shell/solar_os_shell_common.h $(ROOT)/src/shell/solar_os_shell_io.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
@@ -213,6 +217,7 @@ test: $(TARGETS)
 	./shell_parse_test
 	./shell_launch_test
 	./shell_line_test
+	./shell_completion_test
 	./shell_diag_test
 	./app_file_types_test
 	./gameboy_support_test
