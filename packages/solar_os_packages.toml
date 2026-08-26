@@ -51,6 +51,7 @@ members = [
   "expansion_analog_joystick",
   "expansion_gpio_keys",
   "expansion_ps2_keyboard",
+  "expansion_ps2_mouse",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -680,8 +681,12 @@ capabilities = ["gpio"]
 
 [packages.service_ps2]
 label = "service.ps2"
-sources = ["drivers/ps2_bus.c", "services/solar_os_ps2_keyboard.c"]
-requires = ["esp_driver_gpio", "esp_timer"]
+sources = [
+  "drivers/ps2_bus.c",
+  "services/solar_os_ps2_keyboard.c",
+  "services/solar_os_ps2_mouse.c",
+]
+requires = ["esp_driver_gpio", "esp_rom", "esp_timer"]
 capabilities = ["gpio"]
 
 [packages.service_logic]
@@ -856,6 +861,12 @@ capabilities = ["expansion_gpio"]
 label = "expansion.ps2-keyboard"
 depends = ["service_expansion", "service_ps2"]
 sources = ["services/solar_os_ps2_keyboard_device.c"]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_ps2_mouse]
+label = "expansion.ps2-mouse"
+depends = ["service_expansion", "service_ps2"]
+sources = ["services/solar_os_ps2_mouse_device.c"]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_sdspi]

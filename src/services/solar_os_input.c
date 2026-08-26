@@ -489,8 +489,7 @@ esp_err_t solar_os_input_mouse_source_open(const char *name,
         name,
         SOLAR_OS_INPUT_SOURCE_MOUSE,
         SOLAR_OS_INPUT_CAP_POINTER_RELATIVE |
-            SOLAR_OS_INPUT_CAP_POINTER_BUTTONS |
-            SOLAR_OS_INPUT_CAP_SCROLL,
+            SOLAR_OS_INPUT_CAP_POINTER_BUTTONS,
         true,
         source);
 }

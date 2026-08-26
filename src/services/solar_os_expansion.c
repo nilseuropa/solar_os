@@ -35,12 +35,15 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
 #include "solar_os_ps2_keyboard_device.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+#include "solar_os_ps2_mouse_device.h"
+#endif
 #if SOLAR_OS_BOARD_HAS_POINTER
 #include "solar_os_ft6336.h"
 #endif
 
-#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
-static const solar_os_expansion_binding_spec_t ps2_keyboard_binding_specs[] = {
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD || SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+static const solar_os_expansion_binding_spec_t ps2_device_binding_specs[] = {
     {
         .key = "ps2",
         .value_hint = "bus",
@@ -418,11 +421,24 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .summary = "PS/2 keyboard",
         .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
         .probe_supported = false,
-        .binding_specs = ps2_keyboard_binding_specs,
-        .binding_spec_count = sizeof(ps2_keyboard_binding_specs) /
-            sizeof(ps2_keyboard_binding_specs[0]),
+        .binding_specs = ps2_device_binding_specs,
+        .binding_spec_count = sizeof(ps2_device_binding_specs) /
+            sizeof(ps2_device_binding_specs[0]),
         .attach = solar_os_ps2_keyboard_attach,
         .detach = solar_os_ps2_keyboard_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+    {
+        .name = "ps2-mouse",
+        .summary = "PS/2 relative mouse",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = ps2_device_binding_specs,
+        .binding_spec_count = sizeof(ps2_device_binding_specs) /
+            sizeof(ps2_device_binding_specs[0]),
+        .attach = solar_os_ps2_mouse_attach,
+        .detach = solar_os_ps2_mouse_detach,
     },
 #endif
 #if SOLAR_OS_BOARD_HAS_POINTER
