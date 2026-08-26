@@ -61,7 +61,8 @@ service packages are not available on that board.
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
-- `solaros.controls`: `list`, `get`, `set` when continuous controls are compiled. Values use the normalized range `0.0..1.0`; create controls and typed bindings with the `control` shell command.
+- `solaros.controls`: `list`, `get`, `set`, `create`, `delete`, `clear`, `bindings`, `bind_parameter`, `bind_midi`, `unbind` when continuous controls are compiled. Values use the normalized range `0.0..1.0`.
+- `solaros.parameters`: `list`, `get`, `set` for dynamic native application parameters when continuous controls are compiled.
 - `solaros.dsp`: `backend`, `capabilities`, `dot`, `gain`, `mix`, `clip`, `level`, `window`, `fir`, and `fft` when `service.dsp` is compiled. Binary strings contain native little-endian signed 16-bit values; FIR and FFT constructors return caller-owned userdata.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `create_midi`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
@@ -202,14 +203,26 @@ solaros.http.session_close(handle)
 ```
 
 A script-driven continuous control uses the same target mappings as an ADC
-potentiometer. Create it from the shell with
-`control create expression manual 0 1`, bind it, and start the `controls` job.
-Lua can then update it without constructing shell commands:
+potentiometer. Lua can create, bind, inspect, and remove controls directly:
 
 ```lua
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", false
+)
+solaros.jobs.start("controls")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
 ```
+
+`solaros.controls.create(name[, source, input_min, input_max, smoothing_ms,
+deadband, inverted])` omits `source` for manual controls. `bindings()` includes
+pickup, application, and error state. `bind_parameter()` and `bind_midi()`
+return binding IDs; `unbind()` returns the number removed.
+
+Dynamic app parameters are available through `solaros.parameters.list()`,
+`get(path)`, and `set(path, value)`. `set()` returns the authoritative
+native-unit value after the parameter's range and step handling.
 
 For example, this plays a short saw-wave chord without running Lua in the
 real-time render callback:

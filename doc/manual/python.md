@@ -553,33 +553,50 @@ print(solaros.adc.read(1))
 
 ## `solaros.controls`
 
-Continuous controls are named normalized values configured with the `control`
-shell command. Scripts can inspect them and can supply manual controls without
-knowing whether their targets are native app parameters or MIDI CC messages.
+Continuous controls are named normalized values. Python can configure them,
+inspect their runtime counters, and supply manual values without knowing
+whether their targets are native app parameters or MIDI CC messages.
 
-- `list()`: return control dictionaries containing `name`, `source`,
-  `input_min`, `input_max`, `deadband`, `smoothing_ms`, `inverted`,
-  `has_value`, and normalized `value` or `None`.
+- `list()`: return complete control configuration, normalized value, source
+  value, generation, sample/update counters, read errors, and last error.
 - `get(name)`: return the current normalized value from `0.0` through `1.0`.
 - `set(name, value)`: set a manual control to a normalized value from `0.0`
   through `1.0`.
+- `create(name[, source, input_min, input_max, smoothing_ms, deadband,
+  inverted])`: create a manual or scalar-stream control and return its
+  dictionary. Omit `source` or pass `None` for a manual control.
+- `delete(name)` and `clear()`: remove one or all controls. `clear()` returns
+  the number removed.
+- `bindings()`: return parameter/MIDI targets and their pickup, application,
+  and error state.
+- `bind_parameter(name, path[, pickup])` and
+  `bind_midi(name, channel, controller)`: add a target and return its numeric
+  binding ID.
+- `unbind(name)`: remove all targets for a control and return the count.
 
-Create the manual control and its typed binding once from the shell:
-
-```text
-control create expression manual 0 1
-control bind expression parameter synth.filter.resonance pickup=off
-job start controls
-```
-
-Then drive it from Python:
+Create and bind a manual control directly:
 
 ```python
 import solaros
 
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", False
+)
+solaros.jobs.start("controls")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
 ```
+
+## `solaros.parameters`
+
+Native applications publish parameters only while they are active.
+
+- `list()`: return path, owner, name, label, unit, range, step, curve, current
+  value, readability, and error fields for every published parameter.
+- `get(path)`: read a native-unit value.
+- `set(path, value)`: set a native-unit value and return the authoritative
+  value after range/step handling.
 
 ## `solaros.pwm`
 

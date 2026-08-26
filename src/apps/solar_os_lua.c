@@ -2362,6 +2362,34 @@ static int solua_adc_read(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+static void solua_push_control_info(lua_State *L,
+                                    const solar_os_control_info_t *info)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_str(L, item, "name", info->config.name);
+    solua_set_str(L, item, "source",
+                  info->config.source[0] != '\0' ? info->config.source : NULL);
+    solua_set_num(L, item, "input_min", info->config.input_minimum);
+    solua_set_num(L, item, "input_max", info->config.input_maximum);
+    solua_set_num(L, item, "deadband", info->config.deadband);
+    solua_set_int(L, item, "smoothing_ms", info->config.smoothing_ms);
+    solua_set_bool(L, item, "inverted", info->config.inverted);
+    solua_set_bool(L, item, "has_value", info->has_value);
+    solua_set_num(L, item, "source_value", info->source_value);
+    solua_set_int(L, item, "generation", info->generation);
+    solua_set_int(L, item, "samples", info->samples);
+    solua_set_int(L, item, "updates", info->updates);
+    solua_set_int(L, item, "read_errors", info->read_errors);
+    solua_set_int(L, item, "last_error", info->last_error);
+    solua_set_str(L, item, "last_error_name", esp_err_to_name(info->last_error));
+    if (info->has_value) {
+        solua_set_num(L, item, "value",
+                      (lua_Number)info->normalized /
+                          SOLAR_OS_CONTROL_NORMALIZED_MAX);
+    }
+}
+
 static int solua_controls_list(lua_State *L)
 {
     lua_newtable(L);
@@ -2373,23 +2401,7 @@ static int solua_controls_list(lua_State *L)
         if (!solar_os_control_get_info(i, &info)) {
             continue;
         }
-        lua_newtable(L);
-        const int item = lua_gettop(L);
-        solua_set_str(L, item, "name", info.config.name);
-        if (info.config.source[0] != '\0') {
-            solua_set_str(L, item, "source", info.config.source);
-        }
-        solua_set_num(L, item, "input_min", info.config.input_minimum);
-        solua_set_num(L, item, "input_max", info.config.input_maximum);
-        solua_set_num(L, item, "deadband", info.config.deadband);
-        solua_set_int(L, item, "smoothing_ms", info.config.smoothing_ms);
-        solua_set_bool(L, item, "inverted", info.config.inverted);
-        solua_set_bool(L, item, "has_value", info.has_value);
-        if (info.has_value) {
-            solua_set_num(L, item, "value",
-                          (lua_Number)info.normalized /
-                              SOLAR_OS_CONTROL_NORMALIZED_MAX);
-        }
+        solua_push_control_info(L, &info);
         lua_rawseti(L, list, out++);
     }
     return 1;
@@ -2417,6 +2429,181 @@ static int solua_controls_set(lua_State *L)
             (uint16_t)lround((double)value *
                              SOLAR_OS_CONTROL_NORMALIZED_MAX)));
     return 0;
+}
+
+static int solua_controls_create(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    const char *source = solua_optional_str(L, 2, NULL);
+    if (strlen(name) >= SOLAR_OS_CONTROL_NAME_MAX ||
+        (source != NULL && strlen(source) >= SOLAR_OS_STREAM_ID_MAX)) {
+        return luaL_error(L, "control name or source is too long");
+    }
+    solar_os_control_config_t config = {
+        .input_minimum = (float)luaL_optnumber(L, 3, 0.0),
+        .input_maximum = (float)luaL_optnumber(L, 4, 1.0),
+        .smoothing_ms = solua_optional_u32(L, 5, 0U),
+        .deadband = (float)luaL_optnumber(L, 6, 0.0),
+        .inverted = !lua_isnoneornil(L, 7) && lua_toboolean(L, 7),
+    };
+    strlcpy(config.name, name, sizeof(config.name));
+    if (source != NULL) {
+        strlcpy(config.source, source, sizeof(config.source));
+    }
+    (void)solua_check_esp(L, solar_os_control_create(&config));
+    solar_os_control_info_t info;
+    (void)solua_check_esp(L, solar_os_control_find(config.name, &info));
+    solua_push_control_info(L, &info);
+    return 1;
+}
+
+static int solua_controls_delete(lua_State *L)
+{
+    return solua_check_esp(L,
+                           solar_os_control_delete(luaL_checkstring(L, 1)));
+}
+
+static int solua_controls_clear(lua_State *L)
+{
+    const size_t removed = solar_os_control_count();
+    solar_os_control_clear();
+    lua_pushinteger(L, (lua_Integer)removed);
+    return 1;
+}
+
+static void solua_push_control_binding(
+    lua_State *L, const solar_os_control_binding_info_t *info)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_int(L, item, "id", info->id);
+    solua_set_str(L, item, "control", info->control);
+    solua_set_str(L, item, "target",
+                  solar_os_control_target_name(info->target));
+    if (info->target == SOLAR_OS_CONTROL_TARGET_PARAMETER) {
+        solua_set_str(L, item, "parameter", info->parameter);
+    } else {
+        solua_set_int(L, item, "midi_channel", info->midi_channel);
+        solua_set_int(L, item, "midi_controller", info->midi_controller);
+    }
+    solua_set_bool(L, item, "pickup", info->pickup);
+    solua_set_bool(L, item, "pickup_seen", info->pickup_seen);
+    solua_set_bool(L, item, "pickup_latched", info->pickup_latched);
+    solua_set_int(L, item, "pickup_previous", info->pickup_previous);
+    solua_set_int(L, item, "last_target_value", info->last_target_value);
+    solua_set_int(L, item, "last_generation", info->last_generation);
+    solua_set_int(L, item, "applied", info->applied);
+    solua_set_int(L, item, "errors", info->errors);
+    solua_set_int(L, item, "last_error", info->last_error);
+    solua_set_str(L, item, "last_error_name", esp_err_to_name(info->last_error));
+}
+
+static int solua_controls_bindings(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    const size_t count = solar_os_control_binding_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_binding_info_t info;
+        if (solar_os_control_binding_get(i, &info)) {
+            solua_push_control_binding(L, &info);
+            lua_rawseti(L, list, out++);
+        }
+    }
+    return 1;
+}
+
+static int solua_controls_bind_parameter(lua_State *L)
+{
+    uint32_t id = 0U;
+    (void)solua_check_esp(L, solar_os_control_bind_parameter(
+        luaL_checkstring(L, 1), luaL_checkstring(L, 2),
+        !lua_isnoneornil(L, 3) && lua_toboolean(L, 3), &id));
+    lua_pushinteger(L, (lua_Integer)id);
+    return 1;
+}
+
+static int solua_controls_bind_midi(lua_State *L)
+{
+    const lua_Integer channel = luaL_checkinteger(L, 2);
+    const lua_Integer controller = luaL_checkinteger(L, 3);
+    if (channel < 1 || channel > 16 || controller < 0 || controller > 127) {
+        return luaL_error(L, "expected channel 1..16 and controller 0..127");
+    }
+    uint32_t id = 0U;
+    (void)solua_check_esp(L, solar_os_control_bind_midi_cc(
+        luaL_checkstring(L, 1), (uint8_t)channel, (uint8_t)controller, &id));
+    lua_pushinteger(L, (lua_Integer)id);
+    return 1;
+}
+
+static int solua_controls_unbind(lua_State *L)
+{
+    size_t removed = 0U;
+    (void)solua_check_esp(L, solar_os_control_unbind(
+        luaL_checkstring(L, 1), &removed));
+    lua_pushinteger(L, (lua_Integer)removed);
+    return 1;
+}
+
+static void solua_push_parameter_info(lua_State *L,
+                                      const solar_os_parameter_info_t *info)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_str(L, item, "path", info->path);
+    solua_set_str(L, item, "owner", info->owner);
+    solua_set_str(L, item, "name", info->name);
+    solua_set_str(L, item, "label", info->label);
+    solua_set_str(L, item, "unit", info->unit);
+    solua_set_num(L, item, "minimum", info->minimum);
+    solua_set_num(L, item, "maximum", info->maximum);
+    solua_set_num(L, item, "step", info->step);
+    solua_set_str(L, item, "curve", solar_os_parameter_curve_name(info->curve));
+    float value = 0.0f;
+    const esp_err_t err = solar_os_parameter_get(info->path, &value);
+    solua_set_bool(L, item, "readable", err == ESP_OK);
+    if (err == ESP_OK) {
+        solua_set_num(L, item, "value", value);
+    }
+    solua_set_int(L, item, "error", err);
+    solua_set_str(L, item, "error_name", esp_err_to_name(err));
+}
+
+static int solua_parameters_list(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    const size_t count = solar_os_parameter_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_parameter_info_t info;
+        if (solar_os_parameter_get_info(i, &info)) {
+            solua_push_parameter_info(L, &info);
+            lua_rawseti(L, list, out++);
+        }
+    }
+    return 1;
+}
+
+static int solua_parameters_get(lua_State *L)
+{
+    float value = 0.0f;
+    (void)solua_check_esp(L, solar_os_parameter_get(
+        luaL_checkstring(L, 1), &value));
+    lua_pushnumber(L, value);
+    return 1;
+}
+
+static int solua_parameters_set(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    float value = (float)luaL_checknumber(L, 2);
+    (void)solua_check_esp(L, solar_os_parameter_set(path, value));
+    (void)solua_check_esp(L, solar_os_parameter_get(path, &value));
+    lua_pushnumber(L, value);
+    return 1;
 }
 #endif
 

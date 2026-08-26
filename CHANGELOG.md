@@ -24,7 +24,8 @@
   OTA slots and a nearly 2 MiB internal FAT filesystem. Existing devices retain
   their installed partition layout through normal OTA updates; adopting the
   common `/flash` layout requires a full USB/factory flash and reformats that
-  volume.
+  volume. Completed mirrored Python/Lua continuous-control and native-parameter
+  bindings, including runtime diagnostics and typed binding management.
 - **4.8.15** — 2026-08-26 — Reduced idle runtime wakeups and consolidated boot,
   bus-capability, script-lifecycle, BLE-lifecycle, JSON scanning, safe file
   replacement, and shell-completion infrastructure. Shell completion now uses

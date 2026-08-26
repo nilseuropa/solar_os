@@ -133,7 +133,8 @@ from `/.shell/startup` with the related control and job commands when needed.
 ## Manual and script controls
 
 Use `manual` instead of a stream when a Python or Lua program supplies the
-value:
+value. Scripts can either use an existing shell configuration or create the
+control and its typed binding directly:
 
 ```text
 control create expression manual 0 1
@@ -156,6 +157,21 @@ local solaros = require("solaros")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
 ```
+
+The equivalent complete Python setup is:
+
+```python
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", False
+)
+solaros.jobs.start("controls")
+```
+
+Lua uses the same function names and positional arguments. Both runtimes also
+provide `controls.delete()`, `clear()`, `bindings()`, `bind_midi()`, and
+`unbind()`. The `solaros.parameters` table lists dynamic native parameters and
+gets or sets their values without going through a control.
 
 ## Inspection and removal
 
@@ -182,4 +198,5 @@ Controls normalize scalar streams to `0..65535`, apply optional smoothing,
 deadband, and inversion, and fan out to typed targets. Native app targets can
 use soft takeover and survive temporary parameter absence. MIDI targets emit
 CC values from `0..127`. Python and Lua use normalized values from `0.0` to
-`1.0`.
+`1.0` and expose the complete configuration, binding, and dynamic-parameter
+management surface.

@@ -186,7 +186,20 @@ SOLAR_OS_SCRIPT_API_MODULE_BEGIN(controls);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, list, list);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, get, get);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, set, set);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, delete, delete);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bindings, bindings);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bind_parameter, bind_parameter);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bind_midi, bind_midi);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, unbind, unbind);
 SOLAR_OS_SCRIPT_API_MODULE_END(controls);
+
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(parameters);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, get, get);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, set, set);
+SOLAR_OS_SCRIPT_API_MODULE_END(parameters);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_DSP

@@ -2539,7 +2539,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_adc_read_obj, solaros_adc_read);
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static mp_obj_t python_control_info_to_dict(const solar_os_control_info_t *info)
 {
-    mp_obj_t dict = mp_obj_new_dict(9);
+    mp_obj_t dict = mp_obj_new_dict(16);
     python_dict_store_cstr(dict, "name", info->config.name);
     python_dict_store_cstr(dict, "source",
                            info->config.source[0] != '\0' ?
@@ -2550,6 +2550,14 @@ static mp_obj_t python_control_info_to_dict(const solar_os_control_info_t *info)
     python_dict_store_uint(dict, "smoothing_ms", info->config.smoothing_ms);
     python_dict_store_bool(dict, "inverted", info->config.inverted);
     python_dict_store_bool(dict, "has_value", info->has_value);
+    python_dict_store_float(dict, "source_value", info->source_value);
+    python_dict_store_uint(dict, "generation", info->generation);
+    python_dict_store_uint(dict, "samples", info->samples);
+    python_dict_store_uint(dict, "updates", info->updates);
+    python_dict_store_uint(dict, "read_errors", info->read_errors);
+    python_dict_store_int(dict, "last_error", info->last_error);
+    python_dict_store_cstr(dict, "last_error_name",
+                           esp_err_to_name(info->last_error));
     mp_obj_dict_store(dict, python_key("value"),
                       info->has_value ?
                           mp_obj_new_float((mp_float_t)info->normalized /
@@ -2593,6 +2601,191 @@ static mp_obj_t solaros_controls_set(mp_obj_t name_obj, mp_obj_t value_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_controls_set_obj, solaros_controls_set);
+
+static mp_obj_t solaros_controls_create(size_t n_args, const mp_obj_t *args)
+{
+    const char *name = mp_obj_str_get_str(args[0]);
+    const char *source = python_optional_str(n_args, args, 1, NULL);
+    if (strlen(name) >= SOLAR_OS_CONTROL_NAME_MAX ||
+        (source != NULL && strlen(source) >= SOLAR_OS_STREAM_ID_MAX)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("control name or source is too long"));
+    }
+    solar_os_control_config_t config = {
+        .input_minimum = n_args > 2 ? (float)mp_obj_get_float(args[2]) : 0.0f,
+        .input_maximum = n_args > 3 ? (float)mp_obj_get_float(args[3]) : 1.0f,
+        .smoothing_ms = n_args > 4 ? python_u32_from_obj(args[4]) : 0U,
+        .deadband = n_args > 5 ? (float)mp_obj_get_float(args[5]) : 0.0f,
+        .inverted = n_args > 6 && mp_obj_is_true(args[6]),
+    };
+    strlcpy(config.name, name, sizeof(config.name));
+    if (source != NULL) {
+        strlcpy(config.source, source, sizeof(config.source));
+    }
+    python_check_esp(solar_os_control_create(&config));
+    solar_os_control_info_t info;
+    python_check_esp(solar_os_control_find(config.name, &info));
+    return python_control_info_to_dict(&info);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_controls_create_obj,
+                                    1, 7, solaros_controls_create);
+
+static mp_obj_t solaros_controls_delete(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_control_delete(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_controls_delete_obj, solaros_controls_delete);
+
+static mp_obj_t solaros_controls_clear(void)
+{
+    const size_t removed = solar_os_control_count();
+    solar_os_control_clear();
+    return mp_obj_new_int_from_uint(removed);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_controls_clear_obj, solaros_controls_clear);
+
+static mp_obj_t python_control_binding_to_dict(
+    const solar_os_control_binding_info_t *info)
+{
+    mp_obj_t dict = mp_obj_new_dict(18);
+    python_dict_store_uint(dict, "id", info->id);
+    python_dict_store_cstr(dict, "control", info->control);
+    python_dict_store_cstr(dict, "target",
+                           solar_os_control_target_name(info->target));
+    python_dict_store_cstr(dict, "parameter",
+                           info->target == SOLAR_OS_CONTROL_TARGET_PARAMETER ?
+                               info->parameter : NULL);
+    if (info->target == SOLAR_OS_CONTROL_TARGET_MIDI_CC) {
+        python_dict_store_int(dict, "midi_channel", info->midi_channel);
+        python_dict_store_int(dict, "midi_controller", info->midi_controller);
+    } else {
+        python_dict_store_cstr(dict, "midi_channel", NULL);
+        python_dict_store_cstr(dict, "midi_controller", NULL);
+    }
+    python_dict_store_bool(dict, "pickup", info->pickup);
+    python_dict_store_bool(dict, "pickup_seen", info->pickup_seen);
+    python_dict_store_bool(dict, "pickup_latched", info->pickup_latched);
+    python_dict_store_uint(dict, "pickup_previous", info->pickup_previous);
+    python_dict_store_uint(dict, "last_target_value", info->last_target_value);
+    python_dict_store_uint(dict, "last_generation", info->last_generation);
+    python_dict_store_uint(dict, "applied", info->applied);
+    python_dict_store_uint(dict, "errors", info->errors);
+    python_dict_store_int(dict, "last_error", info->last_error);
+    python_dict_store_cstr(dict, "last_error_name",
+                           esp_err_to_name(info->last_error));
+    return dict;
+}
+
+static mp_obj_t solaros_controls_bindings(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_control_binding_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_control_binding_info_t info;
+        if (solar_os_control_binding_get(i, &info)) {
+            mp_obj_list_append(list, python_control_binding_to_dict(&info));
+        }
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_controls_bindings_obj,
+                          solaros_controls_bindings);
+
+static mp_obj_t solaros_controls_bind_parameter(size_t n_args,
+                                                 const mp_obj_t *args)
+{
+    uint32_t id = 0U;
+    python_check_esp(solar_os_control_bind_parameter(
+        mp_obj_str_get_str(args[0]), mp_obj_str_get_str(args[1]),
+        n_args > 2 && mp_obj_is_true(args[2]), &id));
+    return mp_obj_new_int_from_uint(id);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_controls_bind_parameter_obj,
+                                    2, 3, solaros_controls_bind_parameter);
+
+static mp_obj_t solaros_controls_bind_midi(mp_obj_t control_obj,
+                                            mp_obj_t channel_obj,
+                                            mp_obj_t controller_obj)
+{
+    const mp_int_t channel = mp_obj_get_int(channel_obj);
+    const mp_int_t controller = mp_obj_get_int(controller_obj);
+    if (channel < 1 || channel > 16 || controller < 0 || controller > 127) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected channel 1..16 and controller 0..127"));
+    }
+    uint32_t id = 0U;
+    python_check_esp(solar_os_control_bind_midi_cc(
+        mp_obj_str_get_str(control_obj), (uint8_t)channel,
+        (uint8_t)controller, &id));
+    return mp_obj_new_int_from_uint(id);
+}
+MP_DEFINE_CONST_FUN_OBJ_3(solaros_controls_bind_midi_obj,
+                          solaros_controls_bind_midi);
+
+static mp_obj_t solaros_controls_unbind(mp_obj_t control_obj)
+{
+    size_t removed = 0U;
+    python_check_esp(solar_os_control_unbind(
+        mp_obj_str_get_str(control_obj), &removed));
+    return mp_obj_new_int_from_uint(removed);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_controls_unbind_obj,
+                          solaros_controls_unbind);
+
+static mp_obj_t python_parameter_info_to_dict(
+    const solar_os_parameter_info_t *info)
+{
+    mp_obj_t dict = mp_obj_new_dict(13);
+    python_dict_store_cstr(dict, "path", info->path);
+    python_dict_store_cstr(dict, "owner", info->owner);
+    python_dict_store_cstr(dict, "name", info->name);
+    python_dict_store_cstr(dict, "label", info->label);
+    python_dict_store_cstr(dict, "unit", info->unit);
+    python_dict_store_float(dict, "minimum", info->minimum);
+    python_dict_store_float(dict, "maximum", info->maximum);
+    python_dict_store_float(dict, "step", info->step);
+    python_dict_store_cstr(dict, "curve",
+                           solar_os_parameter_curve_name(info->curve));
+    float value = 0.0f;
+    const esp_err_t err = solar_os_parameter_get(info->path, &value);
+    python_dict_store_bool(dict, "readable", err == ESP_OK);
+    mp_obj_dict_store(dict, python_key("value"),
+                      err == ESP_OK ? mp_obj_new_float(value) : mp_const_none);
+    python_dict_store_int(dict, "error", err);
+    python_dict_store_cstr(dict, "error_name", esp_err_to_name(err));
+    return dict;
+}
+
+static mp_obj_t solaros_parameters_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_parameter_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_parameter_info_t info;
+        if (solar_os_parameter_get_info(i, &info)) {
+            mp_obj_list_append(list, python_parameter_info_to_dict(&info));
+        }
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_parameters_list_obj, solaros_parameters_list);
+
+static mp_obj_t solaros_parameters_get(mp_obj_t path_obj)
+{
+    float value = 0.0f;
+    python_check_esp(solar_os_parameter_get(mp_obj_str_get_str(path_obj), &value));
+    return mp_obj_new_float(value);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_parameters_get_obj, solaros_parameters_get);
+
+static mp_obj_t solaros_parameters_set(mp_obj_t path_obj, mp_obj_t value_obj)
+{
+    const char *path = mp_obj_str_get_str(path_obj);
+    float value = (float)mp_obj_get_float(value_obj);
+    python_check_esp(solar_os_parameter_set(path, value));
+    python_check_esp(solar_os_parameter_get(path, &value));
+    return mp_obj_new_float(value);
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_parameters_set_obj, solaros_parameters_set);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
