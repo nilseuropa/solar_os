@@ -1,13 +1,63 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "nvs.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 
 static int64_t now_us;
+static size_t pointer_queue_allocations;
+static size_t pointer_queue_frees;
+static size_t axis_queue_allocations;
+static size_t axis_queue_frees;
+static void *pointer_queue_allocation;
+static void *axis_queue_allocation;
+static char nvs_blob_key[16];
+static uint8_t nvs_blob[64];
+static size_t nvs_blob_length;
+
+void *solar_os_memory_calloc(size_t count,
+                             size_t size,
+                             solar_os_memory_class_t memory_class,
+                             const char *tag)
+{
+    assert(count == 32);
+    assert(memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED);
+    void *allocation = calloc(count, size);
+    assert(allocation != NULL);
+    if (strcmp(tag, "input-pointer") == 0) {
+        assert(size == sizeof(solar_os_input_pointer_event_t));
+        assert(pointer_queue_allocation == NULL);
+        pointer_queue_allocation = allocation;
+        pointer_queue_allocations++;
+    } else {
+        assert(strcmp(tag, "input-axis") == 0);
+        assert(size == sizeof(solar_os_input_axis_event_t));
+        assert(axis_queue_allocation == NULL);
+        axis_queue_allocation = allocation;
+        axis_queue_allocations++;
+    }
+    return allocation;
+}
+
+void solar_os_memory_free(void *ptr)
+{
+    if (ptr != NULL) {
+        if (ptr == pointer_queue_allocation) {
+            pointer_queue_allocation = NULL;
+            pointer_queue_frees++;
+        } else {
+            assert(ptr == axis_queue_allocation);
+            axis_queue_allocation = NULL;
+            axis_queue_frees++;
+        }
+        free(ptr);
+    }
+}
 
 int64_t esp_timer_get_time(void)
 {
@@ -28,10 +78,56 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
 {
     (void)name;
-    if (mode == NVS_READONLY) {
+    if (mode == NVS_READONLY && nvs_blob_length == 0) {
         return ESP_ERR_NVS_NOT_FOUND;
     }
     *handle = 1;
+    return ESP_OK;
+}
+
+esp_err_t nvs_get_blob(nvs_handle_t handle,
+                       const char *key,
+                       void *value,
+                       size_t *length)
+{
+    (void)handle;
+    if (nvs_blob_length == 0 || strcmp(nvs_blob_key, key) != 0) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    if (length == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (value == NULL || *length < nvs_blob_length) {
+        *length = nvs_blob_length;
+        return ESP_ERR_INVALID_ARG;
+    }
+    memcpy(value, nvs_blob, nvs_blob_length);
+    *length = nvs_blob_length;
+    return ESP_OK;
+}
+
+esp_err_t nvs_set_blob(nvs_handle_t handle,
+                       const char *key,
+                       const void *value,
+                       size_t length)
+{
+    (void)handle;
+    assert(strlen(key) < sizeof(nvs_blob_key));
+    assert(length <= sizeof(nvs_blob));
+    strcpy(nvs_blob_key, key);
+    memcpy(nvs_blob, value, length);
+    nvs_blob_length = length;
+    return ESP_OK;
+}
+
+esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key)
+{
+    (void)handle;
+    if (nvs_blob_length == 0 || strcmp(nvs_blob_key, key) != 0) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    nvs_blob_key[0] = '\0';
+    nvs_blob_length = 0;
     return ESP_OK;
 }
 
@@ -91,18 +187,35 @@ int main(void)
 
     solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
     solar_os_input_source_t buttons = SOLAR_OS_INPUT_SOURCE_INVALID;
-    assert(solar_os_input_source_open("keyboard", &keyboard) == ESP_OK);
-    assert(solar_os_input_source_open("buttons", &buttons) == ESP_OK);
+    assert(solar_os_input_keyboard_source_open("keyboard", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_key_source_open("buttons",
+                                          SOLAR_OS_INPUT_SOURCE_BUTTONS,
+                                          &buttons) == ESP_OK);
     assert(keyboard != buttons);
-    assert(solar_os_input_keyboard_count() == 0);
+    assert(solar_os_input_keyboard_count() == 1);
+    assert(pointer_queue_allocations == 0);
+
+    assert(solar_os_input_source_count() == 2);
+    solar_os_input_source_info_t source_info = {0};
+    assert(solar_os_input_source_get(0, &source_info));
+    assert(source_info.source == keyboard);
+    assert(strcmp(source_info.name, "keyboard") == 0);
+    assert(source_info.source_class == SOLAR_OS_INPUT_SOURCE_KEYBOARD);
+    assert(source_info.capabilities == SOLAR_OS_INPUT_CAP_KEY_EVENTS);
+    assert(source_info.ready);
+    assert(strcmp(solar_os_input_source_class_name(source_info.source_class),
+                  "keyboard") == 0);
+    assert(solar_os_input_source_get(1, &source_info));
+    assert(source_info.source_class == SOLAR_OS_INPUT_SOURCE_BUTTONS);
+    assert(!solar_os_input_source_get(2, &source_info));
 
     solar_os_input_source_t keyboard_status = SOLAR_OS_INPUT_SOURCE_INVALID;
     assert(solar_os_input_keyboard_source_open("keyboard-status",
                                                false,
                                                &keyboard_status) == ESP_OK);
-    assert(solar_os_input_keyboard_count() == 0);
-    assert(solar_os_input_keyboard_source_set_ready(keyboard_status, true) == ESP_OK);
     assert(solar_os_input_keyboard_count() == 1);
+    assert(solar_os_input_keyboard_source_set_ready(keyboard_status, true) == ESP_OK);
+    assert(solar_os_input_keyboard_count() == 2);
     assert(solar_os_input_keyboard_source_set_ready(buttons, true) == ESP_ERR_INVALID_ARG);
 
     assert(solar_os_input_write_key(keyboard,
@@ -201,10 +314,151 @@ int main(void)
     assert(chars[1] == '\t');
     assert(solar_os_input_read_source_chars(buttons, chars, sizeof(chars)) == 1);
     assert(chars[0] == 'b');
+    solar_os_input_source_diagnostics_t diagnostics = {0};
+    assert(solar_os_input_source_get_diagnostics(keyboard, &diagnostics));
+    assert(diagnostics.has_key);
+    assert(diagnostics.key_events > 0);
+    assert(diagnostics.last_key.action == SOLAR_OS_INPUT_KEY_PRESS);
+
+    solar_os_input_pointer_event_t pointer = {
+        .pointer_id = 2,
+        .buttons = SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY,
+        .mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE,
+        .action = SOLAR_OS_INPUT_POINTER_PRESS,
+        .x = 123,
+        .y = 45,
+        .delta_x = 3,
+        .delta_y = -2,
+        .target = "display0",
+    };
+    assert(solar_os_input_write_pointer(buttons, &pointer) == ESP_ERR_INVALID_STATE);
+    assert(pointer_queue_allocations == 0);
+    solar_os_input_source_t pointer_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    solar_os_input_source_t pointer_source_2 = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_touch_source_open("touch0", &pointer_source) == ESP_OK);
+    assert(pointer_queue_allocations == 1);
+    assert(solar_os_input_mouse_source_open("mouse0", &pointer_source_2) == ESP_OK);
+    assert(pointer_queue_allocations == 1);
+    assert(solar_os_input_write_pointer(pointer_source_2, &pointer) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
+    solar_os_input_pointer_event_t pointer_read = {0};
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
+    assert(pointer_read.source == pointer_source);
+    assert(pointer_read.pointer_id == 2);
+    assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
+    assert(pointer_read.x == 123 && pointer_read.y == 45);
+    assert(strcmp(pointer_read.target, "display0") == 0);
+
+    memset(&diagnostics, 0, sizeof(diagnostics));
+    assert(solar_os_input_source_get_diagnostics(pointer_source, &diagnostics));
+    assert(diagnostics.pointer_events == 1);
+    assert(diagnostics.has_pointer);
+    assert(diagnostics.last_pointer.x == 123);
+    assert(diagnostics.last_pointer_raw.x == 123);
+
+    solar_os_input_pointer_calibration_t calibration = {
+        .min_x = 20,
+        .max_x = 220,
+        .min_y = 10,
+        .max_y = 110,
+        .width = 101,
+        .height = 51,
+    };
+    assert(solar_os_input_pointer_calibration_set(pointer_source, &calibration) == ESP_OK);
+    calibration.min_x = calibration.max_x;
+    assert(solar_os_input_pointer_calibration_set(pointer_source, &calibration) ==
+           ESP_ERR_INVALID_ARG);
+    calibration.min_x = 20;
+    assert(solar_os_input_pointer_calibration_set(pointer_source_2, &calibration) ==
+           ESP_ERR_INVALID_STATE);
+    bool calibration_enabled = false;
+    solar_os_input_pointer_calibration_t saved_calibration = {0};
+    assert(solar_os_input_pointer_calibration_get(pointer_source,
+                                                  &calibration_enabled,
+                                                  &saved_calibration) == ESP_OK);
+    assert(calibration_enabled);
+    assert(memcmp(&saved_calibration, &calibration, sizeof(calibration)) == 0);
+    pointer.x = 120;
+    pointer.y = 60;
+    pointer.delta_x = 20;
+    pointer.delta_y = 10;
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
+    assert(pointer_read.x == 50 && pointer_read.y == 25);
+    assert(pointer_read.delta_x == 10 && pointer_read.delta_y == 5);
+    assert(solar_os_input_source_get_diagnostics(pointer_source, &diagnostics));
+    assert(diagnostics.pointer_events == 2);
+    assert(diagnostics.last_pointer_raw.x == 120);
+    assert(diagnostics.last_pointer.x == 50);
+    solar_os_input_source_info_t found_info = {0};
+    assert(solar_os_input_source_find("touch0", &found_info));
+    assert(found_info.source == pointer_source);
+    assert(!solar_os_input_source_find("missing", &found_info));
+
+    solar_os_input_source_close(pointer_source);
+    assert(solar_os_input_touch_source_open("touch0", &pointer_source) == ESP_OK);
+    assert(solar_os_input_pointer_calibration_get(pointer_source,
+                                                  &calibration_enabled,
+                                                  &saved_calibration) == ESP_OK);
+    assert(calibration_enabled);
+    assert(memcmp(&saved_calibration, &calibration, sizeof(calibration)) == 0);
+    assert(solar_os_input_pointer_calibration_reset(pointer_source) == ESP_OK);
+    assert(solar_os_input_pointer_calibration_get(pointer_source,
+                                                  &calibration_enabled,
+                                                  &saved_calibration) == ESP_OK);
+    assert(!calibration_enabled);
+    solar_os_input_source_close(pointer_source);
+    assert(solar_os_input_touch_source_open("touch0", &pointer_source) == ESP_OK);
+    assert(solar_os_input_pointer_calibration_get(pointer_source,
+                                                  &calibration_enabled,
+                                                  &saved_calibration) == ESP_OK);
+    assert(!calibration_enabled);
+    pointer.mode = SOLAR_OS_INPUT_POINTER_RELATIVE;
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_pointer(pointer_source_2, &pointer) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
+    assert(pointer_read.source == pointer_source_2);
+    pointer.mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE;
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
+    solar_os_input_source_close(pointer_source);
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 0);
+    assert(pointer_queue_frees == 0);
+    solar_os_input_source_close(pointer_source_2);
+    assert(pointer_queue_frees == 1);
+
+    solar_os_input_source_t joystick = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_joystick_source_open("joystick0", &joystick) == ESP_OK);
+    assert(axis_queue_allocations == 1);
+    solar_os_input_axis_event_t axis = {
+        .axis = SOLAR_OS_INPUT_AXIS_X,
+        .value = 12000,
+        .delta = 12000,
+    };
+    assert(solar_os_input_write_axis(buttons, &axis) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    axis.value = 14000;
+    axis.delta = 2000;
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    solar_os_input_axis_event_t axis_read = {0};
+    assert(solar_os_input_read_axis_events(&axis_read, 1) == 1);
+    assert(axis_read.source == joystick);
+    assert(axis_read.axis == SOLAR_OS_INPUT_AXIS_X);
+    assert(axis_read.value == 14000);
+    assert(axis_read.delta == 14000);
+    assert(solar_os_input_source_get_diagnostics(joystick, &diagnostics));
+    assert(diagnostics.axis_events == 2);
+    assert(diagnostics.has_axis);
+    assert(diagnostics.last_axis.value == 14000);
+    assert(solar_os_input_write_axis(joystick, &axis) == ESP_OK);
+    solar_os_input_source_close(joystick);
+    assert(solar_os_input_read_axis_events(&axis_read, 1) == 0);
+    assert(axis_queue_frees == 1);
+    solar_os_input_source_close(buttons);
 
     assert(solar_os_input_get_pressed(pressed, 2) == 1);
     solar_os_input_source_close(keyboard);
     assert(solar_os_input_get_pressed(pressed, 2) == 0);
+    assert(solar_os_input_keyboard_count() == 1);
     solar_os_input_source_close(keyboard_status);
     assert(solar_os_input_keyboard_count() == 0);
 

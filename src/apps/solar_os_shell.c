@@ -49,6 +49,7 @@
 #endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
+#include "solar_os_input.h"
 #if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -159,6 +160,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_STORAGE_UNMOUNT_TARGETS,
     SHELL_COMPLETION_SOURCE_DISPLAY_TARGETS,
     SHELL_COMPLETION_SOURCE_DISPLAY_MODES,
+    SHELL_COMPLETION_SOURCE_INPUT_SOURCES,
     SHELL_COMPLETION_SOURCE_GPIO_PINS,
     SHELL_COMPLETION_SOURCE_I2C_ARGUMENTS,
     SHELL_COMPLETION_SOURCE_ONEWIRE_BUSES,
@@ -180,6 +182,7 @@ enum {
     SHELL_COMPLETION_FLAG_PATH = 1U << 0,
     SHELL_COMPLETION_FLAG_DIRS_ONLY = 1U << 1,
     SHELL_COMPLETION_FLAG_SCALAR_STREAMS = 1U << 2,
+    SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS = 1U << 3,
 };
 
 typedef struct {
@@ -378,6 +381,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"board", "show board capabilities", solar_os_shell_cmd_board},
     {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
+    {"input", "show input sources", solar_os_shell_cmd_input},
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     {"engine", "show engine utilization", solar_os_shell_cmd_engine},
 #endif
@@ -439,9 +443,6 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
     {"dpad", "ADC D-pad tools", solar_os_shell_cmd_dpad},
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    {"joystick", "analog joystick tools", solar_os_shell_cmd_joystick},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     {"ble", "BLE keyboard control", solar_os_shell_cmd_ble},
@@ -609,6 +610,12 @@ static const char * const display_subcommands[] = {
     "test",
     "mode",
 };
+static const char * const input_subcommands[] = {
+    "status", "test", "calibrate", "keyboard", "touch", "mouse", "joystick",
+    "dpad", "buttons",
+};
+static const char * const input_class_subcommands[] = {"status"};
+static const char * const input_calibration_subcommands[] = {"set", "reset"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
@@ -1184,15 +1191,6 @@ static const char * const dpad_calibrate_subcommands[] = {
     "reset",
 };
 
-static const char * const joystick_subcommands[] = {
-    "status",
-    "calibrate",
-};
-
-static const char * const joystick_calibrate_subcommands[] = {
-    "reset",
-};
-
 static const char * const pwm_subcommands[] = {
     "status",
     "set",
@@ -1543,6 +1541,18 @@ static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
+static const char * const path_input[] = {"input"};
+static const char * const path_input_test[] = {"input", "test"};
+static const char * const path_input_calibrate[] = {"input", "calibrate"};
+static const char * const path_input_keyboard[] = {"input", "keyboard"};
+static const char * const path_input_touch[] = {"input", "touch"};
+static const char * const path_input_mouse[] = {"input", "mouse"};
+static const char * const path_input_joystick[] = {"input", "joystick"};
+static const char * const path_input_dpad[] = {"input", "dpad"};
+static const char * const path_input_buttons[] = {"input", "buttons"};
+static const char * const path_input_calibrate_source[] = {
+    "input", "calibrate", SHELL_COMPLETION_ANY,
+};
 #if SOLAR_OS_PACKAGE_APP_INBOX
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
@@ -2065,8 +2075,6 @@ static const char * const path_adc[] = {"adc"};
 static const char * const path_adc_read[] = {"adc", "read"};
 static const char * const path_dpad[] = {"dpad"};
 static const char * const path_dpad_calibrate[] = {"dpad", "calibrate"};
-static const char * const path_joystick[] = {"joystick"};
-static const char * const path_joystick_calibrate[] = {"joystick", "calibrate"};
 static const char * const path_pwm[] = {"pwm"};
 static const char * const path_pwm_set[] = {"pwm", "set"};
 static const char * const path_pwm_set_pin[] = {"pwm", "set", SHELL_COMPLETION_ANY};
@@ -2406,6 +2414,13 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .source = SHELL_COMPLETION_SOURCE_DISPLAY_MODES, \
     }
+#define SHELL_COMPLETION_INPUT_SOURCES(path_array, absolute_only) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_INPUT_SOURCES, \
+        .flags = (absolute_only) ? SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS : 0U, \
+    }
 #define SHELL_COMPLETION_GPIO_PINS(path_array) \
     { \
         .path = path_array, \
@@ -2651,6 +2666,16 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_timezone, setterm_timezone_values),
     SHELL_COMPLETION_STATIC(path_setterm_startup, setterm_startup_values),
     SHELL_COMPLETION_STATIC(path_display, display_subcommands),
+    SHELL_COMPLETION_STATIC(path_input, input_subcommands),
+    SHELL_COMPLETION_INPUT_SOURCES(path_input_test, false),
+    SHELL_COMPLETION_INPUT_SOURCES(path_input_calibrate, true),
+    SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_touch, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_mouse, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_joystick, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_dpad, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_buttons, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_calibrate_source, input_calibration_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
@@ -2948,8 +2973,6 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_GPIO_PINS(path_adc_read),
     SHELL_COMPLETION_STATIC(path_dpad, dpad_subcommands),
     SHELL_COMPLETION_STATIC(path_dpad_calibrate, dpad_calibrate_subcommands),
-    SHELL_COMPLETION_STATIC(path_joystick, joystick_subcommands),
-    SHELL_COMPLETION_STATIC(path_joystick_calibrate, joystick_calibrate_subcommands),
     SHELL_COMPLETION_STATIC(path_pwm, pwm_subcommands),
     SHELL_COMPLETION_GPIO_PINS(path_pwm_set),
     SHELL_COMPLETION_STATIC(path_pwm_set_pin, pwm_freq_values),
@@ -3158,6 +3181,7 @@ static uint16_t shell_completion_rule_next(uint16_t index, const char *command)
 #undef SHELL_COMPLETION_RAMFS_MOUNTS
 #undef SHELL_COMPLETION_DISPLAY_MODES
 #undef SHELL_COMPLETION_DISPLAY_TARGETS
+#undef SHELL_COMPLETION_INPUT_SOURCES
 #undef SHELL_COMPLETION_GPIO_PINS
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
@@ -5629,6 +5653,21 @@ static void shell_completion_emit_display_targets(shell_completion_match_t *stat
     }
 }
 
+static void shell_completion_emit_input_sources(shell_completion_match_t *state,
+                                                bool absolute_only)
+{
+    const size_t count = solar_os_input_source_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t info;
+        if (solar_os_input_source_get(i, &info) &&
+            (!absolute_only ||
+             (info.capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) != 0U)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+}
+
 static bool shell_completion_display_mode_seen(char values[][32],
                                                size_t count,
                                                const char *value)
@@ -6712,12 +6751,19 @@ static const solar_os_expansion_binding_spec_t shell_manual_expansion_specs[] = 
     {.key = "spi", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS},
     {.key = "cs", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS},
     {.key = "uart", .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT},
+    {.key = "ps2", .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS},
+    {.key = "x", .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM, .role = "x"},
+    {.key = "y", .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM, .role = "y"},
     {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},
     {.key = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "gpio"},
     {.key = "irq", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq"},
     {.key = "reset", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
     {.key = "dc", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc"},
     {.key = "busy", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy"},
+    {.key = "min", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "min"},
+    {.key = "center", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "center"},
+    {.key = "max", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "max"},
+    {.key = "deadzone", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "deadzone"},
 };
 
 static bool shell_expansion_find_driver(const char *name,
@@ -6828,6 +6874,26 @@ static void shell_completion_emit_expansion_spec(
             solar_os_expansion_uart_port_t port;
             if (solar_os_expansion_get_uart_port(i, &port)) {
                 snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, port.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2); i++) {
+            solar_os_bus_info_t bus;
+            if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &bus)) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        for (size_t i = 0; i < solar_os_stream_count(); i++) {
+            solar_os_stream_info_t info;
+            if (solar_os_stream_get(i, &info) &&
+                info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+                info.direction != SOLAR_OS_STREAM_DIRECTION_SINK) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, info.id);
                 shell_completion_emit(state, candidate);
             }
         }
@@ -7083,6 +7149,11 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             break;
         case SHELL_COMPLETION_SOURCE_DISPLAY_MODES:
             shell_completion_emit_display_modes(state, tokens, token_count);
+            break;
+        case SHELL_COMPLETION_SOURCE_INPUT_SOURCES:
+            shell_completion_emit_input_sources(
+                state,
+                (rule->flags & SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS) != 0U);
             break;
         case SHELL_COMPLETION_SOURCE_GPIO_PINS:
             shell_completion_emit_gpio_pins(state);

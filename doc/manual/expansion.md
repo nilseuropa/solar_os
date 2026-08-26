@@ -4,7 +4,7 @@ title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
 aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -12,6 +12,12 @@ packages_any = ["service_expansion"]
 Expansion drivers turn named buses and safe GPIO slots into active displays,
 radios, sensors, or manual resource profiles. Drivers are package-gated, so the
 available list depends on the firmware and board.
+
+Integrated hardware uses the same composition model. A board profile declares
+its fixed buses and default attachments, which are created at boot and shown by
+`expansion devices`. For example, Freenove `touch0` is an `ft6336` attachment,
+and TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. The `input` command
+then presents their semantic keyboard, pointer, or axis behavior.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
@@ -62,12 +68,27 @@ keyboard source for the shell and foreground apps:
 
 ```text
 expansion attach cardkb cardkb0 i2c=i2c0 addr=0x5f
+input test cardkb0
 expansion detach cardkb0
 ```
 
 The CardKB firmware produces characters after key release. SolarOS maps its
 four navigation values to the same logical arrow keys used by PS/2 and BLE
 keyboards. The module's Fn combinations are device-specific and are ignored.
+
+Other input devices follow the same lifecycle:
+
+```text
+expansion attach gpio-keys keys0 key:UP=gpio17 key:ENTER=gpio2
+expansion bus create ps2 ps2mouse clock=gpio17 data=gpio18
+expansion attach ps2-mouse mouse0 ps2=ps2mouse
+expansion attach analog-joystick joystick0 x=adc2 y=adc4 min=0 center=1650 max=3300 deadzone=100
+input status
+```
+
+Use only bindings listed by `expansion drivers` and resources shown on the
+running board. A PS/2 mouse publishes relative pointer events. An analog
+joystick consumes two scalar streams and publishes axes, never keys.
 
 On a board without built-in SD hardware, an SPI microSD adapter can provide
 removable storage. The SPI bus must include MISO and declare the selected CS

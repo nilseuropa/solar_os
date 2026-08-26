@@ -86,7 +86,9 @@ esp_err_t solar_os_buttons_init(void)
     }
 
     const esp_err_t input_err =
-        solar_os_input_source_open("buttons", &buttons_input_source);
+        solar_os_input_key_source_open("buttons",
+                                       SOLAR_OS_INPUT_SOURCE_BUTTONS,
+                                       &buttons_input_source);
     if (input_err != ESP_OK) {
         return input_err;
     }

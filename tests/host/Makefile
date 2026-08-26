@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -83,8 +83,8 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h esp_timer.h nvs.h freertos/FreeRTOS.h
-	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src/services \
+input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		input_test.c $(ROOT)/src/services/solar_os_input.c -o $@
 
 board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(ROOT)/src/services/solar_os_board_caps.h solar_os_board.h
@@ -96,6 +96,7 @@ board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(
 		-DSOLAR_OS_BOARD_HAS_BATTERY=1 -DSOLAR_OS_BOARD_HAS_AUDIO=1 \
 		-DSOLAR_OS_BOARD_HAS_AUDIO_INPUT=1 -DSOLAR_OS_BOARD_HAS_WIFI=1 \
 		-DSOLAR_OS_BOARD_HAS_BLE=1 -DSOLAR_OS_BOARD_HAS_GPIO=1 \
+		-DSOLAR_OS_BOARD_HAS_POINTER=1 \
 		-DSOLAR_OS_BOARD_HAS_ADC=1 -DSOLAR_OS_BOARD_HAS_PWM=1 \
 		-DSOLAR_OS_BOARD_HAS_EXPANSION_GPIO=1 \
 		-DSOLAR_OS_BOARD_HAS_EXPANSION_I2C=1 \
@@ -119,6 +120,10 @@ ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/servi
 ps2_keyboard_test: ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c $(ROOT)/src/services/solar_os_ps2_keyboard.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c -o $@
+
+ps2_mouse_test: ps2_mouse_test.c $(ROOT)/src/services/solar_os_ps2_mouse.c $(ROOT)/src/services/solar_os_ps2_mouse.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		ps2_mouse_test.c $(ROOT)/src/services/solar_os_ps2_mouse.c -o $@
 
 cardkb_codec_test: cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_codec.c $(ROOT)/src/services/solar_os_cardkb_codec.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -243,6 +248,7 @@ test: $(TARGETS)
 	./hid_keyboard_report_test
 	./ble_keyboard_scan_policy_test
 	./ps2_keyboard_test
+	./ps2_mouse_test
 	./cardkb_codec_test
 	./midi_codec_test
 	./midi_service_test

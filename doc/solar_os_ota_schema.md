@@ -34,6 +34,12 @@ solaros/
         manifest.json
         version.txt
         firmware.bin
+    freenove_esp32_s3_display_4_0/
+      full/
+        manifest.json
+        version.txt
+        firmware.bin
+        firmware.factory.bin
         firmware.factory.bin
       core/
         manifest.json

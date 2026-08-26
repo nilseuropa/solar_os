@@ -50,6 +50,7 @@ while remaining blocked from runtime use.
 | Board | Physical expansion signals | Runtime GPIO and PWM | Runtime ADC | Connector restrictions |
 | --- | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | GPIO0-GPIO3, GPIO13, GPIO14, GPIO17-GPIO20, GPIO43, GPIO44 | GPIO1-GPIO3, GPIO17 | GPIO1-GPIO3, GPIO17 | GPIO0 is BOOT; GPIO13/GPIO14 are I2C; GPIO18 is KEY; GPIO19/GPIO20 are native USB; GPIO43/GPIO44 belong to `uart0` by default. |
+| ESP32-S3 Display 4.0-inch (FNK0104S) | GPIO2, GPIO3, GPIO14-GPIO16, GPIO21, GPIO43, GPIO44 | GPIO2, GPIO3, GPIO14, GPIO21 | GPIO2, GPIO3, GPIO14 | GPIO15/GPIO16 are shared I2C; GPIO43/GPIO44 belong to `uart0`; GPIO4 is fixed audio MCLK, not a connector GPIO. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
 | ESP32-S3-DevKitC-1-N16R8 | ESP32-S3 signals broken out on the DevKitC headers | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18, GPIO21, GPIO39-GPIO42, GPIO47 | GPIO1, GPIO2, GPIO4-GPIO7, GPIO10, GPIO14-GPIO18 | GPIO0 is BOOT/KEY; GPIO3/GPIO45/GPIO46 are other strapping pins; GPIO19/GPIO20 are native USB; GPIO35-GPIO37 are Octal PSRAM; GPIO38/GPIO48 are reserved for either RGB LED revision; GPIO43/GPIO44 are `uart0`. |
 | ODROID-GO | External IO GPIO4 and GPIO15 | GPIO4, GPIO15 | None | Both pins are also the allowed external chip-select slots on the shared VSPI bus. |
@@ -65,11 +66,12 @@ voltage and current requirements before connecting it.
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
+| ESP32-S3 Display 4.0-inch (FNK0104S) | `i2c0`: SDA GPIO16, SCL GPIO15; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with touch and audio control. The LCD SPI2 pins are internal and fixed. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 | ESP32-WROVER v3.0 | `uart0`: TX GPIO1, RX GPIO3 | I2C, SPI on `spi2`/`spi3`, UART on `uart1`/`uart2`, or 1-Wire, using free output-capable GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32, or GPIO33 | The rear SD slot uses the dedicated one-bit SDMMC host. GPIO34-GPIO36 and GPIO39 are available only for input signals and ADC. |
-| TTGO VGA32 v1.4 | `spi0`: SCK GPIO14, MISO GPIO2, MOSI GPIO12, CS GPIO13; `uart0`: TX GPIO1, RX GPIO3; `ps2kbd0`: clock GPIO33, data GPIO32 | None | The built-in keyboard starts automatically. GPIO25 is the fixed mono audio DAC output. I2S1 and the six RGB plus two sync pins are permanently reserved for VGA DMA scanout. |
+| TTGO VGA32 v1.4 | `spi0`: SCK GPIO14, MISO GPIO2, MOSI GPIO12, CS GPIO13; `uart0`: TX GPIO1, RX GPIO3; `ps2kbd0`: clock GPIO33, data GPIO32; `ps2mouse0`: clock GPIO26, data GPIO27 | None | `keyboard0` attaches automatically; attach `ps2-mouse` to `ps2mouse0` only when a mouse is connected. GPIO25 is the fixed mono audio DAC output. I2S1 and the six RGB plus two sync pins are permanently reserved for VGA DMA scanout. |
 
 I2C and SPI buses accept shared logical leases. UART, MIDI, and registered 1-Wire bus
 instances are exclusive. Registered 1-Wire buses appear in expansion status
@@ -120,8 +122,9 @@ onewire scan onewire0
 expansion bus remove onewire0
 
 expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
-job start ps2-keyboard ps2kbd
-job stop ps2-keyboard
+expansion attach ps2-keyboard keyboard0 ps2=ps2kbd
+input test keyboard0
+expansion detach keyboard0
 expansion bus remove ps2kbd
 
 expansion bus create uart uart1 port=uart1 tx=gpio14 rx=gpio15 baud=115200
@@ -238,6 +241,11 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
 | `cardkb` | M5Stack Unit CardKB | `i2c=<bus> addr=0x5f` | Polls released keys into the shared input service for shells and foreground apps. |
+| `gpio-keys` | Active-low pull-up buttons | One or more `key:<name>=<gpio>` bindings | Publishes press/release keyboard events and releases all GPIO claims on detach. |
+| `ps2-keyboard` | PS/2 scan-code set 2 keyboard | `ps2=<bus>` | Publishes canonical keyboard press/release events from an exclusive PS/2 bus. |
+| `ps2-mouse` | Standard three-button PS/2 mouse | `ps2=<bus>` | Enables reporting and publishes relative pointer motion and button events. |
+| `analog-joystick` | Two-axis analog joystick | `x=<scalar-stream> y=<scalar-stream> min=<value> center=<value> max=<value>`; optional `deadzone=<value>` | Normalizes two scalar streams into X/Y axis events without generating keys. |
+| `ft6336` | Board-integrated FT6336 touch controller | Board-defined I2C, address, reset, and IRQ bindings | Publishes absolute pointer events as a default board attachment. |
 | `sdspi` | SPI microSD card adapter | `spi=<bus> cs=<pin>` | On boards without built-in SD, mounts removable FAT storage at `/sdcard`; run `disk umount` before detach. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |

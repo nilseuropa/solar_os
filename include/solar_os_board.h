@@ -2,6 +2,8 @@
 
 #if defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2)
 #include "boards/waveshare_esp32_s3_rlcd_4_2.h"
+#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0)
+#include "boards/freenove_esp32_s3_display_4_0.h"
 #elif defined(SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8)
 #include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
@@ -44,8 +46,12 @@
 #define SOLAR_OS_BOARD_BUSES {{0}}
 #endif
 
-#ifndef SOLAR_OS_BOARD_AUTOSTART_PS2_BUS
-#define SOLAR_OS_BOARD_AUTOSTART_PS2_BUS ""
+#ifndef SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 0
+#endif
+
+#ifndef SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES {{0}}
 #endif
 
 #ifndef SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED

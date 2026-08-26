@@ -553,32 +553,114 @@ print(solaros.adc.read(1))
 
 ## `solaros.controls`
 
-Continuous controls are named normalized values configured with the `control`
-shell command. Scripts can inspect them and can supply manual controls without
-knowing whether their targets are native app parameters or MIDI CC messages.
+Continuous controls are named normalized values. Python can configure them,
+inspect their runtime counters, and supply manual values without knowing
+whether their targets are native app parameters or MIDI CC messages.
 
-- `list()`: return control dictionaries containing `name`, `source`,
-  `input_min`, `input_max`, `deadband`, `smoothing_ms`, `inverted`,
-  `has_value`, and normalized `value` or `None`.
+- `list()`: return complete control configuration, normalized value, source
+  value, generation, sample/update counters, read errors, and last error.
 - `get(name)`: return the current normalized value from `0.0` through `1.0`.
 - `set(name, value)`: set a manual control to a normalized value from `0.0`
   through `1.0`.
+- `create(name[, source, input_min, input_max, smoothing_ms, deadband,
+  inverted])`: create a manual or scalar-stream control and return its
+  dictionary. Omit `source` or pass `None` for a manual control.
+- `delete(name)` and `clear()`: remove one or all controls. `clear()` returns
+  the number removed.
+- `bindings()`: return parameter/MIDI targets and their pickup, application,
+  and error state.
+- `bind_parameter(name, path[, pickup])` and
+  `bind_midi(name, channel, controller)`: add a target and return its numeric
+  binding ID.
+- `unbind(name)`: remove all targets for a control and return the count.
 
-Create the manual control and its typed binding once from the shell:
-
-```text
-control create expression manual 0 1
-control bind expression parameter synth.filter.resonance pickup=off
-job start controls
-```
-
-Then drive it from Python:
+Create and bind a manual control directly:
 
 ```python
 import solaros
 
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", False
+)
+solaros.jobs.start("controls")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
+```
+
+## `solaros.parameters`
+
+Native applications publish parameters only while they are active.
+
+- `list()`: return path, owner, name, label, unit, range, step, curve, current
+  value, readability, and error fields for every published parameter.
+- `get(path)`: read a native-unit value.
+- `set(path, value)`: set a native-unit value and return the authoritative
+  value after range/step handling.
+
+## `solaros.midi`
+
+The MIDI job must own a running MIDI bus before scripts transmit or receive.
+Create the bus with `solaros.buses.create_midi()` and start it with
+`solaros.jobs.start("midi", ["midi0"])`.
+
+- `status()`: return running state, bus name, RX/TX byte and message counts,
+  parser/subscriber/queue drops, last error, CC-stream count, and whether this
+  interpreter has an active receive subscription.
+- `send(status[, data1, data2])`: validate and queue one raw MIDI message. The
+  argument count must match the status byte.
+- `note_on(channel, note[, velocity])`, `note_off(channel, note[, velocity])`,
+  `cc(channel, controller, value)`, and `program(channel, program)`: queue
+  channel messages. Channels are `1..16`; MIDI data is `0..127`.
+- `read([timeout_ms])` or `receive([timeout_ms])`: lazily create a non-consuming
+  interpreter subscription and return the next message dictionary, or `None`.
+  Timeout is bounded to 60 seconds and is cancellation-aware.
+- `close()`: release the receive subscription early. Interpreter shutdown also
+  releases it automatically.
+- `streams()`, `stream_add(channel, controller)`,
+  `stream_remove(channel, controller)`, and `stream_clear()`: manage bounded
+  incoming CC scalar streams.
+
+Received and transmitted message dictionaries contain `status`, `length`,
+`type`, optional `channel`, and the applicable `data1`/`data2` bytes.
+
+```python
+solaros.buses.create_midi("midi0", {"tx": 2, "rx": 3})
+solaros.jobs.start("midi", ["midi0"])
+solaros.midi.note_on(1, 60, 100)
+message = solaros.midi.read(1000)
+```
+
+## `solaros.osc`
+
+OSC bindings configure the native `osc` job; start and stop that worker through
+`solaros.jobs`. The scripting API does not replace its bounded UDP transport,
+peer filtering, or rate limiting.
+
+- `bindings()`: return complete source configuration and runtime availability,
+  value, timing, send, and error telemetry.
+- `bind_stream(name, source, address[, rate_hz, delta, send_always])`: publish
+  a scalar stream and return its binding ID.
+- `bind_event(name, source, address[, edge, rate_hz])`: publish sampled event
+  edges. `edge` is `"rising"`, `"falling"`, or `"both"`.
+- `bind_control(name, control, address[, rate_hz, send_always])`: publish a
+  normalized named control and return its binding ID.
+- `unbind(name)` and `clear()`: remove one or all bindings. `clear()` returns
+  the number removed.
+- `encode_float(address, value)` and `encode_int(address, value)`: return a
+  bounded OSC message as `bytes`, suitable for `solaros.net.udp_send()`.
+- `dispatch(packet)`: validate a message or immediate bundle and apply its
+  native parameter routes; return message, applied, unknown, and rejected
+  counts.
+- `limits()`: return packet, address, binding, bundle/update, and rate limits.
+
+```python
+solaros.osc.bind_stream(
+    "ambient", "temperature", "/room/temperature", 2.0, 0.1
+)
+solaros.jobs.start(
+    "osc", ["listen=9000", "target=192.168.1.50:9001"]
+)
 ```
 
 ## `solaros.pwm`
@@ -751,15 +833,19 @@ service is compiled.
 
 - `drivers()`: return compiled driver dictionaries with `name`, `summary`,
   `required_capabilities`, `probe_supported`, and `supported`.
-- `devices()`: return active device dictionaries and their normalized binding
-  lists.
+- `devices()`: return active device dictionaries with `name`, `driver`,
+  `origin` (`board` or `runtime`), `ready`, `autostart`, `detachable`, and
+  `bindings`. Each normalized binding contains `kind`, `role`, `target`,
+  `value`, and `aux`.
 - `attach(driver, name, bindings)`: attach a driver using a binding dictionary.
 - `detach(name)`: detach a device and release its resource claims and bus leases.
 
 Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
-`gpio`, `irq`, `reset` (or `rst`), `data`, `bck`, `din`, `rck`, `dc`, `busy`,
-`adc`, `pwm`, and `count`. `cs`
-requires `spi`, and `addr` requires `i2c`. Unknown keys are rejected.
+`ps2`, `gpio`, `irq`, `reset` (or `rst`), `data`, `bck`, `din`, `rck`, `dc`,
+`busy`, `adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`, `center`, `max`, and
+`deadzone`. `ps2` names an existing PS/2 bus; `x` and `y` name scalar streams;
+`keys` maps logical key names to GPIO numbers. `cs` requires `spi`, and `addr`
+requires `i2c`. Unknown keys are rejected.
 
 ```python
 import solaros

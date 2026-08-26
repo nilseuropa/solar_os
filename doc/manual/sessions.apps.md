@@ -106,9 +106,11 @@ active. Closing the child resumes the parent. Suspending the child with
 
 ## Local input focus
 
-BLE keyboard, board buttons, joystick, and D-pad input share one local display
-focus. The primary board display is selected at boot. On a headless board, the
-first display shell created becomes the default.
+Keyboard, board-button, and D-pad key events share one local display focus.
+Pointer events without an explicit target use that focus too. Analog joystick
+axes remain semantic axis input and are not converted to focus keys. The
+primary board display is selected at boot. On a headless board, the first
+display shell created becomes the default.
 
 ```text
 session focus

@@ -99,6 +99,32 @@ osc clear
 Bindings are volatile. Put the `osc bind` and `job start osc` commands in
 `/.shell/startup` when they must be restored after reboot.
 
+## Python and Lua
+
+Both runtimes expose the same native OSC service as `solaros.osc`:
+
+```python
+solaros.osc.bind_stream(
+    "ambient", "temperature", "/room/temperature", 2.0, 0.1
+)
+solaros.jobs.start(
+    "osc", ["listen=9000", "target=192.168.1.50:9001"]
+)
+```
+
+Lua uses the same names and positional arguments. `bind_stream`, `bind_event`,
+and `bind_control` return binding IDs. `bindings()` returns the complete
+runtime state; `unbind()` and `clear()` remove definitions. The optional rate
+is in Hz, scalar-stream delta uses native units, and the final Boolean selects
+send-always behavior for scalar and control bindings.
+
+`encode_float(address, value)` and `encode_int(address, value)` return binary
+messages for managed UDP APIs. `dispatch(packet)` applies the same bounded
+parameter parser used by the OSC job and reports message, applied, unknown, and
+rejected counts. `limits()` reports the public packet, address, binding,
+bundle, update, and rate bounds. Socket ownership and filtering remain with the
+native job and `solaros.jobs` API.
+
 ## SolarOS controller and synth devices
 
 A normalized address lets one SolarOS device use a calibrated physical control
@@ -148,3 +174,7 @@ osc bind <name> control <control> <address> [rate=hz] [send=change|always]
 osc unbind <name>
 osc clear
 ```
+
+Python/Lua: `solaros.osc.bindings`, `bind_stream`, `bind_event`,
+`bind_control`, `unbind`, `clear`, `encode_float`, `encode_int`, `dispatch`,
+and `limits`.

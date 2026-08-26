@@ -38,6 +38,11 @@ mode; it does not replace or suspend a built-in display.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.
+`expansion.gpio-keys`, `expansion.ps2-keyboard`, and `expansion.ps2-mouse`
+compose physical buttons, keyboards, and relative mice through the same device
+lifecycle. `expansion.analog-joystick` consumes two scalar streams and publishes
+normalized axes without synthesizing key events. Board-integrated devices use
+the same drivers as default board-selected attachments.
 `expansion.sdspi` adds removable SPI microSD storage to boards that do not have
 built-in SD hardware. It uses a named expansion SPI bus and mounts at
 `/sdcard` without changing the internal-flash root filesystem.
@@ -57,8 +62,8 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
 - A board can require packages that implement inseparable onboard hardware.
   These packages and their dependencies are enabled in every flavor before
   capability pruning; generation fails if the board cannot support them. For
-  example, TTGO VGA32 v1.4 requires the PS/2 keyboard job that its boot profile
-  starts automatically.
+  example, TTGO VGA32 v1.4 requires the PS/2 keyboard expansion driver used by
+  its default `keyboard0` attachment.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,

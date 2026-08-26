@@ -16,6 +16,7 @@
 #define CARDKB_POLL_MS 10U
 #define CARDKB_TASK_STACK 3072U
 #define CARDKB_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
+#define CARDKB_DEVICE_MAX 4U
 
 typedef struct {
     bool active;
@@ -33,7 +34,31 @@ typedef struct {
 } solar_os_cardkb_device_t;
 
 static const char *TAG = "cardkb";
-static solar_os_cardkb_device_t cardkb;
+static solar_os_cardkb_device_t cardkb_devices[CARDKB_DEVICE_MAX];
+
+static solar_os_cardkb_device_t *find_device(const char *name)
+{
+    if (name == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < CARDKB_DEVICE_MAX; i++) {
+        if (cardkb_devices[i].active &&
+            strcmp(cardkb_devices[i].name, name) == 0) {
+            return &cardkb_devices[i];
+        }
+    }
+    return NULL;
+}
+
+static solar_os_cardkb_device_t *alloc_device(void)
+{
+    for (size_t i = 0; i < CARDKB_DEVICE_MAX; i++) {
+        if (!cardkb_devices[i].active) {
+            return &cardkb_devices[i];
+        }
+    }
+    return NULL;
+}
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
@@ -121,12 +146,15 @@ static void cardkb_worker(void *arg)
     solar_os_task_delete_internal(NULL);
 }
 
-static void clear_device(void)
+static void clear_device(solar_os_cardkb_device_t *device)
 {
-    if (cardkb.input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
-        solar_os_input_source_close(cardkb.input_source);
+    if (device == NULL) {
+        return;
     }
-    memset(&cardkb, 0, sizeof(cardkb));
+    if (device->input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
+        solar_os_input_source_close(device->input_source);
+    }
+    memset(device, 0, sizeof(*device));
 }
 
 esp_err_t solar_os_cardkb_attach(const char *name,
@@ -139,8 +167,12 @@ esp_err_t solar_os_cardkb_attach(const char *name,
     if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
-    if (cardkb.active) {
+    if (find_device(name) != NULL) {
         return ESP_ERR_INVALID_STATE;
+    }
+    solar_os_cardkb_device_t *device = alloc_device();
+    if (device == NULL) {
+        return ESP_ERR_NO_MEM;
     }
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
@@ -153,27 +185,28 @@ esp_err_t solar_os_cardkb_attach(const char *name,
                         TAG,
                         "CardKB not found");
 
-    cardkb.active = true;
-    cardkb.address = address;
-    strlcpy(cardkb.name, name, sizeof(cardkb.name));
-    strlcpy(cardkb.i2c_bus, i2c_bus, sizeof(cardkb.i2c_bus));
+    memset(device, 0, sizeof(*device));
+    device->active = true;
+    device->address = address;
+    strlcpy(device->name, name, sizeof(device->name));
+    strlcpy(device->i2c_bus, i2c_bus, sizeof(device->i2c_bus));
 
-    esp_err_t err = solar_os_input_keyboard_source_open("cardkb",
+    esp_err_t err = solar_os_input_keyboard_source_open(device->name,
                                                        true,
-                                                       &cardkb.input_source);
+                                                       &device->input_source);
     if (err != ESP_OK) {
-        clear_device();
+        clear_device(device);
         return err;
     }
     if (solar_os_task_create_pinned_internal(cardkb_worker,
-                                             "cardkb",
+                                             device->name,
                                              CARDKB_TASK_STACK,
-                                             &cardkb,
+                                             device,
                                              CARDKB_TASK_PRIORITY,
-                                             &cardkb.worker_task,
+                                             &device->worker_task,
                                              tskNO_AFFINITY,
                                              SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
-        clear_device();
+        clear_device(device);
         return ESP_ERR_NO_MEM;
     }
 
@@ -187,16 +220,17 @@ esp_err_t solar_os_cardkb_attach(const char *name,
 
 esp_err_t solar_os_cardkb_detach(const char *name)
 {
-    if (!cardkb.active || name == NULL || strcmp(cardkb.name, name) != 0) {
+    solar_os_cardkb_device_t *device = find_device(name);
+    if (device == NULL) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    cardkb.stop_requested = true;
-    if (cardkb.worker_task != NULL) {
-        (void)xTaskNotifyGive(cardkb.worker_task);
+    device->stop_requested = true;
+    if (device->worker_task != NULL) {
+        (void)xTaskNotifyGive(device->worker_task);
     }
-    if (!solar_os_task_wait_done(cardkb.worker_task,
-                                 &cardkb.worker_done,
+    if (!solar_os_task_wait_done(device->worker_task,
+                                 &device->worker_done,
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
         return ESP_ERR_TIMEOUT;
     }
@@ -204,10 +238,10 @@ esp_err_t solar_os_cardkb_detach(const char *name)
     ESP_LOGI(TAG,
              "%s detached: %lu keys, %lu unsupported, %lu dropped, %lu bus errors",
              name,
-             (unsigned long)cardkb.keys,
-             (unsigned long)cardkb.unsupported,
-             (unsigned long)cardkb.dropped,
-             (unsigned long)cardkb.bus_errors);
-    clear_device();
+             (unsigned long)device->keys,
+             (unsigned long)device->unsupported,
+             (unsigned long)device->dropped,
+             (unsigned long)device->bus_errors);
+    clear_device(device);
     return ESP_OK;
 }

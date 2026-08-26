@@ -165,7 +165,9 @@ esp_err_t solar_os_adc_dpad_init(void)
     }
 
     const esp_err_t input_err =
-        solar_os_input_source_open("adc-dpad", &dpad_input_source);
+        solar_os_input_key_source_open("adc-dpad",
+                                       SOLAR_OS_INPUT_SOURCE_DPAD,
+                                       &dpad_input_source);
     if (input_err != ESP_OK) {
         return input_err;
     }

@@ -186,7 +186,53 @@ SOLAR_OS_SCRIPT_API_MODULE_BEGIN(controls);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, list, list);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, get, get);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, set, set);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, delete, delete);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bindings, bindings);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bind_parameter, bind_parameter);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, bind_midi, bind_midi);
+SOLAR_OS_SCRIPT_API_FUNCTION(controls, unbind, unbind);
 SOLAR_OS_SCRIPT_API_MODULE_END(controls);
+
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(parameters);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, get, get);
+SOLAR_OS_SCRIPT_API_FUNCTION(parameters, set, set);
+SOLAR_OS_SCRIPT_API_MODULE_END(parameters);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(midi);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, send, send);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, note_on, note_on);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, note_off, note_off);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, cc, cc);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, program, program);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, read, read);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, receive, read);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, close, close);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, streams, streams);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, stream_add, stream_add);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, stream_remove, stream_remove);
+SOLAR_OS_SCRIPT_API_FUNCTION(midi, stream_clear, stream_clear);
+SOLAR_OS_SCRIPT_API_MODULE_END(midi);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(osc);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bindings, bindings);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_stream, bind_stream);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_event, bind_event);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_control, bind_control);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, unbind, unbind);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, encode_float, encode_float);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, encode_int, encode_int);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, dispatch, dispatch);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, limits, limits);
+SOLAR_OS_SCRIPT_API_MODULE_END(osc);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_DSP

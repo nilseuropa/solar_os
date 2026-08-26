@@ -79,8 +79,8 @@ Radio listeners expose their radio as a custom job resource.
 
 GPIO-key mappings claim each selected pin through the same resource model. The
 `io` application therefore shows assignments such as `key:UP`, their
-`job:gpio-keys` owner, and the board's canonical pin policy without special
-GPIO-key display logic.
+`gpio-keys-job` attachment owner, and the board's canonical pin policy without
+special GPIO-key display logic.
 
 Tick intervals and execution-time deadlines are declared by each event-driven
 job. A zero descriptor value selects the runtime default. Deadline misses do
@@ -950,16 +950,19 @@ pins reject the complete start. Starting with a button already held does not
 generate a press. The file is read only at startup; restart the job to reload
 it.
 
-While the job runs, every pin has owner `job:gpio-keys` and an assignment such
-as `key:UP` in the `io` Pins and Claims views. Stopping the job resets the pins,
-releases their claims, and discards queued events from this input source. The
-fixed ODROID-GO button service remains independent of this job but uses the
-same held-key and repeat service.
+While the job runs, every pin belongs to the `gpio-keys-job` expansion
+attachment and has an assignment such as `key:UP` in the `io` Pins and Claims
+views. Stopping the job detaches that device, resets the pins, releases their
+claims, and discards queued events from this input source. The fixed ODROID-GO
+button service remains independent but uses the same held-key and repeat
+service.
 
 ## ps2-keyboard
 
 Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes
-press and release transitions through the generic SolarOS input service.
+press and release transitions through the generic SolarOS input service. This
+job is a compatibility wrapper around a `ps2-keyboard` expansion attachment;
+new configurations can attach the device directly.
 
 ```text
 expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
@@ -969,12 +972,12 @@ job stop ps2-keyboard
 ```
 
 These commands cover an expansion bus. Boards with an integrated PS/2 keyboard
-declare the bus and include and start this job automatically. On TTGO VGA32
-v1.4, `ps2kbd0` is running before the shell starts; `job status` and `job stop`
-continue to manage the same ordinary job instance.
+declare the bus and a default expansion attachment. On TTGO VGA32 v1.4,
+`keyboard0` is attached to `ps2kbd0` before the shell starts and is inspected
+with `expansion devices` and `input test keyboard0`.
 
-The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the running
-job holds an exclusive lease and appears as `job:ps2-keyboard`. Normal and
+The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the wrapper's
+`ps2-keyboard-job` attachment holds the exclusive lease. Normal and
 extended keys, modifiers, navigation keys, function keys, and keypad usages are
 translated to canonical USB HID identities. The configured `setterm keyboard`
 layout and `setterm keyrate` repeat policy apply equally to BLE and PS/2.

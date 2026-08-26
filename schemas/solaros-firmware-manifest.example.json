@@ -70,6 +70,6 @@
     "idf_version": "5.5.4",
     "compiler": "xtensa-esp-elf-gcc 14.2.0",
     "partition_table": "partitions.csv",
-    "app_partition_size": 8323072
+    "app_partition_size": 7340032
   }
 }

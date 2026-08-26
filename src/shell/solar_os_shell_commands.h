@@ -51,10 +51,10 @@ void solar_os_shell_cmd_gateway(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_i2c(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_input(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_INBOX
 void solar_os_shell_cmd_inbox(solar_os_context_t *ctx, int argc, char **argv);
 #endif
-void solar_os_shell_cmd_joystick(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_led(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_jobs(solar_os_context_t *ctx, int argc, char **argv);

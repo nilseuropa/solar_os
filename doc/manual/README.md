@@ -50,9 +50,9 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
 - [identity command](identity.md) — Show the configured user and hostname.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
+- [input command](commands.md) — List all input sources or filter them by semantic class.
 - [job command](jobs.md) — Show one job or all jobs.
 - [jobs command](jobs.md) — List registered jobs and their state.
-- [joystick command](commands.md) — Show joystick axes, raw values, direction, and thresholds.
 - [led command](commands.md) — Inspect or control the built-in status LED when available.
 - [link command](link.md) — List active SolarOS Link instances and their queue/protocol counters.
 - [log command](commands.md) — Show runtime log ring status.
@@ -175,7 +175,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [osc job](jobs.reference.md#osc) — OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and explicit named outbound stream, event-stream, or normalized-control bindings.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
-- [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service.
+- [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service. This job is a compatibility wrapper around a ps2-keyboard expansion attachment; new configurations can attach the device directly.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
 - [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.
@@ -189,7 +189,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Hardware and expansion
 
-- [Audio, keyboard input, and clipboard APIs](media.input.md) — Use installed media and input services
+- [Audio, input, and clipboard APIs](media.input.md) — Use installed media and generic input services
 - [Continuous controls](controls.md) — Map analog and other scalar inputs to app parameters or MIDI CC
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples

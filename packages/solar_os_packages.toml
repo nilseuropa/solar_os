@@ -32,7 +32,6 @@ members = [
   "service_adc",
   "service_pwm",
   "service_buttons",
-  "service_joystick",
   "service_adc_dpad",
 ]
 
@@ -49,6 +48,10 @@ members = [
   "expansion_ssd1306",
   "expansion_sdspi",
   "expansion_cardkb",
+  "expansion_analog_joystick",
+  "expansion_gpio_keys",
+  "expansion_ps2_keyboard",
+  "expansion_ps2_mouse",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -333,6 +336,7 @@ sources = [
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
+  "shell/solar_os_shell_input.c",
   "shell/solar_os_shell_completion.c",
   "shell/solar_os_shell_io.c",
   "shell/solar_os_shell_manual.c",
@@ -677,8 +681,12 @@ capabilities = ["gpio"]
 
 [packages.service_ps2]
 label = "service.ps2"
-sources = ["drivers/ps2_bus.c", "services/solar_os_ps2_keyboard.c"]
-requires = ["esp_driver_gpio", "esp_timer"]
+sources = [
+  "drivers/ps2_bus.c",
+  "services/solar_os_ps2_keyboard.c",
+  "services/solar_os_ps2_mouse.c",
+]
+requires = ["esp_driver_gpio", "esp_rom", "esp_timer"]
 capabilities = ["gpio"]
 
 [packages.service_logic]
@@ -838,6 +846,29 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_analog_joystick]
+label = "expansion.analog-joystick"
+depends = ["service_expansion", "service_streams"]
+sources = ["services/solar_os_analog_joystick.c"]
+
+[packages.expansion_gpio_keys]
+label = "expansion.gpio-keys"
+depends = ["service_expansion", "service_gpio"]
+sources = ["services/solar_os_gpio_keys.c"]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_ps2_keyboard]
+label = "expansion.ps2-keyboard"
+depends = ["service_expansion", "service_ps2"]
+sources = ["services/solar_os_ps2_keyboard_device.c"]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_ps2_mouse]
+label = "expansion.ps2-mouse"
+depends = ["service_expansion", "service_ps2"]
+sources = ["services/solar_os_ps2_mouse_device.c"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_sdspi]
 label = "expansion.sdspi"
 depends = ["service_expansion", "service_spi"]
@@ -935,12 +966,6 @@ label = "service.buttons"
 sources = ["services/solar_os_buttons.c"]
 requires = ["esp_driver_gpio"]
 capabilities = ["buttons"]
-
-[packages.service_joystick]
-label = "service.joystick"
-sources = ["services/solar_os_joystick.c"]
-requires = ["esp_adc", "esp_driver_gpio"]
-capabilities = ["joystick"]
 
 [packages.service_adc_dpad]
 label = "service.adc-dpad"
@@ -1290,15 +1315,15 @@ sources = ["jobs/solar_os_controls_job.c"]
 
 [packages.job_gpio_keys]
 label = "job.gpio-keys"
-depends = ["service_gpio"]
+depends = ["expansion_gpio_keys"]
 sources = ["jobs/solar_os_gpio_keys_job.c"]
-capabilities = ["gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.job_ps2_keyboard]
 label = "job.ps2-keyboard"
-depends = ["service_ps2", "service_resources"]
+depends = ["expansion_ps2_keyboard"]
 sources = ["jobs/solar_os_ps2_keyboard_job.c"]
-capabilities = ["gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.job_midi]
 label = "job.midi"

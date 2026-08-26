@@ -10,7 +10,7 @@ int main(void)
         "psram display gfx cdc uart sd i2c spi rtc battery audio audio_input "
         "wifi ble gpio adc pwm expansion_gpio expansion_i2c expansion_spi "
         "expansion_uart expansion_adc expansion_pwm expansion_i2s key "
-        "temperature humidity simd";
+        "temperature humidity simd pointer";
     char capabilities[SOLAR_OS_BOARD_CAPABILITIES_TEXT_MAX];
 
     assert(sizeof(expected) <= sizeof(capabilities));

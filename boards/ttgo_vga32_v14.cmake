@@ -1,7 +1,7 @@
 set(SOLAR_OS_BOARD_ID "ttgo_vga32_v14")
 set(SOLAR_OS_BOARD_NAME "LilyGO TTGO VGA32 v1.4")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_TTGO_VGA32_V14")
-set(SOLAR_OS_BOARD_REQUIRED_PACKAGES job_ps2_keyboard)
+set(SOLAR_OS_BOARD_REQUIRED_PACKAGES expansion_ps2_keyboard)
 
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_vga32.cmake")

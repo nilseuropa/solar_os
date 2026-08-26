@@ -74,6 +74,7 @@ esp_err_t solar_os_sessions_create_display_app(const solar_os_app_t *app,
 esp_err_t solar_os_sessions_focus_display(const char *target_name);
 bool solar_os_sessions_input_focus(char *target_name, size_t target_name_len);
 bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *session_id);
+bool solar_os_sessions_display_accepts_pointer_events(const char *target_name);
 bool solar_os_sessions_context_uses_display(solar_os_context_t *ctx,
                                             const char *target_name);
 bool solar_os_sessions_dispatch_session_event(uint8_t session_id,

@@ -8,6 +8,9 @@
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
 #include "solar_os_pins.h"
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+#include "solar_os_analog_joystick.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_PCD8544
 #include "solar_os_pcd8544.h"
 #endif
@@ -26,6 +29,29 @@
 #if SOLAR_OS_PACKAGE_EXPANSION_CARDKB
 #include "solar_os_cardkb.h"
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_GPIO_KEYS
+#include "solar_os_gpio_keys.h"
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
+#include "solar_os_ps2_keyboard_device.h"
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+#include "solar_os_ps2_mouse_device.h"
+#endif
+#if SOLAR_OS_BOARD_HAS_POINTER
+#include "solar_os_ft6336.h"
+#endif
+
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD || SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+static const solar_os_expansion_binding_spec_t ps2_device_binding_specs[] = {
+    {
+        .key = "ps2",
+        .value_hint = "bus",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+        .required = true,
+    },
+};
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
 #endif
@@ -39,8 +65,58 @@
 #include "solar_os_pcm5102.h"
 #endif
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
+
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+static const solar_os_expansion_binding_spec_t analog_joystick_binding_specs[] = {
+    {
+        .key = "x",
+        .value_hint = "scalar-stream",
+        .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+        .role = "x",
+        .required = true,
+    },
+    {
+        .key = "y",
+        .value_hint = "scalar-stream",
+        .kind = SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+        .role = "y",
+        .required = true,
+    },
+    {
+        .key = "min",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "min",
+        .required = true,
+    },
+    {
+        .key = "center",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "center",
+        .required = true,
+    },
+    {
+        .key = "max",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "max",
+        .required = true,
+    },
+    {
+        .key = "deadzone",
+        .value_hint = "value",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "deadzone",
+        .has_value_range = true,
+        .min_value = 0,
+        .max_value = 1000000,
+    },
+};
+#endif
 
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
 static const solar_os_expansion_binding_spec_t rfm69_binding_specs[] = {
@@ -108,6 +184,38 @@ static const solar_os_expansion_binding_spec_t cardkb_binding_specs[] = {
         .allowed_values = cardkb_i2c_addresses,
         .allowed_value_count = sizeof(cardkb_i2c_addresses) /
             sizeof(cardkb_i2c_addresses[0]),
+    },
+};
+#endif
+#if SOLAR_OS_BOARD_HAS_POINTER
+#define FT6336_ADDRESS 0x38
+
+static const int ft6336_i2c_addresses[] = {FT6336_ADDRESS};
+
+static const solar_os_expansion_binding_spec_t ft6336_binding_specs[] = {
+    {.key = "i2c", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .required = true},
+    {
+        .key = "addr",
+        .value_hint = "0x38",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .required = true,
+        .allowed_values = ft6336_i2c_addresses,
+        .allowed_value_count = sizeof(ft6336_i2c_addresses) /
+            sizeof(ft6336_i2c_addresses[0]),
+    },
+    {
+        .key = "reset",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "reset",
+        .required = true,
+    },
+    {
+        .key = "irq",
+        .value_hint = "gpio",
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+        .role = "irq",
+        .required = true,
     },
 };
 #endif
@@ -187,6 +295,19 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .probe_supported = false,
         .allow_unlisted_bindings = true,
     },
+#if SOLAR_OS_PACKAGE_EXPANSION_ANALOG_JOYSTICK
+    {
+        .name = "analog-joystick",
+        .summary = "two-axis joystick from scalar streams",
+        .required_capabilities = 0,
+        .probe_supported = false,
+        .binding_specs = analog_joystick_binding_specs,
+        .binding_spec_count = sizeof(analog_joystick_binding_specs) /
+            sizeof(analog_joystick_binding_specs[0]),
+        .attach = solar_os_analog_joystick_attach,
+        .detach = solar_os_analog_joystick_detach,
+    },
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_RFM69
     {
         .name = "rfm69",
@@ -283,6 +404,57 @@ static const solar_os_expansion_driver_t expansion_drivers[] = {
         .detach = solar_os_cardkb_detach,
     },
 #endif
+#if SOLAR_OS_PACKAGE_EXPANSION_GPIO_KEYS
+    {
+        .name = "gpio-keys",
+        .summary = "pull-up GPIO keyboard buttons",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .allow_unlisted_bindings = true,
+        .attach = solar_os_gpio_keys_attach,
+        .detach = solar_os_gpio_keys_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_KEYBOARD
+    {
+        .name = "ps2-keyboard",
+        .summary = "PS/2 keyboard",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = ps2_device_binding_specs,
+        .binding_spec_count = sizeof(ps2_device_binding_specs) /
+            sizeof(ps2_device_binding_specs[0]),
+        .attach = solar_os_ps2_keyboard_attach,
+        .detach = solar_os_ps2_keyboard_detach,
+    },
+#endif
+#if SOLAR_OS_PACKAGE_EXPANSION_PS2_MOUSE
+    {
+        .name = "ps2-mouse",
+        .summary = "PS/2 relative mouse",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+        .probe_supported = false,
+        .binding_specs = ps2_device_binding_specs,
+        .binding_spec_count = sizeof(ps2_device_binding_specs) /
+            sizeof(ps2_device_binding_specs[0]),
+        .attach = solar_os_ps2_mouse_attach,
+        .detach = solar_os_ps2_mouse_detach,
+    },
+#endif
+#if SOLAR_OS_BOARD_HAS_POINTER
+    {
+        .name = "ft6336",
+        .summary = "FocalTech FT6336 capacitive touchscreen",
+        .required_capabilities = SOLAR_OS_BOARD_CAP_POINTER |
+            SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+        .probe_supported = true,
+        .binding_specs = ft6336_binding_specs,
+        .binding_spec_count = sizeof(ft6336_binding_specs) /
+            sizeof(ft6336_binding_specs[0]),
+        .attach = solar_os_ft6336_attach,
+        .detach = solar_os_ft6336_detach,
+    },
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
     {
         .name = "sdspi",
@@ -348,6 +520,23 @@ typedef enum {
 static expansion_slot_state_t device_states[SOLAR_OS_EXPANSION_DEVICE_MAX];
 static uint32_t device_generations[SOLAR_OS_EXPANSION_DEVICE_MAX];
 static portMUX_TYPE devices_lock = portMUX_INITIALIZER_UNLOCKED;
+
+#if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
+static const solar_os_expansion_default_device_t board_default_devices[] =
+    SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES;
+
+_Static_assert(sizeof(board_default_devices) / sizeof(board_default_devices[0]) ==
+                   SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT,
+               "board expansion-device count does not match its definitions");
+#endif
+
+static esp_err_t expansion_attach(const char *driver,
+                                  const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count,
+                                  solar_os_expansion_origin_t origin,
+                                  bool autostart,
+                                  bool detachable);
 
 static bool mask_contains(uint64_t mask, int pin)
 {
@@ -449,6 +638,10 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
         return "cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return "ps2";
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return binding->role[0] != '\0' ? binding->role : "stream";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0' ? binding->role : "parameter";
     default:
@@ -611,6 +804,10 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         /* The named UART bus owns its controller; the device owns a bus lease. */
         return ESP_OK;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return ESP_OK;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
@@ -621,15 +818,22 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
 
 static bool binding_valid(const solar_os_expansion_binding_t *binding,
                           const solar_os_expansion_binding_t *bindings,
-                          size_t binding_count)
+                          size_t binding_count,
+                          bool allow_board_pins)
 {
     switch (binding->kind) {
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
-        return pin_is_expansion_gpio(binding->value);
+        return pin_is_expansion_gpio(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_ADC:
-        return pin_is_expansion_adc(binding->value);
+        return pin_is_expansion_adc(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_PWM:
-        return pin_is_expansion_pwm(binding->value);
+        return pin_is_expansion_pwm(binding->value) ||
+            (allow_board_pins &&
+             solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return solar_os_expansion_find_i2c_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -643,13 +847,25 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
         return solar_os_expansion_find_spi_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-        return pin_is_expansion_gpio(binding->value) &&
+        return (pin_is_expansion_gpio(binding->value) ||
+                (allow_board_pins &&
+                 solar_os_pin_get_info_by_pin(binding->value, NULL))) &&
             solar_os_expansion_spi_cs_allowed(binding->target[0] != '\0' ? binding->target : NULL,
                                               binding->value);
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT: {
         solar_os_expansion_uart_port_t port;
         return solar_os_expansion_find_uart_port(binding->target, &port, NULL) &&
             port.port == binding->value;
+    }
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return solar_os_bus_find(binding->target,
+                                 SOLAR_OS_BUS_PROTOCOL_PS2,
+                                 NULL);
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
+        solar_os_stream_info_t info;
+        return solar_os_stream_get_info(binding->target, &info) == ESP_OK &&
+            info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+            info.direction != SOLAR_OS_STREAM_DIRECTION_SINK;
     }
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0';
@@ -697,6 +913,12 @@ static bool binding_bus_ref(const solar_os_expansion_binding_t *binding,
             .name = binding->target,
         };
         return true;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        *ref = (expansion_bus_ref_t) {
+            .protocol = SOLAR_OS_BUS_PROTOCOL_PS2,
+            .name = binding->target,
+        };
+        return true;
     default:
         return false;
     }
@@ -739,7 +961,22 @@ static esp_err_t acquire_binding_buses(const solar_os_expansion_binding_t *bindi
 esp_err_t solar_os_expansion_init(void)
 {
     ESP_RETURN_ON_ERROR(solar_os_resources_init(), "expansion", "resource init failed");
-    return solar_os_buses_init();
+    ESP_RETURN_ON_ERROR(solar_os_buses_init(), "expansion", "bus init failed");
+#if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
+    for (size_t i = 0; i < SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT; i++) {
+        const solar_os_expansion_default_device_t *device = &board_default_devices[i];
+        ESP_RETURN_ON_ERROR(expansion_attach(device->driver,
+                                             device->name,
+                                             device->bindings,
+                                             device->binding_count,
+                                             SOLAR_OS_EXPANSION_ORIGIN_BOARD,
+                                             true,
+                                             false),
+                            "expansion",
+                            "board device attach failed");
+    }
+#endif
+    return ESP_OK;
 }
 
 bool solar_os_expansion_available(void)
@@ -790,11 +1027,12 @@ bool solar_os_expansion_driver_supported(const char *name)
         (caps & driver->required_capabilities) == driver->required_capabilities;
 }
 
-esp_err_t solar_os_expansion_validate_bindings(
+static esp_err_t validate_bindings(
     const char *driver,
     const solar_os_expansion_binding_t *bindings,
     size_t binding_count,
-    solar_os_expansion_binding_validation_t *validation)
+    solar_os_expansion_binding_validation_t *validation,
+    bool allow_board_pins)
 {
     if (validation != NULL) {
         memset(validation, 0, sizeof(*validation));
@@ -891,7 +1129,10 @@ esp_err_t solar_os_expansion_validate_bindings(
     }
 
     for (size_t i = 0; i < binding_count; i++) {
-        if (!binding_valid(&bindings[i], bindings, binding_count)) {
+        if (!binding_valid(&bindings[i],
+                           bindings,
+                           binding_count,
+                           allow_board_pins)) {
             set_binding_validation(validation,
                                    SOLAR_OS_EXPANSION_BINDINGS_UNAVAILABLE,
                                    binding_key(&bindings[i]));
@@ -899,6 +1140,19 @@ esp_err_t solar_os_expansion_validate_bindings(
         }
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_validate_bindings(
+    const char *driver,
+    const solar_os_expansion_binding_t *bindings,
+    size_t binding_count,
+    solar_os_expansion_binding_validation_t *validation)
+{
+    return validate_bindings(driver,
+                             bindings,
+                             binding_count,
+                             validation,
+                             false);
 }
 
 size_t solar_os_expansion_i2c_bus_count(void)
@@ -1106,10 +1360,13 @@ bool solar_os_expansion_find_onewire_bus(const char *name,
     return true;
 }
 
-esp_err_t solar_os_expansion_attach(const char *driver,
-                                    const char *name,
-                                    const solar_os_expansion_binding_t *bindings,
-                                    size_t binding_count)
+static esp_err_t expansion_attach(const char *driver,
+                                  const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count,
+                                  solar_os_expansion_origin_t origin,
+                                  bool autostart,
+                                  bool detachable)
 {
     if (driver == NULL || driver[0] == '\0' ||
         !device_name_valid(name) ||
@@ -1124,10 +1381,11 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     if (driver_def == NULL || !solar_os_expansion_driver_supported(driver)) {
         return ESP_ERR_NOT_FOUND;
     }
-    ESP_RETURN_ON_ERROR(solar_os_expansion_validate_bindings(driver,
-                                                              bindings,
-                                                              binding_count,
-                                                              NULL),
+    ESP_RETURN_ON_ERROR(validate_bindings(driver,
+                                          bindings,
+                                          binding_count,
+                                          NULL,
+                                          origin == SOLAR_OS_EXPANSION_ORIGIN_BOARD),
                         "expansion",
                         "invalid bindings");
     solar_os_expansion_binding_t normalized[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
@@ -1164,6 +1422,9 @@ esp_err_t solar_os_expansion_attach(const char *driver,
     memset(&devices[device_index], 0, sizeof(devices[device_index]));
     strlcpy(devices[device_index].name, name, sizeof(devices[device_index].name));
     strlcpy(devices[device_index].driver, driver, sizeof(devices[device_index].driver));
+    devices[device_index].origin = origin;
+    devices[device_index].autostart = autostart;
+    devices[device_index].detachable = detachable;
     devices[device_index].binding_count = binding_count;
     memcpy(devices[device_index].bindings,
            normalized,
@@ -1208,9 +1469,24 @@ esp_err_t solar_os_expansion_attach(const char *driver,
         return ESP_ERR_INVALID_STATE;
     }
     devices[device_index].active = true;
+    devices[device_index].ready = true;
     device_states[device_index] = EXPANSION_SLOT_ACTIVE;
     portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_attach(const char *driver,
+                                    const char *name,
+                                    const solar_os_expansion_binding_t *bindings,
+                                    size_t binding_count)
+{
+    return expansion_attach(driver,
+                            name,
+                            bindings,
+                            binding_count,
+                            SOLAR_OS_EXPANSION_ORIGIN_RUNTIME,
+                            false,
+                            true);
 }
 
 esp_err_t solar_os_expansion_detach(const char *name)
@@ -1229,6 +1505,10 @@ esp_err_t solar_os_expansion_detach(const char *name)
     if (device_states[device_index] != EXPANSION_SLOT_ACTIVE) {
         portEXIT_CRITICAL(&devices_lock);
         return ESP_ERR_INVALID_STATE;
+    }
+    if (!devices[device_index].detachable) {
+        portEXIT_CRITICAL(&devices_lock);
+        return ESP_ERR_NOT_SUPPORTED;
     }
     generation = device_generations[device_index];
     device = devices[device_index];
@@ -1261,6 +1541,26 @@ esp_err_t solar_os_expansion_detach(const char *name)
     }
     portEXIT_CRITICAL(&devices_lock);
     return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_device_set_ready(const char *name, bool ready)
+{
+    if (!device_name_valid(name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&devices_lock);
+    const int found_index = find_device_locked(name);
+    if (found_index < 0) {
+        result = ESP_ERR_NOT_FOUND;
+    } else if (device_states[found_index] != EXPANSION_SLOT_ACTIVE) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        devices[found_index].ready = ready;
+    }
+    portEXIT_CRITICAL(&devices_lock);
+    return result;
 }
 
 size_t solar_os_expansion_device_count(void)
@@ -1316,9 +1616,18 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "spi_cs";
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
         return "uart";
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return "ps2";
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        return "scalar";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return "parameter";
     default:
         return "unknown";
     }
+}
+
+const char *solar_os_expansion_origin_name(solar_os_expansion_origin_t origin)
+{
+    return origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME ? "runtime" : "board";
 }

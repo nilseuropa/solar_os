@@ -395,27 +395,14 @@ def _validate_pin_metadata(board: BoardMetadata) -> list[str]:
             )
 
     ps2_buses = {name for name, protocol in board.static_buses if protocol == "PS2"}
-    autostart_ps2 = _quoted_macro(macros, "SOLAR_OS_BOARD_AUTOSTART_PS2_BUS")
     if "PS2_KEYBOARD" in board.capabilities:
-        if not autostart_ps2:
-            errors.append(
-                f"{board.board_id}: PS2_KEYBOARD requires "
-                "SOLAR_OS_BOARD_AUTOSTART_PS2_BUS"
-            )
-        elif autostart_ps2 not in ps2_buses:
-            errors.append(
-                f"{board.board_id}: PS/2 autostart bus {autostart_ps2!r} "
-                "is not a static PS2 bus"
-            )
-        if "job_ps2_keyboard" not in board.required_packages:
+        if not ps2_buses:
+            errors.append(f"{board.board_id}: PS2_KEYBOARD requires a static PS2 bus")
+        if "expansion_ps2_keyboard" not in board.required_packages:
             errors.append(
                 f"{board.board_id}: PS2_KEYBOARD requires board package "
-                "job_ps2_keyboard"
+                "expansion_ps2_keyboard"
             )
-    elif autostart_ps2:
-        errors.append(
-            f"{board.board_id}: PS/2 autostart bus requires PS2_KEYBOARD capability"
-        )
 
     ble_default = macros.get("SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED")
     if ble_default is not None and ble_default not in ("0", "1"):

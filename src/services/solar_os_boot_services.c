@@ -27,7 +27,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
-#include "solar_os_joystick.h"
 #if SOLAR_OS_PACKAGE_SERVICE_JSON
 #include "solar_os_json.h"
 #endif
@@ -257,15 +256,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
     }
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
-        const esp_err_t joystick_err = solar_os_joystick_init();
-        if (joystick_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Joystick unavailable: %s", esp_err_to_name(joystick_err));
-        }
-    }
-#endif
-
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
         const esp_err_t dpad_err = solar_os_adc_dpad_init();
@@ -316,7 +306,9 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (solar_os_expansion_available()) {
         const esp_err_t expansion_err = solar_os_expansion_init();
         if (expansion_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Expansion service unavailable: %s", esp_err_to_name(expansion_err));
+            SOLAR_OS_LOGW(TAG,
+                          "Expansion initialization incomplete: %s",
+                          esp_err_to_name(expansion_err));
         }
     }
 #endif

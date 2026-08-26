@@ -450,6 +450,50 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display)
     }
     vTaskDelay(pdMS_TO_TICKS(120));
 
+#ifdef SOLAR_OS_BOARD_DISPLAY_CONTROLLER_ST7796
+    const uint8_t f0_enable_1[] = {0xc3};
+    const uint8_t f0_enable_2[] = {0x96};
+    const uint8_t madctl[] = {SOLAR_OS_BOARD_DISPLAY_MADCTL};
+    const uint8_t colmod[] = {0x55};
+    const uint8_t b4[] = {0x01};
+    const uint8_t b6[] = {0x80, 0x02, 0x3b};
+    const uint8_t e8[] = {0x40, 0x8a, 0x00, 0x00, 0x29, 0x19, 0xa5, 0x33};
+    const uint8_t c1[] = {0x06};
+    const uint8_t c2[] = {0xa7};
+    const uint8_t c5[] = {0x18};
+    const uint8_t e0[] = {
+        0xf0, 0x09, 0x0b, 0x06, 0x04, 0x15, 0x2f,
+        0x54, 0x42, 0x3c, 0x17, 0x14, 0x18, 0x1b,
+    };
+    const uint8_t e1[] = {
+        0xe0, 0x09, 0x0b, 0x06, 0x04, 0x03, 0x2b,
+        0x43, 0x42, 0x3b, 0x16, 0x14, 0x17, 0x1b,
+    };
+    const uint8_t f0_disable_1[] = {0x3c};
+    const uint8_t f0_disable_2[] = {0x69};
+
+    if (!ili9341_checked_cmd(display, 0x11)) {
+        return display->last_error;
+    }
+    vTaskDelay(pdMS_TO_TICKS(120));
+    if (!ili9341_checked_cmd_data(display, 0xf0, f0_enable_1, sizeof(f0_enable_1)) ||
+        !ili9341_checked_cmd_data(display, 0xf0, f0_enable_2, sizeof(f0_enable_2)) ||
+        !ili9341_checked_cmd_data(display, 0x36, madctl, sizeof(madctl)) ||
+        !ili9341_checked_cmd_data(display, 0x3a, colmod, sizeof(colmod)) ||
+        !ili9341_checked_cmd_data(display, 0xb4, b4, sizeof(b4)) ||
+        !ili9341_checked_cmd_data(display, 0xb6, b6, sizeof(b6)) ||
+        !ili9341_checked_cmd_data(display, 0xe8, e8, sizeof(e8)) ||
+        !ili9341_checked_cmd_data(display, 0xc1, c1, sizeof(c1)) ||
+        !ili9341_checked_cmd_data(display, 0xc2, c2, sizeof(c2)) ||
+        !ili9341_checked_cmd_data(display, 0xc5, c5, sizeof(c5)) ||
+        !ili9341_checked_cmd_data(display, 0xe0, e0, sizeof(e0)) ||
+        !ili9341_checked_cmd_data(display, 0xe1, e1, sizeof(e1)) ||
+        !ili9341_checked_cmd_data(display, 0xf0, f0_disable_1, sizeof(f0_disable_1)) ||
+        !ili9341_checked_cmd_data(display, 0xf0, f0_disable_2, sizeof(f0_disable_2))) {
+        return display->last_error;
+    }
+    vTaskDelay(pdMS_TO_TICKS(120));
+#else
     const uint8_t ef[] = {0x03, 0x80, 0x02};
     const uint8_t cf[] = {0x00, 0xc1, 0x30};
     const uint8_t ed[] = {0x64, 0x03, 0x12, 0x81};
@@ -500,6 +544,7 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display)
     }
 
     vTaskDelay(pdMS_TO_TICKS(120));
+#endif
 
     ESP_RETURN_ON_ERROR(ili9341_fill_screen(display, display->background_rgb565),
                         TAG,
@@ -508,6 +553,12 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display)
     if (!ili9341_checked_cmd(display, 0x29)) {
         return display->last_error;
     }
+#ifdef SOLAR_OS_BOARD_DISPLAY_CONTROLLER_ST7796
+    /* The FNK0104S panel requires display inversion on for literal RGB colors. */
+    if (!ili9341_checked_cmd(display, 0x21)) {
+        return display->last_error;
+    }
+#endif
     vTaskDelay(pdMS_TO_TICKS(20));
     ili9341_set_backlight_power(display, true);
 

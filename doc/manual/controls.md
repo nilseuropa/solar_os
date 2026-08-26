@@ -114,6 +114,12 @@ with the app-exit key, `Esc`, or `q`, then create the matching stream.
 matching value while the MIDI job is running. It is non-consuming, so MIDI
 subscribers such as Synth still receive the original message.
 
+Python and Lua can perform the same management with
+`solaros.midi.streams()`, `stream_add()`, `stream_remove()`, and
+`stream_clear()`. Their `solaros.midi.read()` API uses its own non-consuming
+subscription, so a script can observe messages without stealing them from
+Synth or another subscriber.
+
 Up to 16 MIDI CC streams can be configured. Explicit registration avoids
 reserving stream-registry entries for all 2,048 possible channel/controller
 pairs. A new stream reports `waiting` until its first matching message. It
@@ -133,7 +139,8 @@ from `/.shell/startup` with the related control and job commands when needed.
 ## Manual and script controls
 
 Use `manual` instead of a stream when a Python or Lua program supplies the
-value:
+value. Scripts can either use an existing shell configuration or create the
+control and its typed binding directly:
 
 ```text
 control create expression manual 0 1
@@ -156,6 +163,21 @@ local solaros = require("solaros")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
 ```
+
+The equivalent complete Python setup is:
+
+```python
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", False
+)
+solaros.jobs.start("controls")
+```
+
+Lua uses the same function names and positional arguments. Both runtimes also
+provide `controls.delete()`, `clear()`, `bindings()`, `bind_midi()`, and
+`unbind()`. The `solaros.parameters` table lists dynamic native parameters and
+gets or sets their values without going through a control.
 
 ## Inspection and removal
 
@@ -182,4 +204,5 @@ Controls normalize scalar streams to `0..65535`, apply optional smoothing,
 deadband, and inversion, and fan out to typed targets. Native app targets can
 use soft takeover and survive temporary parameter absence. MIDI targets emit
 CC values from `0..127`. Python and Lua use normalized values from `0.0` to
-`1.0`.
+`1.0` and expose the complete configuration, binding, and dynamic-parameter
+management surface.

@@ -67,6 +67,8 @@ shell commands use services.
 Built-in targets include:
 
 - `waveshare_esp32_s3_rlcd_4_2`: primary reflective-display pocket terminal.
+- `freenove_esp32_s3_display_4_0`: integrated 480x320 capacitive-touch terminal
+  with speaker, microphone, SD, and battery monitoring.
 - `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 e-paper HMI with rotary
   controls and microSD.
 - `odroid_go`: classic ESP32 handheld.

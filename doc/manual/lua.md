@@ -61,7 +61,10 @@ service packages are not available on that board.
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
 - `solaros.led`: `status`, `set`, `on`, `off`, `toggle` when GPIO support is compiled
 - `solaros.adc`: `pins`, `read` when ADC support is compiled
-- `solaros.controls`: `list`, `get`, `set` when continuous controls are compiled. Values use the normalized range `0.0..1.0`; create controls and typed bindings with the `control` shell command.
+- `solaros.controls`: `list`, `get`, `set`, `create`, `delete`, `clear`, `bindings`, `bind_parameter`, `bind_midi`, `unbind` when continuous controls are compiled. Values use the normalized range `0.0..1.0`.
+- `solaros.parameters`: `list`, `get`, `set` for dynamic native application parameters when continuous controls are compiled.
+- `solaros.midi`: `status`, `send`, `note_on`, `note_off`, `cc`, `program`, `read`/`receive`, `close`, `streams`, `stream_add`, `stream_remove`, `stream_clear` when MIDI support is compiled.
+- `solaros.osc`: `bindings`, `bind_stream`, `bind_event`, `bind_control`, `unbind`, `clear`, `encode_float`, `encode_int`, `dispatch`, `limits` when OSC support is compiled.
 - `solaros.dsp`: `backend`, `capabilities`, `dot`, `gain`, `mix`, `clip`, `level`, `window`, `fir`, and `fft` when `service.dsp` is compiled. Binary strings contain native little-endian signed 16-bit values; FIR and FFT constructors return caller-owned userdata.
 - `solaros.pwm`: constants `FREQ_MIN`, `FREQ_MAX`; functions `status`, `set`, `off` when PWM support is compiled
 - `solaros.buses`: constants `MODE0` through `MODE3`, `SPI2_HOST`, `SPI3_HOST`, `DEFAULT_SPEED`, `MAX_SPEED`; functions `list`, `get`, `create_spi`, `attach`, `detach`, `remove`, `spi_xfer`, `spi_read`, `spi_write` when the resource service is compiled; `create_i2c`, `i2c_probe`, `i2c_scan`, `i2c_read_reg`, and `i2c_write_reg` are additionally present when I2C support is compiled; `create_onewire`, `onewire_reset`, `onewire_scan`, and `onewire_xfer` are additionally present when OneWire support is compiled; `create_ps2` is present with PS/2 support; `create_uart`, `create_midi`, `uart_write`, and `uart_read` are additionally present when UART support is compiled
@@ -202,14 +205,74 @@ solaros.http.session_close(handle)
 ```
 
 A script-driven continuous control uses the same target mappings as an ADC
-potentiometer. Create it from the shell with
-`control create expression manual 0 1`, bind it, and start the `controls` job.
-Lua can then update it without constructing shell commands:
+potentiometer. Lua can create, bind, inspect, and remove controls directly:
 
 ```lua
+solaros.controls.create("expression")
+solaros.controls.bind_parameter(
+    "expression", "synth.filter.resonance", false
+)
+solaros.jobs.start("controls")
 solaros.controls.set("expression", 0.5)
 print(solaros.controls.get("expression"))
 ```
+
+`solaros.controls.create(name[, source, input_min, input_max, smoothing_ms,
+deadband, inverted])` omits `source` for manual controls. `bindings()` includes
+pickup, application, and error state. `bind_parameter()` and `bind_midi()`
+return binding IDs; `unbind()` returns the number removed.
+
+Dynamic app parameters are available through `solaros.parameters.list()`,
+`get(path)`, and `set(path, value)`. `set()` returns the authoritative
+native-unit value after the parameter's range and step handling.
+
+### MIDI
+
+The MIDI job must own a running bus before Lua transmits or receives. The
+following setup creates a bus, starts the worker, sends a note, and waits up to
+one second for a non-consuming subscriber message:
+
+```lua
+solaros.buses.create_midi("midi0", { tx = 2, rx = 3 })
+solaros.jobs.start("midi", { "midi0" })
+solaros.midi.note_on(1, 60, 100)
+local message = solaros.midi.read(1000)
+```
+
+`status()` includes traffic, parser, drop, error, CC-stream, and script
+subscription state. `send(status[, data1, data2])` validates raw messages;
+`note_on`, `note_off`, `cc`, and `program` provide channel-oriented helpers.
+`read()` and its `receive()` alias return a message table or `nil`, are bounded
+to 60 seconds, and are cancellation-aware. The subscription is automatically
+released when Lua exits; `close()` releases it earlier.
+
+Use `streams()`, `stream_add(channel, controller)`, `stream_remove(...)`, and
+`stream_clear()` to manage incoming CC scalar streams. Message tables contain
+`status`, `length`, `type`, and applicable channel/data fields.
+
+### Open Sound Control
+
+Lua configures native OSC bindings while the `osc` job retains UDP socket,
+filtering, and rate-limit ownership:
+
+```lua
+solaros.osc.bind_stream(
+    "ambient", "temperature", "/room/temperature", 2.0, 0.1
+)
+solaros.jobs.start(
+    "osc", { "listen=9000", "target=192.168.1.50:9001" }
+)
+```
+
+`bindings()` returns source configuration plus availability, values, timing,
+send counters, and errors. `bind_stream`, `bind_event`, and `bind_control`
+return numeric IDs; `unbind` and `clear` remove definitions. Event edges are
+`"rising"`, `"falling"`, or `"both"`; rates are `0.1..100` Hz.
+
+`encode_float()` and `encode_int()` return binary OSC messages that can be sent
+with `solaros.net.udp_send()`. `dispatch(packet)` validates a message or
+immediate bundle and applies the same native parameter routes as the job.
+`limits()` reports all public codec and binding bounds.
 
 For example, this plays a short saw-wave chord without running Lua in the
 real-time render callback:
@@ -373,12 +436,17 @@ local devices = solaros.buses.onewire_scan("onewire0")
 local reply = solaros.buses.onewire_xfer("onewire0", 9, "\xcc\x44")
 ```
 
-`solaros.expansion.drivers()` lists compiled drivers, and `devices()` lists
-active devices with normalized bindings. `attach(driver, name, bindings)` and
-`detach(name)` mirror the shell lifecycle. Binding tables accept `spi`, `cs`
-(or `ce`), `i2c`, `addr`, `uart`, `gpio`, `irq`, `reset` (or `rst`), `dc`,
-`busy`, `data`, `bck`, `din`, `rck`, `adc`, `pwm`, and `count`. `cs` requires
-`spi`, `addr` requires `i2c`, and unknown fields are rejected.
+`solaros.expansion.drivers()` lists compiled drivers. `devices()` lists active
+devices with `name`, `driver`, `origin` (`board` or `runtime`), `ready`,
+`autostart`, `detachable`, and normalized `bindings`. Each binding contains
+`kind`, `role`, `target`, `value`, and `aux`. `attach(driver, name, bindings)`
+and `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`,
+`cs` (or `ce`), `i2c`, `addr`, `uart`, `ps2`, `gpio`, `irq`, `reset` (or
+`rst`), `dc`, `busy`, `data`, `bck`, `din`, `rck`, `adc`, `pwm`, `count`,
+`keys`, `x`, `y`, `min`, `center`, `max`, and `deadzone`. `ps2` names an
+existing PS/2 bus; `x` and `y` name scalar streams; `keys` maps logical key
+names to GPIO numbers. `cs` requires `spi`, `addr` requires `i2c`, and unknown
+fields are rejected.
 
 ```lua
 solaros.expansion.attach("pcd8544", "lcd0", {

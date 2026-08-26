@@ -14,8 +14,10 @@
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#include "solar_os_stream.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
 #endif
@@ -387,6 +389,10 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
             return "SPI";
         case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
             return "UART";
+        case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+            return "PS/2";
+        case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+            return "STREAM";
         default:
             break;
         }
@@ -426,9 +432,16 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         solar_os_shell_io_printf(term,
                                  " %s=%s",
                                  solar_os_expansion_binding_kind_name(binding->kind),
+                                 binding->target);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        solar_os_shell_io_printf(term,
+                                 " %s=%s",
+                                 binding->role,
                                  binding->target);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -461,7 +474,14 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
         if (!solar_os_expansion_get_device(i, &device)) {
             continue;
         }
-        solar_os_shell_io_printf(term, "%s driver=%s", device.name, device.driver);
+        solar_os_shell_io_printf(term,
+                                 "%s driver=%s origin=%s ready=%s autostart=%s %s",
+                                 device.name,
+                                 device.driver,
+                                 solar_os_expansion_origin_name(device.origin),
+                                 device.ready ? "yes" : "no",
+                                 device.autostart ? "yes" : "no",
+                                 device.detachable ? "detachable" : "fixed");
         for (size_t b = 0; b < device.binding_count; b++) {
             expansion_print_binding(term, &device.bindings[b]);
         }
@@ -742,6 +762,15 @@ static bool parse_binding_token(const char *arg,
                                  port.port,
                                  -1);
         }
+        if (solar_os_bus_find(arg, SOLAR_OS_BUS_PROTOCOL_PS2, NULL)) {
+            return binding_store(bindings,
+                                 binding_count,
+                                 SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+                                 "",
+                                 arg,
+                                 -1,
+                                 -1);
+        }
         return false;
     }
 
@@ -772,10 +801,32 @@ static bool parse_binding_token(const char *arg,
                           port.port,
                           -1);
     }
+    if (strcmp(key, "ps2") == 0) {
+        return solar_os_bus_find(value, SOLAR_OS_BUS_PROTOCOL_PS2, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PS2_BUS,
+                          "",
+                          value,
+                          -1,
+                          -1);
+    }
     if (strcmp(key, "addr") == 0) {
         int address = 0;
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
+    }
+    if ((strcmp(key, "x") == 0 || strcmp(key, "y") == 0)) {
+        solar_os_stream_info_t info;
+        return solar_os_stream_get_info(value, &info) == ESP_OK &&
+            info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
+                          key,
+                          value,
+                          -1,
+                          -1);
     }
     if (strcmp(key, "count") == 0) {
         int count = 0;
@@ -788,10 +839,34 @@ static bool parse_binding_token(const char *arg,
                           count,
                           -1);
     }
+    if (strcmp(key, "min") == 0 || strcmp(key, "center") == 0 ||
+        strcmp(key, "max") == 0 || strcmp(key, "deadzone") == 0) {
+        int parameter = 0;
+        const int minimum = strcmp(key, "deadzone") == 0 ? 0 : -1000000;
+        return parse_int_arg(value, minimum, 1000000, &parameter) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          key,
+                          "",
+                          parameter,
+                          -1);
+    }
 
     int pin = -1;
     if (!parse_int_arg(value, 0, 63, &pin)) {
         return false;
+    }
+    if (strncmp(key, "key:", 4) == 0 && key[4] != '\0') {
+        uint8_t parsed_key = 0;
+        return solar_os_key_parse(key + 4, &parsed_key) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_GPIO,
+                          key + 4,
+                          "",
+                          pin,
+                          -1);
     }
     if (strcmp(key, "cs") == 0 || strcmp(key, "ce") == 0) {
         char spi_target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};

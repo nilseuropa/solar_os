@@ -71,11 +71,21 @@ The current tree includes these board targets:
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
 | `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
+| `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
-| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, an automatically started PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
+| `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, a default-attached PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
+
+All built-in 16 MiB targets use `partitions.csv`: each OTA application slot
+is 0x700000 bytes (7 MiB), and the internal FAT filesystem partition is
+0x1F0000 bytes (1.94 MiB). PlatformIO rejects a firmware image that exceeds an
+OTA slot. Devices with an older installed partition table remain OTA-capable
+and retain their existing `/flash` size. A full USB/factory flash is required
+to install the new table; that migration reformats `/flash`, so copy needed
+files off the device first. NVS stays at the same offset unless the whole chip
+is explicitly erased.
 
 ## Board Profile
 
@@ -207,6 +217,7 @@ Current built-in driver selector values:
 | `DISPLAY` | `drivers/display_st7305.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7305` |
 | `DISPLAY` | `drivers/display_ssd1683.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ssd1683` |
 | `DISPLAY` | `drivers/display_ili9341.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=ili9341` |
+| `DISPLAY` | `drivers/display_st7796.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=st7796` |
 | `DISPLAY` | `drivers/display_cvbs_pal.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=cvbs_pal` |
 | `DISPLAY` | `drivers/display_vga32.cmake` | `SOLAR_OS_BOARD_DISPLAY_DRIVER=vga32` |
 | `SD` | `drivers/storage_sdmmc.cmake` | `SOLAR_OS_BOARD_STORAGE_DRIVER=sdmmc` |
@@ -216,11 +227,13 @@ Current built-in driver selector values:
 | `RTC` | `drivers/rtc_pcf85063.cmake` | `SOLAR_OS_BOARD_RTC_DRIVER=pcf85063` |
 | `TEMPERATURE`, `HUMIDITY` | `drivers/sensors_shtc3.cmake` | `SOLAR_OS_BOARD_SENSOR_DRIVER=shtc3` |
 | `AUDIO` | `drivers/audio_es8311_es7210.cmake` | `SOLAR_OS_BOARD_AUDIO_DRIVER=es8311_es7210` |
+| `AUDIO` | `drivers/audio_es8311_duplex.cmake` | `SOLAR_OS_BOARD_AUDIO_DRIVER=es8311_duplex` |
 | `AUDIO` | `drivers/audio_esp32_dac.cmake` | `SOLAR_OS_BOARD_AUDIO_DRIVER=esp32_dac` |
 | `GPIO` | `drivers/gpio_esp_idf.cmake` | `SOLAR_OS_BOARD_GPIO_DRIVER=esp_idf` |
 | `ADC` | `drivers/adc_esp_idf.cmake` | `SOLAR_OS_BOARD_ADC_DRIVER=esp_idf` |
 | `BATTERY` | `drivers/battery_adc.cmake` | `SOLAR_OS_BOARD_BATTERY_DRIVER=adc` |
 | `PWM` | `drivers/pwm_esp_idf.cmake` | `SOLAR_OS_BOARD_PWM_DRIVER=esp_idf` |
+| `POINTER` | `drivers/pointer_ft6336.cmake` | `SOLAR_OS_BOARD_POINTER_DRIVER=ft6336` |
 
 ## Capability Flags
 
@@ -256,10 +269,11 @@ The current capability flags are:
 | `EXPANSION_I2S` | Board has a spare I2S controller and at least three runtime-safe output GPIOs for an external three-wire I2S device. |
 | `KEY` | Built-in board key for sleep/pairing control. |
 | `BUTTONS` | Built-in digital buttons are available for keyboard/app input. |
-| `JOYSTICK` | Built-in analog joystick axes are available for keyboard/app input. |
+| `JOYSTICK` | Built-in analog joystick axes are available as generic axis input. |
 | `ADC_DPAD` | Built-in ADC D-pad axes are available for keyboard/app input. |
 | `STATUS_LED` | Board status LED output is available. |
 | `DISPLAY_BRIGHTNESS` | Display backlight or brightness control is available. |
+| `POINTER` | Board-integrated absolute or relative pointing input. Events carry a source, pointer ID, display target, coordinates, deltas, buttons, and press/move/release action. |
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 
@@ -455,6 +469,8 @@ Add the board define to `include/solar_os_board.h`:
 ```c
 #if defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2)
 #include "boards/waveshare_esp32_s3_rlcd_4_2.h"
+#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0)
+#include "boards/freenove_esp32_s3_display_4_0.h"
 #elif defined(SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8)
 #include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
@@ -648,23 +664,25 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
-The board profile includes the PS/2 keyboard job in every flavor and starts it
-on `ps2kbd0` automatically before the shell. It is still a normal managed job,
-so its state and resource ownership remain visible:
+The board profile declares `ps2kbd0` and creates the default `keyboard0`
+`ps2-keyboard` expansion attachment before the shell. Its topology and input
+state remain visible through the generic commands:
 
 ```text
-job status ps2-keyboard
-job stop ps2-keyboard
+expansion devices
+input keyboard
+input test keyboard0
 ```
 
 BLE remains available but defaults to off on this board to preserve internal
 heap. Use `setterm ble on` and reboot to enable it. `setterm ble default` clears
 the user override and restores the board default.
 
-The onboard PS/2 mouse connector is reserved in the board pin map but does not
-yet have a SolarOS input driver. The microSD signals are fixed board resources;
-GPIO34 and GPIO39 are the only header pins available for runtime GPIO/ADC, and
-both are input-only.
+The onboard PS/2 mouse connector is registered as the fixed `ps2mouse0` bus.
+Attach a mouse when one is connected with `expansion attach ps2-mouse mouse0
+ps2=ps2mouse0`; it is not a default attachment because the connector can be
+empty. The microSD signals are fixed board resources; GPIO34 and GPIO39 are the
+only header pins available for runtime GPIO/ADC, and both are input-only.
 
 ## ODROID-GO
 
@@ -696,6 +714,39 @@ buttons.
 
 GPIO25 is amplifier enable/shutdown wiring, not a second SolarOS DAC channel.
 Treat GPIO26 as the only DAC sample output for ODROID-GO audio.
+
+## Freenove ESP32-S3 Display 4.0-inch
+
+The `freenove_esp32_s3_display_4_0` target supports the capacitive-touch
+FNK0104S board. SolarOS runs its portrait 320x480 ST7796 panel as a 480x320
+landscape primary display and controls the active-high GPIO45 backlight with
+PWM. The FT6336 touch controller shares `i2c0` with the ES8311 codec and emits
+generic absolute pointer events targeted at `display0`. Native apps opt in with
+`SOLAR_OS_APP_FLAG_POINTER_EVENTS`; pointer events include press, move, and
+release state rather than exposing FT6336 registers to applications.
+The board profile creates this as the default `ft6336` expansion attachment
+named `touch0`; inspect it with `expansion devices`, `input touch`, and `input
+test touch0`. Optional logical-range correction is stored with `input calibrate
+touch0 ...`.
+
+The ES8311 is configured as one duplex codec: GPIO8 carries playback data to
+the codec, GPIO6 carries microphone data to the ESP32-S3, and GPIO1 controls
+the active-low speaker amplifier. The SD slot uses four-bit SDMMC. Battery
+voltage is measured on GPIO9 through the board divider. The TP4054 circuit is
+an analog charger, not a digitally addressable fuel gauge or battery manager.
+
+Expansion wiring is divided across three connectors. `uart0` uses GPIO43 and
+GPIO44. The I2C connector exposes GPIO16 SDA and GPIO15 SCL. The GPIO connector
+exposes runtime-safe GPIO2, GPIO3, GPIO14, and GPIO21. Current Freenove FNK0104S
+documentation identifies the third GPIO signal as GPIO14; GPIO4 is fixed as
+the ES8311 MCLK signal. The BOOT button on GPIO0 becomes the SolarOS KEY after
+startup; do not hold it during reset because it selects download mode.
+
+Build the target with:
+
+```sh
+pio run -e freenove_esp32_s3_display_4_0
+```
 
 ## Elecrow CrowPanel ESP32-S3 4.2-inch E-paper
 
@@ -783,14 +834,9 @@ Its active-low BOOT button on GPIO0 is also the SolarOS KEY for the configured
 short-press sleep/suspend action, light-sleep wake, and long-press BLE keyboard
 replacement. GPIO0 remains reserved from runtime routing. Do not hold the
 button during reset or power-up, because that selects download boot mode.
-The N16R8 target uses `partitions_16mb_devkit.csv`: each OTA application slot
-is 0x600000 bytes and the internal FAT filesystem partition is 0x3F0000 bytes.
-The larger local volume supports durable agent conversations and normal file
-workflows without an SD card. Moving an existing device from the old shared
-layout relocates and reformats its internal filesystem on first boot, so copy
-needed files off the device before flashing. The transition requires a serial
-flash because OTA does not replace the installed partition table; NVS
-configuration remains in the unchanged NVS partition.
+The N16R8 target uses the common 16 MiB `partitions.csv` layout described
+above. Its internal volume supports durable agent conversations and normal
+file workflows without an SD card.
 The board also permits runtime routing on the spare SPI3 host. Static `spi0`
 remains the usual choice; the runtime host is useful for isolated experiments
 on another set of routable expansion pins.
