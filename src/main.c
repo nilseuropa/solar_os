@@ -121,8 +121,8 @@
 #endif
 #define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 1500
 #define RADIO_RESUME_PM_HOLDOFF_MS 15000
-#define MAIN_LOOP_INTERVAL_DEFAULT_MS 10U
 #define STATUS_UPDATE_INTERVAL_MS 1000
+#define RUNTIME_CADENCE_LOG_INTERVAL_MS 60000U
 #define SESSION_OVERLAY_TITLE_MAX 48
 #define SESSION_OVERLAY_MS 900
 
@@ -160,6 +160,7 @@ static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 static uint32_t last_terminal_draw_ms;
 static uint32_t last_session_overlay_draw_ms;
+static solar_os_runtime_loop_stats_t runtime_loop_stats;
 
 static void process_app_requests(void);
 static void maybe_enter_idle_sleep(void);
@@ -1137,6 +1138,52 @@ static uint32_t requested_tick_interval_ms(void)
     return interval_ms;
 }
 
+static bool runtime_requires_fast_poll(void)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
+    if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
+        return true;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_JOYSTICK
+    if (board_has(SOLAR_OS_BOARD_CAP_JOYSTICK)) {
+        return true;
+    }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
+    if (board_has(SOLAR_OS_BOARD_CAP_ADC_DPAD)) {
+        return true;
+    }
+#endif
+    return false;
+}
+
+static void note_runtime_cadence(uint32_t now_ms, uint32_t planned_wait_ms)
+{
+    solar_os_runtime_loop_note(&runtime_loop_stats, now_ms, planned_wait_ms);
+
+    solar_os_runtime_loop_report_t report;
+    if (!solar_os_runtime_loop_take_report(&runtime_loop_stats,
+                                           now_ms,
+                                           RUNTIME_CADENCE_LOG_INTERVAL_MS,
+                                           &report) ||
+        report.loop_count == 0U || report.elapsed_ms == 0U) {
+        return;
+    }
+
+    const uint32_t rate_tenths = (uint32_t)(
+        ((uint64_t)report.loop_count * 10000ULL) / report.elapsed_ms);
+    const uint32_t average_wait_ms =
+        (uint32_t)(report.planned_wait_total_ms / report.loop_count);
+    SOLAR_OS_LOGI(TAG,
+                  "runtime cadence: %u.%u loops/s wait=%u/%u/%u ms",
+                  (unsigned)(rate_tenths / 10U),
+                  (unsigned)(rate_tenths % 10U),
+                  (unsigned)report.planned_wait_min_ms,
+                  (unsigned)average_wait_ms,
+                  (unsigned)report.planned_wait_max_ms);
+}
+
 static void dispatch_app_tick(void)
 {
     const uint32_t now_ms = millis_u32();
@@ -1732,6 +1779,13 @@ void app_main(void)
 
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
     log_runtime_memory();
+    const bool requires_fast_poll = runtime_requires_fast_poll();
+    SOLAR_OS_LOGI(TAG,
+                  "runtime cadence policy: max wait=%u ms (%s input)",
+                  (unsigned)(requires_fast_poll ?
+                      SOLAR_OS_RUNTIME_WAIT_POLL_MAX_MS :
+                      SOLAR_OS_RUNTIME_WAIT_EVENT_MAX_MS),
+                  requires_fast_poll ? "polled" : "event-driven");
 
     while (true) {
         solar_os_power_poll();
@@ -1746,10 +1800,9 @@ void app_main(void)
         draw_session_overlay_if_needed();
         maybe_enter_idle_sleep();
 
-        uint32_t loop_interval_ms = requested_tick_interval_ms();
-        if (loop_interval_ms > MAIN_LOOP_INTERVAL_DEFAULT_MS) {
-            loop_interval_ms = MAIN_LOOP_INTERVAL_DEFAULT_MS;
-        }
+        const uint32_t loop_interval_ms = solar_os_runtime_wait_ms(
+            requested_tick_interval_ms(), requires_fast_poll);
+        note_runtime_cadence(millis_u32(), loop_interval_ms);
         vTaskDelay(pdMS_TO_TICKS(loop_interval_ms));
     }
 }
