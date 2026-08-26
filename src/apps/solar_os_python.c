@@ -100,6 +100,7 @@
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
 #include "solar_os_scheduler.h"
+#include "solar_os_script_lifecycle.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -7113,6 +7114,12 @@ static void python_interrupt(void)
     }
 }
 
+static bool python_task_stopped(void *user)
+{
+    (void)user;
+    return python_app.task == NULL || python_app.task_done;
+}
+
 static void python_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
@@ -7130,13 +7137,10 @@ static void python_stop(solar_os_context_t *ctx)
 
     if (python_app.task != NULL && !python_app.task_done) {
         python_interrupt();
-        const TickType_t start = xTaskGetTickCount();
-        while (python_app.task != NULL &&
-               !python_app.task_done &&
-               (xTaskGetTickCount() - start) < pdMS_TO_TICKS(PYTHON_STOP_WAIT_MS)) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (python_app.task != NULL && !python_app.task_done) {
+        if (!solar_os_script_wait_for_stop(python_task_stopped,
+                                           NULL,
+                                           PYTHON_STOP_WAIT_MS,
+                                           20U)) {
             SOLAR_OS_LOGW(TAG, "force stopping unresponsive script");
             solar_os_task_delete(python_app.task);
             python_app.task = NULL;

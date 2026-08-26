@@ -94,6 +94,7 @@
 #include "solar_os_pins.h"
 #include "solar_os_queue.h"
 #include "solar_os_scheduler.h"
+#include "solar_os_script_lifecycle.h"
 #if SOLAR_OS_PACKAGE_SERVICE_PWM
 #include "solar_os_pwm.h"
 #endif
@@ -6453,6 +6454,12 @@ static void solua_interrupt_current(void)
     solua.interrupted = true;
 }
 
+static bool solua_task_stopped(void *user)
+{
+    (void)user;
+    return solua.task == NULL || solua.task_done;
+}
+
 static void solua_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
@@ -6469,13 +6476,10 @@ static void solua_stop(solar_os_context_t *ctx)
     }
 
     if (solua.task != NULL && !solua.task_done) {
-        const TickType_t start = xTaskGetTickCount();
-        while (solua.task != NULL &&
-               !solua.task_done &&
-               (xTaskGetTickCount() - start) < pdMS_TO_TICKS(SOLUA_STOP_WAIT_MS)) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (solua.task != NULL && !solua.task_done) {
+        if (!solar_os_script_wait_for_stop(solua_task_stopped,
+                                           NULL,
+                                           SOLUA_STOP_WAIT_MS,
+                                           20U)) {
             SOLAR_OS_LOGW(TAG, "force stopping unresponsive Lua task");
             solar_os_task_delete(solua.task);
             solua.task = NULL;
