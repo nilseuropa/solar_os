@@ -47,7 +47,7 @@ class AgentReferenceTest(unittest.TestCase):
             descriptor,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 36)
+        self.assertEqual(len(modules), 37)
 
         for language in ("python", "lua"):
             page = self.pages_by_id[language]

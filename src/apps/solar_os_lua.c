@@ -80,6 +80,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT
 #include "solar_os_mqtt.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+#include "solar_os_midi.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #include "solar_os_net_session.h"
@@ -144,6 +147,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_HTTP_DEFAULT_TIMEOUT_MS 10000U
 #define SOLUA_HTTP_READ_POLL_MS 100U
 #define SOLUA_HTTP_MAX_BODY (256U * 1024U)
+#define SOLUA_MIDI_READ_MAX_MS 60000U
 
 typedef enum {
     SOLUA_EVENT_OUTPUT,
@@ -253,10 +257,20 @@ typedef enum {
 
 typedef struct {
     solua_state_t app;
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+    solar_os_midi_subscription_t midi_subscription;
+    bool midi_subscribed;
+#endif
 } solua_cold_state_t;
 
 static void *solua_state;
 #define solua (((solua_cold_state_t *)solua_state)->app)
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+#define solua_midi_subscription \
+    (((solua_cold_state_t *)solua_state)->midi_subscription)
+#define solua_midi_subscribed \
+    (((solua_cold_state_t *)solua_state)->midi_subscribed)
+#endif
 static solar_os_script_run_control_t *solua_runner_control;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("runtime ownership spinlock")
 static portMUX_TYPE solua_runtime_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -2603,6 +2617,285 @@ static int solua_parameters_set(lua_State *L)
     (void)solua_check_esp(L, solar_os_parameter_set(path, value));
     (void)solua_check_esp(L, solar_os_parameter_get(path, &value));
     lua_pushnumber(L, value);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+static const char *solua_midi_message_type(uint8_t status)
+{
+    if (status >= 0xf0U) {
+        return "system";
+    }
+    switch (status & 0xf0U) {
+    case 0x80U: return "note_off";
+    case 0x90U: return "note_on";
+    case 0xa0U: return "poly_pressure";
+    case 0xb0U: return "cc";
+    case 0xc0U: return "program";
+    case 0xd0U: return "channel_pressure";
+    case 0xe0U: return "pitch_bend";
+    default: return "unknown";
+    }
+}
+
+static void solua_push_midi_message(lua_State *L,
+                                    const solar_os_midi_message_t *message)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_int(L, item, "status", message->status);
+    solua_set_int(L, item, "length", message->length);
+    solua_set_str(L, item, "type", solua_midi_message_type(message->status));
+    if (message->status < 0xf0U) {
+        solua_set_int(L, item, "channel", (message->status & 0x0fU) + 1U);
+    }
+    if (message->length > 1U) {
+        solua_set_int(L, item, "data1", message->data1);
+    }
+    if (message->length > 2U) {
+        solua_set_int(L, item, "data2", message->data2);
+    }
+}
+
+static int solua_midi_status(lua_State *L)
+{
+    solar_os_midi_status_t status;
+    solar_os_midi_get_status(&status);
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_bool(L, item, "running", status.running);
+    solua_set_str(L, item, "bus",
+                  status.bus_name[0] != '\0' ? status.bus_name : NULL);
+    solua_set_int(L, item, "rx_bytes", status.rx_bytes);
+    solua_set_int(L, item, "rx_messages", status.rx_messages);
+    solua_set_int(L, item, "tx_bytes", status.tx_bytes);
+    solua_set_int(L, item, "tx_messages", status.tx_messages);
+    solua_set_int(L, item, "parser_unsupported", status.parser_unsupported);
+    solua_set_int(L, item, "subscriber_drops", status.subscriber_drops);
+    solua_set_int(L, item, "tx_drops", status.tx_drops);
+    solua_set_int(L, item, "last_error", status.last_error);
+    solua_set_str(L, item, "last_error_name", esp_err_to_name(status.last_error));
+    solua_set_int(L, item, "cc_streams", solar_os_midi_cc_stream_count());
+    solua_set_bool(L, item, "subscribed", solua_midi_subscribed);
+    return 1;
+}
+
+static uint8_t solua_midi_data(lua_State *L, int index)
+{
+    const lua_Integer value = luaL_checkinteger(L, index);
+    if (value < 0 || value > 127) {
+        luaL_error(L, "expected MIDI data 0..127");
+    }
+    return (uint8_t)value;
+}
+
+static uint8_t solua_midi_channel(lua_State *L, int index)
+{
+    const lua_Integer value = luaL_checkinteger(L, index);
+    if (value < 1 || value > 16) {
+        luaL_error(L, "expected MIDI channel 1..16");
+    }
+    return (uint8_t)value;
+}
+
+static int solua_midi_send_checked(lua_State *L,
+                                   const solar_os_midi_message_t *message)
+{
+    (void)solua_check_esp(L, solar_os_midi_send(message));
+    solua_push_midi_message(L, message);
+    return 1;
+}
+
+static int solua_midi_send(lua_State *L)
+{
+    const lua_Integer status_value = luaL_checkinteger(L, 1);
+    if (status_value < 0 || status_value > 255) {
+        return luaL_error(L, "expected MIDI status 0..255");
+    }
+    const uint8_t status = (uint8_t)status_value;
+    const size_t length = solar_os_midi_message_length(status);
+    if (length == 0U || lua_gettop(L) != (int)length) {
+        return luaL_error(L, "unsupported status or wrong data byte count");
+    }
+    solar_os_midi_message_t message = {
+        .status = status,
+        .length = (uint8_t)length,
+    };
+    if (length > 1U) {
+        message.data1 = solua_midi_data(L, 2);
+    }
+    if (length > 2U) {
+        message.data2 = solua_midi_data(L, 3);
+    }
+    return solua_midi_send_checked(L, &message);
+}
+
+static int solua_midi_note_on(lua_State *L)
+{
+    const uint8_t channel = solua_midi_channel(L, 1);
+    const solar_os_midi_message_t message = {
+        .status = (uint8_t)(0x90U | (channel - 1U)),
+        .data1 = solua_midi_data(L, 2),
+        .data2 = lua_isnoneornil(L, 3) ? 100U : solua_midi_data(L, 3),
+        .length = 3U,
+    };
+    return solua_midi_send_checked(L, &message);
+}
+
+static int solua_midi_note_off(lua_State *L)
+{
+    const uint8_t channel = solua_midi_channel(L, 1);
+    const solar_os_midi_message_t message = {
+        .status = (uint8_t)(0x80U | (channel - 1U)),
+        .data1 = solua_midi_data(L, 2),
+        .data2 = lua_isnoneornil(L, 3) ? 64U : solua_midi_data(L, 3),
+        .length = 3U,
+    };
+    return solua_midi_send_checked(L, &message);
+}
+
+static int solua_midi_cc(lua_State *L)
+{
+    const uint8_t channel = solua_midi_channel(L, 1);
+    const solar_os_midi_message_t message = {
+        .status = (uint8_t)(0xb0U | (channel - 1U)),
+        .data1 = solua_midi_data(L, 2),
+        .data2 = solua_midi_data(L, 3),
+        .length = 3U,
+    };
+    return solua_midi_send_checked(L, &message);
+}
+
+static int solua_midi_program(lua_State *L)
+{
+    const uint8_t channel = solua_midi_channel(L, 1);
+    const solar_os_midi_message_t message = {
+        .status = (uint8_t)(0xc0U | (channel - 1U)),
+        .data1 = solua_midi_data(L, 2),
+        .length = 2U,
+    };
+    return solua_midi_send_checked(L, &message);
+}
+
+static int solua_midi_subscribe(lua_State *L)
+{
+    if (!solua_midi_subscribed) {
+        (void)solua_check_esp(L, solar_os_midi_subscribe(
+            solua_runner_control != NULL ? "lua.runner" : "lua.app",
+            &solua_midi_subscription));
+        solua_midi_subscribed = true;
+    }
+    return 0;
+}
+
+static void solua_midi_destroy(void)
+{
+    if (solua_midi_subscribed) {
+        (void)solar_os_midi_unsubscribe(&solua_midi_subscription);
+        solua_midi_subscription = (solar_os_midi_subscription_t)
+            SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
+        solua_midi_subscribed = false;
+    }
+}
+
+static int solua_midi_read(lua_State *L)
+{
+    const uint32_t timeout_ms = solua_optional_u32(L, 1, 0U);
+    if (timeout_ms > SOLUA_MIDI_READ_MAX_MS) {
+        return luaL_error(L, "MIDI read limited to 60000 ms");
+    }
+    (void)solua_midi_subscribe(L);
+    const TickType_t started = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    if (timeout_ms > 0U && timeout_ticks == 0) {
+        timeout_ticks = 1;
+    }
+    for (;;) {
+        solar_os_midi_message_t message;
+        const esp_err_t err = solar_os_midi_receive(
+            &solua_midi_subscription, &message);
+        if (err == ESP_OK) {
+            solua_push_midi_message(L, &message);
+            return 1;
+        }
+        if (err != ESP_ERR_TIMEOUT) {
+            return solua_check_esp(L, err);
+        }
+        if (timeout_ms == 0U ||
+            (xTaskGetTickCount() - started) >= timeout_ticks) {
+            lua_pushnil(L);
+            return 1;
+        }
+        if (solua_should_cancel(NULL)) {
+            solua.interrupt_requested = true;
+            solua.interrupted = true;
+            return luaL_error(L, "interrupted");
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+static int solua_midi_close(lua_State *L)
+{
+    const bool was_subscribed = solua_midi_subscribed;
+    solua_midi_destroy();
+    lua_pushboolean(L, was_subscribed);
+    return 1;
+}
+
+static void solua_push_midi_stream(lua_State *L,
+                                   const solar_os_midi_cc_stream_info_t *info)
+{
+    lua_newtable(L);
+    const int item = lua_gettop(L);
+    solua_set_str(L, item, "id", info->id);
+    solua_set_int(L, item, "channel", info->channel);
+    solua_set_int(L, item, "controller", info->controller);
+    solua_set_bool(L, item, "has_value", info->has_value);
+    if (info->has_value) {
+        solua_set_int(L, item, "value", info->value);
+    }
+    solua_set_int(L, item, "updates", info->updates);
+}
+
+static int solua_midi_streams(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    int out = 1;
+    const size_t count = solar_os_midi_cc_stream_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_midi_cc_stream_info_t info;
+        if (solar_os_midi_cc_stream_get(i, &info)) {
+            solua_push_midi_stream(L, &info);
+            lua_rawseti(L, list, out++);
+        }
+    }
+    return 1;
+}
+
+static int solua_midi_stream_add(lua_State *L)
+{
+    const uint8_t channel = solua_midi_channel(L, 1);
+    const uint8_t controller = solua_midi_data(L, 2);
+    (void)solua_check_esp(L,
+                          solar_os_midi_cc_stream_add(channel, controller));
+    lua_pushfstring(L, "midi.cc.%d.%d", (int)channel, (int)controller);
+    return 1;
+}
+
+static int solua_midi_stream_remove(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_midi_cc_stream_remove(
+        solua_midi_channel(L, 1), solua_midi_data(L, 2)));
+}
+
+static int solua_midi_stream_clear(lua_State *L)
+{
+    size_t removed = 0U;
+    (void)solua_check_esp(L, solar_os_midi_cc_stream_clear(&removed));
+    lua_pushinteger(L, (lua_Integer)removed);
     return 1;
 }
 #endif
@@ -6415,6 +6708,9 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
     (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+    solua_midi_destroy();
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
@@ -6503,6 +6799,9 @@ done:
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
         (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+        solua_midi_destroy();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         solua_net_destroy();
@@ -6781,6 +7080,9 @@ static void solua_stop(solar_os_context_t *ctx)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
     solar_os_hid_release_all();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MIDI
+    solua_midi_destroy();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();

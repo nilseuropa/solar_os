@@ -598,6 +598,39 @@ Native applications publish parameters only while they are active.
 - `set(path, value)`: set a native-unit value and return the authoritative
   value after range/step handling.
 
+## `solaros.midi`
+
+The MIDI job must own a running MIDI bus before scripts transmit or receive.
+Create the bus with `solaros.buses.create_midi()` and start it with
+`solaros.jobs.start("midi", ["midi0"])`.
+
+- `status()`: return running state, bus name, RX/TX byte and message counts,
+  parser/subscriber/queue drops, last error, CC-stream count, and whether this
+  interpreter has an active receive subscription.
+- `send(status[, data1, data2])`: validate and queue one raw MIDI message. The
+  argument count must match the status byte.
+- `note_on(channel, note[, velocity])`, `note_off(channel, note[, velocity])`,
+  `cc(channel, controller, value)`, and `program(channel, program)`: queue
+  channel messages. Channels are `1..16`; MIDI data is `0..127`.
+- `read([timeout_ms])` or `receive([timeout_ms])`: lazily create a non-consuming
+  interpreter subscription and return the next message dictionary, or `None`.
+  Timeout is bounded to 60 seconds and is cancellation-aware.
+- `close()`: release the receive subscription early. Interpreter shutdown also
+  releases it automatically.
+- `streams()`, `stream_add(channel, controller)`,
+  `stream_remove(channel, controller)`, and `stream_clear()`: manage bounded
+  incoming CC scalar streams.
+
+Received and transmitted message dictionaries contain `status`, `length`,
+`type`, optional `channel`, and the applicable `data1`/`data2` bytes.
+
+```python
+solaros.buses.create_midi("midi0", {"tx": 2, "rx": 3})
+solaros.jobs.start("midi", ["midi0"])
+solaros.midi.note_on(1, 60, 100)
+message = solaros.midi.read(1000)
+```
+
 ## `solaros.pwm`
 
 PWM functions expose LEDC PWM output on runtime-safe expansion pins. Active PWM outputs share one LEDC timer, so changing the frequency changes the frequency for all active PWM outputs.

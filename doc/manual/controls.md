@@ -114,6 +114,12 @@ with the app-exit key, `Esc`, or `q`, then create the matching stream.
 matching value while the MIDI job is running. It is non-consuming, so MIDI
 subscribers such as Synth still receive the original message.
 
+Python and Lua can perform the same management with
+`solaros.midi.streams()`, `stream_add()`, `stream_remove()`, and
+`stream_clear()`. Their `solaros.midi.read()` API uses its own non-consuming
+subscription, so a script can observe messages without stealing them from
+Synth or another subscriber.
+
 Up to 16 MIDI CC streams can be configured. Explicit registration avoids
 reserving stream-registry entries for all 2,048 possible channel/controller
 pairs. A new stream reports `waiting` until its first matching message. It
