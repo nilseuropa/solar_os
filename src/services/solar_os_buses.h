@@ -15,6 +15,11 @@ typedef struct {
 } solar_os_bus_uart_autobaud_result_t;
 
 esp_err_t solar_os_buses_init(void);
+bool solar_os_bus_runtime_protocol_available(solar_os_bus_protocol_t protocol);
+size_t solar_os_bus_runtime_endpoint_count(solar_os_bus_protocol_t protocol);
+bool solar_os_bus_runtime_endpoint_get(solar_os_bus_protocol_t protocol,
+                                       size_t index,
+                                       int *endpoint);
 esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition);
 esp_err_t solar_os_bus_unregister(const char *name);
 esp_err_t solar_os_bus_attach(const char *name);

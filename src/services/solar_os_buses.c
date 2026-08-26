@@ -150,6 +150,92 @@ static bool runtime_uart_port_allowed(int port)
         (SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK & (1U << (unsigned)port)) != 0;
 }
 
+bool solar_os_bus_runtime_protocol_available(solar_os_bus_protocol_t protocol)
+{
+    switch (protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_I2C) &&
+            solar_os_bus_runtime_endpoint_count(protocol) != 0U;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+#if SOLAR_OS_PACKAGE_SERVICE_SPI && SOLAR_OS_BOARD_HAS_SPI
+        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_SPI) &&
+            solar_os_bus_runtime_endpoint_count(protocol) != 0U;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+    case SOLAR_OS_BUS_PROTOCOL_MIDI:
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_UART) &&
+            solar_os_bus_runtime_endpoint_count(protocol) != 0U;
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_ONEWIRE:
+#if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
+        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO);
+#else
+        return false;
+#endif
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+#if SOLAR_OS_PACKAGE_SERVICE_PS2
+        return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO);
+#else
+        return false;
+#endif
+    default:
+        return false;
+    }
+}
+
+bool solar_os_bus_runtime_endpoint_get(solar_os_bus_protocol_t protocol,
+                                       size_t index,
+                                       int *endpoint)
+{
+    if (endpoint == NULL) {
+        return false;
+    }
+    size_t current = 0U;
+    for (int candidate = 0; candidate < 32; candidate++) {
+        bool allowed = false;
+        switch (protocol) {
+        case SOLAR_OS_BUS_PROTOCOL_I2C:
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+            allowed = candidate < I2C_NUM_MAX;
+#endif
+            break;
+        case SOLAR_OS_BUS_PROTOCOL_SPI:
+            allowed = runtime_spi_host_allowed(candidate);
+            break;
+        case SOLAR_OS_BUS_PROTOCOL_UART:
+        case SOLAR_OS_BUS_PROTOCOL_MIDI:
+            allowed = runtime_uart_port_allowed(candidate);
+            break;
+        default:
+            return false;
+        }
+        if (allowed && current++ == index) {
+            *endpoint = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t solar_os_bus_runtime_endpoint_count(solar_os_bus_protocol_t protocol)
+{
+    size_t count = 0U;
+    int endpoint = -1;
+    while (solar_os_bus_runtime_endpoint_get(protocol, count, &endpoint)) {
+        count++;
+    }
+    return count;
+}
+
 static bool spi_host_registered_locked(int host)
 {
     for (size_t i = 0; i < SOLAR_OS_BUS_MAX; i++) {
