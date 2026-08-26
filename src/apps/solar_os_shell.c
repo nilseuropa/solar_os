@@ -49,6 +49,7 @@
 #endif
 #include "solar_os_gpio.h"
 #include "solar_os_identity.h"
+#include "solar_os_input.h"
 #if SOLAR_OS_PACKAGE_APP_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -159,6 +160,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_STORAGE_UNMOUNT_TARGETS,
     SHELL_COMPLETION_SOURCE_DISPLAY_TARGETS,
     SHELL_COMPLETION_SOURCE_DISPLAY_MODES,
+    SHELL_COMPLETION_SOURCE_INPUT_SOURCES,
     SHELL_COMPLETION_SOURCE_GPIO_PINS,
     SHELL_COMPLETION_SOURCE_I2C_ARGUMENTS,
     SHELL_COMPLETION_SOURCE_ONEWIRE_BUSES,
@@ -180,6 +182,7 @@ enum {
     SHELL_COMPLETION_FLAG_PATH = 1U << 0,
     SHELL_COMPLETION_FLAG_DIRS_ONLY = 1U << 1,
     SHELL_COMPLETION_FLAG_SCALAR_STREAMS = 1U << 2,
+    SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS = 1U << 3,
 };
 
 typedef struct {
@@ -1539,6 +1542,8 @@ static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
 static const char * const path_input[] = {"input"};
+static const char * const path_input_test[] = {"input", "test"};
+static const char * const path_input_calibrate[] = {"input", "calibrate"};
 static const char * const path_input_keyboard[] = {"input", "keyboard"};
 static const char * const path_input_touch[] = {"input", "touch"};
 static const char * const path_input_mouse[] = {"input", "mouse"};
@@ -2409,6 +2414,13 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .source = SHELL_COMPLETION_SOURCE_DISPLAY_MODES, \
     }
+#define SHELL_COMPLETION_INPUT_SOURCES(path_array, absolute_only) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_INPUT_SOURCES, \
+        .flags = (absolute_only) ? SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS : 0U, \
+    }
 #define SHELL_COMPLETION_GPIO_PINS(path_array) \
     { \
         .path = path_array, \
@@ -2655,6 +2667,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_startup, setterm_startup_values),
     SHELL_COMPLETION_STATIC(path_display, display_subcommands),
     SHELL_COMPLETION_STATIC(path_input, input_subcommands),
+    SHELL_COMPLETION_INPUT_SOURCES(path_input_test, false),
+    SHELL_COMPLETION_INPUT_SOURCES(path_input_calibrate, true),
     SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_touch, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_mouse, input_class_subcommands),
@@ -3167,6 +3181,7 @@ static uint16_t shell_completion_rule_next(uint16_t index, const char *command)
 #undef SHELL_COMPLETION_RAMFS_MOUNTS
 #undef SHELL_COMPLETION_DISPLAY_MODES
 #undef SHELL_COMPLETION_DISPLAY_TARGETS
+#undef SHELL_COMPLETION_INPUT_SOURCES
 #undef SHELL_COMPLETION_GPIO_PINS
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
@@ -5638,6 +5653,21 @@ static void shell_completion_emit_display_targets(shell_completion_match_t *stat
     }
 }
 
+static void shell_completion_emit_input_sources(shell_completion_match_t *state,
+                                                bool absolute_only)
+{
+    const size_t count = solar_os_input_source_count();
+
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t info;
+        if (solar_os_input_source_get(i, &info) &&
+            (!absolute_only ||
+             (info.capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) != 0U)) {
+            shell_completion_emit(state, info.name);
+        }
+    }
+}
+
 static bool shell_completion_display_mode_seen(char values[][32],
                                                size_t count,
                                                const char *value)
@@ -7119,6 +7149,11 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             break;
         case SHELL_COMPLETION_SOURCE_DISPLAY_MODES:
             shell_completion_emit_display_modes(state, tokens, token_count);
+            break;
+        case SHELL_COMPLETION_SOURCE_INPUT_SOURCES:
+            shell_completion_emit_input_sources(
+                state,
+                (rule->flags & SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS) != 0U);
             break;
         case SHELL_COMPLETION_SOURCE_GPIO_PINS:
             shell_completion_emit_gpio_pins(state);
