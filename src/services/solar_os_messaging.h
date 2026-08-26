@@ -185,6 +185,9 @@ size_t solar_os_messaging_message_visit(
     solar_os_messaging_message_visitor_t visitor,
     void *user,
     uint32_t *event_cursor);
+uint64_t solar_os_messaging_provider_cursor(
+    solar_os_messaging_provider_id_t provider,
+    const char *provider_key);
 size_t solar_os_messaging_message_visit_consistent(
     solar_os_conversation_id_t conversation_id,
     solar_os_messaging_provider_id_t provider,

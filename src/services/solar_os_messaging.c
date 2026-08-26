@@ -645,6 +645,81 @@ static esp_err_t messaging_store_update(solar_os_message_key_t key)
     return error;
 }
 
+static void messaging_unlink_all_inbox_projections(void *user)
+{
+    (void)user;
+    if (!messaging.initialized) {
+        return;
+    }
+
+    solar_os_message_key_t keys[SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
+    size_t count = 0;
+    messaging_lock();
+    const size_t oldest = messaging_message_oldest_locked();
+    for (size_t i = 0; i < messaging.message_count; i++) {
+        messaging_message_slot_t *slot =
+            &messaging.messages[(oldest + i) %
+                                SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
+        if (slot->message.inbox_id == 0) {
+            continue;
+        }
+        slot->message.inbox_id = 0;
+        slot->revision++;
+        keys[count++] = slot->message.key;
+    }
+    if (count > 0) {
+        messaging_note_generation_locked();
+    }
+    messaging_unlock();
+
+    if (messaging.persistent) {
+        for (size_t i = 0; i < count; i++) {
+            (void)messaging_store_update(keys[i]);
+        }
+    }
+}
+
+static void messaging_reconcile_inbox_projections(void)
+{
+    solar_os_message_key_t keys[SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
+    uint32_t inbox_ids[SOLAR_OS_MESSAGING_MESSAGE_CAPACITY];
+    size_t count = 0;
+
+    messaging_lock();
+    const size_t oldest = messaging_message_oldest_locked();
+    for (size_t i = 0; i < messaging.message_count; i++) {
+        const solar_os_messaging_message_t *message =
+            &messaging.messages[(oldest + i) %
+                                SOLAR_OS_MESSAGING_MESSAGE_CAPACITY].message;
+        if (message->inbox_id != 0) {
+            keys[count] = message->key;
+            inbox_ids[count] = message->inbox_id;
+            count++;
+        }
+    }
+    messaging_unlock();
+
+    for (size_t i = 0; i < count; i++) {
+        if (solar_os_inbox_matches_source_id(inbox_ids[i], keys[i])) {
+            continue;
+        }
+        bool unlinked = false;
+        messaging_lock();
+        messaging_message_slot_t *slot =
+            messaging_find_message_locked(keys[i]);
+        if (slot != NULL && slot->message.inbox_id == inbox_ids[i]) {
+            slot->message.inbox_id = 0;
+            slot->revision++;
+            messaging_note_generation_locked();
+            unlinked = true;
+        }
+        messaging_unlock();
+        if (unlinked && messaging.persistent) {
+            (void)messaging_store_update(keys[i]);
+        }
+    }
+}
+
 static esp_err_t messaging_store_tombstone_many(const int16_t *disk_indexes,
                                                 size_t count)
 {
@@ -1006,11 +1081,14 @@ static void messaging_publish_inbox_projection(
                       esp_err_to_name(error));
         return;
     }
+    const bool projection_present =
+        solar_os_inbox_matches_source_id(inbox_id, message_key);
     messaging_lock();
     messaging_message_slot_t *slot =
         messaging_find_message_locked(message_key);
     const bool linked =
-        slot != NULL && slot->revision == revision && slot->message.unread;
+        slot != NULL && slot->revision == revision && slot->message.unread &&
+        projection_present;
     if (linked) {
         slot->message.inbox_id = inbox_id;
         slot->revision++;
@@ -1093,6 +1171,9 @@ esp_err_t solar_os_messaging_init(void)
     } else {
         messaging_restore_inbox();
     }
+    solar_os_inbox_set_clear_observer(messaging_unlink_all_inbox_projections,
+                                      NULL);
+    messaging_reconcile_inbox_projections();
     return ESP_OK;
 }
 
@@ -1764,6 +1845,41 @@ size_t solar_os_messaging_message_visit(
                                                        NULL);
 }
 
+uint64_t solar_os_messaging_provider_cursor(
+    solar_os_messaging_provider_id_t provider,
+    const char *provider_key)
+{
+    if (!messaging_provider_valid(provider) ||
+        !messaging_text_valid(provider_key,
+                              SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX,
+                              false) ||
+        solar_os_messaging_init() != ESP_OK) {
+        return 0;
+    }
+    messaging_lock();
+    const int conversation_index =
+        messaging_conversation_index_locked(provider, provider_key);
+    if (conversation_index < 0) {
+        messaging_unlock();
+        return 0;
+    }
+    const solar_os_conversation_id_t conversation_id =
+        messaging.conversations[conversation_index].id;
+    uint64_t cursor = 0;
+    const size_t oldest = messaging_message_oldest_locked();
+    for (size_t i = 0; i < messaging.message_count; i++) {
+        const solar_os_messaging_message_t *message =
+            &messaging.messages[(oldest + i) %
+                                SOLAR_OS_MESSAGING_MESSAGE_CAPACITY].message;
+        if (message->conversation_id == conversation_id &&
+            message->provider_message_key > cursor) {
+            cursor = message->provider_message_key;
+        }
+    }
+    messaging_unlock();
+    return cursor;
+}
+
 esp_err_t solar_os_messaging_message_get(solar_os_message_key_t message_key,
                                          solar_os_messaging_message_t *message)
 {
@@ -1896,7 +2012,8 @@ esp_err_t solar_os_messaging_message_delete(
         store_error = messaging_store_tombstone_many(&disk_index, 1);
     }
     esp_err_t inbox_error = ESP_OK;
-    if (inbox_id != 0) {
+    if (inbox_id != 0 &&
+        solar_os_inbox_matches_source_id(inbox_id, message_key)) {
         inbox_error = solar_os_inbox_delete(inbox_id);
         if (inbox_error == ESP_ERR_NOT_FOUND) {
             inbox_error = ESP_OK;
@@ -2064,7 +2181,8 @@ esp_err_t solar_os_messaging_mark_read(
         if (messaging.persistent) {
             (void)messaging_store_update(keys[i]);
         }
-        if (inbox_ids[i] != 0) {
+        if (inbox_ids[i] != 0 &&
+            solar_os_inbox_matches_source_id(inbox_ids[i], keys[i])) {
             (void)solar_os_inbox_mark_read(inbox_ids[i], true);
         }
     }

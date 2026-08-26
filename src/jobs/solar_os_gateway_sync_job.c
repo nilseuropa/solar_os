@@ -39,8 +39,6 @@ typedef struct {
     solar_os_chat_command_t *command;
     solar_os_chat_channel_t *channels;
     solar_os_messaging_outbound_t *outbound;
-    char cursor[SOLAR_OS_CHAT_TRANSPORT_CURSOR_MAX];
-    char cursor_endpoint[SOLAR_OS_CHAT_URL_MAX];
 } gateway_sync_state_t;
 
 static gateway_sync_state_t gateway_sync;
@@ -100,11 +98,6 @@ static void gateway_sync_drain_events(uint32_t now_ms)
             break;
         }
         solar_os_chat_event_t *event = &gateway_sync.event->event;
-        if (gateway_sync.event->cursor[0] != '\0') {
-            strlcpy(gateway_sync.cursor,
-                    gateway_sync.event->cursor,
-                    sizeof(gateway_sync.cursor));
-        }
         if (event->type == SOLAR_OS_CHAT_EVENT_COMMAND_SENT) {
             gateway_sync.transport_busy = false;
             if (gateway_sync.rejoin_pending) {
@@ -138,8 +131,7 @@ static void gateway_sync_drain_events(uint32_t now_ms)
             gateway_sync.retry_delay_ms = GATEWAY_SYNC_RETRY_MIN_MS;
             gateway_sync.next_retry_ms = 0;
             gateway_sync_begin_rejoin();
-        } else if (event->type == SOLAR_OS_CHAT_EVENT_DISCONNECTED ||
-                   event->type == SOLAR_OS_CHAT_EVENT_ERROR) {
+        } else if (event->type == SOLAR_OS_CHAT_EVENT_DISCONNECTED) {
             gateway_sync.transport_busy = false;
             if (gateway_sync.messaging_inflight &&
                 gateway_sync.inflight_id != 0) {
@@ -163,7 +155,7 @@ static void gateway_sync_submit_next(void)
     }
     if (gateway_sync.rejoin_pending) {
         while (gateway_sync.rejoin_index < gateway_sync.rejoin_count &&
-               !gateway_sync.channels[gateway_sync.rejoin_index].joined) {
+               !gateway_sync.channels[gateway_sync.rejoin_index].desired) {
             gateway_sync.rejoin_index++;
         }
         if (gateway_sync.rejoin_index >= gateway_sync.rejoin_count) {
@@ -174,6 +166,8 @@ static void gateway_sync_submit_next(void)
             strlcpy(gateway_sync.command->channel,
                     gateway_sync.channels[gateway_sync.rejoin_index].name,
                     sizeof(gateway_sync.command->channel));
+            gateway_sync.command->cursor = solar_os_chat_channel_cursor(
+                gateway_sync.command->channel);
             if (gateway_sync.transport->submit(gateway_sync.command) == ESP_OK) {
                 gateway_sync.transport_busy = true;
             }
@@ -205,6 +199,10 @@ static void gateway_sync_submit_next(void)
                 NULL);
         }
         return;
+    }
+    if (gateway_sync.command->type == SOLAR_OS_CHAT_COMMAND_JOIN) {
+        gateway_sync.command->cursor = solar_os_chat_channel_cursor(
+            gateway_sync.command->channel);
     }
     if (gateway_sync.transport->submit(gateway_sync.command) == ESP_OK) {
         gateway_sync.inflight_id = gateway_sync.command->id;
@@ -363,12 +361,6 @@ static bool gateway_sync_process(uint32_t now_ms)
         gateway_sync.messaging_inflight = false;
         gateway_sync.inflight_id = 0;
     }
-    if (config_changed && strcmp(gateway_sync.cursor_endpoint, config.url) != 0) {
-        gateway_sync.cursor[0] = '\0';
-        strlcpy(gateway_sync.cursor_endpoint,
-                config.url,
-                sizeof(gateway_sync.cursor_endpoint));
-    }
     gateway_sync.config_revision = config.revision;
 
     solar_os_wifi_status_t wifi;
@@ -388,7 +380,7 @@ static bool gateway_sync_process(uint32_t now_ms)
         if (gateway_sync.next_retry_ms == 0 ||
             (int32_t)(now_ms - gateway_sync.next_retry_ms) >= 0) {
             const esp_err_t err =
-                gateway_sync.transport->connect(&config, gateway_sync.cursor);
+                gateway_sync.transport->connect(&config);
             if (err != ESP_OK) {
                 gateway_sync_schedule_retry(now_ms);
                 (void)solar_os_gateway_sync_set_status(true,

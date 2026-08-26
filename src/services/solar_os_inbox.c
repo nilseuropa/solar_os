@@ -77,6 +77,8 @@ static esp_err_t inbox_storage_error = ESP_ERR_INVALID_STATE;
 static char inbox_store_path[SOLAR_OS_STORAGE_PATH_MAX];
 static bool inbox_sound_enabled;
 static uint32_t inbox_last_sound_ms;
+static solar_os_inbox_clear_observer_t inbox_clear_observer;
+static void *inbox_clear_observer_user;
 static const char *TAG = "inbox";
 
 static void inbox_lock(void);
@@ -826,6 +828,25 @@ esp_err_t solar_os_inbox_delete(uint32_t id)
     return err == ESP_OK && deleted == 0 ? ESP_ERR_NOT_FOUND : err;
 }
 
+bool solar_os_inbox_matches_source_id(uint32_t id, uint64_t source_id)
+{
+    if (id == 0 || source_id == 0 || solar_os_inbox_init() != ESP_OK) {
+        return false;
+    }
+    bool matches = false;
+    inbox_lock();
+    for (size_t i = 0; i < inbox_count; i++) {
+        const size_t index =
+            (inbox_head + inbox_capacity - inbox_count + i) % inbox_capacity;
+        if (inbox_ring[index].entry.id == id) {
+            matches = inbox_ring[index].entry.source_id == source_id;
+            break;
+        }
+    }
+    inbox_unlock();
+    return matches;
+}
+
 typedef bool (*inbox_delete_match_fn)(const solar_os_inbox_entry_t *entry,
                                       const void *user);
 
@@ -1103,12 +1124,25 @@ esp_err_t solar_os_inbox_clear(void)
     inbox_unread = 0;
     inbox_dropped = 0;
     inbox_next_id = 1;
+    esp_err_t clear_error = ESP_OK;
     if (inbox_persistent && inbox_store_reset_locked() != ESP_OK) {
-        inbox_unlock();
-        return inbox_storage_error;
+        clear_error = inbox_storage_error;
     }
+    solar_os_inbox_clear_observer_t observer = inbox_clear_observer;
+    void *observer_user = inbox_clear_observer_user;
     inbox_unlock();
-    return ESP_OK;
+    if (observer != NULL) {
+        observer(observer_user);
+    }
+    return clear_error;
+}
+
+void solar_os_inbox_set_clear_observer(
+    solar_os_inbox_clear_observer_t observer,
+    void *user)
+{
+    inbox_clear_observer = observer;
+    inbox_clear_observer_user = user;
 }
 
 const char *solar_os_inbox_priority_name(solar_os_inbox_priority_t priority)
