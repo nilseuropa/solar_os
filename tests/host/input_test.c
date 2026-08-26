@@ -116,19 +116,35 @@ int main(void)
 
     solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
     solar_os_input_source_t buttons = SOLAR_OS_INPUT_SOURCE_INVALID;
-    assert(solar_os_input_source_open("keyboard", &keyboard) == ESP_OK);
-    assert(solar_os_input_source_open("buttons", &buttons) == ESP_OK);
+    assert(solar_os_input_keyboard_source_open("keyboard", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_key_source_open("buttons",
+                                          SOLAR_OS_INPUT_SOURCE_BUTTONS,
+                                          &buttons) == ESP_OK);
     assert(keyboard != buttons);
-    assert(solar_os_input_keyboard_count() == 0);
+    assert(solar_os_input_keyboard_count() == 1);
     assert(pointer_queue_allocations == 0);
+
+    assert(solar_os_input_source_count() == 2);
+    solar_os_input_source_info_t source_info = {0};
+    assert(solar_os_input_source_get(0, &source_info));
+    assert(source_info.source == keyboard);
+    assert(strcmp(source_info.name, "keyboard") == 0);
+    assert(source_info.source_class == SOLAR_OS_INPUT_SOURCE_KEYBOARD);
+    assert(source_info.capabilities == SOLAR_OS_INPUT_CAP_KEY_EVENTS);
+    assert(source_info.ready);
+    assert(strcmp(solar_os_input_source_class_name(source_info.source_class),
+                  "keyboard") == 0);
+    assert(solar_os_input_source_get(1, &source_info));
+    assert(source_info.source_class == SOLAR_OS_INPUT_SOURCE_BUTTONS);
+    assert(!solar_os_input_source_get(2, &source_info));
 
     solar_os_input_source_t keyboard_status = SOLAR_OS_INPUT_SOURCE_INVALID;
     assert(solar_os_input_keyboard_source_open("keyboard-status",
                                                false,
                                                &keyboard_status) == ESP_OK);
-    assert(solar_os_input_keyboard_count() == 0);
-    assert(solar_os_input_keyboard_source_set_ready(keyboard_status, true) == ESP_OK);
     assert(solar_os_input_keyboard_count() == 1);
+    assert(solar_os_input_keyboard_source_set_ready(keyboard_status, true) == ESP_OK);
+    assert(solar_os_input_keyboard_count() == 2);
     assert(solar_os_input_keyboard_source_set_ready(buttons, true) == ESP_ERR_INVALID_ARG);
 
     assert(solar_os_input_write_key(keyboard,
@@ -243,10 +259,11 @@ int main(void)
     assert(pointer_queue_allocations == 0);
     solar_os_input_source_t pointer_source = SOLAR_OS_INPUT_SOURCE_INVALID;
     solar_os_input_source_t pointer_source_2 = SOLAR_OS_INPUT_SOURCE_INVALID;
-    assert(solar_os_input_pointer_source_open("touch0", &pointer_source) == ESP_OK);
+    assert(solar_os_input_touch_source_open("touch0", &pointer_source) == ESP_OK);
     assert(pointer_queue_allocations == 1);
-    assert(solar_os_input_pointer_source_open("mouse0", &pointer_source_2) == ESP_OK);
+    assert(solar_os_input_mouse_source_open("mouse0", &pointer_source_2) == ESP_OK);
     assert(pointer_queue_allocations == 1);
+    assert(solar_os_input_write_pointer(pointer_source_2, &pointer) == ESP_ERR_INVALID_STATE);
     assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
     solar_os_input_pointer_event_t pointer_read = {0};
     assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
@@ -255,6 +272,12 @@ int main(void)
     assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
     assert(pointer_read.x == 123 && pointer_read.y == 45);
     assert(strcmp(pointer_read.target, "display0") == 0);
+    pointer.mode = SOLAR_OS_INPUT_POINTER_RELATIVE;
+    assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_pointer(pointer_source_2, &pointer) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 1);
+    assert(pointer_read.source == pointer_source_2);
+    pointer.mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE;
     assert(solar_os_input_write_pointer(pointer_source, &pointer) == ESP_OK);
     solar_os_input_source_close(pointer_source);
     assert(solar_os_input_read_pointer_events(&pointer_read, 1) == 0);
@@ -266,6 +289,7 @@ int main(void)
     assert(solar_os_input_get_pressed(pressed, 2) == 1);
     solar_os_input_source_close(keyboard);
     assert(solar_os_input_get_pressed(pressed, 2) == 0);
+    assert(solar_os_input_keyboard_count() == 1);
     solar_os_input_source_close(keyboard_status);
     assert(solar_os_input_keyboard_count() == 0);
 

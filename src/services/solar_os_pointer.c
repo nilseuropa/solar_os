@@ -29,7 +29,7 @@ esp_err_t solar_os_pointer_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    err = solar_os_input_pointer_source_open("touch0", &pointer_source);
+    err = solar_os_input_touch_source_open("touch0", &pointer_source);
     if (err != ESP_OK) {
         solar_os_board_pointer_deinit();
     }

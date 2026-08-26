@@ -309,7 +309,9 @@ static esp_err_t gpio_keys_start(solar_os_context_t *ctx, int argc, char **argv)
         mapping->raw_changed_ms = 0;
     }
 
-    err = solar_os_input_source_open("gpio-keys", &gpio_keys.input_source);
+    err = solar_os_input_key_source_open("gpio-keys",
+                                         SOLAR_OS_INPUT_SOURCE_KEYBOARD,
+                                         &gpio_keys.input_source);
     if (err != ESP_OK) {
         gpio_keys_cleanup();
         return err;

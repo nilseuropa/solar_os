@@ -334,6 +334,7 @@ sources = [
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
+  "shell/solar_os_shell_input.c",
   "shell/solar_os_shell_completion.c",
   "shell/solar_os_shell_io.c",
   "shell/solar_os_shell_manual.c",

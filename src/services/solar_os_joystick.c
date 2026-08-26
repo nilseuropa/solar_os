@@ -201,7 +201,9 @@ esp_err_t solar_os_joystick_init(void)
     }
 
     const esp_err_t input_err =
-        solar_os_input_source_open("joystick", &joystick_input_source);
+        solar_os_input_key_source_open("joystick",
+                                       SOLAR_OS_INPUT_SOURCE_JOYSTICK,
+                                       &joystick_input_source);
     if (input_err != ESP_OK) {
         return input_err;
     }

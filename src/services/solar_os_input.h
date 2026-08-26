@@ -7,11 +7,19 @@
 #include "esp_err.h"
 
 #define SOLAR_OS_INPUT_SOURCE_INVALID 0U
+#define SOLAR_OS_INPUT_SOURCE_NAME_MAX 16U
 #define SOLAR_OS_INPUT_PHYSICAL_NONE 0U
 #define SOLAR_OS_INPUT_USAGE_NONE 0U
 #define SOLAR_OS_INPUT_MAX_PRESSED_KEYS 24U
 #define SOLAR_OS_INPUT_POINTER_TARGET_MAX 16U
 #define SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY (1U << 0)
+
+#define SOLAR_OS_INPUT_CAP_KEY_EVENTS (1U << 0)
+#define SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE (1U << 1)
+#define SOLAR_OS_INPUT_CAP_POINTER_RELATIVE (1U << 2)
+#define SOLAR_OS_INPUT_CAP_POINTER_BUTTONS (1U << 3)
+#define SOLAR_OS_INPUT_CAP_SCROLL (1U << 4)
+#define SOLAR_OS_INPUT_CAP_AXIS_EVENTS (1U << 5)
 
 #define SOLAR_OS_INPUT_REPEAT_RATE_MIN 1U
 #define SOLAR_OS_INPUT_REPEAT_RATE_MAX 60U
@@ -35,6 +43,25 @@
     (SOLAR_OS_INPUT_MOD_LEFT_ALT | SOLAR_OS_INPUT_MOD_RIGHT_ALT)
 
 typedef uint8_t solar_os_input_source_t;
+
+typedef enum {
+    SOLAR_OS_INPUT_SOURCE_OTHER,
+    SOLAR_OS_INPUT_SOURCE_KEYBOARD,
+    SOLAR_OS_INPUT_SOURCE_TOUCH,
+    SOLAR_OS_INPUT_SOURCE_MOUSE,
+    SOLAR_OS_INPUT_SOURCE_JOYSTICK,
+    SOLAR_OS_INPUT_SOURCE_DPAD,
+    SOLAR_OS_INPUT_SOURCE_BUTTONS,
+    SOLAR_OS_INPUT_SOURCE_CLASS_COUNT,
+} solar_os_input_source_class_t;
+
+typedef struct {
+    solar_os_input_source_t source;
+    char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
+    solar_os_input_source_class_t source_class;
+    uint32_t capabilities;
+    bool ready;
+} solar_os_input_source_info_t;
 
 typedef enum {
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
@@ -85,15 +112,32 @@ typedef struct {
 } solar_os_input_pointer_event_t;
 
 esp_err_t solar_os_input_init(void);
+esp_err_t solar_os_input_source_open_typed(const char *name,
+                                           solar_os_input_source_class_t source_class,
+                                           uint32_t capabilities,
+                                           bool ready,
+                                           solar_os_input_source_t *source);
 esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source);
+esp_err_t solar_os_input_key_source_open(const char *name,
+                                         solar_os_input_source_class_t source_class,
+                                         solar_os_input_source_t *source);
 esp_err_t solar_os_input_pointer_source_open(const char *name,
                                              solar_os_input_source_t *source);
+esp_err_t solar_os_input_touch_source_open(const char *name,
+                                           solar_os_input_source_t *source);
+esp_err_t solar_os_input_mouse_source_open(const char *name,
+                                           solar_os_input_source_t *source);
 esp_err_t solar_os_input_keyboard_source_open(const char *name,
                                               bool ready,
                                               solar_os_input_source_t *source);
+esp_err_t solar_os_input_source_set_ready(solar_os_input_source_t source,
+                                          bool ready);
 esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t source,
                                                    bool ready);
 size_t solar_os_input_keyboard_count(void);
+size_t solar_os_input_source_count(void);
+bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info);
+const char *solar_os_input_source_class_name(solar_os_input_source_class_t source_class);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 

@@ -11,7 +11,6 @@
 #include "solar_os_memory.h"
 
 #define INPUT_SOURCE_MAX 8U
-#define INPUT_SOURCE_NAME_MAX 16U
 #define INPUT_QUEUE_MAX 64U
 #define INPUT_POINTER_QUEUE_MAX 32U
 #define INPUT_REPEAT_RATE_DEFAULT 15U
@@ -21,8 +20,8 @@
 #define INPUT_NVS_REPEAT_DELAY_KEY "repeat_delay"
 #define INPUT_NVS_LAYOUT_KEY "layout"
 #define INPUT_LEGACY_NVS_NAMESPACE "blekbd"
-#define INPUT_SOURCE_FLAG_KEYBOARD (1U << 0)
-#define INPUT_SOURCE_FLAG_POINTER (1U << 1)
+#define INPUT_POINTER_CAPABILITIES \
+    (SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE | SOLAR_OS_INPUT_CAP_POINTER_RELATIVE)
 
 #define INPUT_LATIN1_A_UMLAUT_UPPER ((uint8_t)0xc4)
 #define INPUT_LATIN1_O_UMLAUT_UPPER ((uint8_t)0xd6)
@@ -34,9 +33,10 @@
 
 typedef struct {
     bool active;
-    uint8_t flags;
+    solar_os_input_source_class_t source_class;
+    uint32_t capabilities;
     bool ready;
-    char name[INPUT_SOURCE_NAME_MAX];
+    char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
 } input_source_slot_t;
 
 typedef struct {
@@ -69,6 +69,16 @@ static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
 static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
+};
+
+static const char *const input_source_class_names[] = {
+    [SOLAR_OS_INPUT_SOURCE_OTHER] = "other",
+    [SOLAR_OS_INPUT_SOURCE_KEYBOARD] = "keyboard",
+    [SOLAR_OS_INPUT_SOURCE_TOUCH] = "touch",
+    [SOLAR_OS_INPUT_SOURCE_MOUSE] = "mouse",
+    [SOLAR_OS_INPUT_SOURCE_JOYSTICK] = "joystick",
+    [SOLAR_OS_INPUT_SOURCE_DPAD] = "dpad",
+    [SOLAR_OS_INPUT_SOURCE_BUTTONS] = "buttons",
 };
 
 static uint32_t input_now_ms(void)
@@ -288,20 +298,27 @@ esp_err_t solar_os_input_init(void)
 }
 
 static bool input_source_open_args_valid(const char *name,
+                                         solar_os_input_source_class_t source_class,
+                                         uint32_t capabilities,
                                          const solar_os_input_source_t *source)
 {
     return name != NULL && name[0] != '\0' && source != NULL &&
-        strlen(name) < INPUT_SOURCE_NAME_MAX;
+        strlen(name) < SOLAR_OS_INPUT_SOURCE_NAME_MAX &&
+        source_class >= SOLAR_OS_INPUT_SOURCE_OTHER &&
+        source_class < SOLAR_OS_INPUT_SOURCE_CLASS_COUNT &&
+        capabilities != 0;
 }
 
 static esp_err_t input_source_open_locked(const char *name,
-                                          uint8_t flags,
+                                          solar_os_input_source_class_t source_class,
+                                          uint32_t capabilities,
                                           bool ready,
                                           solar_os_input_source_t *source)
 {
     for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
         if (input_sources[i].active && strcmp(input_sources[i].name, name) == 0) {
-            if (input_sources[i].flags != flags) {
+            if (input_sources[i].source_class != source_class ||
+                input_sources[i].capabilities != capabilities) {
                 return ESP_ERR_INVALID_STATE;
             }
             input_sources[i].ready = ready;
@@ -315,7 +332,8 @@ static esp_err_t input_source_open_locked(const char *name,
             continue;
         }
         input_sources[i].active = true;
-        input_sources[i].flags = flags;
+        input_sources[i].source_class = source_class;
+        input_sources[i].capabilities = capabilities;
         input_sources[i].ready = ready;
         strlcpy(input_sources[i].name, name, sizeof(input_sources[i].name));
         *source = (solar_os_input_source_t)(i + 1U);
@@ -325,43 +343,29 @@ static esp_err_t input_source_open_locked(const char *name,
     return ESP_ERR_NO_MEM;
 }
 
-static esp_err_t input_source_open(const char *name,
-                                   uint8_t flags,
-                                   bool ready,
-                                   solar_os_input_source_t *source)
+esp_err_t solar_os_input_source_open_typed(const char *name,
+                                           solar_os_input_source_class_t source_class,
+                                           uint32_t capabilities,
+                                           bool ready,
+                                           solar_os_input_source_t *source)
 {
-    if (!input_source_open_args_valid(name, source)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    portENTER_CRITICAL(&input_lock);
-    const esp_err_t result = input_source_open_locked(name, flags, ready, source);
-    portEXIT_CRITICAL(&input_lock);
-    return result;
-}
-
-esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source)
-{
-    return input_source_open(name, 0, true, source);
-}
-
-esp_err_t solar_os_input_pointer_source_open(const char *name,
-                                             solar_os_input_source_t *source)
-{
-    if (!input_source_open_args_valid(name, source)) {
+    if (!input_source_open_args_valid(name, source_class, capabilities, source)) {
         return ESP_ERR_INVALID_ARG;
     }
 
     solar_os_input_pointer_event_t *candidate = NULL;
     for (;;) {
         portENTER_CRITICAL(&input_lock);
-        if (input_pointer_queue != NULL || candidate != NULL) {
-            const esp_err_t result = input_source_open_locked(
-                name,
-                INPUT_SOURCE_FLAG_POINTER,
-                true,
-                source);
-            if (result == ESP_OK && input_pointer_queue == NULL) {
+        const bool needs_pointer_queue =
+            (capabilities & INPUT_POINTER_CAPABILITIES) != 0;
+        if (!needs_pointer_queue || input_pointer_queue != NULL || candidate != NULL) {
+            const esp_err_t result = input_source_open_locked(name,
+                                                              source_class,
+                                                              capabilities,
+                                                              ready,
+                                                              source);
+            if (result == ESP_OK && needs_pointer_queue &&
+                input_pointer_queue == NULL) {
                 input_pointer_queue = candidate;
                 candidate = NULL;
             }
@@ -381,11 +385,84 @@ esp_err_t solar_os_input_pointer_source_open(const char *name,
     }
 }
 
+esp_err_t solar_os_input_source_open(const char *name, solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(name,
+                                            SOLAR_OS_INPUT_SOURCE_OTHER,
+                                            SOLAR_OS_INPUT_CAP_KEY_EVENTS,
+                                            true,
+                                            source);
+}
+
+esp_err_t solar_os_input_key_source_open(const char *name,
+                                         solar_os_input_source_class_t source_class,
+                                         solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(name,
+                                            source_class,
+                                            SOLAR_OS_INPUT_CAP_KEY_EVENTS,
+                                            true,
+                                            source);
+}
+
+esp_err_t solar_os_input_pointer_source_open(const char *name,
+                                             solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(
+        name,
+        SOLAR_OS_INPUT_SOURCE_OTHER,
+        INPUT_POINTER_CAPABILITIES | SOLAR_OS_INPUT_CAP_POINTER_BUTTONS,
+        true,
+        source);
+}
+
+esp_err_t solar_os_input_touch_source_open(const char *name,
+                                           solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(
+        name,
+        SOLAR_OS_INPUT_SOURCE_TOUCH,
+        SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE | SOLAR_OS_INPUT_CAP_POINTER_BUTTONS,
+        true,
+        source);
+}
+
+esp_err_t solar_os_input_mouse_source_open(const char *name,
+                                           solar_os_input_source_t *source)
+{
+    return solar_os_input_source_open_typed(
+        name,
+        SOLAR_OS_INPUT_SOURCE_MOUSE,
+        SOLAR_OS_INPUT_CAP_POINTER_RELATIVE |
+            SOLAR_OS_INPUT_CAP_POINTER_BUTTONS |
+            SOLAR_OS_INPUT_CAP_SCROLL,
+        true,
+        source);
+}
+
 esp_err_t solar_os_input_keyboard_source_open(const char *name,
                                               bool ready,
                                               solar_os_input_source_t *source)
 {
-    return input_source_open(name, INPUT_SOURCE_FLAG_KEYBOARD, ready, source);
+    return solar_os_input_source_open_typed(name,
+                                            SOLAR_OS_INPUT_SOURCE_KEYBOARD,
+                                            SOLAR_OS_INPUT_CAP_KEY_EVENTS,
+                                            ready,
+                                            source);
+}
+
+esp_err_t solar_os_input_source_set_ready(solar_os_input_source_t source,
+                                          bool ready)
+{
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source)) {
+        result = ESP_ERR_INVALID_ARG;
+    } else {
+        input_sources[source - 1U].ready = ready;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
 }
 
 esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t source,
@@ -394,7 +471,7 @@ esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t sourc
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
     if (!input_source_valid_locked(source) ||
-        (input_sources[source - 1U].flags & INPUT_SOURCE_FLAG_KEYBOARD) == 0) {
+        input_sources[source - 1U].source_class != SOLAR_OS_INPUT_SOURCE_KEYBOARD) {
         result = ESP_ERR_INVALID_ARG;
     } else {
         input_sources[source - 1U].ready = ready;
@@ -409,13 +486,65 @@ size_t solar_os_input_keyboard_count(void)
     portENTER_CRITICAL(&input_lock);
     for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
         if (input_sources[i].active &&
-            (input_sources[i].flags & INPUT_SOURCE_FLAG_KEYBOARD) != 0 &&
+            input_sources[i].source_class == SOLAR_OS_INPUT_SOURCE_KEYBOARD &&
             input_sources[i].ready) {
             count++;
         }
     }
     portEXIT_CRITICAL(&input_lock);
     return count;
+}
+
+size_t solar_os_input_source_count(void)
+{
+    size_t count = 0;
+    portENTER_CRITICAL(&input_lock);
+    for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+        if (input_sources[i].active) {
+            count++;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return count;
+}
+
+bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info)
+{
+    if (info == NULL) {
+        return false;
+    }
+
+    bool found = false;
+    portENTER_CRITICAL(&input_lock);
+    size_t current = 0;
+    for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+        if (!input_sources[i].active) {
+            continue;
+        }
+        if (current++ != index) {
+            continue;
+        }
+        *info = (solar_os_input_source_info_t) {
+            .source = (solar_os_input_source_t)(i + 1U),
+            .source_class = input_sources[i].source_class,
+            .capabilities = input_sources[i].capabilities,
+            .ready = input_sources[i].ready,
+        };
+        strlcpy(info->name, input_sources[i].name, sizeof(info->name));
+        found = true;
+        break;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return found;
+}
+
+const char *solar_os_input_source_class_name(solar_os_input_source_class_t source_class)
+{
+    if (source_class < SOLAR_OS_INPUT_SOURCE_OTHER ||
+        source_class >= SOLAR_OS_INPUT_SOURCE_CLASS_COUNT) {
+        return "invalid";
+    }
+    return input_source_class_names[source_class];
 }
 
 void solar_os_input_source_release_all(solar_os_input_source_t source)
@@ -488,13 +617,13 @@ void solar_os_input_source_close(solar_os_input_source_t source)
         memset(&input_repeat, 0, sizeof(input_repeat));
     }
     const bool pointer_source =
-        (input_sources[source - 1U].flags & INPUT_SOURCE_FLAG_POINTER) != 0;
+        (input_sources[source - 1U].capabilities & INPUT_POINTER_CAPABILITIES) != 0;
     memset(&input_sources[source - 1U], 0, sizeof(input_sources[source - 1U]));
     if (pointer_source) {
         bool another_pointer_source = false;
         for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
             if (input_sources[i].active &&
-                (input_sources[i].flags & INPUT_SOURCE_FLAG_POINTER) != 0) {
+                (input_sources[i].capabilities & INPUT_POINTER_CAPABILITIES) != 0) {
                 another_pointer_source = true;
                 break;
             }
@@ -524,7 +653,9 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
 
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
-    if (!input_source_valid_locked(source)) {
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0) {
         result = ESP_ERR_INVALID_STATE;
     } else if (action == SOLAR_OS_INPUT_KEY_PRESS) {
         input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
@@ -592,7 +723,9 @@ esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
 
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
-    if (!input_source_valid_locked(source)) {
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0) {
         result = ESP_ERR_INVALID_STATE;
     } else if (input_queue_count > INPUT_QUEUE_MAX - 2U) {
         result = ESP_ERR_NO_MEM;
@@ -616,7 +749,12 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
     if (!input_source_valid_locked(source) ||
-        (input_sources[source - 1U].flags & INPUT_SOURCE_FLAG_POINTER) == 0 ||
+        (event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
+         (input_sources[source - 1U].capabilities &
+          SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) == 0) ||
+        (event->mode == SOLAR_OS_INPUT_POINTER_RELATIVE &&
+         (input_sources[source - 1U].capabilities &
+          SOLAR_OS_INPUT_CAP_POINTER_RELATIVE) == 0) ||
         input_pointer_queue == NULL) {
         result = ESP_ERR_INVALID_STATE;
     } else {

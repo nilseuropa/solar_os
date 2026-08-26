@@ -378,6 +378,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"pkg", "show compiled packages", solar_os_shell_cmd_pkg},
     {"board", "show board capabilities", solar_os_shell_cmd_board},
     {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
+    {"input", "show input sources", solar_os_shell_cmd_input},
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     {"engine", "show engine utilization", solar_os_shell_cmd_engine},
 #endif
@@ -609,6 +610,10 @@ static const char * const display_subcommands[] = {
     "test",
     "mode",
 };
+static const char * const input_subcommands[] = {
+    "status", "keyboard", "touch", "mouse", "joystick", "dpad", "buttons",
+};
+static const char * const input_class_subcommands[] = {"status"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
@@ -1543,6 +1548,13 @@ static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
+static const char * const path_input[] = {"input"};
+static const char * const path_input_keyboard[] = {"input", "keyboard"};
+static const char * const path_input_touch[] = {"input", "touch"};
+static const char * const path_input_mouse[] = {"input", "mouse"};
+static const char * const path_input_joystick[] = {"input", "joystick"};
+static const char * const path_input_dpad[] = {"input", "dpad"};
+static const char * const path_input_buttons[] = {"input", "buttons"};
 #if SOLAR_OS_PACKAGE_APP_INBOX
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
@@ -2651,6 +2663,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_timezone, setterm_timezone_values),
     SHELL_COMPLETION_STATIC(path_setterm_startup, setterm_startup_values),
     SHELL_COMPLETION_STATIC(path_display, display_subcommands),
+    SHELL_COMPLETION_STATIC(path_input, input_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_touch, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_mouse, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_joystick, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_dpad, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_buttons, input_class_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
