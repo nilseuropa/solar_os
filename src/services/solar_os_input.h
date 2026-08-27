@@ -187,6 +187,9 @@ bool solar_os_input_source_get_diagnostics(
     solar_os_input_source_t source,
     solar_os_input_source_diagnostics_t *diagnostics);
 const char *solar_os_input_source_class_name(solar_os_input_source_class_t source_class);
+const char *solar_os_input_pointer_mode_name(solar_os_input_pointer_mode_t mode);
+const char *solar_os_input_pointer_action_name(solar_os_input_pointer_action_t action);
+const char *solar_os_input_axis_name(solar_os_input_axis_t axis);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 

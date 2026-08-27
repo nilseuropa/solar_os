@@ -14,6 +14,9 @@ application. A script started from a display shell can use that display without
 naming it. A script started from a port shell must use a ready attached display
 name.
 
+Graphics ownership does not deliver input implicitly. Use
+`solaros.input.read()` for touch coordinates, mouse deltas, and joystick axes.
+
 ## Draw on the current display
 
 ```python

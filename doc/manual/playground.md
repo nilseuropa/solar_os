@@ -144,6 +144,11 @@ Playground applications are not sandboxed. Once started, they have the normal
 permissions of the SolarOS Python or Lua runtime. Only use repositories and
 applications whose maintainers you trust.
 
+An active Playground script is a normal foreground Python or Lua application.
+It can use `solaros.input` to receive touch, mouse, and joystick events routed
+to its session; a script launched by a headless source runner cannot receive
+that foreground event stream.
+
 ## Controls
 
 - `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`: navigate.
@@ -166,4 +171,5 @@ choose persistent catalog and application storage. Packages are hash-checked
 but scripts are not sandboxed. Shell automation can use `playground search
 QUERY`, `playground install ID [auto|flash|sd]`, `playground run ID [ARG...]`, and
 `playground delete`. Installed IDs are also automatic shell commands backed by
-`/.shell/playground`.
+`/.shell/playground`. Active scripts can read foreground pointer and axis events
+through solaros.input.

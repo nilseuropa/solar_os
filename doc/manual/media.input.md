@@ -89,6 +89,15 @@ source, X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input
 focus. Applications without the matching flag do not receive those structured
 events.
 
+Foreground Python and Lua scripts receive the same structured pointer and axis
+events through `solaros.input.read([timeout_ms])`. Touch events expose absolute
+`x`/`y` coordinates and press/move/release actions; relative mice expose
+`delta_x`/`delta_y` and button bits; joystick events expose their named axis,
+normalized value, and delta. `solaros.input.sources()` lists the registered
+semantic sources. Each runtime keeps a bounded 16-event foreground queue and
+reports overwritten events through `solaros.input.status().dropped`. Keyboard
+characters remain on `solaros.tui.getch()`.
+
 Absolute-pointer calibration maps a source's raw logical coordinates into a
 target extent and stores the mapping in NVS under that source name:
 
@@ -192,4 +201,6 @@ channel count, and sample width. solaros.synth provides status, configure, confi
 configure_filter, configure_performance, note_on, note_off, all_notes_off, and
 stop. solaros.ble provides status, connected, pair, forget, layout, read.
 solaros.clipboard provides set, get, size, clear. Audio, synth, and BLE are
-package-gated.
+package-gated. Foreground Python and Lua applications use solaros.input sources,
+read, clear, and status for structured pointer and axis events; keyboard
+characters remain on solaros.tui.getch().

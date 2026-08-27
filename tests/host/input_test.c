@@ -205,6 +205,16 @@ int main(void)
     assert(source_info.ready);
     assert(strcmp(solar_os_input_source_class_name(source_info.source_class),
                   "keyboard") == 0);
+    assert(strcmp(solar_os_input_pointer_mode_name(
+                      SOLAR_OS_INPUT_POINTER_ABSOLUTE),
+                  "absolute") == 0);
+    assert(strcmp(solar_os_input_pointer_mode_name(
+                      SOLAR_OS_INPUT_POINTER_RELATIVE),
+                  "relative") == 0);
+    assert(strcmp(solar_os_input_pointer_action_name(
+                      SOLAR_OS_INPUT_POINTER_PRESS),
+                  "press") == 0);
+    assert(strcmp(solar_os_input_axis_name(SOLAR_OS_INPUT_AXIS_RZ), "rz") == 0);
     assert(solar_os_input_source_get(1, &source_info));
     assert(source_info.source_class == SOLAR_OS_INPUT_SOURCE_BUTTONS);
     assert(!solar_os_input_source_get(2, &source_info));

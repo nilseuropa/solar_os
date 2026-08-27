@@ -29,3 +29,6 @@ editable input row. Set `masked=True` to draw one `*` per UTF-8 character. The
 mask is render-only: `text` and the value returned by `input_edit()` remain
 unchanged, so a script must still avoid logging secrets and discard them when
 they are no longer needed.
+
+Use `tui.getch()` for keyboard characters and navigation keys. Use
+`solaros.input.read()` for foreground touch, mouse, and joystick events.

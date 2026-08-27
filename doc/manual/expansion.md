@@ -89,6 +89,8 @@ input status
 Use only bindings listed by `expansion drivers` and resources shown on the
 running board. A PS/2 mouse publishes relative pointer events. An analog
 joystick consumes two scalar streams and publishes axes, never keys.
+Foreground Python and Lua applications receive those pointer and axis events
+through `solaros.input`; use `solaros.tui.getch()` for keyboard characters.
 
 On a board without built-in SD hardware, an SPI microSD adapter can provide
 removable storage. The SPI bus must include MISO and declare the selected CS
@@ -189,4 +191,5 @@ solaros.expansion.drivers() lists compiled drivers and devices() lists
 currently attached devices with normalized bindings. attach(driver, name,
 bindings) and detach(name) manage them. Never assume an example name such as
 lcd0 or oled0 exists; inspect devices() or use a name explicitly supplied by
-the user.
+the user. Foreground scripts consume attached pointer and axis sources through
+solaros.input.

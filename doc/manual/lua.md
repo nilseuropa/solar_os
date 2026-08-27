@@ -83,12 +83,50 @@ service packages are not available on that board.
 - `solaros.jobs`: `list`, `count`, `status`, `start`, `stop`
 - `solaros.sessions`: `create_shell`, `close`
 - `solaros.apps`: `list`, `find`
+- `solaros.input`: `sources`, `read`, `clear`, `status` for foreground pointer and axis events
 - `solaros.contacts`: `list`, `get` when provider-neutral messaging is compiled
 - `solaros.messages`: `conversations`, `list`, `send`, `mark_read`, `cancel` when provider-neutral messaging is compiled
 - `solaros.tui`: curses-like terminal drawing functions
 - `solaros.gfx`: foreground graphics drawing functions
 
 Lua strings are binary-safe, so byte-oriented APIs such as `uart.read`, `i2c.read_reg`, `clipboard.get`, and `mqtt.read().payload` return Lua strings.
+
+### Generic pointer and axis input
+
+`solaros.input.sources()` lists registered input sources with their numeric
+source, name, class, class name, capability bits, and ready state.
+`read([timeout_ms])` returns the next pointer or axis event table, or `nil`; the
+maximum timeout is 60000 ms. `clear()` discards queued events, and `status()`
+reports `available`, `queued`, `capacity`, and cumulative `dropped` counts.
+
+Pointer events contain source metadata, `pointer_id`, numeric and named
+`mode`/`action`, `x`, `y`, `delta_x`, `delta_y`, `buttons`, and `target`.
+Absolute touch sources use the coordinates; relative mice use the deltas. Axis
+events contain source metadata, numeric and named `axis`, `value`, and `delta`.
+
+```lua
+local solaros = require("solaros")
+local input = solaros.input
+
+input.clear()
+while not solaros.should_exit() do
+    local event = input.read(100)
+    if event and event.type == "pointer" then
+        if event.mode == input.MODE_ABSOLUTE then
+            print("touch", event.action_name, event.x, event.y)
+        else
+            print("mouse", event.delta_x, event.delta_y, event.buttons)
+        end
+    elseif event then
+        print("axis", event.axis_name, event.value, event.delta)
+    end
+end
+```
+
+The foreground queue holds 16 events and discards the oldest event when full.
+Agent and other headless source runners report `available=false` and return
+`nil`. Keyboard characters and navigation keys remain available through
+`solaros.tui.getch()`.
 
 ### Managed TCP, UDP, and WebSocket clients
 
@@ -692,6 +730,8 @@ The Lua bridge intentionally does not expose raw SSH/SCP session handles. Those 
 ## Quick reference
 
 Load `solaros` and use its service tables for storage, time, networking,
-hardware, jobs, sessions, TUI, and graphics. Lua arrays are 1-based unless an
-individual service explicitly exposes a native index. Close resources and keep
-long-running loops cooperative.
+hardware, jobs, sessions, input, TUI, and graphics. Foreground pointer and axis
+events use solaros.input sources, read, clear, and status; keyboard characters
+use solaros.tui.getch(). Lua arrays are 1-based unless an individual service
+explicitly exposes a native index. Close resources and keep long-running loops
+cooperative.

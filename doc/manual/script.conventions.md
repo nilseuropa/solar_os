@@ -25,6 +25,18 @@ Interactive code must check `solaros.should_exit()` and release displays,
 buses, GPIO claims, files, and interpreter-owned services on every exit path.
 Use `try/finally` in Python and `pcall` plus explicit cleanup in Lua.
 
+## Read foreground input
+
+Use `solaros.input.sources()` to discover pointer and axis sources, then use
+`solaros.input.read(timeout_ms)` for touch coordinates, mouse deltas and
+buttons, or joystick axes. The input queue belongs to the foreground Python or
+Lua application. Headless source runners do not receive these events. Keep the
+timeout bounded so the loop can check `solaros.should_exit()` regularly.
+
+Keyboard characters and navigation keys use `solaros.tui.getch()` instead of
+the pointer and axis queue. See the Python or Lua API reference for event fields,
+constants, queue capacity, and overflow reporting.
+
 ## Run a saved script
 
 ```text
@@ -56,4 +68,5 @@ the preloaded global solaros or require with the module name. Mutating service
 failures surface as SolarOS errors. Optional modules are package-gated.
 Interactive code should check solaros.should_exit(). Use SolarOS service APIs
 instead of assuming Unix process, filesystem, or device APIs. Use `--file PATH`
-for a primary input file.
+for a primary input file. Foreground pointer and axis events use solaros.input;
+keyboard characters use solaros.tui.getch().

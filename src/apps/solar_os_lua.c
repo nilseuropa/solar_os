@@ -151,6 +151,8 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
 #define SOLUA_HTTP_READ_POLL_MS 100U
 #define SOLUA_HTTP_MAX_BODY (256U * 1024U)
 #define SOLUA_MIDI_READ_MAX_MS 60000U
+#define SOLUA_DEVICE_INPUT_QUEUE_LEN 16U
+#define SOLUA_DEVICE_INPUT_READ_MAX_MS 60000U
 
 typedef enum {
     SOLUA_EVENT_OUTPUT,
@@ -226,6 +228,7 @@ typedef struct {
     QueueHandle_t events;
     QueueHandle_t input;
     QueueHandle_t key_input;
+    QueueHandle_t device_input;
     TaskHandle_t task;
     solua_mode_t mode;
     bool running;
@@ -237,6 +240,7 @@ typedef struct {
     bool repl_input_active;
     bool repl_executing;
     bool repl_exit_requested;
+    uint32_t device_input_dropped;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     int argc;
     char argv[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
@@ -5706,6 +5710,164 @@ static int solua_apps_find(lua_State *L)
     return 1;
 }
 
+static bool solua_input_source_info(solar_os_input_source_t source,
+                                    solar_os_input_source_info_t *info)
+{
+    const size_t count = solar_os_input_source_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t candidate;
+        if (solar_os_input_source_get(i, &candidate) &&
+            candidate.source == source) {
+            if (info != NULL) {
+                *info = candidate;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static void solua_input_set_source(lua_State *L,
+                                   solar_os_input_source_t source)
+{
+    solar_os_input_source_info_t info;
+    solua_set_int(L, -1, "source", source);
+    if (solua_input_source_info(source, &info)) {
+        solua_set_str(L, -1, "source_name", info.name);
+        solua_set_int(L, -1, "source_class", info.source_class);
+        solua_set_str(L, -1, "source_class_name",
+                      solar_os_input_source_class_name(info.source_class));
+    } else {
+        solua_set_str(L, -1, "source_name", "");
+        solua_set_int(L, -1, "source_class", SOLAR_OS_INPUT_SOURCE_OTHER);
+        solua_set_str(L, -1, "source_class_name", "other");
+    }
+}
+
+static void solua_push_input_event(lua_State *L,
+                                   const solar_os_event_t *event)
+{
+    lua_newtable(L);
+    if (event->type == SOLAR_OS_EVENT_POINTER) {
+        const solar_os_input_pointer_event_t *pointer = &event->data.pointer;
+        solua_set_str(L, -1, "type", "pointer");
+        solua_input_set_source(L, pointer->source);
+        solua_set_int(L, -1, "pointer_id", pointer->pointer_id);
+        solua_set_int(L, -1, "mode", pointer->mode);
+        solua_set_str(L, -1, "mode_name",
+                      solar_os_input_pointer_mode_name(pointer->mode));
+        solua_set_int(L, -1, "action", pointer->action);
+        solua_set_str(L, -1, "action_name",
+                      solar_os_input_pointer_action_name(pointer->action));
+        solua_set_int(L, -1, "x", pointer->x);
+        solua_set_int(L, -1, "y", pointer->y);
+        solua_set_int(L, -1, "delta_x", pointer->delta_x);
+        solua_set_int(L, -1, "delta_y", pointer->delta_y);
+        solua_set_int(L, -1, "buttons", pointer->buttons);
+        solua_set_str(L, -1, "target", pointer->target);
+    } else {
+        const solar_os_input_axis_event_t *axis = &event->data.axis;
+        solua_set_str(L, -1, "type", "axis");
+        solua_input_set_source(L, axis->source);
+        solua_set_int(L, -1, "axis", axis->axis);
+        solua_set_str(L, -1, "axis_name",
+                      solar_os_input_axis_name(axis->axis));
+        solua_set_int(L, -1, "value", axis->value);
+        solua_set_int(L, -1, "delta", axis->delta);
+    }
+}
+
+static int solua_input_sources(lua_State *L)
+{
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    const size_t count = solar_os_input_source_count();
+    int out = 1;
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t info;
+        if (!solar_os_input_source_get(i, &info)) {
+            continue;
+        }
+        lua_newtable(L);
+        solua_set_int(L, -1, "source", info.source);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_int(L, -1, "source_class", info.source_class);
+        solua_set_str(L, -1, "source_class_name",
+                      solar_os_input_source_class_name(info.source_class));
+        solua_set_int(L, -1, "capabilities", info.capabilities);
+        solua_set_bool(L, -1, "ready", info.ready);
+        lua_rawseti(L, list, out++);
+    }
+    return 1;
+}
+
+static int solua_input_read(lua_State *L)
+{
+    const uint32_t timeout_ms = solua_optional_u32(L, 1, 0U);
+    if (timeout_ms > SOLUA_DEVICE_INPUT_READ_MAX_MS) {
+        return luaL_error(L, "input read limited to 60000 ms");
+    }
+    if (solua.device_input == NULL) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    if (timeout_ms > 0U && timeout_ticks == 0) {
+        timeout_ticks = 1;
+    }
+    for (;;) {
+        solar_os_event_t event;
+        if (xQueueReceive(solua.device_input, &event, 0) == pdPASS) {
+            solua_push_input_event(L, &event);
+            return 1;
+        }
+        if (timeout_ms == 0U ||
+            (xTaskGetTickCount() - started) >= timeout_ticks) {
+            lua_pushnil(L);
+            return 1;
+        }
+        if (solua_should_cancel(NULL)) {
+            solua.interrupt_requested = true;
+            solua.interrupted = true;
+            return luaL_error(L, "interrupted");
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+static int solua_input_clear(lua_State *L)
+{
+    size_t cleared = 0;
+    solar_os_event_t event;
+    if (solua.device_input != NULL) {
+        while (xQueueReceive(solua.device_input, &event, 0) == pdPASS) {
+            cleared++;
+        }
+    }
+    lua_pushinteger(L, (lua_Integer)cleared);
+    return 1;
+}
+
+static int solua_input_status(lua_State *L)
+{
+    const bool available = solua.device_input != NULL;
+    uint32_t dropped;
+    portENTER_CRITICAL(&solua_runtime_lock);
+    dropped = solua.device_input_dropped;
+    portEXIT_CRITICAL(&solua_runtime_lock);
+    lua_newtable(L);
+    solua_set_bool(L, -1, "available", available);
+    solua_set_int(
+        L, -1, "queued",
+        available ? (lua_Integer)uxQueueMessagesWaiting(solua.device_input) : 0);
+    solua_set_int(
+        L, -1, "capacity", available ? SOLUA_DEVICE_INPUT_QUEUE_LEN : 0);
+    solua_set_int(L, -1, "dropped", dropped);
+    return 1;
+}
+
 static solar_os_shell_io_t *solua_current_io(void)
 {
     return solua.session_io;
@@ -7177,8 +7339,24 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
 
+    solua.device_input = solar_os_queue_create(
+        SOLUA_DEVICE_INPUT_QUEUE_LEN, sizeof(solar_os_event_t));
+    if (solua.device_input == NULL) {
+        solar_os_queue_delete(solua.events);
+        solua.events = NULL;
+        solar_os_shell_io_writeln(io, "lua: out of memory");
+        solar_os_shell_io_flush(io);
+        if (!repl_mode) {
+            solua_return_to_shell(ctx);
+        }
+        solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
+        return ESP_OK;
+    }
+
     solua.key_input = solar_os_queue_create(SOLUA_KEY_QUEUE_LEN, sizeof(char));
     if (solua.key_input == NULL) {
+        solar_os_queue_delete(solua.device_input);
+        solua.device_input = NULL;
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
         solar_os_shell_io_writeln(io, "lua: out of memory");
@@ -7196,6 +7374,8 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (solua.input == NULL) {
             solar_os_queue_delete(solua.key_input);
             solua.key_input = NULL;
+            solar_os_queue_delete(solua.device_input);
+            solua.device_input = NULL;
             solar_os_queue_delete(solua.events);
             solua.events = NULL;
             solar_os_shell_io_writeln(io, "lua: out of memory");
@@ -7223,6 +7403,10 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
         if (solua.key_input != NULL) {
             solar_os_queue_delete(solua.key_input);
             solua.key_input = NULL;
+        }
+        if (solua.device_input != NULL) {
+            solar_os_queue_delete(solua.device_input);
+            solua.device_input = NULL;
         }
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
@@ -7293,6 +7477,10 @@ static void solua_stop(solar_os_context_t *ctx)
     if (solua.key_input != NULL) {
         solar_os_queue_delete(solua.key_input);
         solua.key_input = NULL;
+    }
+    if (solua.device_input != NULL) {
+        solar_os_queue_delete(solua.device_input);
+        solua.device_input = NULL;
     }
     solua_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
@@ -7703,10 +7891,36 @@ static void solua_queue_script_key(char ch)
     }
 }
 
+static void solua_queue_device_input(const solar_os_event_t *event)
+{
+    if (event == NULL || solua.device_input == NULL) {
+        return;
+    }
+    if (xQueueSend(solua.device_input, event, 0) == pdPASS) {
+        return;
+    }
+
+    solar_os_event_t dropped_event;
+    if (xQueueReceive(solua.device_input, &dropped_event, 0) == pdPASS) {
+        portENTER_CRITICAL(&solua_runtime_lock);
+        if (solua.device_input_dropped != UINT32_MAX) {
+            solua.device_input_dropped++;
+        }
+        portEXIT_CRITICAL(&solua_runtime_lock);
+    }
+    (void)xQueueSend(solua.device_input, event, 0);
+}
+
 static bool solua_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
         return false;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_POINTER ||
+        event->type == SOLAR_OS_EVENT_AXIS) {
+        solua_queue_device_input(event);
+        return true;
     }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
@@ -7805,6 +8019,7 @@ static bool solua_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_lua_app = {
     .name = "lua",
     .summary = "Lua runtime",
+    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS,
     .start = solua_start,
     .stop = solua_stop,
     .event = solua_event,

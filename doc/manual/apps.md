@@ -969,7 +969,9 @@ captures received from the host.
 
 Embedded Lua runtime. It can run an interactive REPL or execute `.lua` scripts
 from storage. Lua scripts can use SolarOS service bindings when the selected
-firmware includes the corresponding packages.
+firmware includes the corresponding packages. Foreground scripts can consume
+touch coordinates, relative mouse motion, buttons, and joystick axes through
+`solaros.input`.
 
 Usage:
 
@@ -1103,7 +1105,9 @@ and the trust model.
 
 Embedded MicroPython runtime. It can run an interactive REPL, `.py` scripts, or
 `.mpy` files from storage. Python scripts can use SolarOS service bindings when
-the selected firmware includes the corresponding packages.
+the selected firmware includes the corresponding packages. Foreground scripts
+can consume touch coordinates, relative mouse motion, buttons, and joystick
+axes through `solaros.input`.
 
 Usage:
 
