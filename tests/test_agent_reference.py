@@ -47,7 +47,7 @@ class AgentReferenceTest(unittest.TestCase):
             descriptor,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 38)
+        self.assertEqual(len(modules), 39)
 
         for language in ("python", "lua"):
             page = self.pages_by_id[language]
@@ -74,8 +74,10 @@ class AgentReferenceTest(unittest.TestCase):
         self.assertIn("python.files-and-imports", python_topics)
         self.assertIn("python.solaros-http", python_topics)
         self.assertIn("python.solaros-net", python_topics)
+        self.assertIn("python.solaros-input", python_topics)
         self.assertIn("lua.http-requests", lua_topics)
         self.assertIn("lua.managed-tcp-udp-and-websocket-clients", lua_topics)
+        self.assertIn("lua.generic-pointer-and-axis-input", lua_topics)
 
     def test_three_largest_excerpts_fit_the_agent_tool_result(self):
         matches = []

@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.9.1** — 2026-08-27 — Added mirrored `solaros.input` Python and Lua
+  bindings with `sources`, `read`, `clear`, and `status`. Foreground scripts can
+  receive touch coordinates and actions, relative mouse deltas and buttons,
+  and normalized joystick axes with source/target metadata. Each interpreter
+  uses a bounded, cancellation-aware queue with overflow telemetry; keyboard
+  characters remain available through `solaros.tui.getch()`.
 - **4.8.16** — 2026-08-26 — Added the Freenove FNK0104S ESP32-S3 4.0-inch
   target with a landscape 480x320 ST7796 display, PWM backlight, FT6336
   capacitive touch, duplex ES8311 speaker/microphone audio, four-bit SDMMC,

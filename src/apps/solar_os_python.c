@@ -151,6 +151,8 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_GFX_BITMAP_MAX 128
 #define PYTHON_INPUT_QUEUE_LEN 4
 #define PYTHON_KEY_QUEUE_LEN 32
+#define PYTHON_DEVICE_INPUT_QUEUE_LEN 16
+#define PYTHON_DEVICE_INPUT_READ_MAX_MS 60000U
 #define PYTHON_REPL_LINE_MAX 192
 #define PYTHON_REPL_SOURCE_MAX (2U * 1024U)
 #define PYTHON_STOP_WAIT_MS 1500
@@ -230,6 +232,7 @@ typedef struct {
     QueueHandle_t events;
     QueueHandle_t input;
     QueueHandle_t key_input;
+    QueueHandle_t device_input;
     TaskHandle_t task;
     solar_os_context_t *ctx;
     solar_os_terminal_t *session_terminal;
@@ -242,6 +245,7 @@ typedef struct {
     volatile bool vm_active;
     volatile bool repl_executing;
     volatile bool repl_exit_requested;
+    uint32_t device_input_dropped;
     python_mode_t mode;
     bool running;
     bool done;
@@ -6356,6 +6360,164 @@ static mp_obj_t solaros_apps_find(mp_obj_t name_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_apps_find_obj, solaros_apps_find);
 
+static bool python_input_source_info(solar_os_input_source_t source,
+                                     solar_os_input_source_info_t *info)
+{
+    const size_t count = solar_os_input_source_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t candidate;
+        if (solar_os_input_source_get(i, &candidate) &&
+            candidate.source == source) {
+            if (info != NULL) {
+                *info = candidate;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static void python_input_store_source(mp_obj_t dict,
+                                      solar_os_input_source_t source)
+{
+    solar_os_input_source_info_t info;
+    python_dict_store_uint(dict, "source", source);
+    if (python_input_source_info(source, &info)) {
+        python_dict_store_cstr(dict, "source_name", info.name);
+        python_dict_store_int(dict, "source_class", info.source_class);
+        python_dict_store_cstr(
+            dict, "source_class_name",
+            solar_os_input_source_class_name(info.source_class));
+    } else {
+        python_dict_store_cstr(dict, "source_name", "");
+        python_dict_store_int(dict, "source_class", SOLAR_OS_INPUT_SOURCE_OTHER);
+        python_dict_store_cstr(dict, "source_class_name", "other");
+    }
+}
+
+static mp_obj_t python_input_event_to_dict(const solar_os_event_t *event)
+{
+    mp_obj_t dict = mp_obj_new_dict(16);
+    if (event->type == SOLAR_OS_EVENT_POINTER) {
+        const solar_os_input_pointer_event_t *pointer = &event->data.pointer;
+        python_dict_store_cstr(dict, "type", "pointer");
+        python_input_store_source(dict, pointer->source);
+        python_dict_store_uint(dict, "pointer_id", pointer->pointer_id);
+        python_dict_store_int(dict, "mode", pointer->mode);
+        python_dict_store_cstr(
+            dict, "mode_name", solar_os_input_pointer_mode_name(pointer->mode));
+        python_dict_store_int(dict, "action", pointer->action);
+        python_dict_store_cstr(
+            dict, "action_name",
+            solar_os_input_pointer_action_name(pointer->action));
+        python_dict_store_int(dict, "x", pointer->x);
+        python_dict_store_int(dict, "y", pointer->y);
+        python_dict_store_int(dict, "delta_x", pointer->delta_x);
+        python_dict_store_int(dict, "delta_y", pointer->delta_y);
+        python_dict_store_uint(dict, "buttons", pointer->buttons);
+        python_dict_store_cstr(dict, "target", pointer->target);
+    } else {
+        const solar_os_input_axis_event_t *axis = &event->data.axis;
+        python_dict_store_cstr(dict, "type", "axis");
+        python_input_store_source(dict, axis->source);
+        python_dict_store_int(dict, "axis", axis->axis);
+        python_dict_store_cstr(
+            dict, "axis_name", solar_os_input_axis_name(axis->axis));
+        python_dict_store_int(dict, "value", axis->value);
+        python_dict_store_int(dict, "delta", axis->delta);
+    }
+    return dict;
+}
+
+static mp_obj_t solaros_input_sources(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_input_source_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_input_source_info_t info;
+        if (!solar_os_input_source_get(i, &info)) {
+            continue;
+        }
+        mp_obj_t dict = mp_obj_new_dict(6);
+        python_dict_store_uint(dict, "source", info.source);
+        python_dict_store_cstr(dict, "name", info.name);
+        python_dict_store_int(dict, "source_class", info.source_class);
+        python_dict_store_cstr(
+            dict, "source_class_name",
+            solar_os_input_source_class_name(info.source_class));
+        python_dict_store_uint(dict, "capabilities", info.capabilities);
+        python_dict_store_bool(dict, "ready", info.ready);
+        mp_obj_list_append(list, dict);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_sources_obj, solaros_input_sources);
+
+static mp_obj_t solaros_input_read(size_t n_args, const mp_obj_t *args)
+{
+    const uint32_t timeout_ms = python_optional_u32(n_args, args, 0, 0U);
+    if (timeout_ms > PYTHON_DEVICE_INPUT_READ_MAX_MS) {
+        mp_raise_ValueError(MP_ERROR_TEXT("input read limited to 60000 ms"));
+    }
+    if (python_app.device_input == NULL) {
+        return mp_const_none;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    if (timeout_ms > 0U && timeout_ticks == 0) {
+        timeout_ticks = 1;
+    }
+    for (;;) {
+        solar_os_event_t event;
+        if (xQueueReceive(python_app.device_input, &event, 0) == pdPASS) {
+            return python_input_event_to_dict(&event);
+        }
+        if (timeout_ms == 0U ||
+            (xTaskGetTickCount() - started) >= timeout_ticks) {
+            return mp_const_none;
+        }
+        if (solar_os_micropython_stop_requested()) {
+            mp_raise_type(&mp_type_KeyboardInterrupt);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_input_read_obj,
+                                    0, 1, solaros_input_read);
+
+static mp_obj_t solaros_input_clear(void)
+{
+    size_t cleared = 0;
+    solar_os_event_t event;
+    if (python_app.device_input != NULL) {
+        while (xQueueReceive(python_app.device_input, &event, 0) == pdPASS) {
+            cleared++;
+        }
+    }
+    return mp_obj_new_int_from_uint(cleared);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_clear_obj, solaros_input_clear);
+
+static mp_obj_t solaros_input_status(void)
+{
+    const bool available = python_app.device_input != NULL;
+    uint32_t dropped;
+    portENTER_CRITICAL(&python_runtime_lock);
+    dropped = python_app.device_input_dropped;
+    portEXIT_CRITICAL(&python_runtime_lock);
+    mp_obj_t dict = mp_obj_new_dict(4);
+    python_dict_store_bool(dict, "available", available);
+    python_dict_store_uint(
+        dict, "queued",
+        available ? uxQueueMessagesWaiting(python_app.device_input) : 0U);
+    python_dict_store_uint(
+        dict, "capacity", available ? PYTHON_DEVICE_INPUT_QUEUE_LEN : 0U);
+    python_dict_store_uint(dict, "dropped", dropped);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_status_obj, solaros_input_status);
+
 static solar_os_terminal_t *python_current_terminal(void)
 {
     return python_app.session_terminal;
@@ -7876,10 +8038,25 @@ start_task:
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
+    python_app.device_input = solar_os_queue_create(
+        PYTHON_DEVICE_INPUT_QUEUE_LEN, sizeof(solar_os_event_t));
+    if (python_app.device_input == NULL) {
+        solar_os_queue_delete(python_app.events);
+        python_app.events = NULL;
+        solar_os_shell_io_writeln(io, "python: out of memory");
+        solar_os_shell_io_flush(io);
+        if (!repl_mode) {
+            python_return_to_shell(ctx);
+        }
+        python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
+        return ESP_OK;
+    }
     if (repl_mode) {
         python_app.input = solar_os_queue_create(PYTHON_INPUT_QUEUE_LEN,
                                                   sizeof(python_input_t));
         if (python_app.input == NULL) {
+            solar_os_queue_delete(python_app.device_input);
+            python_app.device_input = NULL;
             solar_os_queue_delete(python_app.events);
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
@@ -7891,6 +8068,8 @@ start_task:
         python_app.key_input = solar_os_queue_create(PYTHON_KEY_QUEUE_LEN,
                                                       sizeof(char));
         if (python_app.key_input == NULL) {
+            solar_os_queue_delete(python_app.device_input);
+            python_app.device_input = NULL;
             solar_os_queue_delete(python_app.events);
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
@@ -7919,6 +8098,10 @@ start_task:
         if (python_app.key_input != NULL) {
             solar_os_queue_delete(python_app.key_input);
             python_app.key_input = NULL;
+        }
+        if (python_app.device_input != NULL) {
+            solar_os_queue_delete(python_app.device_input);
+            python_app.device_input = NULL;
         }
         solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
@@ -8010,6 +8193,10 @@ static void python_stop(solar_os_context_t *ctx)
     if (python_app.key_input != NULL) {
         solar_os_queue_delete(python_app.key_input);
         python_app.key_input = NULL;
+    }
+    if (python_app.device_input != NULL) {
+        solar_os_queue_delete(python_app.device_input);
+        python_app.device_input = NULL;
     }
     python_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
@@ -8320,10 +8507,36 @@ static void python_queue_script_key(char ch)
     }
 }
 
+static void python_queue_device_input(const solar_os_event_t *event)
+{
+    if (event == NULL || python_app.device_input == NULL) {
+        return;
+    }
+    if (xQueueSend(python_app.device_input, event, 0) == pdPASS) {
+        return;
+    }
+
+    solar_os_event_t dropped_event;
+    if (xQueueReceive(python_app.device_input, &dropped_event, 0) == pdPASS) {
+        portENTER_CRITICAL(&python_runtime_lock);
+        if (python_app.device_input_dropped != UINT32_MAX) {
+            python_app.device_input_dropped++;
+        }
+        portEXIT_CRITICAL(&python_runtime_lock);
+    }
+    (void)xQueueSend(python_app.device_input, event, 0);
+}
+
 static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
         return false;
+    }
+
+    if (event->type == SOLAR_OS_EVENT_POINTER ||
+        event->type == SOLAR_OS_EVENT_AXIS) {
+        python_queue_device_input(event);
+        return true;
     }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
@@ -8431,6 +8644,7 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_python_app = {
     .name = "python",
     .summary = "MicroPython runtime",
+    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS,
     .start = python_start,
     .stop = python_stop,
     .event = python_event,

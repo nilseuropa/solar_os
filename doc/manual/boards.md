@@ -723,7 +723,8 @@ landscape primary display and controls the active-high GPIO45 backlight with
 PWM. The FT6336 touch controller shares `i2c0` with the ES8311 codec and emits
 generic absolute pointer events targeted at `display0`. Native apps opt in with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS`; pointer events include press, move, and
-release state rather than exposing FT6336 registers to applications.
+release state rather than exposing FT6336 registers to applications. Foreground
+Python and Lua apps receive the same routed events through `solaros.input`.
 The board profile creates this as the default `ft6336` expansion attachment
 named `touch0`; inspect it with `expansion devices`, `input touch`, and `input
 test touch0`. Optional logical-range correction is stored with `input calibrate

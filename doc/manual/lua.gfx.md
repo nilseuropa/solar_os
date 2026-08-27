@@ -13,6 +13,9 @@ packages_any = ["app_lua"]
 application. The module is already available as `solaros`; it can also be
 loaded with `require("solaros")`.
 
+Graphics ownership does not deliver input implicitly. Use
+`solaros.input.read()` for touch coordinates, mouse deltas, and joystick axes.
+
 ## Draw safely
 
 ```lua

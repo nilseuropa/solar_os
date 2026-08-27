@@ -126,23 +126,6 @@ static const char *input_key_action_name(solar_os_input_key_action_t action)
     return action <= SOLAR_OS_INPUT_KEY_REPEAT ? names[action] : "invalid";
 }
 
-static const char *input_pointer_mode_name(solar_os_input_pointer_mode_t mode)
-{
-    return mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE ? "absolute" : "relative";
-}
-
-static const char *input_pointer_action_name(solar_os_input_pointer_action_t action)
-{
-    static const char *const names[] = {"move", "press", "release"};
-    return action <= SOLAR_OS_INPUT_POINTER_RELEASE ? names[action] : "invalid";
-}
-
-static const char *input_axis_name(solar_os_input_axis_t axis)
-{
-    static const char *const names[] = {"x", "y", "z", "rx", "ry", "rz"};
-    return axis < SOLAR_OS_INPUT_AXIS_COUNT ? names[axis] : "invalid";
-}
-
 static bool input_find_source(solar_os_shell_io_t *io,
                               const char *name,
                               solar_os_input_source_info_t *info)
@@ -224,8 +207,8 @@ static void input_test_source(solar_os_shell_io_t *io, const char *name)
         const solar_os_input_pointer_event_t *event = &diagnostics.last_pointer;
         solar_os_shell_io_printf(io,
                                  "last pointer: mode=%s action=%s raw=(%d,%d) value=(%d,%d) delta=(%d,%d) buttons=0x%02x\n",
-                                 input_pointer_mode_name(event->mode),
-                                 input_pointer_action_name(event->action),
+                                 solar_os_input_pointer_mode_name(event->mode),
+                                 solar_os_input_pointer_action_name(event->action),
                                  raw->x,
                                  raw->y,
                                  event->x,
@@ -238,7 +221,7 @@ static void input_test_source(solar_os_shell_io_t *io, const char *name)
         const solar_os_input_axis_event_t *event = &diagnostics.last_axis;
         solar_os_shell_io_printf(io,
                                  "last axis: axis=%s value=%d delta=%" PRId32 "\n",
-                                 input_axis_name(event->axis),
+                                 solar_os_input_axis_name(event->axis),
                                  event->value,
                                  event->delta);
     }

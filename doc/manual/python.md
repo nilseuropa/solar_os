@@ -1295,6 +1295,50 @@ for app in solaros.apps.list():
     print(app["name"], "-", app["summary"])
 ```
 
+## `solaros.input`
+
+Foreground scripts can receive the generic pointer and axis events routed to
+their active session. `sources()` lists registered input sources with `source`,
+`name`, `source_class`, `source_class_name`, `capabilities`, and `ready`.
+
+- `read([timeout_ms])`: return the next pointer or axis event dictionary, or
+  `None`. The maximum timeout is 60000 ms.
+- `clear()`: discard queued pointer and axis events and return the number
+  discarded.
+- `status()`: return `available`, `queued`, `capacity`, and cumulative
+  `dropped` counters.
+
+Pointer dictionaries have `type="pointer"`, source metadata, `pointer_id`,
+numeric and named `mode`/`action`, `x`, `y`, `delta_x`, `delta_y`, `buttons`,
+and `target`. Touch and other absolute sources use `x`/`y`; relative mice use
+the deltas. Axis dictionaries have `type="axis"`, source metadata, numeric and
+named `axis`, `value`, and `delta`.
+
+```python
+import solaros
+from solaros import input as device_input
+
+device_input.clear()
+while not solaros.should_exit():
+    event = device_input.read(100)
+    if event is None:
+        continue
+    if event["type"] == "pointer":
+        if event["mode"] == device_input.MODE_ABSOLUTE:
+            print("touch", event["action_name"], event["x"], event["y"])
+        else:
+            print("mouse", event["delta_x"], event["delta_y"], event["buttons"])
+    else:
+        print("axis", event["axis_name"], event["value"], event["delta"])
+```
+
+The queue holds 16 events. When it is full, the oldest event is discarded so
+the script receives current pointer state; inspect `status()["dropped"]` when
+loss matters. Event reads are available only to a foreground Python app. Agent
+or other headless source runners report `available=False` and return `None`.
+Keyboard characters and navigation keys remain available through
+`solaros.tui.getch()`.
+
 ## `solaros.tui`
 
 TUI functions provide a small curses-like text UI layer over the SolarOS terminal. Drawing calls are queued onto the foreground UI side, so Python scripts do not write terminal memory directly.
@@ -1485,6 +1529,8 @@ The Python bridge intentionally does not expose raw SSH/SCP session handles yet.
 ## Quick reference
 
 Import `solaros` and use its service tables for storage, time, networking,
-hardware, jobs, sessions, TUI, and graphics. APIs return `None` or raise
-`OSError` as documented. Long-running programs must yield cooperatively and
-release opened buses, graphics targets, and other resources in `finally`.
+hardware, jobs, sessions, input, TUI, and graphics. Foreground pointer and axis
+events use solaros.input sources, read, clear, and status; keyboard characters
+use solaros.tui.getch(). APIs return `None` or raise `OSError` as documented.
+Long-running programs must yield cooperatively and release opened buses,
+graphics targets, and other resources in `finally`.

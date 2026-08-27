@@ -116,6 +116,26 @@ static const char *const input_source_class_names[] = {
     [SOLAR_OS_INPUT_SOURCE_BUTTONS] = "buttons",
 };
 
+static const char *const input_pointer_mode_names[] = {
+    [SOLAR_OS_INPUT_POINTER_ABSOLUTE] = "absolute",
+    [SOLAR_OS_INPUT_POINTER_RELATIVE] = "relative",
+};
+
+static const char *const input_pointer_action_names[] = {
+    [SOLAR_OS_INPUT_POINTER_MOVE] = "move",
+    [SOLAR_OS_INPUT_POINTER_PRESS] = "press",
+    [SOLAR_OS_INPUT_POINTER_RELEASE] = "release",
+};
+
+static const char *const input_axis_names[] = {
+    [SOLAR_OS_INPUT_AXIS_X] = "x",
+    [SOLAR_OS_INPUT_AXIS_Y] = "y",
+    [SOLAR_OS_INPUT_AXIS_Z] = "z",
+    [SOLAR_OS_INPUT_AXIS_RX] = "rx",
+    [SOLAR_OS_INPUT_AXIS_RY] = "ry",
+    [SOLAR_OS_INPUT_AXIS_RZ] = "rz",
+};
+
 static uint32_t input_now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
@@ -871,6 +891,32 @@ const char *solar_os_input_source_class_name(solar_os_input_source_class_t sourc
         return "invalid";
     }
     return input_source_class_names[source_class];
+}
+
+const char *solar_os_input_pointer_mode_name(solar_os_input_pointer_mode_t mode)
+{
+    if (mode < SOLAR_OS_INPUT_POINTER_ABSOLUTE ||
+        mode > SOLAR_OS_INPUT_POINTER_RELATIVE) {
+        return "invalid";
+    }
+    return input_pointer_mode_names[mode];
+}
+
+const char *solar_os_input_pointer_action_name(solar_os_input_pointer_action_t action)
+{
+    if (action < SOLAR_OS_INPUT_POINTER_MOVE ||
+        action > SOLAR_OS_INPUT_POINTER_RELEASE) {
+        return "invalid";
+    }
+    return input_pointer_action_names[action];
+}
+
+const char *solar_os_input_axis_name(solar_os_input_axis_t axis)
+{
+    if (axis < SOLAR_OS_INPUT_AXIS_X || axis >= SOLAR_OS_INPUT_AXIS_COUNT) {
+        return "invalid";
+    }
+    return input_axis_names[axis];
 }
 
 void solar_os_input_source_release_all(solar_os_input_source_t source)
