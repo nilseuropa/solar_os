@@ -4,8 +4,6 @@
 #include "solar_os_board_generated.h"
 #elif defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2)
 #include "boards/waveshare_esp32_s3_rlcd_4_2.h"
-#elif defined(SOLAR_OS_BOARD_TTGO_VGA32_V14)
-#include "boards/ttgo_vga32_v14.h"
 #else
 #error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/<target>.cmake profile."
 #endif
