@@ -1,6 +1,7 @@
 set(SOLAR_OS_BOARD_ID "freenove_esp32_s3_display_4_0")
 set(SOLAR_OS_BOARD_NAME "Freenove ESP32-S3 Display 4.0-inch (FNK0104S)")
 set(SOLAR_OS_BOARD_DEFINE "SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0")
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES driver_ft6336)
 
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/cdc_usb_serial_jtag.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/uart_esp_idf.cmake")

@@ -54,6 +54,13 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
   component requirements.
 - Every source file and component requirement belongs to a package.
+- A driver package can declare its compatible ESP-IDF MCU targets. Target
+  pruning occurs before board-capability pruning, so classic ESP32 and ESP32-S3
+  implementations are selected before connector and peripheral capabilities
+  are considered.
+- Expansion-driver symbols belong to their driver packages. The flavor
+  generator emits the registry from that metadata; the generic expansion
+  service does not include individual drivers behind package `#if` blocks.
 - A package lists other packages it needs with `depends`. Enabling an app or job
   automatically enables its transitive dependencies. Explicitly disabling a
   required package is an error.
@@ -63,7 +70,8 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
   These packages and their dependencies are enabled in every flavor before
   capability pruning; generation fails if the board cannot support them. For
   example, TTGO VGA32 v1.4 requires the PS/2 keyboard expansion driver used by
-  its default `keyboard0` attachment.
+  its default `keyboard0` attachment. Built-in defaults are fixed attachment
+  instances, not a separate copy of the controller driver.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,

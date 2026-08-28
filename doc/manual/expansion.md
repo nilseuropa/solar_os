@@ -14,10 +14,13 @@ radios, sensors, or manual resource profiles. Drivers are package-gated, so the
 available list depends on the firmware and board.
 
 Integrated hardware uses the same composition model. A board profile declares
-its fixed buses and default attachments, which are created at boot and shown by
-`expansion devices`. For example, Freenove `touch0` is an `ft6336` attachment,
-and TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. The `input` command
-then presents their semantic keyboard, pointer, or axis behavior.
+its fixed buses and default attachments, which are created at boot, shown by
+`expansion devices`, and cannot be detached. For example, Freenove `touch0` is
+an `ft6336` attachment; Waveshare `rtc0` and `environment0` use `pcf85063` and
+`shtc3`; and the supported battery boards expose `battery0` through
+`battery-adc`. TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. Generic
+input, time, sensor, and battery services consume the same runtime providers
+whether the attachment came from the board profile or the shell.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
@@ -75,6 +78,31 @@ expansion detach cardkb0
 The CardKB firmware produces characters after key release. SolarOS maps its
 four navigation values to the same logical arrow keys used by PS/2 and BLE
 keyboards. The module's Fn combinations are device-specific and are ignored.
+
+RTC and environmental sensor modules use the same named-I2C lifecycle. Only one
+provider of each service type can be active at a time:
+
+```text
+expansion attach pcf85063 rtc0 i2c=i2c0 addr=0x51
+expansion attach shtc3 environment0 i2c=i2c0 addr=0x70
+date
+temperature
+humidity
+expansion detach environment0
+expansion detach rtc0
+```
+
+`battery-adc` takes an ADC pin and a divider ratio in thousandths. For a 2:1
+resistive divider, use `divider=2000`:
+
+```text
+expansion attach battery-adc battery0 adc=gpio4 divider=2000
+battery
+expansion detach battery0
+```
+
+Use a high-impedance divider suitable for the expected battery voltage. The
+divided voltage must remain inside the ESP32 ADC input range.
 
 Other input devices follow the same lifecycle:
 

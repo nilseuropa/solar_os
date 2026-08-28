@@ -4,12 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "solar_os_board_caps.h"
+#include "freertos/FreeRTOS.h"
 #include "solar_os_stream.h"
-
-#if SOLAR_OS_BOARD_HAS_BATTERY
-#include "solar_os_board_battery.h"
-#endif
 
 #include "nvs.h"
 
@@ -40,6 +36,11 @@ static solar_os_battery_config_t battery_config = {
     .max_voltage_mv = BATTERY_DEFAULT_MAX_MV,
 };
 static bool battery_config_loaded;
+static solar_os_battery_provider_t battery_provider;
+static char battery_provider_owner[24];
+static bool battery_initialized;
+static bool battery_stream_registered;
+static portMUX_TYPE battery_provider_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static solar_os_battery_monitor_status_t monitor_status = {
     .trend = SOLAR_OS_BATTERY_TREND_UNKNOWN,
@@ -203,6 +204,20 @@ static bool battery_monitor_indicates_external_power(void)
         monitor_status.external_power;
 }
 
+static bool battery_provider_snapshot(solar_os_battery_provider_t *provider)
+{
+    if (provider == NULL) {
+        return false;
+    }
+    portENTER_CRITICAL(&battery_provider_lock);
+    const bool available = battery_provider_owner[0] != '\0';
+    if (available) {
+        *provider = battery_provider;
+    }
+    portEXIT_CRITICAL(&battery_provider_lock);
+    return available;
+}
+
 static void battery_monitor_reset_estimate(void)
 {
     monitor_status.sample_count = 0;
@@ -333,12 +348,74 @@ static void battery_monitor_update_estimate(void)
 esp_err_t solar_os_battery_init(void)
 {
     battery_load_config();
-#if !SOLAR_OS_BOARD_HAS_BATTERY
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    esp_err_t err = solar_os_board_battery_init();
-    return err == ESP_OK ? battery_register_stream() : err;
-#endif
+    battery_initialized = true;
+    if (!solar_os_battery_has_provider()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (battery_stream_registered) {
+        return ESP_OK;
+    }
+    const esp_err_t err = battery_register_stream();
+    if (err == ESP_OK) {
+        battery_stream_registered = true;
+    }
+    return err;
+}
+
+esp_err_t solar_os_battery_register_provider(
+    const char *owner,
+    const solar_os_battery_provider_t *provider)
+{
+    if (owner == NULL || owner[0] == '\0' ||
+        strnlen(owner, sizeof(battery_provider_owner)) >= sizeof(battery_provider_owner) ||
+        provider == NULL || provider->read == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ESP_OK;
+    portENTER_CRITICAL(&battery_provider_lock);
+    if (battery_provider_owner[0] != '\0') {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        battery_provider = *provider;
+        strlcpy(battery_provider_owner, owner, sizeof(battery_provider_owner));
+    }
+    portEXIT_CRITICAL(&battery_provider_lock);
+    if (ret == ESP_OK && battery_initialized) {
+        ret = solar_os_battery_init();
+        if (ret != ESP_OK) {
+            (void)solar_os_battery_unregister_provider(owner);
+        }
+    }
+    return ret;
+}
+
+esp_err_t solar_os_battery_unregister_provider(const char *owner)
+{
+    if (owner == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&battery_provider_lock);
+    if (strcmp(battery_provider_owner, owner) != 0) {
+        portEXIT_CRITICAL(&battery_provider_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    memset(&battery_provider, 0, sizeof(battery_provider));
+    battery_provider_owner[0] = '\0';
+    portEXIT_CRITICAL(&battery_provider_lock);
+    if (battery_stream_registered) {
+        (void)solar_os_stream_unregister("battery");
+        battery_stream_registered = false;
+    }
+    solar_os_battery_monitor_stop();
+    return ESP_OK;
+}
+
+bool solar_os_battery_has_provider(void)
+{
+    portENTER_CRITICAL(&battery_provider_lock);
+    const bool available = battery_provider_owner[0] != '\0';
+    portEXIT_CRITICAL(&battery_provider_lock);
+    return available;
 }
 
 esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
@@ -349,12 +426,13 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
 
     battery_load_config();
 
-#if !SOLAR_OS_BOARD_HAS_BATTERY
-    memset(status, 0, sizeof(*status));
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    solar_os_board_battery_sample_t sample;
-    const esp_err_t ret = solar_os_board_battery_read(&sample);
+    solar_os_battery_provider_t provider;
+    if (!battery_provider_snapshot(&provider)) {
+        memset(status, 0, sizeof(*status));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    solar_os_battery_sample_t sample;
+    const esp_err_t ret = provider.read(provider.user, &sample);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -367,7 +445,6 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     status->external_power = battery_voltage_external_power(sample.battery_mv) ||
         battery_monitor_indicates_external_power();
     return ESP_OK;
-#endif
 }
 
 void solar_os_battery_get_config(solar_os_battery_config_t *config)
@@ -418,16 +495,15 @@ esp_err_t solar_os_battery_monitor_start(uint32_t interval_ms)
     if (interval_ms == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-#if !SOLAR_OS_BOARD_HAS_BATTERY
-    return ESP_ERR_NOT_SUPPORTED;
-#else
+    if (!solar_os_battery_has_provider()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 
     battery_load_config();
     battery_monitor_reset_estimate();
     monitor_status.running = true;
     monitor_status.interval_ms = interval_ms;
     return ESP_OK;
-#endif
 }
 
 void solar_os_battery_monitor_stop(void)

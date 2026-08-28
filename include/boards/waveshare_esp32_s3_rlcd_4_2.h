@@ -101,6 +101,7 @@
     {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
+    {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "battery ADC"}, \
     {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
     {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
@@ -137,6 +138,37 @@
             .tx_pin = SOLAR_OS_BOARD_PIN_UART_TX, \
             .rx_pin = SOLAR_OS_BOARD_PIN_UART_RX, \
             .baud_rate = SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE, \
+        }, \
+    }, \
+}
+
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "pcf85063", \
+        .name = "rtc0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .target = "i2c0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, .value = 0x51}, \
+        }, \
+    }, \
+    { \
+        .driver = "shtc3", \
+        .name = "environment0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .target = "i2c0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, .value = 0x70}, \
+        }, \
+    }, \
+    { \
+        .driver = "battery-adc", \
+        .name = "battery0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 3000}, \
         }, \
     }, \
 }

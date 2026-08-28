@@ -1585,6 +1585,79 @@ esp_err_t solar_os_bus_i2c_receive(const char *name,
     return ret;
 }
 
+esp_err_t solar_os_bus_i2c_transmit(const char *name,
+                                    uint8_t address,
+                                    const uint8_t *data,
+                                    size_t len)
+{
+    if (!name_valid(name) || address > 0x7fU || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin = {0};
+    ret = pin_ready_bus(name, SOLAR_OS_BUS_PROTOCOL_I2C, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+    if (ret == ESP_OK) {
+        ret = i2c_bus_transmit_handle(pin.i2c_handle,
+                                      pin.info.config.i2c.speed_hz,
+                                      address,
+                                      data,
+                                      len);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
+esp_err_t solar_os_bus_i2c_transmit_receive(const char *name,
+                                            uint8_t address,
+                                            const uint8_t *tx_data,
+                                            size_t tx_len,
+                                            uint8_t *rx_data,
+                                            size_t rx_len)
+{
+    if (!name_valid(name) || address > 0x7fU || tx_data == NULL || tx_len == 0 ||
+        rx_data == NULL || rx_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    solar_os_bus_ref_t pin = {0};
+    ret = pin_ready_bus(name, SOLAR_OS_BUS_PROTOCOL_I2C, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+    if (ret == ESP_OK) {
+        ret = i2c_bus_transmit_receive_handle(pin.i2c_handle,
+                                              pin.info.config.i2c.speed_hz,
+                                              address,
+                                              tx_data,
+                                              tx_len,
+                                              rx_data,
+                                              rx_len);
+    }
+#else
+    if (ret == ESP_OK) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    if (pin.mutex != NULL) {
+        unpin_bus(&pin);
+    }
+    return ret;
+}
+
 esp_err_t solar_os_bus_i2c_read_reg(const char *name,
                                     uint8_t address,
                                     uint8_t reg,

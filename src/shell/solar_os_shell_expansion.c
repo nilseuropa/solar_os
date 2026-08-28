@@ -402,14 +402,32 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
 
 static void expansion_print_drivers(solar_os_shell_io_t *term)
 {
-    solar_os_shell_io_writeln(term, "DRIVER  PROBE BUS(TYPE) SUMMARY");
+    size_t driver_width = strlen("DRIVER");
+    for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
+        solar_os_expansion_driver_t driver;
+        if (solar_os_expansion_get_driver(i, &driver)) {
+            const size_t width = strlen(driver.name);
+            if (width > driver_width) {
+                driver_width = width;
+            }
+        }
+    }
+
+    solar_os_shell_io_printf(term,
+                             "%-*s %-5s %-6s %s\n",
+                             (int)driver_width,
+                             "DRIVER",
+                             "PROBE",
+                             "BUS",
+                             "SUMMARY");
     for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
         solar_os_expansion_driver_t driver;
         if (!solar_os_expansion_get_driver(i, &driver)) {
             continue;
         }
         solar_os_shell_io_printf(term,
-                                 "%-7s %-5s %-9s %s%s\n",
+                                 "%-*s %-5s %-6s %s%s\n",
+                                 (int)driver_width,
                                  driver.name,
                                  driver.probe_supported ? "yes" : "no",
                                  expansion_driver_bus_type(&driver),
@@ -469,23 +487,38 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
         return;
     }
 
+    bool printed = false;
     for (size_t i = 0; i < count; i++) {
         solar_os_expansion_device_t device;
         if (!solar_os_expansion_get_device(i, &device)) {
             continue;
         }
+
+        if (printed) {
+            solar_os_shell_io_put_char(term, '\n');
+        }
+        solar_os_shell_io_write_bold(term, device.name);
+        solar_os_shell_io_put_char(term, '\n');
         solar_os_shell_io_printf(term,
-                                 "%s driver=%s origin=%s ready=%s autostart=%s %s",
-                                 device.name,
+                                 "  driver: %s\n"
+                                 "  origin: %s\n"
+                                 "  ready: %s\n"
+                                 "  startup: %s\n"
+                                 "  attachment: %s\n"
+                                 "  bindings:",
                                  device.driver,
                                  solar_os_expansion_origin_name(device.origin),
                                  device.ready ? "yes" : "no",
-                                 device.autostart ? "yes" : "no",
+                                 device.autostart ? "automatic" : "manual",
                                  device.detachable ? "detachable" : "fixed");
+        if (device.binding_count == 0) {
+            solar_os_shell_io_write(term, " none");
+        }
         for (size_t b = 0; b < device.binding_count; b++) {
             expansion_print_binding(term, &device.bindings[b]);
         }
         solar_os_shell_io_put_char(term, '\n');
+        printed = true;
     }
 }
 

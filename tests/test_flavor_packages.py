@@ -53,6 +53,43 @@ class FlavorPackagesTest(unittest.TestCase):
                 {"job_missing"},
             )
 
+    def test_target_pruning_keeps_compatible_driver_packages(self):
+        _, _, _, packages = self.resolve("full")
+
+        for target in ("esp32", "esp32s3"):
+            pruned = generate_flavor_config.apply_target_pruning(
+                self.catalog,
+                packages,
+                target,
+            )
+            self.assertTrue(pruned["expansion_neopixel"], target)
+            self.assertTrue(pruned["expansion_audio_pwm"], target)
+            self.assertTrue(pruned["expansion_pcm5102"], target)
+            self.assertTrue(pruned["driver_pcf85063"], target)
+            self.assertTrue(pruned["driver_shtc3"], target)
+            self.assertTrue(pruned["driver_battery_adc"], target)
+
+    def test_target_pruning_removes_incompatible_driver_and_dependents(self):
+        _, _, _, packages = self.resolve("full")
+        pruned = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32c3",
+        )
+
+        self.assertFalse(pruned["expansion_neopixel"])
+        self.assertFalse(pruned["expansion_audio_pwm"])
+        self.assertFalse(pruned["expansion_pcm5102"])
+
+    def test_target_pruning_requires_a_target(self):
+        _, _, _, packages = self.resolve("full")
+        with self.assertRaisesRegex(ValueError, "MCU target is required"):
+            generate_flavor_config.apply_target_pruning(
+                self.catalog,
+                packages,
+                "",
+            )
+
     def test_granular_group_ownership(self):
         self.assertEqual(
             set(self.catalog.group_defs["maintenance_jobs"].members),

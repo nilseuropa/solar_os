@@ -83,6 +83,19 @@
 #define SOLAR_OS_BOARD_PIN_BATTERY_ADC GPIO_NUM_36
 #define SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO 2.0f
 
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "battery-adc", \
+        .name = "battery0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 2000}, \
+        }, \
+    }, \
+}
+
 #define SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN GPIO_NUM_25
 #define SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL 1
 #define SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS GPIO_NUM_26
@@ -153,6 +166,7 @@
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD backlight"}, \
     {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker enable"}, \
     {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker DAC"}, \
+    {.pin = 36, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "battery ADC"}, \
     {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
     {.pin = 15, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "external IO / SPI CS"}, \
 }

@@ -49,6 +49,16 @@ esp_err_t solar_os_bus_i2c_receive(const char *name,
                                    uint8_t address,
                                    uint8_t *data,
                                    size_t len);
+esp_err_t solar_os_bus_i2c_transmit(const char *name,
+                                    uint8_t address,
+                                    const uint8_t *data,
+                                    size_t len);
+esp_err_t solar_os_bus_i2c_transmit_receive(const char *name,
+                                            uint8_t address,
+                                            const uint8_t *tx_data,
+                                            size_t tx_len,
+                                            uint8_t *rx_data,
+                                            size_t rx_len);
 esp_err_t solar_os_bus_i2c_read_reg(const char *name,
                                     uint8_t address,
                                     uint8_t reg,

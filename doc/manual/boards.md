@@ -54,15 +54,19 @@ If PlatformIO does not already provide the board definition, also add:
 boards/my_board.json
 ```
 
-Concrete hardware drivers are selected through reusable CMake fragments:
+Concrete hardware defaults are selected through reusable CMake fragments:
 
 ```text
 boards/drivers/<driver>.cmake
 ```
 
 Add a new fragment when a board needs a new concrete display, storage, RTC,
-sensor, battery, audio, or port driver. Do not extend `src/CMakeLists.txt` for
-each new driver.
+sensor, battery, audio, or port driver. Where the hardware can use the runtime
+resource model, the fragment must require the same packaged expansion driver
+that users can attach on another compatible board. The board header then
+declares an immutable default attachment with fixed-resource permission. Do not
+extend `src/CMakeLists.txt` or add driver-specific package `#if` blocks to the
+generic expansion service.
 
 ## Built-In Targets
 

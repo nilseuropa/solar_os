@@ -202,6 +202,7 @@ execute_process(
             "--packages" "${SOLAR_OS_PACKAGE_CATALOG}"
             "--board-capabilities" "${SOLAR_OS_BOARD_AVAILABLE_CAPABILITY_LIST}"
             "--board-required-packages" "${SOLAR_OS_BOARD_REQUIRED_PACKAGE_LIST}"
+            "--target" "${IDF_TARGET}"
             "--header" "${SOLAR_OS_GENERATED_HEADER}"
             "--cmake" "${SOLAR_OS_GENERATED_CMAKE}"
     RESULT_VARIABLE SOLAR_OS_FLAVOR_GENERATE_RESULT

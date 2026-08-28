@@ -183,12 +183,12 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "ft6336", \
         .name = "touch0", \
-        .binding_count = 4, \
+        .binding_count = 5, \
         .bindings = { \
             { \
                 .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, \
@@ -208,6 +208,20 @@
                 .role = "irq", \
                 .value = SOLAR_OS_BOARD_PIN_TOUCH_INT, \
             }, \
+            { \
+                .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, \
+                .role = "rotation", \
+                .value = 1, \
+            }, \
+        }, \
+    }, \
+    { \
+        .driver = "battery-adc", \
+        .name = "battery0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 2000}, \
         }, \
     }, \
 }

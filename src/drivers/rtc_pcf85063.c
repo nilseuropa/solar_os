@@ -1,6 +1,8 @@
 #include "rtc_pcf85063.h"
 
-#include "i2c_bus.h"
+#include <string.h>
+
+#include "solar_os_buses.h"
 
 #define PCF85063_CTRL1_REG 0x00
 #define PCF85063_RAM_REG 0x03
@@ -8,6 +10,8 @@
 #define PCF85063_CTRL1_STOP_BIT 0x20
 #define PCF85063_CTRL1_12H_BIT 0x02
 #define PCF85063_SECONDS_OS_BIT 0x80
+
+static rtc_pcf85063_t default_device;
 
 static uint8_t bcd_to_dec(uint8_t value)
 {
@@ -74,16 +78,35 @@ bool rtc_pcf85063_datetime_is_valid(const rtc_datetime_t *datetime)
     return true;
 }
 
-esp_err_t rtc_pcf85063_init(void)
+esp_err_t rtc_pcf85063_init_device(rtc_pcf85063_t *device,
+                                   const char *bus,
+                                   uint8_t address)
 {
+    if (device == NULL || bus == NULL || bus[0] == '\0' ||
+        strnlen(bus, sizeof(device->bus)) >= sizeof(device->bus) ||
+        address > 0x7fU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(device, 0, sizeof(*device));
+    strlcpy(device->bus, bus, sizeof(device->bus));
+    device->address = address;
+
     uint8_t ram = 0;
-    esp_err_t ret = i2c_bus_read_reg(RTC_PCF85063_ADDRESS, PCF85063_RAM_REG, &ram, 1);
+    esp_err_t ret = solar_os_bus_i2c_read_reg(device->bus,
+                                              device->address,
+                                              PCF85063_RAM_REG,
+                                              &ram,
+                                              1);
     if (ret != ESP_OK) {
         return ret;
     }
 
     uint8_t ctrl1 = 0;
-    ret = i2c_bus_read_reg(RTC_PCF85063_ADDRESS, PCF85063_CTRL1_REG, &ctrl1, 1);
+    ret = solar_os_bus_i2c_read_reg(device->bus,
+                                    device->address,
+                                    PCF85063_CTRL1_REG,
+                                    &ctrl1,
+                                    1);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -93,17 +116,26 @@ esp_err_t rtc_pcf85063_init(void)
         return ESP_OK;
     }
 
-    return i2c_bus_write_reg(RTC_PCF85063_ADDRESS, PCF85063_CTRL1_REG, &updated, 1);
+    return solar_os_bus_i2c_write_reg(device->bus,
+                                      device->address,
+                                      PCF85063_CTRL1_REG,
+                                      &updated,
+                                      1);
 }
 
-esp_err_t rtc_pcf85063_get_datetime(rtc_datetime_t *datetime)
+esp_err_t rtc_pcf85063_get_datetime_device(const rtc_pcf85063_t *device,
+                                           rtc_datetime_t *datetime)
 {
-    if (datetime == NULL) {
+    if (device == NULL || device->bus[0] == '\0' || datetime == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     uint8_t data[7];
-    const esp_err_t ret = i2c_bus_read_reg(RTC_PCF85063_ADDRESS, PCF85063_SEC_REG, data, sizeof(data));
+    const esp_err_t ret = solar_os_bus_i2c_read_reg(device->bus,
+                                                    device->address,
+                                                    PCF85063_SEC_REG,
+                                                    data,
+                                                    sizeof(data));
     if (ret != ESP_OK) {
         return ret;
     }
@@ -124,9 +156,11 @@ esp_err_t rtc_pcf85063_get_datetime(rtc_datetime_t *datetime)
     return ESP_OK;
 }
 
-esp_err_t rtc_pcf85063_set_datetime(const rtc_datetime_t *datetime)
+esp_err_t rtc_pcf85063_set_datetime_device(const rtc_pcf85063_t *device,
+                                           const rtc_datetime_t *datetime)
 {
-    if (!rtc_pcf85063_datetime_is_valid(datetime)) {
+    if (device == NULL || device->bus[0] == '\0' ||
+        !rtc_pcf85063_datetime_is_valid(datetime)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -140,15 +174,41 @@ esp_err_t rtc_pcf85063_set_datetime(const rtc_datetime_t *datetime)
         dec_to_bcd((uint8_t)(datetime->year % 100)),
     };
 
-    esp_err_t ret = rtc_pcf85063_init();
+    rtc_pcf85063_t refreshed;
+    esp_err_t ret = rtc_pcf85063_init_device(&refreshed,
+                                             device->bus,
+                                             device->address);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    ret = i2c_bus_write_reg(RTC_PCF85063_ADDRESS, PCF85063_SEC_REG, data, sizeof(data));
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_SEC_REG,
+                                     data,
+                                     sizeof(data));
     if (ret != ESP_OK) {
         return ret;
     }
 
-    return rtc_pcf85063_init();
+    return rtc_pcf85063_init_device(&refreshed,
+                                    device->bus,
+                                    device->address);
+}
+
+esp_err_t rtc_pcf85063_init(void)
+{
+    return rtc_pcf85063_init_device(&default_device,
+                                    "i2c0",
+                                    RTC_PCF85063_ADDRESS);
+}
+
+esp_err_t rtc_pcf85063_get_datetime(rtc_datetime_t *datetime)
+{
+    return rtc_pcf85063_get_datetime_device(&default_device, datetime);
+}
+
+esp_err_t rtc_pcf85063_set_datetime(const rtc_datetime_t *datetime)
+{
+    return rtc_pcf85063_set_datetime_device(&default_device, datetime);
 }
