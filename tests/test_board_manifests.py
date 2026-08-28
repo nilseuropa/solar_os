@@ -75,6 +75,16 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("storage_expansion.cmake", cmake)
         self.assertIn("expansion_sdspi", required_packages(board, self.drivers))
 
+    def test_elecrow_generated_header_preserves_buttons_and_tx_only_spi(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "elecrow_crowpanel_esp32_s3_4_2_epaper.toml",
+            self.manifest_dir,
+        )
+        header = generate_header(board, self.drivers)
+        self.assertIn('#include "solar_os_buttons.h"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_BUTTONS", header)
+        self.assertIn(".miso_pin = GPIO_NUM_NC", header)
+
     def test_pin_conflict_is_rejected(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "devkitc1_epaper_workbench.toml",

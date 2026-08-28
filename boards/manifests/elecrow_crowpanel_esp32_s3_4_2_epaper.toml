@@ -1,0 +1,448 @@
+schema = 1
+
+[board]
+id = "elecrow_crowpanel_esp32_s3_4_2_epaper"
+name = "Elecrow CrowPanel ESP32-S3 4.2-inch E-paper"
+vendor = "Elecrow"
+module = "ESP32-S3-WROOM-1-N8R8"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "elecrow_crowpanel_esp32_s3_4_2_epaper"
+
+[build]
+drivers = [
+  "uart_esp_idf",
+  "display_ssd1683",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi", "wifi",
+  "ble", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_i2s", "key", "buttons", "status_led",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[header]
+includes = ["solar_os_buttons.h", "solar_os_keys.h"]
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1683"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "400"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300"
+SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "90"
+SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_47"
+SOLAR_OS_BOARD_PIN_LCD_DC = "GPIO_NUM_46"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_45"
+SOLAR_OS_BOARD_PIN_LCD_BUSY = "GPIO_NUM_48"
+SOLAR_OS_BOARD_PIN_LCD_POWER = "GPIO_NUM_7"
+SOLAR_OS_BOARD_SPI_HOST = "SPI3_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"SD-SPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_39"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_13"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_40"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+SOLAR_OS_BOARD_SPI_RESOURCE_OWNER = '"board:sdspi"'
+SOLAR_OS_BOARD_PIN_SD_CARD_CS = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_SD_POWER = "GPIO_NUM_42"
+SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_PIN_STATUS_LED = "GPIO_NUM_41"
+SOLAR_OS_BOARD_STATUS_LED_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_2"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "0"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_1, .name = "EXIT", .key = SOLAR_OS_KEY_APP_EXIT, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, {.pin = GPIO_NUM_6, .name = "ROTARY-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, {.pin = GPIO_NUM_4, .name = "ROTARY-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}, {.pin = GPIO_NUM_5, .name = "ROTARY-OK", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}}'
+
+[runtime]
+spi_hosts = []
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 12
+mosi = 11
+cs = [45]
+max_transfer_size = 4092
+
+[[buses]]
+name = "spi1"
+protocol = "spi"
+sharing = "shared"
+host = "SPI3_HOST"
+sclk = 39
+miso = 13
+mosi = 40
+cs = [10]
+max_transfer_size = 4096
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "ssd1683"
+name = "display0"
+bindings = { spi = "spi0", cs = 45, dc = 46, reset = 47, busy = 48, power = 7, clock = 10000, panel = 0 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi1", cs = 10 }
+
+[connector]
+title = "U5 2x10 GPIO header"
+view = "component side; display facing you"
+rows = 2
+columns = 10
+
+[[connectors]]
+connector = "U5"
+position = 1
+row = 0
+column = 0
+gpio = 3
+kind = "gpio"
+label = "IO3"
+[[connectors]]
+connector = "U5"
+position = 2
+row = 0
+column = 1
+gpio = 9
+kind = "gpio"
+label = "IO9"
+[[connectors]]
+connector = "U5"
+position = 3
+row = 0
+column = 2
+gpio = 15
+kind = "gpio"
+label = "IO15"
+[[connectors]]
+connector = "U5"
+position = 4
+row = 0
+column = 3
+gpio = 17
+kind = "gpio"
+label = "IO17"
+[[connectors]]
+connector = "U5"
+position = 5
+row = 0
+column = 4
+gpio = 19
+kind = "gpio"
+label = "IO19"
+[[connectors]]
+connector = "U5"
+position = 6
+row = 0
+column = 5
+gpio = 21
+kind = "gpio"
+label = "IO21"
+[[connectors]]
+connector = "U5"
+position = 7
+row = 0
+column = 6
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "U5"
+position = 8
+row = 0
+column = 7
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "U5"
+position = 9
+row = 0
+column = 8
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "U5"
+position = 10
+row = 0
+column = 9
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "U5"
+position = 20
+row = 1
+column = 0
+gpio = 8
+kind = "gpio"
+label = "IO8"
+[[connectors]]
+connector = "U5"
+position = 19
+row = 1
+column = 1
+gpio = 14
+kind = "gpio"
+label = "IO14"
+[[connectors]]
+connector = "U5"
+position = 18
+row = 1
+column = 2
+gpio = 16
+kind = "gpio"
+label = "IO16"
+[[connectors]]
+connector = "U5"
+position = 17
+row = 1
+column = 3
+gpio = 18
+kind = "gpio"
+label = "IO18"
+[[connectors]]
+connector = "U5"
+position = 16
+row = 1
+column = 4
+gpio = 20
+kind = "gpio"
+label = "IO20"
+[[connectors]]
+connector = "U5"
+position = 15
+row = 1
+column = 5
+gpio = 38
+kind = "gpio"
+label = "IO38"
+[[connectors]]
+connector = "U5"
+position = 14
+row = 1
+column = 6
+kind = "power"
+label = "VBUS"
+[[connectors]]
+connector = "U5"
+position = 13
+row = 1
+column = 7
+kind = "power"
+label = "VBUS"
+[[connectors]]
+connector = "U5"
+position = 12
+row = 1
+column = 8
+kind = "power"
+label = "VBUS"
+[[connectors]]
+connector = "U5"
+position = 11
+row = 1
+column = 9
+kind = "power"
+label = "VBUS"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download"
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "EXIT button"
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "MENU / SolarOS KEY"
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "expansion / strapping"
+expansion = true
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "rotary up"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "rotary confirm"
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "rotary down"
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "EPD power"
+[[pins]]
+gpio = 8
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 9
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "SD chip select"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "EPD MOSI"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "EPD SCK"
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "SD MISO"
+[[pins]]
+gpio = 14
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 15
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 16
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 17
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 18
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 19
+policy = "free"
+role = "expansion / USB D- capable"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 20
+policy = "free"
+role = "expansion / USB D+ capable"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 21
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 38
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "SD SCK"
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "SD MOSI"
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "status LED"
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "SD power"
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "UART TX / USB bridge"
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "UART RX / USB bridge"
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "EPD chip select / strapping"
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "EPD D/C / strapping"
+[[pins]]
+gpio = 47
+policy = "fixed"
+role = "EPD reset"
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "EPD busy"
