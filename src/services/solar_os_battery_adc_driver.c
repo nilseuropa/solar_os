@@ -1,7 +1,7 @@
 #include "solar_os_battery_adc.h"
 
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
-    {.key = "adc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .required = true},
+    {.key = "adc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "adc", .required = true},
     {.key = "divider", .value_hint = "1000..10000", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .required = true, .has_value_range = true, .min_value = 1000, .max_value = 10000},
 };
 

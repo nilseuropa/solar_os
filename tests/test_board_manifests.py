@@ -85,6 +85,24 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("#define SOLAR_OS_BOARD_BUTTONS", header)
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
+    def test_waveshare_battery_binding_matches_runtime_driver(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "waveshare_esp32_s3_rlcd_4_2.toml",
+            self.manifest_dir,
+        )
+        header = generate_header(board, self.drivers)
+        runtime_driver = (
+            ROOT / "src" / "services" / "solar_os_battery_adc_driver.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "adc", .value = 4',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "adc",',
+            runtime_driver,
+        )
+
     def test_pin_conflict_is_rejected(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "devkitc1_epaper_workbench.toml",
