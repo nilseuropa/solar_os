@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import builtins
-import fcntl
 import os
 from pathlib import Path
 from typing import TextIO
+
+if os.name == "nt":
+    fcntl = None
+else:
+    import fcntl
 
 
 _REGISTRY_NAME = "_solaros_platformio_build_locks"
@@ -23,6 +27,13 @@ def _lock_registry() -> dict[str, TextIO]:
 
 def acquire_project_build_lock(project_dir: Path, build_environment: str) -> None:
     """Hold the project build lock until the PlatformIO process exits."""
+    if fcntl is None:
+        print(
+            "SolarOS build locking is unavailable on Windows; "
+            "do not run concurrent PlatformIO builds from the same checkout"
+        )
+        return
+
     lock_path = project_dir.resolve() / ".pio" / "solaros-build.lock"
     lock_key = str(lock_path)
     registry = _lock_registry()
