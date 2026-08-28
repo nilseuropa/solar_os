@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -23,6 +23,11 @@ audio also appears as `audio0`: Waveshare uses `es8311-es7210`, Freenove uses
 `es8311-duplex`, and classic ESP32 audio boards use `esp32-dac`. Generic input,
 time, sensor, battery, and audio services consume the same runtime providers
 whether the attachment came from the board profile or the shell.
+
+Built-in displays follow the same rule and appear as fixed `display0`
+attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses
+`ili9341`, ESP32-WROVER v3.0 uses `cvbs-pal`, and TTGO VGA32 uses `vga32`.
+They attach before the splash and primary display service start.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
@@ -235,6 +240,25 @@ expansion attach esp32-dac audio0 pos=gpio26 amp=gpio25 active=1
 
 Only one of these primary audio backends can be attached at a time. A fixed
 board-default `audio0` cannot be detached.
+
+The integrated display controller drivers can also create auxiliary display
+targets. Use a name other than the reserved primary name `display0` for a
+runtime attachment. Each controller driver supports one attached instance, so
+its board-integrated `display0` and an auxiliary instance cannot coexist:
+
+```text
+expansion attach st7305 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5
+expansion attach ili9341 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5 bl=gpio6 pwm=1 active=1
+expansion attach st7796 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5 bl=gpio6 pwm=1 active=1
+display test lcd0
+expansion detach lcd0
+```
+
+`st7305`, `st7796`, and `ili9341` are available on ESP32 and ESP32-S3 firmware.
+The I2S-based `cvbs-pal` and `vga32` drivers are available on classic ESP32.
+Composite PAL uses I2S0 and GPIO25. VGA32 uses I2S1 plus its six RGB and two
+sync GPIOs; see the expansion reference for its full binding list. A fixed
+board-default `display0` cannot be detached.
 
 ## Quick reference
 

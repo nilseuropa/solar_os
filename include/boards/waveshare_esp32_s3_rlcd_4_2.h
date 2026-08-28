@@ -102,9 +102,13 @@
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "battery ADC"}, \
+    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display D/C"}, \
+    {.pin = 6, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display TE"}, \
     {.pin = 8, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio DOUT"}, \
     {.pin = 9, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio BCLK"}, \
     {.pin = 10, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio DIN"}, \
+    {.pin = 11, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display SCK"}, \
+    {.pin = 12, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display MOSI"}, \
     {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
     {.pin = 16, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio MCLK"}, \
@@ -112,6 +116,8 @@
     {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "KEY"}, \
     {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
     {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
+    {.pin = 40, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display CS"}, \
+    {.pin = 41, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display reset"}, \
     {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART TX"}, \
     {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART RX"}, \
     {.pin = 45, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio WS"}, \
@@ -122,6 +128,21 @@
 #define SOLAR_OS_BOARD_PIN_UART_TX GPIO_NUM_43
 #define SOLAR_OS_BOARD_PIN_UART_RX GPIO_NUM_44
 #define SOLAR_OS_BOARD_BUSES { \
+    { \
+        .name = "spi0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SPI2_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_LCD_SCK, \
+            .miso_pin = GPIO_NUM_NC, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_LCD_MOSI, \
+            .max_transfer_size = 4092, \
+            .cs_count = 1, \
+            .cs = {{.name = "display", .pin = SOLAR_OS_BOARD_PIN_LCD_CS}}, \
+        }, \
+    }, \
     { \
         .name = "i2c0", \
         .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
@@ -148,8 +169,19 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 4
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 5
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "st7305", \
+        .name = "display0", \
+        .binding_count = 4, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = SOLAR_OS_BOARD_PIN_LCD_CS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .value = SOLAR_OS_BOARD_PIN_LCD_DC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .value = SOLAR_OS_BOARD_PIN_LCD_RST}, \
+        }, \
+    }, \
     { \
         .driver = "pcf85063", \
         .name = "rtc0", \

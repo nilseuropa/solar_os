@@ -65,11 +65,11 @@ voltage and current requirements before connecting it.
 
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
-| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | There is no fixed expansion SPI bus. The internal display SPI pins are not expansion pins. |
-| ESP32-S3 Display 4.0-inch (FNK0104S) | `i2c0`: SDA GPIO16, SCL GPIO15; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with touch and audio control. The LCD SPI2 pins are internal and fixed. |
+| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO40; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | `spi0` is the fixed internal display bus; its pins are not expansion pins. |
+| ESP32-S3 Display 4.0-inch (FNK0104S) | `i2c0`: SDA GPIO16, SCL GPIO15; `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with touch and audio control. `spi0` is the fixed internal LCD bus. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
-| ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
+| ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO5/GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 | ESP32-WROVER v3.0 | `uart0`: TX GPIO1, RX GPIO3 | I2C, SPI on `spi2`/`spi3`, UART on `uart1`/`uart2`, or 1-Wire, using free output-capable GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32, or GPIO33 | The rear SD slot uses the dedicated one-bit SDMMC host. GPIO34-GPIO36 and GPIO39 are available only for input signals and ADC. |
 | TTGO VGA32 v1.4 | `spi0`: SCK GPIO14, MISO GPIO2, MOSI GPIO12, CS GPIO13; `uart0`: TX GPIO1, RX GPIO3; `ps2kbd0`: clock GPIO33, data GPIO32; `ps2mouse0`: clock GPIO26, data GPIO27 | None | `keyboard0` attaches automatically; attach `ps2-mouse` to `ps2mouse0` only when a mouse is connected. GPIO25 is the fixed mono audio DAC output. I2S1 and the six RGB plus two sync pins are permanently reserved for VGA DMA scanout. |
 
@@ -240,6 +240,11 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `ssd1683` | Waveshare 4.2-inch V2 400x300 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>` | Registers an auxiliary display target with auto, fast, and full refresh modes. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
+| `st7305` | 400x300 reflective LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | ESP32 and ESP32-S3; Waveshare registers it as fixed `display0`. |
+| `ili9341` | 320x240 color TFT | `spi=<bus> cs=<pin> dc=<pin>`; optional `reset=<pin> bl=<pin> active=0|1 pwm=0|1` | ESP32 and ESP32-S3; ODROID-GO registers it as fixed `display0`. |
+| `st7796` | 480x320 color TFT | `spi=<bus> cs=<pin> dc=<pin>`; optional `reset=<pin> bl=<pin> active=0|1 pwm=0|1` | ESP32 and ESP32-S3; Freenove registers it as fixed `display0`. |
+| `cvbs-pal` | 384x288 or 320x200 monochrome PAL composite output | `i2s=i2s0 out=gpio25` | Classic ESP32 driver; ESP32-WROVER v3.0 registers it as fixed `display0`. |
+| `vga32` | Build-selected RGB222 VGA output | `r0=<pin> r1=<pin> g0=<pin> g1=<pin> b0=<pin> b1=<pin> hsync=<pin> vsync=<pin>` | Classic ESP32 driver; claims I2S1 and TTGO VGA32 registers it as fixed `display0`. |
 | `cardkb` | M5Stack Unit CardKB | `i2c=<bus> addr=0x5f` | Polls released keys into the shared input service for shells and foreground apps. |
 | `gpio-keys` | Active-low pull-up buttons | One or more `key:<name>=<gpio>` bindings | Publishes press/release keyboard events and releases all GPIO claims on detach. |
 | `ps2-keyboard` | PS/2 scan-code set 2 keyboard | `ps2=<bus>` | Publishes canonical keyboard press/release events from an exclusive PS/2 bus. |
@@ -266,6 +271,14 @@ expansion detach radio0
 Binding names may be explicit (`spi=spi0`, `i2c=i2c0`) or, where unambiguous,
 supplied as positional bus names. `ce=` aliases `cs=` and `rst=` aliases
 `reset=` for common module labels.
+
+The name `display0` is reserved for the board's primary display attachment.
+Use another name such as `lcd0` for a runtime-attached display. The five
+integrated-display drivers attach before display-service initialization when a
+board profile declares them as fixed defaults. When a controller driver is not
+already attached, a later attachment registers an auxiliary target for
+`display test`, graphical sessions, and applications. Each controller driver
+supports one attached instance. A fixed board default cannot be detached.
 
 Select the RFM69 driver from the module variant, not from the requested power.
 The `rfm69h` driver uses PA1 through 13 dBm, PA1+PA2 through 17 dBm, and applies

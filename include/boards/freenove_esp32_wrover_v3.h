@@ -59,6 +59,19 @@
     }, \
 }
 
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "cvbs-pal", \
+        .name = "display0", \
+        .binding_count = 2, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2S_PORT, .value = I2S_NUM_0}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "out", .value = SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO}, \
+        }, \
+    }, \
+}
+
 #define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE "Freenove v3.0 side headers"
 #define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_VIEW \
     "component side; antenna at top, USB connector at bottom"

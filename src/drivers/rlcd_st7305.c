@@ -13,9 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
-#include "solar_os_board.h"
-
-#define RLCD_SPI_HOST SPI2_HOST
+#include "solar_os_buses.h"
 #define RLCD_SPI_CLOCK_HZ 24000000
 #define RLCD_TILE_WIDTH 38
 #define RLCD_TILE_HEIGHT 50
@@ -586,25 +584,25 @@ static esp_err_t rlcd_write_bytes(rlcd_st7305_t *display, const uint8_t *data, s
 
 static esp_err_t rlcd_cmd_data(rlcd_st7305_t *display, uint8_t command, const uint8_t *data, size_t length)
 {
-    esp_err_t err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_DC, 0);
+    esp_err_t err = gpio_set_level(display->config.dc_pin, 0);
     if (err != ESP_OK) {
         return err;
     }
 
-    err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 0);
+    err = gpio_set_level(display->config.cs_pin, 0);
     if (err != ESP_OK) {
         return err;
     }
 
     err = rlcd_write_bytes(display, &command, sizeof(command));
     if (err == ESP_OK && length > 0) {
-        err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_DC, 1);
+        err = gpio_set_level(display->config.dc_pin, 1);
         if (err == ESP_OK) {
             err = rlcd_write_bytes(display, data, length);
         }
     }
 
-    const esp_err_t cs_err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 1);
+    const esp_err_t cs_err = gpio_set_level(display->config.cs_pin, 1);
     return err == ESP_OK ? cs_err : err;
 }
 
@@ -616,27 +614,27 @@ static esp_err_t rlcd_cmd(rlcd_st7305_t *display, uint8_t command)
 static esp_err_t rlcd_begin_ram_write(rlcd_st7305_t *display)
 {
     const uint8_t command = 0x2C;
-    esp_err_t err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_DC, 0);
+    esp_err_t err = gpio_set_level(display->config.dc_pin, 0);
     if (err != ESP_OK) {
         return err;
     }
 
-    err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 0);
+    err = gpio_set_level(display->config.cs_pin, 0);
     if (err == ESP_OK) {
         err = rlcd_write_bytes(display, &command, sizeof(command));
     }
     if (err == ESP_OK) {
-        err = gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_DC, 1);
+        err = gpio_set_level(display->config.dc_pin, 1);
     }
     if (err != ESP_OK) {
-        (void)gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 1);
+        (void)gpio_set_level(display->config.cs_pin, 1);
     }
     return err;
 }
 
-static esp_err_t rlcd_end_ram_write(void)
+static esp_err_t rlcd_end_ram_write(rlcd_st7305_t *display)
 {
-    return gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 1);
+    return gpio_set_level(display->config.cs_pin, 1);
 }
 
 static void rlcd_invalidate_shadow(rlcd_st7305_t *display)
@@ -1079,37 +1077,37 @@ static bool rlcd_checked_cmd(rlcd_st7305_t *display, uint8_t command)
     return true;
 }
 
-static void rlcd_reset(void)
+static void rlcd_reset(rlcd_st7305_t *display)
 {
-    gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_RST, 1);
+    gpio_set_level(display->config.reset_pin, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_RST, 0);
+    gpio_set_level(display->config.reset_pin, 0);
     vTaskDelay(pdMS_TO_TICKS(20));
-    gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_RST, 1);
+    gpio_set_level(display->config.reset_pin, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
 }
 
-static esp_err_t rlcd_configure_control_pins(void)
+static esp_err_t rlcd_configure_control_pins(rlcd_st7305_t *display)
 {
     const gpio_config_t io_config = {
-        .pin_bit_mask = (1ULL << SOLAR_OS_BOARD_PIN_LCD_DC) |
-                        (1ULL << SOLAR_OS_BOARD_PIN_LCD_CS) |
-                        (1ULL << SOLAR_OS_BOARD_PIN_LCD_RST),
+        .pin_bit_mask = (1ULL << display->config.dc_pin) |
+                        (1ULL << display->config.cs_pin) |
+                        (1ULL << display->config.reset_pin),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&io_config), TAG, "gpio config failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_CS, 1), TAG, "cs high failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_DC, 1), TAG, "dc high failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level(SOLAR_OS_BOARD_PIN_LCD_RST, 1), TAG, "rst high failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level(display->config.cs_pin, 1), TAG, "cs high failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG, "dc high failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level(display->config.reset_pin, 1), TAG, "rst high failed");
     return ESP_OK;
 }
 
 static esp_err_t rlcd_full_init(rlcd_st7305_t *display)
 {
-    rlcd_reset();
+    rlcd_reset(display);
 
     const rlcd_controller_profile_t *current = rlcd_current_controller_profile(display);
     const rlcd_controller_profile_t *profile = rlcd_frame_power_profile(display, current, true);
@@ -1348,12 +1346,12 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     }
 
     if (ret == ESP_OK) {
-        ret = rlcd_end_ram_write();
+        ret = rlcd_end_ram_write(display);
         if (ret != ESP_OK) {
             rlcd_invalidate_shadow(display);
         }
     } else {
-        (void)rlcd_end_ram_write();
+        (void)rlcd_end_ram_write(display);
         rlcd_invalidate_shadow(display);
     }
 
@@ -1371,13 +1369,23 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     return ret;
 }
 
-esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
+esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
+                           const rlcd_st7305_config_t *config)
 {
-    if (display == NULL) {
+    if (display == NULL || config == NULL || config->spi_bus == NULL ||
+        config->spi_bus[0] == '\0' || config->cs_pin < 0 ||
+        config->dc_pin < 0 || config->reset_pin < 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
     memset(display, 0, sizeof(*display));
+    display->config = *config;
+    if (display->config.spi_clock_hz == 0) {
+        display->config.spi_clock_hz = RLCD_SPI_CLOCK_HZ;
+    }
+    if (display->config.rotation == NULL) {
+        display->config.rotation = U8G2_R1;
+    }
     display->last_error = ESP_OK;
     display->controller_mode = "hpm";
     display->idle_lpm_delay_ms = RLCD_IDLE_LPM_DELAY_DEFAULT_MS;
@@ -1400,27 +1408,17 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
                  esp_err_to_name(tuning_err));
     }
 
-    ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(), TAG, "control pin config failed");
-
-    const spi_bus_config_t bus_config = {
-        .mosi_io_num = SOLAR_OS_BOARD_PIN_LCD_MOSI,
-        .miso_io_num = -1,
-        .sclk_io_num = SOLAR_OS_BOARD_PIN_LCD_SCK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = RLCD_MAX_TRANSFER_BYTES,
-    };
-    ESP_RETURN_ON_ERROR(spi_bus_initialize(RLCD_SPI_HOST, &bus_config, SPI_DMA_CH_AUTO), TAG,
-                        "spi bus init failed");
-    display->bus_initialized = true;
+    ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(display), TAG, "control pin config failed");
 
     const spi_device_interface_config_t device_config = {
-        .clock_speed_hz = RLCD_SPI_CLOCK_HZ,
+        .clock_speed_hz = (int)display->config.spi_clock_hz,
         .mode = 0,
         .spics_io_num = -1,
         .queue_size = 1,
     };
-    ESP_RETURN_ON_ERROR(spi_bus_add_device(RLCD_SPI_HOST, &device_config, &display->spi), TAG,
+    ESP_RETURN_ON_ERROR(solar_os_bus_spi_add_device(display->config.spi_bus,
+                                                    &device_config,
+                                                    &display->spi), TAG,
                         "spi add device failed");
 
     display->buffer_size = RLCD_BUFFER_ROW_BYTES * RLCD_TILE_HEIGHT;
@@ -1467,7 +1465,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display)
     u8g2_SetupDisplay(&display->u8g2, rlcd_u8x8_display_cb, u8x8_dummy_cb,
                       rlcd_u8x8_byte_cb, u8x8_dummy_cb);
     u8g2_SetupBuffer(&display->u8g2, display->buffer, RLCD_TILE_HEIGHT,
-                     u8g2_ll_hvline_vertical_top_lsb, U8G2_R1);
+                     u8g2_ll_hvline_vertical_top_lsb, display->config.rotation);
     active_display = display;
     u8g2_InitDisplay(&display->u8g2);
     u8g2_SetPowerSave(&display->u8g2, 0);
@@ -1483,7 +1481,7 @@ esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display)
 
     rlcd_cancel_idle_lpm_timer(display);
     display->frame_content_changed = false;
-    ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(), TAG, "resume pin config failed");
+    ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(display), TAG, "resume pin config failed");
     active_display = display;
     display->last_error = ESP_OK;
     rlcd_invalidate_shadow(display);
@@ -1509,11 +1507,6 @@ void rlcd_st7305_deinit(rlcd_st7305_t *display)
     if (display->spi != NULL) {
         spi_bus_remove_device(display->spi);
         display->spi = NULL;
-    }
-
-    if (display->bus_initialized) {
-        spi_bus_free(RLCD_SPI_HOST);
-        display->bus_initialized = false;
     }
 
     if (display->buffer != NULL) {

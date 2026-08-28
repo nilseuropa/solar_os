@@ -32,6 +32,11 @@ extern "C" {
 #endif
 
 typedef struct {
+    int output_pin;
+    const u8g2_cb_t *rotation;
+} cvbs_pal_config_t;
+
+typedef struct {
     u8g2_t u8g2;
     uint8_t *draw_buffer;
     uint8_t *scanout_buffers[2];
@@ -53,9 +58,10 @@ typedef struct {
     volatile int8_t copying_buffer;
     esp_err_t last_error;
     bool signal_started;
+    cvbs_pal_config_t config;
 } cvbs_pal_t;
 
-esp_err_t cvbs_pal_init(cvbs_pal_t *display);
+esp_err_t cvbs_pal_init(cvbs_pal_t *display, const cvbs_pal_config_t *config);
 esp_err_t cvbs_pal_resume(cvbs_pal_t *display);
 esp_err_t cvbs_pal_present_mono_xbm(cvbs_pal_t *display,
                                     const uint8_t *bitmap,

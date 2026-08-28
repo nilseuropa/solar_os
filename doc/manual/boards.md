@@ -894,8 +894,8 @@ Use a revision-specific board profile if one of those pins must be exposed.
 ## Display Boards
 
 For a board-integrated primary display, enable both `DISPLAY` and `GFX`, include
-the display fragment, and provide the controller pin macros expected by the
-selected driver:
+the display fragment, and declare the packaged driver as an immutable early
+`display0` attachment in the board header:
 
 ```cmake
 include("${CMAKE_CURRENT_LIST_DIR}/drivers/display_st7305.cmake")
@@ -978,19 +978,20 @@ The runtime path is:
 
 ```text
 main.c
-  -> solar_os_board_display_*
-    -> board/solar_os_board_display_<driver>.c
+  -> early fixed expansion attachments
+    -> services/solar_os_<controller>_display.c
       -> drivers/<concrete_display_driver>.c
+      -> generic board-display backend for display0
   -> solar_os_display target display0
 ```
 
-`main.c`, terminal, and graphics services should not include concrete display
-driver headers.
-
-The board panel is registered with the display service as a target with
-`source=board` and `role=primary`. Expansion display drivers should remain
-expansion drivers for attach/probe/resource management, then register their own
-display targets with `source=expansion` when attached.
+`main.c`, terminal, and graphics services do not include concrete display
+driver headers. A board panel is listed as a fixed expansion device and is
+registered with the display service as `display0`, `source=board`, and
+`role=primary`. When that controller driver is not already attached, a runtime
+attachment uses another name and registers an auxiliary target with
+`source=expansion`. Each of these controller drivers supports one attached
+instance at a time.
 
 ## Storage, I2C, Sensors, RTC, And Audio
 

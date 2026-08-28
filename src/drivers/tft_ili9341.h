@@ -13,6 +13,23 @@ extern "C" {
 #endif
 
 typedef struct {
+    const char *spi_bus;
+    int cs_pin;
+    int dc_pin;
+    int reset_pin;
+    int backlight_pin;
+    uint32_t spi_clock_hz;
+    uint32_t backlight_pwm_hz;
+    uint16_t width;
+    uint16_t height;
+    uint8_t madctl;
+    bool st7796;
+    bool backlight_active_high;
+    bool backlight_pwm;
+    const u8g2_cb_t *rotation;
+} tft_ili9341_config_t;
+
+typedef struct {
     spi_device_handle_t spi;
     u8g2_t u8g2;
     uint8_t *buffer;
@@ -26,11 +43,16 @@ typedef struct {
     uint16_t background_rgb565;
     esp_err_t last_error;
     uint8_t backlight_percent;
-    bool bus_acquired;
     bool backlight_power;
+    tft_ili9341_config_t config;
+    u8x8_display_info_t display_info;
+    uint16_t tile_width;
+    uint16_t tile_height;
+    size_t buffer_row_bytes;
 } tft_ili9341_t;
 
-esp_err_t tft_ili9341_init(tft_ili9341_t *display);
+esp_err_t tft_ili9341_init(tft_ili9341_t *display,
+                           const tft_ili9341_config_t *config);
 esp_err_t tft_ili9341_resume(tft_ili9341_t *display);
 void tft_ili9341_deinit(tft_ili9341_t *display);
 u8g2_t *tft_ili9341_get_u8g2(tft_ili9341_t *display);

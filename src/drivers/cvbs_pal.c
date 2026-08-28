@@ -26,7 +26,6 @@
 #include "soc/i2s_struct.h"
 #include "soc/periph_defs.h"
 #include "soc/rtc.h"
-#include "solar_os_board.h"
 
 #define CVBS_NATIVE_WIDTH CVBS_PAL_HEIGHT
 #define CVBS_NATIVE_HEIGHT CVBS_PAL_WIDTH
@@ -591,7 +590,7 @@ static esp_err_t cvbs_start_signal(cvbs_pal_t *display)
     if (display->signal_started) {
         return ESP_OK;
     }
-    if (SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO != GPIO_NUM_25) {
+    if (display->config.output_pin != GPIO_NUM_25) {
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -858,13 +857,17 @@ static uint8_t cvbs_u8x8_display_cb(u8x8_t *u8x8,
     return err == ESP_OK ? 1 : 0;
 }
 
-esp_err_t cvbs_pal_init(cvbs_pal_t *display)
+esp_err_t cvbs_pal_init(cvbs_pal_t *display, const cvbs_pal_config_t *config)
 {
-    if (display == NULL) {
+    if (display == NULL || config == NULL || config->output_pin != GPIO_NUM_25) {
         return ESP_ERR_INVALID_ARG;
     }
 
     memset(display, 0, sizeof(*display));
+    display->config = *config;
+    if (display->config.rotation == NULL) {
+        display->config.rotation = U8G2_R1;
+    }
     if (!pixel_lut_ready) {
         for (size_t pattern = 0; pattern < 16U; pattern++) {
             for (size_t pair = 0; pair < 2U; pair++) {
@@ -913,7 +916,7 @@ esp_err_t cvbs_pal_init(cvbs_pal_t *display)
                      display->draw_buffer,
                      CVBS_TILE_HEIGHT,
                      u8g2_ll_hvline_vertical_top_lsb,
-                     SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION);
+                     display->config.rotation);
     active_display = display;
     u8g2_InitDisplay(&display->u8g2);
     if (display->last_error != ESP_OK) {

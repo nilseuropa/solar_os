@@ -157,6 +157,21 @@
 
 #define SOLAR_OS_BOARD_BUSES { \
     { \
+        .name = "spi0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SOLAR_OS_BOARD_SPI_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_SPI_SCLK, \
+            .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
+            .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
+            .cs_count = 1, \
+            .cs = {{.name = "display", .pin = SOLAR_OS_BOARD_PIN_LCD_CS}}, \
+        }, \
+    }, \
+    { \
         .name = "i2c0", \
         .protocol = SOLAR_OS_BUS_PROTOCOL_I2C, \
         .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
@@ -182,8 +197,21 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 4
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "st7796", \
+        .name = "display0", \
+        .binding_count = 6, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = SOLAR_OS_BOARD_PIN_LCD_CS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .value = SOLAR_OS_BOARD_PIN_LCD_DC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bl", .value = SOLAR_OS_BOARD_PIN_LCD_BL}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .value = 1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "pwm", .value = 1}, \
+        }, \
+    }, \
     { \
         .driver = "ft6336", \
         .name = "touch0", \

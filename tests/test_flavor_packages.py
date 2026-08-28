@@ -100,6 +100,35 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(s3["driver_audio_esp32_dac"])
         self.assertTrue(s3["driver_audio_es8311_codecs"])
 
+    def test_spi_display_drivers_support_both_esp32_targets(self):
+        _, _, _, packages = self.resolve("full")
+
+        portable_spi_displays = (
+            "driver_display_st7305",
+            "driver_display_ili9341",
+            "driver_display_st7796",
+        )
+
+        classic = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32",
+        )
+        for package in portable_spi_displays:
+            self.assertTrue(classic[package], package)
+        self.assertTrue(classic["driver_display_cvbs_pal"])
+        self.assertTrue(classic["driver_display_vga32"])
+
+        s3 = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32s3",
+        )
+        for package in portable_spi_displays:
+            self.assertTrue(s3[package], package)
+        self.assertFalse(s3["driver_display_cvbs_pal"])
+        self.assertFalse(s3["driver_display_vga32"])
+
     def test_target_pruning_requires_a_target(self):
         _, _, _, packages = self.resolve("full")
         with self.assertRaisesRegex(ValueError, "MCU target is required"):

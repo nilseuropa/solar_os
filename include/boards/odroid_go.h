@@ -51,8 +51,9 @@
             .miso_pin = SOLAR_OS_BOARD_PIN_SPI_MISO, \
             .mosi_pin = SOLAR_OS_BOARD_PIN_SPI_MOSI, \
             .max_transfer_size = SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ, \
-            .cs_count = 2, \
+            .cs_count = 3, \
             .cs = { \
+                {.name = "display", .pin = GPIO_NUM_5}, \
                 {.name = "io15", .pin = GPIO_NUM_15}, \
                 {.name = "io4", .pin = GPIO_NUM_4}, \
             }, \
@@ -83,8 +84,21 @@
 #define SOLAR_OS_BOARD_PIN_BATTERY_ADC GPIO_NUM_36
 #define SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO 2.0f
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "ili9341", \
+        .name = "display0", \
+        .binding_count = 6, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = SOLAR_OS_BOARD_PIN_TFT_CS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .value = SOLAR_OS_BOARD_PIN_TFT_DC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bl", .value = SOLAR_OS_BOARD_PIN_TFT_LED}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .value = 1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "pwm", .value = 1}, \
+        }, \
+    }, \
     { \
         .driver = "battery-adc", \
         .name = "battery0", \
@@ -172,8 +186,15 @@
 #define SOLAR_OS_BOARD_USER_GPIO_LIST "4 15"
 #define SOLAR_OS_BOARD_EXPANSION_PWM_MASK SOLAR_OS_BOARD_USER_GPIO_MASK
 #define SOLAR_OS_BOARD_GPIO_SLOTS { \
+    {.pin = 1, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "USB-UART TX"}, \
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "status LED"}, \
+    {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "USB-UART RX"}, \
+    {.pin = 5, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD CS"}, \
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD backlight"}, \
+    {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI SCLK"}, \
+    {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI MISO"}, \
+    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "LCD D/C"}, \
+    {.pin = 23, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SPI MOSI"}, \
     {.pin = 25, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker enable"}, \
     {.pin = 26, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "speaker DAC"}, \
     {.pin = 36, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "battery ADC"}, \

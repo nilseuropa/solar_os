@@ -126,8 +126,23 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "vga32", \
+        .name = "display0", \
+        .binding_count = 8, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "r0", .value = SOLAR_OS_BOARD_PIN_VGA_RED0}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "r1", .value = SOLAR_OS_BOARD_PIN_VGA_RED1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "g0", .value = SOLAR_OS_BOARD_PIN_VGA_GREEN0}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "g1", .value = SOLAR_OS_BOARD_PIN_VGA_GREEN1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "b0", .value = SOLAR_OS_BOARD_PIN_VGA_BLUE0}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "b1", .value = SOLAR_OS_BOARD_PIN_VGA_BLUE1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "hsync", .value = SOLAR_OS_BOARD_PIN_VGA_HSYNC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "vsync", .value = SOLAR_OS_BOARD_PIN_VGA_VSYNC}, \
+        }, \
+    }, \
     { \
         .driver = "ps2-keyboard", \
         .name = "keyboard0", \

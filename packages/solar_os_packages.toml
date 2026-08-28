@@ -57,6 +57,11 @@ members = [
   "driver_battery_adc",
   "driver_audio_es8311_codecs",
   "driver_audio_esp32_dac",
+  "driver_display_st7305",
+  "driver_display_ili9341",
+  "driver_display_st7796",
+  "driver_display_cvbs_pal",
+  "driver_display_vga32",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -978,6 +983,71 @@ sources = [
 ]
 requires = ["esp_driver_dac", "esp_driver_gpio"]
 capabilities = ["expansion_gpio"]
+
+[packages.driver_display_st7305]
+label = "driver.display-st7305"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_st7305_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/rlcd_st7305.c",
+  "services/solar_os_st7305_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_ili9341]
+label = "driver.display-ili9341"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ili9341_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_pwm"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_st7796]
+label = "driver.display-st7796"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_st7796_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_pwm"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_cvbs_pal]
+label = "driver.display-cvbs-pal"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_cvbs_pal_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/cvbs_pal.c",
+  "services/solar_os_cvbs_display.c",
+]
+requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_vga32]
+label = "driver.display-vga32"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_vga32_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/vga32.c",
+  "services/solar_os_vga32_display.c",
+]
+requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

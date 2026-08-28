@@ -497,7 +497,15 @@ static esp_err_t acquire_binding_buses(const solar_os_expansion_binding_t *bindi
     return ESP_OK;
 }
 
-esp_err_t solar_os_expansion_init(void)
+static bool expansion_device_exists(const char *name)
+{
+    portENTER_CRITICAL(&devices_lock);
+    const bool exists = find_device_locked(name) >= 0;
+    portEXIT_CRITICAL(&devices_lock);
+    return exists;
+}
+
+static esp_err_t expansion_init_board_defaults(bool early)
 {
     ESP_RETURN_ON_ERROR(solar_os_resources_init(), "expansion", "resource init failed");
     ESP_RETURN_ON_ERROR(solar_os_buses_init(), "expansion", "bus init failed");
@@ -505,6 +513,10 @@ esp_err_t solar_os_expansion_init(void)
 #if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
     for (size_t i = 0; i < SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT; i++) {
         const solar_os_expansion_default_device_t *device = &board_default_devices[i];
+        const solar_os_expansion_driver_t *driver = find_driver(device->driver);
+        if (driver == NULL || driver->early != early || expansion_device_exists(device->name)) {
+            continue;
+        }
         const esp_err_t err = expansion_attach(device->driver,
                                                device->name,
                                                device->bindings,
@@ -525,6 +537,16 @@ esp_err_t solar_os_expansion_init(void)
     }
 #endif
     return first_error;
+}
+
+esp_err_t solar_os_expansion_init_early(void)
+{
+    return expansion_init_board_defaults(true);
+}
+
+esp_err_t solar_os_expansion_init(void)
+{
+    return expansion_init_board_defaults(false);
 }
 
 bool solar_os_expansion_available(void)

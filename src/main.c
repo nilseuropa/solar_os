@@ -31,6 +31,9 @@
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
 #include "solar_os_display.h"
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+#include "solar_os_expansion.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
 #include "solar_os_espnow.h"
 #endif
@@ -1452,6 +1455,17 @@ void app_main(void)
                                            session_terminal_changed,
                                            session_overlay_requested,
                                            NULL));
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (board_has(SOLAR_OS_BOARD_CAP_DISPLAY)) {
+        const esp_err_t expansion_err = solar_os_expansion_init_early();
+        if (expansion_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "Early expansion initialization incomplete: %s",
+                          esp_err_to_name(expansion_err));
+        }
+    }
+#endif
 
     if (board_has(SOLAR_OS_BOARD_CAP_DISPLAY)) {
 #if SOLAR_OS_BOARD_HAS_DISPLAY
