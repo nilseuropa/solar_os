@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "sdmmc", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdmmc sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -29,6 +29,11 @@ attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses
 `ili9341`, Elecrow CrowPanel uses `ssd1683`, ESP32-WROVER v3.0 uses `cvbs-pal`,
 and TTGO VGA32 uses `vga32`. They attach before the splash and primary display
 service start.
+
+Built-in SDMMC slots also appear as fixed `storage0` attachments. Waveshare and
+ESP32-WROVER v3.0 use one-bit bindings; Freenove uses four-bit bindings. The
+attachment claims and configures the pins early, while the normal storage phase
+still probes and mounts the card.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
@@ -150,6 +155,18 @@ expansion detach card0
 The `sdspi` attach command prints the card probe result to the invoking shell.
 The report includes the card identity, type, negotiated speed, capacity, CSD/SSR
 details, mount point, and any underlying block-I/O or FatFs mount error.
+
+An SDMMC adapter uses direct clock, command, and data bindings. On ESP32-S3 the
+signals can use the GPIO matrix. Classic ESP32 accepts only the native slot-1
+pinout: CLK GPIO14, CMD GPIO15, D0 GPIO2, and optionally D1 GPIO4, D2 GPIO12,
+D3 GPIO13.
+
+```text
+expansion attach sdmmc card0 clk=gpio14 cmd=gpio15 d0=gpio2
+disk lsblk
+disk umount
+expansion detach card0
+```
 
 An RFM95W wired to the ESP32-S3-DevKitC-1 `spi0` bus with NSS on GPIO4 and
 reset on GPIO5 attaches as a multimode packet radio:

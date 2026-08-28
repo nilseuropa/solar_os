@@ -45,6 +45,7 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1683",
   "expansion_ssd1306",
+  "expansion_sdmmc",
   "expansion_sdspi",
   "expansion_cardkb",
   "expansion_analog_joystick",
@@ -916,6 +917,20 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_sdspi", "fatfs", "heap", "sdmmc"]
 capabilities = ["expansion_spi"]
+
+[packages.expansion_sdmmc]
+label = "expansion.sdmmc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sdmmc_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_storage_sd.c",
+  "drivers/sd_card.c",
+  "services/solar_os_sdmmc.c",
+  "services/solar_os_sdmmc_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_sdmmc", "fatfs", "heap", "sdmmc"]
+capabilities = ["expansion_gpio"]
 
 [packages.expansion_neopixel]
 label = "expansion.neopixel"

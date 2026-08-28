@@ -207,8 +207,8 @@ this board implements those capabilities. For example, a board with
 `drivers/display_st7305.cmake`.
 
 Each fragment appends board-specific sources to `SOLAR_OS_BOARD_SRCS`, appends
-ESP-IDF component dependencies to `SOLAR_OS_BOARD_REQUIRES`, and sets the
-matching selector variable. That keeps concrete source/dependency mapping close
+ESP-IDF component dependencies or required driver packages, and sets the
+matching selector variable. That keeps concrete implementation selection close
 to the driver definition.
 
 Current built-in driver selector values:
@@ -282,9 +282,9 @@ The current capability flags are:
 | `HUMIDITY` | Humidity sensor service. |
 
 `src/CMakeLists.txt` validates that every enabled driver-backed capability has a
-matching selector, then consumes `SOLAR_OS_BOARD_SRCS` and
-`SOLAR_OS_BOARD_REQUIRES`. It does not know which concrete source files belong
-to ST7305, SDMMC, PCF85063, or any future driver.
+matching selector, then consumes direct board sources and required packages. It
+does not know which concrete source files belong to ST7305, SDMMC, PCF85063, or
+any future driver.
 
 Expansion capabilities are compile-time gates for external hardware packages.
 Use them when a package needs connector resources rather than an internal board
@@ -530,7 +530,8 @@ board_build.cmake_extra_args = -DSOLAR_OS_BOARD=odroid_go -DSDKCONFIG_DEFAULTS=s
 The `freenove_esp32_wrover_v3` target covers the FNK0060 v3.0 board with an
 ESP32-WROVER-E-N4R8 module, 4 MB flash, 8 MB physical PSRAM, a CH340 USB-to-UART
 bridge, and the rear microSD slot. It uses `uart0` on GPIO1/GPIO3 as the boot
-shell and one-bit SDMMC on GPIO14 clock, GPIO15 command, and GPIO2 data.
+shell and a fixed `storage0` one-bit SDMMC attachment on GPIO14 clock, GPIO15
+command, and GPIO2 data.
 The active-low BOOT button on GPIO0 is also the SolarOS KEY. A short press uses
 the configured sleep or suspend action; another short press resumes from
 suspend. A long press forgets the remembered BLE
@@ -736,7 +737,8 @@ touch0 ...`.
 
 The ES8311 is configured as one duplex codec: GPIO8 carries playback data to
 the codec, GPIO6 carries microphone data to the ESP32-S3, and GPIO1 controls
-the active-low speaker amplifier. The SD slot uses four-bit SDMMC. Battery
+the active-low speaker amplifier. The SD slot is the fixed four-bit SDMMC
+attachment `storage0`. Battery
 voltage is measured on GPIO9 through the board divider. The TP4054 circuit is
 an analog charger, not a digitally addressable fuel gauge or battery manager.
 
@@ -1028,6 +1030,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/drivers/sensors_shtc3.cmake")
 SDSPI boards provide the shared SPI bus metadata and an SD-card chip select
 instead of SDMMC pins. The ODROID-GO target uses VSPI on GPIO18/GPIO19/GPIO23
 and `SOLAR_OS_BOARD_PIN_SD_CARD_CS` on GPIO22.
+SDMMC boards use those pin macros only in their fixed `storage0` attachment;
+the package driver consumes the resulting bindings and is not included through
+board-pin `#ifdef` branches.
 Boards with a switched card supply can additionally define
 `SOLAR_OS_BOARD_PIN_SD_POWER` and `SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL`; the
 shared storage adapter enables that rail before probing or mounting the card.

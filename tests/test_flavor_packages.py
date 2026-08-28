@@ -68,6 +68,7 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertTrue(pruned["driver_pcf85063"], target)
             self.assertTrue(pruned["driver_shtc3"], target)
             self.assertTrue(pruned["driver_battery_adc"], target)
+            self.assertTrue(pruned["expansion_sdmmc"], target)
 
     def test_target_pruning_removes_incompatible_driver_and_dependents(self):
         _, _, _, packages = self.resolve("full")
@@ -80,6 +81,18 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(pruned["expansion_neopixel"])
         self.assertFalse(pruned["expansion_audio_pwm"])
         self.assertFalse(pruned["expansion_pcm5102"])
+
+    def test_sdmmc_expansion_uses_direct_gpio_capability(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+
+        self.assertTrue(pruned["expansion_sdmmc"])
+        self.assertFalse(pruned["expansion_sdspi"])
 
     def test_audio_backend_drivers_are_target_specific(self):
         _, _, _, packages = self.resolve("full")

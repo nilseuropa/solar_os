@@ -251,6 +251,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `ps2-mouse` | Standard three-button PS/2 mouse | `ps2=<bus>` | Enables reporting and publishes relative pointer motion and button events. |
 | `analog-joystick` | Two-axis analog joystick | `x=<scalar-stream> y=<scalar-stream> min=<value> center=<value> max=<value>`; optional `deadzone=<value>` | Normalizes two scalar streams into X/Y axis events without generating keys. |
 | `ft6336` | Board-integrated FT6336 touch controller | Board-defined I2C, address, reset, and IRQ bindings | Publishes absolute pointer events as a default board attachment. |
+| `sdmmc` | Native SD/MMC card slot | `clk=<pin> cmd=<pin> d0=<pin>`; optional four-bit set `d1=<pin> d2=<pin> d3=<pin>` | Built-in slots register as fixed `storage0`; runtime attachments mount removable FAT storage at `/sdcard`. Classic ESP32 uses its native slot-1 pins. |
 | `sdspi` | SPI microSD card adapter | `spi=<bus> cs=<pin>` | On boards without built-in SD, mounts removable FAT storage at `/sdcard`; run `disk umount` before detach. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |

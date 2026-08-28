@@ -116,6 +116,9 @@
     {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "KEY"}, \
     {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
     {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
+    {.pin = 21, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC CMD"}, \
+    {.pin = 38, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC CLK"}, \
+    {.pin = 39, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "SDMMC D0"}, \
     {.pin = 40, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display CS"}, \
     {.pin = 41, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "display reset"}, \
     {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART TX"}, \
@@ -169,7 +172,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 5
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 6
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "st7305", \
@@ -222,6 +225,16 @@
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "din", .value = SOLAR_OS_BOARD_PIN_I2S_DIN}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dout", .value = SOLAR_OS_BOARD_PIN_I2S_DOUT}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .value = SOLAR_OS_BOARD_PIN_AUDIO_PA}, \
+        }, \
+    }, \
+    { \
+        .driver = "sdmmc", \
+        .name = "storage0", \
+        .binding_count = 3, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "clk", .value = SOLAR_OS_BOARD_PIN_SDMMC_CLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "cmd", .value = SOLAR_OS_BOARD_PIN_SDMMC_CMD}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d0", .value = SOLAR_OS_BOARD_PIN_SDMMC_D0}, \
         }, \
     }, \
 }

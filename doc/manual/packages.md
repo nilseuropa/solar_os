@@ -60,6 +60,11 @@ the same drivers as default board-selected attachments.
 `expansion.sdspi` adds removable SPI microSD storage to boards that do not have
 built-in SD hardware. It uses a named expansion SPI bus and mounts at
 `/sdcard` without changing the internal-flash root filesystem.
+`expansion.sdmmc` provides the native SD/MMC host on ESP32 and ESP32-S3. Boards
+with an integrated slot declare a fixed early `storage0` attachment; boards
+without one can attach the same driver at runtime. Classic ESP32 accepts only
+its native slot-1 pinout, while ESP32-S3 can route the signals through its GPIO
+matrix.
 
 ## Ownership Rules
 

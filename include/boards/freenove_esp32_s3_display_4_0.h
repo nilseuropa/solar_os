@@ -197,7 +197,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 4
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 5
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "st7796", \
@@ -264,6 +264,19 @@
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "din", .value = SOLAR_OS_BOARD_PIN_I2S_DIN}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dout", .value = SOLAR_OS_BOARD_PIN_I2S_DOUT}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .value = SOLAR_OS_BOARD_PIN_AUDIO_PA}, \
+        }, \
+    }, \
+    { \
+        .driver = "sdmmc", \
+        .name = "storage0", \
+        .binding_count = 6, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "clk", .value = SOLAR_OS_BOARD_PIN_SDMMC_CLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "cmd", .value = SOLAR_OS_BOARD_PIN_SDMMC_CMD}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d0", .value = SOLAR_OS_BOARD_PIN_SDMMC_D0}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d1", .value = SOLAR_OS_BOARD_PIN_SDMMC_D1}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d2", .value = SOLAR_OS_BOARD_PIN_SDMMC_D2}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d3", .value = SOLAR_OS_BOARD_PIN_SDMMC_D3}, \
         }, \
     }, \
 }

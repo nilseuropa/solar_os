@@ -59,7 +59,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "cvbs-pal", \
@@ -68,6 +68,16 @@
         .bindings = { \
             {.kind = SOLAR_OS_EXPANSION_BINDING_I2S_PORT, .value = I2S_NUM_0}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "out", .value = SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO}, \
+        }, \
+    }, \
+    { \
+        .driver = "sdmmc", \
+        .name = "storage0", \
+        .binding_count = 3, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "clk", .value = SOLAR_OS_BOARD_PIN_SDMMC_CLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "cmd", .value = SOLAR_OS_BOARD_PIN_SDMMC_CMD}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "d0", .value = SOLAR_OS_BOARD_PIN_SDMMC_D0}, \
         }, \
     }, \
 }
