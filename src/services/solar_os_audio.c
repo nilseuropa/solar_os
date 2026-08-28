@@ -1242,10 +1242,6 @@ esp_err_t solar_os_audio_stream_open(const char *owner,
     (void)timeout_ms;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (!solar_os_audio_backend_has_input()) {
-        (void)timeout_ms;
-        return ESP_ERR_NOT_SUPPORTED;
-    }
     esp_err_t ret = audio_operation_take(audio_timeout_ticks(timeout_ms));
     if (ret != ESP_OK) {
         return ret;
@@ -1345,6 +1341,10 @@ esp_err_t solar_os_audio_input_stream_open(const char *owner,
     (void)timeout_ms;
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (!solar_os_audio_backend_has_input()) {
+        (void)timeout_ms;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t ret = audio_operation_take(audio_timeout_ticks(timeout_ms));
     if (ret != ESP_OK) {
         return ret;
