@@ -9,8 +9,7 @@
 
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
-#if SOLAR_OS_BOARD_STORAGE_SDSPI || \
-    (SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD)
+#if SOLAR_OS_BOARD_STORAGE_SDSPI || SOLAR_OS_PACKAGE_EXPANSION_SDSPI
 #include "driver/sdspi_host.h"
 #endif
 #if SOLAR_OS_BOARD_STORAGE_SDSPI
@@ -41,8 +40,8 @@
 #define SD_CARD_EXTRA_MAX_FILES 3
 #define SD_CARD_ALLOC_UNIT_SIZE (16 * 1024)
 
-#define SD_CARD_HAS_SDSPI (SOLAR_OS_BOARD_STORAGE_SDSPI || \
-                           (SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD))
+#define SD_CARD_HAS_SDSPI \
+    (SOLAR_OS_BOARD_STORAGE_SDSPI || SOLAR_OS_PACKAGE_EXPANSION_SDSPI)
 
 typedef enum {
     SD_CARD_TRANSPORT_NONE,
@@ -71,7 +70,7 @@ static bool sdspi_device_ready;
 #if SOLAR_OS_BOARD_STORAGE_SDSPI
 static bool sdspi_bus_acquired;
 #endif
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
 static bool sdspi_runtime_configured;
 static int sdspi_runtime_host = -1;
 static int sdspi_runtime_cs = -1;
@@ -102,7 +101,7 @@ static FRESULT diagnostics_fresult = FR_OK;
 
 static bool sd_card_has_active_mounts(void);
 
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
 static void diagnostics_note_diskio_error(const char *operation, esp_err_t err)
 {
     if (err == ESP_OK) {
@@ -290,13 +289,18 @@ static void sd_card_make_slot_config(sdmmc_slot_config_t *slot_config)
 static void sd_card_make_spi_config(sdspi_device_config_t *device_config)
 {
     *device_config = (sdspi_device_config_t)SDSPI_DEVICE_CONFIG_DEFAULT();
-#if SOLAR_OS_BOARD_STORAGE_SDSPI
-    device_config->host_id = solar_os_spi_bus_host();
-    device_config->gpio_cs = SOLAR_OS_BOARD_PIN_SD_CARD_CS;
-#else
-    device_config->host_id = (spi_host_device_t)sdspi_runtime_host;
-    device_config->gpio_cs = sdspi_runtime_cs;
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+    if (transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME) {
+        device_config->host_id = (spi_host_device_t)sdspi_runtime_host;
+        device_config->gpio_cs = sdspi_runtime_cs;
+    } else
 #endif
+    {
+#if SOLAR_OS_BOARD_STORAGE_SDSPI
+        device_config->host_id = solar_os_spi_bus_host();
+        device_config->gpio_cs = SOLAR_OS_BOARD_PIN_SD_CARD_CS;
+#endif
+    }
     device_config->gpio_cd = SDSPI_SLOT_NO_CD;
     device_config->gpio_wp = SDSPI_SLOT_NO_WP;
     device_config->gpio_int = SDSPI_SLOT_NO_INT;
@@ -316,7 +320,7 @@ static void sd_card_reset_diagnostics(void)
 
 esp_err_t sd_card_configure_sdspi(int host_id, int cs_pin)
 {
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
     if (host_id < 0 || cs_pin < 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -338,7 +342,7 @@ esp_err_t sd_card_configure_sdspi(int host_id, int cs_pin)
 
 esp_err_t sd_card_clear_sdspi_config(void)
 {
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
     if (transport != SD_CARD_TRANSPORT_SDSPI_RUNTIME) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -777,27 +781,35 @@ static esp_err_t ensure_card_ready(void)
 #if SD_CARD_HAS_SDSPI
     if (transport == SD_CARD_TRANSPORT_SDSPI_BOARD ||
         transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME) {
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
         if (transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME && !sdspi_runtime_configured) {
             diagnostics_init_error = ESP_ERR_NOT_SUPPORTED;
             set_mount_error_status(ESP_ERR_NOT_SUPPORTED);
             return ESP_ERR_NOT_SUPPORTED;
         }
-#else
-        ret = solar_os_spi_bus_acquire();
-        if (ret != ESP_OK) {
-            set_mount_error_status(ret);
-            return ret;
+#endif
+#if SOLAR_OS_BOARD_STORAGE_SDSPI
+        if (transport == SD_CARD_TRANSPORT_SDSPI_BOARD) {
+            ret = solar_os_spi_bus_acquire();
+            if (ret != ESP_OK) {
+                set_mount_error_status(ret);
+                return ret;
+            }
+            sdspi_bus_acquired = true;
         }
-        sdspi_bus_acquired = true;
 #endif
 
         host = (sdmmc_host_t)SDSPI_HOST_DEFAULT();
-#if SOLAR_OS_BOARD_STORAGE_SDSPI
-        host.slot = solar_os_spi_bus_host();
-#else
-        host.slot = sdspi_runtime_host;
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+        if (transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME) {
+            host.slot = sdspi_runtime_host;
+        } else
 #endif
+        {
+#if SOLAR_OS_BOARD_STORAGE_SDSPI
+            host.slot = solar_os_spi_bus_host();
+#endif
+        }
         sdspi_device_config_t device_config;
         sd_card_make_spi_config(&device_config);
 
@@ -869,7 +881,7 @@ static esp_err_t ensure_card_ready(void)
 
     card = &card_storage;
     physical_pdrv = pdrv;
-#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
     if (transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME) {
         ff_diskio_register(physical_pdrv, &sd_card_diskio);
     } else

@@ -71,6 +71,14 @@ board = _selected_board()
 cvbs_mode = _selected_cvbs_mode()
 vga_mode = _selected_vga_mode()
 
+# ESP-IDF runs component discovery in child CMake processes that do not always
+# inherit PlatformIO's CMake cache arguments. Export the resolved selection so
+# those processes cannot fall back to another board or flavor.
+os.environ["SOLAR_OS_BOARD"] = board
+os.environ["SOLAR_OS_FLAVOR"] = flavor
+os.environ["SOLAR_OS_CVBS_MODE"] = cvbs_mode
+os.environ["SOLAR_OS_VGA_MODE"] = vga_mode
+
 acquire_project_build_lock(project_dir, env["PIOENV"])
 
 flavor_file = project_dir / "flavors" / f"{flavor}.toml"
@@ -86,6 +94,7 @@ if os.environ.get("SOLAR_OS_BOARD"):
 stamp_dir = build_dir / "generated" / "solar_os"
 stamp_path = stamp_dir / "platformio_build_selection.txt"
 board_files = tuple(sorted((project_dir / "boards").rglob("*.cmake")))
+board_manifest_files = tuple(sorted((project_dir / "boards").rglob("*.toml")))
 board_headers = tuple(sorted((project_dir / "include" / "boards").glob("*.h")))
 sdkconfig_default_files = tuple(sorted(project_dir.glob("sdkconfig.defaults*")))
 tracked_files = (
@@ -95,13 +104,15 @@ tracked_files = (
     project_dir / "scripts" / "platformio_solaros_flavor.py",
     project_dir / "scripts" / "solaros_build_lock.py",
     project_dir / "scripts" / "validate_board_metadata.py",
+    project_dir / "scripts" / "generate_board_profile.py",
+    project_dir / "scripts" / "solaros_board_manifest.py",
     project_dir / "src" / "CMakeLists.txt",
     project_dir / "src" / "services" / "solar_os_board_caps.h",
     project_dir / "src" / "services" / "solar_os_board_caps.c",
     project_dir / "include" / "solar_os_board.h",
     project_dir / "doc" / "manual" / "boards.md",
     project_dir / "doc" / "manual" / "expansion.reference.md",
-) + board_files + board_headers + sdkconfig_default_files
+) + board_files + board_manifest_files + board_headers + sdkconfig_default_files
 stamp = (
     f"board={board}\n"
     f"flavor={flavor}\n"
