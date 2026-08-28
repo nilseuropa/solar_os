@@ -26,8 +26,9 @@ whether the attachment came from the board profile or the shell.
 
 Built-in displays follow the same rule and appear as fixed `display0`
 attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses
-`ili9341`, ESP32-WROVER v3.0 uses `cvbs-pal`, and TTGO VGA32 uses `vga32`.
-They attach before the splash and primary display service start.
+`ili9341`, Elecrow CrowPanel uses `ssd1683`, ESP32-WROVER v3.0 uses `cvbs-pal`,
+and TTGO VGA32 uses `vga32`. They attach before the splash and primary display
+service start.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART
@@ -67,6 +68,13 @@ display test epd0
 display mode epd0 refresh=fast
 expansion detach epd0
 ```
+
+The runtime defaults are the Waveshare V2 panel profile, 2 MHz SPI, and
+rotation 0. Optional `power=<gpio>`, `clock=<khz>`, `rotation=<0..3>`, and
+`panel=<0..3>` bindings adapt the same driver to integrated panels. Panel 0
+selects Elecrow BUSY-based revision detection and defaults to rotation 2;
+panels 1, 2, and 3 select the legacy Elecrow, green-sticker Elecrow, and
+Waveshare V2 profiles.
 
 Use the module's eight-wire SPI connector and power it from the same 3.3 V
 logic domain as the ESP32. The module keeps its last image after detach.

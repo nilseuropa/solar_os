@@ -38,17 +38,17 @@ Both use the generic audio backend and remain available without
 `service.audio-board`; a board with built-in audio declares a fixed default
 attachment instead of compiling a separate board adapter.
 The `driver.display-st7305`, `driver.display-st7796`,
-`driver.display-ili9341`, `driver.display-cvbs-pal`, and `driver.display-vga32`
-packages use the same model. Each package registers an expansion driver and a
-board with that integrated panel declares an immutable early `display0`
-attachment. ST7305, ST7796, and ILI9341 are available on both ESP32 and
-ESP32-S3. The I2S-based CVBS PAL and VGA32 implementations remain specific to
-classic ESP32. Generic services do not select these implementations with
-driver-specific preprocessor branches.
-`expansion.ssd1683` reuses the 400x300 SSD1683 controller implementation with a
-named SPI bus and runtime-claimed CS, D/C, reset, and BUSY pins. It registers an
-auxiliary display target and uses changed-frame partial windows in automatic
-mode; it does not replace or suspend a built-in display.
+`driver.display-ili9341`, `driver.display-cvbs-pal`, `driver.display-vga32`, and
+`expansion.ssd1683` packages use the same model. Each package registers an
+expansion driver and a board with that integrated panel declares an immutable
+early `display0` attachment. SSD1683, ST7305, ST7796, and ILI9341 are available
+on both ESP32 and ESP32-S3. The I2S-based CVBS PAL and VGA32 implementations
+remain specific to classic ESP32. Generic services do not select these
+implementations with driver-specific preprocessor branches.
+`expansion.ssd1683` uses a named SPI bus and claimed CS, D/C, reset, BUSY, and
+optional power pins. Runtime attachments register an auxiliary display target;
+Elecrow declares the same driver as its fixed primary display. Automatic mode
+uses changed-frame partial windows.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.

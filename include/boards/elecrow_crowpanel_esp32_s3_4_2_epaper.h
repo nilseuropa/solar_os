@@ -22,6 +22,21 @@
 #define SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK (1U << I2S_NUM_1)
 #define SOLAR_OS_BOARD_BUSES { \
     { \
+        .name = "spi0", \
+        .protocol = SOLAR_OS_BUS_PROTOCOL_SPI, \
+        .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
+        .sharing = SOLAR_OS_BUS_SHARED, \
+        .config.spi = { \
+            .host = SOLAR_OS_BOARD_DISPLAY_SPI_HOST, \
+            .sclk_pin = SOLAR_OS_BOARD_PIN_LCD_SCK, \
+            .miso_pin = GPIO_NUM_NC, \
+            .mosi_pin = SOLAR_OS_BOARD_PIN_LCD_MOSI, \
+            .max_transfer_size = 4092, \
+            .cs_count = 1, \
+            .cs = {{.name = "display", .pin = SOLAR_OS_BOARD_PIN_LCD_CS}}, \
+        }, \
+    }, \
+    { \
         .name = "uart0", \
         .protocol = SOLAR_OS_BUS_PROTOCOL_UART, \
         .origin = SOLAR_OS_BUS_ORIGIN_BOARD, \
@@ -36,13 +51,10 @@
 }
 
 #define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683"
-#define SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT EPD_SSD1683_PANEL_UNKNOWN
 #define SOLAR_OS_BOARD_DISPLAY_WIDTH 400
 #define SOLAR_OS_BOARD_DISPLAY_HEIGHT 300
-#define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R2
 #define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 90
 #define SOLAR_OS_BOARD_DISPLAY_SPI_HOST SPI2_HOST
-#define SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ 10000000
 
 #define SOLAR_OS_BOARD_PIN_LCD_SCK GPIO_NUM_12
 #define SOLAR_OS_BOARD_PIN_LCD_MOSI GPIO_NUM_11
@@ -50,9 +62,26 @@
 #define SOLAR_OS_BOARD_PIN_LCD_DC GPIO_NUM_46
 #define SOLAR_OS_BOARD_PIN_LCD_CS GPIO_NUM_45
 #define SOLAR_OS_BOARD_PIN_LCD_BUSY GPIO_NUM_48
-#define SOLAR_OS_BOARD_LCD_BUSY_LEVEL 1
 #define SOLAR_OS_BOARD_PIN_LCD_POWER GPIO_NUM_7
-#define SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL 1
+
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "ssd1683", \
+        .name = "display0", \
+        .binding_count = 8, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = SOLAR_OS_BOARD_PIN_LCD_CS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .value = SOLAR_OS_BOARD_PIN_LCD_DC}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .value = SOLAR_OS_BOARD_PIN_LCD_RST}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy", .value = SOLAR_OS_BOARD_PIN_LCD_BUSY}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "power", .value = SOLAR_OS_BOARD_PIN_LCD_POWER}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "clock", .value = 10000}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .value = 0}, \
+        }, \
+    }, \
+}
 
 #define SOLAR_OS_BOARD_SPI_HOST SPI3_HOST
 #define SOLAR_OS_BOARD_SPI_NAME "SD-SPI"

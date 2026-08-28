@@ -107,6 +107,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "driver_display_st7305",
             "driver_display_ili9341",
             "driver_display_st7796",
+            "expansion_ssd1683",
         )
 
         classic = generate_flavor_config.apply_target_pruning(
@@ -245,6 +246,14 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(
             self.catalog.package_defs["expansion_pcm5102"].capabilities,
             ("expansion_i2s",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_ssd1683"].depends,
+            ("service_expansion", "service_spi"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_ssd1683"].capabilities,
+            ("gfx", "expansion_gpio"),
         )
         self.assertEqual(
             self.catalog.package_defs["service_espnow"].depends,

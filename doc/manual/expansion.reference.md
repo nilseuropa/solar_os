@@ -67,7 +67,7 @@ voltage and current requirements before connecting it.
 | --- | --- | --- | --- |
 | Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO40; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | `spi0` is the fixed internal display bus; its pins are not expansion pins. |
 | ESP32-S3 Display 4.0-inch (FNK0104S) | `i2c0`: SDA GPIO16, SCL GPIO15; `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with touch and audio control. `spi0` is the fixed internal LCD bus. |
-| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. The SSD1683 stays on its dedicated internal SPI2 host. |
+| Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
 | ESP32-S3-DevKitC-1-N16R8 | `i2c0`: SDA GPIO8, SCL GPIO9; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO4/GPIO10/GPIO5/GPIO6/GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | The board-defined `spi0` is the normal expansion SPI bus. |
 | ODROID-GO | `spi0`: SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO5/GPIO15/GPIO4; `uart0`: TX GPIO1, RX GPIO3 | UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | VSPI is shared with onboard TFT and SD devices; external devices use their own allowed CS slot. |
 | ESP32-WROVER v3.0 | `uart0`: TX GPIO1, RX GPIO3 | I2C, SPI on `spi2`/`spi3`, UART on `uart1`/`uart2`, or 1-Wire, using free output-capable GPIO4, GPIO5, GPIO13, GPIO18, GPIO19, GPIO21-GPIO23, GPIO26, GPIO27, GPIO32, or GPIO33 | The rear SD slot uses the dedicated one-bit SDMMC host. GPIO34-GPIO36 and GPIO39 are available only for input signals and ADC. |
@@ -237,7 +237,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `rfm69h` | HopeRF RFM69HW/HCW high-power packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target with PA_BOOST power from -2 through 20 dBm. |
 | `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
-| `ssd1683` | Waveshare 4.2-inch V2 400x300 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>` | Registers an auxiliary display target with auto, fast, and full refresh modes. |
+| `ssd1683` | 400x300 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3> panel=<0..3>` | Registers an auxiliary target, or Elecrow's fixed `display0`, with auto, fast, and full refresh modes. Panel 0 auto-detects the Elecrow revision; 1 is legacy Elecrow, 2 is green-sticker Elecrow, and 3 is Waveshare V2. |
 | `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
 | `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
 | `st7305` | 400x300 reflective LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | ESP32 and ESP32-S3; Waveshare registers it as fixed `display0`. |
@@ -273,7 +273,7 @@ supplied as positional bus names. `ce=` aliases `cs=` and `rst=` aliases
 `reset=` for common module labels.
 
 The name `display0` is reserved for the board's primary display attachment.
-Use another name such as `lcd0` for a runtime-attached display. The five
+Use another name such as `lcd0` for a runtime-attached display. The six
 integrated-display drivers attach before display-service initialization when a
 board profile declares them as fixed defaults. When a controller driver is not
 already attached, a later attachment registers an auxiliary target for

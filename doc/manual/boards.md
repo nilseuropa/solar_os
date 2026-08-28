@@ -940,31 +940,34 @@ The built-in ODROID-GO target uses the ILI9341 TFT driver on the board VSPI bus:
 #define SOLAR_OS_BOARD_PIN_LCD_BL GPIO_NUM_14
 ```
 
-The Elecrow CrowPanel target uses the SSD1683 e-paper driver on a dedicated SPI
-host:
+The Elecrow CrowPanel target exposes its SSD1683 e-paper controller as a fixed
+early `display0` expansion attachment on the board-defined `spi0` bus:
 
 ```c
-#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683"
-#define SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT EPD_SSD1683_PANEL_UNKNOWN
-#define SOLAR_OS_BOARD_DISPLAY_WIDTH 400
-#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 300
-
-#define SOLAR_OS_BOARD_PIN_LCD_SCK GPIO_NUM_12
-#define SOLAR_OS_BOARD_PIN_LCD_MOSI GPIO_NUM_11
-#define SOLAR_OS_BOARD_PIN_LCD_RST GPIO_NUM_47
-#define SOLAR_OS_BOARD_PIN_LCD_DC GPIO_NUM_46
-#define SOLAR_OS_BOARD_PIN_LCD_CS GPIO_NUM_45
-#define SOLAR_OS_BOARD_PIN_LCD_BUSY GPIO_NUM_48
-#define SOLAR_OS_BOARD_PIN_LCD_POWER GPIO_NUM_7
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
+    { \
+        .driver = "ssd1683", \
+        .name = "display0", \
+        .binding_count = 8, \
+        .bindings = { \
+            {SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"}, \
+            {SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = 45}, \
+            {SOLAR_OS_EXPANSION_BINDING_GPIO, "dc", .value = 46}, \
+            {SOLAR_OS_EXPANSION_BINDING_GPIO, "reset", .value = 47}, \
+            {SOLAR_OS_EXPANSION_BINDING_GPIO, "busy", .value = 48}, \
+            {SOLAR_OS_EXPANSION_BINDING_GPIO, "power", .value = 7}, \
+            {SOLAR_OS_EXPANSION_BINDING_PARAMETER, "clock", .value = 10000}, \
+            {SOLAR_OS_EXPANSION_BINDING_PARAMETER, "panel", .value = 0}, \
+        }, \
+    }, \
+}
 ```
 
-Every board that selects `drivers/display_ssd1683.cmake` must define
-`SOLAR_OS_BOARD_DISPLAY_SSD1683_PANEL_VARIANT`. Use
-`EPD_SSD1683_PANEL_UNKNOWN` only when the board can contain either supported
-Elecrow panel revision and needs BUSY-based detection. A board built around the
-Waveshare 4.2-inch V2 module must select
-`EPD_SSD1683_PANEL_WAVESHARE_V2` explicitly. The other fixed values are
-`EPD_SSD1683_PANEL_LEGACY` and `EPD_SSD1683_PANEL_GREEN_STICKER`.
+The fixed bindings select GPIO12 SCK, GPIO11 MOSI, GPIO45 CS, GPIO46 D/C,
+GPIO47 reset, GPIO48 BUSY, GPIO7 display power, a 10 MHz SPI clock, and the
+automatic Elecrow panel profile. That profile detects the original or
+green-sticker revision from BUSY behavior and defaults to rotation 2. Runtime
+Waveshare V2 attachments use panel profile 3, rotation 0, and 2 MHz by default.
 
 Its `refresh=auto` default performs fast updates, skips unchanged frames, and
 inserts a full waveform on the first update and after every 19 fast updates to
