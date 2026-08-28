@@ -1,0 +1,532 @@
+schema = 1
+
+[board]
+id = "freenove_esp32_wrover_v3"
+name = "Freenove ESP32-WROVER v3.0"
+vendor = "Freenove"
+module = "ESP32-WROVER-E-N4R8"
+
+[target]
+mcu = "esp32"
+platformio_board = "freenove_esp32_wrover"
+
+[build]
+drivers = [
+  "uart_esp_idf",
+  "display_cvbs_pal",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "display", "gfx", "uart", "sd", "i2c", "spi", "wifi", "ble",
+  "key", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_i2s",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_1"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_3"
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_0"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_15"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_2"
+SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO = "GPIO_NUM_25"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '(SOLAR_OS_CVBS_MODE_320X200 ? "PAL 312p/50 CVBS safe area" : "PAL 625/50 CVBS")'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "(SOLAR_OS_CVBS_MODE_320X200 ? 320 : 384)"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "(SOLAR_OS_CVBS_MODE_320X200 ? 200 : 288)"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R1"
+SOLAR_OS_BOARD_CPU_FLOOR_MHZ = "240U"
+
+[runtime]
+spi_hosts = ["SPI2_HOST", "SPI3_HOST"]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 1
+rx = 3
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "cvbs-pal"
+name = "display0"
+bindings = { i2s = 0, out = 25 }
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 14, cmd = 15, d0 = 2 }
+
+[connector]
+title = "Freenove v3.0 side headers"
+view = "component side; antenna at top, USB connector at bottom"
+rows = 20
+columns = 2
+
+[[connectors]]
+connector = "L"
+position = 1
+row = 0
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "R"
+position = 1
+row = 0
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 2
+row = 1
+column = 0
+kind = "control"
+label = "RST"
+[[connectors]]
+connector = "R"
+position = 2
+row = 1
+column = 1
+gpio = 23
+kind = "gpio"
+label = "IO23"
+[[connectors]]
+connector = "L"
+position = 3
+row = 2
+column = 0
+gpio = 36
+kind = "gpio"
+label = "IO36"
+[[connectors]]
+connector = "R"
+position = 3
+row = 2
+column = 1
+gpio = 22
+kind = "gpio"
+label = "IO22"
+[[connectors]]
+connector = "L"
+position = 4
+row = 3
+column = 0
+gpio = 39
+kind = "gpio"
+label = "IO39"
+[[connectors]]
+connector = "R"
+position = 4
+row = 3
+column = 1
+gpio = 1
+kind = "gpio"
+label = "TX"
+[[connectors]]
+connector = "L"
+position = 5
+row = 4
+column = 0
+gpio = 34
+kind = "gpio"
+label = "IO34"
+[[connectors]]
+connector = "R"
+position = 5
+row = 4
+column = 1
+gpio = 3
+kind = "gpio"
+label = "RX"
+[[connectors]]
+connector = "L"
+position = 6
+row = 5
+column = 0
+gpio = 35
+kind = "gpio"
+label = "IO35"
+[[connectors]]
+connector = "R"
+position = 6
+row = 5
+column = 1
+gpio = 21
+kind = "gpio"
+label = "IO21"
+[[connectors]]
+connector = "L"
+position = 7
+row = 6
+column = 0
+gpio = 32
+kind = "gpio"
+label = "IO32"
+[[connectors]]
+connector = "R"
+position = 7
+row = 6
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 8
+row = 7
+column = 0
+gpio = 33
+kind = "gpio"
+label = "IO33"
+[[connectors]]
+connector = "R"
+position = 8
+row = 7
+column = 1
+gpio = 19
+kind = "gpio"
+label = "IO19"
+[[connectors]]
+connector = "L"
+position = 9
+row = 8
+column = 0
+gpio = 25
+kind = "gpio"
+label = "IO25/PAL"
+[[connectors]]
+connector = "R"
+position = 9
+row = 8
+column = 1
+gpio = 18
+kind = "gpio"
+label = "IO18"
+[[connectors]]
+connector = "L"
+position = 10
+row = 9
+column = 0
+gpio = 26
+kind = "gpio"
+label = "IO26"
+[[connectors]]
+connector = "R"
+position = 10
+row = 9
+column = 1
+gpio = 5
+kind = "gpio"
+label = "IO5"
+[[connectors]]
+connector = "L"
+position = 11
+row = 10
+column = 0
+gpio = 27
+kind = "gpio"
+label = "IO27"
+[[connectors]]
+connector = "R"
+position = 11
+row = 10
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 12
+row = 11
+column = 0
+gpio = 14
+kind = "gpio"
+label = "IO14/SD CLK"
+[[connectors]]
+connector = "R"
+position = 12
+row = 11
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 13
+row = 12
+column = 0
+gpio = 12
+kind = "gpio"
+label = "IO12"
+[[connectors]]
+connector = "R"
+position = 13
+row = 12
+column = 1
+gpio = 4
+kind = "gpio"
+label = "IO4"
+[[connectors]]
+connector = "L"
+position = 14
+row = 13
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "R"
+position = 14
+row = 13
+column = 1
+gpio = 0
+kind = "gpio"
+label = "IO0/BOOT/KEY"
+[[connectors]]
+connector = "L"
+position = 15
+row = 14
+column = 0
+gpio = 13
+kind = "gpio"
+label = "IO13"
+[[connectors]]
+connector = "R"
+position = 15
+row = 14
+column = 1
+gpio = 2
+kind = "gpio"
+label = "IO2/SD D0"
+[[connectors]]
+connector = "L"
+position = 16
+row = 15
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "R"
+position = 16
+row = 15
+column = 1
+gpio = 15
+kind = "gpio"
+label = "IO15/SD CMD"
+[[connectors]]
+connector = "L"
+position = 17
+row = 16
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "R"
+position = 17
+row = 16
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 18
+row = 17
+column = 0
+kind = "power"
+label = "5V"
+[[connectors]]
+connector = "R"
+position = 18
+row = 17
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "L"
+position = 19
+row = 18
+column = 0
+kind = "power"
+label = "5V"
+[[connectors]]
+connector = "R"
+position = 19
+row = 18
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "R"
+position = 20
+row = 19
+column = 1
+kind = "ground"
+label = "GND"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download / KEY"
+expansion = true
+[[pins]]
+gpio = 1
+policy = "releasable"
+role = "CH340 UART TX"
+expansion = true
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "SDMMC D0 / onboard LED"
+expansion = true
+[[pins]]
+gpio = 3
+policy = "releasable"
+role = "CH340 UART RX"
+expansion = true
+[[pins]]
+gpio = 4
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 5
+policy = "free"
+role = "expansion / strapping"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "strapping"
+expansion = true
+[[pins]]
+gpio = 13
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "SDMMC CLK"
+expansion = true
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "SDMMC CMD / strapping"
+expansion = true
+[[pins]]
+gpio = 18
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 19
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 21
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 22
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 23
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 25
+policy = "fixed"
+role = "PAL composite"
+expansion = true
+[[pins]]
+gpio = 26
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 27
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 32
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 33
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 34
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true
+[[pins]]
+gpio = 35
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true
+[[pins]]
+gpio = 36
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true
+[[pins]]
+gpio = 39
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true
