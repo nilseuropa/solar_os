@@ -174,8 +174,8 @@ Choose a short, stable target ID such as `my_devkit_controller`, then copy the
 closest existing CMake profile and board header:
 
 ```sh
-cp boards/esp32_s3_devkitc1_n16r8.cmake boards/my_devkit_controller.cmake
-cp include/boards/esp32_s3_devkitc1_n16r8.h include/boards/my_devkit_controller.h
+cp boards/waveshare_esp32_s3_rlcd_4_2.cmake boards/my_devkit_controller.cmake
+cp include/boards/waveshare_esp32_s3_rlcd_4_2.h include/boards/my_devkit_controller.h
 ```
 
 Change the identity in both files. The file stem and both
@@ -752,8 +752,6 @@ Add the board define to `include/solar_os_board.h`:
 #include "boards/waveshare_esp32_s3_rlcd_4_2.h"
 #elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0)
 #include "boards/freenove_esp32_s3_display_4_0.h"
-#elif defined(SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8)
-#include "boards/esp32_s3_devkitc1_n16r8.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
 #include "boards/odroid_go.h"
 #elif defined(SOLAR_OS_BOARD_ELECROW_CROWPANEL_ESP32_S3_4_2_EPAPER)
