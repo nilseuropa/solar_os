@@ -28,14 +28,14 @@ class ScriptAudioBindingsTest(unittest.TestCase):
         self.assertIn("SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS 2U", AUDIO_HEADER)
 
     def test_capture_uses_the_default_typed_input_and_always_closes_it(self):
-        board_service = (
-            "#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD\n"
+        backend_service = (
+            "#if SOLAR_OS_AUDIO_BACKEND_PACKAGE\n"
             "esp_err_t solar_os_audio_init(void)"
         )
         self.assertEqual(AUDIO_SOURCE.count("esp_err_t solar_os_audio_capture("), 1)
         self.assertLess(
             AUDIO_SOURCE.index("esp_err_t solar_os_audio_capture("),
-            AUDIO_SOURCE.index(board_service),
+            AUDIO_SOURCE.index(backend_service),
         )
         capture = AUDIO_SOURCE.split("esp_err_t solar_os_audio_capture(", 1)[1].split(
             "esp_err_t solar_os_audio_set_device_volume", 1
