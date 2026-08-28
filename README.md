@@ -100,8 +100,8 @@ src/jobs/       background job implementations
 src/services/   shared OS services and runtime policy
 src/shell/      shell command implementations
 src/drivers/    low-level hardware drivers
-boards/         board profiles and driver selection
-include/boards/ board pin and capability metadata
+boards/         TOML board profiles and expansion-driver catalog
+scripts/        board-profile generation and desktop configuration tools
 packages/       package and flavor catalog
 doc/manual/     canonical user manual for GitHub, device, agent, and website
 doc/            developer contracts and documentation-system design

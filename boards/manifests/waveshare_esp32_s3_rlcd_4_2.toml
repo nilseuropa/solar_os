@@ -1,0 +1,439 @@
+schema = 1
+
+[board]
+id = "waveshare_esp32_s3_rlcd_4_2"
+name = "Waveshare ESP32-S3-RLCD-4.2"
+vendor = "Waveshare"
+module = "ESP32-S3-WROOM-1-N16R8"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "waveshare_esp32_s3_rlcd_4_2"
+
+[build]
+drivers = [
+  "cdc_usb_serial_jtag",
+  "uart_esp_idf",
+  "display_st7305",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "rtc_pcf85063",
+  "sensors_shtc3",
+  "audio_es8311_es7210",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "battery_adc",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "cdc", "uart", "sd", "i2c",
+  "spi", "rtc", "battery", "audio", "audio_input", "wifi", "ble",
+  "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_i2s", "key", "temperature", "humidity",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "400"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300"
+SOLAR_OS_BOARD_PIN_LCD_DC = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_40"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_41"
+SOLAR_OS_BOARD_PIN_LCD_TE = "GPIO_NUM_6"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_13"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_38"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_21"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_39"
+SOLAR_OS_BOARD_PIN_BATTERY_ADC = "GPIO_NUM_4"
+SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO = "3.0f"
+SOLAR_OS_BOARD_I2S_PORT = "I2S_NUM_0"
+SOLAR_OS_BOARD_PIN_I2S_MCLK = "GPIO_NUM_16"
+SOLAR_OS_BOARD_PIN_I2S_BCLK = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_I2S_WS = "GPIO_NUM_45"
+SOLAR_OS_BOARD_PIN_I2S_DIN = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_I2S_DOUT = "GPIO_NUM_8"
+SOLAR_OS_BOARD_PIN_AUDIO_PA = "GPIO_NUM_46"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES7210"'
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_18"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+WS_RLCD_BOARD_NAME = "SOLAR_OS_BOARD_NAME"
+WS_RLCD_MODULE_NAME = "SOLAR_OS_BOARD_MODULE_NAME"
+WS_RLCD_DISPLAY_CONTROLLER = "SOLAR_OS_BOARD_DISPLAY_CONTROLLER"
+WS_RLCD_DISPLAY_WIDTH = "SOLAR_OS_BOARD_DISPLAY_WIDTH"
+WS_RLCD_DISPLAY_HEIGHT = "SOLAR_OS_BOARD_DISPLAY_HEIGHT"
+WS_RLCD_PIN_LCD_DC = "SOLAR_OS_BOARD_PIN_LCD_DC"
+WS_RLCD_PIN_LCD_CS = "SOLAR_OS_BOARD_PIN_LCD_CS"
+WS_RLCD_PIN_LCD_SCK = "SOLAR_OS_BOARD_PIN_LCD_SCK"
+WS_RLCD_PIN_LCD_MOSI = "SOLAR_OS_BOARD_PIN_LCD_MOSI"
+WS_RLCD_PIN_LCD_RST = "SOLAR_OS_BOARD_PIN_LCD_RST"
+WS_RLCD_PIN_LCD_TE = "SOLAR_OS_BOARD_PIN_LCD_TE"
+WS_RLCD_PIN_I2C_SDA = "SOLAR_OS_BOARD_PIN_I2C_SDA"
+WS_RLCD_PIN_I2C_SCL = "SOLAR_OS_BOARD_PIN_I2C_SCL"
+WS_RLCD_PIN_SDMMC_CLK = "SOLAR_OS_BOARD_PIN_SDMMC_CLK"
+WS_RLCD_PIN_SDMMC_CMD = "SOLAR_OS_BOARD_PIN_SDMMC_CMD"
+WS_RLCD_PIN_SDMMC_D0 = "SOLAR_OS_BOARD_PIN_SDMMC_D0"
+WS_RLCD_PIN_BATTERY_ADC = "SOLAR_OS_BOARD_PIN_BATTERY_ADC"
+WS_RLCD_BATTERY_ADC_DIVIDER_RATIO = "SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO"
+WS_RLCD_I2S_PORT = "SOLAR_OS_BOARD_I2S_PORT"
+WS_RLCD_PIN_I2S_MCLK = "SOLAR_OS_BOARD_PIN_I2S_MCLK"
+WS_RLCD_PIN_I2S_BCLK = "SOLAR_OS_BOARD_PIN_I2S_BCLK"
+WS_RLCD_PIN_I2S_WS = "SOLAR_OS_BOARD_PIN_I2S_WS"
+WS_RLCD_PIN_I2S_DIN = "SOLAR_OS_BOARD_PIN_I2S_DIN"
+WS_RLCD_PIN_I2S_DOUT = "SOLAR_OS_BOARD_PIN_I2S_DOUT"
+WS_RLCD_PIN_AUDIO_PA = "SOLAR_OS_BOARD_PIN_AUDIO_PA"
+WS_RLCD_AUDIO_CODEC_OUT = "SOLAR_OS_BOARD_AUDIO_CODEC_OUT"
+WS_RLCD_AUDIO_CODEC_IN = "SOLAR_OS_BOARD_AUDIO_CODEC_IN"
+WS_RLCD_PIN_KEY = "SOLAR_OS_BOARD_PIN_KEY"
+WS_RLCD_KEY_ACTIVE_LEVEL = "SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL"
+WS_RLCD_KEY_PULL_UP = "SOLAR_OS_BOARD_KEY_PULL_UP"
+WS_RLCD_KEY_PULL_DOWN = "SOLAR_OS_BOARD_KEY_PULL_DOWN"
+WS_RLCD_EXPANSION_GPIO_MASK = "SOLAR_OS_BOARD_EXPANSION_GPIO_MASK"
+WS_RLCD_USER_GPIO_MASK = "SOLAR_OS_BOARD_USER_GPIO_MASK"
+WS_RLCD_UART_PORT = "SOLAR_OS_BOARD_UART_PORT"
+WS_RLCD_PIN_UART_TX = "SOLAR_OS_BOARD_PIN_UART_TX"
+WS_RLCD_PIN_UART_RX = "SOLAR_OS_BOARD_PIN_UART_RX"
+
+[runtime]
+spi_hosts = ["SPI3_HOST"]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 11
+mosi = 12
+cs = [40]
+max_transfer_size = 4092
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 13
+scl = 14
+speed_hz = "SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "st7305"
+name = "display0"
+bindings = { spi = "spi0", cs = 40, dc = 5, reset = 41 }
+
+[[devices]]
+driver = "pcf85063"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x51 }
+
+[[devices]]
+driver = "shtc3"
+name = "environment0"
+bindings = { i2c = "i2c0", addr = 0x70 }
+
+[[devices]]
+driver = "battery-adc"
+name = "battery0"
+bindings = { adc = 4, divider = 3000 }
+
+[[devices]]
+driver = "es8311-es7210"
+name = "audio0"
+bindings = { i2c = "i2c0", i2s = 0, mclk = 16, bck = 9, ws = 45, din = 10, dout = 8, pa = 46 }
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 38, cmd = 21, d0 = 39 }
+
+[connector]
+title = "2x8 expansion header"
+view = "component side; display facing you"
+rows = 2
+columns = 8
+
+[[connectors]]
+connector = "GPIO"
+position = 1
+row = 0
+column = 0
+kind = "power"
+label = "VBUS"
+[[connectors]]
+connector = "GPIO"
+position = 2
+row = 0
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "GPIO"
+position = 3
+row = 0
+column = 2
+gpio = 19
+kind = "gpio"
+label = "IO19/D-"
+[[connectors]]
+connector = "GPIO"
+position = 4
+row = 0
+column = 3
+gpio = 20
+kind = "gpio"
+label = "IO20/D+"
+[[connectors]]
+connector = "GPIO"
+position = 5
+row = 0
+column = 4
+gpio = 43
+kind = "gpio"
+label = "TXD"
+[[connectors]]
+connector = "GPIO"
+position = 6
+row = 0
+column = 5
+gpio = 44
+kind = "gpio"
+label = "RXD"
+[[connectors]]
+connector = "GPIO"
+position = 7
+row = 0
+column = 6
+gpio = 13
+kind = "gpio"
+label = "SDA"
+[[connectors]]
+connector = "GPIO"
+position = 8
+row = 0
+column = 7
+gpio = 14
+kind = "gpio"
+label = "SCL"
+[[connectors]]
+connector = "GPIO"
+position = 9
+row = 1
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "GPIO"
+position = 10
+row = 1
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "GPIO"
+position = 11
+row = 1
+column = 2
+gpio = 0
+kind = "gpio"
+label = "IO0"
+[[connectors]]
+connector = "GPIO"
+position = 12
+row = 1
+column = 3
+gpio = 1
+kind = "gpio"
+label = "IO1"
+[[connectors]]
+connector = "GPIO"
+position = 13
+row = 1
+column = 4
+gpio = 2
+kind = "gpio"
+label = "IO2"
+[[connectors]]
+connector = "GPIO"
+position = 14
+row = 1
+column = 5
+gpio = 3
+kind = "gpio"
+label = "IO3"
+[[connectors]]
+connector = "GPIO"
+position = 15
+row = 1
+column = 6
+gpio = 17
+kind = "gpio"
+label = "IO17"
+[[connectors]]
+connector = "GPIO"
+position = 16
+row = 1
+column = 7
+gpio = 18
+kind = "gpio"
+label = "IO18"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download"
+expansion = true
+[[pins]]
+gpio = 1
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 2
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 3
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "battery ADC"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "display D/C"
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "display TE"
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "audio DOUT"
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "audio BCLK"
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "audio DIN"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "display SCK"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "display MOSI"
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "I2C SDA"
+expansion = true
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "I2C SCL"
+expansion = true
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "audio MCLK"
+[[pins]]
+gpio = 17
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "KEY"
+expansion = true
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D-/CDC"
+expansion = true
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+/CDC"
+expansion = true
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "SDMMC CMD"
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "SDMMC CLK"
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "SDMMC D0"
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "display CS"
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "display reset"
+[[pins]]
+gpio = 43
+policy = "releasable"
+role = "UART TX"
+expansion = true
+[[pins]]
+gpio = 44
+policy = "releasable"
+role = "UART RX"
+expansion = true
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "audio WS"
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "audio PA"
