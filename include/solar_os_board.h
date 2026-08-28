@@ -4,8 +4,6 @@
 #include "solar_os_board_generated.h"
 #elif defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2)
 #include "boards/waveshare_esp32_s3_rlcd_4_2.h"
-#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0)
-#include "boards/freenove_esp32_s3_display_4_0.h"
 #elif defined(SOLAR_OS_BOARD_ODROID_GO)
 #include "boards/odroid_go.h"
 #elif defined(SOLAR_OS_BOARD_TTGO_VGA32_V14)
