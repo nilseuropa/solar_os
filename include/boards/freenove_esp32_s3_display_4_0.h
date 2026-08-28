@@ -67,7 +67,6 @@
 #define SOLAR_OS_BOARD_PIN_AUDIO_PA GPIO_NUM_1
 #define SOLAR_OS_BOARD_AUDIO_CODEC_OUT "ES8311"
 #define SOLAR_OS_BOARD_AUDIO_CODEC_IN "ES8311"
-#define SOLAR_OS_BOARD_AUDIO_ES8311_DUPLEX 1
 
 #define SOLAR_OS_BOARD_PIN_KEY GPIO_NUM_0
 #define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
@@ -183,7 +182,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "ft6336", \
@@ -222,6 +221,21 @@
         .bindings = { \
             {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 2000}, \
+        }, \
+    }, \
+    { \
+        .driver = "es8311-duplex", \
+        .name = "audio0", \
+        .binding_count = 8, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .target = "i2c0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2S_PORT, .value = SOLAR_OS_BOARD_I2S_PORT}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "mclk", .value = SOLAR_OS_BOARD_PIN_I2S_MCLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bck", .value = SOLAR_OS_BOARD_PIN_I2S_BCLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "ws", .value = SOLAR_OS_BOARD_PIN_I2S_WS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "din", .value = SOLAR_OS_BOARD_PIN_I2S_DIN}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dout", .value = SOLAR_OS_BOARD_PIN_I2S_DOUT}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .value = SOLAR_OS_BOARD_PIN_AUDIO_PA}, \
         }, \
     }, \
 }

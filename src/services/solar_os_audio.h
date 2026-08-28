@@ -182,6 +182,7 @@ esp_err_t solar_os_audio_set_device_input_gain(const char *id, float gain_db);
 esp_err_t solar_os_audio_get_device_input_gain(const char *id, float *gain_db);
 /* Register the board device and its scalar/audio endpoints without powering it. */
 esp_err_t solar_os_audio_register_streams(void);
+esp_err_t solar_os_audio_unregister_streams(const char *id);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after);
 esp_err_t solar_os_audio_set_mic_gain(float gain_db);

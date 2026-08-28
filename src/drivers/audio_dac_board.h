@@ -19,9 +19,21 @@ typedef struct {
     uint8_t volume;
     int dac_pos_pin;
     int dac_neg_pin;
+    int amp_pin;
     const char *output_codec;
     const char *input_codec;
 } audio_dac_board_status_t;
+
+typedef struct {
+    int dac_pos_pin;
+    int dac_neg_pin;
+    int amp_pin;
+    bool amp_active_high;
+} audio_dac_board_config_t;
+
+esp_err_t audio_dac_board_attach(const char *name,
+                                 const audio_dac_board_config_t *config);
+esp_err_t audio_dac_board_detach(const char *name);
 
 esp_err_t audio_dac_board_init(void);
 void audio_dac_board_deinit(void);

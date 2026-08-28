@@ -81,6 +81,25 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(pruned["expansion_audio_pwm"])
         self.assertFalse(pruned["expansion_pcm5102"])
 
+    def test_audio_backend_drivers_are_target_specific(self):
+        _, _, _, packages = self.resolve("full")
+
+        classic = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32",
+        )
+        self.assertTrue(classic["driver_audio_esp32_dac"])
+        self.assertFalse(classic["driver_audio_es8311_codecs"])
+
+        s3 = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32s3",
+        )
+        self.assertFalse(s3["driver_audio_esp32_dac"])
+        self.assertTrue(s3["driver_audio_es8311_codecs"])
+
     def test_target_pruning_requires_a_target(self):
         _, _, _, packages = self.resolve("full")
         with self.assertRaisesRegex(ValueError, "MCU target is required"):
@@ -370,6 +389,27 @@ class FlavorPackagesTest(unittest.TestCase):
         )
 
         self.assertFalse(pruned["expansion_pcm5102"])
+
+    def test_audio_backend_expansions_do_not_require_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+
+        _, s3 = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"i2c", "expansion_i2s"},
+        )
+        self.assertTrue(s3["driver_audio_es8311_codecs"])
+        self.assertFalse(s3["service_audio_board"])
+
+        _, classic = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+        self.assertTrue(classic["driver_audio_esp32_dac"])
+        self.assertFalse(classic["service_audio_board"])
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")

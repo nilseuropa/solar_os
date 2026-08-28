@@ -31,6 +31,12 @@ runtime playback device even when no built-in codec or DAC exists.
 built-in audio. That capability guarantees a spare I2S controller and at least
 three runtime-safe output GPIOs, so the package is pruned from boards such as
 ODROID-GO that cannot expose all required signals.
+`driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
+only for ESP32-S3 targets with I2C and expansion I2S resources.
+`driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.
+Both use the generic audio backend and remain available without
+`service.audio-board`; a board with built-in audio declares a fixed default
+attachment instead of compiling a separate board adapter.
 `expansion.ssd1683` reuses the 400x300 SSD1683 controller implementation with a
 named SPI bus and runtime-claimed CS, D/C, reset, and BUSY pins. It registers an
 auxiliary display target and uses changed-frame partial windows in automatic

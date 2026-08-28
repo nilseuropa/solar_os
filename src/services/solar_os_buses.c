@@ -1155,6 +1155,36 @@ bool solar_os_bus_find(const char *name,
     return found;
 }
 
+esp_err_t solar_os_bus_i2c_get_handle(const char *name,
+                                      i2c_master_bus_handle_t *handle,
+                                      int *port)
+{
+    if (!name_valid(name) || handle == NULL ||
+        solar_os_buses_init() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(buses_mutex, portMAX_DELAY);
+    const int index = find_bus_index_locked(name);
+    if (index >= 0 && buses[index].protocol == SOLAR_OS_BUS_PROTOCOL_I2C) {
+#if SOLAR_OS_PACKAGE_SERVICE_I2C && SOLAR_OS_BOARD_HAS_I2C
+        if (buses[index].ready && buses_i2c_handles[index] != NULL) {
+            *handle = buses_i2c_handles[index];
+            if (port != NULL) {
+                *port = buses[index].config.i2c.port;
+            }
+            ret = ESP_OK;
+        } else {
+            ret = ESP_ERR_INVALID_STATE;
+        }
+#else
+        ret = ESP_ERR_NOT_SUPPORTED;
+#endif
+    }
+    xSemaphoreGive(buses_mutex);
+    return ret;
+}
+
 esp_err_t solar_os_bus_acquire(const char *name,
                                solar_os_bus_protocol_t protocol,
                                const char *owner)

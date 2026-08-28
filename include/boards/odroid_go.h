@@ -83,7 +83,7 @@
 #define SOLAR_OS_BOARD_PIN_BATTERY_ADC GPIO_NUM_36
 #define SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO 2.0f
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "battery-adc", \
@@ -92,6 +92,16 @@
         .bindings = { \
             {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 2000}, \
+        }, \
+    }, \
+    { \
+        .driver = "esp32-dac", \
+        .name = "audio0", \
+        .binding_count = 3, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pos", .value = SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "amp", .value = SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .value = SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL}, \
         }, \
     }, \
 }

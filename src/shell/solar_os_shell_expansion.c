@@ -82,6 +82,14 @@ static bool parse_i2c_port(const char *text, int *port)
     return parse_int_arg(text, 0, 1, port);
 }
 
+static bool parse_i2s_port(const char *text, int *port)
+{
+    if (text != NULL && strncmp(text, "i2s", 3) == 0) {
+        text += 3;
+    }
+    return parse_int_arg(text, 0, 1, port);
+}
+
 #if SOLAR_OS_PACKAGE_SERVICE_UART
 static bool parse_uart_port(const char *text, int *port)
 {
@@ -383,6 +391,8 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
         switch (driver->binding_specs[i].kind) {
         case SOLAR_OS_EXPANSION_BINDING_GPIO:
             return "GPIO";
+        case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+            return "I2S";
         case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
             return "I2C";
         case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
@@ -447,6 +457,9 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
                                  solar_os_expansion_binding_kind_name(binding->kind),
                                  binding->role,
                                  binding->value);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        solar_os_shell_io_printf(term, " i2s=i2s%d", binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
@@ -844,6 +857,13 @@ static bool parse_binding_token(const char *arg,
                           -1,
                           -1);
     }
+    if (strcmp(key, "i2s") == 0) {
+        int port = -1;
+        return parse_i2s_port(value, &port) &&
+            binding_store(bindings, binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_I2S_PORT,
+                          "", "", port, -1);
+    }
     if (strcmp(key, "addr") == 0) {
         int address = 0;
         return parse_int_arg(value, 0x03, 0x77, &address) &&
@@ -871,6 +891,13 @@ static bool parse_binding_token(const char *arg,
                           "",
                           count,
                           -1);
+    }
+    if (strcmp(key, "active") == 0) {
+        int active = 0;
+        return parse_int_arg(value, 0, 1, &active) &&
+            binding_store(bindings, binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          "active", "", active, -1);
     }
     if (strcmp(key, "min") == 0 || strcmp(key, "center") == 0 ||
         strcmp(key, "max") == 0 || strcmp(key, "deadzone") == 0) {
@@ -927,6 +954,13 @@ static bool parse_binding_token(const char *arg,
         strcmp(key, "bck") == 0 ||
         strcmp(key, "din") == 0 ||
         strcmp(key, "rck") == 0 ||
+        strcmp(key, "mclk") == 0 ||
+        strcmp(key, "ws") == 0 ||
+        strcmp(key, "dout") == 0 ||
+        strcmp(key, "pa") == 0 ||
+        strcmp(key, "pos") == 0 ||
+        strcmp(key, "neg") == 0 ||
+        strcmp(key, "amp") == 0 ||
         strcmp(key, "irq") == 0 ||
         strcmp(key, "reset") == 0 ||
         strcmp(key, "rst") == 0 ||

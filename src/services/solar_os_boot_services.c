@@ -4,7 +4,6 @@
 #include "solar_os_config.h"
 #include "solar_os_adc.h"
 #include "solar_os_adc_dpad.h"
-#include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
@@ -89,16 +88,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
         }
 #endif
     }
-
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
-        const esp_err_t audio_err = solar_os_audio_register_streams();
-        if (audio_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Audio streams unavailable: %s",
-                          esp_err_to_name(audio_err));
-        }
-    }
-#endif
 
     const esp_err_t power_err = solar_os_power_init();
     if (power_err != ESP_OK) {

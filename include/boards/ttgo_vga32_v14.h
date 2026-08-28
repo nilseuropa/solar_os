@@ -126,7 +126,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 2
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "ps2-keyboard", \
@@ -137,6 +137,14 @@
                 .kind = SOLAR_OS_EXPANSION_BINDING_PS2_BUS, \
                 .target = "ps2kbd0", \
             }, \
+        }, \
+    }, \
+    { \
+        .driver = "esp32-dac", \
+        .name = "audio0", \
+        .binding_count = 1, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pos", .value = SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS}, \
         }, \
     }, \
 }

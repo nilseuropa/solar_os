@@ -11,6 +11,7 @@
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
 #include "solar_os_stream.h"
+#include "soc/soc_caps.h"
 
 #define SOLAR_OS_EXPANSION_DEVICE_MAX 8
 
@@ -151,6 +152,8 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
     case SOLAR_OS_EXPANSION_BINDING_PWM:
         return binding->role[0] != '\0' ? binding->role :
             solar_os_expansion_binding_kind_name(binding->kind);
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        return "i2s";
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return "i2c";
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -292,6 +295,13 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             binding->value,
                             -1,
                             "pwm");
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_I2S_PORT,
+                            binding->value,
+                            -1,
+                            "i2s");
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
         ESP_RETURN_ON_ERROR(append_claim(requests,
                                          request_count,
@@ -357,6 +367,12 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         return pin_is_expansion_pwm(binding->value) ||
             (allow_board_pins &&
              solar_os_pin_get_info_by_pin(binding->value, NULL));
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        return binding->value >= 0 && binding->value < SOC_I2S_NUM &&
+            (allow_board_pins ||
+             (solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_I2S) &&
+              (SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK &
+               (1U << (uint32_t)binding->value)) != 0U));
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return solar_os_expansion_find_i2c_bus(binding->target, NULL, NULL);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -521,7 +537,8 @@ bool solar_os_expansion_available(void)
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_ONEWIRE) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2) > 0 ||
         solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_ADC) ||
-        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_PWM);
+        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_PWM) ||
+        solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_I2S);
 }
 
 size_t solar_os_expansion_driver_count(void)
@@ -1138,6 +1155,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "adc";
     case SOLAR_OS_EXPANSION_BINDING_PWM:
         return "pwm";
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        return "i2s";
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return "i2c";
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:

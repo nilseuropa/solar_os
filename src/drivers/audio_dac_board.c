@@ -11,7 +11,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "soc/soc_caps.h"
-#include "solar_os_board.h"
+#include "solar_os_audio.h"
+#include "solar_os_audio_backend.h"
 
 #define AUDIO_DAC_DESC_NUM 8U
 #define AUDIO_DAC_DMA_BUFFER_BYTES 1024U
@@ -23,20 +24,12 @@
 #define AUDIO_DAC_MIDPOINT 128U
 #define AUDIO_DAC_TARGET_QUEUED_US 32000LL
 
-#ifndef SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN
-#define SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN GPIO_NUM_NC
-#define AUDIO_DAC_BOARD_HAS_AMP_ENABLE 0
-#else
-#define AUDIO_DAC_BOARD_HAS_AMP_ENABLE 1
-#endif
-
-#ifndef SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL
-#define SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL 1
-#endif
-
 typedef struct {
+    bool attached;
     bool initialized;
     bool volume_set;
+    char id[16];
+    audio_dac_board_config_t config;
     dac_continuous_handle_t handle;
     uint8_t *buffer;
     uint8_t volume;
@@ -54,14 +47,14 @@ static bool audio_dac_is_pin(gpio_num_t pin)
 static dac_channel_mask_t audio_dac_channel_mask(void)
 {
     dac_channel_mask_t mask = 0;
-    if (SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS == GPIO_NUM_25) {
+    if (audio_dac.config.dac_pos_pin == GPIO_NUM_25) {
         mask |= DAC_CHANNEL_MASK_CH0;
-    } else if (SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS == GPIO_NUM_26) {
+    } else if (audio_dac.config.dac_pos_pin == GPIO_NUM_26) {
         mask |= DAC_CHANNEL_MASK_CH1;
     }
-    if (SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG == GPIO_NUM_25) {
+    if (audio_dac.config.dac_neg_pin == GPIO_NUM_25) {
         mask |= DAC_CHANNEL_MASK_CH0;
-    } else if (SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG == GPIO_NUM_26) {
+    } else if (audio_dac.config.dac_neg_pin == GPIO_NUM_26) {
         mask |= DAC_CHANNEL_MASK_CH1;
     }
     return mask;
@@ -69,7 +62,7 @@ static dac_channel_mask_t audio_dac_channel_mask(void)
 
 static uint8_t audio_dac_output_channels(void)
 {
-    return audio_dac_is_pin(SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG) ? 2U : 1U;
+    return audio_dac_is_pin(audio_dac.config.dac_neg_pin) ? 2U : 1U;
 }
 
 static uint8_t audio_dac_output_samples_per_frame(void)
@@ -95,19 +88,19 @@ static dac_continuous_digi_clk_src_t audio_dac_clock_source(void)
 
 static void audio_dac_set_amp_enabled(bool enabled)
 {
-#if AUDIO_DAC_BOARD_HAS_AMP_ENABLE
-    const int active = SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL ? 1 : 0;
-    gpio_set_level(SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN, enabled ? active : !active);
-#else
-    (void)enabled;
-#endif
+    if (audio_dac.config.amp_pin >= 0) {
+        const int active = audio_dac.config.amp_active_high ? 1 : 0;
+        gpio_set_level(audio_dac.config.amp_pin, enabled ? active : !active);
+    }
 }
 
 static esp_err_t audio_dac_init_amp(void)
 {
-#if AUDIO_DAC_BOARD_HAS_AMP_ENABLE
+    if (audio_dac.config.amp_pin < 0) {
+        return ESP_OK;
+    }
     const gpio_config_t config = {
-        .pin_bit_mask = 1ULL << SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN,
+        .pin_bit_mask = 1ULL << audio_dac.config.amp_pin,
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -118,9 +111,6 @@ static esp_err_t audio_dac_init_amp(void)
         audio_dac_set_amp_enabled(false);
     }
     return ret;
-#else
-    return ESP_OK;
-#endif
 }
 
 static void audio_dac_board_close(bool write_silence)
@@ -246,6 +236,9 @@ esp_err_t audio_dac_board_init(void)
 #if !SOC_DAC_SUPPORTED
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (!audio_dac.attached) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (audio_dac.initialized) {
         return ESP_OK;
     }
@@ -294,9 +287,9 @@ esp_err_t audio_dac_board_init(void)
     audio_dac_set_amp_enabled(true);
     ESP_LOGI(TAG,
              "audio ready: %s dac pos=%d neg=%d channels=%u rate=%u volume=%u",
-             SOLAR_OS_BOARD_AUDIO_CODEC_OUT,
-             (int)SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS,
-             (int)SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG,
+             "ESP32-DAC",
+             audio_dac.config.dac_pos_pin,
+             audio_dac.config.dac_neg_pin,
              (unsigned)audio_dac_output_channels(),
              AUDIO_DAC_BOARD_DEFAULT_SAMPLE_RATE,
              (unsigned)audio_dac.volume);
@@ -403,8 +396,126 @@ void audio_dac_board_get_status(audio_dac_board_status_t *status)
     status->channels = AUDIO_DAC_BOARD_DEFAULT_CHANNELS;
     status->bits_per_sample = AUDIO_DAC_BOARD_DEFAULT_BITS;
     status->volume = audio_dac_current_volume();
-    status->dac_pos_pin = SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS;
-    status->dac_neg_pin = SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG;
-    status->output_codec = SOLAR_OS_BOARD_AUDIO_CODEC_OUT;
-    status->input_codec = SOLAR_OS_BOARD_AUDIO_CODEC_IN;
+    status->dac_pos_pin = audio_dac.config.dac_pos_pin;
+    status->dac_neg_pin = audio_dac.config.dac_neg_pin;
+    status->amp_pin = audio_dac.config.amp_pin;
+    status->output_codec = "ESP32-DAC";
+    status->input_codec = "-";
+}
+
+static esp_err_t dac_backend_init(void *context)
+{
+    return context == &audio_dac ? audio_dac_board_init() : ESP_ERR_INVALID_ARG;
+}
+
+static void dac_backend_deinit(void *context)
+{
+    if (context == &audio_dac) audio_dac_board_deinit();
+}
+
+static esp_err_t dac_backend_volume(void *context, uint8_t volume)
+{
+    return context == &audio_dac ? audio_dac_board_set_volume(volume) : ESP_ERR_INVALID_ARG;
+}
+
+static esp_err_t dac_backend_gain(void *context, float gain_db)
+{
+    return context == &audio_dac ? audio_dac_board_set_mic_gain(gain_db) : ESP_ERR_INVALID_ARG;
+}
+
+static esp_err_t dac_backend_write(void *context, const void *data, size_t len)
+{
+    return context == &audio_dac ? audio_dac_board_write(data, len) : ESP_ERR_INVALID_ARG;
+}
+
+static void dac_backend_status(void *context,
+                               solar_os_audio_backend_status_t *status)
+{
+    if (context != &audio_dac || status == NULL) return;
+    audio_dac_board_status_t driver;
+    audio_dac_board_get_status(&driver);
+    *status = (solar_os_audio_backend_status_t) {
+        .initialized = driver.initialized,
+        .sample_rate = driver.sample_rate,
+        .channels = driver.channels,
+        .bits_per_sample = driver.bits_per_sample,
+        .volume = driver.volume,
+        .i2s_port = -1,
+        .mclk_pin = -1,
+        .bclk_pin = -1,
+        .ws_pin = -1,
+        .din_pin = driver.dac_neg_pin,
+        .dout_pin = driver.dac_pos_pin,
+        .pa_pin = driver.amp_pin,
+        .output_codec = driver.output_codec,
+        .input_codec = driver.input_codec,
+    };
+}
+
+static void dac_backend_info(void *context,
+                             solar_os_audio_backend_info_t *info)
+{
+    if (context == &audio_dac && info != NULL) {
+        *info = (solar_os_audio_backend_info_t) {
+            .id = audio_dac.id,
+            .name = "ESP32 DAC audio",
+            .has_input = false,
+        };
+    }
+}
+
+static const solar_os_audio_backend_ops_t dac_backend_ops = {
+    .init = dac_backend_init,
+    .deinit = dac_backend_deinit,
+    .set_volume = dac_backend_volume,
+    .set_mic_gain = dac_backend_gain,
+    .write = dac_backend_write,
+    .get_status = dac_backend_status,
+    .get_info = dac_backend_info,
+};
+
+esp_err_t audio_dac_board_attach(const char *name,
+                                 const audio_dac_board_config_t *config)
+{
+    if (name == NULL || name[0] == '\0' ||
+        strnlen(name, sizeof(audio_dac.id)) >= sizeof(audio_dac.id) ||
+        config == NULL || !audio_dac_is_pin(config->dac_pos_pin) ||
+        (config->dac_neg_pin >= 0 && !audio_dac_is_pin(config->dac_neg_pin)) ||
+        config->dac_pos_pin == config->dac_neg_pin ||
+        (config->amp_pin >= 0 && !GPIO_IS_VALID_OUTPUT_GPIO(config->amp_pin))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (audio_dac.attached) {
+        return ESP_ERR_NOT_ALLOWED;
+    }
+    memset(&audio_dac, 0, sizeof(audio_dac));
+    audio_dac.attached = true;
+    strlcpy(audio_dac.id, name, sizeof(audio_dac.id));
+    audio_dac.config = *config;
+    esp_err_t ret = solar_os_audio_backend_attach(&dac_backend_ops, &audio_dac);
+    if (ret == ESP_OK) {
+        ret = solar_os_audio_register_streams();
+    }
+    if (ret != ESP_OK) {
+        (void)solar_os_audio_backend_detach(&audio_dac);
+        memset(&audio_dac, 0, sizeof(audio_dac));
+    }
+    return ret;
+}
+
+esp_err_t audio_dac_board_detach(const char *name)
+{
+    if (name == NULL || !audio_dac.attached || strcmp(name, audio_dac.id) != 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_err_t ret = solar_os_audio_unregister_streams(name);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    audio_dac_board_deinit();
+    ret = solar_os_audio_backend_detach(&audio_dac);
+    if (ret == ESP_OK) {
+        memset(&audio_dac, 0, sizeof(audio_dac));
+    }
+    return ret;
 }

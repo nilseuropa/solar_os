@@ -102,14 +102,20 @@
     {.pin = 2, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 3, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 4, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "battery ADC"}, \
+    {.pin = 8, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio DOUT"}, \
+    {.pin = 9, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio BCLK"}, \
+    {.pin = 10, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio DIN"}, \
     {.pin = 13, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SDA"}, \
     {.pin = 14, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "I2C SCL"}, \
+    {.pin = 16, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio MCLK"}, \
     {.pin = 17, .policy = SOLAR_OS_PIN_POLICY_FREE, .role = "expansion"}, \
     {.pin = 18, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "KEY"}, \
     {.pin = 19, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D-/CDC"}, \
     {.pin = 20, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "USB D+/CDC"}, \
     {.pin = 43, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART TX"}, \
     {.pin = 44, .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "UART RX"}, \
+    {.pin = 45, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio WS"}, \
+    {.pin = 46, .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "audio PA"}, \
 }
 
 #define SOLAR_OS_BOARD_UART_PORT UART_NUM_0
@@ -142,7 +148,7 @@
     }, \
 }
 
-#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 4
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
     { \
         .driver = "pcf85063", \
@@ -169,6 +175,21 @@
         .bindings = { \
             {.kind = SOLAR_OS_EXPANSION_BINDING_ADC, .role = "battery", .value = SOLAR_OS_BOARD_PIN_BATTERY_ADC}, \
             {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "divider", .value = 3000}, \
+        }, \
+    }, \
+    { \
+        .driver = "es8311-es7210", \
+        .name = "audio0", \
+        .binding_count = 8, \
+        .bindings = { \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .target = "i2c0"}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_I2S_PORT, .value = SOLAR_OS_BOARD_I2S_PORT}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "mclk", .value = SOLAR_OS_BOARD_PIN_I2S_MCLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bck", .value = SOLAR_OS_BOARD_PIN_I2S_BCLK}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "ws", .value = SOLAR_OS_BOARD_PIN_I2S_WS}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "din", .value = SOLAR_OS_BOARD_PIN_I2S_DIN}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dout", .value = SOLAR_OS_BOARD_PIN_I2S_DOUT}, \
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .value = SOLAR_OS_BOARD_PIN_AUDIO_PA}, \
         }, \
     }, \
 }

@@ -9,7 +9,6 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
-  "service_audio_board",
   "service_streams",
   "service_synth",
   "service_controls",
@@ -56,6 +55,8 @@ members = [
   "driver_pcf85063",
   "driver_shtc3",
   "driver_battery_adc",
+  "driver_audio_es8311_codecs",
+  "driver_audio_esp32_dac",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -103,7 +104,6 @@ members = [
 [groups.audio]
 members = [
   "service_audio",
-  "service_audio_board",
   "service_audio_codecs",
   "service_synth",
   "app_aplay",
@@ -586,7 +586,6 @@ sources = [
 [packages.service_audio_board]
 label = "service.audio-board"
 depends = ["service_audio"]
-requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["audio"]
 
 [packages.service_audio_codecs]
@@ -950,6 +949,35 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
+
+[packages.driver_audio_es8311_codecs]
+label = "driver.audio-es8311"
+targets = ["esp32s3"]
+expansion_drivers = [
+  "solar_os_es8311_es7210_expansion_driver",
+  "solar_os_es8311_duplex_expansion_driver",
+]
+depends = ["service_audio", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/audio_codec_board.c",
+  "services/solar_os_audio_backend.c",
+  "services/solar_os_audio_codec_expansion.c",
+]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
+capabilities = ["i2c", "expansion_i2s"]
+
+[packages.driver_audio_esp32_dac]
+label = "driver.audio-esp32-dac"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_esp32_dac_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_dac_board.c",
+  "services/solar_os_audio_backend.c",
+  "services/solar_os_audio_dac_expansion.c",
+]
+requires = ["esp_driver_dac", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

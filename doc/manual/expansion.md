@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 i2s dac radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "cardkb", "keyboard", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -18,8 +18,10 @@ its fixed buses and default attachments, which are created at boot, shown by
 `expansion devices`, and cannot be detached. For example, Freenove `touch0` is
 an `ft6336` attachment; Waveshare `rtc0` and `environment0` use `pcf85063` and
 `shtc3`; and the supported battery boards expose `battery0` through
-`battery-adc`. TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. Generic
-input, time, sensor, and battery services consume the same runtime providers
+`battery-adc`. TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. Built-in
+audio also appears as `audio0`: Waveshare uses `es8311-es7210`, Freenove uses
+`es8311-duplex`, and classic ESP32 audio boards use `esp32-dac`. Generic input,
+time, sensor, battery, and audio services consume the same runtime providers
 whether the attachment came from the board profile or the shell.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
@@ -212,6 +214,27 @@ duplicated to both channels and device volume is applied in software. Current
 dual-I2S boards use I2S1, leaving onboard audio or composite video on I2S0.
 PCM5102A modules provide line-level output; connect an amplifier or powered
 input rather than a passive speaker.
+
+The integrated codec and classic ESP32 DAC backends are also attachable when
+the target MCU and board resources support them. Codec attachments need a
+named I2C bus, an I2S controller, and all six audio GPIO signals:
+
+```text
+expansion attach es8311-es7210 audio0 i2c=i2c0 i2s=i2s0 mclk=gpio38 bck=gpio14 ws=gpio13 din=gpio12 dout=gpio45 pa=gpio46
+expansion attach es8311-duplex audio0 i2c=i2c0 i2s=i2s0 mclk=gpio42 bck=gpio10 ws=gpio11 din=gpio12 dout=gpio9 pa=gpio46
+```
+
+`es8311-es7210` and `es8311-duplex` are ESP32-S3 drivers. `esp32-dac` is for the
+classic ESP32 internal DAC on GPIO25 or GPIO26. Its optional `neg` binding
+enables differential output, and `amp` plus `active=0|1` controls an amplifier
+enable pin:
+
+```text
+expansion attach esp32-dac audio0 pos=gpio26 amp=gpio25 active=1
+```
+
+Only one of these primary audio backends can be attached at a time. A fixed
+board-default `audio0` cannot be detached.
 
 ## Quick reference
 
