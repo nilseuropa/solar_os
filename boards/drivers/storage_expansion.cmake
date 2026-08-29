@@ -1,0 +1,1 @@
+set(SOLAR_OS_BOARD_STORAGE_DRIVER "expansion")

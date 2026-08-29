@@ -24,7 +24,6 @@
 #include "soc/i2s_struct.h"
 #include "soc/periph_defs.h"
 #include "soc/rtc.h"
-#include "solar_os_board.h"
 
 #define VGA32_NATIVE_WIDTH VGA32_HEIGHT
 #define VGA32_NATIVE_HEIGHT VGA32_WIDTH
@@ -348,20 +347,20 @@ static esp_err_t vga32_route_pin(gpio_num_t pin, unsigned data_bit)
     return ESP_OK;
 }
 
-static esp_err_t vga32_route_pins(void)
+static esp_err_t vga32_route_pins(const vga32_t *display)
 {
     const struct {
         gpio_num_t pin;
         unsigned bit;
     } routes[] = {
-        {SOLAR_OS_BOARD_PIN_VGA_RED0, VGA32_RED0_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_RED1, VGA32_RED1_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_GREEN0, VGA32_GREEN0_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_GREEN1, VGA32_GREEN1_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_BLUE0, VGA32_BLUE0_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_BLUE1, VGA32_BLUE1_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_HSYNC, VGA32_HSYNC_BIT},
-        {SOLAR_OS_BOARD_PIN_VGA_VSYNC, VGA32_VSYNC_BIT},
+        {display->config.red0_pin, VGA32_RED0_BIT},
+        {display->config.red1_pin, VGA32_RED1_BIT},
+        {display->config.green0_pin, VGA32_GREEN0_BIT},
+        {display->config.green1_pin, VGA32_GREEN1_BIT},
+        {display->config.blue0_pin, VGA32_BLUE0_BIT},
+        {display->config.blue1_pin, VGA32_BLUE1_BIT},
+        {display->config.hsync_pin, VGA32_HSYNC_BIT},
+        {display->config.vsync_pin, VGA32_VSYNC_BIT},
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
         const esp_err_t err = vga32_route_pin(routes[i].pin, routes[i].bit);
@@ -372,15 +371,15 @@ static esp_err_t vga32_route_pins(void)
     return ESP_OK;
 }
 
-static void vga32_unroute_pins(void)
+static void vga32_unroute_pins(const vga32_t *display)
 {
     const gpio_num_t color_pins[] = {
-        SOLAR_OS_BOARD_PIN_VGA_RED0,
-        SOLAR_OS_BOARD_PIN_VGA_RED1,
-        SOLAR_OS_BOARD_PIN_VGA_GREEN0,
-        SOLAR_OS_BOARD_PIN_VGA_GREEN1,
-        SOLAR_OS_BOARD_PIN_VGA_BLUE0,
-        SOLAR_OS_BOARD_PIN_VGA_BLUE1,
+        display->config.red0_pin,
+        display->config.red1_pin,
+        display->config.green0_pin,
+        display->config.green1_pin,
+        display->config.blue0_pin,
+        display->config.blue1_pin,
     };
     for (size_t i = 0; i < sizeof(color_pins) / sizeof(color_pins[0]); i++) {
         esp_rom_gpio_connect_out_signal((uint32_t)color_pins[i],
@@ -390,8 +389,8 @@ static void vga32_unroute_pins(void)
         (void)gpio_set_level(color_pins[i], 0);
     }
     const gpio_num_t sync_pins[] = {
-        SOLAR_OS_BOARD_PIN_VGA_HSYNC,
-        SOLAR_OS_BOARD_PIN_VGA_VSYNC,
+        display->config.hsync_pin,
+        display->config.vsync_pin,
     };
     for (size_t i = 0; i < sizeof(sync_pins) / sizeof(sync_pins[0]); i++) {
         esp_rom_gpio_connect_out_signal((uint32_t)sync_pins[i],
@@ -423,7 +422,7 @@ static void vga32_stop_signal(vga32_t *display)
     }
     periph_module_disable(PERIPH_I2S1_MODULE);
     rtc_clk_apll_enable(false);
-    vga32_unroute_pins();
+    vga32_unroute_pins(display);
     heap_caps_free(display->dma_buffer);
     display->dma_buffer = NULL;
     display->dma_buffer_size = 0;
@@ -482,7 +481,7 @@ static esp_err_t vga32_start_signal(vga32_t *display)
     display->last_eof_descriptor = VGA32_DMA_DESCRIPTOR_COUNT - 1U;
     display->last_eof_scanline = VGA32_PHYSICAL_LINE_COUNT - 1U;
 
-    esp_err_t err = vga32_route_pins();
+    esp_err_t err = vga32_route_pins(display);
     if (err != ESP_OK) {
         vga32_stop_signal(display);
         return err;
@@ -829,12 +828,20 @@ static uint8_t vga32_u8x8_display_cb(u8x8_t *u8x8,
     return err == ESP_OK ? 1 : 0;
 }
 
-esp_err_t vga32_init(vga32_t *display)
+esp_err_t vga32_init(vga32_t *display, const vga32_config_t *config)
 {
-    if (display == NULL) {
+    if (display == NULL || config == NULL ||
+        config->red0_pin < 0 || config->red1_pin < 0 ||
+        config->green0_pin < 0 || config->green1_pin < 0 ||
+        config->blue0_pin < 0 || config->blue1_pin < 0 ||
+        config->hsync_pin < 0 || config->vsync_pin < 0) {
         return ESP_ERR_INVALID_ARG;
     }
     memset(display, 0, sizeof(*display));
+    display->config = *config;
+    if (display->config.rotation == NULL) {
+        display->config.rotation = U8G2_R1;
+    }
     display->buffer_lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
     display->present_lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
     display->current_buffer = 0;
@@ -898,7 +905,7 @@ esp_err_t vga32_init(vga32_t *display)
                      display->draw_buffer,
                      VGA32_TILE_HEIGHT,
                      u8g2_ll_hvline_vertical_top_lsb,
-                     SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION);
+                     display->config.rotation);
     active_display = display;
     u8g2_InitDisplay(&display->u8g2);
     if (display->last_error != ESP_OK) {

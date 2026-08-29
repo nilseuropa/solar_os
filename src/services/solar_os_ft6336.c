@@ -6,7 +6,6 @@
 
 #include "esp_check.h"
 #include "ft6336.h"
-#include "solar_os_board.h"
 #include "solar_os_display.h"
 #include "solar_os_input.h"
 
@@ -18,6 +17,9 @@ typedef struct {
     uint8_t address;
     int reset_pin;
     int irq_pin;
+    uint8_t rotation;
+    uint16_t target_width;
+    uint16_t target_height;
     uint8_t pointer_id;
     int16_t x;
     int16_t y;
@@ -35,6 +37,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     bool have_address = false;
     bool have_reset = false;
     bool have_irq = false;
+    bool have_rotation = false;
 
     if (bindings == NULL || device == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -72,12 +75,20 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                 return ESP_ERR_INVALID_ARG;
             }
             break;
+        case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+            if (strcmp(binding->role, "rotation") != 0 ||
+                have_rotation || binding->value < 0 || binding->value > 3) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            device->rotation = (uint8_t)binding->value;
+            have_rotation = true;
+            break;
         default:
             return ESP_ERR_INVALID_ARG;
         }
     }
 
-    return have_i2c && have_address && have_reset && have_irq
+    return have_i2c && have_address && have_reset && have_irq && have_rotation
         ? ESP_OK
         : ESP_ERR_INVALID_ARG;
 }
@@ -106,6 +117,13 @@ esp_err_t solar_os_ft6336_attach(const char *name,
     ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, &candidate),
                         TAG,
                         "invalid bindings");
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(SOLAR_OS_DISPLAY_PRIMARY_TARGET, &target) ||
+        target.width == 0 || target.height == 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    candidate.target_width = target.width;
+    candidate.target_height = target.height;
     ESP_RETURN_ON_ERROR(ft6336_init(candidate.i2c_bus,
                                     candidate.address,
                                     candidate.reset_pin,
@@ -148,13 +166,31 @@ void solar_os_ft6336_poll(void)
     uint16_t sample_x = 0;
     uint16_t sample_y = 0;
     if (sample.touched) {
-        if (sample.x >= SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH ||
-            sample.y >= SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT) {
+        const uint16_t native_width = (touch.rotation & 1U) != 0U
+            ? touch.target_height : touch.target_width;
+        const uint16_t native_height = (touch.rotation & 1U) != 0U
+            ? touch.target_width : touch.target_height;
+        if (sample.x >= native_width || sample.y >= native_height) {
             return;
         }
-        /* Controller coordinates are portrait; the board display is rotation 1. */
-        sample_x = sample.y;
-        sample_y = (SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH - 1U) - sample.x;
+        switch (touch.rotation) {
+        case 0:
+            sample_x = sample.x;
+            sample_y = sample.y;
+            break;
+        case 1:
+            sample_x = sample.y;
+            sample_y = (native_width - 1U) - sample.x;
+            break;
+        case 2:
+            sample_x = (native_width - 1U) - sample.x;
+            sample_y = (native_height - 1U) - sample.y;
+            break;
+        default:
+            sample_x = (native_height - 1U) - sample.y;
+            sample_y = sample.x;
+            break;
+        }
     }
 
     solar_os_input_pointer_action_t action;

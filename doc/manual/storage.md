@@ -12,8 +12,12 @@ packages_any = []
 SolarOS presents the default storage volume as `/`. On an SD-backed target this
 normally means the SD card, while `/flash` remains the internal flash volume.
 On a board without SD, `/` normally maps to internal flash.
-Attaching an `sdspi` expansion does not change that mapping: internal flash
-remains `/`, and the removable card mounts at `/sdcard`.
+Attaching an `sdmmc` or `sdspi` expansion does not change that mapping:
+internal flash remains `/`, and the removable card mounts at `/sdcard`.
+
+Boards with an integrated SDMMC slot expose it as the fixed expansion device
+`storage0`. Its pins are claimed before storage starts, but card probing and
+mounting remain in the normal storage initialization phase.
 
 Shell startup is deliberately independent of whichever volume is currently the
 default. `setterm startup flash` reads `/flash/.shell/startup` on SD-capable

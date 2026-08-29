@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "solar_os_bus_types.h"
@@ -49,6 +50,16 @@ esp_err_t solar_os_bus_i2c_receive(const char *name,
                                    uint8_t address,
                                    uint8_t *data,
                                    size_t len);
+esp_err_t solar_os_bus_i2c_transmit(const char *name,
+                                    uint8_t address,
+                                    const uint8_t *data,
+                                    size_t len);
+esp_err_t solar_os_bus_i2c_transmit_receive(const char *name,
+                                            uint8_t address,
+                                            const uint8_t *tx_data,
+                                            size_t tx_len,
+                                            uint8_t *rx_data,
+                                            size_t rx_len);
 esp_err_t solar_os_bus_i2c_read_reg(const char *name,
                                     uint8_t address,
                                     uint8_t reg,
@@ -59,6 +70,10 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name,
                                      uint8_t reg,
                                      const uint8_t *data,
                                      size_t len);
+/* The caller must hold an I2C bus lease while it uses this driver handle. */
+esp_err_t solar_os_bus_i2c_get_handle(const char *name,
+                                      i2c_master_bus_handle_t *handle,
+                                      int *port);
 
 esp_err_t solar_os_bus_uart_write(const char *name,
                                   const uint8_t *data,

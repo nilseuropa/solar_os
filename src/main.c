@@ -31,6 +31,9 @@
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
 #include "solar_os_display.h"
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+#include "solar_os_expansion.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
 #include "solar_os_espnow.h"
 #endif
@@ -232,40 +235,6 @@ static void print_boot_summary(void)
                   SOLAR_OS_BOARD_DISPLAY_CONTROLLER,
                   SOLAR_OS_BOARD_DISPLAY_WIDTH,
                   SOLAR_OS_BOARD_DISPLAY_HEIGHT);
-#ifdef SOLAR_OS_BOARD_PIN_VGA_HSYNC
-    SOLAR_OS_LOGI(TAG,
-                  "VGA pins: R=%d/%d G=%d/%d B=%d/%d HSYNC=%d VSYNC=%d",
-                  SOLAR_OS_BOARD_PIN_VGA_RED0,
-                  SOLAR_OS_BOARD_PIN_VGA_RED1,
-                  SOLAR_OS_BOARD_PIN_VGA_GREEN0,
-                  SOLAR_OS_BOARD_PIN_VGA_GREEN1,
-                  SOLAR_OS_BOARD_PIN_VGA_BLUE0,
-                  SOLAR_OS_BOARD_PIN_VGA_BLUE1,
-                  SOLAR_OS_BOARD_PIN_VGA_HSYNC,
-                  SOLAR_OS_BOARD_PIN_VGA_VSYNC);
-#elif defined(SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO)
-    SOLAR_OS_LOGI(TAG,
-                  "Display pin: CVBS=%d",
-                  SOLAR_OS_BOARD_PIN_COMPOSITE_VIDEO);
-#elif defined(SOLAR_OS_BOARD_PIN_LCD_BUSY)
-    SOLAR_OS_LOGI(TAG,
-                  "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d BUSY=%d",
-                  SOLAR_OS_BOARD_PIN_LCD_MOSI,
-                  SOLAR_OS_BOARD_PIN_LCD_SCK,
-                  SOLAR_OS_BOARD_PIN_LCD_DC,
-                  SOLAR_OS_BOARD_PIN_LCD_CS,
-                  SOLAR_OS_BOARD_PIN_LCD_RST,
-                  SOLAR_OS_BOARD_PIN_LCD_BUSY);
-#else
-    SOLAR_OS_LOGI(TAG,
-                  "Display pins: MOSI=%d SCK=%d DC=%d CS=%d RST=%d TE=%d",
-                  SOLAR_OS_BOARD_PIN_LCD_MOSI,
-                  SOLAR_OS_BOARD_PIN_LCD_SCK,
-                  SOLAR_OS_BOARD_PIN_LCD_DC,
-                  SOLAR_OS_BOARD_PIN_LCD_CS,
-                  SOLAR_OS_BOARD_PIN_LCD_RST,
-                  SOLAR_OS_BOARD_PIN_LCD_TE);
-#endif
 #endif
 #ifdef SOLAR_OS_BOARD_I2C_PORT
     SOLAR_OS_LOGI(TAG,
@@ -1452,6 +1421,15 @@ void app_main(void)
                                            session_terminal_changed,
                                            session_overlay_requested,
                                            NULL));
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    const esp_err_t expansion_err = solar_os_expansion_init_early();
+    if (expansion_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "Early expansion initialization incomplete: %s",
+                      esp_err_to_name(expansion_err));
+    }
+#endif
 
     if (board_has(SOLAR_OS_BOARD_CAP_DISPLAY)) {
 #if SOLAR_OS_BOARD_HAS_DISPLAY

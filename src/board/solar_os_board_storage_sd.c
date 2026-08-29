@@ -78,11 +78,7 @@ esp_err_t solar_os_board_storage_init(void)
 
 bool solar_os_board_storage_available(void)
 {
-#if SOLAR_OS_BOARD_HAS_SD
-    return true;
-#else
-    return sd_card_sdspi_configured();
-#endif
+    return sd_card_configured();
 }
 
 esp_err_t solar_os_board_storage_mount(void)

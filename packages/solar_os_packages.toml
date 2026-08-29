@@ -9,7 +9,6 @@ members = [
   "service_ble",
   "service_sd",
   "service_audio",
-  "service_audio_board",
   "service_streams",
   "service_synth",
   "service_controls",
@@ -46,12 +45,24 @@ members = [
   "expansion_pcd8544",
   "expansion_ssd1683",
   "expansion_ssd1306",
+  "expansion_sdmmc",
   "expansion_sdspi",
   "expansion_cardkb",
   "expansion_analog_joystick",
   "expansion_gpio_keys",
   "expansion_ps2_keyboard",
   "expansion_ps2_mouse",
+  "driver_ft6336",
+  "driver_pcf85063",
+  "driver_shtc3",
+  "driver_battery_adc",
+  "driver_audio_es8311_codecs",
+  "driver_audio_esp32_dac",
+  "driver_display_st7305",
+  "driver_display_ili9341",
+  "driver_display_st7796",
+  "driver_display_cvbs_pal",
+  "driver_display_vga32",
   "expansion_neopixel",
   "expansion_audio_pwm",
   "expansion_pcm5102",
@@ -99,7 +110,6 @@ members = [
 [groups.audio]
 members = [
   "service_audio",
-  "service_audio_board",
   "service_audio_codecs",
   "service_synth",
   "app_aplay",
@@ -582,7 +592,6 @@ sources = [
 [packages.service_audio_board]
 label = "service.audio-board"
 depends = ["service_audio"]
-requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["audio"]
 
 [packages.service_audio_codecs]
@@ -714,15 +723,6 @@ sources = [
   "services/solar_os_expansion.c",
   "shell/solar_os_shell_expansion.c",
 ]
-any_capabilities = [
-  "expansion_gpio",
-  "expansion_i2c",
-  "expansion_spi",
-  "expansion_uart",
-  "expansion_adc",
-  "expansion_pwm",
-  "expansion_i2s",
-]
 
 [packages.service_radio]
 label = "service.radio"
@@ -788,104 +788,159 @@ any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
 
 [packages.expansion_rfm69]
 label = "expansion.rfm69"
+expansion_drivers = [
+  "solar_os_rfm69_expansion_driver",
+  "solar_os_rfm69h_expansion_driver",
+]
 depends = ["service_radio", "service_spi"]
 sources = [
   "drivers/rfm69.c",
   "services/solar_os_rfm69.c",
+  "services/solar_os_rfm69_driver.c",
 ]
 requires = ["esp_driver_gpio"]
 any_capabilities = ["expansion_spi", "expansion_gpio"]
 
 [packages.expansion_rfm95]
 label = "expansion.rfm95"
+expansion_drivers = ["solar_os_rfm95_expansion_driver"]
 depends = ["service_radio", "service_spi"]
 sources = [
   "drivers/rfm95.c",
   "services/solar_os_rfm95.c",
+  "services/solar_os_rfm95_driver.c",
 ]
 requires = ["esp_driver_gpio"]
 capabilities = ["expansion_spi", "expansion_gpio"]
 
 [packages.expansion_pcd8544]
 label = "expansion.pcd8544"
+expansion_drivers = ["solar_os_pcd8544_expansion_driver"]
 depends = ["service_spi"]
 sources = [
   "drivers/pcd8544.c",
   "services/solar_os_pcd8544.c",
+  "services/solar_os_pcd8544_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_ssd1683]
 label = "expansion.ssd1683"
-depends = ["service_spi"]
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ssd1683_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
 sources = [
+  "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1683.c",
   "services/solar_os_ssd1683.c",
+  "services/solar_os_ssd1683_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
-capabilities = ["expansion_gpio"]
+capabilities = ["gfx", "expansion_gpio"]
 
 [packages.expansion_ssd1306]
 label = "expansion.ssd1306"
+expansion_drivers = [
+  "solar_os_ssd1306_expansion_driver",
+  "solar_os_sh1106_expansion_driver",
+]
 depends = ["service_i2c"]
 sources = [
   "drivers/ssd1306.c",
   "services/solar_os_ssd1306.c",
+  "services/solar_os_ssd1306_driver.c",
 ]
 requires = ["esp_driver_i2c", "u8g2"]
 capabilities = ["expansion_i2c"]
 
 [packages.expansion_cardkb]
 label = "expansion.cardkb"
+expansion_drivers = ["solar_os_cardkb_expansion_driver"]
 depends = ["service_expansion", "service_i2c"]
 sources = [
   "services/solar_os_cardkb.c",
   "services/solar_os_cardkb_codec.c",
+  "services/solar_os_cardkb_driver.c",
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"
+expansion_drivers = ["solar_os_analog_joystick_expansion_driver"]
 depends = ["service_expansion", "service_streams"]
-sources = ["services/solar_os_analog_joystick.c"]
+sources = [
+  "services/solar_os_analog_joystick.c",
+  "services/solar_os_analog_joystick_driver.c",
+]
 
 [packages.expansion_gpio_keys]
 label = "expansion.gpio-keys"
+expansion_drivers = ["solar_os_gpio_keys_expansion_driver"]
 depends = ["service_expansion", "service_gpio"]
-sources = ["services/solar_os_gpio_keys.c"]
+sources = [
+  "services/solar_os_gpio_keys.c",
+  "services/solar_os_gpio_keys_driver.c",
+]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_ps2_keyboard]
 label = "expansion.ps2-keyboard"
+expansion_drivers = ["solar_os_ps2_keyboard_expansion_driver"]
 depends = ["service_expansion", "service_ps2"]
-sources = ["services/solar_os_ps2_keyboard_device.c"]
+sources = [
+  "services/solar_os_ps2_keyboard_device.c",
+  "services/solar_os_ps2_keyboard_driver.c",
+]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_ps2_mouse]
 label = "expansion.ps2-mouse"
+expansion_drivers = ["solar_os_ps2_mouse_expansion_driver"]
 depends = ["service_expansion", "service_ps2"]
-sources = ["services/solar_os_ps2_mouse_device.c"]
+sources = [
+  "services/solar_os_ps2_mouse_device.c",
+  "services/solar_os_ps2_mouse_driver.c",
+]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_sdspi]
 label = "expansion.sdspi"
+expansion_drivers = ["solar_os_sdspi_expansion_driver"]
 depends = ["service_expansion", "service_spi"]
 sources = [
   "board/solar_os_board_storage_sd.c",
   "drivers/sd_card.c",
   "services/solar_os_sdspi.c",
+  "services/solar_os_sdspi_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_sdspi", "fatfs", "heap", "sdmmc"]
 capabilities = ["expansion_spi"]
 
+[packages.expansion_sdmmc]
+label = "expansion.sdmmc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sdmmc_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_storage_sd.c",
+  "drivers/sd_card.c",
+  "services/solar_os_sdmmc.c",
+  "services/solar_os_sdmmc_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_sdmmc", "fatfs", "heap", "sdmmc"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_neopixel]
 label = "expansion.neopixel"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_neopixel_expansion_driver"]
 depends = ["service_expansion"]
 sources = [
   "drivers/neopixel.c",
   "services/solar_os_neopixel.c",
+  "services/solar_os_neopixel_driver.c",
   "shell/solar_os_shell_neopixel.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_rmt"]
@@ -893,23 +948,172 @@ capabilities = ["expansion_gpio"]
 
 [packages.expansion_audio_pwm]
 label = "expansion.audio-pwm"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_audio_pwm_expansion_driver"]
 depends = ["service_audio", "service_expansion"]
 sources = [
   "drivers/audio_pwm.c",
   "services/solar_os_audio_pwm.c",
+  "services/solar_os_audio_pwm_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_gptimer", "esp_driver_ledc"]
 capabilities = ["expansion_pwm"]
 
 [packages.expansion_pcm5102]
 label = "expansion.pcm5102"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_pcm5102_expansion_driver"]
 depends = ["service_audio", "service_expansion"]
 sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
+  "services/solar_os_pcm5102_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
+
+[packages.driver_audio_es8311_codecs]
+label = "driver.audio-es8311"
+targets = ["esp32s3"]
+expansion_drivers = [
+  "solar_os_es8311_es7210_expansion_driver",
+  "solar_os_es8311_duplex_expansion_driver",
+]
+depends = ["service_audio", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/audio_codec_board.c",
+  "services/solar_os_audio_backend.c",
+  "services/solar_os_audio_codec_expansion.c",
+]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
+capabilities = ["i2c", "expansion_i2s"]
+
+[packages.driver_audio_esp32_dac]
+label = "driver.audio-esp32-dac"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_esp32_dac_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_dac_board.c",
+  "services/solar_os_audio_backend.c",
+  "services/solar_os_audio_dac_expansion.c",
+]
+requires = ["esp_driver_dac", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
+
+[packages.driver_display_st7305]
+label = "driver.display-st7305"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_st7305_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/rlcd_st7305.c",
+  "services/solar_os_st7305_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_ili9341]
+label = "driver.display-ili9341"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ili9341_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_pwm"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_st7796]
+label = "driver.display-st7796"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_st7796_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_pwm"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_cvbs_pal]
+label = "driver.display-cvbs-pal"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_cvbs_pal_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/cvbs_pal.c",
+  "services/solar_os_cvbs_display.c",
+]
+requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_vga32]
+label = "driver.display-vga32"
+targets = ["esp32"]
+expansion_drivers = ["solar_os_vga32_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/vga32.c",
+  "services/solar_os_vga32_display.c",
+]
+requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_ft6336]
+label = "driver.ft6336"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ft6336_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "drivers/ft6336.c",
+  "services/solar_os_ft6336.c",
+  "services/solar_os_ft6336_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["i2c", "gpio"]
+
+[packages.driver_pcf85063]
+label = "driver.pcf85063"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_pcf85063_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_rtc"]
+sources = [
+  "drivers/rtc_pcf85063.c",
+  "services/solar_os_pcf85063.c",
+  "services/solar_os_pcf85063_driver.c",
+]
+capabilities = ["i2c"]
+
+[packages.driver_shtc3]
+label = "driver.shtc3"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_shtc3_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_sensors"]
+sources = [
+  "drivers/shtc3.c",
+  "services/solar_os_shtc3.c",
+  "services/solar_os_shtc3_driver.c",
+]
+capabilities = ["i2c"]
+
+[packages.driver_battery_adc]
+label = "driver.battery-adc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_battery_adc_expansion_driver"]
+depends = ["service_adc", "service_battery", "service_expansion"]
+sources = [
+  "services/solar_os_battery_adc.c",
+  "services/solar_os_battery_adc_driver.c",
+]
+requires = ["esp_adc", "esp_driver_gpio"]
+capabilities = ["adc", "gpio"]
 
 [packages.service_json]
 label = "service.json"
@@ -936,17 +1140,14 @@ capabilities = ["uart"]
 label = "service.battery"
 depends = ["service_streams"]
 sources = ["services/solar_os_battery.c"]
-capabilities = ["battery"]
 
 [packages.service_rtc]
 label = "service.rtc"
-capabilities = ["rtc"]
 
 [packages.service_sensors]
 label = "service.sensors"
 depends = ["service_streams"]
 sources = ["services/solar_os_sensors.c"]
-any_capabilities = ["temperature", "humidity"]
 
 [packages.service_adc]
 label = "service.adc"

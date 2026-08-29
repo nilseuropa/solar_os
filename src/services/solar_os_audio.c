@@ -17,9 +17,13 @@
 #include "solar_os_memory.h"
 #include "solar_os_audio_player.h"
 #include "solar_os_audio_pcm.h"
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
-#include "solar_os_board.h"
-#include "solar_os_board_audio.h"
+#define SOLAR_OS_AUDIO_BACKEND_PACKAGE ( \
+    SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD || \
+    SOLAR_OS_PACKAGE_DRIVER_AUDIO_ES8311_CODECS || \
+    SOLAR_OS_PACKAGE_DRIVER_AUDIO_ESP32_DAC)
+
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
+#include "solar_os_audio_backend.h"
 #endif
 #include "solar_os_task.h"
 #include "esp_timer.h"
@@ -40,6 +44,17 @@
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
 #define AUDIO_GLOBAL_DEFAULT_VOLUME 50U
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
+#define SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS 2U
+typedef solar_os_audio_backend_status_t solar_os_board_audio_status_t;
+#define solar_os_board_audio_init solar_os_audio_backend_init
+#define solar_os_board_audio_deinit solar_os_audio_backend_deinit
+#define solar_os_board_audio_set_volume solar_os_audio_backend_set_volume
+#define solar_os_board_audio_set_mic_gain solar_os_audio_backend_set_mic_gain
+#define solar_os_board_audio_write solar_os_audio_backend_write
+#define solar_os_board_audio_read solar_os_audio_backend_read
+#define solar_os_board_audio_get_status solar_os_audio_backend_get_status
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 #define AUDIO_MP3_INPUT_BUFFER_BYTES 16384U
 #define AUDIO_MP3_PROBE_SCAN_BYTES 65536U
@@ -66,7 +81,7 @@ static bool audio_volume_arg_valid(uint8_t volume)
     return volume <= 100U || volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 typedef struct {
     uint32_t id;
     size_t step_count;
@@ -126,7 +141,7 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
 static void audio_tone_cancel_all(void);
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 static uint8_t audio_resolve_playback_volume(uint8_t volume)
 {
     return volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL ? audio_global_volume : volume;
@@ -1132,10 +1147,10 @@ esp_err_t solar_os_audio_get_device_input_gain(const char *id, float *gain_db)
     return ESP_ERR_NOT_FOUND;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 esp_err_t solar_os_audio_init(void)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
@@ -1150,7 +1165,7 @@ esp_err_t solar_os_audio_init(void)
 
 void solar_os_audio_deinit(void)
 {
-#if SOLAR_OS_BOARD_HAS_AUDIO
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
     audio_tone_cancel_all();
     if (audio_operation_take(portMAX_DELAY) == ESP_OK) {
         if (!audio_output_stream.active && !audio_input_stream.active) {
@@ -1178,7 +1193,7 @@ esp_err_t solar_os_audio_set_volume(uint8_t volume)
 
 static esp_err_t audio_apply_playback_volume(uint8_t volume)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     (void)volume;
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -1205,7 +1220,7 @@ esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after)
 
 esp_err_t solar_os_audio_set_mic_gain(float gain_db)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     (void)gain_db;
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -1223,7 +1238,7 @@ esp_err_t solar_os_audio_stream_open(const char *owner,
     }
     *stream = NULL;
     memset(format, 0, sizeof(*format));
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     (void)timeout_ms;
     return ESP_ERR_NOT_SUPPORTED;
 #else
@@ -1283,7 +1298,7 @@ esp_err_t solar_os_audio_stream_write(solar_os_audio_stream_t *stream,
     if (stream == NULL || data == NULL || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (stream != &audio_output_stream || !stream->active ||
@@ -1296,7 +1311,7 @@ esp_err_t solar_os_audio_stream_write(solar_os_audio_stream_t *stream,
 
 void solar_os_audio_stream_close(solar_os_audio_stream_t *stream)
 {
-#if SOLAR_OS_BOARD_HAS_AUDIO
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
     if (stream != &audio_output_stream || !stream->active ||
         stream->task != xTaskGetCurrentTaskHandle()) {
         return;
@@ -1322,10 +1337,14 @@ esp_err_t solar_os_audio_input_stream_open(const char *owner,
     }
     *stream = NULL;
     memset(format, 0, sizeof(*format));
-#if !SOLAR_OS_BOARD_HAS_AUDIO_INPUT
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     (void)timeout_ms;
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (!solar_os_audio_backend_has_input()) {
+        (void)timeout_ms;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t ret = audio_operation_take(audio_timeout_ticks(timeout_ms));
     if (ret != ESP_OK) {
         return ret;
@@ -1377,7 +1396,7 @@ esp_err_t solar_os_audio_input_stream_read(solar_os_audio_input_stream_t *stream
     if (stream == NULL || data == NULL || len == 0U) {
         return ESP_ERR_INVALID_ARG;
     }
-#if !SOLAR_OS_BOARD_HAS_AUDIO_INPUT
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (stream != &audio_input_stream || !stream->active ||
@@ -1390,7 +1409,7 @@ esp_err_t solar_os_audio_input_stream_read(solar_os_audio_input_stream_t *stream
 
 void solar_os_audio_input_stream_close(solar_os_audio_input_stream_t *stream)
 {
-#if SOLAR_OS_BOARD_HAS_AUDIO_INPUT
+#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
     if (stream != &audio_input_stream || !stream->active ||
         stream->task != xTaskGetCurrentTaskHandle()) {
         return;
@@ -1552,6 +1571,7 @@ static esp_err_t audio_level_stream_read_scalar(
 
 static esp_err_t audio_register_endpoint(
     const char *id,
+    const char *device_id,
     solar_os_stream_type_t type,
     solar_os_stream_direction_t direction,
     solar_os_stream_sharing_t sharing,
@@ -1581,7 +1601,7 @@ static esp_err_t audio_register_endpoint(
     };
     strlcpy(driver.info.id, id, sizeof(driver.info.id));
     strlcpy(driver.info.provider, "audio", sizeof(driver.info.provider));
-    strlcpy(driver.info.device, "audio0", sizeof(driver.info.device));
+    strlcpy(driver.info.device, device_id, sizeof(driver.info.device));
     strlcpy(driver.info.unit, unit != NULL ? unit : "", sizeof(driver.info.unit));
     strlcpy(driver.info.format, format, sizeof(driver.info.format));
     strlcpy(driver.info.summary, summary, sizeof(driver.info.summary));
@@ -1617,14 +1637,33 @@ static esp_err_t audio_board_device_get_input_gain(void *user, float *gain_db)
 
 esp_err_t solar_os_audio_register_streams(void)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
-    return ESP_ERR_NOT_SUPPORTED;
-#else
+    if (!solar_os_audio_backend_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    solar_os_audio_backend_info_t backend_info;
+    solar_os_audio_backend_get_info(&backend_info);
+    solar_os_audio_backend_status_t backend_status;
+    solar_os_audio_backend_get_status(&backend_status);
+    if (backend_info.id == NULL || backend_info.name == NULL ||
+        backend_status.sample_rate == 0U || backend_status.channels == 0U ||
+        backend_status.bits_per_sample == 0U) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char playback_id[SOLAR_OS_STREAM_ID_MAX];
+    char capture_id[SOLAR_OS_STREAM_ID_MAX];
+    const int playback_len = snprintf(playback_id, sizeof(playback_id),
+                                      "%s.playback", backend_info.id);
+    const int capture_len = snprintf(capture_id, sizeof(capture_id),
+                                     "%s.capture", backend_info.id);
+    if (playback_len < 0 || (size_t)playback_len >= sizeof(playback_id) ||
+        capture_len < 0 || (size_t)capture_len >= sizeof(capture_id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     const solar_os_stream_audio_format_t native_format = {
         .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
-        .sample_rate = SOLAR_OS_BOARD_AUDIO_DEFAULT_SAMPLE_RATE,
-        .channels = SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS,
-        .bits_per_sample = SOLAR_OS_BOARD_AUDIO_DEFAULT_BITS,
+        .sample_rate = backend_status.sample_rate,
+        .channels = backend_status.channels,
+        .bits_per_sample = backend_status.bits_per_sample,
         .frames_per_block = AUDIO_FRAME_CHUNK,
     };
     solar_os_audio_device_info_t device = {
@@ -1632,26 +1671,24 @@ esp_err_t solar_os_audio_register_streams(void)
                         SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME,
         .native_format = native_format,
     };
-    strlcpy(device.id, "audio0", sizeof(device.id));
-    strlcpy(device.name, SOLAR_OS_BOARD_NAME, sizeof(device.name));
-    strlcpy(device.provider, "board", sizeof(device.provider));
-    strlcpy(device.playback_stream, "audio0.playback",
+    strlcpy(device.id, backend_info.id, sizeof(device.id));
+    strlcpy(device.name, backend_info.name, sizeof(device.name));
+    strlcpy(device.provider, "expansion", sizeof(device.provider));
+    strlcpy(device.playback_stream, playback_id,
             sizeof(device.playback_stream));
-#if SOLAR_OS_BOARD_HAS_AUDIO_INPUT
-    device.capabilities |= SOLAR_OS_AUDIO_DEVICE_CAP_INPUT |
-                           SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN;
-    strlcpy(device.capture_stream, "audio0.capture",
-            sizeof(device.capture_stream));
-    device.input_gain_min_db = 0.0f;
-    device.input_gain_max_db = 37.5f;
-    device.input_gain_step_db = 3.0f;
-#endif
+    if (backend_info.has_input) {
+        device.capabilities |= SOLAR_OS_AUDIO_DEVICE_CAP_INPUT |
+                               SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN;
+        strlcpy(device.capture_stream, capture_id,
+                sizeof(device.capture_stream));
+        device.input_gain_min_db = 0.0f;
+        device.input_gain_max_db = 37.5f;
+        device.input_gain_step_db = 3.0f;
+    }
     const solar_os_audio_device_ops_t device_ops = {
         .set_volume = audio_board_device_set_volume,
-#if SOLAR_OS_BOARD_HAS_AUDIO_INPUT
         .set_input_gain = audio_board_device_set_input_gain,
         .get_input_gain = audio_board_device_get_input_gain,
-#endif
     };
     esp_err_t err = solar_os_audio_register_device_ex(
         &device, &device_ops, NULL);
@@ -1659,51 +1696,113 @@ esp_err_t solar_os_audio_register_streams(void)
         return err;
     }
     err = audio_register_endpoint(
-        "audio0.playback", SOLAR_OS_STREAM_TYPE_AUDIO,
+        playback_id, backend_info.id, SOLAR_OS_STREAM_TYPE_AUDIO,
         SOLAR_OS_STREAM_DIRECTION_SINK, SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
         "frames", "pcm-s16le", "primary audio playback",
         &native_format, audio_playback_stream_open,
         audio_playback_stream_close, NULL, audio_playback_stream_write,
         NULL, NULL);
     if (err != ESP_OK) {
-        (void)solar_os_audio_unregister_device("audio0");
+        (void)solar_os_audio_unregister_device(backend_info.id);
         return err;
     }
-#if SOLAR_OS_BOARD_HAS_AUDIO_INPUT
-    err = audio_register_endpoint(
-        "audio0.capture", SOLAR_OS_STREAM_TYPE_AUDIO,
-        SOLAR_OS_STREAM_DIRECTION_SOURCE, SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
-        "frames", "pcm-s16le", "primary audio capture",
-        &native_format, audio_capture_stream_open,
-        audio_capture_stream_close, audio_capture_stream_read, NULL,
-        NULL, NULL);
-    if (err == ESP_OK) {
+    if (backend_info.has_input) {
         err = audio_register_endpoint(
-            "mic0", SOLAR_OS_STREAM_TYPE_SCALAR,
-            SOLAR_OS_STREAM_DIRECTION_SOURCE, SOLAR_OS_STREAM_SHARING_SHARED,
-            "percent", "f32", "left microphone level", NULL,
-            NULL, NULL, NULL, NULL, audio_level_stream_read_scalar,
-            (void *)(uintptr_t)0U);
+            capture_id, backend_info.id, SOLAR_OS_STREAM_TYPE_AUDIO,
+            SOLAR_OS_STREAM_DIRECTION_SOURCE,
+            SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
+            "frames", "pcm-s16le", "primary audio capture",
+            &native_format, audio_capture_stream_open,
+            audio_capture_stream_close, audio_capture_stream_read, NULL,
+            NULL, NULL);
+        if (err == ESP_OK) {
+            err = audio_register_endpoint(
+                "mic0", backend_info.id, SOLAR_OS_STREAM_TYPE_SCALAR,
+                SOLAR_OS_STREAM_DIRECTION_SOURCE,
+                SOLAR_OS_STREAM_SHARING_SHARED,
+                "percent", "f32", "left microphone level", NULL,
+                NULL, NULL, NULL, NULL, audio_level_stream_read_scalar,
+                (void *)(uintptr_t)0U);
+        }
+        if (err == ESP_OK && backend_status.channels > 1U) {
+            err = audio_register_endpoint(
+                "mic1", backend_info.id, SOLAR_OS_STREAM_TYPE_SCALAR,
+                SOLAR_OS_STREAM_DIRECTION_SOURCE,
+                SOLAR_OS_STREAM_SHARING_SHARED,
+                "percent", "f32", "right microphone level", NULL,
+                NULL, NULL, NULL, NULL, audio_level_stream_read_scalar,
+                (void *)(uintptr_t)1U);
+        }
+        if (err != ESP_OK) {
+            (void)solar_os_stream_unregister("mic1");
+            (void)solar_os_stream_unregister("mic0");
+            (void)solar_os_stream_unregister(capture_id);
+            (void)solar_os_stream_unregister(playback_id);
+            (void)solar_os_audio_unregister_device(backend_info.id);
+            return err;
+        }
     }
-    if (err == ESP_OK && SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS > 1U) {
-        err = audio_register_endpoint(
-            "mic1", SOLAR_OS_STREAM_TYPE_SCALAR,
-            SOLAR_OS_STREAM_DIRECTION_SOURCE, SOLAR_OS_STREAM_SHARING_SHARED,
-            "percent", "f32", "right microphone level", NULL,
-            NULL, NULL, NULL, NULL, audio_level_stream_read_scalar,
-            (void *)(uintptr_t)1U);
+    return ESP_OK;
+}
+
+static esp_err_t audio_stream_require_idle(const char *id)
+{
+    solar_os_stream_info_t stream;
+    const esp_err_t err = solar_os_stream_get_info(id, &stream);
+    if (err == ESP_ERR_NOT_FOUND) {
+        return ESP_OK;
     }
     if (err != ESP_OK) {
-        (void)solar_os_stream_unregister("mic1");
-        (void)solar_os_stream_unregister("mic0");
-        (void)solar_os_stream_unregister("audio0.capture");
-        (void)solar_os_stream_unregister("audio0.playback");
-        (void)solar_os_audio_unregister_device("audio0");
         return err;
     }
-#endif
-    return ESP_OK;
-#endif
+    return stream.active_handles == 0U ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t solar_os_audio_unregister_streams(const char *id)
+{
+    if (!audio_device_id_valid(id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_audio_device_info_t device;
+    esp_err_t err = solar_os_audio_device_get_info(id, &device);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = audio_stream_require_idle(device.playback_stream);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (device.capture_stream[0] != '\0') {
+        err = audio_stream_require_idle(device.capture_stream);
+        if (err != ESP_OK) {
+            return err;
+        }
+        err = audio_stream_require_idle("mic0");
+        if (err != ESP_OK) {
+            return err;
+        }
+        err = audio_stream_require_idle("mic1");
+        if (err != ESP_OK) {
+            return err;
+        }
+        err = solar_os_stream_unregister("mic1");
+        if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+            return err;
+        }
+        err = solar_os_stream_unregister("mic0");
+        if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+            return err;
+        }
+        err = solar_os_stream_unregister(device.capture_stream);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    err = solar_os_stream_unregister(device.playback_stream);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return solar_os_audio_unregister_device(id);
 }
 
 static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
@@ -1719,7 +1818,7 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
         return ESP_ERR_INVALID_ARG;
     }
 
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = audio_apply_playback_volume(volume);
@@ -1733,7 +1832,7 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
         return ESP_ERR_INVALID_STATE;
     }
 
-    int16_t samples[AUDIO_FRAME_CHUNK * SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS];
+    int16_t samples[AUDIO_FRAME_CHUNK * SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS];
     uint32_t phase = 0;
     const uint32_t phase_step = (uint32_t)(((uint64_t)frequency_hz << 16) / status.sample_rate);
     uint32_t frames_remaining = (uint32_t)(((uint64_t)status.sample_rate * duration_ms) / 1000U);
@@ -1748,13 +1847,13 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
         for (uint32_t frame = 0; frame < frames; frame++) {
             const int16_t sample = (phase & 0x8000U) ? AUDIO_TONE_AMPLITUDE : -AUDIO_TONE_AMPLITUDE;
             phase += phase_step;
-            for (uint8_t ch = 0; ch < SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS; ch++) {
-                samples[(frame * SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS) + ch] = sample;
+            for (uint8_t ch = 0; ch < SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS; ch++) {
+                samples[(frame * SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS) + ch] = sample;
             }
         }
 
         ret = solar_os_board_audio_write(samples,
-                                      frames * SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS * sizeof(samples[0]));
+                                      frames * SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS * sizeof(samples[0]));
         if (ret != ESP_OK) {
             return ret;
         }
@@ -1775,7 +1874,7 @@ esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz,
                                    uint32_t duration_ms,
                                    uint8_t volume)
 {
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     (void)frequency_hz;
     (void)duration_ms;
     (void)volume;
@@ -1946,7 +2045,7 @@ esp_err_t solar_os_audio_tone_enqueue(const solar_os_audio_tone_request_t *reque
     if (!audio_tone_request_valid(request)) {
         return ESP_ERR_INVALID_ARG;
     }
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = audio_ensure_mutexes();
@@ -1997,7 +2096,7 @@ esp_err_t solar_os_audio_tone_cancel(uint32_t request_id)
     if (request_id == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (audio_ensure_mutexes() != ESP_OK) {
@@ -2078,7 +2177,7 @@ static esp_err_t audio_measure_level_locked(uint32_t duration_ms,
     }
 
     memset(level, 0, sizeof(*level));
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = ESP_OK;
@@ -2122,6 +2221,9 @@ static esp_err_t audio_measure_level_locked(uint32_t duration_ms,
 
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms, solar_os_audio_level_t *level)
 {
+    if (!solar_os_audio_backend_has_input()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
         return ret;
@@ -2139,12 +2241,12 @@ static esp_err_t audio_measure_channel_level_locked(uint8_t channel,
     if (duration_ms == 0 ||
         duration_ms > SOLAR_OS_AUDIO_TEST_MAX_MS ||
         level == NULL ||
-        channel >= SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS) {
+        channel >= SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS) {
         return ESP_ERR_INVALID_ARG;
     }
 
     memset(level, 0, sizeof(*level));
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = ESP_OK;
@@ -2162,7 +2264,7 @@ static esp_err_t audio_measure_channel_level_locked(uint8_t channel,
 
         for (size_t i = channel;
              i < sizeof(samples) / sizeof(samples[0]);
-             i += SOLAR_OS_BOARD_AUDIO_DEFAULT_CHANNELS) {
+             i += SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS) {
             const uint32_t value = audio_abs_i16(samples[i]);
             if (value > peak) {
                 peak = value;
@@ -2193,6 +2295,9 @@ esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                uint32_t duration_ms,
                                                solar_os_audio_level_t *level)
 {
+    if (!solar_os_audio_backend_has_input()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
         return ret;
@@ -2211,7 +2316,7 @@ static esp_err_t audio_loopback_locked(uint32_t duration_ms, uint8_t volume)
         return ESP_ERR_INVALID_ARG;
     }
 
-#if !SOLAR_OS_BOARD_HAS_AUDIO
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     return ESP_ERR_NOT_SUPPORTED;
 #else
     esp_err_t ret = audio_apply_playback_volume(volume);
@@ -2249,6 +2354,9 @@ static esp_err_t audio_loopback_locked(uint32_t duration_ms, uint8_t volume)
 
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume)
 {
+    if (!solar_os_audio_backend_has_input()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
         return ret;
@@ -2372,6 +2480,12 @@ void solar_os_audio_input_stream_close(solar_os_audio_input_stream_t *stream)
 
 esp_err_t solar_os_audio_register_streams(void)
 {
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t solar_os_audio_unregister_streams(const char *id)
+{
+    (void)id;
     return ESP_ERR_NOT_SUPPORTED;
 }
 
@@ -3483,7 +3597,7 @@ void solar_os_audio_get_status(solar_os_audio_status_t *status)
         return;
     }
 
-#if !SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD
+#if !SOLAR_OS_AUDIO_BACKEND_PACKAGE
     *status = (solar_os_audio_status_t){
         .initialized = solar_os_audio_output_available(),
         .sample_rate = 0U,

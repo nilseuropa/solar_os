@@ -4,7 +4,6 @@
 #include "solar_os_config.h"
 #include "solar_os_adc.h"
 #include "solar_os_adc_dpad.h"
-#include "solar_os_audio.h"
 #include "solar_os_battery.h"
 #include "solar_os_ble_keyboard.h"
 #include "solar_os_board_caps.h"
@@ -90,16 +89,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
 #endif
     }
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_AUDIO)) {
-        const esp_err_t audio_err = solar_os_audio_register_streams();
-        if (audio_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Audio streams unavailable: %s",
-                          esp_err_to_name(audio_err));
-        }
-    }
-#endif
-
     const esp_err_t power_err = solar_os_power_init();
     if (power_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Power service unavailable: %s", esp_err_to_name(power_err));
@@ -132,15 +121,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
     const esp_err_t engines_err = solar_os_engines_init();
     if (engines_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Engine telemetry unavailable: %s", esp_err_to_name(engines_err));
-    }
-#endif
-
-#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_BATTERY)) {
-        const esp_err_t battery_err = solar_os_battery_init();
-        if (battery_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Battery monitor unavailable: %s", esp_err_to_name(battery_err));
-        }
     }
 #endif
 
@@ -270,25 +250,6 @@ void solar_os_boot_services_init(uint32_t now_ms)
         const esp_err_t i2c_err = solar_os_i2c_init();
         if (i2c_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "I2C unavailable: %s", esp_err_to_name(i2c_err));
-        } else {
-#if SOLAR_OS_PACKAGE_SERVICE_RTC
-            if (solar_os_board_has(SOLAR_OS_BOARD_CAP_RTC)) {
-                const esp_err_t rtc_err = solar_os_time_init();
-                if (rtc_err != ESP_OK) {
-                    SOLAR_OS_LOGW(TAG, "RTC unavailable: %s", esp_err_to_name(rtc_err));
-                }
-            }
-#endif
-
-#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
-            if (solar_os_board_has(SOLAR_OS_BOARD_CAP_TEMPERATURE) ||
-                solar_os_board_has(SOLAR_OS_BOARD_CAP_HUMIDITY)) {
-                const esp_err_t sensors_err = solar_os_sensors_init();
-                if (sensors_err != ESP_OK) {
-                    SOLAR_OS_LOGW(TAG, "Sensors unavailable: %s", esp_err_to_name(sensors_err));
-                }
-            }
-#endif
         }
     }
 #endif
@@ -309,6 +270,31 @@ void solar_os_boot_services_init(uint32_t now_ms)
             SOLAR_OS_LOGW(TAG,
                           "Expansion initialization incomplete: %s",
                           esp_err_to_name(expansion_err));
+        }
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+    const esp_err_t rtc_err = solar_os_time_init();
+    if (rtc_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Time service unavailable: %s", esp_err_to_name(rtc_err));
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    if (solar_os_sensors_has_provider()) {
+        const esp_err_t sensors_err = solar_os_sensors_init();
+        if (sensors_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "Sensors unavailable: %s", esp_err_to_name(sensors_err));
+        }
+    }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+    if (solar_os_battery_has_provider()) {
+        const esp_err_t battery_err = solar_os_battery_init();
+        if (battery_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "Battery monitor unavailable: %s", esp_err_to_name(battery_err));
         }
     }
 #endif

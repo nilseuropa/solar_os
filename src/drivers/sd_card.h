@@ -71,7 +71,14 @@ typedef struct {
 esp_err_t sd_card_init(void);
 esp_err_t sd_card_configure_sdspi(int host, int cs_pin);
 esp_err_t sd_card_clear_sdspi_config(void);
-bool sd_card_sdspi_configured(void);
+esp_err_t sd_card_configure_sdmmc(int clk_pin,
+                                  int cmd_pin,
+                                  int d0_pin,
+                                  int d1_pin,
+                                  int d2_pin,
+                                  int d3_pin);
+esp_err_t sd_card_clear_sdmmc_config(void);
+bool sd_card_configured(void);
 esp_err_t sd_card_unmount(void);
 esp_err_t sd_card_mount_volume(const char *name, const char *mount_point);
 esp_err_t sd_card_unmount_volume(const char *target);

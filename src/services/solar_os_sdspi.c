@@ -8,7 +8,6 @@
 
 #include "ff.h"
 #include "sd_card.h"
-#include "solar_os_board_caps.h"
 
 typedef struct {
     bool active;
@@ -77,9 +76,6 @@ esp_err_t solar_os_sdspi_attach(const char *name,
 
     if (name == NULL || name[0] == '\0' || sdspi.active) {
         return ESP_ERR_INVALID_ARG;
-    }
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_SD)) {
-        return ESP_ERR_NOT_SUPPORTED;
     }
     esp_err_t ret = parse_bindings(bindings,
                                    binding_count,

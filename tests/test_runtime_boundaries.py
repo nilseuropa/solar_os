@@ -73,6 +73,34 @@ class RuntimeBoundaryTest(unittest.TestCase):
             ble,
         )
 
+    def test_audio_stream_direction_and_shell_capabilities(self):
+        audio = (ROOT / "src/services/solar_os_audio.c").read_text(
+            encoding="utf-8"
+        )
+        registry = (ROOT / "src/apps/solar_os_app_registry.c").read_text(
+            encoding="utf-8"
+        )
+
+        playback_start = audio.index("esp_err_t solar_os_audio_stream_open(")
+        playback_end = audio.index("esp_err_t solar_os_audio_stream_write(")
+        playback = audio[playback_start:playback_end]
+        capture_start = audio.index(
+            "esp_err_t solar_os_audio_input_stream_open("
+        )
+        capture_end = audio.index("esp_err_t solar_os_audio_input_stream_read(")
+        capture = audio[capture_start:capture_end]
+        self.assertNotIn("solar_os_audio_backend_has_input()", playback)
+        self.assertIn("solar_os_audio_backend_has_input()", capture)
+
+        for app_name in ("aplay", "arecord"):
+            entry = next(
+                line
+                for line in registry.splitlines()
+                if f'APP_ENTRY("{app_name}"' in line
+            )
+            self.assertIn("SOLAR_OS_APP_CAP_DISPLAY", entry)
+            self.assertIn("SOLAR_OS_APP_CAP_PORT", entry)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -39,15 +39,4 @@ else()
 endif()
 message(STATUS "SolarOS VGA mode: ${SOLAR_OS_VGA_MODE}")
 
-list(APPEND SOLAR_OS_BOARD_SRCS
-    "board/solar_os_board_display_vga32.c"
-    "drivers/vga32.c"
-)
-list(APPEND SOLAR_OS_BOARD_REQUIRES
-    esp_driver_gpio
-    esp_hw_support
-    esp_rom
-    esp_system
-    hal
-    u8g2
-)
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES driver_display_vga32)

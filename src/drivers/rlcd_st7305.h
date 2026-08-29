@@ -15,6 +15,15 @@ extern "C" {
 #endif
 
 typedef struct {
+    const char *spi_bus;
+    int cs_pin;
+    int dc_pin;
+    int reset_pin;
+    uint32_t spi_clock_hz;
+    const u8g2_cb_t *rotation;
+} rlcd_st7305_config_t;
+
+typedef struct {
     spi_device_handle_t spi;
     u8g2_t u8g2;
     uint8_t *buffer;
@@ -32,14 +41,15 @@ typedef struct {
     uint8_t high_refresh_saved_power_policy;
     uint16_t high_refresh_hz_tenths;
     esp_err_t last_error;
-    bool bus_initialized;
     bool frame_content_changed;
     bool inverted;
     bool high_refresh_override;
     const char *controller_mode;
+    rlcd_st7305_config_t config;
 } rlcd_st7305_t;
 
-esp_err_t rlcd_st7305_init(rlcd_st7305_t *display);
+esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
+                           const rlcd_st7305_config_t *config);
 esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display);
 void rlcd_st7305_deinit(rlcd_st7305_t *display);
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display);

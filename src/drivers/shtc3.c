@@ -1,10 +1,11 @@
 #include "shtc3.h"
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "i2c_bus.h"
+#include "solar_os_buses.h"
 
 #define SHTC3_CMD_READ_ID 0xefc8
 #define SHTC3_CMD_SOFT_RESET 0x805d
@@ -12,6 +13,8 @@
 #define SHTC3_CMD_WAKEUP 0x3517
 #define SHTC3_CMD_MEASURE_T_RH_POLLING 0x7866
 #define SHTC3_TEMPERATURE_OFFSET_C (-4.0f)
+
+static shtc3_t default_device;
 
 static uint8_t shtc3_crc(const uint8_t *data, size_t len)
 {
@@ -36,37 +39,43 @@ static bool shtc3_crc_ok(const uint8_t *data, uint8_t checksum)
     return shtc3_crc(data, 2) == checksum;
 }
 
-static esp_err_t shtc3_write_cmd(uint16_t command)
+static esp_err_t shtc3_write_cmd(const shtc3_t *device, uint16_t command)
 {
+    if (device == NULL || device->bus[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
     const uint8_t data[2] = {
         (uint8_t)(command >> 8),
         (uint8_t)(command & 0xff),
     };
 
-    return i2c_bus_transmit(SHTC3_ADDRESS, data, sizeof(data));
+    return solar_os_bus_i2c_transmit(device->bus,
+                                     device->address,
+                                     data,
+                                     sizeof(data));
 }
 
-static esp_err_t shtc3_wakeup(void)
+static esp_err_t shtc3_wakeup(const shtc3_t *device)
 {
-    const esp_err_t ret = shtc3_write_cmd(SHTC3_CMD_WAKEUP);
+    const esp_err_t ret = shtc3_write_cmd(device, SHTC3_CMD_WAKEUP);
     if (ret == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(2));
     }
     return ret;
 }
 
-static esp_err_t shtc3_sleep(void)
+static esp_err_t shtc3_sleep(const shtc3_t *device)
 {
-    return shtc3_write_cmd(SHTC3_CMD_SLEEP);
+    return shtc3_write_cmd(device, SHTC3_CMD_SLEEP);
 }
 
-esp_err_t shtc3_read_id(uint16_t *id)
+esp_err_t shtc3_read_id_device(const shtc3_t *device, uint16_t *id)
 {
-    if (id == NULL) {
+    if (device == NULL || device->bus[0] == '\0' || id == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = shtc3_wakeup();
+    esp_err_t ret = shtc3_wakeup(device);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -77,8 +86,13 @@ esp_err_t shtc3_read_id(uint16_t *id)
     };
     uint8_t data[3] = {0};
 
-    ret = i2c_bus_transmit_receive(SHTC3_ADDRESS, command, sizeof(command), data, sizeof(data));
-    esp_err_t sleep_ret = shtc3_sleep();
+    ret = solar_os_bus_i2c_transmit_receive(device->bus,
+                                            device->address,
+                                            command,
+                                            sizeof(command),
+                                            data,
+                                            sizeof(data));
+    esp_err_t sleep_ret = shtc3_sleep(device);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -93,14 +107,23 @@ esp_err_t shtc3_read_id(uint16_t *id)
     return ESP_OK;
 }
 
-esp_err_t shtc3_init(void)
+esp_err_t shtc3_init_device(shtc3_t *device, const char *bus, uint8_t address)
 {
-    esp_err_t ret = shtc3_wakeup();
+    if (device == NULL || bus == NULL || bus[0] == '\0' ||
+        strnlen(bus, sizeof(device->bus)) >= sizeof(device->bus) ||
+        address > 0x7fU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(device, 0, sizeof(*device));
+    strlcpy(device->bus, bus, sizeof(device->bus));
+    device->address = address;
+
+    esp_err_t ret = shtc3_wakeup(device);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    ret = shtc3_write_cmd(SHTC3_CMD_SOFT_RESET);
+    ret = shtc3_write_cmd(device, SHTC3_CMD_SOFT_RESET);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -108,7 +131,7 @@ esp_err_t shtc3_init(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 
     uint16_t id = 0;
-    ret = shtc3_read_id(&id);
+    ret = shtc3_read_id_device(device, &id);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -116,18 +139,19 @@ esp_err_t shtc3_init(void)
     return ESP_OK;
 }
 
-esp_err_t shtc3_read_measurement(shtc3_measurement_t *measurement)
+esp_err_t shtc3_read_measurement_device(const shtc3_t *device,
+                                        shtc3_measurement_t *measurement)
 {
-    if (measurement == NULL) {
+    if (device == NULL || device->bus[0] == '\0' || measurement == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = shtc3_wakeup();
+    esp_err_t ret = shtc3_wakeup(device);
     if (ret != ESP_OK) {
         return ret;
     }
 
-    ret = shtc3_write_cmd(SHTC3_CMD_MEASURE_T_RH_POLLING);
+    ret = shtc3_write_cmd(device, SHTC3_CMD_MEASURE_T_RH_POLLING);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -135,8 +159,11 @@ esp_err_t shtc3_read_measurement(shtc3_measurement_t *measurement)
     vTaskDelay(pdMS_TO_TICKS(20));
 
     uint8_t data[6] = {0};
-    ret = i2c_bus_receive(SHTC3_ADDRESS, data, sizeof(data));
-    esp_err_t sleep_ret = shtc3_sleep();
+    ret = solar_os_bus_i2c_receive(device->bus,
+                                   device->address,
+                                   data,
+                                   sizeof(data));
+    esp_err_t sleep_ret = shtc3_sleep(device);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -154,11 +181,26 @@ esp_err_t shtc3_read_measurement(shtc3_measurement_t *measurement)
     measurement->humidity_percent = (100.0f * (float)raw_humidity) / 65536.0f;
 
     uint16_t id = 0;
-    if (shtc3_read_id(&id) == ESP_OK) {
+    if (shtc3_read_id_device(device, &id) == ESP_OK) {
         measurement->id = id;
     } else {
         measurement->id = 0;
     }
 
     return ESP_OK;
+}
+
+esp_err_t shtc3_init(void)
+{
+    return shtc3_init_device(&default_device, "i2c0", SHTC3_ADDRESS);
+}
+
+esp_err_t shtc3_read_id(uint16_t *id)
+{
+    return shtc3_read_id_device(&default_device, id);
+}
+
+esp_err_t shtc3_read_measurement(shtc3_measurement_t *measurement)
+{
+    return shtc3_read_measurement_device(&default_device, measurement);
 }

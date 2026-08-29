@@ -2,6 +2,24 @@
 
 ## 4.x
 
+- **4.9.2** — 2026-08-29 — Unified board-integrated hardware with the expansion
+  lifecycle. Battery ADC, PCF85063 RTC, SHTC3 sensing, FT6336 touch, ST7305,
+  ILI9341, ST7796, SSD1683, CVBS PAL, VGA32, SDMMC, ES8311/ES7210,
+  ES8311-duplex, and ESP32-DAC providers now use target-aware, package-gated
+  expansion drivers; built-in devices register as immutable board attachments,
+  while compatible hardware can use the same drivers at runtime. Added an
+  MCU-first desktop board-configuration TUI and one inherited TOML manifest as
+  the complete source for a custom board profile. Migrated every maintained
+  built-in target to the declarative manifest system. Improved expansion
+  discovery with compact aligned driver columns and separate device blocks
+  with bold names. Fixed board-defined battery-monitor attachment, and corrected
+  playback stream negotiation on output-only codecs, restoring ODROID-GO
+  ESP32-DAC playback. `aplay` and `arecord` can now run from display, UART, USB
+  CDC, Telnet, and other port shells. PlatformIO build locking now degrades to
+  an explicit warning-only no-op on Windows, where POSIX `flock` is unavailable.
+  Physical acceptance passed on Waveshare ESP32-S3-RLCD-4.2, Freenove FNK0104S,
+  Elecrow CrowPanel, ODROID-GO, and ESP32-S3 DevKitC-1; Freenove ESP32-WROVER
+  v3.0 CVBS output and SDMMC storage also passed.
 - **4.9.1** — 2026-08-27 — Added mirrored `solaros.input` Python and Lua
   bindings with `sources`, `read`, `clear`, and `status`. Foreground scripts can
   receive touch coordinates and actions, relative mouse deltas and buttons,

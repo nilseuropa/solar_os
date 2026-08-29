@@ -1,21 +1,9 @@
 #pragma once
 
-#if defined(SOLAR_OS_BOARD_WAVESHARE_ESP32_S3_RLCD_4_2)
-#include "boards/waveshare_esp32_s3_rlcd_4_2.h"
-#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_S3_DISPLAY_4_0)
-#include "boards/freenove_esp32_s3_display_4_0.h"
-#elif defined(SOLAR_OS_BOARD_ESP32_S3_DEVKITC1_N16R8)
-#include "boards/esp32_s3_devkitc1_n16r8.h"
-#elif defined(SOLAR_OS_BOARD_ODROID_GO)
-#include "boards/odroid_go.h"
-#elif defined(SOLAR_OS_BOARD_FREENOVE_ESP32_WROVER_V3)
-#include "boards/freenove_esp32_wrover_v3.h"
-#elif defined(SOLAR_OS_BOARD_ELECROW_CROWPANEL_ESP32_S3_4_2_EPAPER)
-#include "boards/elecrow_crowpanel_esp32_s3_4_2_epaper.h"
-#elif defined(SOLAR_OS_BOARD_TTGO_VGA32_V14)
-#include "boards/ttgo_vga32_v14.h"
+#if defined(SOLAR_OS_BOARD_GENERATED)
+#include "solar_os_board_generated.h"
 #else
-#error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/<target>.cmake profile."
+#error "No SolarOS board target selected. Build through a PlatformIO env with a matching boards/manifests/<target>.toml profile."
 #endif
 
 #ifndef SOLAR_OS_BOARD_ID

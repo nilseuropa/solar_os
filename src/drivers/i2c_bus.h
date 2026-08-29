@@ -39,6 +39,11 @@ gpio_num_t i2c_bus_get_scl_pin(void);
 esp_err_t i2c_bus_probe(uint8_t address);
 esp_err_t i2c_bus_probe_handle(i2c_master_bus_handle_t handle, uint8_t address);
 esp_err_t i2c_bus_transmit(uint8_t address, const uint8_t *data, size_t len);
+esp_err_t i2c_bus_transmit_handle(i2c_master_bus_handle_t handle,
+                                  uint32_t speed_hz,
+                                  uint8_t address,
+                                  const uint8_t *data,
+                                  size_t len);
 esp_err_t i2c_bus_receive(uint8_t address, uint8_t *data, size_t len);
 esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
                                  uint32_t speed_hz,
@@ -50,6 +55,13 @@ esp_err_t i2c_bus_transmit_receive(uint8_t address,
                                    size_t tx_len,
                                    uint8_t *rx_data,
                                    size_t rx_len);
+esp_err_t i2c_bus_transmit_receive_handle(i2c_master_bus_handle_t handle,
+                                          uint32_t speed_hz,
+                                          uint8_t address,
+                                          const uint8_t *tx_data,
+                                          size_t tx_len,
+                                          uint8_t *rx_data,
+                                          size_t rx_len);
 esp_err_t i2c_bus_read_reg(uint8_t address, uint8_t reg, uint8_t *data, size_t len);
 esp_err_t i2c_bus_write_reg(uint8_t address, uint8_t reg, const uint8_t *data, size_t len);
 esp_err_t i2c_bus_read_reg_handle(i2c_master_bus_handle_t handle,

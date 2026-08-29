@@ -100,7 +100,8 @@ Play audio files through the default registered playback endpoint. WAV and MP3
 are supported when an output device is present. MP3 decoding is provided by the
 shared, device-independent audio codec service. `aplay` prints the source
 details, plays the file once through the shared background audio player, and
-then returns to the prompt without clearing existing terminal output.
+then returns to the prompt without clearing existing terminal output. It can be
+launched from display, UART, USB CDC, Telnet, and other port shells.
 
 Usage:
 
@@ -118,6 +119,7 @@ Record the default registered capture endpoint to a WAV file. This requires a
 registered input device; it does not require built-in board audio. With `-d`,
 recording stops after the specified number of seconds. Without `-d`, recording
 continues until app-exit, the storage fills, or the WAV size limit is reached.
+It can be launched from display, UART, USB CDC, Telnet, and other port shells.
 
 Usage:
 

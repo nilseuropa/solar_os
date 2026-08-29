@@ -1,0 +1,288 @@
+schema = 1
+
+[board]
+id = "ttgo_vga32_v14"
+name = "LilyGO TTGO VGA32 v1.4"
+vendor = "LilyGO"
+module = "ESP32-PICO-D4 + 8MB PSRAM"
+
+[target]
+mcu = "esp32"
+platformio_board = "ttgo-t7-v14-mini32"
+
+[build]
+drivers = [
+  "uart_esp_idf",
+  "display_vga32",
+  "storage_expansion",
+  "spi_esp_idf",
+  "audio_esp32_dac",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+]
+capabilities = [
+  "psram", "display", "gfx", "uart", "sd", "audio", "spi", "wifi",
+  "ble", "ps2_keyboard", "gpio", "adc", "expansion_gpio", "expansion_spi",
+  "expansion_adc",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_1"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_3"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '(SOLAR_OS_VGA_MODE_320X200 ? "VGA 320x200@70Hz" : SOLAR_OS_VGA_MODE_320X240 ? "VGA 320x240@60Hz" : SOLAR_OS_VGA_MODE_640X400 ? "VGA 640x400@70Hz" : "VGA 640x480@60Hz")'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "(SOLAR_OS_VGA_MODE_320X200 || SOLAR_OS_VGA_MODE_320X240 ? 320 : 640)"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "(SOLAR_OS_VGA_MODE_320X200 ? 200 : SOLAR_OS_VGA_MODE_320X240 ? 240 : SOLAR_OS_VGA_MODE_640X400 ? 400 : 480)"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R1"
+SOLAR_OS_BOARD_CPU_FLOOR_MHZ = "240U"
+SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS = "33U"
+SOLAR_OS_BOARD_PIN_VGA_RED0 = "GPIO_NUM_21"
+SOLAR_OS_BOARD_PIN_VGA_RED1 = "GPIO_NUM_22"
+SOLAR_OS_BOARD_PIN_VGA_GREEN0 = "GPIO_NUM_18"
+SOLAR_OS_BOARD_PIN_VGA_GREEN1 = "GPIO_NUM_19"
+SOLAR_OS_BOARD_PIN_VGA_BLUE0 = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_VGA_BLUE1 = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_VGA_HSYNC = "GPIO_NUM_23"
+SOLAR_OS_BOARD_PIN_VGA_VSYNC = "GPIO_NUM_15"
+SOLAR_OS_BOARD_VGA_I2S_PORT = "I2S_NUM_1"
+SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS = "GPIO_NUM_25"
+SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ESP32-DAC"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"-"'
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"HSPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_2"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_12"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+SOLAR_OS_BOARD_PIN_SD_CARD_CS = "GPIO_NUM_13"
+SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_DATA = "GPIO_NUM_32"
+SOLAR_OS_BOARD_PIN_PS2_KEYBOARD_CLOCK = "GPIO_NUM_33"
+SOLAR_OS_BOARD_PIN_PS2_MOUSE_DATA = "GPIO_NUM_27"
+SOLAR_OS_BOARD_PIN_PS2_MOUSE_CLOCK = "GPIO_NUM_26"
+SOLAR_OS_BOARD_DEFAULT_BLE_ENABLED = "0"
+
+[runtime]
+spi_hosts = []
+uart_ports = []
+i2s_ports = []
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 14
+miso = 2
+mosi = 12
+cs = [13]
+max_transfer_size = 4096
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 1
+rx = 3
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "ps2kbd0"
+protocol = "ps2"
+sharing = "exclusive"
+clock = 33
+data = 32
+
+[[buses]]
+name = "ps2mouse0"
+protocol = "ps2"
+sharing = "exclusive"
+clock = 26
+data = 27
+
+[[devices]]
+driver = "vga32"
+name = "display0"
+bindings = { r0 = 21, r1 = 22, g0 = 18, g1 = 19, b0 = 4, b1 = 5, hsync = 23, vsync = 15 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 13 }
+
+[[devices]]
+driver = "ps2-keyboard"
+name = "keyboard0"
+bindings = { ps2 = "ps2kbd0" }
+
+[[devices]]
+driver = "esp32-dac"
+name = "audio0"
+bindings = { pos = 25 }
+
+[connector]
+title = "GPIO expansion header"
+view = "component side; VGA connector at top"
+rows = 2
+columns = 4
+
+[[connectors]]
+connector = "GPIO"
+position = 1
+row = 0
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "GPIO"
+position = 2
+row = 0
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "GPIO"
+position = 3
+row = 0
+column = 2
+gpio = 39
+kind = "gpio"
+label = "IO39"
+[[connectors]]
+connector = "GPIO"
+position = 4
+row = 0
+column = 3
+gpio = 34
+kind = "gpio"
+label = "IO34"
+[[connectors]]
+connector = "GPIO"
+position = 5
+row = 1
+column = 0
+gpio = 12
+kind = "gpio"
+label = "IO12/SD MOSI"
+[[connectors]]
+connector = "GPIO"
+position = 6
+row = 1
+column = 1
+gpio = 14
+kind = "gpio"
+label = "IO14/SD CLK"
+[[connectors]]
+connector = "GPIO"
+position = 7
+row = 1
+column = 2
+gpio = 13
+kind = "gpio"
+label = "IO13/SD CS"
+[[connectors]]
+connector = "GPIO"
+position = 8
+row = 1
+column = 3
+gpio = 2
+kind = "gpio"
+label = "IO2/SD MISO"
+
+[[pins]]
+gpio = 1
+policy = "releasable"
+role = "USB-UART TX"
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "SD MISO / strapping"
+expansion = true
+[[pins]]
+gpio = 3
+policy = "releasable"
+role = "USB-UART RX"
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "VGA blue0"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "VGA blue1 / strapping"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "SD MOSI / strapping"
+expansion = true
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "SD CS"
+expansion = true
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "SD clock"
+expansion = true
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "VGA VSync / strapping"
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "VGA green0"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "VGA green1"
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "VGA red0"
+[[pins]]
+gpio = 22
+policy = "fixed"
+role = "VGA red1"
+[[pins]]
+gpio = 23
+policy = "fixed"
+role = "VGA HSync"
+[[pins]]
+gpio = 25
+policy = "fixed"
+role = "mono audio DAC"
+[[pins]]
+gpio = 26
+policy = "fixed"
+role = "PS/2 mouse clock"
+[[pins]]
+gpio = 27
+policy = "fixed"
+role = "PS/2 mouse data"
+[[pins]]
+gpio = 32
+policy = "fixed"
+role = "PS/2 keyboard data"
+[[pins]]
+gpio = 33
+policy = "fixed"
+role = "PS/2 keyboard clock"
+[[pins]]
+gpio = 34
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true
+[[pins]]
+gpio = 39
+policy = "free"
+role = "input-only expansion"
+expansion = true
+user = true
+adc = true

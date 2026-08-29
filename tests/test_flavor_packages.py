@@ -53,6 +53,105 @@ class FlavorPackagesTest(unittest.TestCase):
                 {"job_missing"},
             )
 
+    def test_target_pruning_keeps_compatible_driver_packages(self):
+        _, _, _, packages = self.resolve("full")
+
+        for target in ("esp32", "esp32s3"):
+            pruned = generate_flavor_config.apply_target_pruning(
+                self.catalog,
+                packages,
+                target,
+            )
+            self.assertTrue(pruned["expansion_neopixel"], target)
+            self.assertTrue(pruned["expansion_audio_pwm"], target)
+            self.assertTrue(pruned["expansion_pcm5102"], target)
+            self.assertTrue(pruned["driver_pcf85063"], target)
+            self.assertTrue(pruned["driver_shtc3"], target)
+            self.assertTrue(pruned["driver_battery_adc"], target)
+            self.assertTrue(pruned["expansion_sdmmc"], target)
+
+    def test_target_pruning_removes_incompatible_driver_and_dependents(self):
+        _, _, _, packages = self.resolve("full")
+        pruned = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32c3",
+        )
+
+        self.assertFalse(pruned["expansion_neopixel"])
+        self.assertFalse(pruned["expansion_audio_pwm"])
+        self.assertFalse(pruned["expansion_pcm5102"])
+
+    def test_sdmmc_expansion_uses_direct_gpio_capability(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+
+        self.assertTrue(pruned["expansion_sdmmc"])
+        self.assertFalse(pruned["expansion_sdspi"])
+
+    def test_audio_backend_drivers_are_target_specific(self):
+        _, _, _, packages = self.resolve("full")
+
+        classic = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32",
+        )
+        self.assertTrue(classic["driver_audio_esp32_dac"])
+        self.assertFalse(classic["driver_audio_es8311_codecs"])
+
+        s3 = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32s3",
+        )
+        self.assertFalse(s3["driver_audio_esp32_dac"])
+        self.assertTrue(s3["driver_audio_es8311_codecs"])
+
+    def test_spi_display_drivers_support_both_esp32_targets(self):
+        _, _, _, packages = self.resolve("full")
+
+        portable_spi_displays = (
+            "driver_display_st7305",
+            "driver_display_ili9341",
+            "driver_display_st7796",
+            "expansion_ssd1683",
+        )
+
+        classic = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32",
+        )
+        for package in portable_spi_displays:
+            self.assertTrue(classic[package], package)
+        self.assertTrue(classic["driver_display_cvbs_pal"])
+        self.assertTrue(classic["driver_display_vga32"])
+
+        s3 = generate_flavor_config.apply_target_pruning(
+            self.catalog,
+            packages,
+            "esp32s3",
+        )
+        for package in portable_spi_displays:
+            self.assertTrue(s3[package], package)
+        self.assertFalse(s3["driver_display_cvbs_pal"])
+        self.assertFalse(s3["driver_display_vga32"])
+
+    def test_target_pruning_requires_a_target(self):
+        _, _, _, packages = self.resolve("full")
+        with self.assertRaisesRegex(ValueError, "MCU target is required"):
+            generate_flavor_config.apply_target_pruning(
+                self.catalog,
+                packages,
+                "",
+            )
+
     def test_granular_group_ownership(self):
         self.assertEqual(
             set(self.catalog.group_defs["maintenance_jobs"].members),
@@ -160,6 +259,14 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(
             self.catalog.package_defs["expansion_pcm5102"].capabilities,
             ("expansion_i2s",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_ssd1683"].depends,
+            ("service_expansion", "service_spi"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_ssd1683"].capabilities,
+            ("gfx", "expansion_gpio"),
         )
         self.assertEqual(
             self.catalog.package_defs["service_espnow"].depends,
@@ -333,6 +440,27 @@ class FlavorPackagesTest(unittest.TestCase):
         )
 
         self.assertFalse(pruned["expansion_pcm5102"])
+
+    def test_audio_backend_expansions_do_not_require_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+
+        _, s3 = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"i2c", "expansion_i2s"},
+        )
+        self.assertTrue(s3["driver_audio_es8311_codecs"])
+        self.assertFalse(s3["service_audio_board"])
+
+        _, classic = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+        self.assertTrue(classic["driver_audio_esp32_dac"])
+        self.assertFalse(classic["service_audio_board"])
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")

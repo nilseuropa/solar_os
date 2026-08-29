@@ -18,6 +18,7 @@ typedef enum {
     SOLAR_OS_EXPANSION_BINDING_GPIO,
     SOLAR_OS_EXPANSION_BINDING_ADC,
     SOLAR_OS_EXPANSION_BINDING_PWM,
+    SOLAR_OS_EXPANSION_BINDING_I2S_PORT,
     SOLAR_OS_EXPANSION_BINDING_I2C_BUS,
     SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
     SOLAR_OS_EXPANSION_BINDING_SPI_BUS,
@@ -73,6 +74,7 @@ typedef struct {
     const char *summary;
     solar_os_board_capabilities_t required_capabilities;
     bool probe_supported;
+    bool early;
     const solar_os_expansion_binding_spec_t *binding_specs;
     size_t binding_spec_count;
     bool allow_unlisted_bindings;
@@ -105,6 +107,7 @@ typedef struct {
 } solar_os_expansion_default_device_t;
 
 esp_err_t solar_os_expansion_init(void);
+esp_err_t solar_os_expansion_init_early(void);
 bool solar_os_expansion_available(void);
 
 size_t solar_os_expansion_driver_count(void);

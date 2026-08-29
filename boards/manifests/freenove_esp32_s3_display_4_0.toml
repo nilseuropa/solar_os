@@ -1,0 +1,412 @@
+schema = 1
+
+[board]
+id = "freenove_esp32_s3_display_4_0"
+name = "Freenove ESP32-S3 Display 4.0-inch (FNK0104S)"
+vendor = "Freenove"
+module = "ESP32-S3-WROOM-1-N16R8"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "freenove_esp32_s3_display_4_0"
+
+[build]
+drivers = [
+  "cdc_usb_serial_jtag",
+  "uart_esp_idf",
+  "display_st7796",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "audio_es8311_duplex",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "battery_adc",
+  "pwm_esp_idf",
+  "pointer_ft6336",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "display_brightness", "pointer",
+  "cdc", "uart", "sd", "i2c", "spi", "battery", "audio",
+  "audio_input", "wifi", "ble", "gpio", "adc", "pwm",
+  "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
+  "expansion_adc", "expansion_pwm", "expansion_i2s", "key",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7796"'
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER_ST7796 = "1"
+SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"st7796"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "480"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "320"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "320"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "480"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "40000000"
+SOLAR_OS_BOARD_DISPLAY_MADCTL = "0x48"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R1"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_LCD_DC = "GPIO_NUM_46"
+SOLAR_OS_BOARD_PIN_LCD_BL = "GPIO_NUM_45"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_LCD_TE = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM = "1"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM_FREQ_HZ = "20000U"
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"FSPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_11"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_16"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_15"
+SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_17"
+SOLAR_OS_BOARD_PIN_TOUCH_RST = "GPIO_NUM_18"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_38"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_40"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_39"
+SOLAR_OS_BOARD_PIN_SDMMC_D1 = "GPIO_NUM_41"
+SOLAR_OS_BOARD_PIN_SDMMC_D2 = "GPIO_NUM_48"
+SOLAR_OS_BOARD_PIN_SDMMC_D3 = "GPIO_NUM_47"
+SOLAR_OS_BOARD_PIN_BATTERY_ADC = "GPIO_NUM_9"
+SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO = "2.0f"
+SOLAR_OS_BOARD_I2S_PORT = "I2S_NUM_0"
+SOLAR_OS_BOARD_PIN_I2S_MCLK = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_I2S_BCLK = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_I2S_DIN = "GPIO_NUM_6"
+SOLAR_OS_BOARD_PIN_I2S_WS = "GPIO_NUM_7"
+SOLAR_OS_BOARD_PIN_I2S_DOUT = "GPIO_NUM_8"
+SOLAR_OS_BOARD_PIN_AUDIO_PA = "GPIO_NUM_1"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES8311"'
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_0"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+
+[runtime]
+spi_hosts = ["SPI3_HOST"]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 12
+mosi = 11
+cs = [10]
+max_transfer_size = 4096
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 16
+scl = 15
+speed_hz = "SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "st7796"
+name = "display0"
+bindings = { spi = "spi0", cs = 10, dc = 46, bl = 45, active = 1, pwm = 1 }
+
+[[devices]]
+driver = "ft6336"
+name = "touch0"
+bindings = { i2c = "i2c0", addr = 0x38, reset = 18, irq = 17, rotation = 1 }
+
+[[devices]]
+driver = "battery-adc"
+name = "battery0"
+bindings = { adc = 9, divider = 2000 }
+
+[[devices]]
+driver = "es8311-duplex"
+name = "audio0"
+bindings = { i2c = "i2c0", i2s = 0, mclk = 4, bck = 5, ws = 7, din = 6, dout = 8, pa = 1 }
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 38, cmd = 40, d0 = 39, d1 = 41, d2 = 48, d3 = 47 }
+
+[connector]
+title = "UART / I2C / GPIO connectors"
+view = "component side; connector labels as printed"
+rows = 6
+columns = 3
+
+[[connectors]]
+connector = "UART"
+position = 1
+row = 0
+column = 0
+gpio = 43
+kind = "gpio"
+label = "TXD"
+[[connectors]]
+connector = "UART"
+position = 2
+row = 1
+column = 0
+gpio = 44
+kind = "gpio"
+label = "RXD"
+[[connectors]]
+connector = "UART"
+position = 3
+row = 2
+column = 0
+kind = "power"
+label = "5V"
+[[connectors]]
+connector = "UART"
+position = 4
+row = 3
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "I2C"
+position = 1
+row = 0
+column = 1
+gpio = 16
+kind = "gpio"
+label = "IO16/SDA"
+[[connectors]]
+connector = "I2C"
+position = 2
+row = 1
+column = 1
+gpio = 15
+kind = "gpio"
+label = "IO15/SCL"
+[[connectors]]
+connector = "I2C"
+position = 3
+row = 2
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "I2C"
+position = 4
+row = 3
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "GPIO"
+position = 1
+row = 0
+column = 2
+gpio = 2
+kind = "gpio"
+label = "IO2"
+[[connectors]]
+connector = "GPIO"
+position = 2
+row = 1
+column = 2
+gpio = 3
+kind = "gpio"
+label = "IO3"
+[[connectors]]
+connector = "GPIO"
+position = 3
+row = 2
+column = 2
+gpio = 14
+kind = "gpio"
+label = "IO14"
+[[connectors]]
+connector = "GPIO"
+position = 4
+row = 3
+column = 2
+gpio = 21
+kind = "gpio"
+label = "IO21"
+[[connectors]]
+connector = "GPIO"
+position = 5
+row = 4
+column = 2
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "GPIO"
+position = 6
+row = 5
+column = 2
+kind = "power"
+label = "3V3"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download / KEY"
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "speaker amplifier enable"
+[[pins]]
+gpio = 2
+policy = "free"
+role = "GPIO connector"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 3
+policy = "free"
+role = "GPIO connector"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "audio MCLK"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "audio BCLK"
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "audio DIN"
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "audio WS"
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "audio DOUT"
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "battery ADC"
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "LCD CS"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "LCD MOSI"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "LCD SCLK"
+[[pins]]
+gpio = 14
+policy = "free"
+role = "GPIO connector"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "I2C SCL"
+expansion = true
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "I2C SDA"
+expansion = true
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "touch interrupt"
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "touch reset"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D-"
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+"
+[[pins]]
+gpio = 21
+policy = "free"
+role = "GPIO connector"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "SDMMC CLK"
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "SDMMC D0"
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "SDMMC CMD"
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "SDMMC D1"
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "WS2812"
+[[pins]]
+gpio = 43
+policy = "releasable"
+role = "UART TX"
+expansion = true
+[[pins]]
+gpio = 44
+policy = "releasable"
+role = "UART RX"
+expansion = true
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "LCD backlight"
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "LCD DC / strapping"
+[[pins]]
+gpio = 47
+policy = "fixed"
+role = "SDMMC D3"
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "SDMMC D2"

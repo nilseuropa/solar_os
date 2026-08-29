@@ -1,0 +1,281 @@
+schema = 1
+
+[board]
+id = "odroid_go"
+name = "Hardkernel ODROID-GO"
+vendor = "Hardkernel"
+module = "ESP32-WROVER"
+
+[target]
+mcu = "esp32"
+platformio_board = "odroid_esp32"
+
+[build]
+drivers = [
+  "uart_esp_idf",
+  "display_ili9341",
+  "storage_expansion",
+  "battery_adc",
+  "audio_esp32_dac",
+  "gpio_esp_idf",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "display", "gfx", "uart", "sd", "battery", "audio", "spi",
+  "gpio", "expansion_gpio", "expansion_spi", "expansion_uart",
+  "expansion_pwm", "wifi", "ble", "key", "buttons", "adc_dpad", "adc",
+  "status_led", "pwm", "display_brightness",
+]
+required_packages = []
+psram_bytes = 4194304
+
+[header]
+includes = ["solar_os_adc_dpad.h", "solar_os_buttons.h", "solar_os_keys.h", "solar_os_spi.h"]
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_1"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_3"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ILI9341"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "320"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "240"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "240"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "320"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "40000000"
+SOLAR_OS_BOARD_DISPLAY_MADCTL = "0x88"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R1"
+SOLAR_OS_BOARD_SPI_HOST = "SPI3_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"VSPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_18"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_19"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_23"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+SOLAR_OS_BOARD_PIN_TFT_DC = "GPIO_NUM_21"
+SOLAR_OS_BOARD_PIN_TFT_CS = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_TFT_LED = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_TFT_MOSI = "GPIO_NUM_23"
+SOLAR_OS_BOARD_PIN_TFT_MISO = "GPIO_NUM_19"
+SOLAR_OS_BOARD_PIN_TFT_SCLK = "GPIO_NUM_18"
+SOLAR_OS_BOARD_PIN_SD_CARD_CS = "GPIO_NUM_22"
+SOLAR_OS_BOARD_PIN_BATTERY_ADC = "GPIO_NUM_36"
+SOLAR_OS_BOARD_BATTERY_ADC_DIVIDER_RATIO = "2.0f"
+SOLAR_OS_BOARD_PIN_AUDIO_AMP_EN = "GPIO_NUM_25"
+SOLAR_OS_BOARD_AUDIO_AMP_EN_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_PIN_AUDIO_DAC_POS = "GPIO_NUM_26"
+SOLAR_OS_BOARD_PIN_AUDIO_DAC_NEG = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ESP32-DAC"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"-"'
+SOLAR_OS_BOARD_PIN_STATUS_LED = "GPIO_NUM_2"
+SOLAR_OS_BOARD_STATUS_LED_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_PIN_LCD_DC = "SOLAR_OS_BOARD_PIN_TFT_DC"
+SOLAR_OS_BOARD_PIN_LCD_CS = "SOLAR_OS_BOARD_PIN_TFT_CS"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "SOLAR_OS_BOARD_PIN_TFT_SCLK"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "SOLAR_OS_BOARD_PIN_TFT_MOSI"
+SOLAR_OS_BOARD_PIN_LCD_MISO = "SOLAR_OS_BOARD_PIN_TFT_MISO"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_LCD_TE = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_LCD_BL = "SOLAR_OS_BOARD_PIN_TFT_LED"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM = "1"
+SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM_FREQ_HZ = "20000U"
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_39"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "0"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_BUTTONS = '''{{.pin = GPIO_NUM_32, .name = "A", .key = '\n', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_33, .name = "B", .key = ' ', .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_13, .name = "MENU", .key = SOLAR_OS_KEY_APP_EXIT, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_27, .name = "SELECT", .key = SOLAR_OS_KEY_ESCAPE, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_0, .name = "VOLUME", .key = SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE, .active_low = true, .pull = SOLAR_OS_BUTTON_PULL_NONE}}'''
+SOLAR_OS_BOARD_ADC_DPAD_AXES = '{{.pin = GPIO_NUM_34, .name = "x", .mid_key = SOLAR_OS_KEY_RIGHT, .high_key = SOLAR_OS_KEY_LEFT, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}, {.pin = GPIO_NUM_35, .name = "y", .mid_key = SOLAR_OS_KEY_DOWN, .high_key = SOLAR_OS_KEY_UP, .idle_max = 600, .mid_min = 1200, .mid_max = 2600, .high_min = 3300}}'
+
+[runtime]
+spi_hosts = []
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = []
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI3_HOST"
+sclk = 18
+miso = 19
+mosi = 23
+cs = [5, 15, 4, 22]
+max_transfer_size = 4096
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 1
+rx = 3
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "ili9341"
+name = "display0"
+bindings = { spi = "spi0", cs = 5, dc = 21, bl = 14, active = 1, pwm = 1 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 22 }
+
+[[devices]]
+driver = "battery-adc"
+name = "battery0"
+bindings = { adc = 36, divider = 2000 }
+
+[[devices]]
+driver = "esp32-dac"
+name = "audio0"
+bindings = { pos = 26, amp = 25, active = 1 }
+
+[connector]
+title = "P2 external I/O header"
+view = "component side; header pin 1 to pin 10"
+rows = 1
+columns = 10
+
+[[connectors]]
+connector = "P2"
+position = 1
+row = 0
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "P2"
+position = 2
+row = 0
+column = 1
+gpio = 18
+kind = "gpio"
+label = "SCLK"
+[[connectors]]
+connector = "P2"
+position = 3
+row = 0
+column = 2
+gpio = 15
+kind = "gpio"
+label = "IO15"
+[[connectors]]
+connector = "P2"
+position = 4
+row = 0
+column = 3
+gpio = 4
+kind = "gpio"
+label = "IO4"
+[[connectors]]
+connector = "P2"
+position = 5
+row = 0
+column = 4
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "P2"
+position = 6
+row = 0
+column = 5
+gpio = 19
+kind = "gpio"
+label = "MISO"
+[[connectors]]
+connector = "P2"
+position = 7
+row = 0
+column = 6
+gpio = 12
+kind = "gpio"
+label = "IO12"
+[[connectors]]
+connector = "P2"
+position = 8
+row = 0
+column = 7
+gpio = 23
+kind = "gpio"
+label = "MOSI"
+[[connectors]]
+connector = "P2"
+position = 9
+row = 0
+column = 8
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "P2"
+position = 10
+row = 0
+column = 9
+kind = "power"
+label = "VBUS"
+
+[[pins]]
+gpio = 1
+policy = "releasable"
+role = "USB-UART TX"
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "status LED"
+[[pins]]
+gpio = 3
+policy = "releasable"
+role = "USB-UART RX"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "LCD CS"
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "LCD backlight"
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "SPI SCLK"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "SPI MISO"
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "LCD D/C"
+[[pins]]
+gpio = 22
+policy = "fixed"
+role = "SD card CS"
+[[pins]]
+gpio = 23
+policy = "fixed"
+role = "SPI MOSI"
+[[pins]]
+gpio = 25
+policy = "fixed"
+role = "speaker enable"
+[[pins]]
+gpio = 26
+policy = "fixed"
+role = "speaker DAC"
+[[pins]]
+gpio = 36
+policy = "fixed"
+role = "battery ADC"
+[[pins]]
+gpio = 4
+policy = "free"
+role = "external IO / SPI CS"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 15
+policy = "free"
+role = "external IO / SPI CS"
+expansion = true
+user = true
+pwm = true

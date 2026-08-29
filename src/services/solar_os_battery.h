@@ -43,7 +43,26 @@ typedef struct {
     esp_err_t last_error;
 } solar_os_battery_monitor_status_t;
 
+typedef struct {
+    uint16_t battery_mv;
+    bool calibrated;
+} solar_os_battery_sample_t;
+
+typedef esp_err_t (*solar_os_battery_provider_read_fn_t)(
+    void *user,
+    solar_os_battery_sample_t *sample);
+
+typedef struct {
+    solar_os_battery_provider_read_fn_t read;
+    void *user;
+} solar_os_battery_provider_t;
+
 esp_err_t solar_os_battery_init(void);
+esp_err_t solar_os_battery_register_provider(
+    const char *owner,
+    const solar_os_battery_provider_t *provider);
+esp_err_t solar_os_battery_unregister_provider(const char *owner);
+bool solar_os_battery_has_provider(void);
 esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status);
 void solar_os_battery_get_config(solar_os_battery_config_t *config);
 esp_err_t solar_os_battery_set_capacity_mah(uint32_t capacity_mah);

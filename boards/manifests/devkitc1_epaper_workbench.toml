@@ -1,0 +1,107 @@
+schema = 1
+extends = "esp32_s3_devkitc1_n16r8"
+
+[board]
+id = "devkitc1_epaper_workbench"
+name = "ESP32-S3 DevKitC-1 E-paper Workbench"
+vendor = "SolarOS"
+module = "ESP32-S3-WROOM-1-N16R8"
+
+[build]
+drivers = ["display_ssd1683", "storage_expansion"]
+capabilities = ["display", "sd"]
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1683"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "400"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300"
+
+[runtime]
+spi_hosts = []
+
+[[buses]]
+name = "spi0"
+cs = [10, 6, 7]
+
+[[buses]]
+name = "spi1"
+protocol = "spi"
+sharing = "shared"
+host = "SPI3_HOST"
+sclk = 1
+mosi = 2
+miso = 4
+cs = [5]
+max_transfer_size = 4096
+
+[[devices]]
+driver = "cardkb"
+name = "keyboard0"
+bindings = { i2c = "i2c0", addr = 0x5f }
+
+[[devices]]
+driver = "ssd1683"
+name = "display0"
+bindings = { spi = "spi0", cs = 10, busy = 15, reset = 16, dc = 17 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi1", cs = 5 }
+
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "storage SPI SCLK"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "storage SPI MOSI"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "storage SPI MISO"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "storage SPI CS"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "e-paper SPI CS"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "e-paper BUSY"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "e-paper RESET"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "e-paper D/C"
+user = false
+adc = false
+pwm = false

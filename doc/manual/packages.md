@@ -31,10 +31,24 @@ runtime playback device even when no built-in codec or DAC exists.
 built-in audio. That capability guarantees a spare I2S controller and at least
 three runtime-safe output GPIOs, so the package is pruned from boards such as
 ODROID-GO that cannot expose all required signals.
-`expansion.ssd1683` reuses the 400x300 SSD1683 controller implementation with a
-named SPI bus and runtime-claimed CS, D/C, reset, and BUSY pins. It registers an
-auxiliary display target and uses changed-frame partial windows in automatic
-mode; it does not replace or suspend a built-in display.
+`driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
+only for ESP32-S3 targets with I2C and expansion I2S resources.
+`driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.
+Both use the generic audio backend and remain available without
+`service.audio-board`; a board with built-in audio declares a fixed default
+attachment instead of compiling a separate board adapter.
+The `driver.display-st7305`, `driver.display-st7796`,
+`driver.display-ili9341`, `driver.display-cvbs-pal`, `driver.display-vga32`, and
+`expansion.ssd1683` packages use the same model. Each package registers an
+expansion driver and a board with that integrated panel declares an immutable
+early `display0` attachment. SSD1683, ST7305, ST7796, and ILI9341 are available
+on both ESP32 and ESP32-S3. The I2S-based CVBS PAL and VGA32 implementations
+remain specific to classic ESP32. Generic services do not select these
+implementations with driver-specific preprocessor branches.
+`expansion.ssd1683` uses a named SPI bus and claimed CS, D/C, reset, BUSY, and
+optional power pins. Runtime attachments register an auxiliary display target;
+Elecrow declares the same driver as its fixed primary display. Automatic mode
+uses changed-frame partial windows.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.
@@ -46,6 +60,11 @@ the same drivers as default board-selected attachments.
 `expansion.sdspi` adds removable SPI microSD storage to boards that do not have
 built-in SD hardware. It uses a named expansion SPI bus and mounts at
 `/sdcard` without changing the internal-flash root filesystem.
+`expansion.sdmmc` provides the native SD/MMC host on ESP32 and ESP32-S3. Boards
+with an integrated slot declare a fixed early `storage0` attachment; boards
+without one can attach the same driver at runtime. Classic ESP32 accepts only
+its native slot-1 pinout, while ESP32-S3 can route the signals through its GPIO
+matrix.
 
 ## Ownership Rules
 
@@ -54,6 +73,13 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
   component requirements.
 - Every source file and component requirement belongs to a package.
+- A driver package can declare its compatible ESP-IDF MCU targets. Target
+  pruning occurs before board-capability pruning, so classic ESP32 and ESP32-S3
+  implementations are selected before connector and peripheral capabilities
+  are considered.
+- Expansion-driver symbols belong to their driver packages. The flavor
+  generator emits the registry from that metadata; the generic expansion
+  service does not include individual drivers behind package `#if` blocks.
 - A package lists other packages it needs with `depends`. Enabling an app or job
   automatically enables its transitive dependencies. Explicitly disabling a
   required package is an error.
@@ -63,7 +89,8 @@ built-in SD hardware. It uses a named expansion SPI bus and mounts at
   These packages and their dependencies are enabled in every flavor before
   capability pruning; generation fails if the board cannot support them. For
   example, TTGO VGA32 v1.4 requires the PS/2 keyboard expansion driver used by
-  its default `keyboard0` attachment.
+  its default `keyboard0` attachment. Built-in defaults are fixed attachment
+  instances, not a separate copy of the controller driver.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
