@@ -1286,10 +1286,11 @@ adds a second per-note source with waveform, octave, fine detune, and unity-safe
 mix controls. Both oscillators share the filter and envelopes. The Preset tab
 provides eight factory sounds and eight persistent user slots. User presets
 capture both oscillators, both envelopes, the filter, mono/poly mode, glide,
-and the complete custom wavetable. The Glide tab provides monophonic last-note
-playback and portamento. The display also reports active voices, output sample
-rate, and audio errors. The volume button changes the shared SolarOS speaker
-volume.
+and the complete custom wavetable. The Glide tab provides polyphonic or
+monophonic last-note playback, a hold mode for toggle-style piano keys, and
+portamento. Hold is session performance state and is not part of a preset. The
+display also reports active voices, output sample rate, and audio errors. The
+volume button changes the shared SolarOS speaker volume.
 
 On display targets smaller than 240 pixels wide or 200 pixels high, Synth
 automatically replaces the full editor with a parameter HUD. The selected
@@ -1315,6 +1316,11 @@ Controls:
 - `X` hides or shows the on-screen piano keyboard on every tab. When it is
   hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
   the physical note keys and MIDI input remain active.
+- On Glide, select Hold and use `Up` or `Enter` to enable it. Each physical or
+  terminal piano-key press then toggles its note on or off, and releasing the
+  key does not stop the note. Use `Down` or `Enter` to disable hold and release
+  all latched app-key notes. MIDI Note On, Note Off, and sustain keep their
+  normal behavior.
 - On Play, `Left`/`Right` selects the waveform, global volume, or an ADSR knob;
   `Up`/`Down` changes it, and `+`/`-` changes note velocity.
 - On Wave, `Left`/`Right` moves the edit cursor and `Up`/`Down` changes the
