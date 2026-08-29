@@ -158,6 +158,24 @@ The current tree includes these board targets:
 | `esp32_devkitc_v4_wrover` | `esp32_devkitc_v4_wrover` | Espressif ESP32-DevKitC V4 with ESP32-WROVER-E | Headless classic ESP32 target with PSRAM, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S, graphics through attachable display targets, and no built-in peripherals. |
 | `devkitc1_epaper_workbench` | `esp32_s3_devkitc1_n16r8` with `SOLAR_OS_BOARD=devkitc1_epaper_workbench` | ESP32-S3 DevKitC-1 E-paper Workbench | Manifest-generated development target with fixed CardKB, 400x300 SSD1683 display, and SDSPI storage attachments. |
 
+### Hardware validation for 4.9.2
+
+This matrix records physical acceptance reported for the declarative profiles
+on 2026-08-29. A pass applies to the named target and tested profile; it is not
+a substitute for testing a custom derivative or a different board revision.
+
+| Target | Physical acceptance |
+| --- | --- |
+| `waveshare_esp32_s3_rlcd_4_2` | Pass, including the fixed battery-monitor attachment. |
+| `freenove_esp32_s3_display_4_0` | Pass. |
+| `elecrow_crowpanel_esp32_s3_4_2_epaper` | Pass. |
+| `odroid_go` | Pass, including ESP32-DAC playback. |
+| `freenove_esp32_wrover_v3` | Partial pass: CVBS output and SDMMC storage were tested successfully. |
+| `esp32_s3_devkitc1_n16r8` | Pass as a headless board profile. |
+| `ttgo_vga32_v14` | Not yet reported after manifest migration. |
+| `esp32_devkitc_v4_wrover` | Not yet reported. |
+| `devkitc1_epaper_workbench` | Example custom profile; no separate release acceptance is recorded. |
+
 All built-in 16 MiB targets use `partitions.csv`: each OTA application slot
 is 0x700000 bytes (7 MiB), and the internal FAT filesystem partition is
 0x1F0000 bytes (1.94 MiB). PlatformIO rejects a firmware image that exceeds an

@@ -47,6 +47,11 @@ expansion devices
 display list
 ```
 
+`expansion drivers` uses compact aligned columns for the compiled driver name,
+probe support, bus type, and summary. `expansion devices` prints each attached
+device in a separate block, with its name in bold followed by origin, readiness,
+startup mode, attachment policy, and bindings.
+
 From a script, inspect `solaros.expansion.drivers()` and
 `solaros.expansion.devices()`. A driver existing in firmware does not mean a
 physical device is attached.

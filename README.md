@@ -51,6 +51,10 @@ See [Boards and hardware targets](doc/manual/boards.md) and
 [Firmware packages and flavors](doc/manual/packages.md) for the complete build
 and target reference.
 
+PlatformIO builds from one checkout are serialized on POSIX hosts to protect
+shared ESP-IDF component state. Windows prints a warning because POSIX file
+locking is unavailable; do not run concurrent builds from the same checkout.
+
 ## Developer references
 
 - [Stream, control, parameter, and OSC binding model](doc/binding-model.md)
