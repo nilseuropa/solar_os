@@ -13,6 +13,8 @@ typedef struct {
     uint16_t height;
 } solar_os_sketch_canvas_t;
 
+extern const uint32_t solar_os_sketch_palette_rgb888[4];
+
 size_t solar_os_sketch_canvas_bytes(uint16_t width, uint16_t height);
 size_t solar_os_sketch_canvas_xbm_bytes(uint16_t width, uint16_t height);
 size_t solar_os_sketch_canvas_fill_workspace_bytes(

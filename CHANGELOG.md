@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.10.2** — 2026-08-30 — Added adaptive color graphics for ILI9341 and
+  ST7796 targets. GUI apps negotiate a lazily allocated 8-bit indexed canvas
+  when they enter graphics mode and release it when graphics mode ends. TFT
+  presentation converts only changed tiles through a small DMA scanline and
+  uses compact tile fingerprints instead of a second color framebuffer.
+  Missing PSRAM falls back to the original monochrome renderer without
+  preventing app launch; one-bit displays retain the existing framebuffer and
+  ordered-dither path. Python and Lua graphics gained `rgb(red, green, blue)`.
+  Sketch now uses a white, red, blue, and black palette, saves interoperable
+  indexed-color PNG files, and imports PNG, JPEG, and GIF images in color.
+  Display-targeted absolute pointer coordinates now follow that display's
+  `setterm orientation` setting.
 - **4.10.1** — 2026-08-30 — Added Sketch, the first native pointer-driven GUI
   application. Its Paint-style layout provides Save/Open/Import commands, a
   aligned top menu and sidebar buttons on one equal-sized grid, with tools for

@@ -130,6 +130,21 @@ static esp_err_t set_colors(solar_os_board_display_t *display,
         ESP_ERR_INVALID_STATE;
 }
 
+static esp_err_t present_surface(solar_os_board_display_t *display,
+                                 const solar_os_display_surface_t *surface)
+{
+    return display != NULL ?
+        tft_ili9341_present_surface(display->driver, surface) :
+        ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t present_auxiliary_surface(
+    void *context,
+    const solar_os_display_surface_t *surface)
+{
+    return tft_ili9341_present_surface((tft_ili9341_t *)context, surface);
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
@@ -138,6 +153,7 @@ static const solar_os_board_display_ops_t display_ops = {
     .get_brightness = get_brightness,
     .set_brightness = set_brightness,
     .set_colors = set_colors,
+    .present_surface = present_surface,
 };
 
 static esp_err_t register_auxiliary(tft_device_t *attached)
@@ -152,7 +168,10 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
     target.height = attached->display.height;
     target.ready = true;
     target.brightness_supported = brightness_supported(&attached->display);
+    target.surface_formats = attached->display.surface_formats;
     target.u8g2 = attached->display.u8g2;
+    target.surface_context = &attached->driver;
+    target.present_surface = present_auxiliary_surface;
     return solar_os_display_register_target(&target);
 }
 
@@ -218,6 +237,7 @@ static esp_err_t attach_tft(const char *name,
         .controller = st7796 ? "ST7796" : "ILI9341",
         .width = st7796 ? 480 : 320,
         .height = st7796 ? 320 : 240,
+        .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
         .ready = true,
     };
     device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;

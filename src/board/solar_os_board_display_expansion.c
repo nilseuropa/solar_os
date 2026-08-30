@@ -102,6 +102,12 @@ bool solar_os_board_display_ready(const solar_os_board_display_t *display)
     return display != NULL && display->ready;
 }
 
+uint32_t solar_os_board_display_surface_formats(
+    const solar_os_board_display_t *display)
+{
+    return display != NULL ? display->surface_formats : 0U;
+}
+
 bool solar_os_board_display_brightness_supported(const solar_os_board_display_t *display)
 {
     return display != NULL && display->ops != NULL &&
@@ -186,4 +192,13 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
                                        height,
                                        stride,
                                        palette_inverted) : ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t solar_os_board_display_present_surface(
+    solar_os_board_display_t *display,
+    const solar_os_display_surface_t *surface)
+{
+    return display != NULL && display->ops != NULL &&
+        display->ops->present_surface != NULL ?
+        display->ops->present_surface(display, surface) : ESP_ERR_NOT_SUPPORTED;
 }

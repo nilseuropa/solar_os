@@ -6,6 +6,7 @@
 
 #include "driver/spi_master.h"
 #include "esp_err.h"
+#include "solar_os_display_surface.h"
 #include "u8g2.h"
 
 #ifdef __cplusplus
@@ -38,11 +39,13 @@ typedef struct {
     size_t buffer_size;
     size_t shadow_size;
     size_t line_buffer_size;
+    const uint8_t *indexed_surface_data;
     uint64_t shadow_valid_rows;
     uint16_t foreground_rgb565;
     uint16_t background_rgb565;
     esp_err_t last_error;
     uint8_t backlight_percent;
+    bool indexed_surface_valid;
     bool backlight_power;
     tft_ili9341_config_t config;
     u8x8_display_info_t display_info;
@@ -62,6 +65,9 @@ esp_err_t tft_ili9341_set_backlight(tft_ili9341_t *display, uint8_t percent);
 esp_err_t tft_ili9341_set_colors(tft_ili9341_t *display,
                                  uint32_t foreground_rgb888,
                                  uint32_t background_rgb888);
+esp_err_t tft_ili9341_present_surface(
+    tft_ili9341_t *display,
+    const solar_os_display_surface_t *surface);
 
 #ifdef __cplusplus
 }

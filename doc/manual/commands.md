@@ -347,11 +347,12 @@ a named runtime display target, even when a TUI application rather than a shell
 owns that display. The target profile is initialized from the single global NVS
 parameter set when the display registers. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
-mounting even when their drivers use different U8g2 rotations. A targeted
-change applies to current and future sessions on that display until reboot or
-until the display target is unregistered; it does not create or update
-per-display NVS keys. Without a setting, the command prints the target's
-complete volatile profile. For example:
+mounting even when their drivers use different U8g2 rotations. Display-targeted
+absolute pointer coordinates follow this logical orientation. A targeted change
+applies to current and future sessions on that display until reboot or until the
+display target is unregistered; it does not create or update per-display NVS
+keys. Without a setting, the command prints the target's complete volatile
+profile. For example:
 
 ```text
 setterm --display oled0 statusbar hide

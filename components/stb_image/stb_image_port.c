@@ -309,6 +309,46 @@ esp_err_t solar_os_stb_decode_gray(const uint8_t *data,
     return ESP_OK;
 }
 
+esp_err_t solar_os_stb_decode_rgb(const uint8_t *data,
+                                  size_t len,
+                                  uint32_t max_pixels,
+                                  uint8_t **out_rgb,
+                                  uint32_t *out_width,
+                                  uint32_t *out_height)
+{
+    if (data == NULL || len == 0 || out_rgb == NULL || out_width == NULL ||
+        out_height == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (len > INT_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    *out_rgb = NULL;
+    *out_width = 0;
+    *out_height = 0;
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    if (!stbi_info_from_memory(data, (int)len, &width, &height, &channels) ||
+        width <= 0 || height <= 0) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const uint64_t pixels = (uint64_t)width * (uint64_t)height;
+    if (pixels > SIZE_MAX / 3U || (max_pixels != 0 && pixels > max_pixels)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    uint8_t *rgb = stbi_load_from_memory(data, (int)len, &width, &height,
+                                         &channels, 3);
+    if (rgb == NULL) {
+        return ESP_FAIL;
+    }
+    *out_rgb = rgb;
+    *out_width = (uint32_t)width;
+    *out_height = (uint32_t)height;
+    return ESP_OK;
+}
+
 esp_err_t solar_os_stb_decode_gif_gray(const uint8_t *data,
                                        size_t len,
                                        uint32_t max_frame_pixels,

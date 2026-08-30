@@ -1041,9 +1041,24 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         return;
     }
 
+    solar_os_input_pointer_event_t oriented_pointer = *pointer;
+    if (pointer->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
+        pointer->target[0] != '\0') {
+        solar_os_display_target_t target;
+        solar_os_terminal_profile_t profile;
+        if (solar_os_display_find_target(pointer->target, &target) &&
+            solar_os_display_get_terminal_profile(pointer->target, &profile) == ESP_OK) {
+            (void)solar_os_input_pointer_apply_orientation(
+                &oriented_pointer,
+                target.width,
+                target.height,
+                profile.orientation_degrees);
+        }
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_POINTER,
-        .data.pointer = *pointer,
+        .data.pointer = oriented_pointer,
     };
     bool dispatched = false;
     if (pointer->target[0] != '\0') {

@@ -208,7 +208,7 @@ typedef struct {
     int32_t y0;
     int32_t x1;
     int32_t y1;
-    uint8_t attr;
+    uint32_t attr;
     char data[SOLUA_EVENT_DATA_MAX];
 } solua_event_t;
 
@@ -659,7 +659,7 @@ static uint32_t solua_codepoint_from_arg(lua_State *L, int index)
 static solar_os_gfx_color_t solua_gfx_color_from_arg(lua_State *L, int index)
 {
     const lua_Integer value = luaL_checkinteger(L, index);
-    if (value < 0 || value > UINT8_MAX ||
+    if (value < 0 || (uint64_t)value > UINT32_MAX ||
         !solar_os_gfx_color_is_valid((solar_os_gfx_color_t)value)) {
         luaL_error(L, "expected gfx color");
     }
@@ -6369,7 +6369,7 @@ static int solua_gfx_clear(lua_State *L)
         lua_isnoneornil(L, 1) ? SOLAR_OS_GFX_COLOR_WHITE : solua_gfx_color_from_arg(L, 1);
     const solua_event_t event = {
         .type = SOLUA_EVENT_GFX_CLEAR,
-        .attr = (uint8_t)color,
+        .attr = color,
     };
     solua_ui_send_event(L, &event);
     return 0;
@@ -6385,7 +6385,7 @@ static int solua_gfx_color(lua_State *L)
 
     const solua_event_t event = {
         .type = SOLUA_EVENT_GFX_COLOR,
-        .attr = (uint8_t)solua_gfx_color_from_arg(L, 1),
+        .attr = solua_gfx_color_from_arg(L, 1),
     };
     solua_ui_send_event(L, &event);
     return 0;
@@ -6400,6 +6400,20 @@ static int solua_gfx_gray(lua_State *L)
         level = SOLAR_OS_GFX_GRAY_MAX;
     }
     lua_pushinteger(L, solar_os_gfx_gray((uint8_t)level));
+    return 1;
+}
+
+static int solua_gfx_rgb(lua_State *L)
+{
+    const lua_Integer red = luaL_checkinteger(L, 1);
+    const lua_Integer green = luaL_checkinteger(L, 2);
+    const lua_Integer blue = luaL_checkinteger(L, 3);
+    if (red < 0 || red > 255 || green < 0 || green > 255 ||
+        blue < 0 || blue > 255) {
+        return luaL_error(L, "RGB components must be 0..255");
+    }
+    lua_pushinteger(L, solar_os_gfx_rgb((uint8_t)red, (uint8_t)green,
+                                       (uint8_t)blue));
     return 1;
 }
 

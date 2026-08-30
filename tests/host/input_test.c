@@ -359,6 +359,33 @@ int main(void)
     assert(pointer_read.x == 123 && pointer_read.y == 45);
     assert(strcmp(pointer_read.target, "display0") == 0);
 
+    solar_os_input_pointer_event_t oriented = pointer_read;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 0) == ESP_OK);
+    assert(oriented.x == 123 && oriented.y == 45);
+    assert(oriented.delta_x == 3 && oriented.delta_y == -2);
+    oriented = pointer_read;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 90) == ESP_OK);
+    assert(oriented.x == 45 && oriented.y == 356);
+    assert(oriented.delta_x == -2 && oriented.delta_y == -3);
+    oriented = pointer_read;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 180) == ESP_OK);
+    assert(oriented.x == 356 && oriented.y == 274);
+    assert(oriented.delta_x == -3 && oriented.delta_y == 2);
+    oriented = pointer_read;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 270) == ESP_OK);
+    assert(oriented.x == 274 && oriented.y == 123);
+    assert(oriented.delta_x == 2 && oriented.delta_y == 3);
+    oriented.mode = SOLAR_OS_INPUT_POINTER_RELATIVE;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 90) == ESP_ERR_INVALID_ARG);
+    oriented.mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE;
+    assert(solar_os_input_pointer_apply_orientation(
+               &oriented, 480, 320, 45) == ESP_ERR_INVALID_ARG);
+
     memset(&diagnostics, 0, sizeof(diagnostics));
     assert(solar_os_input_source_get_diagnostics(pointer_source, &diagnostics));
     assert(diagnostics.pointer_events == 1);

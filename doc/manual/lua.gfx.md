@@ -59,6 +59,13 @@ local person = string.char(0x18, 0x3c, 0x18, 0x7e, 0x18, 0x24, 0x42, 0x00)
 gfx.sprite(20, 20, 8, 8, person)
 ```
 
+## Colors
+
+Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
+`gfx.rgb(red, green, blue)`. RGB components are `0..255`. Color TFTs retain the
+color in a lazily allocated indexed canvas; one-bit displays dither its
+luminance.
+
 ## Quick reference
 
 Lua: use the preloaded solaros table or local solaros = require("solaros"),
@@ -70,7 +77,7 @@ color; pixel, line, rect, fill_rect, circle, fill_circle, text; refresh or
 present. Use bitmap(x, y, width, height, data) or its sprite alias for
 transparent packed 1-bit XBM data, with at most 128 bytes per call. Colors are
 gfx.WHITE, gfx.LIGHT, gfx.DARK, gfx.BLACK, and
-gfx.gray(level); pass these constants to clear and color, never color-name
+gfx.gray(level), and gfx.rgb(red, green, blue); pass these values to clear and color, never color-name
 strings or guessed integers. Call gfx["end"]() because end is a Lua keyword.
 Required attached-display pattern (replace the quoted target with a ready
 display_list name):

@@ -1424,9 +1424,9 @@ Controls:
 Pointer-driven graphical paint application. Its layout follows classic desktop
 paint programs: Save, Open, Import, and the sidebar controls share one aligned,
 equal-sized button grid; color and pattern choices are
-in the bottom bar. Sketch uses
-a white four-shade canvas and stores finished documents as interoperable 8-bit
-grayscale PNG files.
+in the bottom bar. Sketch uses a compact four-color canvas and stores finished
+documents as interoperable indexed-color PNG files. Color TFTs show the native
+palette; one-bit displays use the existing dithered rendering path.
 
 Usage:
 
@@ -1447,16 +1447,16 @@ Controls:
   storage. Saves use a synced staging file, backup rename, atomic replacement,
   and rollback.
 - Click Open to select a PNG as the current document. Click Import to flatten a
-  PNG, JPEG, or GIF into the current four-shade canvas; the next save creates a
+  PNG, JPEG, or GIF into the current four-color canvas; the next save creates a
   new PNG instead of overwriting the imported source.
 - The sidebar selects pen, straight-line, rectangle, ellipse, bucket fill,
   or eraser drawing. The weight control cycles through 1, 2, 4, and 8 pixels.
   Eraser uses the selected weight and restores white pixels. Clear immediately
   resets the complete canvas to white.
 - Line, rectangle, and ellipse show an exact non-destructive preview during the
-  drag, including the selected shade, pattern, and stroke weight. Releasing the
+  drag, including the selected color, pattern, and stroke weight. Releasing the
   pointer commits that preview to the canvas.
-- The first four bottom swatches select white, light, dark, or black. The next
+- The first four bottom swatches select white, red, blue, or black. The next
   four select solid, checker, dot, or diagonal-hatch application.
 - Keyboard fallbacks are `S` Save, `O` Open, `I` Import, `P` Pen, `L` Line,
   `R` Rectangle, `E` Ellipse, `B` bucket fill, `X` eraser, and `C` clear.

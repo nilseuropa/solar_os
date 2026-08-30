@@ -3,6 +3,13 @@
 #include <stdbool.h>
 #include <string.h>
 
+const uint32_t solar_os_sketch_palette_rgb888[4] = {
+    0xffffffU,
+    0xe53935U,
+    0x1e63d5U,
+    0x000000U,
+};
+
 size_t solar_os_sketch_canvas_bytes(uint16_t width, uint16_t height)
 {
     return ((size_t)width * (size_t)height + 3U) / 4U;
@@ -418,14 +425,22 @@ static bool sketch_chunk_end(FILE *file, uint32_t crc)
 static uint8_t sketch_png_sample(const solar_os_sketch_canvas_t *canvas,
                                  size_t raw_offset)
 {
-    const size_t stride = (size_t)canvas->width + 1U;
+    const size_t row_bytes = ((size_t)canvas->width + 3U) / 4U;
+    const size_t stride = row_bytes + 1U;
     const size_t column = raw_offset % stride;
     if (column == 0U) {
         return 0U;
     }
-    const int x = (int)column - 1;
     const int y = (int)(raw_offset / stride);
-    return (uint8_t)(255U - solar_os_sketch_canvas_get(canvas, x, y) * 85U);
+    const int first_x = (int)((column - 1U) * 4U);
+    uint8_t packed = 0U;
+    for (int pixel = 0; pixel < 4; pixel++) {
+        const int x = first_x + pixel;
+        const uint8_t value = x < (int)canvas->width ?
+            solar_os_sketch_canvas_get(canvas, x, y) : 0U;
+        packed |= (uint8_t)(value << (6 - pixel * 2));
+    }
+    return packed;
 }
 
 esp_err_t solar_os_sketch_canvas_write_png(
@@ -450,7 +465,7 @@ esp_err_t solar_os_sketch_canvas_write_png(
     const uint8_t ihdr[13] = {
         0U, 0U, (uint8_t)(canvas->width >> 8U), (uint8_t)canvas->width,
         0U, 0U, (uint8_t)(canvas->height >> 8U), (uint8_t)canvas->height,
-        8U, 0U, 0U, 0U, 0U,
+        2U, 3U, 0U, 0U, 0U,
     };
     for (size_t index = 0; index < sizeof(ihdr); index++) {
         if (!sketch_chunk_byte(file, ihdr[index], &crc)) {
@@ -461,7 +476,23 @@ esp_err_t solar_os_sketch_canvas_write_png(
         return ESP_FAIL;
     }
 
-    const size_t raw_len = ((size_t)canvas->width + 1U) * canvas->height;
+    if (!sketch_chunk_begin(file, 12U, "PLTE", &crc)) {
+        return ESP_FAIL;
+    }
+    for (size_t index = 0; index < 4U; index++) {
+        const uint32_t rgb = solar_os_sketch_palette_rgb888[index];
+        if (!sketch_chunk_byte(file, (uint8_t)(rgb >> 16U), &crc) ||
+            !sketch_chunk_byte(file, (uint8_t)(rgb >> 8U), &crc) ||
+            !sketch_chunk_byte(file, (uint8_t)rgb, &crc)) {
+            return ESP_FAIL;
+        }
+    }
+    if (!sketch_chunk_end(file, crc)) {
+        return ESP_FAIL;
+    }
+
+    const size_t raw_len = ((((size_t)canvas->width + 3U) / 4U) + 1U) *
+        canvas->height;
     const size_t blocks = raw_len / 65535U +
         (raw_len % 65535U != 0U ? 1U : 0U);
     const uint64_t idat_len_size = 2U + (uint64_t)raw_len +

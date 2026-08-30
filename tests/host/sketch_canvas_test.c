@@ -50,25 +50,29 @@ int main(void)
     assert(memcmp(&png[12], "IHDR", 4) == 0);
     assert(read_be32(&png[16]) == 3U);
     assert(read_be32(&png[20]) == 2U);
-    assert(png[24] == 8U && png[25] == 0U);
+    assert(png[24] == 2U && png[25] == 3U);
 
-    assert(memcmp(&png[37], "IDAT", 4) == 0);
-    assert(png[41] == 0x78U && png[42] == 0x01U);
-    assert(png[43] == 1U);
-    const uint16_t raw_length = (uint16_t)png[44] |
-        ((uint16_t)png[45] << 8U);
-    assert(raw_length == 8U);
-    assert(png[48] == 0U);
-    assert(png[49] == 0U);
-    assert(png[50] == 85U);
-    assert(png[51] == 170U);
-    assert(png[52] == 0U);
-    assert(png[53] == 255U && png[54] == 255U && png[55] == 255U);
+    assert(read_be32(&png[33]) == 12U);
+    assert(memcmp(&png[37], "PLTE", 4) == 0);
+    assert(png[41] == 0xffU && png[42] == 0xffU && png[43] == 0xffU);
+    assert(png[44] == 0xe5U && png[45] == 0x39U && png[46] == 0x35U);
+    assert(png[47] == 0x1eU && png[48] == 0x63U && png[49] == 0xd5U);
+    assert(png[50] == 0U && png[51] == 0U && png[52] == 0U);
+    assert(memcmp(&png[61], "IDAT", 4) == 0);
+    assert(png[65] == 0x78U && png[66] == 0x01U);
+    assert(png[67] == 1U);
+    const uint16_t raw_length = (uint16_t)png[68] |
+        ((uint16_t)png[69] << 8U);
+    assert(raw_length == 4U);
+    assert(png[72] == 0U);
+    assert(png[73] == 0xe4U);
+    assert(png[74] == 0U);
+    assert(png[75] == 0U);
 
-    uint8_t large_pixels[solar_os_sketch_canvas_bytes(256U, 256U)];
+    uint8_t large_pixels[solar_os_sketch_canvas_bytes(1024U, 256U)];
     solar_os_sketch_canvas_t large = {
         .pixels = large_pixels,
-        .width = 256U,
+        .width = 1024U,
         .height = 256U,
     };
     solar_os_sketch_canvas_clear(&large, 2U);

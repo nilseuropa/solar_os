@@ -220,7 +220,7 @@ typedef struct {
     int32_t y0;
     int32_t x1;
     int32_t y1;
-    uint8_t attr;
+    uint32_t attr;
     char data[PYTHON_EVENT_DATA_MAX];
 } python_event_t;
 
@@ -751,7 +751,7 @@ static uint32_t python_codepoint_from_obj(mp_obj_t obj)
 static solar_os_gfx_color_t python_gfx_color_from_obj(mp_obj_t obj)
 {
     const mp_int_t value = mp_obj_get_int(obj);
-    if (value < 0 || value > UINT8_MAX ||
+    if (value < 0 || (uint64_t)value > UINT32_MAX ||
         !solar_os_gfx_color_is_valid((solar_os_gfx_color_t)value)) {
         mp_raise_ValueError(MP_ERROR_TEXT("expected gfx color"));
     }
@@ -7096,7 +7096,7 @@ static mp_obj_t solaros_gfx_clear(size_t n_args, const mp_obj_t *args)
         n_args >= 1 ? python_gfx_color_from_obj(args[0]) : SOLAR_OS_GFX_COLOR_WHITE;
     const python_event_t event = {
         .type = PYTHON_EVENT_GFX_CLEAR,
-        .attr = (uint8_t)color,
+        .attr = color,
     };
     python_gfx_send_event(&event);
     return mp_const_none;
@@ -7112,7 +7112,7 @@ static mp_obj_t solaros_gfx_color(size_t n_args, const mp_obj_t *args)
 
     const python_event_t event = {
         .type = PYTHON_EVENT_GFX_COLOR,
-        .attr = (uint8_t)python_gfx_color_from_obj(args[0]),
+        .attr = python_gfx_color_from_obj(args[0]),
     };
     python_gfx_send_event(&event);
     return mp_const_none;
@@ -7131,6 +7131,22 @@ static mp_obj_t solaros_gfx_gray(mp_obj_t level_obj)
     return mp_obj_new_int(solar_os_gfx_gray((uint8_t)level));
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_gfx_gray_obj, solaros_gfx_gray);
+
+static mp_obj_t solaros_gfx_rgb(mp_obj_t red_obj,
+                                mp_obj_t green_obj,
+                                mp_obj_t blue_obj)
+{
+    const mp_int_t red = mp_obj_get_int(red_obj);
+    const mp_int_t green = mp_obj_get_int(green_obj);
+    const mp_int_t blue = mp_obj_get_int(blue_obj);
+    if (red < 0 || red > 255 || green < 0 || green > 255 ||
+        blue < 0 || blue > 255) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB components must be 0..255"));
+    }
+    return mp_obj_new_int_from_uint(
+        solar_os_gfx_rgb((uint8_t)red, (uint8_t)green, (uint8_t)blue));
+}
+MP_DEFINE_CONST_FUN_OBJ_3(solaros_gfx_rgb_obj, solaros_gfx_rgb);
 
 static mp_obj_t solaros_gfx_font(size_t n_args, const mp_obj_t *args)
 {

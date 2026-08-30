@@ -84,10 +84,11 @@ Native foreground applications opt in to structured pointer input with
 `event.data.axis`. Pointer events contain the source, pointer ID, absolute or
 relative mode, action, coordinates, deltas, buttons, and optional display
 target. A non-empty target routes to the active opted-in application on that
-display; an empty target follows local input focus. Axis events contain the
-source, X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input
-focus. Applications without the matching flag do not receive those structured
-events.
+display. Its absolute coordinates and deltas follow the target's current
+`setterm orientation`; orientation `0` is the device driver's normal mounting.
+An empty target follows local input focus. Axis events contain the source,
+X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input focus.
+Applications without the matching flag do not receive those structured events.
 
 Foreground Python and Lua scripts receive the same structured pointer and axis
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute

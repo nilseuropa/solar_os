@@ -305,6 +305,7 @@ static esp_err_t ili9341_draw_tile(tft_ili9341_t *display,
       tile->cnt == 0) {
     return ESP_OK;
   }
+  display->indexed_surface_valid = false;
   if (tile->x_pos >= display->tile_width ||
       tile->y_pos >= display->tile_height) {
     return ESP_OK;
@@ -353,6 +354,185 @@ static esp_err_t ili9341_draw_tile(tft_ili9341_t *display,
 
   ili9341_shadow_update(display, tile->tile_ptr, tile->x_pos, tile->y_pos,
                         count);
+  return ESP_OK;
+}
+
+static bool ili9341_surface_tile_dirty(
+    const solar_os_display_surface_t *surface,
+    uint16_t tile_x,
+    uint16_t tile_y) {
+  const size_t offset = (size_t)tile_y * surface->dirty_stride +
+                        (size_t)(tile_x >> 3U);
+  return offset < surface->dirty_size &&
+         (surface->dirty_tiles[offset] &
+          (uint8_t)(1U << (tile_x & 7U))) != 0;
+}
+
+static void ili9341_surface_native_to_logical(
+    const solar_os_display_surface_t *surface, uint16_t native_x,
+    uint16_t native_y, uint16_t *x, uint16_t *y) {
+  switch (surface->rotation) {
+    case SOLAR_OS_DISPLAY_ROTATION_90:
+      *x = native_y;
+      *y = (uint16_t)(surface->native_width - 1U - native_x);
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_180:
+      *x = (uint16_t)(surface->native_width - 1U - native_x);
+      *y = (uint16_t)(surface->native_height - 1U - native_y);
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_270:
+      *x = (uint16_t)(surface->native_height - 1U - native_y);
+      *y = native_x;
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_0:
+    default:
+      *x = native_x;
+      *y = native_y;
+      break;
+  }
+}
+
+static void ili9341_line_from_index8(
+    tft_ili9341_t *display, const solar_os_display_surface_t *surface,
+    uint16_t x_start, uint16_t y, uint16_t width) {
+  for (uint16_t column = 0; column < width; column++) {
+    uint16_t logical_x = 0;
+    uint16_t logical_y = 0;
+    ili9341_surface_native_to_logical(surface,
+                                      (uint16_t)(x_start + column), y,
+                                      &logical_x, &logical_y);
+    const uint8_t palette_index =
+        surface->data[(size_t)logical_y * surface->stride + logical_x];
+    const uint16_t rgb565 = surface->palette_rgb565[palette_index];
+    display->line_buffer[(size_t)column * 2U] = (uint8_t)(rgb565 >> 8U);
+    display->line_buffer[(size_t)column * 2U + 1U] = (uint8_t)rgb565;
+  }
+}
+
+static uint32_t ili9341_surface_tile_hash(
+    const solar_os_display_surface_t *surface, uint16_t tile_x,
+    uint16_t tile_y) {
+  const uint16_t x_start = (uint16_t)(tile_x * 8U);
+  const uint16_t y_start = (uint16_t)(tile_y * 8U);
+  uint16_t x_end = (uint16_t)(x_start + 8U);
+  uint16_t y_end = (uint16_t)(y_start + 8U);
+  if (x_end > surface->native_width) x_end = surface->native_width;
+  if (y_end > surface->native_height) y_end = surface->native_height;
+  uint32_t hash = UINT32_C(2166136261);
+  for (uint16_t y = y_start; y < y_end; y++) {
+    for (uint16_t x = x_start; x < x_end; x++) {
+      uint16_t logical_x = 0;
+      uint16_t logical_y = 0;
+      ili9341_surface_native_to_logical(surface, x, y, &logical_x, &logical_y);
+      const uint8_t palette_index =
+          surface->data[(size_t)logical_y * surface->stride + logical_x];
+      const uint16_t color = surface->palette_rgb565[palette_index];
+      hash = (hash ^ (uint8_t)(color >> 8U)) * UINT32_C(16777619);
+      hash = (hash ^ (uint8_t)color) * UINT32_C(16777619);
+    }
+  }
+  return hash != 0U ? hash : 1U;
+}
+
+static bool ili9341_surface_tile_changed(
+    const solar_os_display_surface_t *surface, uint16_t tile_x,
+    uint16_t tile_y) {
+  if (!ili9341_surface_tile_dirty(surface, tile_x, tile_y)) {
+    return false;
+  }
+  const size_t index = (size_t)tile_y * surface->hash_stride + tile_x;
+  return index < surface->presented_hash_count &&
+         surface->presented_hashes[index] !=
+             ili9341_surface_tile_hash(surface, tile_x, tile_y);
+}
+
+esp_err_t tft_ili9341_present_surface(
+    tft_ili9341_t *display, const solar_os_display_surface_t *surface) {
+  if (display == NULL || display->spi == NULL || surface == NULL ||
+      surface->format != SOLAR_OS_DISPLAY_FORMAT_INDEX8 ||
+      surface->data == NULL || surface->palette_rgb565 == NULL ||
+      surface->palette_size < 256U || surface->dirty_tiles == NULL ||
+      surface->presented_hashes == NULL ||
+      surface->tile_size != 8U ||
+      surface->native_width != display->config.width ||
+      surface->native_height != display->config.height ||
+      surface->stride < surface->width) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  const bool rotated =
+      surface->rotation == SOLAR_OS_DISPLAY_ROTATION_90 ||
+      surface->rotation == SOLAR_OS_DISPLAY_ROTATION_270;
+  if (surface->width !=
+          (rotated ? surface->native_height : surface->native_width) ||
+      surface->height !=
+          (rotated ? surface->native_width : surface->native_height)) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+
+  const uint16_t tile_columns =
+      (uint16_t)((surface->native_width + 7U) / 8U);
+  const uint16_t tile_rows =
+      (uint16_t)((surface->native_height + 7U) / 8U);
+  if (surface->dirty_stride < (tile_columns + 7U) / 8U ||
+      surface->dirty_size < (size_t)surface->dirty_stride * tile_rows ||
+      surface->hash_stride < tile_columns ||
+      surface->presented_hash_count <
+          (size_t)surface->hash_stride * tile_rows) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  if (!display->indexed_surface_valid ||
+      display->indexed_surface_data != surface->data) {
+    memset(surface->presented_hashes, 0,
+           surface->presented_hash_count * sizeof(surface->presented_hashes[0]));
+    display->indexed_surface_data = surface->data;
+    display->indexed_surface_valid = true;
+  }
+
+  for (uint16_t tile_y = 0; tile_y < tile_rows; tile_y++) {
+    uint16_t tile_x = 0;
+    while (tile_x < tile_columns) {
+      while (tile_x < tile_columns &&
+             !ili9341_surface_tile_changed(surface, tile_x, tile_y)) {
+        tile_x++;
+      }
+      if (tile_x >= tile_columns) {
+        break;
+      }
+      const uint16_t first_tile = tile_x;
+      while (tile_x < tile_columns &&
+             ili9341_surface_tile_changed(surface, tile_x, tile_y)) {
+        tile_x++;
+      }
+      const uint16_t x_start = (uint16_t)(first_tile * 8U);
+      const uint16_t y_start = (uint16_t)(tile_y * 8U);
+      uint16_t x_end = (uint16_t)(tile_x * 8U - 1U);
+      uint16_t y_end = (uint16_t)(y_start + 7U);
+      if (x_end >= surface->native_width) x_end = surface->native_width - 1U;
+      if (y_end >= surface->native_height) y_end = surface->native_height - 1U;
+      const uint16_t width = (uint16_t)(x_end - x_start + 1U);
+
+      ESP_RETURN_ON_ERROR(
+          ili9341_set_window(display, x_start, y_start, x_end, y_end), TAG,
+          "indexed window failed");
+      ESP_RETURN_ON_ERROR(ili9341_cmd(display, 0x2c), TAG,
+                          "indexed ram write failed");
+      ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
+                          "indexed dc data failed");
+      for (uint16_t row = y_start; row <= y_end; row++) {
+        ili9341_line_from_index8(display, surface, x_start, row, width);
+        ESP_RETURN_ON_ERROR(
+            ili9341_tx_bytes(display, display->line_buffer, (size_t)width * 2U),
+            TAG, "indexed transmit failed");
+      }
+      for (uint16_t updated = first_tile; updated < tile_x; updated++) {
+        const size_t hash_index =
+            (size_t)tile_y * surface->hash_stride + updated;
+        surface->presented_hashes[hash_index] =
+            ili9341_surface_tile_hash(surface, updated, tile_y);
+      }
+    }
+  }
+  ili9341_invalidate_shadow(display);
   return ESP_OK;
 }
 
@@ -633,6 +813,7 @@ esp_err_t tft_ili9341_resume(tft_ili9341_t *display) {
   active_display = display;
   display->last_error = ESP_OK;
   ili9341_invalidate_shadow(display);
+  display->indexed_surface_valid = false;
   u8g2_InitDisplay(&display->u8g2);
   u8g2_SetPowerSave(&display->u8g2, 0);
   return display->last_error;
@@ -692,6 +873,8 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
   display->shadow_size = 0;
   display->line_buffer_size = 0;
   display->shadow_valid_rows = 0;
+  display->indexed_surface_data = NULL;
+  display->indexed_surface_valid = false;
 }
 
 u8g2_t *tft_ili9341_get_u8g2(tft_ili9341_t *display) {

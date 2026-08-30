@@ -81,8 +81,8 @@ static void *sketch_state_storage;
 
 static const solar_os_gfx_color_t sketch_colors[4] = {
     SOLAR_OS_GFX_COLOR_WHITE,
-    SOLAR_OS_GFX_COLOR_LIGHT,
-    SOLAR_OS_GFX_COLOR_DARK,
+    SOLAR_OS_GFX_COLOR_RGB_FLAG | 0xe53935U,
+    SOLAR_OS_GFX_COLOR_RGB_FLAG | 0x1e63d5U,
     SOLAR_OS_GFX_COLOR_BLACK,
 };
 
@@ -165,9 +165,28 @@ static void sketch_set_info(const char *message)
     sketch.render_pending = true;
 }
 
-static void sketch_canvas_from_gray(const uint8_t *gray,
-                                    uint32_t width,
-                                    uint32_t height)
+static uint8_t sketch_nearest_color(uint8_t red, uint8_t green, uint8_t blue)
+{
+    uint8_t nearest = 0U;
+    uint32_t nearest_distance = UINT32_MAX;
+    for (uint8_t index = 0; index < 4U; index++) {
+        const uint32_t rgb = solar_os_sketch_palette_rgb888[index];
+        const int delta_red = (int)red - (int)((rgb >> 16U) & 0xffU);
+        const int delta_green = (int)green - (int)((rgb >> 8U) & 0xffU);
+        const int delta_blue = (int)blue - (int)(rgb & 0xffU);
+        const uint32_t distance = (uint32_t)(delta_red * delta_red +
+            delta_green * delta_green + delta_blue * delta_blue);
+        if (distance < nearest_distance) {
+            nearest = index;
+            nearest_distance = distance;
+        }
+    }
+    return nearest;
+}
+
+static void sketch_canvas_from_rgb(const uint8_t *rgb,
+                                   uint32_t width,
+                                   uint32_t height)
 {
     int draw_width = sketch.canvas.width;
     int draw_height = sketch.canvas.height;
@@ -190,9 +209,9 @@ static void sketch_canvas_from_gray(const uint8_t *gray,
         for (int x = 0; x < draw_width; x++) {
             const uint32_t source_x =
                 (uint32_t)(((uint64_t)x * width) / (uint32_t)draw_width);
-            const uint8_t value = gray[(size_t)source_y * width + source_x];
-            const uint8_t color =
-                (uint8_t)(((uint16_t)(255U - value) * 3U + 127U) / 255U);
+            const size_t source = ((size_t)source_y * width + source_x) * 3U;
+            const uint8_t color = sketch_nearest_color(
+                rgb[source], rgb[source + 1U], rgb[source + 2U]);
             solar_os_sketch_canvas_set(&sketch.canvas, origin_x + x,
                                        origin_y + y, color, 0U);
         }
@@ -244,21 +263,21 @@ static esp_err_t sketch_load_image(const char *path, bool opened)
     if (err != ESP_OK) {
         return err;
     }
-    uint8_t *gray = NULL;
+    uint8_t *rgb = NULL;
     uint32_t width = 0U;
     uint32_t height = 0U;
-    err = solar_os_stb_decode_gray(bytes, length, SKETCH_IMPORT_MAX_PIXELS,
-                                   &gray, &width, &height);
+    err = solar_os_stb_decode_rgb(bytes, length, SKETCH_IMPORT_MAX_PIXELS,
+                                  &rgb, &width, &height);
     solar_os_memory_free(bytes);
-    if (err != ESP_OK || gray == NULL || width == 0U || height == 0U) {
-        solar_os_stb_image_free(gray);
+    if (err != ESP_OK || rgb == NULL || width == 0U || height == 0U) {
+        solar_os_stb_image_free(rgb);
         if (err == ESP_OK) {
             err = ESP_ERR_INVALID_SIZE;
         }
         return err;
     }
-    sketch_canvas_from_gray(gray, width, height);
-    solar_os_stb_image_free(gray);
+    sketch_canvas_from_rgb(rgb, width, height);
+    solar_os_stb_image_free(rgb);
     if (opened) {
         strlcpy(sketch.path, path, sizeof(sketch.path));
         sketch.dirty = false;
@@ -456,14 +475,25 @@ static void sketch_render_canvas(solar_os_gfx_t *gfx,
         sketch_draw_shape(&preview, sketch.preview_x, sketch.preview_y);
         render_canvas = &preview;
     }
-    if (!solar_os_sketch_canvas_render_xbm(
-            render_canvas, sketch.canvas_bitmap, sketch.canvas_bitmap_size)) {
-        return;
+    if (solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8) {
+        solar_os_gfx_bitmap_2bpp(gfx, layout->canvas_x, layout->canvas_y,
+                                 layout->canvas_width, layout->canvas_height,
+                                 render_canvas->pixels,
+                                 solar_os_sketch_canvas_bytes(
+                                     render_canvas->width,
+                                     render_canvas->height),
+                                 sketch_colors);
+    } else {
+        if (!solar_os_sketch_canvas_render_xbm(
+                render_canvas, sketch.canvas_bitmap,
+                sketch.canvas_bitmap_size)) {
+            return;
+        }
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_bitmap(gfx, layout->canvas_x, layout->canvas_y,
+                            layout->canvas_width, layout->canvas_height,
+                            sketch.canvas_bitmap);
     }
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_bitmap(gfx, layout->canvas_x, layout->canvas_y,
-                        layout->canvas_width, layout->canvas_height,
-                        sketch.canvas_bitmap);
 }
 
 static void sketch_render_browser(solar_os_gfx_t *gfx,

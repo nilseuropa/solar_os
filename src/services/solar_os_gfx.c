@@ -7,6 +7,23 @@
 
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
+#include "solar_os_log.h"
+#include "solar_os_memory.h"
+
+#define GFX_INDEX8_PALETTE_SIZE 256U
+#define GFX_INDEX8_COLOR_COUNT 216U
+#define GFX_INDEX8_GRAY_COUNT 40U
+#define GFX_DIRTY_TILE_SIZE 8U
+
+struct solar_os_gfx_index8_surface {
+    solar_os_display_surface_t surface;
+    uint8_t *pixels;
+    uint8_t *dirty;
+    uint16_t *palette;
+    uint8_t draw_index;
+};
+
+static const char *TAG = "gfx";
 
 static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
 {
@@ -67,8 +84,42 @@ static bool gfx_color_is_gray(solar_os_gfx_color_t color)
     return value >= SOLAR_OS_GFX_COLOR_GRAY_BASE && value <= SOLAR_OS_GFX_COLOR_GRAY_LAST;
 }
 
+static bool gfx_color_is_rgb(solar_os_gfx_color_t color)
+{
+    return (color & 0xff000000UL) == SOLAR_OS_GFX_COLOR_RGB_FLAG;
+}
+
+static uint32_t gfx_color_rgb888(solar_os_gfx_color_t color)
+{
+    if (gfx_color_is_rgb(color)) {
+        return color & 0x00ffffffUL;
+    }
+    uint8_t level = 0;
+    if (gfx_color_is_gray(color)) {
+        level = (uint8_t)((color - SOLAR_OS_GFX_COLOR_GRAY_BASE) * 255U /
+                          SOLAR_OS_GFX_GRAY_MAX);
+    } else {
+        switch (color) {
+        case SOLAR_OS_GFX_COLOR_WHITE: level = 255U; break;
+        case SOLAR_OS_GFX_COLOR_LIGHT: level = 191U; break;
+        case SOLAR_OS_GFX_COLOR_DARK: level = 80U; break;
+        case SOLAR_OS_GFX_COLOR_BLACK:
+        default: level = 0U; break;
+        }
+    }
+    return ((uint32_t)level << 16U) | ((uint32_t)level << 8U) | level;
+}
+
 static uint8_t gfx_dither_threshold(solar_os_gfx_color_t color)
 {
+    if (gfx_color_is_rgb(color)) {
+        const uint32_t rgb = gfx_color_rgb888(color);
+        const uint32_t red = (rgb >> 16U) & 0xffU;
+        const uint32_t green = (rgb >> 8U) & 0xffU;
+        const uint32_t blue = rgb & 0xffU;
+        const uint32_t luminance = (red * 77U + green * 150U + blue * 29U) >> 8U;
+        return (uint8_t)((luminance * 16U + 127U) / 255U);
+    }
     if (gfx_color_is_gray(color)) {
         return (uint8_t)((unsigned)color - SOLAR_OS_GFX_COLOR_GRAY_BASE);
     }
@@ -86,10 +137,64 @@ static uint8_t gfx_dither_threshold(solar_os_gfx_color_t color)
     }
 }
 
-static bool gfx_color_uses_dither(solar_os_gfx_color_t color)
+static uint16_t gfx_rgb888_to_rgb565(uint32_t rgb888)
 {
-    const uint8_t threshold = gfx_dither_threshold(color);
-    return threshold > 0 && threshold < 16;
+    return (uint16_t)((((rgb888 >> 19U) & 0x1fU) << 11U) |
+                      (((rgb888 >> 10U) & 0x3fU) << 5U) |
+                      ((rgb888 >> 3U) & 0x1fU));
+}
+
+static uint8_t gfx_index8_for_rgb888(uint32_t rgb888)
+{
+    const uint8_t red = (uint8_t)(rgb888 >> 16U);
+    const uint8_t green = (uint8_t)(rgb888 >> 8U);
+    const uint8_t blue = (uint8_t)rgb888;
+    if (red == green && green == blue) {
+        return (uint8_t)(GFX_INDEX8_COLOR_COUNT +
+                         ((unsigned)red * (GFX_INDEX8_GRAY_COUNT - 1U) + 127U) /
+                             255U);
+    }
+    const unsigned red_level = ((unsigned)red * 5U + 127U) / 255U;
+    const unsigned green_level = ((unsigned)green * 5U + 127U) / 255U;
+    const unsigned blue_level = ((unsigned)blue * 5U + 127U) / 255U;
+    return (uint8_t)(red_level * 36U + green_level * 6U + blue_level);
+}
+
+static void gfx_build_index8_palette(solar_os_gfx_t *gfx)
+{
+    if (gfx == NULL || gfx->index8 == NULL || gfx->index8->palette == NULL) {
+        return;
+    }
+    for (unsigned index = 0; index < GFX_INDEX8_COLOR_COUNT; index++) {
+        unsigned value = index;
+        uint8_t blue = (uint8_t)((value % 6U) * 255U / 5U);
+        value /= 6U;
+        uint8_t green = (uint8_t)((value % 6U) * 255U / 5U);
+        uint8_t red = (uint8_t)((value / 6U) * 255U / 5U);
+        if (gfx->palette_inverted) {
+            red = (uint8_t)(255U - red);
+            green = (uint8_t)(255U - green);
+            blue = (uint8_t)(255U - blue);
+        }
+        gfx->index8->palette[index] = gfx_rgb888_to_rgb565(
+            ((uint32_t)red << 16U) | ((uint32_t)green << 8U) | blue);
+    }
+    for (unsigned gray = 0; gray < GFX_INDEX8_GRAY_COUNT; gray++) {
+        uint8_t level = (uint8_t)(gray * 255U / (GFX_INDEX8_GRAY_COUNT - 1U));
+        if (gfx->palette_inverted) {
+            level = (uint8_t)(255U - level);
+        }
+        gfx->index8->palette[GFX_INDEX8_COLOR_COUNT + gray] =
+            gfx_rgb888_to_rgb565(((uint32_t)level << 16U) |
+                                 ((uint32_t)level << 8U) | level);
+    }
+}
+
+static bool gfx_uses_index8(const solar_os_gfx_t *gfx)
+{
+    return gfx != NULL && gfx->index8 != NULL &&
+        gfx->index8->surface.format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 &&
+        gfx->index8->pixels != NULL;
 }
 
 static uint8_t gfx_apply_polarity(const solar_os_gfx_t *gfx, uint8_t white_bit)
@@ -131,6 +236,223 @@ static uint8_t gfx_pattern_draw_color(const solar_os_gfx_t *gfx,
 static bool gfx_ready(const solar_os_gfx_t *gfx)
 {
     return gfx != NULL && gfx->u8g2 != NULL;
+}
+
+static solar_os_display_rotation_t gfx_rotation(const u8g2_t *u8g2)
+{
+    if (u8g2 != NULL && u8g2->cb == U8G2_R1) {
+        return SOLAR_OS_DISPLAY_ROTATION_90;
+    }
+    if (u8g2 != NULL && u8g2->cb == U8G2_R2) {
+        return SOLAR_OS_DISPLAY_ROTATION_180;
+    }
+    if (u8g2 != NULL && u8g2->cb == U8G2_R3) {
+        return SOLAR_OS_DISPLAY_ROTATION_270;
+    }
+    return SOLAR_OS_DISPLAY_ROTATION_0;
+}
+
+static void gfx_logical_to_native(const solar_os_display_surface_t *surface,
+                                  int x,
+                                  int y,
+                                  int *native_x,
+                                  int *native_y)
+{
+    int mapped_x = x;
+    int mapped_y = y;
+    switch (surface->rotation) {
+    case SOLAR_OS_DISPLAY_ROTATION_90:
+        mapped_x = (int)surface->native_width - 1 - y;
+        mapped_y = x;
+        break;
+    case SOLAR_OS_DISPLAY_ROTATION_180:
+        mapped_x = (int)surface->native_width - 1 - x;
+        mapped_y = (int)surface->native_height - 1 - y;
+        break;
+    case SOLAR_OS_DISPLAY_ROTATION_270:
+        mapped_x = y;
+        mapped_y = (int)surface->native_height - 1 - x;
+        break;
+    case SOLAR_OS_DISPLAY_ROTATION_0:
+    default:
+        break;
+    }
+    *native_x = mapped_x;
+    *native_y = mapped_y;
+}
+
+static void gfx_mark_index8_dirty_rect(solar_os_gfx_t *gfx,
+                                       int x,
+                                       int y,
+                                       int width,
+                                       int height)
+{
+    if (!gfx_uses_index8(gfx) || gfx->index8->dirty == NULL ||
+        width <= 0 || height <= 0) {
+        return;
+    }
+    int x0 = x < 0 ? 0 : x;
+    int y0 = y < 0 ? 0 : y;
+    int x1 = x + width - 1;
+    int y1 = y + height - 1;
+    const solar_os_display_surface_t *surface = &gfx->index8->surface;
+    if (x1 >= (int)surface->width) x1 = (int)surface->width - 1;
+    if (y1 >= (int)surface->height) y1 = (int)surface->height - 1;
+    if (x0 > x1 || y0 > y1) {
+        return;
+    }
+
+    int native_x[4];
+    int native_y[4];
+    gfx_logical_to_native(surface, x0, y0, &native_x[0], &native_y[0]);
+    gfx_logical_to_native(surface, x1, y0, &native_x[1], &native_y[1]);
+    gfx_logical_to_native(surface, x0, y1, &native_x[2], &native_y[2]);
+    gfx_logical_to_native(surface, x1, y1, &native_x[3], &native_y[3]);
+    int min_x = native_x[0];
+    int max_x = native_x[0];
+    int min_y = native_y[0];
+    int max_y = native_y[0];
+    for (size_t index = 1; index < 4; index++) {
+        if (native_x[index] < min_x) min_x = native_x[index];
+        if (native_x[index] > max_x) max_x = native_x[index];
+        if (native_y[index] < min_y) min_y = native_y[index];
+        if (native_y[index] > max_y) max_y = native_y[index];
+    }
+    for (int tile_y = min_y / GFX_DIRTY_TILE_SIZE;
+         tile_y <= max_y / GFX_DIRTY_TILE_SIZE; tile_y++) {
+        for (int tile_x = min_x / GFX_DIRTY_TILE_SIZE;
+             tile_x <= max_x / GFX_DIRTY_TILE_SIZE; tile_x++) {
+            gfx->index8->dirty[(size_t)tile_y * surface->dirty_stride +
+                               ((unsigned)tile_x >> 3U)] |=
+                (uint8_t)(1U << ((unsigned)tile_x & 7U));
+        }
+    }
+}
+
+static void gfx_mark_index8_all_dirty(solar_os_gfx_t *gfx)
+{
+    if (gfx_uses_index8(gfx) && gfx->index8->dirty != NULL) {
+        memset(gfx->index8->dirty, 0xff, gfx->index8->surface.dirty_size);
+    }
+}
+
+esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *gfx)
+{
+    if (!gfx_ready(gfx)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (gfx_uses_index8(gfx)) {
+        return ESP_OK;
+    }
+    const u8x8_display_info_t *info = u8g2_GetU8x8(gfx->u8g2)->display_info;
+    if (info == NULL || info->pixel_width == 0 || info->pixel_height == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint16_t width = u8g2_GetDisplayWidth(gfx->u8g2);
+    const uint16_t height = u8g2_GetDisplayHeight(gfx->u8g2);
+    const uint16_t dirty_columns =
+        (uint16_t)((info->pixel_width + GFX_DIRTY_TILE_SIZE - 1U) /
+                   GFX_DIRTY_TILE_SIZE);
+    const uint16_t dirty_rows =
+        (uint16_t)((info->pixel_height + GFX_DIRTY_TILE_SIZE - 1U) /
+                   GFX_DIRTY_TILE_SIZE);
+    const uint16_t dirty_stride = (uint16_t)((dirty_columns + 7U) / 8U);
+    const size_t state_bytes =
+        (sizeof(solar_os_gfx_index8_surface_t) + sizeof(uint32_t) - 1U) &
+        ~(sizeof(uint32_t) - 1U);
+    const size_t pixel_bytes = (size_t)width * height;
+    const size_t dirty_bytes = (size_t)dirty_stride * dirty_rows;
+    const size_t pixel_offset = state_bytes;
+    const size_t dirty_offset = pixel_offset + pixel_bytes;
+    const size_t palette_offset = dirty_offset + dirty_bytes;
+    const size_t palette_aligned = (palette_offset + sizeof(uint16_t) - 1U) &
+        ~(sizeof(uint16_t) - 1U);
+    const size_t palette_bytes = GFX_INDEX8_PALETTE_SIZE * sizeof(uint16_t);
+    const size_t hashes_offset = (palette_aligned + palette_bytes +
+        sizeof(uint32_t) - 1U) & ~(sizeof(uint32_t) - 1U);
+    const size_t hash_count = (size_t)dirty_columns * dirty_rows;
+    const size_t allocation_size = hashes_offset +
+        hash_count * sizeof(uint32_t);
+    uint8_t *storage = solar_os_memory_calloc(
+        1, allocation_size, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "gfx.index8");
+    if (storage == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    solar_os_gfx_index8_surface_t *index8 = (void *)storage;
+    index8->pixels = storage + pixel_offset;
+    index8->dirty = storage + dirty_offset;
+    index8->palette = (uint16_t *)(storage + palette_aligned);
+    index8->surface = (solar_os_display_surface_t){
+        .data = index8->pixels,
+        .data_size = pixel_bytes,
+        .palette_rgb565 = index8->palette,
+        .palette_size = GFX_INDEX8_PALETTE_SIZE,
+        .dirty_tiles = index8->dirty,
+        .dirty_size = dirty_bytes,
+        .presented_hashes = (uint32_t *)(storage + hashes_offset),
+        .presented_hash_count = hash_count,
+        .width = width,
+        .height = height,
+        .stride = width,
+        .native_width = info->pixel_width,
+        .native_height = info->pixel_height,
+        .dirty_stride = dirty_stride,
+        .hash_stride = dirty_columns,
+        .tile_size = GFX_DIRTY_TILE_SIZE,
+        .format = SOLAR_OS_DISPLAY_FORMAT_INDEX8,
+        .rotation = gfx_rotation(gfx->u8g2),
+    };
+    gfx->index8 = index8;
+    gfx_build_index8_palette(gfx);
+    index8->draw_index = gfx_index8_for_rgb888(gfx_color_rgb888(gfx->color));
+    gfx_mark_index8_all_dirty(gfx);
+    gfx->dirty = true;
+    SOLAR_OS_LOGI(TAG, "INDEX8 surface ready: %ux%u, %u external bytes",
+                  (unsigned)width, (unsigned)height,
+                  (unsigned)allocation_size);
+    return ESP_OK;
+}
+
+void solar_os_gfx_prepare_surface(solar_os_gfx_t *gfx)
+{
+    if (!gfx_ready(gfx) || gfx_uses_index8(gfx)) {
+        return;
+    }
+
+    char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
+    solar_os_display_target_t target;
+    if (!solar_os_display_target_name_for_u8g2(
+            gfx->u8g2, target_name, sizeof(target_name)) ||
+        !solar_os_display_find_target(target_name, &target) ||
+        (target.surface_formats & SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT) == 0U) {
+        return;
+    }
+    (void)solar_os_gfx_enable_index8(gfx);
+}
+
+void solar_os_gfx_release_surface(solar_os_gfx_t *gfx)
+{
+    void *storage = solar_os_gfx_detach_surface_storage(gfx);
+    if (storage != NULL) {
+        solar_os_memory_free(storage);
+        SOLAR_OS_LOGI(TAG, "indexed surface released");
+    }
+}
+
+void *solar_os_gfx_detach_surface_storage(solar_os_gfx_t *gfx)
+{
+    if (gfx == NULL) {
+        return NULL;
+    }
+    void *storage = gfx->index8;
+    gfx->index8 = NULL;
+    return storage;
+}
+
+const solar_os_display_surface_t *solar_os_gfx_surface(const solar_os_gfx_t *gfx)
+{
+    return gfx_uses_index8(gfx) ? &gfx->index8->surface : NULL;
 }
 
 static bool gfx_valid_rect(int width, int height)
@@ -216,6 +538,15 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
         return;
     }
 
+    if (gfx_uses_index8(gfx)) {
+        memset(gfx->index8->pixels +
+                   (size_t)y * gfx->index8->surface.stride + start,
+               gfx->index8->draw_index,
+               (size_t)(end - start));
+        gfx_mark_index8_dirty_rect(gfx, start, y, end - start, 1);
+        return;
+    }
+
     const uint8_t threshold = gfx_dither_threshold(gfx->color);
     if (threshold == 0 || threshold >= 16) {
         u8g2_SetDrawColor(gfx->u8g2, gfx_apply_polarity(gfx, threshold >= 16 ? 1 : 0));
@@ -282,6 +613,10 @@ void solar_os_gfx_set_palette_inverted(solar_os_gfx_t *gfx, bool inverted)
     }
 
     gfx->palette_inverted = inverted;
+    if (gfx_uses_index8(gfx)) {
+        gfx_build_index8_palette(gfx);
+        gfx_mark_index8_all_dirty(gfx);
+    }
     gfx->dirty = true;
 }
 
@@ -295,6 +630,12 @@ size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
     return gfx_ready(gfx) ? u8g2_GetDisplayHeight(gfx->u8g2) : 0;
 }
 
+solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
+{
+    return gfx_uses_index8(gfx) ? SOLAR_OS_DISPLAY_FORMAT_INDEX8 :
+        SOLAR_OS_DISPLAY_FORMAT_MONO1;
+}
+
 solar_os_gfx_color_t solar_os_gfx_gray(uint8_t level)
 {
     if (level > SOLAR_OS_GFX_GRAY_MAX) {
@@ -304,9 +645,15 @@ solar_os_gfx_color_t solar_os_gfx_gray(uint8_t level)
     return (solar_os_gfx_color_t)(SOLAR_OS_GFX_COLOR_GRAY_BASE + level);
 }
 
+solar_os_gfx_color_t solar_os_gfx_rgb(uint8_t red, uint8_t green, uint8_t blue)
+{
+    return SOLAR_OS_GFX_COLOR_RGB_FLAG | ((uint32_t)red << 16U) |
+        ((uint32_t)green << 8U) | blue;
+}
+
 bool solar_os_gfx_color_is_valid(solar_os_gfx_color_t color)
 {
-    if (gfx_color_is_gray(color)) {
+    if (gfx_color_is_gray(color) || gfx_color_is_rgb(color)) {
         return true;
     }
 
@@ -323,6 +670,9 @@ void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
     }
 
     gfx->color = color;
+    if (gfx_uses_index8(gfx)) {
+        gfx->index8->draw_index = gfx_index8_for_rgb888(gfx_color_rgb888(color));
+    }
 }
 
 solar_os_gfx_color_t solar_os_gfx_color(const solar_os_gfx_t *gfx)
@@ -384,6 +734,16 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
 
     const solar_os_gfx_color_t previous_color = gfx->color;
     gfx->color = color;
+    if (gfx_uses_index8(gfx)) {
+        const uint8_t index = gfx_index8_for_rgb888(gfx_color_rgb888(color));
+        memset(gfx->index8->pixels, index, gfx->index8->surface.data_size);
+        gfx_mark_index8_all_dirty(gfx);
+        gfx->color = previous_color;
+        gfx->index8->draw_index =
+            gfx_index8_for_rgb888(gfx_color_rgb888(previous_color));
+        gfx_mark_dirty(gfx);
+        return;
+    }
     for (int y = 0; y < (int)u8g2_GetDisplayHeight(gfx->u8g2); y++) {
         gfx_draw_hline_shade_clipped(gfx, 0, y, (int)u8g2_GetDisplayWidth(gfx->u8g2));
     }
@@ -454,12 +814,25 @@ void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
         return;
     }
 
-    gfx_apply_draw_state(gfx);
-    u8g2_DrawFrame(gfx->u8g2,
-                   (u8g2_uint_t)x,
-                   (u8g2_uint_t)y,
-                   (u8g2_uint_t)width,
-                   (u8g2_uint_t)height);
+    if (gfx_uses_index8(gfx)) {
+        gfx_draw_hline_shade_clipped(gfx, x, y, width);
+        if (height > 1) {
+            gfx_draw_hline_shade_clipped(gfx, x, y + height - 1, width);
+        }
+        for (int row = y + 1; row < y + height - 1; row++) {
+            gfx_draw_hline_shade_clipped(gfx, x, row, 1);
+            if (width > 1) {
+                gfx_draw_hline_shade_clipped(gfx, x + width - 1, row, 1);
+            }
+        }
+    } else {
+        gfx_apply_draw_state(gfx);
+        u8g2_DrawFrame(gfx->u8g2,
+                       (u8g2_uint_t)x,
+                       (u8g2_uint_t)y,
+                       (u8g2_uint_t)width,
+                       (u8g2_uint_t)height);
+    }
     gfx_mark_dirty(gfx);
 }
 
@@ -576,6 +949,22 @@ void solar_os_gfx_fill_circle(solar_os_gfx_t *gfx, int x, int y, int radius)
     gfx_mark_dirty(gfx);
 }
 
+static bool gfx_u8g2_mask_pixel(const solar_os_gfx_t *gfx, int x, int y)
+{
+    if (!gfx_ready(gfx) || x < 0 || y < 0 ||
+        x >= (int)u8g2_GetDisplayWidth(gfx->u8g2) ||
+        y >= (int)u8g2_GetDisplayHeight(gfx->u8g2)) {
+        return false;
+    }
+    int native_x = 0;
+    int native_y = 0;
+    gfx_logical_to_native(&gfx->index8->surface, x, y, &native_x, &native_y);
+    const uint16_t row_bytes = (uint16_t)(u8g2_GetBufferTileWidth(gfx->u8g2) * 8U);
+    const size_t offset = (size_t)(native_y / 8) * row_bytes + (size_t)native_x;
+    return (u8g2_GetBufferPtr(gfx->u8g2)[offset] &
+            (uint8_t)(1U << (native_y & 7))) != 0;
+}
+
 void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *text)
 {
     if (!gfx_ready(gfx) || text == NULL) {
@@ -583,7 +972,39 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
     }
 
     gfx_apply_draw_state(gfx);
-    u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)baseline_y, text);
+    if (gfx_uses_index8(gfx)) {
+        const int text_width = (int)u8g2_GetUTF8Width(gfx->u8g2, text);
+        const int ascent = (int)u8g2_GetAscent(gfx->u8g2);
+        const int descent = (int)u8g2_GetDescent(gfx->u8g2);
+        int x0 = x - 2;
+        int y0 = baseline_y - ascent - 1;
+        int x1 = x + text_width + 2;
+        int y1 = baseline_y - descent + 1;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > (int)gfx->index8->surface.width) x1 = gfx->index8->surface.width;
+        if (y1 > (int)gfx->index8->surface.height) y1 = gfx->index8->surface.height;
+        if (x1 > x0 && y1 > y0) {
+            u8g2_SetDrawColor(gfx->u8g2, 0);
+            u8g2_DrawBox(gfx->u8g2, (u8g2_uint_t)x0, (u8g2_uint_t)y0,
+                         (u8g2_uint_t)(x1 - x0), (u8g2_uint_t)(y1 - y0));
+            u8g2_SetDrawColor(gfx->u8g2, 1);
+            u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x,
+                          (u8g2_uint_t)baseline_y, text);
+            for (int row = y0; row < y1; row++) {
+                for (int column = x0; column < x1; column++) {
+                    if (gfx_u8g2_mask_pixel(gfx, column, row)) {
+                        gfx->index8->pixels[
+                            (size_t)row * gfx->index8->surface.stride + column] =
+                            gfx->index8->draw_index;
+                    }
+                }
+            }
+            gfx_mark_index8_dirty_rect(gfx, x0, y0, x1 - x0, y1 - y0);
+        }
+    } else {
+        u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)baseline_y, text);
+    }
     gfx_mark_dirty(gfx);
 }
 
@@ -598,13 +1019,80 @@ void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
         return;
     }
 
-    gfx_apply_draw_state(gfx);
-    u8g2_DrawXBM(gfx->u8g2,
-                 (u8g2_uint_t)x,
-                 (u8g2_uint_t)y,
-                 (u8g2_uint_t)width,
-                 (u8g2_uint_t)height,
-                 bitmap);
+    if (gfx_uses_index8(gfx)) {
+        const size_t stride = ((size_t)width + 7U) / 8U;
+        for (int row = 0; row < height; row++) {
+            for (int column = 0; column < width; column++) {
+                if ((bitmap[(size_t)row * stride + ((unsigned)column >> 3U)] &
+                     (uint8_t)(1U << ((unsigned)column & 7U))) != 0) {
+                    gfx_draw_hline_raw_clipped(gfx, x + column, y + row, 1);
+                }
+            }
+        }
+    } else {
+        gfx_apply_draw_state(gfx);
+        u8g2_DrawXBM(gfx->u8g2,
+                     (u8g2_uint_t)x,
+                     (u8g2_uint_t)y,
+                     (u8g2_uint_t)width,
+                     (u8g2_uint_t)height,
+                     bitmap);
+    }
+    gfx_mark_dirty(gfx);
+}
+
+void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
+                              int x,
+                              int y,
+                              int width,
+                              int height,
+                              const uint8_t *bitmap,
+                              size_t bitmap_size,
+                              const solar_os_gfx_color_t palette[4])
+{
+    const size_t pixels = width > 0 && height > 0 ?
+        (size_t)width * (size_t)height : 0U;
+    const size_t required = (pixels + 3U) / 4U;
+    if (!gfx_ready(gfx) || bitmap == NULL || palette == NULL ||
+        pixels == 0 || bitmap_size < required) {
+        return;
+    }
+
+    uint8_t indices[4] = {0};
+    if (gfx_uses_index8(gfx)) {
+        for (size_t index = 0; index < 4; index++) {
+            indices[index] = gfx_index8_for_rgb888(gfx_color_rgb888(palette[index]));
+        }
+    }
+    for (int row = 0; row < height; row++) {
+        const int target_y = y + row;
+        if (target_y < 0 || target_y >= (int)solar_os_gfx_height(gfx)) {
+            continue;
+        }
+        for (int column = 0; column < width; column++) {
+            const int target_x = x + column;
+            if (target_x < 0 || target_x >= (int)solar_os_gfx_width(gfx)) {
+                continue;
+            }
+            const size_t pixel = (size_t)row * (size_t)width + (size_t)column;
+            const uint8_t value = (uint8_t)((bitmap[pixel >> 2U] >>
+                ((pixel & 3U) * 2U)) & 3U);
+            if (gfx_uses_index8(gfx)) {
+                gfx->index8->pixels[
+                    (size_t)target_y * gfx->index8->surface.stride + target_x] =
+                    indices[value];
+            } else {
+                u8g2_SetDrawColor(gfx->u8g2,
+                                  gfx_pattern_draw_color(gfx, palette[value],
+                                                         target_x, target_y));
+                u8g2_DrawPixel(gfx->u8g2, (u8g2_uint_t)target_x,
+                               (u8g2_uint_t)target_y);
+            }
+        }
+    }
+    if (gfx_uses_index8(gfx)) {
+        gfx_mark_index8_dirty_rect(gfx, x, y, width, height);
+    }
     gfx_mark_dirty(gfx);
 }
 
@@ -657,6 +1145,14 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         return;
     }
 
+    if (gfx_uses_index8(gfx)) {
+        if (solar_os_display_present_surface(
+                gfx->u8g2, &gfx->index8->surface) == ESP_OK) {
+            memset(gfx->index8->dirty, 0, gfx->index8->surface.dirty_size);
+            gfx->dirty = false;
+        }
+        return;
+    }
     solar_os_display_present(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
     gfx->dirty = false;
 }

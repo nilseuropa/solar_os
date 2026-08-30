@@ -6,7 +6,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "solar_os_gfx.h"
+#include "solar_os_gfx_internal.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_splash.h"
@@ -208,11 +208,14 @@ void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active)
         return;
     }
 
-    ctx->graphics_active = active;
     if (active && ctx->gfx != NULL) {
+        solar_os_gfx_prepare_surface(ctx->gfx);
         solar_os_gfx_clear(ctx->gfx, SOLAR_OS_GFX_COLOR_WHITE);
         solar_os_gfx_set_color(ctx->gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    } else if (!active && ctx->gfx != NULL) {
+        solar_os_gfx_release_surface(ctx->gfx);
     }
+    ctx->graphics_active = active;
 }
 
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx)
