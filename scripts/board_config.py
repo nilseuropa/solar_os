@@ -71,6 +71,11 @@ def render_overlay(profile: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def profile_commands(board_id: str, base_id: str) -> tuple[str, str]:
+    build = f"SOLAR_OS_BOARD={board_id} pio run -e {base_id}"
+    return build, f"{build} -t upload"
+
+
 def available_base_profiles(manifest_dir: Path = MANIFEST_DIR) -> dict[str, list[tuple[Path, dict[str, Any]]]]:
     result: dict[str, list[tuple[Path, dict[str, Any]]]] = {"esp32s3": [], "esp32": []}
     for path in sorted(manifest_dir.glob("*.toml")):
@@ -368,7 +373,10 @@ class Configurator:
         return profile
 
 
-def _run_tui(window: curses.window, args: argparse.Namespace) -> tuple[Path, str]:
+def _run_tui(
+    window: curses.window,
+    args: argparse.Namespace,
+) -> tuple[Path, str, str]:
     screen = Screen(window)
     catalog = load_driver_catalog(args.drivers)
     bases = available_base_profiles(args.manifest_dir)
@@ -401,9 +409,16 @@ def _run_tui(window: curses.window, args: argparse.Namespace) -> tuple[Path, str
         raise ManifestError("profile was not written")
     content = render_overlay(profile)
     write_if_changed(destination, content)
-    command = f"SOLAR_OS_BOARD={board_id} pio run -e {base_id}"
-    screen.message("Profile created", f"Wrote {destination}\n\nBuild with:\n{command}")
-    return destination, command
+    build_command, upload_command = profile_commands(board_id, base_id)
+    screen.message(
+        "Profile created",
+        f"Wrote {destination}\n\n"
+        f"PlatformIO environment: {base_id}\n"
+        "Keep SOLAR_OS_BOARD set for each build or upload.\n\n"
+        f"Build with:\n{build_command}\n\n"
+        f"Build and flash with:\n{upload_command}",
+    )
+    return destination, build_command, upload_command
 
 
 def main() -> int:
@@ -419,7 +434,7 @@ def main() -> int:
                 print(f"{mcu} bases: " + ", ".join(board["board"]["id"] for _, board in bases))
                 print(f"{mcu} drivers: " + ", ".join(driver.name for driver in drivers.values() if mcu in driver.targets))
             return 0
-        destination, command = curses.wrapper(_run_tui, args)
+        destination, build_command, upload_command = curses.wrapper(_run_tui, args)
     except KeyboardInterrupt:
         print("Board configuration cancelled.", file=sys.stderr)
         return 130
@@ -427,7 +442,8 @@ def main() -> int:
         print(f"board config: {exc}", file=sys.stderr)
         return 1
     print(f"Wrote {destination}")
-    print(f"Build with: {command}")
+    print(f"Build with: {build_command}")
+    print(f"Build and flash with: {upload_command}")
     return 0
 
 

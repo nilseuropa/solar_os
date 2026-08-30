@@ -99,6 +99,26 @@ SOLAR_OS_BOARD=devkitc1_epaper_workbench \
   pio run -e esp32_s3_devkitc1_n16r8
 ```
 
+The configurator creates a SolarOS board profile, not a new PlatformIO
+environment. Use the base environment shown by the configurator, and keep
+`SOLAR_OS_BOARD` set for every build or upload invocation. To build and flash
+the example profile in one command:
+
+```sh
+SOLAR_OS_BOARD=devkitc1_epaper_workbench \
+  pio run -e esp32_s3_devkitc1_n16r8 -t upload
+```
+
+The `upload` target builds first when necessary. Add
+`--upload-port <serial-device>` if PlatformIO does not select the correct port.
+If you select a firmware flavor explicitly, keep it on the upload invocation as
+well:
+
+```sh
+SOLAR_OS_BOARD=devkitc1_epaper_workbench SOLAR_OS_FLAVOR=core \
+  pio run -e esp32_s3_devkitc1_n16r8 -t upload
+```
+
 You can edit the generated TOML after leaving the TUI. Validate it before a
 build:
 
@@ -420,11 +440,19 @@ When the PlatformIO environment name and SolarOS board profile name are the same
 the CMake argument is still preferred because it removes ambiguity and makes
 alias environments possible.
 
-Examples:
+For an inherited custom profile, build and upload through its base environment
+while selecting the profile explicitly:
+
+```sh
+SOLAR_OS_BOARD=my_board pio run -e esp32_s3_devkitc1_n16r8
+SOLAR_OS_BOARD=my_board pio run -e esp32_s3_devkitc1_n16r8 -t upload
+```
+
+For a standalone target with its own `[env:my_board]` entry, the environment
+already selects the profile:
 
 ```sh
 pio run -e my_board
-pio run -e odroid_go
 pio run -e my_board -t upload
 pio device monitor -b 115200
 ```

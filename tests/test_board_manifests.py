@@ -10,7 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from board_config import available_base_profiles, render_overlay
+from board_config import available_base_profiles, profile_commands, render_overlay
 from solaros_board_manifest import (
     ManifestError,
     generate_cmake,
@@ -39,6 +39,17 @@ class BoardManifestTest(unittest.TestCase):
         bases = available_base_profiles(self.manifest_dir)
         self.assertTrue(bases["esp32s3"])
         self.assertTrue(bases["esp32"])
+
+    def test_custom_profile_commands_keep_the_base_environment_and_board(self) -> None:
+        build, upload = profile_commands(
+            "my_board",
+            "esp32_s3_devkitc1_n16r8",
+        )
+        self.assertEqual(
+            build,
+            "SOLAR_OS_BOARD=my_board pio run -e esp32_s3_devkitc1_n16r8",
+        )
+        self.assertEqual(upload, f"{build} -t upload")
 
     def test_workbench_inherits_and_overrides_devkit(self) -> None:
         board = load_board_manifest(
