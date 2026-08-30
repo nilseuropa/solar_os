@@ -16,7 +16,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_storage_browser.h"
 
-#define SKETCH_SIDE_BAR 52
+#define SKETCH_SIDE_BAR 64
 #define SKETCH_BOTTOM_BAR 30
 #define SKETCH_BROWSER_ROW_HEIGHT 16
 #define SKETCH_IMPORT_MAX_BYTES (4U * 1024U * 1024U)
@@ -461,6 +461,113 @@ static void sketch_draw_button(solar_os_gfx_t *gfx,
     solar_os_gfx_text(gfx, x + 4, y + height - 5, label);
 }
 
+typedef struct {
+    int x;
+    int y;
+    int size;
+} sketch_button_symbol_layout_t;
+
+static sketch_button_symbol_layout_t sketch_draw_button_symbol_frame(
+    solar_os_gfx_t *gfx,
+    int x,
+    int y,
+    int width,
+    int height,
+    const char *label,
+    bool active)
+{
+    solar_os_gfx_set_color(gfx, active ? SOLAR_OS_GFX_COLOR_DARK :
+                                      SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_gfx_fill_rect(gfx, x, y, width, height);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_rect(gfx, x, y, width, height);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+
+    const int symbol_size = height >= 18 ? 16 : 8;
+    const int gap = 3;
+    const int label_width = label != NULL ?
+        (int)solar_os_gfx_text_width(gfx, label) : 0;
+    const int content_width = symbol_size +
+        (label_width > 0 ? gap + label_width : 0);
+    if (content_width <= width - 4) {
+        const int symbol_x = x + (width - content_width) / 2;
+        if (label_width > 0) {
+            solar_os_gfx_text(gfx, symbol_x + symbol_size + gap,
+                              y + height - 5, label);
+        }
+        return (sketch_button_symbol_layout_t){
+            .x = symbol_x,
+            .y = y + (height - symbol_size) / 2,
+            .size = symbol_size,
+        };
+    }
+    return (sketch_button_symbol_layout_t){
+        .x = x + (width - symbol_size) / 2,
+        .y = y + (height - symbol_size) / 2,
+        .size = symbol_size,
+    };
+}
+
+static void sketch_draw_icon_button(solar_os_gfx_t *gfx,
+                                    int x,
+                                    int y,
+                                    int width,
+                                    int height,
+                                    const char *label,
+                                    solar_os_gfx_icon_t icon,
+                                    bool active)
+{
+    const sketch_button_symbol_layout_t symbol =
+        sketch_draw_button_symbol_frame(
+        gfx, x, y, width, height, label, active);
+    solar_os_gfx_icon(gfx, symbol.x, symbol.y, icon,
+                      symbol.size == 16 ? SOLAR_OS_GFX_ICON_SIZE_16 :
+                                          SOLAR_OS_GFX_ICON_SIZE_8);
+}
+
+typedef enum {
+    SKETCH_BUTTON_SYMBOL_LINE,
+    SKETCH_BUTTON_SYMBOL_RECTANGLE,
+    SKETCH_BUTTON_SYMBOL_ELLIPSE,
+} sketch_button_symbol_t;
+
+static void sketch_draw_shape_button(solar_os_gfx_t *gfx,
+                                     int x,
+                                     int y,
+                                     int width,
+                                     int height,
+                                     const char *label,
+                                     sketch_button_symbol_t symbol,
+                                     bool active)
+{
+    const sketch_button_symbol_layout_t layout =
+        sketch_draw_button_symbol_frame(
+            gfx, x, y, width, height, label, active);
+    const int left = layout.x + 1;
+    const int right = layout.x + layout.size - 2;
+    const int top = layout.y + 1;
+    const int bottom = layout.y + layout.size - 2;
+    switch (symbol) {
+    case SKETCH_BUTTON_SYMBOL_LINE:
+        solar_os_gfx_line(gfx, left, bottom, right, top);
+        break;
+    case SKETCH_BUTTON_SYMBOL_RECTANGLE:
+        solar_os_gfx_rect(gfx, left, top + 1,
+                          right - left + 1, bottom - top - 1);
+        break;
+    case SKETCH_BUTTON_SYMBOL_ELLIPSE:
+        solar_os_gfx_line(gfx, left + 2, top, right - 2, top);
+        solar_os_gfx_line(gfx, left + 2, bottom, right - 2, bottom);
+        solar_os_gfx_line(gfx, left, top + 2, left, bottom - 2);
+        solar_os_gfx_line(gfx, right, top + 2, right, bottom - 2);
+        solar_os_gfx_line(gfx, left, top + 2, left + 2, top);
+        solar_os_gfx_line(gfx, right - 2, top, right, top + 2);
+        solar_os_gfx_line(gfx, left, bottom - 2, left + 2, bottom);
+        solar_os_gfx_line(gfx, right - 2, bottom, right, bottom - 2);
+        break;
+    }
+}
+
 static void sketch_render_canvas(solar_os_gfx_t *gfx,
                                  const sketch_layout_t *layout)
 {
@@ -589,10 +696,15 @@ static void sketch_render(solar_os_context_t *ctx)
     const int menu_width = layout.canvas_x - 4;
     const int menu_step = menu_width + 2;
     static const char *const menu_labels[] = {"Save", "Open", "Import"};
+    static const solar_os_gfx_icon_t menu_icons[] = {
+        SOLAR_OS_GFX_ICON_HARD_DRIVE,
+        SOLAR_OS_GFX_ICON_FOLDER,
+        SOLAR_OS_GFX_ICON_DATA_TRANSFER_DOWNLOAD,
+    };
     for (int item = 0; item < 3; item++) {
-        sketch_draw_button(gfx, 2 + item * menu_step, 2,
-                           menu_width, layout.canvas_y - 4,
-                           menu_labels[item], false);
+        sketch_draw_icon_button(gfx, 2 + item * menu_step, 2,
+                                menu_width, layout.canvas_y - 4,
+                                menu_labels[item], menu_icons[item], false);
     }
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -609,18 +721,48 @@ static void sketch_render(solar_os_context_t *ctx)
     snprintf(weight, sizeof(weight), "W:%u", sketch.weight);
     sketch_draw_button(gfx, 2, layout.canvas_y, layout.canvas_x - 4,
                        tool_height, weight, false);
-    static const char *const labels[] = {
-        "Pen", "Line", "Rect", "Oval", "Fill", "Erase",
-    };
     for (int tool = 0; tool < SKETCH_TOOL_COUNT; tool++) {
-        sketch_draw_button(gfx, 2, layout.canvas_y + (tool + 1) * tool_height,
-                           layout.canvas_x - 4, tool_height, labels[tool],
-                           sketch.tool == (sketch_tool_t)tool);
+        const int y = layout.canvas_y + (tool + 1) * tool_height;
+        const bool active = sketch.tool == (sketch_tool_t)tool;
+        switch ((sketch_tool_t)tool) {
+        case SKETCH_TOOL_FREEHAND:
+            sketch_draw_icon_button(gfx, 2, y, layout.canvas_x - 4,
+                                    tool_height, "Pen",
+                                    SOLAR_OS_GFX_ICON_PENCIL, active);
+            break;
+        case SKETCH_TOOL_LINE:
+            sketch_draw_shape_button(gfx, 2, y, layout.canvas_x - 4,
+                                     tool_height, "Line",
+                                     SKETCH_BUTTON_SYMBOL_LINE, active);
+            break;
+        case SKETCH_TOOL_RECTANGLE:
+            sketch_draw_shape_button(gfx, 2, y, layout.canvas_x - 4,
+                                     tool_height, "Rect",
+                                     SKETCH_BUTTON_SYMBOL_RECTANGLE, active);
+            break;
+        case SKETCH_TOOL_ELLIPSE:
+            sketch_draw_shape_button(gfx, 2, y, layout.canvas_x - 4,
+                                     tool_height, "Oval",
+                                     SKETCH_BUTTON_SYMBOL_ELLIPSE, active);
+            break;
+        case SKETCH_TOOL_FILL:
+            sketch_draw_icon_button(gfx, 2, y, layout.canvas_x - 4,
+                                    tool_height, "Fill",
+                                    SOLAR_OS_GFX_ICON_DROPLET, active);
+            break;
+        case SKETCH_TOOL_ERASER:
+            sketch_draw_icon_button(gfx, 2, y, layout.canvas_x - 4,
+                                    tool_height, "Erase",
+                                    SOLAR_OS_GFX_ICON_DELETE, active);
+            break;
+        case SKETCH_TOOL_COUNT:
+            break;
+        }
     }
-    sketch_draw_button(gfx, 2, layout.canvas_y + 7 * tool_height,
-                       layout.canvas_x - 4,
-                       layout.canvas_height - 7 * tool_height,
-                       "Clear", false);
+    sketch_draw_icon_button(gfx, 2, layout.canvas_y + 7 * tool_height,
+                            layout.canvas_x - 4,
+                            layout.canvas_height - 7 * tool_height,
+                            "Clear", SOLAR_OS_GFX_ICON_TRASH, false);
 
     const int swatch_y = layout.canvas_y + layout.canvas_height + 3;
     const int swatch = (layout.screen_width - 8) / 8;
