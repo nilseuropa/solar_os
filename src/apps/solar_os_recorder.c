@@ -565,7 +565,6 @@ static void recorder_progress_callback(
     portENTER_CRITICAL(&recorder_lock);
     recorder.elapsed_ms = progress->info.duration_ms;
     recorder.data_bytes = progress->info.data_bytes;
-    recorder.redraw = true;
     portEXIT_CRITICAL(&recorder_lock);
 }
 
@@ -1268,8 +1267,8 @@ static void recorder_draw_header(solar_os_gfx_t *gfx, int width)
         width - (int)solar_os_gfx_text_width(gfx, text) - 7, 18, text);
 }
 
-static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
-                                            int width, int height)
+static void recorder_draw_visualizer(solar_os_gfx_t *gfx,
+                                     int width, int height)
 {
     const int media_top = height * 2 / 3;
     const int visual_y = RECORDER_HEADER_HEIGHT + 4;
@@ -1292,6 +1291,33 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx, 13, visual_y + 15, labels[recorder.visualizer]);
+}
+
+static void recorder_draw_progress(solar_os_gfx_t *gfx,
+                                   int width, int height,
+                                   bool clear_background)
+{
+    const int media_top = height * 2 / 3;
+    if (clear_background) {
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_fill_rect(gfx, 1, media_top + 23, width - 2, 17);
+    }
+    char elapsed[16], status[96];
+    recorder_format_time(recorder.elapsed_ms, elapsed, sizeof(elapsed));
+    snprintf(status, sizeof(status), "%s  %s  %" PRIu32 " Hz  %s  %u bit",
+             recorder_state_name(), elapsed, recorder.sample_rate,
+             recorder.channels == 1U ? "mono" : "stereo",
+             (unsigned)recorder.bits_per_sample);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+    recorder_draw_centered(gfx, width, media_top + 37, status);
+}
+
+static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
+                                            int width, int height)
+{
+    const int media_top = height * 2 / 3;
+    recorder_draw_visualizer(gfx, width, height);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_line(gfx, 0, media_top, width - 1, media_top);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
@@ -1299,14 +1325,7 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
         recorder.active_path[0] != '\0' ?
             recorder_basename(recorder.active_path) :
             (recorder.filename[0] != '\0' ? recorder.filename : "Automatic name"));
-    char elapsed[16], status[96];
-    recorder_format_time(recorder.elapsed_ms, elapsed, sizeof(elapsed));
-    snprintf(status, sizeof(status), "%s  %s  %" PRIu32 " Hz  %s  %u bit",
-             recorder_state_name(), elapsed, recorder.sample_rate,
-             recorder.channels == 1U ? "mono" : "stereo",
-             (unsigned)recorder.bits_per_sample);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    recorder_draw_centered(gfx, width, media_top + 37, status);
+    recorder_draw_progress(gfx, width, height, false);
     const int volume_width = width / 2;
     const int volume_x = (width - volume_width) / 2;
     const int volume_y = media_top + 43;
@@ -1458,6 +1477,23 @@ static void recorder_render(solar_os_context_t *ctx)
     }
     solar_os_gfx_present(gfx);
     recorder.redraw = false;
+}
+
+static void recorder_render_dynamic(solar_os_context_t *ctx)
+{
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL || recorder.suspended ||
+        recorder.mode != RECORDER_MODE_GRAPHICS ||
+        recorder.tab != RECORDER_TAB_RECORD ||
+        recorder.browser_mode != RECORDER_BROWSER_NONE ||
+        recorder.editing_filename) {
+        return;
+    }
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    recorder_draw_visualizer(gfx, width, height);
+    recorder_draw_progress(gfx, width, height, true);
+    solar_os_gfx_present(gfx);
 }
 
 static bool recorder_handle_browser_key(uint8_t key)
@@ -1777,14 +1813,21 @@ static bool recorder_event(solar_os_context_t *ctx,
             recorder.operation_state == RECORDER_RECORDING ||
                 recorder.operation_state == RECORDER_PLAYING,
             recorder.elapsed_ms, 0U, event->data.tick_ms);
-        if (!recorder.suspended && (recorder.redraw ||
-            (recorder.task != NULL && !recorder.paused &&
-             recorder.mode == RECORDER_MODE_GRAPHICS &&
-             recorder.tab == RECORDER_TAB_RECORD &&
-             event->data.tick_ms - recorder.last_visualizer_ms >=
-                RECORDER_VISUAL_REFRESH_MS))) {
-            recorder.last_visualizer_ms = event->data.tick_ms;
+        const bool refresh_due = recorder.task != NULL && !recorder.paused &&
+            event->data.tick_ms - recorder.last_visualizer_ms >=
+                RECORDER_VISUAL_REFRESH_MS;
+        if (!recorder.suspended && recorder.redraw) {
             recorder_render(ctx);
+        } else if (!recorder.suspended && refresh_due) {
+            recorder.last_visualizer_ms = event->data.tick_ms;
+            if (recorder.mode == RECORDER_MODE_GRAPHICS &&
+                recorder.tab == RECORDER_TAB_RECORD &&
+                recorder.browser_mode == RECORDER_BROWSER_NONE &&
+                !recorder.editing_filename) {
+                recorder_render_dynamic(ctx);
+            } else if (recorder.mode == RECORDER_MODE_TUI) {
+                recorder_render(ctx);
+            }
         }
         return true;
     }

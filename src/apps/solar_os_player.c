@@ -205,7 +205,6 @@ static void player_progress_callback(
             player.elapsed_ms = progress->info.duration_ms;
         }
     }
-    player.redraw = true;
 }
 
 static void player_samples_callback(const int16_t *samples,
@@ -233,7 +232,6 @@ static void player_samples_callback(const int16_t *samples,
                                        player.sample_rate);
     }
     player.playback_state = player.paused ? PLAYER_PAUSED : PLAYER_PLAYING;
-    player.redraw = true;
     portEXIT_CRITICAL(&player_lock);
 }
 
@@ -524,7 +522,7 @@ static void player_draw_header(solar_os_gfx_t *gfx, int width)
                       18, tabs);
 }
 
-static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
+static void player_draw_visualizer(solar_os_gfx_t *gfx, int width, int height)
 {
     const int media_top = height * 2 / 3;
     const int visual_y = PLAYER_HEADER_HEIGHT + 4;
@@ -545,12 +543,16 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_text(gfx, 13, visual_y + 15, labels[player.visualizer]);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_line(gfx, 0, media_top, width - 1, media_top);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    player_draw_centered(gfx, width, media_top + 20,
-                         player.active_path[0] != '\0' ?
-                            player_basename(player.active_path) : "No track selected");
+}
+
+static void player_draw_progress(solar_os_gfx_t *gfx, int width, int height,
+                                 bool clear_background)
+{
+    const int media_top = height * 2 / 3;
+    if (clear_background) {
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_fill_rect(gfx, 1, media_top + 23, width - 2, 17);
+    }
     char elapsed[12], total[12], status[40];
     player_format_time(player.elapsed_ms, true, elapsed, sizeof(elapsed));
     player_format_time(player.total_ms, player.total_ms != 0U, total, sizeof(total));
@@ -559,8 +561,22 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     } else {
         snprintf(status, sizeof(status), "%s %s / %s", player_state_symbol(), elapsed, total);
     }
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
     player_draw_centered(gfx, width, media_top + 37, status);
+}
+
+static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
+{
+    const int media_top = height * 2 / 3;
+    player_draw_visualizer(gfx, width, height);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_line(gfx, 0, media_top, width - 1, media_top);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
+    player_draw_centered(gfx, width, media_top + 20,
+                         player.active_path[0] != '\0' ?
+                            player_basename(player.active_path) : "No track selected");
+    player_draw_progress(gfx, width, height, false);
     const int volume_width = width / 2;
     const int volume_x = (width - volume_width) / 2;
     const int volume_y = media_top + 43;
@@ -653,6 +669,21 @@ static void player_render(solar_os_context_t *ctx)
     }
     solar_os_gfx_present(gfx);
     player.redraw = false;
+}
+
+static void player_render_dynamic(solar_os_context_t *ctx)
+{
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL || player.suspended ||
+        player.mode != PLAYER_MODE_GRAPHICS ||
+        player.tab != PLAYER_TAB_PLAY || player.browsing) {
+        return;
+    }
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    player_draw_visualizer(gfx, width, height);
+    player_draw_progress(gfx, width, height, true);
+    solar_os_gfx_present(gfx);
 }
 
 static void player_begin_browser(void)
@@ -883,11 +914,18 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         const bool playing = player.task != NULL && !player.paused;
         solar_os_cassette_widget_update(player.cassette, playing,
             player.elapsed_ms, player.total_ms, event->data.tick_ms);
-        if (!player.suspended && (player.redraw ||
-            (player.mode == PLAYER_MODE_GRAPHICS && player.tab == PLAYER_TAB_PLAY &&
-             event->data.tick_ms - player.last_visualizer_ms >= PLAYER_REFRESH_MS))) {
-            player.last_visualizer_ms = event->data.tick_ms;
+        const bool refresh_due = playing &&
+            event->data.tick_ms - player.last_visualizer_ms >= PLAYER_REFRESH_MS;
+        if (!player.suspended && player.redraw) {
             player_render(ctx);
+        } else if (!player.suspended && refresh_due) {
+            player.last_visualizer_ms = event->data.tick_ms;
+            if (player.mode == PLAYER_MODE_GRAPHICS &&
+                player.tab == PLAYER_TAB_PLAY && !player.browsing) {
+                player_render_dynamic(ctx);
+            } else if (player.mode == PLAYER_MODE_TUI) {
+                player_render(ctx);
+            }
         }
         return true;
     }

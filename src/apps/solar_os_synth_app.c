@@ -2462,6 +2462,74 @@ static void synth_remember_rendered_status(
   synth_app.last_status_poll_ms = synth_now_ms();
 }
 
+static void synth_format_wave_status(
+    const solar_os_synth_voice_status_t *status, char *wave_status,
+    size_t wave_status_size) {
+  const char *wave_name = synth_wave_short_name(synth_app.config.waveform);
+  if (status->pcm_generation > 0U &&
+      status->pcm_waveform == synth_app.config.waveform) {
+    snprintf(wave_status, wave_status_size, "%s %04lx", wave_name,
+             (unsigned long)(status->pcm_hash & 0xffffU));
+  } else {
+    snprintf(wave_status, wave_status_size, "%s", wave_name);
+  }
+}
+
+static void synth_render_scope(solar_os_context_t *ctx, uint32_t now_ms) {
+  solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+  if (!synth_scope_visible(ctx) || gfx == NULL) {
+    return;
+  }
+
+  const int width = (int)solar_os_gfx_width(gfx);
+  const int height = (int)solar_os_gfx_height(gfx);
+  const bool compact = synth_use_compact_layout(width, height);
+  if (compact &&
+      (uint32_t)(now_ms - synth_app.last_performance_ms) <
+          SYNTH_APP_COMPACT_VISUAL_QUIET_MS) {
+    synth_app.visual_dirty = true;
+    return;
+  }
+
+  solar_os_synth_voice_status_t status;
+  solar_os_synth_voice_get_status(&status);
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+  if (compact) {
+    const bool micro = synth_use_micro_layout(width, height);
+    const int graph_y = micro ? 25 : 27;
+    const int graph_height = height - graph_y - (micro ? 3 : 15);
+    solar_os_gfx_fill_rect(gfx, 4, graph_y, width - 8, graph_height);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    synth_draw_wave_icon(gfx, 4, graph_y, width - 8, graph_height,
+                         synth_app.config.waveform, &status);
+  } else {
+    const int graphs_top = 35;
+    const int graphs_height = 70 + synth_visualizer_extra_height();
+    const int wave_width = width / 4;
+    const int wave_x = 6;
+    const int wave_panel_width = wave_width - 10;
+    const int graph_x = wave_x + 10;
+    const int graph_y = graphs_top + 25;
+    const int graph_width = wave_panel_width - 20;
+    const int graph_height = graphs_height - 43;
+    solar_os_gfx_fill_rect(gfx, graph_x, graph_y, graph_width, graph_height);
+    solar_os_gfx_fill_rect(gfx, wave_x + 5,
+                           graphs_top + graphs_height - 17,
+                           wave_panel_width - 10, 14);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    synth_draw_wave_icon(gfx, graph_x, graph_y, graph_width, graph_height,
+                         synth_app.config.waveform, &status);
+    char wave_status[24];
+    synth_format_wave_status(&status, wave_status, sizeof(wave_status));
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+    solar_os_gfx_text(gfx, wave_x + 8, graphs_top + graphs_height - 7,
+                      wave_status);
+  }
+  solar_os_gfx_present(gfx);
+  synth_app.last_pcm_generation = status.pcm_generation;
+  synth_app.last_status_poll_ms = now_ms;
+}
+
 static void synth_render(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
   if (synth_app.headless || gfx == NULL || synth_app.suspended) {
@@ -2538,14 +2606,7 @@ static void synth_render(solar_os_context_t *ctx) {
                        graphs_height - 43, synth_app.config.waveform, &status);
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   char wave_status[24];
-  const char *wave_name = synth_wave_short_name(synth_app.config.waveform);
-  if (status.pcm_generation > 0U &&
-      status.pcm_waveform == synth_app.config.waveform) {
-    snprintf(wave_status, sizeof(wave_status), "%s %04lx", wave_name,
-             (unsigned long)(status.pcm_hash & 0xffffU));
-  } else {
-    snprintf(wave_status, sizeof(wave_status), "%s", wave_name);
-  }
+  synth_format_wave_status(&status, wave_status, sizeof(wave_status));
   solar_os_gfx_text(gfx, wave_x + 8, graphs_top + graphs_height - 7,
                     wave_status);
 
@@ -3723,6 +3784,7 @@ static bool synth_event(solar_os_context_t *ctx,
 
   if (event->type == SOLAR_OS_EVENT_TICK) {
     bool changed = synth_app.parameter_dirty;
+    bool scope_refresh = false;
     bool performance_activity = false;
     synth_app.parameter_dirty = false;
     if (synth_app.midi_subscribed) {
@@ -3750,14 +3812,18 @@ static bool synth_event(solar_os_context_t *ctx,
       synth_app.last_status_poll_ms = event->data.tick_ms;
       if (status.active_voices != synth_app.last_active_voices ||
           status.render_deadline_misses != synth_app.last_deadline_misses ||
-          (synth_scope_visible(ctx) &&
-           status.pcm_generation != synth_app.last_pcm_generation) ||
           status.running != synth_app.last_running) {
         changed = true;
       }
+      scope_refresh = synth_scope_visible(ctx) &&
+          status.pcm_generation != synth_app.last_pcm_generation;
     }
-    synth_render_changed(ctx, changed, performance_activity,
-                         event->data.tick_ms);
+    if (!changed && !synth_app.visual_dirty && scope_refresh) {
+      synth_render_scope(ctx, event->data.tick_ms);
+    } else {
+      synth_render_changed(ctx, changed, performance_activity,
+                           event->data.tick_ms);
+    }
     return true;
   }
 
