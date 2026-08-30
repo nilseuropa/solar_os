@@ -27,6 +27,7 @@ typedef struct {
     solar_os_frame_fit_t fit;
     bool allow_mono_fallback;
     bool request_high_refresh;
+    bool reverse_direct_palette;
 } solar_os_frame_presenter_config_t;
 
 typedef struct {

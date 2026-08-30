@@ -166,7 +166,8 @@ static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
         .height = presenter->output_height,
         .format = presenter->config.format,
         .palette_inverted =
-            solar_os_gfx_palette_inverted(presenter->config.gfx),
+            solar_os_gfx_palette_inverted(presenter->config.gfx) !=
+            presenter->config.reverse_direct_palette,
     };
     if (presenter->mono_fallback) {
         frame_convert_to_mono(presenter);

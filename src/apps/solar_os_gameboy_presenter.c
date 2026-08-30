@@ -43,6 +43,7 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
         .fit = SOLAR_OS_FRAME_FIT_HEIGHT,
         .allow_mono_fallback = true,
         .request_high_refresh = true,
+        .reverse_direct_palette = true,
     };
     return solar_os_frame_presenter_init(&presenter, &config);
 }
