@@ -726,6 +726,11 @@ solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
         SOLAR_OS_DISPLAY_FORMAT_MONO1;
 }
 
+bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx)
+{
+    return gfx != NULL && gfx->palette_inverted;
+}
+
 solar_os_gfx_color_t solar_os_gfx_gray(uint8_t level)
 {
     if (level > SOLAR_OS_GFX_GRAY_MAX) {
@@ -1272,6 +1277,20 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
         (uint16_t)height,
         (uint16_t)stride,
         gfx->palette_inverted);
+    if (ret == ESP_OK) {
+        gfx->dirty = false;
+    }
+    return ret;
+}
+
+esp_err_t solar_os_gfx_present_frame(
+    solar_os_gfx_t *gfx,
+    const solar_os_display_raster_t *frame)
+{
+    if (!gfx_ready(gfx)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t ret = solar_os_display_present_frame(gfx->u8g2, frame);
     if (ret == ESP_OK) {
         gfx->dirty = false;
     }

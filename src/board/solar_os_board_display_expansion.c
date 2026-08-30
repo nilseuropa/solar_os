@@ -108,6 +108,24 @@ uint32_t solar_os_board_display_surface_formats(
     return display != NULL ? display->surface_formats : 0U;
 }
 
+uint32_t solar_os_board_display_frame_formats(
+    const solar_os_board_display_t *display)
+{
+    return display != NULL ? display->frame_formats : 0U;
+}
+
+uint16_t solar_os_board_display_preferred_stream_fps(
+    const solar_os_board_display_t *display)
+{
+    return display != NULL ? display->preferred_stream_fps : 0U;
+}
+
+uint32_t solar_os_board_display_max_stream_pixels_per_second(
+    const solar_os_board_display_t *display)
+{
+    return display != NULL ? display->max_stream_pixels_per_second : 0U;
+}
+
 bool solar_os_board_display_brightness_supported(const solar_os_board_display_t *display)
 {
     return display != NULL && display->ops != NULL &&
@@ -201,4 +219,13 @@ esp_err_t solar_os_board_display_present_surface(
     return display != NULL && display->ops != NULL &&
         display->ops->present_surface != NULL ?
         display->ops->present_surface(display, surface) : ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t solar_os_board_display_present_frame(
+    solar_os_board_display_t *display,
+    const solar_os_display_raster_t *frame)
+{
+    return display != NULL && display->ops != NULL &&
+        display->ops->present_frame != NULL ?
+        display->ops->present_frame(display, frame) : ESP_ERR_NOT_SUPPORTED;
 }

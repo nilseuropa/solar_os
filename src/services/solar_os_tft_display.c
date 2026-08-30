@@ -145,6 +145,21 @@ static esp_err_t present_auxiliary_surface(
     return tft_ili9341_present_surface((tft_ili9341_t *)context, surface);
 }
 
+static esp_err_t present_frame(solar_os_board_display_t *display,
+                               const solar_os_display_raster_t *frame)
+{
+    return display != NULL ?
+        tft_ili9341_present_frame(display->driver, frame) :
+        ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t present_auxiliary_frame(
+    void *context,
+    const solar_os_display_raster_t *frame)
+{
+    return tft_ili9341_present_frame((tft_ili9341_t *)context, frame);
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
@@ -154,6 +169,7 @@ static const solar_os_board_display_ops_t display_ops = {
     .set_brightness = set_brightness,
     .set_colors = set_colors,
     .present_surface = present_surface,
+    .present_frame = present_frame,
 };
 
 static esp_err_t register_auxiliary(tft_device_t *attached)
@@ -169,9 +185,15 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
     target.ready = true;
     target.brightness_supported = brightness_supported(&attached->display);
     target.surface_formats = attached->display.surface_formats;
+    target.frame_formats = attached->display.frame_formats;
+    target.preferred_stream_fps = attached->display.preferred_stream_fps;
+    target.max_stream_pixels_per_second =
+        attached->display.max_stream_pixels_per_second;
     target.u8g2 = attached->display.u8g2;
     target.surface_context = &attached->driver;
     target.present_surface = present_auxiliary_surface;
+    target.frame_context = &attached->driver;
+    target.present_frame = present_auxiliary_frame;
     return solar_os_display_register_target(&target);
 }
 
@@ -238,6 +260,9 @@ static esp_err_t attach_tft(const char *name,
         .width = st7796 ? 480 : 320,
         .height = st7796 ? 320 : 240,
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
+        .frame_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT,
+        .preferred_stream_fps = st7796 ? 25 : 30,
+        .max_stream_pixels_per_second = 1600000U,
         .ready = true,
     };
     device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;

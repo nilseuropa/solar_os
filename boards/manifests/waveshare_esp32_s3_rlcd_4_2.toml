@@ -31,7 +31,7 @@ capabilities = [
   "spi", "rtc", "battery", "audio", "audio_input", "wifi", "ble",
   "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
-  "expansion_i2s", "key", "temperature", "humidity",
+  "expansion_i2s", "key", "temperature", "humidity", "streaming_display",
 ]
 required_packages = []
 psram_bytes = 8388608

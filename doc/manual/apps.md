@@ -862,33 +862,32 @@ Controls:
 
 ## gameboy
 
-Experimental original Game Boy (DMG) emulator for the Waveshare
-ESP32-S3-RLCD-4.2 and the full-PAL Freenove ESP32-WROVER v3.0 target. It is
-included in the `retro` and `rover-retro` flavors. The application loads a
-user-supplied ROM into PSRAM, renders its four shades as a 320x288 dithered
-image, and writes battery-backed cartridge RAM beside the ROM as a `.sav`
-file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
+Original Game Boy (DMG) emulator included in the `games` group on boards with
+PSRAM, SD storage, graphics, and a streaming display. Current integrated
+targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO
+VGA32. The application loads a user-supplied ROM into PSRAM and writes
+battery-backed cartridge RAM beside it as a `.sav` file. Game Boy Color-only
+ROMs and ROMs larger than 4 MiB are rejected.
 
-The emulator runs the core independently from the relatively expensive RLCD
-update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
-internal RAM when the SolarOS reserve permits, skips alternate core-rendered
-frames by default, and presents the newest frame once per three emulated
-frames. On the Waveshare display, a dedicated monochrome presentation path
-rotates and streams the frame in one controller write sequence. On Rover, a
-direct byte-aligned conversion copies XBM rows into the inactive PAL scanout
-buffer and swaps it at a field boundary; the 320x288 image is centered in the
-384x288 canvas and reaches the top and bottom edges. Runtime logs report
-emulation and presentation rates separately.
+The emulator runs Peanut-GB at its fixed native frame frequency in a dedicated
+worker. Peanut-GB renders alternate LCD frames, producing a compact 160x144
+INDEX2 raster at about 30 frames per second while still emulating every frame.
+A shared frame presenter owns display cadence, retains the newest submitted
+frame, and replaces stale pending frames instead of blocking emulation. TFT
+targets scale the four-color raster directly to RGB565. One-bit targets convert
+the latest frame through ordered dithering, then use their scan-synchronized
+mono path. The target selects a bounded presentation rate of 25 or 30 frames
+per second and reduces output scale when the driver's pixel-rate budget cannot
+sustain the larger raster. Runtime logs report emulation, presentation,
+replacement, timing rebase, audio block, peak level, and transfer timing.
 
-Audio rendering runs in its own bounded worker and holds exclusive speaker
-output while Game Boy is active. RLCD presentation runs independently at about
-20 Hz, temporarily requests the panel's 25.5 Hz HPM profile, and drops stale
-frames instead of blocking emulation. Pausing, suspending, or exiting the app
-stops the synth and restores the previous display and audio policies.
-These audio and HPM behaviors apply to the Waveshare `retro` build. The Rover
-build deliberately compiles Game Boy without sound because PAL scanout owns
-I2S0. Its 320x200 composite safe-area mode is too short for the 320x288 Game
-Boy canvas and is not supported by `rover-retro`.
+Audio rendering runs in its own bounded worker, applies a Game Boy-local
+bounded gain for low-resolution DAC outputs, and holds exclusive speaker output
+while Game Boy is active. The Waveshare presenter temporarily requests
+the panel's 25.5 Hz HPM profile. Pausing, suspending, or exiting stops the
+workers and restores the previous display and audio policies. PAL builds run
+without audio because composite scanout owns I2S0; both the 384x288 raster and
+the centered 320x200 safe-area mode can fit the scaled Game Boy frame.
 
 Usage:
 
@@ -902,6 +901,8 @@ Controls:
 - The physical US-Z key position is A; on a German QWERTZ keyboard this key is
   labeled `Y`. The physical X key is B.
 - `Enter` is Start; `Backspace` or `Delete` is Select.
+- On ODROID-GO, A and B are the Game Boy A and B buttons, Menu is Start,
+  Select is Select, and Menu+Select exits.
 - `p` pauses and `r` resets.
 - `q`, `Esc`, or the app-exit key exits.
 

@@ -36,6 +36,7 @@ typedef struct {
     uint8_t *buffer;
     uint8_t *shadow;
     uint8_t *line_buffer;
+    uint8_t *line_buffer_alt;
     size_t buffer_size;
     size_t shadow_size;
     size_t line_buffer_size;
@@ -68,6 +69,9 @@ esp_err_t tft_ili9341_set_colors(tft_ili9341_t *display,
 esp_err_t tft_ili9341_present_surface(
     tft_ili9341_t *display,
     const solar_os_display_surface_t *surface);
+esp_err_t tft_ili9341_present_frame(
+    tft_ili9341_t *display,
+    const solar_os_display_raster_t *frame);
 
 #ifdef __cplusplus
 }

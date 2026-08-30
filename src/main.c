@@ -410,7 +410,7 @@ static void resume_display_after_sleep(uint32_t now_ms)
     if (solar_os_context_graphics_active(&os_ctx)) {
         dispatch_app_resume(now_ms);
     } else if (terminal != NULL) {
-        terminal->dirty = true;
+        solar_os_terminal_invalidate_render(terminal);
         draw_terminal_if_needed();
     }
 #endif
@@ -483,7 +483,7 @@ static void exit_suspend(const char *reason)
     if (solar_os_context_graphics_active(&os_ctx)) {
         dispatch_app_resume(now_ms);
     } else if (terminal != NULL) {
-        terminal->dirty = true;
+        solar_os_terminal_invalidate_render(terminal);
         draw_terminal_if_needed();
     }
     SOLAR_OS_LOGI(TAG, "%s: resumed; profile=%s",

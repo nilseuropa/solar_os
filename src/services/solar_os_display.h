@@ -17,6 +17,9 @@ typedef esp_err_t (*solar_os_display_mode_setter_t)(void *context, const char *m
 typedef esp_err_t (*solar_os_display_surface_presenter_t)(
     void *context,
     const solar_os_display_surface_t *surface);
+typedef esp_err_t (*solar_os_display_frame_presenter_t)(
+    void *context,
+    const solar_os_display_raster_t *frame);
 
 #define SOLAR_OS_DISPLAY_TARGET_MAX 6
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
@@ -40,6 +43,9 @@ typedef struct {
     bool brightness_supported;
     bool black_is_one;
     uint32_t surface_formats;
+    uint32_t frame_formats;
+    uint16_t preferred_stream_fps;
+    uint32_t max_stream_pixels_per_second;
     u8g2_t *u8g2;
     const u8g2_cb_t *base_rotation;
     void *controller_context;
@@ -48,6 +54,8 @@ typedef struct {
     solar_os_display_mode_setter_t set_controller_mode;
     void *surface_context;
     solar_os_display_surface_presenter_t present_surface;
+    void *frame_context;
+    solar_os_display_frame_presenter_t present_frame;
 } solar_os_display_target_t;
 
 typedef enum {
@@ -121,6 +129,9 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
 esp_err_t solar_os_display_present_surface(
     u8g2_t *u8g2,
     const solar_os_display_surface_t *surface);
+esp_err_t solar_os_display_present_frame(
+    u8g2_t *u8g2,
+    const solar_os_display_raster_t *frame);
 esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
                                             const uint8_t *bitmap,
                                             size_t bitmap_size,

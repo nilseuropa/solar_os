@@ -218,6 +218,18 @@ void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active)
     ctx->graphics_active = active;
 }
 
+void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx,
+                                                    bool active)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    if (ctx->gfx != NULL) {
+        solar_os_gfx_release_surface(ctx->gfx);
+    }
+    ctx->graphics_active = active;
+}
+
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx)
 {
     return ctx != NULL && ctx->graphics_active;

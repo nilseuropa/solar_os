@@ -1,6 +1,6 @@
 [flavor]
-name = "rover-retro"
-description = "SolarOS Rover Game Boy terminal."
+name = "rover-gameboy"
+description = "Focused SolarOS Rover Game Boy terminal."
 
 [packages]
 system = true
@@ -12,16 +12,14 @@ audio = false
 net = false
 agent = false
 media = false
-games = false
-retro = true
+games = true
 python = false
 lua = false
 writing = false
 utils = false
 
-# Use the normal Rover system-service baseline. Keep audio off because PAL
-# scanout owns I2S0, but include the focused Wi-Fi and SSH/SCP client stack.
-# Avoid the rest of the network group so Game Boy retains CPU and SRAM margin.
+# PAL scanout owns I2S0, so Game Boy audio remains off. Keep the focused Wi-Fi
+# and SSH/SCP client stack while leaving Invaders out of this single-game image.
 service_wifi = true
 service_audio_board = false
 service_synth = false
@@ -34,6 +32,7 @@ app_files = true
 app_io = true
 app_ssh = true
 app_scp = true
+app_invaders = false
 job_log = true
 job_bridge = true
 job_gpio_keys = true

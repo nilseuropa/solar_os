@@ -69,6 +69,7 @@ typedef struct {
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx);
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx);
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx);
+bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx);
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx,
                                       char *name,
                                       size_t name_len);
@@ -121,6 +122,9 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
                                         int width,
                                         int height,
                                         size_t stride);
+esp_err_t solar_os_gfx_present_frame(
+    solar_os_gfx_t *gfx,
+    const solar_os_display_raster_t *frame);
 bool solar_os_gfx_needs_present(const solar_os_gfx_t *gfx);
 void solar_os_gfx_present(solar_os_gfx_t *gfx);
 

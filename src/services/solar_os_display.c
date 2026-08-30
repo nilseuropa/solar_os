@@ -165,6 +165,14 @@ static esp_err_t display_board_present_surface(
         (solar_os_board_display_t *)context, surface);
 }
 
+static esp_err_t display_board_present_frame(
+    void *context,
+    const solar_os_display_raster_t *frame)
+{
+    return solar_os_board_display_present_frame(
+        (solar_os_board_display_t *)context, frame);
+}
+
 static esp_err_t display_save_brightness(uint8_t percent)
 {
     nvs_handle_t nvs;
@@ -351,10 +359,19 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
     target.ready = solar_os_board_display_ready(display);
     target.brightness_supported = solar_os_board_display_brightness_supported(display);
     target.surface_formats = solar_os_board_display_surface_formats(display);
+    target.frame_formats = solar_os_board_display_frame_formats(display);
+    target.preferred_stream_fps =
+        solar_os_board_display_preferred_stream_fps(display);
+    target.max_stream_pixels_per_second =
+        solar_os_board_display_max_stream_pixels_per_second(display);
     target.u8g2 = solar_os_board_display_u8g2(display);
     if (target.surface_formats != 0U) {
         target.surface_context = display;
         target.present_surface = display_board_present_surface;
+    }
+    if (target.frame_formats != 0U) {
+        target.frame_context = display;
+        target.present_frame = display_board_present_frame;
     }
 
     const esp_err_t err = solar_os_display_register_target(&target);
@@ -410,6 +427,9 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     const bool has_any_surface_callback = target != NULL &&
         (target->surface_formats != 0U || target->surface_context != NULL ||
          target->present_surface != NULL);
+    const bool has_any_frame_callback = target != NULL &&
+        (target->frame_formats != 0U || target->frame_context != NULL ||
+         target->present_frame != NULL);
     if (target == NULL ||
         !display_target_name_valid(target->name, sizeof(target->name)) ||
         !display_target_name_valid(target->source, sizeof(target->source)) ||
@@ -421,6 +441,9 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
         (has_any_surface_callback &&
          (target->surface_formats == 0U || target->surface_context == NULL ||
           target->present_surface == NULL)) ||
+        (has_any_frame_callback &&
+         (target->frame_formats == 0U || target->frame_context == NULL ||
+          target->present_frame == NULL || target->preferred_stream_fps == 0U)) ||
         (has_any_mode_callback &&
          (target->controller_context == NULL ||
           target->controller_mode == NULL ||
@@ -1233,6 +1256,85 @@ esp_err_t solar_os_display_present_surface(
     portENTER_CRITICAL(&display_targets_lock);
     slot = &display_targets[slot_index];
     if (slot->generation == generation && slot->refs > 0) {
+        slot->refs--;
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return ret;
+}
+
+esp_err_t solar_os_display_present_frame(
+    u8g2_t *u8g2,
+    const solar_os_display_raster_t *frame)
+{
+    if (u8g2 == NULL || frame == NULL || frame->data == NULL ||
+        frame->source_width == 0U || frame->source_height == 0U ||
+        frame->source_stride == 0U || frame->width == 0U ||
+        frame->height == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    size_t minimum_stride = 0U;
+    switch (frame->format) {
+    case SOLAR_OS_DISPLAY_FORMAT_MONO1:
+        minimum_stride = ((size_t)frame->source_width + 7U) / 8U;
+        break;
+    case SOLAR_OS_DISPLAY_FORMAT_INDEX2:
+        minimum_stride = ((size_t)frame->source_width + 3U) / 4U;
+        if (frame->palette_rgb565 == NULL || frame->palette_size < 4U) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        break;
+    case SOLAR_OS_DISPLAY_FORMAT_INDEX8:
+        minimum_stride = frame->source_width;
+        if (frame->palette_rgb565 == NULL || frame->palette_size < 256U) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        break;
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (frame->source_stride < minimum_stride ||
+        frame->source_height > SIZE_MAX / frame->source_stride ||
+        frame->data_size < (size_t)frame->source_height * frame->source_stride) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    size_t slot_index = 0U;
+    uint32_t generation = 0U;
+    void *frame_context = NULL;
+    solar_os_display_frame_presenter_t presenter = NULL;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int found_index = display_find_slot_by_u8g2_locked(u8g2);
+    if (found_index < 0) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+    slot_index = (size_t)found_index;
+    display_target_slot_t *slot = &display_targets[slot_index];
+    if ((slot->target.frame_formats &
+         SOLAR_OS_DISPLAY_FORMAT_BIT(frame->format)) == 0U ||
+        slot->target.present_frame == NULL || slot->target.frame_context == NULL ||
+        (uint32_t)frame->x + frame->width > u8g2_GetDisplayWidth(u8g2) ||
+        (uint32_t)frame->y + frame->height > u8g2_GetDisplayHeight(u8g2)) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#if SOLAR_OS_BOARD_HAS_DISPLAY
+    if (display_primary_suspended && slot->board_display == display_handle) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+    generation = slot->generation;
+    frame_context = slot->target.frame_context;
+    presenter = slot->target.present_frame;
+    slot->refs++;
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    const esp_err_t ret = presenter(frame_context, frame);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot = &display_targets[slot_index];
+    if (slot->generation == generation && slot->refs > 0U) {
         slot->refs--;
     }
     portEXIT_CRITICAL(&display_targets_lock);

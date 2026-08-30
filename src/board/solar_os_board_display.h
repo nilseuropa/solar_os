@@ -17,6 +17,9 @@ typedef struct solar_os_board_display {
     uint16_t width;
     uint16_t height;
     uint32_t surface_formats;
+    uint32_t frame_formats;
+    uint16_t preferred_stream_fps;
+    uint32_t max_stream_pixels_per_second;
     bool ready;
 } solar_os_board_display_t;
 
@@ -50,6 +53,8 @@ typedef struct solar_os_board_display_ops {
                                   bool palette_inverted);
     esp_err_t (*present_surface)(solar_os_board_display_t *display,
                                  const solar_os_display_surface_t *surface);
+    esp_err_t (*present_frame)(solar_os_board_display_t *display,
+                               const solar_os_display_raster_t *frame);
 } solar_os_board_display_ops_t;
 
 esp_err_t solar_os_board_display_register_primary(solar_os_board_display_t *display);
@@ -66,6 +71,12 @@ uint16_t solar_os_board_display_width(const solar_os_board_display_t *display);
 uint16_t solar_os_board_display_height(const solar_os_board_display_t *display);
 bool solar_os_board_display_ready(const solar_os_board_display_t *display);
 uint32_t solar_os_board_display_surface_formats(
+    const solar_os_board_display_t *display);
+uint32_t solar_os_board_display_frame_formats(
+    const solar_os_board_display_t *display);
+uint16_t solar_os_board_display_preferred_stream_fps(
+    const solar_os_board_display_t *display);
+uint32_t solar_os_board_display_max_stream_pixels_per_second(
     const solar_os_board_display_t *display);
 bool solar_os_board_display_brightness_supported(const solar_os_board_display_t *display);
 esp_err_t solar_os_board_display_get_brightness(const solar_os_board_display_t *display,
@@ -95,3 +106,6 @@ esp_err_t solar_os_board_display_present_mono_xbm(solar_os_board_display_t *disp
 esp_err_t solar_os_board_display_present_surface(
     solar_os_board_display_t *display,
     const solar_os_display_surface_t *surface);
+esp_err_t solar_os_board_display_present_frame(
+    solar_os_board_display_t *display,
+    const solar_os_display_raster_t *frame);

@@ -1836,6 +1836,15 @@ bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
     return terminal != NULL && terminal->dirty;
 }
 
+void solar_os_terminal_invalidate_render(solar_os_terminal_t *terminal)
+{
+    if (terminal == NULL) {
+        return;
+    }
+    terminal->render_valid = false;
+    terminal->dirty = true;
+}
+
 static bool terminal_box_segments(uint16_t cell, bool *left, bool *right, bool *up, bool *down)
 {
     *left = false;
@@ -2772,6 +2781,136 @@ static void terminal_draw_footer(solar_os_terminal_t *terminal,
     terminal_set_draw_color(terminal, u8g2, 0);
 }
 
+static uint32_t terminal_render_hash_bytes(uint32_t hash,
+                                           const void *data,
+                                           size_t size)
+{
+    const uint8_t *bytes = data;
+    for (size_t i = 0; i < size; i++) {
+        hash = (hash ^ bytes[i]) * UINT32_C(16777619);
+    }
+    return hash;
+}
+
+static uint32_t terminal_render_hash_value(uint32_t hash, uint32_t value)
+{
+    return terminal_render_hash_bytes(hash, &value, sizeof(value));
+}
+
+static uint32_t terminal_render_profile_hash(const solar_os_terminal_t *terminal,
+                                             const u8g2_t *u8g2)
+{
+    uint32_t hash = UINT32_C(2166136261);
+    hash = terminal_render_hash_value(hash, terminal->orientation_degrees);
+    hash = terminal_render_hash_value(hash, (uint32_t)terminal->font);
+    hash = terminal_render_hash_value(hash, (uint32_t)terminal->text_size);
+    hash = terminal_render_hash_value(hash, terminal->palette_inverted);
+    hash = terminal_render_hash_value(hash, terminal->black_is_one);
+    hash = terminal_render_hash_value(hash, terminal->status_bar_visible);
+    hash = terminal_render_hash_value(hash, terminal->footer_enabled);
+    hash = terminal_render_hash_value(hash, terminal->rows);
+    hash = terminal_render_hash_value(hash, terminal->cols);
+    hash = terminal_render_hash_value(hash, terminal->char_width);
+    hash = terminal_render_hash_value(hash, terminal->line_height);
+    hash = terminal_render_hash_value(hash, terminal->cell_ascent);
+    hash = terminal_render_hash_value(hash, terminal->baseline_offset);
+    hash = terminal_render_hash_value(hash, u8g2_GetDisplayWidth(u8g2));
+    return terminal_render_hash_value(hash, u8g2_GetDisplayHeight(u8g2));
+}
+
+static uint32_t terminal_render_row_hash(const solar_os_terminal_t *terminal,
+                                         size_t row)
+{
+    const uint32_t *bold = NULL;
+    const uint32_t *italic = NULL;
+    const uint32_t *underline = NULL;
+    const uint32_t *inverse = NULL;
+    const solar_os_terminal_cell_t *line = terminal_display_line(
+        terminal, row, &bold, &italic, &underline, &inverse);
+    const size_t cols = terminal_cols(terminal);
+    const size_t attr_words = (cols + 31U) / 32U;
+    uint32_t hash = UINT32_C(2166136261);
+    hash = terminal_render_hash_bytes(
+        hash, line, cols * sizeof(solar_os_terminal_cell_t));
+    hash = terminal_render_hash_bytes(hash, bold, attr_words * sizeof(uint32_t));
+    hash = terminal_render_hash_bytes(hash, italic, attr_words * sizeof(uint32_t));
+    hash = terminal_render_hash_bytes(hash, underline, attr_words * sizeof(uint32_t));
+    hash = terminal_render_hash_bytes(hash, inverse, attr_words * sizeof(uint32_t));
+
+    for (size_t i = 0; i < terminal->vrule_count; i++) {
+        const solar_os_terminal_vrule_t *rule = &terminal->vrules[i];
+        if (row >= rule->row && row < rule->row + rule->height) {
+            hash = terminal_render_hash_value(hash, (uint32_t)rule->row);
+            hash = terminal_render_hash_value(hash, (uint32_t)rule->col);
+            hash = terminal_render_hash_value(hash, (uint32_t)rule->height);
+            hash = terminal_render_hash_value(hash, rule->width);
+            hash = terminal_render_hash_value(hash, rule->inverse);
+        }
+    }
+    if (terminal->cursor_visible && terminal->scrollback_offset == 0U &&
+        terminal->cursor_row == row) {
+        hash = terminal_render_hash_value(hash, UINT32_C(0xc0750a));
+        hash = terminal_render_hash_value(hash, (uint32_t)terminal->cursor_col);
+    }
+    return hash;
+}
+
+static uint32_t terminal_render_status_hash(const solar_os_terminal_t *terminal)
+{
+    uint32_t hash = UINT32_C(2166136261);
+    hash = terminal_render_hash_value(hash, terminal->status_bar_visible);
+    const solar_os_status_bar_t *status = &terminal->status_bar;
+    hash = terminal_render_hash_value(hash, status->inbox_unread);
+    hash = terminal_render_hash_value(hash, status->battery_valid);
+    hash = terminal_render_hash_value(hash, status->battery_percent);
+    hash = terminal_render_hash_value(hash, status->battery_external_power);
+    hash = terminal_render_hash_value(hash, status->keyboard_count);
+    hash = terminal_render_hash_value(hash, status->keyboard_scanning);
+    hash = terminal_render_hash_value(hash, status->wifi_started);
+    hash = terminal_render_hash_value(hash, status->wifi_connected);
+    hash = terminal_render_hash_value(hash, status->wifi_has_ip);
+    hash = terminal_render_hash_value(hash, status->wifi_level);
+    hash = terminal_render_hash_value(hash, status->audio_enabled);
+    hash = terminal_render_hash_value(hash, status->audio_volume);
+    hash = terminal_render_hash_value(hash, status->time_valid);
+    hash = terminal_render_hash_value(hash, status->hour);
+    hash = terminal_render_hash_value(hash, status->minute);
+    hash = terminal_render_hash_value(hash, status->sd_mounted);
+    hash = terminal_render_hash_value(hash, status->radio_attached);
+    return terminal_render_hash_value(hash, status->link_running);
+}
+
+static uint32_t terminal_render_footer_hash(const solar_os_terminal_t *terminal)
+{
+    uint32_t hash = UINT32_C(2166136261);
+    hash = terminal_render_hash_value(hash, terminal->footer_enabled);
+    return terminal_render_hash_bytes(hash, terminal->footer,
+                                      sizeof(terminal->footer));
+}
+
+static void terminal_clear_text_row(solar_os_terminal_t *terminal,
+                                    u8g2_t *u8g2,
+                                    size_t row)
+{
+    int top = terminal_cell_top_y(terminal, row);
+    int height = terminal->line_height;
+    const int display_height = u8g2_GetDisplayHeight(u8g2);
+    if (top < 0) {
+        height += top;
+        top = 0;
+    }
+    if (top + height > display_height) {
+        height = display_height - top;
+    }
+    if (height <= 0) {
+        return;
+    }
+    terminal_set_draw_color(terminal, u8g2, 1);
+    u8g2_DrawBox(u8g2, 0, (u8g2_uint_t)top,
+                 u8g2_GetDisplayWidth(u8g2), (u8g2_uint_t)height);
+    terminal_set_draw_color(terminal, u8g2, 0);
+}
+
 void solar_os_terminal_draw(solar_os_terminal_t *terminal)
 {
     if (terminal == NULL || terminal->u8g2 == NULL) {
@@ -2781,19 +2920,38 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     u8g2_t *u8g2 = terminal->u8g2;
     (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     terminal_apply_settings(terminal, false);
-
-    u8g2_ClearBuffer(u8g2);
-    terminal_set_draw_color(terminal, u8g2, 1);
-    u8g2_DrawBox(u8g2, 0, 0, u8g2_GetDisplayWidth(u8g2), u8g2_GetDisplayHeight(u8g2));
-    if (terminal->status_bar_visible) {
-        terminal_draw_status_bar(terminal, u8g2);
-    }
-    terminal_set_draw_color(terminal, u8g2, 0);
     u8g2_SetFontMode(u8g2, 1);
     u8g2_SetFontPosBaseline(u8g2);
     const uint8_t text_scale = terminal_text_scale(terminal);
 
+    const uint32_t profile_hash = terminal_render_profile_hash(terminal, u8g2);
+    const uint32_t status_hash = terminal_render_status_hash(terminal);
+    const uint32_t footer_hash = terminal_render_footer_hash(terminal);
+    const bool full = !terminal->render_valid ||
+        terminal->rendered_profile_hash != profile_hash;
+    bool changed = full;
+
+    if (full) {
+        u8g2_ClearBuffer(u8g2);
+        terminal_set_draw_color(terminal, u8g2, 1);
+        u8g2_DrawBox(u8g2, 0, 0, u8g2_GetDisplayWidth(u8g2),
+                     u8g2_GetDisplayHeight(u8g2));
+    }
+    if (terminal->status_bar_visible &&
+        (full || terminal->rendered_status_hash != status_hash)) {
+        terminal_draw_status_bar(terminal, u8g2);
+        changed = true;
+    }
+    terminal_set_draw_color(terminal, u8g2, 0);
+
     for (size_t row = 0; row < terminal_rows(terminal); row++) {
+        const uint32_t row_hash = terminal_render_row_hash(terminal, row);
+        if (!full && terminal->rendered_row_hash[row] == row_hash) {
+            continue;
+        }
+        if (!full) {
+            terminal_clear_text_row(terminal, u8g2, row);
+        }
         const int y = terminal->baseline_offset + (int)(row * terminal->line_height);
         const uint32_t *bold = NULL;
         const uint32_t *italic = NULL;
@@ -2810,10 +2968,18 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
                            italic,
                            underline,
                            inverse);
+        terminal->rendered_row_hash[row] = row_hash;
+        changed = true;
     }
 
-    terminal_draw_vrules(terminal, u8g2);
-    terminal_draw_footer(terminal, u8g2, text_scale);
+    if (changed) {
+        terminal_draw_vrules(terminal, u8g2);
+    }
+    if (terminal->footer_enabled &&
+        (full || terminal->rendered_footer_hash != footer_hash)) {
+        terminal_draw_footer(terminal, u8g2, text_scale);
+        changed = true;
+    }
 
     if (terminal->cursor_visible && !solar_os_terminal_is_scrolled_back(terminal)) {
         const int cursor_x = cursor_x_position(terminal);
@@ -2828,6 +2994,12 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
         terminal_set_draw_color(terminal, u8g2, 0);
     }
 
-    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+    if (changed) {
+        solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+    }
+    terminal->rendered_profile_hash = profile_hash;
+    terminal->rendered_status_hash = status_hash;
+    terminal->rendered_footer_hash = footer_hash;
+    terminal->render_valid = true;
     terminal->dirty = false;
 }

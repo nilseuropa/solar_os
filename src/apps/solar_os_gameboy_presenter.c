@@ -1,247 +1,75 @@
 #include "solar_os_gameboy_presenter.h"
 
-#include <string.h>
-
-#include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/portmacro.h"
-#include "freertos/semphr.h"
-#include "freertos/task.h"
-#include "solar_os.h"
-#include "solar_os_display.h"
+#include "solar_os_frame_presenter.h"
 #include "solar_os_gameboy_video.h"
-#include "solar_os_log.h"
-#include "solar_os_memory.h"
-#include "solar_os_task.h"
 
-#define GAMEBOY_DISPLAY_TARGET "display0"
-#define GAMEBOY_DISPLAY_HPM_HZ_TENTHS 255U
-#define GAMEBOY_PRESENTER_STACK 3072U
-#define GAMEBOY_PRESENTER_PRIORITY (tskIDLE_PRIORITY + 1U)
+static solar_os_frame_presenter_t *presenter;
 
-typedef struct {
-  solar_os_gfx_t *gfx;
-  uint8_t *bitmap;
-  SemaphoreHandle_t requested;
-  StaticSemaphore_t requested_storage;
-  TaskHandle_t task;
-  volatile bool stop_requested;
-  volatile bool task_done;
-  bool busy;
-  bool high_refresh_active;
-  int x;
-  int y;
-  solar_os_gameboy_presenter_stats_t stats;
-} gameboy_presenter_state_t;
+static const uint16_t gameboy_palette_rgb565[4] = {
+    0xffffU,
+    0xad55U,
+    0x52aaU,
+    0x0000U,
+};
 
-static const char *TAG = "solar_os_gameboy_presenter";
-static gameboy_presenter_state_t *presenter_state;
-#define presenter (*presenter_state)
-SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("present worker spinlock")
-static portMUX_TYPE presenter_lock = portMUX_INITIALIZER_UNLOCKED;
-
-static esp_err_t gameboy_present_frame(void) {
-  return solar_os_gfx_present_mono_xbm(
-      presenter.gfx, presenter.bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES,
-      presenter.x, presenter.y, (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
-      (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT, SOLAR_OS_GAMEBOY_BITMAP_STRIDE);
+esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
+{
+    if (presenter != NULL) {
+        solar_os_gameboy_presenter_deinit();
+        if (presenter != NULL) {
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    const solar_os_frame_presenter_config_t config = {
+        .gfx = gfx,
+        .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
+        .width = SOLAR_OS_GAMEBOY_BITMAP_WIDTH,
+        .height = SOLAR_OS_GAMEBOY_BITMAP_HEIGHT,
+        .stride = SOLAR_OS_GAMEBOY_BITMAP_STRIDE,
+        .palette_rgb565 = gameboy_palette_rgb565,
+        .palette_size = 4U,
+        .preferred_fps = 0U,
+        .allow_mono_fallback = true,
+        .request_high_refresh = true,
+    };
+    return solar_os_frame_presenter_init(&presenter, &config);
 }
 
-static void gameboy_presenter_worker(void *arg) {
-  (void)arg;
-  while (true) {
-    (void)xSemaphoreTake(presenter.requested, portMAX_DELAY);
-    portENTER_CRITICAL(&presenter_lock);
-    const bool stop = presenter.stop_requested;
-    portEXIT_CRITICAL(&presenter_lock);
-    if (stop) {
-      break;
-    }
-
-    const int64_t started_us = esp_timer_get_time();
-    const esp_err_t err = gameboy_present_frame();
-    const uint64_t elapsed_us =
-        (uint64_t)(esp_timer_get_time() - started_us);
-
-    portENTER_CRITICAL(&presenter_lock);
-    presenter.stats.last_error = err;
-    if (err == ESP_OK) {
-      presenter.stats.present_us += elapsed_us;
-      presenter.stats.presented_frames++;
-    }
-    presenter.busy = false;
-    portEXIT_CRITICAL(&presenter_lock);
-    if (err != ESP_OK) {
-      SOLAR_OS_LOGW(TAG, "present failed: %s", esp_err_to_name(err));
-    }
-  }
-
-  portENTER_CRITICAL(&presenter_lock);
-  presenter.busy = false;
-  presenter.task_done = true;
-  portEXIT_CRITICAL(&presenter_lock);
-  solar_os_task_delete_internal(NULL);
+esp_err_t solar_os_gameboy_presenter_resume(void)
+{
+    return solar_os_frame_presenter_resume(presenter);
 }
 
-esp_err_t solar_os_gameboy_presenter_resume(void) {
-  if (presenter_state == NULL || presenter.gfx == NULL ||
-      presenter.bitmap == NULL || presenter.requested == NULL) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  if (presenter.task != NULL) {
-    return ESP_OK;
-  }
-
-  esp_err_t refresh_err = solar_os_display_set_high_refresh_override(
-      GAMEBOY_DISPLAY_TARGET, true, GAMEBOY_DISPLAY_HPM_HZ_TENTHS);
-  if (refresh_err == ESP_OK) {
-    presenter.high_refresh_active = true;
-  } else {
-    SOLAR_OS_LOGW(TAG, "25.5 Hz HPM unavailable: %s",
-                  esp_err_to_name(refresh_err));
-  }
-
-  while (xSemaphoreTake(presenter.requested, 0) == pdTRUE) {
-  }
-  portENTER_CRITICAL(&presenter_lock);
-  presenter.stop_requested = false;
-  presenter.task_done = false;
-  presenter.busy = false;
-  portEXIT_CRITICAL(&presenter_lock);
-  const BaseType_t created = solar_os_task_create_pinned_internal(
-      gameboy_presenter_worker, "gb_present", GAMEBOY_PRESENTER_STACK, NULL,
-      GAMEBOY_PRESENTER_PRIORITY, &presenter.task, tskNO_AFFINITY,
-      SOLAR_OS_TASK_ROLE_FOREGROUND);
-  if (created != pdPASS) {
-    presenter.task = NULL;
-    if (presenter.high_refresh_active) {
-      (void)solar_os_display_set_high_refresh_override(
-          GAMEBOY_DISPLAY_TARGET, false, 0);
-      presenter.high_refresh_active = false;
-    }
-    return ESP_ERR_NO_MEM;
-  }
-  return ESP_OK;
+void solar_os_gameboy_presenter_suspend(void)
+{
+    solar_os_frame_presenter_suspend(presenter);
 }
 
-esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx) {
-  if (gfx == NULL ||
-      solar_os_gfx_width(gfx) < SOLAR_OS_GAMEBOY_BITMAP_WIDTH ||
-      solar_os_gfx_height(gfx) < SOLAR_OS_GAMEBOY_BITMAP_HEIGHT) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  if (presenter_state != NULL) {
-    solar_os_gameboy_presenter_deinit();
-    if (presenter_state != NULL) {
-      return ESP_ERR_INVALID_STATE;
+void solar_os_gameboy_presenter_deinit(void)
+{
+    if (solar_os_frame_presenter_deinit(presenter) == ESP_OK) {
+        presenter = NULL;
     }
-  }
-  presenter_state = solar_os_memory_calloc(
-      1U, sizeof(*presenter_state), SOLAR_OS_MEMORY_INTERNAL_CRITICAL,
-      "gameboy.presenter");
-  if (presenter_state == NULL) {
-    return ESP_ERR_NO_MEM;
-  }
-  presenter.gfx = gfx;
-  presenter.x =
-      ((int)solar_os_gfx_width(gfx) - (int)SOLAR_OS_GAMEBOY_BITMAP_WIDTH) / 2;
-  presenter.y =
-      ((int)solar_os_gfx_height(gfx) - (int)SOLAR_OS_GAMEBOY_BITMAP_HEIGHT) / 2;
-  presenter.bitmap = solar_os_memory_alloc(
-      SOLAR_OS_GAMEBOY_BITMAP_BYTES, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-      "gameboy.present");
-  if (presenter.bitmap == NULL) {
-    solar_os_memory_free(presenter_state);
-    presenter_state = NULL;
-    return ESP_ERR_NO_MEM;
-  }
-  memset(presenter.bitmap, 0, SOLAR_OS_GAMEBOY_BITMAP_BYTES);
-  presenter.requested =
-      xSemaphoreCreateBinaryStatic(&presenter.requested_storage);
-  if (presenter.requested == NULL) {
-    solar_os_memory_free(presenter.bitmap);
-    solar_os_memory_free(presenter_state);
-    presenter_state = NULL;
-    return ESP_ERR_NO_MEM;
-  }
-  return solar_os_gameboy_presenter_resume();
 }
 
-void solar_os_gameboy_presenter_suspend(void) {
-  if (presenter_state == NULL) {
-    return;
-  }
-  TaskHandle_t task = presenter.task;
-  if (task != NULL) {
-    portENTER_CRITICAL(&presenter_lock);
-    presenter.stop_requested = true;
-    portEXIT_CRITICAL(&presenter_lock);
-    (void)xSemaphoreGive(presenter.requested);
-    if (!solar_os_task_wait_done(task, &presenter.task_done,
-                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
-      SOLAR_OS_LOGW(TAG, "present worker stop timed out");
-      return;
-    }
-    presenter.task = NULL;
-  }
-  if (presenter.high_refresh_active) {
-    const esp_err_t err = solar_os_display_set_high_refresh_override(
-        GAMEBOY_DISPLAY_TARGET, false, 0);
-    if (err != ESP_OK) {
-      SOLAR_OS_LOGW(TAG, "display policy restore failed: %s",
-                    esp_err_to_name(err));
-    } else {
-      presenter.high_refresh_active = false;
-    }
-  }
-}
-
-void solar_os_gameboy_presenter_deinit(void) {
-  if (presenter_state == NULL) {
-    return;
-  }
-  solar_os_gameboy_presenter_suspend();
-  if (presenter.task != NULL) {
-    return;
-  }
-  if (presenter.requested != NULL) {
-    vSemaphoreDelete(presenter.requested);
-  }
-  solar_os_memory_free(presenter.bitmap);
-  solar_os_memory_free(presenter_state);
-  presenter_state = NULL;
-}
-
-bool solar_os_gameboy_presenter_queue(const uint8_t *bitmap) {
-  if (presenter_state == NULL || bitmap == NULL || presenter.bitmap == NULL ||
-      presenter.task == NULL) {
-    return false;
-  }
-  portENTER_CRITICAL(&presenter_lock);
-  if (presenter.busy || presenter.stop_requested) {
-    presenter.stats.dropped_frames++;
-    portEXIT_CRITICAL(&presenter_lock);
-    return false;
-  }
-  presenter.busy = true;
-  portEXIT_CRITICAL(&presenter_lock);
-
-  memcpy(presenter.bitmap, bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES);
-  (void)xSemaphoreGive(presenter.requested);
-  return true;
+bool solar_os_gameboy_presenter_queue(const uint8_t *bitmap)
+{
+    return solar_os_frame_presenter_submit(
+        presenter, bitmap, SOLAR_OS_GAMEBOY_BITMAP_BYTES);
 }
 
 void solar_os_gameboy_presenter_take_stats(
-    solar_os_gameboy_presenter_stats_t *stats) {
-  if (stats == NULL) {
-    return;
-  }
-  if (presenter_state == NULL) {
-    memset(stats, 0, sizeof(*stats));
-    return;
-  }
-  portENTER_CRITICAL(&presenter_lock);
-  *stats = presenter.stats;
-  memset(&presenter.stats, 0, sizeof(presenter.stats));
-  portEXIT_CRITICAL(&presenter_lock);
+    solar_os_gameboy_presenter_stats_t *stats)
+{
+    if (stats == NULL) {
+        return;
+    }
+    solar_os_frame_presenter_stats_t common = {0};
+    solar_os_frame_presenter_take_stats(presenter, &common);
+    *stats = (solar_os_gameboy_presenter_stats_t) {
+        .present_us = common.present_us,
+        .presented_frames = common.presented_frames,
+        .dropped_frames = common.replaced_frames,
+        .last_error = common.last_error,
+    };
 }

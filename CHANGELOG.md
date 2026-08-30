@@ -2,6 +2,25 @@
 
 ## 4.x
 
+- **4.10.6** — 2026-08-30 — Added a shared raster-frame presenter for bounded
+  animation: MONO1, INDEX2, and INDEX8 frame contracts now describe source and
+  destination geometry, display targets publish their supported formats and
+  preferred 25-30 Hz cadence, and pending frames use latest-wins replacement.
+  Game Boy moved into the `games` group and now runs its emulator at the fixed
+  native frequency in a dedicated worker while Peanut-GB's 30 Hz LCD frame
+  skip keeps unused video work out of the emulation path. It submits compact
+  160x144 INDEX2 frames; TFTs render those four colors directly, while RLCD,
+  PAL, and VGA use the common ordered-dither MONO1 fallback. Per-target pixel
+  budgets select a sustainable scaled raster before presentation. Game Boy
+  audio has bounded local gain and reports output blocks and peak level with
+  the timing statistics. The obsolete Retro and Rover Retro flavors were
+  removed, and the focused `rover-gameboy` flavor omits Invaders to fit classic
+  4 MB targets.
+  A `streaming_display` capability keeps Game Boy off e-paper targets. Normal
+  terminal rendering now redraws changed rows and UI bands only. TFT terminal,
+  INDEX8 GUI, and INDEX2 game output share one queued two-line DMA pump and
+  upload coalesced changed regions; repeated RLCD direct frames update only the
+  centered raster window after the initial full synchronization.
 - **4.10.5** — 2026-08-30 — Writer no longer draws inline-code boxes around
   raw Markdown source while editing the active block, improving text
   readability without changing formatted inline-code or fenced-code rendering.

@@ -176,6 +176,8 @@ solar_os_shell_session_t *solar_os_context_shell_session(solar_os_context_t *ctx
 void solar_os_context_detach_shell_session(solar_os_context_t *ctx,
                                            solar_os_shell_session_t *session);
 void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active);
+void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx,
+                                                    bool active);
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx);
 void solar_os_context_request_terminal_preserve(solar_os_context_t *ctx);
 bool solar_os_context_take_terminal_preserve(solar_os_context_t *ctx);

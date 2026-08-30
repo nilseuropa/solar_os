@@ -64,11 +64,42 @@ static esp_err_t present_mono(solar_os_board_display_t *display,
         ESP_ERR_INVALID_STATE;
 }
 
+static esp_err_t present_frame(solar_os_board_display_t *display,
+                               const solar_os_display_raster_t *frame)
+{
+    if (display == NULL || frame == NULL ||
+        frame->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
+        frame->source_width != frame->width ||
+        frame->source_height != frame->height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return present_mono(display, frame->data, frame->data_size,
+                        frame->x, frame->y, frame->width, frame->height,
+                        frame->source_stride, frame->palette_inverted);
+}
+
+static esp_err_t target_present_frame(
+    void *context,
+    const solar_os_display_raster_t *frame)
+{
+    if (context == NULL || frame == NULL ||
+        frame->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
+        frame->source_width != frame->width ||
+        frame->source_height != frame->height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return cvbs_pal_present_mono_xbm(
+        context, frame->data, frame->data_size, frame->x, frame->y,
+        frame->width, frame->height, frame->source_stride,
+        frame->palette_inverted);
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
     .deinit = deinit,
     .present_mono_xbm = present_mono,
+    .present_frame = present_frame,
 };
 
 static esp_err_t attach(const char *name,
@@ -117,6 +148,9 @@ static esp_err_t attach(const char *name,
         .controller = "CVBS PAL",
         .width = CVBS_PAL_WIDTH,
         .height = CVBS_PAL_HEIGHT,
+        .frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT,
+        .preferred_stream_fps = 25,
+        .max_stream_pixels_per_second = 2400000U,
         .ready = true,
     };
     device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;
@@ -132,7 +166,12 @@ static esp_err_t attach(const char *name,
         target.width = CVBS_PAL_WIDTH;
         target.height = CVBS_PAL_HEIGHT;
         target.ready = true;
+        target.frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
+        target.preferred_stream_fps = 25;
+        target.max_stream_pixels_per_second = 2400000U;
         target.u8g2 = device->display.u8g2;
+        target.frame_context = &device->driver;
+        target.present_frame = target_present_frame;
         ret = solar_os_display_register_target(&target);
     }
     if (ret != ESP_OK) {

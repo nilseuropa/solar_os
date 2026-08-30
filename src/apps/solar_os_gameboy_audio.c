@@ -21,6 +21,7 @@
 #include "vendor/peanut_gb/minigb_apu.h"
 
 #define GAMEBOY_AUDIO_OWNER "gameboy"
+#define GAMEBOY_AUDIO_GAIN 4
 
 static const char *TAG = "solar_os_gameboy_audio";
 typedef struct {
@@ -29,6 +30,8 @@ typedef struct {
   StaticSemaphore_t mutex_storage;
   bool initialized;
   bool running;
+  uint32_t rendered_blocks;
+  uint16_t peak_sample;
 } gameboy_audio_state_t;
 
 static gameboy_audio_state_t *gameboy_audio_state;
@@ -76,6 +79,25 @@ static void gameboy_audio_render(int16_t *samples, size_t frames,
   }
   gameboy_audio_lock();
   minigb_apu_audio_callback(&gameboy_apu, samples);
+  uint16_t peak = 0U;
+  for (size_t i = 0; i < frames * 2U; i++) {
+    int32_t amplified = (int32_t)samples[i] * GAMEBOY_AUDIO_GAIN;
+    if (amplified > INT16_MAX) {
+      amplified = INT16_MAX;
+    } else if (amplified < INT16_MIN) {
+      amplified = INT16_MIN;
+    }
+    samples[i] = (int16_t)amplified;
+    const uint16_t magnitude = (uint16_t)(
+        amplified < 0 ? (uint32_t)(-amplified) : (uint32_t)amplified);
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+  gameboy_audio_state->rendered_blocks++;
+  if (peak > gameboy_audio_state->peak_sample) {
+    gameboy_audio_state->peak_sample = peak;
+  }
   gameboy_audio_unlock();
 }
 
@@ -162,6 +184,24 @@ void solar_os_gameboy_audio_deinit(void) {
   }
 }
 
+void solar_os_gameboy_audio_take_stats(
+    solar_os_gameboy_audio_stats_t *stats) {
+  if (stats == NULL) {
+    return;
+  }
+  memset(stats, 0, sizeof(*stats));
+  if (gameboy_audio_state == NULL || gameboy_apu_mutex == NULL) {
+    return;
+  }
+  gameboy_audio_lock();
+  stats->rendered_blocks = gameboy_audio_state->rendered_blocks;
+  stats->peak_sample = gameboy_audio_state->peak_sample;
+  stats->running = gameboy_apu_running;
+  gameboy_audio_state->rendered_blocks = 0U;
+  gameboy_audio_state->peak_sample = 0U;
+  gameboy_audio_unlock();
+}
+
 uint8_t solar_os_gameboy_audio_read(uint16_t address) {
   if (gameboy_audio_state == NULL || gameboy_apu_mutex == NULL ||
       !gameboy_apu_initialized ||
@@ -200,6 +240,13 @@ void solar_os_gameboy_audio_suspend(void) {}
 void solar_os_gameboy_audio_reset(void) {}
 
 void solar_os_gameboy_audio_deinit(void) {}
+
+void solar_os_gameboy_audio_take_stats(
+    solar_os_gameboy_audio_stats_t *stats) {
+  if (stats != NULL) {
+    *stats = (solar_os_gameboy_audio_stats_t){0};
+  }
+}
 
 uint8_t solar_os_gameboy_audio_read(uint16_t address) {
   (void)address;

@@ -26,6 +26,7 @@ drivers = [
   "pointer_ft6336",
 ]
 capabilities = [
+  "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness", "pointer",
   "cdc", "uart", "sd", "i2c", "spi", "battery", "audio",
   "audio_input", "wifi", "ble", "gpio", "adc", "pwm",

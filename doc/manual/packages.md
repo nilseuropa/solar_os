@@ -94,7 +94,7 @@ matrix.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
-`retro`, `python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
+`python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
 background logging and battery monitoring. Hardware jobs contain Bridge, DAQ,
 GPIO Keys, and SUMP for hardware diagnostics and hacking. The `writing` group contains
 Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
@@ -108,9 +108,10 @@ package dependencies, while mutable app and canvas state remain cold until the
 app starts. The four-shade canvas is converted into a cold-allocated monochrome
 XBM buffer for one opaque graphics blit per redraw.
 
-The `retro` flavor is the full firmware plus experimental emulation packages.
-Its `retro` group currently selects `app.gameboy`, which requires graphics,
-PSRAM, and SD storage. When `service.synth` is present, Game Boy also uses the
+The `games` group contains Invaders and Game Boy. Game Boy additionally
+requires PSRAM, SD storage, and the `streaming_display` board capability. Its
+fixed-frequency emulator submits compact INDEX2 frames to the shared bounded-
+cadence presenter. When `service.synth` is present, Game Boy also uses the
 MiniGB APU through the shared synth and audio services.
 
 The `writerdeck` flavor targets the Elecrow e-paper board with the `writing`
@@ -126,13 +127,15 @@ includes the remaining writing applications. They omit the battery monitor
 because the board has no battery hardware, and omit the DAQ and SUMP jobs by
 default. The Logic app is also omitted because its timing-sensitive capture
 buffer requires more internal-memory margin than this configuration provides.
-`rover` includes games and has no embedded interpreter;
-`rover-python` and `rover-lua` omit games, Reader, Writer, and Notes, and add
-only their selected scripting stack. Agent remains excluded because its runtime
-memory requirements exceed the practical internal-memory margin. The board's
-4 MB flash uses one large factory application slot, so these flavors omit OTA
-and remote manual synchronization. The embedded `docs` application remains
-available.
+`rover` has no embedded interpreter; `rover-python` and `rover-lua` omit
+Reader, Writer, and Notes, and add only their selected scripting stack. These
+three general-purpose images omit games. `rover-gameboy` is the focused PAL
+game image: it enables the `games` group and Game Boy but explicitly leaves
+Invaders out to fit the 4 MB board while retaining basic files, Wi-Fi, and
+SSH/SCP tools. Agent remains excluded because its runtime memory requirements
+exceed the practical internal-memory margin. The board's 4 MB flash uses one
+large factory application slot, so these flavors omit OTA and remote manual
+synchronization. The embedded `docs` application remains available.
 
 `rover-synth` is a focused classic-ESP32 synthesizer build. It retains BLE and
 PS/2 keyboard input, SD and basic file tools, controls, MIDI, and the LEDC PWM
@@ -140,16 +143,6 @@ audio expansion while omitting Wi-Fi/networking, packet radio, media, games,
 scripting, and unrelated application groups. Composite video owns I2S0, so the
 on-board audio package remains disabled and Synth uses a runtime-attached PWM
 output. This smaller profile preserves Bluetooth controller memory headroom.
-
-`rover-retro` is a focused Freenove Game Boy build with the normal system
-service baseline. It includes BLE keyboard input, SD storage, UART ports,
-hardware I/O services, filesystem commands, Docs, Edit, Less, Com, Files, the
-log job, Bridge, GPIO Keys, Wi-Fi, and the SSH/SCP clients. It excludes the remaining
-network stack, expansion drivers, media, the rest of the writing suite,
-utilities, other games, scripting, and OTA. The Freenove board has no usable
-audio backend while
-composite scanout owns I2S0, so Game Boy runs without MiniGB APU or synth output
-in this flavor.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and

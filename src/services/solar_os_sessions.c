@@ -782,7 +782,7 @@ static esp_err_t session_ensure_terminal(solar_os_session_entry_t *session)
 static void session_mark_dirty(solar_os_session_entry_t *session)
 {
     if (session != NULL && session->terminal != NULL) {
-        session->terminal->dirty = true;
+        solar_os_terminal_invalidate_render(session->terminal);
     }
 }
 
@@ -2233,7 +2233,7 @@ void solar_os_sessions_mark_foreground_dirty(void)
     if (session_state.foreground_session != NULL) {
         session_mark_dirty(session_state.foreground_session);
     } else if (session_state.current_terminal != NULL) {
-        session_state.current_terminal->dirty = true;
+        solar_os_terminal_invalidate_render(session_state.current_terminal);
     }
 }
 

@@ -90,19 +90,7 @@ static void test_rom_validation(void) {
   free(rom);
 }
 
-static size_t bitmap_popcount(const uint8_t *bitmap) {
-  size_t count = 0;
-  for (size_t i = 0; i < SOLAR_OS_GAMEBOY_BITMAP_BYTES; i++) {
-    uint8_t value = bitmap[i];
-    while (value != 0) {
-      count += value & 1U;
-      value >>= 1U;
-    }
-  }
-  return count;
-}
-
-static size_t render_uniform_shade(uint8_t shade) {
+static void assert_uniform_shade(uint8_t shade) {
   uint8_t bitmap[SOLAR_OS_GAMEBOY_BITMAP_BYTES];
   uint8_t line[SOLAR_OS_GAMEBOY_LCD_WIDTH];
   memset(line, shade, sizeof(line));
@@ -110,16 +98,27 @@ static size_t render_uniform_shade(uint8_t shade) {
   for (size_t y = 0; y < SOLAR_OS_GAMEBOY_LCD_HEIGHT; y++) {
     assert(solar_os_gameboy_video_scanline(bitmap, sizeof(bitmap), line, y));
   }
-  return bitmap_popcount(bitmap);
+  const uint8_t packed = (uint8_t)(shade * 0x55U);
+  for (size_t i = 0; i < sizeof(bitmap); i++) {
+    assert(bitmap[i] == packed);
+  }
 }
 
-static void test_frame_dithering(void) {
-  const size_t pixels =
-      SOLAR_OS_GAMEBOY_BITMAP_WIDTH * SOLAR_OS_GAMEBOY_BITMAP_HEIGHT;
-  assert(render_uniform_shade(0) == 0);
-  assert(render_uniform_shade(1) == pixels * 5U / 16U);
-  assert(render_uniform_shade(2) == pixels * 10U / 16U);
-  assert(render_uniform_shade(3) == pixels);
+static void test_frame_index2(void) {
+  assert_uniform_shade(0);
+  assert_uniform_shade(1);
+  assert_uniform_shade(2);
+  assert_uniform_shade(3);
+
+  uint8_t shades[SOLAR_OS_GAMEBOY_LCD_WIDTH];
+  for (size_t x = 0; x < sizeof(shades); x++) {
+    shades[x] = (uint8_t)(x & 3U);
+  }
+  uint8_t packed[SOLAR_OS_GAMEBOY_BITMAP_BYTES] = {0};
+  assert(solar_os_gameboy_video_scanline(packed, sizeof(packed), shades, 0));
+  for (size_t x = 0; x < SOLAR_OS_GAMEBOY_BITMAP_STRIDE; x++) {
+    assert(packed[x] == 0xe4U);
+  }
 
   uint8_t bitmap[SOLAR_OS_GAMEBOY_BITMAP_BYTES] = {0};
   uint8_t line[SOLAR_OS_GAMEBOY_LCD_WIDTH] = {0};
@@ -151,6 +150,18 @@ static void test_vendored_core_frame(void) {
   core_scanlines = 0;
   gb_run_frame(core);
   assert(core_scanlines == SOLAR_OS_GAMEBOY_LCD_HEIGHT);
+
+  core->direct.frame_skip = true;
+  core_scanlines = 0;
+  gb_run_frame(core);
+  const size_t first_skipped_count = core_scanlines;
+  core_scanlines = 0;
+  gb_run_frame(core);
+  const size_t second_skipped_count = core_scanlines;
+  assert((first_skipped_count == 0U &&
+          second_skipped_count == SOLAR_OS_GAMEBOY_LCD_HEIGHT) ||
+         (second_skipped_count == 0U &&
+          first_skipped_count == SOLAR_OS_GAMEBOY_LCD_HEIGHT));
   free(core);
 }
 
@@ -180,7 +191,7 @@ static void test_vendored_apu_output(void) {
 
 int main(void) {
   test_rom_validation();
-  test_frame_dithering();
+  test_frame_index2();
   test_vendored_core_frame();
   test_vendored_apu_output();
   puts("gameboy support tests passed");

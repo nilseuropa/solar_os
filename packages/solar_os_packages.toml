@@ -191,14 +191,9 @@ triggers = ["app_view", "app_sketch"]
 capabilities = ["gfx"]
 
 [groups.games]
-members = ["app_invaders"]
-triggers = ["app_invaders"]
+members = ["app_invaders", "app_gameboy"]
+triggers = ["app_invaders", "app_gameboy"]
 capabilities = ["gfx"]
-
-[groups.retro]
-members = ["app_gameboy"]
-triggers = ["app_gameboy"]
-capabilities = ["gfx", "psram", "sd"]
 
 [groups.python]
 members = ["app_python", "app_playground"]
@@ -258,6 +253,7 @@ sources = [
   "services/solar_os_cdc.c",
   "services/solar_os_clipboard.c",
   "services/solar_os_display.c",
+  "services/solar_os_frame_presenter.c",
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
@@ -1337,7 +1333,7 @@ sources = [
   "apps/solar_os_gameboy_rom.c",
   "apps/solar_os_gameboy_video.c",
 ]
-capabilities = ["gfx", "psram", "sd"]
+capabilities = ["gfx", "psram", "sd", "streaming_display"]
 
 [packages.app_python]
 label = "app.python"

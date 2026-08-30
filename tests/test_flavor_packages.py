@@ -26,11 +26,16 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog,
         )
 
-    def test_invaders_disabled_in_all_flavors(self):
+    def test_games_are_in_full_beta_and_rover_gameboy(self):
         for flavor_path in sorted((REPOSITORY / "flavors").glob("*.toml")):
             _, _, groups, packages = self.resolve(flavor_path.stem)
-            self.assertFalse(groups["games"], flavor_path.stem)
-            self.assertFalse(packages["app_invaders"], flavor_path.stem)
+            expected = flavor_path.stem in {"full", "beta", "rover-gameboy"}
+            self.assertEqual(groups["games"], expected, flavor_path.stem)
+            invaders_expected = flavor_path.stem in {"full", "beta"}
+            self.assertEqual(packages["app_invaders"], invaders_expected,
+                             flavor_path.stem)
+            self.assertEqual(packages["app_gameboy"], expected,
+                             flavor_path.stem)
 
     def test_sketch_is_media_without_pointer_or_psram_gates(self):
         _, _, groups, packages = self.resolve("full")
@@ -187,8 +192,8 @@ class FlavorPackagesTest(unittest.TestCase):
             {"app_clock", "app_calc", "app_plot", "app_logic", "app_sheet"},
         )
         self.assertEqual(
-            set(self.catalog.group_defs["retro"].members),
-            {"app_gameboy"},
+            set(self.catalog.group_defs["games"].members),
+            {"app_invaders", "app_gameboy"},
         )
         self.assertIn("service_synth", self.catalog.group_defs["system"].members)
         self.assertIn("service_streams", self.catalog.group_defs["system"].members)
@@ -527,6 +532,7 @@ class FlavorPackagesTest(unittest.TestCase):
 
         self.assertFalse(rover_groups["games"])
         self.assertFalse(rover_packages["app_invaders"])
+        self.assertFalse(rover_packages["app_gameboy"])
         self.assertFalse(rover_packages["app_python"])
         self.assertFalse(rover_packages["app_lua"])
         self.assertFalse(python_groups["games"])
@@ -591,7 +597,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "agent",
             "media",
             "games",
-            "retro",
             "python",
             "lua",
             "utils",
@@ -640,96 +645,37 @@ class FlavorPackagesTest(unittest.TestCase):
         for package in ("app_reader", "app_writer", "app_files", "app_notes"):
             self.assertTrue(full_packages[package], package)
 
-    def test_retro_is_a_strict_superset_of_full(self):
-        _, _, full_groups, full_packages = self.resolve("full")
-        name, _, retro_groups, retro_packages = self.resolve("retro")
+    def test_gameboy_requires_a_streaming_display(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"gfx", "psram", "sd"},
+        )
+        self.assertTrue(pruned["app_invaders"])
+        self.assertFalse(pruned["app_gameboy"])
 
-        self.assertEqual(name, "retro")
-        self.assertFalse(full_groups["retro"])
-        self.assertTrue(retro_groups["retro"])
-        self.assertFalse(full_packages["app_gameboy"])
-        self.assertTrue(retro_packages["app_gameboy"])
-        for package, enabled in full_packages.items():
-            if enabled:
-                self.assertTrue(retro_packages[package], package)
+        _, capable = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"gfx", "psram", "sd", "streaming_display"},
+        )
+        self.assertTrue(capable["app_gameboy"])
 
-    def test_rover_retro_is_a_focused_silent_gameboy_flavor(self):
-        name, _, groups, packages = self.resolve("rover-retro")
+    def test_rover_gameboy_is_focused_and_omits_invaders(self):
+        name, _, groups, packages = self.resolve("rover-gameboy")
 
-        self.assertEqual(name, "rover-retro")
-        self.assertTrue(groups["retro"])
-        for group in (
-            "expansions",
-            "maintenance_apps",
-            "maintenance_jobs",
-            "hardware_jobs",
-            "audio",
-            "agent",
-            "media",
-            "games",
-            "python",
-            "lua",
-            "utils",
-        ):
-            self.assertFalse(groups[group], group)
-        self.assertTrue(groups["system"])
-        self.assertTrue(groups["net"])
-        # app_files is a writing-group trigger, but no other writing app is
-        # selected by the explicitly disabled group.
-        self.assertTrue(groups["writing"])
-
-        for package in (
-            "system_shell",
-            "service_ble",
-            "service_sd",
-            "service_resources",
-            "service_gpio",
-            "service_uart",
-            "service_wifi",
-            "service_ssh",
-            "core_fs_commands",
-            "service_zip",
-            "app_docs",
-            "app_edit",
-            "app_less",
-            "app_com",
-            "app_files",
-            "app_io",
-            "app_ssh",
-            "app_scp",
-            "app_gameboy",
-            "job_log",
-            "service_link",
-            "job_bridge",
-        ):
-            self.assertTrue(packages[package], package)
-        for package in (
-            "service_audio_board",
-            "service_synth",
-            "service_ota",
-            "service_net",
-            "service_mqtt",
-            "service_mail",
-            "service_http_client",
-            "service_http_server",
-            "app_invaders",
-            "app_curl",
-            "app_webradio",
-            "app_telnet",
-            "app_web",
-            "app_email",
-            "app_reader",
-            "app_writer",
-            "app_notes",
-            "app_python",
-            "app_lua",
-            "job_httpd",
-            "job_telnetd",
-            "job_ntp_sync",
-        ):
-            self.assertFalse(packages[package], package)
-
-        self.assertTrue(packages["service_audio"])
+        self.assertEqual(name, "rover-gameboy")
+        self.assertTrue(groups["games"])
+        self.assertTrue(packages["app_gameboy"])
+        self.assertFalse(packages["app_invaders"])
+        self.assertFalse(groups["media"])
+        self.assertFalse(groups["audio"])
+        self.assertTrue(packages["service_wifi"])
+        self.assertTrue(packages["app_ssh"])
+        self.assertTrue(packages["app_scp"])
 
 
 if __name__ == "__main__":
