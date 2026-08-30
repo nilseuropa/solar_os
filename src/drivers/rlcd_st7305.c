@@ -1274,7 +1274,6 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         return ESP_ERR_INVALID_ARG;
     }
     if ((x & 7U) != 0 ||
-        (width & 7U) != 0 ||
         (uint32_t)x + width > RLCD_NATIVE_HEIGHT ||
         (uint32_t)y + height > RLCD_NATIVE_WIDTH ||
         display->u8g2.cb != U8G2_R1) {
@@ -1286,6 +1285,7 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
 
     memset(display->buffer, palette_inverted ? 0x00 : 0xFF, display->buffer_size);
     const size_t source_bytes = width / 8U;
+    const uint8_t source_tail_bits = (uint8_t)(width & 7U);
     const size_t destination_byte = x / 8U;
     for (size_t source_y = 0; source_y < height; source_y++) {
         const size_t native_x = RLCD_NATIVE_WIDTH - 1U - ((size_t)y + source_y);
@@ -1295,6 +1295,13 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         for (size_t source_byte = 0; source_byte < source_bytes; source_byte++) {
             destination[source_byte * RLCD_BUFFER_ROW_BYTES] =
                 palette_inverted ? source[source_byte] : (uint8_t)~source[source_byte];
+        }
+        if (source_tail_bits != 0U) {
+            const uint8_t mask = (uint8_t)((1U << source_tail_bits) - 1U);
+            uint8_t *tail = destination + source_bytes * RLCD_BUFFER_ROW_BYTES;
+            const uint8_t pixels = palette_inverted ?
+                source[source_bytes] : (uint8_t)~source[source_bytes];
+            *tail = (uint8_t)((*tail & (uint8_t)~mask) | (pixels & mask));
         }
     }
 

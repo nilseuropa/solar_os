@@ -283,6 +283,9 @@ static void frame_choose_output(solar_os_frame_presenter_t *presenter)
             (uint16_t)((display_width - presenter->output_width) / 2U);
         presenter->output_y =
             (uint16_t)((display_height - presenter->output_height) / 2U);
+        if (presenter->mono_fallback) {
+            presenter->output_x &= (uint16_t)~7U;
+        }
         return;
     }
     uint16_t scale_x2 = (uint16_t)(
@@ -315,6 +318,9 @@ static void frame_choose_output(solar_os_frame_presenter_t *presenter)
         (uint16_t)((display_width - presenter->output_width) / 2U);
     presenter->output_y =
         (uint16_t)((display_height - presenter->output_height) / 2U);
+    if (presenter->mono_fallback) {
+        presenter->output_x &= (uint16_t)~7U;
+    }
 }
 
 static esp_err_t frame_prepare_mono_output(
