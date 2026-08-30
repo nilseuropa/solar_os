@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_gfx_icons.h"
 
 typedef uint32_t solar_os_gfx_color_t;
 
@@ -92,6 +93,12 @@ void solar_os_gfx_fill_polygon(solar_os_gfx_t *gfx,
 void solar_os_gfx_circle(solar_os_gfx_t *gfx, int x, int y, int radius);
 void solar_os_gfx_fill_circle(solar_os_gfx_t *gfx, int x, int y, int radius);
 void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *text);
+/* Draw a transparent icon in the current color. x and y are its top-left. */
+void solar_os_gfx_icon(solar_os_gfx_t *gfx,
+                       int x,
+                       int y,
+                       solar_os_gfx_icon_t icon,
+                       solar_os_gfx_icon_size_t size);
 void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
                          int x,
                          int y,

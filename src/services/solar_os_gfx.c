@@ -17,10 +17,13 @@
 #define GFX_INDEX8_THEME_BASE \
     (GFX_INDEX8_COLOR_COUNT + GFX_INDEX8_LITERAL_GRAY_COUNT)
 #define GFX_DIRTY_TILE_SIZE 8U
+#define GFX_OPEN_ICONIC_FIRST_ENCODING 64U
 
 _Static_assert(GFX_INDEX8_THEME_BASE + GFX_INDEX8_THEME_COUNT ==
                    GFX_INDEX8_PALETTE_SIZE,
                "INDEX8 palette layout must fill all entries");
+_Static_assert(SOLAR_OS_GFX_ICON_COUNT == 223,
+               "Open Iconic mapping must name every glyph");
 
 struct solar_os_gfx_index8_surface {
     solar_os_display_surface_t surface;
@@ -87,6 +90,24 @@ static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
     case SOLAR_OS_GFX_FONT_MONO:
     default:
         return u8g2_font_solar_os_default_r_14_tf;
+    }
+}
+
+static const uint8_t *gfx_icon_font_data(solar_os_gfx_icon_size_t size)
+{
+    switch (size) {
+    case SOLAR_OS_GFX_ICON_SIZE_8:
+        return u8g2_font_open_iconic_all_1x_t;
+    case SOLAR_OS_GFX_ICON_SIZE_16:
+        return u8g2_font_open_iconic_all_2x_t;
+    case SOLAR_OS_GFX_ICON_SIZE_32:
+        return u8g2_font_open_iconic_all_4x_t;
+    case SOLAR_OS_GFX_ICON_SIZE_48:
+        return u8g2_font_open_iconic_all_6x_t;
+    case SOLAR_OS_GFX_ICON_SIZE_64:
+        return u8g2_font_open_iconic_all_8x_t;
+    default:
+        return NULL;
     }
 }
 
@@ -1073,6 +1094,60 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
         }
     } else {
         u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)baseline_y, text);
+    }
+    gfx_mark_dirty(gfx);
+}
+
+void solar_os_gfx_icon(solar_os_gfx_t *gfx,
+                       int x,
+                       int y,
+                       solar_os_gfx_icon_t icon,
+                       solar_os_gfx_icon_size_t size)
+{
+    const uint8_t *font = gfx_icon_font_data(size);
+    if (!gfx_ready(gfx) || font == NULL ||
+        (unsigned)icon >= SOLAR_OS_GFX_ICON_COUNT) {
+        return;
+    }
+
+    const int pixels = (int)size;
+    const uint16_t encoding =
+        (uint16_t)(GFX_OPEN_ICONIC_FIRST_ENCODING + (unsigned)icon);
+
+    gfx_apply_draw_state(gfx);
+    u8g2_SetFont(gfx->u8g2, font);
+    u8g2_SetFontPosTop(gfx->u8g2);
+
+    if (gfx_uses_index8(gfx)) {
+        int x0 = x;
+        int y0 = y;
+        int x1 = x + pixels;
+        int y1 = y + pixels;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > (int)gfx->index8->surface.width) x1 = gfx->index8->surface.width;
+        if (y1 > (int)gfx->index8->surface.height) y1 = gfx->index8->surface.height;
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+
+        u8g2_SetDrawColor(gfx->u8g2, 0);
+        u8g2_DrawBox(gfx->u8g2, (u8g2_uint_t)x0, (u8g2_uint_t)y0,
+                     (u8g2_uint_t)(x1 - x0), (u8g2_uint_t)(y1 - y0));
+        u8g2_SetDrawColor(gfx->u8g2, 1);
+        u8g2_DrawGlyph(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, encoding);
+        for (int row = y0; row < y1; row++) {
+            for (int column = x0; column < x1; column++) {
+                if (gfx_u8g2_mask_pixel(gfx, column, row)) {
+                    gfx->index8->pixels[
+                        (size_t)row * gfx->index8->surface.stride + column] =
+                        gfx->index8->draw_index;
+                }
+            }
+        }
+        gfx_mark_index8_dirty_rect(gfx, x0, y0, x1 - x0, y1 - y0);
+    } else {
+        u8g2_DrawGlyph(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, encoding);
     }
     gfx_mark_dirty(gfx);
 }
