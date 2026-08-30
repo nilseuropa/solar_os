@@ -602,8 +602,9 @@ Controls:
 - `Ctrl+Left`/`Ctrl+Right` move by words.
 - `Shift+Arrows` extend selection.
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
+- `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
+  saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
-- `Esc` saves if needed and exits; app-exit key exits.
 
 ## hexedit
 
@@ -629,8 +630,8 @@ Controls:
 - `Shift` with navigation extends a byte selection. `Ctrl+A`, `Ctrl+C`,
   `Ctrl+X`, and `Ctrl+V` select all, copy, cut, and paste binary data.
 - Backspace and Delete remove bytes. Typing at end of file appends data.
-- `Ctrl+S` saves in place. `Esc` saves if needed and exits; the app-exit key
-  exits without forcing a save.
+- `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
+  saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## files

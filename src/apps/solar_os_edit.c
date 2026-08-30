@@ -365,7 +365,7 @@ static void editor_render_error(void)
                                 SOLAR_OS_TUI_ATTR_NORMAL);
     }
     if (rows > 2) {
-        solar_os_tui_draw_help(&editor.tui, "ESC quit");
+        solar_os_tui_draw_help(&editor.tui, "^Q/ESC quit");
     }
     solar_os_tui_refresh(&editor.tui);
 }
@@ -525,7 +525,7 @@ static void editor_render_hex(void)
         } else {
             snprintf(footer,
                      sizeof(footer),
-                     "Off %08X  %s  %u/%u bytes  Tab pane  ESC save",
+                     "Off %08X  %s  %u/%u bytes  Tab pane  ^S save  ^Q/ESC quit",
                      (unsigned)editor.cursor,
                      value,
                      (unsigned)editor.len,
@@ -663,7 +663,7 @@ static void editor_render(solar_os_context_t *ctx)
         } else {
             snprintf(footer,
                      sizeof(footer),
-                     "Ln %u Col %u  %u/%u bytes  ESC save",
+                     "Ln %u Col %u  %u/%u bytes  ^S save  ^Q/ESC quit",
                      (unsigned)(cursor_line + 1),
                      (unsigned)(cursor_col + 1),
                      (unsigned)editor.len,
@@ -1442,9 +1442,8 @@ static bool editor_hex_event(solar_os_context_t *ctx, uint8_t key)
 {
     switch (key) {
     case SOLAR_OS_KEY_ESCAPE:
-        if (!editor.dirty || editor_save() == ESP_OK) {
-            solar_os_context_request_exit(ctx);
-        }
+    case 0x11:
+        solar_os_context_request_exit(ctx);
         break;
     case 0x01:
         editor_select_all();
@@ -1583,7 +1582,7 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (editor.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE) {
+        if (ch == SOLAR_OS_KEY_ESCAPE || (uint8_t)ch == 0x11) {
             solar_os_context_request_exit(ctx);
         }
         return true;
@@ -1595,15 +1594,17 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     switch ((uint8_t)ch) {
     case SOLAR_OS_KEY_ESCAPE:
-        if (!editor.dirty || editor_save() == ESP_OK) {
-            solar_os_context_request_exit(ctx);
-        }
+    case 0x11:
+        solar_os_context_request_exit(ctx);
         break;
     case 0x01:
         editor_select_all();
         break;
     case 0x03:
         editor_copy_selection();
+        break;
+    case 0x13:
+        (void)editor_save();
         break;
     case 0x16:
         editor_paste_clipboard();

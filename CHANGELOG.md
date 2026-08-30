@@ -4,7 +4,8 @@
 
 - **4.10.3** — 2026-08-30 — Added dynamic `ssh` and `scp` host completion from
   aliases in `/.ssh/hosts`, including preservation of an explicit `user@`
-  prefix. Unique SCP host matches append the remote-path colon.
+  prefix. Unique SCP host matches append the remote-path colon. Edit and
+  Hexedit now save with `Ctrl+S`, while `Ctrl+Q` and Esc quit without saving.
 - **4.10.2** — 2026-08-30 — Added adaptive color graphics for ILI9341 and
   ST7796 targets. GUI apps negotiate a lazily allocated 8-bit indexed canvas
   when they enter graphics mode and release it when graphics mode ends. TFT
