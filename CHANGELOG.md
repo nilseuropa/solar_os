@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.10.4** — 2026-08-30 — Web gained a visible Back, Reload, and Forward
+  toolbar, bidirectional history with restored reading positions, direct
+  pointer or touch activation, and non-wrapping link selection. Links now use
+  the same font size as surrounding text, and page text locally reflows across
+  five Reader-style zoom levels without refetching images.
 - **4.10.3** — 2026-08-30 — Added dynamic `ssh` and `scp` host completion from
   aliases in `/.ssh/hosts`, including preservation of an explicit `user@`
   prefix. Unique SCP host matches append the remote-path colon. Edit and

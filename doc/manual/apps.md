@@ -1494,7 +1494,17 @@ web https://host/path
 
 Controls:
 
-- Keyboard navigation follows the active web UI state.
+- The top toolbar provides Back, Reload, and Forward. Pointer or touch presses
+  activate the toolbar and open links or form controls directly.
+- `Left` or `b` goes back, `Right` or `f` goes forward, and `r` reloads while
+  retaining the current reading position.
+- `Up`/`Down` or `k`/`j` scroll one rendered line. Page Up/Page Down, Home,
+  and End provide larger movement.
+- `n` or Tab selects the next link or form control; `p` selects the previous
+  one. Selection stops at each end, and Enter activates it.
+- Links and plain page text use the same font size. Links remain underlined,
+  headings remain bold, and `+`/`-` or `Ctrl++`/`Ctrl+-` reflow page text
+  through the same five zoom levels as Reader.
 - `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
   rendered page text, wrapping at the end.
 - `Esc` or app-exit key exits.

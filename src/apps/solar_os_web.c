@@ -56,12 +56,12 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEB_TASK_STACK);
 #define WEB_REDIRECT_MAX 5
 #define WEB_MARGIN_X 5
 #define WEB_HEADER_HEIGHT 18
+#define WEB_NAV_BUTTON_SIZE 18
+#define WEB_NAV_BUTTON_COUNT 3
+#define WEB_NAV_TITLE_X (WEB_NAV_BUTTON_SIZE * WEB_NAV_BUTTON_COUNT + 4)
 #define WEB_FOOTER_HEIGHT 12
-#define WEB_LINE_HEIGHT 11
-#define WEB_CONTROL_HEIGHT 22
-#define WEB_CONTROL_FIELD_HEIGHT 16
+#define WEB_MAX_ZOOM 4
 #define WEB_CONTROL_BOX_SIZE 11
-#define WEB_TEXT_BASELINE 9
 
 typedef enum {
     WEB_LINE_NORMAL,
@@ -142,6 +142,12 @@ typedef struct {
     int16_t line_index;
 } web_item_t;
 
+typedef struct {
+    char url[WEB_URL_MAX];
+    int scroll;
+    int selected_item;
+} web_history_entry_t;
+
 typedef enum {
     WEB_EVENT_STATUS,
     WEB_EVENT_ERROR,
@@ -192,8 +198,21 @@ typedef struct {
     int status_code;
     uint32_t bytes_read;
     size_t wrap_cols;
-    char history[WEB_HISTORY_COUNT][WEB_URL_MAX];
-    size_t history_count;
+    int zoom;
+    bool direct_image_document;
+    bool reflowing;
+    size_t preserved_control_count;
+    size_t preserved_image_count;
+    web_history_entry_t back_history[WEB_HISTORY_COUNT];
+    size_t back_history_count;
+    web_history_entry_t forward_history[WEB_HISTORY_COUNT];
+    size_t forward_history_count;
+    bool restore_pending;
+    int restore_scroll;
+    int restore_selected_item;
+    bool pointer_visible;
+    int pointer_x;
+    int pointer_y;
     char url[WEB_URL_MAX];
     char base_url[WEB_URL_MAX];
     char status[WEB_STATUS_MAX];
@@ -208,6 +227,44 @@ static SemaphoreHandle_t web_request_lock;
 
 static bool web_resolve_url(const char *base, const char *href, char *out, size_t out_len);
 static const char *web_current_base_url(void);
+
+typedef struct {
+    solar_os_gfx_font_t regular_font;
+    solar_os_gfx_font_t bold_font;
+    uint8_t char_width;
+    uint8_t line_height;
+    uint8_t baseline;
+} web_text_metrics_t;
+
+static web_text_metrics_t web_text_metrics(void)
+{
+    static const web_text_metrics_t metrics[] = {
+        {SOLAR_OS_GFX_FONT_MONO_12, SOLAR_OS_GFX_FONT_BOLD_12, 6, 14, 10},
+        {SOLAR_OS_GFX_FONT_MONO_14, SOLAR_OS_GFX_FONT_BOLD_14, 7, 16, 12},
+        {SOLAR_OS_GFX_FONT_MONO_16, SOLAR_OS_GFX_FONT_BOLD_16, 8, 18, 14},
+        {SOLAR_OS_GFX_FONT_MONO_18, SOLAR_OS_GFX_FONT_BOLD_18, 9, 20, 15},
+        {SOLAR_OS_GFX_FONT_MONO_20, SOLAR_OS_GFX_FONT_BOLD_20, 10, 22, 17},
+    };
+    int zoom = web.zoom;
+    if (zoom < 0) {
+        zoom = 0;
+    } else if (zoom > WEB_MAX_ZOOM) {
+        zoom = WEB_MAX_ZOOM;
+    }
+    return metrics[zoom];
+}
+
+static size_t web_wrap_cols_for_gfx(solar_os_gfx_t *gfx)
+{
+    const web_text_metrics_t metrics = web_text_metrics();
+    if (gfx == NULL || solar_os_gfx_width(gfx) <= 2U * WEB_MARGIN_X ||
+        metrics.char_width == 0U) {
+        return WEB_LINE_MAX - 1U;
+    }
+    const size_t cols =
+        (solar_os_gfx_width(gfx) - 2U * WEB_MARGIN_X) / metrics.char_width;
+    return cols < WEB_LINE_MAX ? cols : WEB_LINE_MAX - 1U;
+}
 
 static void *web_malloc(size_t size, const char *tag)
 {
@@ -328,7 +385,7 @@ static void web_init_line(web_line_t *line, web_line_style_t style)
     line->link_index = -1;
     line->control_index = -1;
     line->image_index = -1;
-    line->height = WEB_LINE_HEIGHT;
+    line->height = web_text_metrics().line_height;
     line->style = (uint8_t)style;
 }
 
@@ -380,6 +437,10 @@ static void web_reset_document(void)
     web.edit_original[0] = '\0';
     web.status_code = -1;
     web.bytes_read = 0;
+    web.direct_image_document = false;
+    web.reflowing = false;
+    web.preserved_control_count = 0;
+    web.preserved_image_count = 0;
     web.base_url[0] = '\0';
     web.search.input_active = false;
     web.search.match_valid = false;
@@ -914,6 +975,17 @@ static int web_add_control(web_control_type_t type,
 
     const int index = (int)web.control_count++;
     web_control_t *control = &web.controls[index];
+    char preserved_value[WEB_CONTROL_VALUE_MAX];
+    preserved_value[0] = '\0';
+    const bool preserve_value = web.reflowing &&
+        (size_t)index < web.preserved_control_count &&
+        control->type == type &&
+        control->form_index == form_index &&
+        strcmp(control->name, name != NULL ? name : "") == 0;
+    const bool preserved_checked = preserve_value && control->checked;
+    if (preserve_value) {
+        strlcpy(preserved_value, control->value, sizeof(preserved_value));
+    }
     memset(control, 0, sizeof(*control));
     control->type = type;
     control->form_index = (int16_t)form_index;
@@ -932,6 +1004,10 @@ static int web_add_control(web_control_type_t type,
     } else if (type == WEB_CONTROL_SUBMIT) {
         strlcpy(control->label, "submit", sizeof(control->label));
     }
+    if (preserve_value) {
+        strlcpy(control->value, preserved_value, sizeof(control->value));
+        control->checked = preserved_checked;
+    }
 
     return index;
 }
@@ -949,7 +1025,7 @@ static void web_add_control_line(int control_index)
     }
     line->control_index = (int16_t)control_index;
     line->style = WEB_LINE_CONTROL;
-    line->height = WEB_CONTROL_HEIGHT;
+    line->height = (uint16_t)(web_text_metrics().line_height + 8U);
     web_newline(WEB_LINE_NORMAL);
 }
 
@@ -962,6 +1038,15 @@ static int web_add_image(const char *src, const char *alt)
 
     const int index = (int)web.image_count++;
     web_image_t *image = &web.images[index];
+    if (web.reflowing &&
+        (size_t)index < web.preserved_image_count &&
+        strcmp(image->src, src) == 0) {
+        strlcpy(image->alt, alt != NULL ? alt : "", sizeof(image->alt));
+        return index;
+    }
+    if (web.reflowing && (size_t)index < web.preserved_image_count) {
+        web_free_image_data(image);
+    }
     memset(image, 0, sizeof(*image));
     strlcpy(image->src, src, sizeof(image->src));
     if (alt != NULL) {
@@ -1099,6 +1184,7 @@ static void web_parse_html(void)
     web.form_count = 0;
     web.image_count = 0;
     web.item_count = 0;
+    web.direct_image_document = false;
     int current_link = -1;
     int current_form = -1;
     web_line_style_t current_style = WEB_LINE_NORMAL;
@@ -1316,6 +1402,12 @@ static void web_parse_html(void)
 
     if (web.line_count == 0) {
         web_append_text("(empty page)", -1, WEB_LINE_STATUS);
+    }
+    if (web.reflowing && web.images != NULL) {
+        for (size_t i = web.image_count; i < web.preserved_image_count; i++) {
+            web_free_image_data(&web.images[i]);
+            memset(&web.images[i], 0, sizeof(web.images[i]));
+        }
     }
     web_rebuild_items();
 }
@@ -2000,6 +2092,7 @@ static esp_err_t web_build_image_document(const uint8_t *data, size_t len, const
     web.form_count = 0;
     web.image_count = 0;
     web.item_count = 0;
+    web.direct_image_document = true;
 
     const int image_index = web_add_image(src, "image");
     if (image_index < 0) {
@@ -2178,15 +2271,17 @@ static int web_body_height(solar_os_gfx_t *gfx)
 {
     const int height = (int)solar_os_gfx_height(gfx);
     const int body = height - WEB_HEADER_HEIGHT - WEB_FOOTER_HEIGHT - 2;
-    return body > WEB_LINE_HEIGHT ? body : WEB_LINE_HEIGHT;
+    const int line_height = web_text_metrics().line_height;
+    return body > line_height ? body : line_height;
 }
 
 static int web_line_height_at(int line_index)
 {
     if (line_index < 0 || line_index >= (int)web.line_count || web.lines == NULL) {
-        return WEB_LINE_HEIGHT;
+        return web_text_metrics().line_height;
     }
-    return web.lines[line_index].height > 0 ? web.lines[line_index].height : WEB_LINE_HEIGHT;
+    return web.lines[line_index].height > 0 ? web.lines[line_index].height :
+                                              web_text_metrics().line_height;
 }
 
 static int web_visible_line_count(solar_os_gfx_t *gfx)
@@ -2208,7 +2303,8 @@ static int web_visible_line_count(solar_os_gfx_t *gfx)
     if (count > 0) {
         return count;
     }
-    return body > WEB_LINE_HEIGHT ? body / WEB_LINE_HEIGHT : 1;
+    const int line_height = web_text_metrics().line_height;
+    return body > line_height ? body / line_height : 1;
 }
 
 static int web_max_scroll(solar_os_gfx_t *gfx)
@@ -2272,16 +2368,50 @@ static void web_select_next_item(solar_os_gfx_t *gfx, int delta)
         return;
     }
     if (web.selected_item < 0) {
-        web.selected_item = delta >= 0 ? 0 : (int)web.item_count - 1;
-    } else {
-        web.selected_item += delta;
-        if (web.selected_item < 0) {
-            web.selected_item = (int)web.item_count - 1;
-        } else if (web.selected_item >= (int)web.item_count) {
+        if (delta >= 0) {
             web.selected_item = 0;
+            for (size_t i = 0U; i < web.item_count; i++) {
+                if (web.items[i].line_index >= web.scroll) {
+                    web.selected_item = (int)i;
+                    break;
+                }
+            }
+        } else {
+            web.selected_item = (int)web.item_count - 1;
+            const int last_visible = web.scroll + web_visible_line_count(gfx) - 1;
+            for (size_t count = web.item_count; count > 0U; count--) {
+                const size_t i = count - 1U;
+                if (web.items[i].line_index <= last_visible) {
+                    web.selected_item = (int)i;
+                    break;
+                }
+            }
         }
+    } else if (delta > 0 && web.selected_item + 1 < (int)web.item_count) {
+        web.selected_item++;
+    } else if (delta < 0 && web.selected_item > 0) {
+        web.selected_item--;
+    } else {
+        web_set_status(delta > 0 ? "last item" : "first item");
     }
     web_make_item_visible(gfx);
+}
+
+static int web_item_for_line(int line_index)
+{
+    if (line_index < 0 || line_index >= (int)web.line_count || web.lines == NULL) {
+        return -1;
+    }
+    const web_line_t *line = &web.lines[line_index];
+    for (size_t i = 0U; i < web.item_count; i++) {
+        if ((web.items[i].type == WEB_ITEM_LINK &&
+             web.items[i].index == line->link_index) ||
+            (web.items[i].type == WEB_ITEM_CONTROL &&
+             web.items[i].index == line->control_index)) {
+            return (int)i;
+        }
+    }
+    return -1;
 }
 
 static void web_draw_text_clipped(solar_os_gfx_t *gfx,
@@ -2372,31 +2502,34 @@ static void web_draw_control_text(solar_os_gfx_t *gfx,
                                   int row_y,
                                   int row_w)
 {
-    const int label_w = row_w > 230 ? 112 : 78;
+    const web_text_metrics_t metrics = web_text_metrics();
+    const int label_w = metrics.char_width * (row_w > 230 ? 16 : 11);
     const int field_x = row_x + label_w + 4;
     const int field_y = row_y + 3;
     const int field_w = row_x + row_w - field_x;
+    const int field_h = metrics.line_height + 2;
     if (field_w < 36) {
         return;
     }
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_gfx_set_font(gfx, metrics.regular_font);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     web_draw_text_clipped(gfx,
                           row_x,
-                          row_y + 14,
+                          row_y + 3 + metrics.baseline,
                           web_control_label(control, "text"),
-                          (size_t)(label_w / 6));
+                          (size_t)(label_w / metrics.char_width));
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, field_x, field_y, field_w, WEB_CONTROL_FIELD_HEIGHT);
+    solar_os_gfx_fill_rect(gfx, field_x, field_y, field_w, field_h);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, field_x, field_y, field_w, WEB_CONTROL_FIELD_HEIGHT);
+    solar_os_gfx_rect(gfx, field_x, field_y, field_w, field_h);
     if (web_control_is_editing(control)) {
-        solar_os_gfx_rect(gfx, field_x - 1, field_y - 1, field_w + 2, WEB_CONTROL_FIELD_HEIGHT + 2);
+        solar_os_gfx_rect(gfx, field_x - 1, field_y - 1, field_w + 2, field_h + 2);
     }
 
-    const size_t visible_chars = field_w > 8 ? (size_t)((field_w - 8) / 6) : 0;
+    const size_t visible_chars = field_w > 8 ?
+        (size_t)((field_w - 8) / metrics.char_width) : 0;
     char value[WEB_CONTROL_VALUE_MAX];
     const size_t cursor_pos = web_copy_control_value_window(control,
                                                            value,
@@ -2404,18 +2537,18 @@ static void web_draw_control_text(solar_os_gfx_t *gfx,
                                                            visible_chars);
     web_draw_text_clipped(gfx,
                           field_x + 3,
-                          field_y + 12,
+                          field_y + metrics.baseline,
                           value,
                           visible_chars);
 
     if (web_control_is_editing(control)) {
-        const int cursor_x = field_x + 3 + (int)cursor_pos * 6;
+        const int cursor_x = field_x + 3 + (int)cursor_pos * metrics.char_width;
         if (cursor_x < field_x + field_w - 2) {
             solar_os_gfx_line(gfx,
                               cursor_x,
                               field_y + 3,
                               cursor_x,
-                              field_y + WEB_CONTROL_FIELD_HEIGHT - 4);
+                              field_y + field_h - 4);
         }
     }
 }
@@ -2427,9 +2560,10 @@ static void web_draw_control_button(solar_os_gfx_t *gfx,
                                     int row_w,
                                     bool selected)
 {
+    const web_text_metrics_t metrics = web_text_metrics();
     const char *label = web_control_label(control, "submit");
     const size_t label_len = strlen(label);
-    int button_w = (int)label_len * 6 + 20;
+    int button_w = (int)label_len * metrics.char_width + 20;
     if (button_w < 54) {
         button_w = 54;
     }
@@ -2437,7 +2571,7 @@ static void web_draw_control_button(solar_os_gfx_t *gfx,
         button_w = row_w;
     }
 
-    const int button_h = 16;
+    const int button_h = metrics.line_height + 2;
     const int button_x = row_x;
     const int button_y = row_y + 3;
     solar_os_gfx_set_color(gfx, selected ? SOLAR_OS_GFX_COLOR_BLACK : SOLAR_OS_GFX_COLOR_LIGHT);
@@ -2445,12 +2579,14 @@ static void web_draw_control_button(solar_os_gfx_t *gfx,
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_rect(gfx, button_x, button_y, button_w, button_h);
 
-    const size_t max_chars = button_w > 10 ? (size_t)((button_w - 10) / 6) : 0;
-    const int text_w = (int)((label_len < max_chars ? label_len : max_chars) * 6U);
+    const size_t max_chars = button_w > 10 ?
+        (size_t)((button_w - 10) / metrics.char_width) : 0;
+    const int text_w = (int)((label_len < max_chars ? label_len : max_chars) *
+                             metrics.char_width);
     const int text_x = button_x + (button_w - text_w) / 2;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    solar_os_gfx_set_font(gfx, metrics.bold_font);
     solar_os_gfx_set_color(gfx, selected ? SOLAR_OS_GFX_COLOR_WHITE : SOLAR_OS_GFX_COLOR_BLACK);
-    web_draw_text_clipped(gfx, text_x, button_y + 12, label, max_chars);
+    web_draw_text_clipped(gfx, text_x, button_y + metrics.baseline, label, max_chars);
 }
 
 static void web_draw_control_choice(solar_os_gfx_t *gfx,
@@ -2459,8 +2595,9 @@ static void web_draw_control_choice(solar_os_gfx_t *gfx,
                                     int row_y,
                                     int row_w)
 {
+    const web_text_metrics_t metrics = web_text_metrics();
     const int box_x = row_x + 2;
-    const int box_y = row_y + 5;
+    const int box_y = row_y + (metrics.line_height + 8 - WEB_CONTROL_BOX_SIZE) / 2;
     const int center_x = box_x + WEB_CONTROL_BOX_SIZE / 2;
     const int center_y = box_y + WEB_CONTROL_BOX_SIZE / 2;
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
@@ -2481,14 +2618,15 @@ static void web_draw_control_choice(solar_os_gfx_t *gfx,
         }
     }
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_gfx_set_font(gfx, metrics.regular_font);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     web_draw_text_clipped(gfx,
                           box_x + WEB_CONTROL_BOX_SIZE + 7,
-                          row_y + 14,
+                          row_y + 3 + metrics.baseline,
                           web_control_label(control, control->type == WEB_CONTROL_RADIO ? "radio" : "checkbox"),
                           row_w > WEB_CONTROL_BOX_SIZE + 12 ?
-                              (size_t)((row_w - WEB_CONTROL_BOX_SIZE - 12) / 6) :
+                              (size_t)((row_w - WEB_CONTROL_BOX_SIZE - 12) /
+                                       metrics.char_width) :
                               0);
 }
 
@@ -2625,6 +2763,37 @@ static void web_draw_image(solar_os_gfx_t *gfx,
     }
 }
 
+static void web_draw_nav_button(solar_os_gfx_t *gfx,
+                                int index,
+                                solar_os_gfx_icon_t icon,
+                                bool enabled)
+{
+    const int x = index * WEB_NAV_BUTTON_SIZE;
+    solar_os_gfx_set_color(gfx, enabled ? SOLAR_OS_GFX_COLOR_WHITE :
+                                          SOLAR_OS_GFX_COLOR_LIGHT);
+    solar_os_gfx_icon(gfx, x + 5, 5, icon, SOLAR_OS_GFX_ICON_SIZE_8);
+    solar_os_gfx_line(gfx,
+                      x + WEB_NAV_BUTTON_SIZE - 1,
+                      2,
+                      x + WEB_NAV_BUTTON_SIZE - 1,
+                      WEB_HEADER_HEIGHT - 3);
+}
+
+static void web_draw_pointer(solar_os_gfx_t *gfx)
+{
+    if (!web.pointer_visible) {
+        return;
+    }
+    solar_os_gfx_set_color(gfx, web.pointer_y < WEB_HEADER_HEIGHT ?
+                                SOLAR_OS_GFX_COLOR_WHITE :
+                                SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_circle(gfx, web.pointer_x, web.pointer_y, 3);
+    solar_os_gfx_line(gfx, web.pointer_x - 4, web.pointer_y,
+                      web.pointer_x + 4, web.pointer_y);
+    solar_os_gfx_line(gfx, web.pointer_x, web.pointer_y - 4,
+                      web.pointer_x, web.pointer_y + 4);
+}
+
 static void web_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -2634,7 +2803,11 @@ static void web_render(solar_os_context_t *ctx)
 
     const int width = (int)solar_os_gfx_width(gfx);
     const int height = (int)solar_os_gfx_height(gfx);
-    const size_t max_chars = width > 12 ? (size_t)((width - 2 * WEB_MARGIN_X) / 6) : 20U;
+    const web_text_metrics_t metrics = web_text_metrics();
+    const size_t footer_max_chars = width > 12 ?
+        (size_t)((width - 2 * WEB_MARGIN_X) / 6) : 20U;
+    const size_t body_max_chars = width > 2 * WEB_MARGIN_X ?
+        (size_t)((width - 2 * WEB_MARGIN_X) / metrics.char_width) : 1U;
 
     web_clamp_scroll(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
@@ -2643,32 +2816,49 @@ static void web_render(solar_os_context_t *ctx)
     solar_os_gfx_fill_rect(gfx, 0, 0, width, WEB_HEADER_HEIGHT);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    web_draw_nav_button(gfx, 0, SOLAR_OS_GFX_ICON_ARROW_LEFT,
+                        web.back_history_count > 0U && !web.loading);
+    web_draw_nav_button(gfx, 1, SOLAR_OS_GFX_ICON_RELOAD,
+                        web.url[0] != '\0' && !web.loading);
+    web_draw_nav_button(gfx, 2, SOLAR_OS_GFX_ICON_ARROW_RIGHT,
+                        web.forward_history_count > 0U && !web.loading);
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
     char header[WEB_LINE_MAX];
     if (web.search.input_active) {
         snprintf(header, sizeof(header), "Find: %s_", web.search.input);
     } else if (web.loaded && web.item_count > 0) {
         snprintf(header,
                  sizeof(header),
-                 "web %d/%u",
+                 "web z%d %d/%u",
+                 web.zoom,
                  web.selected_item >= 0 ? web.selected_item + 1 : 0,
                  (unsigned)web.item_count);
+    } else if (web.loaded) {
+        snprintf(header, sizeof(header), "web z%d", web.zoom);
     } else {
         strlcpy(header, web.loading ? "web loading" : "web", sizeof(header));
     }
-    web_draw_text_clipped(gfx, WEB_MARGIN_X, 13, header, max_chars);
+    web_draw_text_clipped(gfx,
+                          WEB_NAV_TITLE_X,
+                          13,
+                          header,
+                          width > WEB_NAV_TITLE_X ?
+                              (size_t)((width - WEB_NAV_TITLE_X) / 6) : 1U);
 
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     const int url_y = height - 3;
     char footer[WEB_STATUS_MAX];
     web_selection_status(footer, sizeof(footer));
-    web_draw_text_clipped(gfx, WEB_MARGIN_X, url_y, footer, max_chars);
+    web_draw_text_clipped(gfx, WEB_MARGIN_X, url_y, footer, footer_max_chars);
 
     if (web.loading) {
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
         solar_os_gfx_text(gfx, WEB_MARGIN_X, WEB_HEADER_HEIGHT + 24, "Loading...");
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
         solar_os_gfx_text(gfx, WEB_MARGIN_X, WEB_HEADER_HEIGHT + 40, web.url);
+        web_draw_pointer(gfx);
         solar_os_gfx_present(gfx);
         web.redraw = false;
         return;
@@ -2678,7 +2868,9 @@ static void web_render(solar_os_context_t *ctx)
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
         solar_os_gfx_text(gfx, WEB_MARGIN_X, WEB_HEADER_HEIGHT + 24, "web URL");
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_gfx_text(gfx, WEB_MARGIN_X, WEB_HEADER_HEIGHT + 40, "arrows scroll, TAB link, ENTER open");
+        solar_os_gfx_text(gfx, WEB_MARGIN_X, WEB_HEADER_HEIGHT + 40,
+                          "pointer opens links, N/P selects");
+        web_draw_pointer(gfx);
         solar_os_gfx_present(gfx);
         web.redraw = false;
         return;
@@ -2692,7 +2884,7 @@ static void web_render(solar_os_context_t *ctx)
         }
 
         const web_line_t *line = &web.lines[line_index];
-        const int line_height = line->height > 0 ? line->height : WEB_LINE_HEIGHT;
+        const int line_height = line->height > 0 ? line->height : metrics.line_height;
         if (y + line_height > height - WEB_FOOTER_HEIGHT) {
             break;
         }
@@ -2733,12 +2925,12 @@ static void web_render(solar_os_context_t *ctx)
                                draw_width,
                                draw_height);
             } else {
-                solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+                solar_os_gfx_set_font(gfx, metrics.regular_font);
                 web_draw_text_clipped(gfx,
                                       WEB_MARGIN_X,
-                                      y + WEB_TEXT_BASELINE,
+                                      y + metrics.baseline,
                                       line->text,
-                                      max_chars);
+                                      body_max_chars);
             }
         } else if (line->control_index >= 0 && line->control_index < (int)web.control_count) {
             web_draw_control_widget(gfx,
@@ -2749,25 +2941,113 @@ static void web_render(solar_os_context_t *ctx)
                                     selected);
         } else {
             solar_os_gfx_set_font(gfx,
-                                  line->style == WEB_LINE_HEADING || line->style == WEB_LINE_LINK ?
-                                      SOLAR_OS_GFX_FONT_BOLD :
-                                      SOLAR_OS_GFX_FONT_SMALL);
-            web_draw_text_clipped(gfx, WEB_MARGIN_X, y + WEB_TEXT_BASELINE, line->text, max_chars);
+                                  line->style == WEB_LINE_HEADING ?
+                                      metrics.bold_font : metrics.regular_font);
+            web_draw_text_clipped(gfx,
+                                  WEB_MARGIN_X,
+                                  y + metrics.baseline,
+                                  line->text,
+                                  body_max_chars);
             if (line->link_index >= 0 && line->text[0] != '\0') {
                 const size_t len = strlen(line->text);
-                const size_t chars = len < max_chars ? len : max_chars;
+                const size_t chars = len < body_max_chars ? len : body_max_chars;
                 solar_os_gfx_line(gfx,
                                   WEB_MARGIN_X,
-                                  y + WEB_TEXT_BASELINE + 2,
-                                  WEB_MARGIN_X + (int)chars * 6,
-                                  y + WEB_TEXT_BASELINE + 2);
+                                  y + metrics.baseline + 2,
+                                  WEB_MARGIN_X + (int)chars * metrics.char_width,
+                                  y + metrics.baseline + 2);
             }
         }
         y += line_height;
     }
 
+    web_draw_pointer(gfx);
     solar_os_gfx_present(gfx);
     web.redraw = false;
+}
+
+static bool web_zoom_page(solar_os_context_t *ctx, int delta)
+{
+    if (!web.loaded || web.loading) {
+        return true;
+    }
+    if (web.direct_image_document) {
+        web_set_status("no page text to zoom");
+        return true;
+    }
+
+    int next_zoom = web.zoom + delta;
+    if (next_zoom < 0) {
+        next_zoom = 0;
+    } else if (next_zoom > WEB_MAX_ZOOM) {
+        next_zoom = WEB_MAX_ZOOM;
+    }
+    if (next_zoom == web.zoom) {
+        web_set_status(delta > 0 ? "maximum zoom" : "minimum zoom");
+        return true;
+    }
+
+    const size_t old_line_count = web.line_count;
+    const int old_scroll = web.scroll;
+    const int old_selected_item = web.selected_item;
+    web.zoom = next_zoom;
+    web.wrap_cols = web_wrap_cols_for_gfx(solar_os_context_gfx(ctx));
+    web.preserved_control_count = web.control_count;
+    web.preserved_image_count = web.image_count;
+    web.reflowing = true;
+    strlcpy(web.base_url, web.url, sizeof(web.base_url));
+    web_parse_html();
+    web.reflowing = false;
+    web.preserved_control_count = 0U;
+    web.preserved_image_count = 0U;
+    web_update_image_line_heights();
+
+    web.selected_item = old_selected_item >= 0 &&
+        old_selected_item < (int)web.item_count ? old_selected_item : -1;
+    if (old_line_count > 0U && web.line_count > 0U) {
+        web.scroll = (int)(((uint64_t)(old_scroll > 0 ? old_scroll : 0) *
+                            web.line_count) /
+                           old_line_count);
+    } else {
+        web.scroll = 0;
+    }
+    web.search.match_valid = false;
+    web_clamp_scroll(solar_os_context_gfx(ctx));
+    snprintf(web.status, sizeof(web.status), "zoom %d", web.zoom);
+    web.redraw = true;
+    return true;
+}
+
+static void web_history_push(web_history_entry_t *history,
+                             size_t *history_count,
+                             const web_history_entry_t *entry)
+{
+    if (history == NULL || history_count == NULL || entry == NULL ||
+        entry->url[0] == '\0') {
+        return;
+    }
+    if (*history_count > 0U &&
+        strcmp(history[*history_count - 1U].url, entry->url) == 0) {
+        history[*history_count - 1U] = *entry;
+        return;
+    }
+    if (*history_count >= WEB_HISTORY_COUNT) {
+        memmove(history,
+                history + 1,
+                sizeof(history[0]) * (WEB_HISTORY_COUNT - 1U));
+        *history_count = WEB_HISTORY_COUNT - 1U;
+    }
+    history[(*history_count)++] = *entry;
+}
+
+static web_history_entry_t web_current_history_entry(void)
+{
+    web_history_entry_t entry = {
+        .scroll = web.scroll,
+        .selected_item = web.selected_item,
+    };
+    strlcpy(entry.url, web.url, sizeof(entry.url));
+    return entry;
 }
 
 static void web_history_push_current(void)
@@ -2775,20 +3055,13 @@ static void web_history_push_current(void)
     if (!web.loaded || web.url[0] == '\0') {
         return;
     }
-    if (web.history_count > 0 &&
-        strcmp(web.history[web.history_count - 1U], web.url) == 0) {
-        return;
-    }
-    if (web.history_count >= WEB_HISTORY_COUNT) {
-        memmove(web.history,
-                web.history + 1,
-                sizeof(web.history[0]) * (WEB_HISTORY_COUNT - 1U));
-        web.history_count = WEB_HISTORY_COUNT - 1U;
-    }
-    strlcpy(web.history[web.history_count++], web.url, sizeof(web.history[0]));
+    const web_history_entry_t entry = web_current_history_entry();
+    web_history_push(web.back_history, &web.back_history_count, &entry);
+    web.forward_history_count = 0U;
 }
 
 static bool web_history_back(solar_os_context_t *ctx);
+static bool web_history_forward(solar_os_context_t *ctx);
 
 static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool push_history)
 {
@@ -2812,13 +3085,12 @@ static esp_err_t web_start_load(solar_os_context_t *ctx, const char *url, bool p
     if (web.task != NULL && !web.task_done) {
         return ESP_ERR_INVALID_STATE;
     }
-    const size_t wrap_cols = gfx != NULL && solar_os_gfx_width(gfx) > 12 ?
-        (size_t)((solar_os_gfx_width(gfx) - 2U * WEB_MARGIN_X) / 6U) : WEB_LINE_MAX - 1U;
     if (push_history) {
         web_history_push_current();
     }
+    web.restore_pending = false;
     web_reset_document();
-    web.wrap_cols = wrap_cols < WEB_LINE_MAX ? wrap_cols : WEB_LINE_MAX - 1U;
+    web.wrap_cols = web_wrap_cols_for_gfx(gfx);
     xQueueReset(web.events);
 
     strlcpy(web.url, url, sizeof(web.url));
@@ -2881,9 +3153,13 @@ static void web_drain_events(solar_os_context_t *ctx)
             web.loaded = true;
             web.status_code = event.status_code;
             web.bytes_read = event.bytes_read;
-            if (web.item_count > 0) {
-                web.selected_item = 0;
-                web_make_item_visible(solar_os_context_gfx(ctx));
+            if (web.restore_pending) {
+                web.scroll = web.restore_scroll;
+                web.selected_item = web.restore_selected_item >= 0 &&
+                    web.restore_selected_item < (int)web.item_count ?
+                        web.restore_selected_item : -1;
+                web_clamp_scroll(solar_os_context_gfx(ctx));
+                web.restore_pending = false;
             }
             snprintf(web.status,
                      sizeof(web.status),
@@ -3172,6 +3448,7 @@ static esp_err_t web_start(solar_os_context_t *ctx)
 
     web.selected_item = -1;
     web.edit_control = -1;
+    web.zoom = 1;
 
     const char *url = NULL;
     if (!web_parse_args(ctx, &url)) {
@@ -3190,8 +3467,12 @@ static esp_err_t web_start(solar_os_context_t *ctx)
     web.active = true;
     web.suspended = false;
     solar_os_context_set_graphics_active(ctx, true);
-    web.color_images =
-        solar_os_gfx_format(solar_os_context_gfx(ctx)) == SOLAR_OS_DISPLAY_FORMAT_INDEX8;
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    web.color_images = solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8;
+    if (gfx != NULL) {
+        web.pointer_x = (int)solar_os_gfx_width(gfx) / 2;
+        web.pointer_y = (int)solar_os_gfx_height(gfx) / 2;
+    }
     (void)web_start_load(ctx, url, false);
     return ESP_OK;
 }
@@ -3240,15 +3521,55 @@ static void web_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
 
 static bool web_history_back(solar_os_context_t *ctx)
 {
-    if (web.history_count == 0) {
+    if (web.back_history_count == 0U) {
         web_set_status("no back history");
         return true;
     }
 
-    char url[WEB_URL_MAX];
-    strlcpy(url, web.history[web.history_count - 1U], sizeof(url));
-    web.history_count--;
-    (void)web_start_load(ctx, url, false);
+    const web_history_entry_t target = web.back_history[web.back_history_count - 1U];
+    const web_history_entry_t current = web_current_history_entry();
+    web.back_history_count--;
+    web_history_push(web.forward_history, &web.forward_history_count, &current);
+    if (web_start_load(ctx, target.url, false) == ESP_OK) {
+        web.restore_pending = true;
+        web.restore_scroll = target.scroll;
+        web.restore_selected_item = target.selected_item;
+    }
+    return true;
+}
+
+static bool web_history_forward(solar_os_context_t *ctx)
+{
+    if (web.forward_history_count == 0U) {
+        web_set_status("no forward history");
+        return true;
+    }
+
+    const web_history_entry_t target =
+        web.forward_history[web.forward_history_count - 1U];
+    const web_history_entry_t current = web_current_history_entry();
+    web.forward_history_count--;
+    web_history_push(web.back_history, &web.back_history_count, &current);
+    if (web_start_load(ctx, target.url, false) == ESP_OK) {
+        web.restore_pending = true;
+        web.restore_scroll = target.scroll;
+        web.restore_selected_item = target.selected_item;
+    }
+    return true;
+}
+
+static bool web_reload(solar_os_context_t *ctx)
+{
+    if (web.url[0] == '\0') {
+        web_set_status("nothing to reload");
+        return true;
+    }
+    const web_history_entry_t current = web_current_history_entry();
+    if (web_start_load(ctx, current.url, false) == ESP_OK) {
+        web.restore_pending = true;
+        web.restore_scroll = current.scroll;
+        web.restore_selected_item = current.selected_item;
+    }
     return true;
 }
 
@@ -3319,6 +3640,79 @@ static bool web_open_selected(solar_os_context_t *ctx)
     }
 
     (void)web_start_load(ctx, next_url, true);
+    return true;
+}
+
+static int web_line_at_pointer_y(int pointer_y, int screen_height)
+{
+    if (pointer_y < WEB_HEADER_HEIGHT) {
+        return -1;
+    }
+    int y = WEB_HEADER_HEIGHT;
+    for (int line_index = web.scroll; line_index < (int)web.line_count; line_index++) {
+        const int line_height = web_line_height_at(line_index);
+        if (pointer_y >= y && pointer_y < y + line_height) {
+            return line_index;
+        }
+        y += line_height;
+        if (y >= screen_height - WEB_FOOTER_HEIGHT) {
+            break;
+        }
+    }
+    return -1;
+}
+
+static bool web_pointer_event(solar_os_context_t *ctx,
+                              const solar_os_input_pointer_event_t *pointer)
+{
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    if (gfx == NULL || pointer == NULL) {
+        return true;
+    }
+    const int width = (int)solar_os_gfx_width(gfx);
+    const int height = (int)solar_os_gfx_height(gfx);
+    if (pointer->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE) {
+        web.pointer_x = pointer->x;
+        web.pointer_y = pointer->y;
+        web.pointer_visible = false;
+    } else {
+        web.pointer_x += pointer->delta_x;
+        web.pointer_y += pointer->delta_y;
+        web.pointer_visible = true;
+    }
+    if (web.pointer_x < 0) web.pointer_x = 0;
+    if (web.pointer_y < 0) web.pointer_y = 0;
+    if (web.pointer_x >= width) web.pointer_x = width - 1;
+    if (web.pointer_y >= height) web.pointer_y = height - 1;
+
+    int pointed_item = -1;
+    if (web.loaded && web.pointer_y >= WEB_HEADER_HEIGHT &&
+        web.pointer_y < height - WEB_FOOTER_HEIGHT) {
+        pointed_item = web_item_for_line(web_line_at_pointer_y(web.pointer_y, height));
+        if (pointed_item >= 0) {
+            web.selected_item = pointed_item;
+        }
+    }
+
+    const bool primary_press = pointer->action == SOLAR_OS_INPUT_POINTER_PRESS &&
+        (pointer->buttons == 0U ||
+         (pointer->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY) != 0U);
+    if (primary_press && !web.loading) {
+        if (web.pointer_y < WEB_HEADER_HEIGHT) {
+            const int button = web.pointer_x / WEB_NAV_BUTTON_SIZE;
+            if (button == 0) {
+                (void)web_history_back(ctx);
+            } else if (button == 1) {
+                (void)web_reload(ctx);
+            } else if (button == 2) {
+                (void)web_history_forward(ctx);
+            }
+        } else if (pointed_item >= 0) {
+            (void)web_open_selected(ctx);
+        }
+    }
+    web.redraw = true;
+    web_render(ctx);
     return true;
 }
 
@@ -3411,6 +3805,9 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         web_resume(ctx);
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_POINTER) {
+        return web_pointer_event(ctx, &event->data.pointer);
+    }
     if (event->type != SOLAR_OS_EVENT_CHAR) {
         return true;
     }
@@ -3450,11 +3847,23 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     bool redraw = false;
     switch (ch) {
+    case SOLAR_OS_KEY_LEFT:
+    case 'b':
+    case 'B':
+        redraw = web_history_back(ctx);
+        break;
+    case SOLAR_OS_KEY_RIGHT:
+    case 'f':
+    case 'F':
+        redraw = web_history_forward(ctx);
+        break;
     case SOLAR_OS_KEY_UP:
+    case 'k':
         web.scroll--;
         redraw = true;
         break;
     case SOLAR_OS_KEY_DOWN:
+    case 'j':
         web.scroll++;
         redraw = true;
         break;
@@ -3484,19 +3893,22 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         web_select_next_item(gfx, -1);
         redraw = true;
         break;
-    case 'b':
-    case 'B':
-        redraw = web_history_back(ctx);
-        redraw = true;
-        break;
     case '\r':
     case '\n':
         redraw = web_open_selected(ctx);
         break;
+    case SOLAR_OS_KEY_CTRL_PLUS:
+    case '+':
+    case '=':
+        redraw = web_zoom_page(ctx, 1);
+        break;
+    case SOLAR_OS_KEY_CTRL_MINUS:
+    case '-':
+        redraw = web_zoom_page(ctx, -1);
+        break;
     case 'r':
     case 'R':
-        (void)web_start_load(ctx, web.url, false);
-        redraw = true;
+        redraw = web_reload(ctx);
         break;
     default:
         break;
