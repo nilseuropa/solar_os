@@ -26,6 +26,9 @@ Wildcard patterns are supported by selected filesystem commands, for example
 
 Tab completion covers commands, subcommands, filesystem paths, job names, port
 names, and stream IDs where the command exposes enough structure.
+For `ssh` and `scp`, it also reads host aliases from `/.ssh/hosts`. An explicit
+`user@` prefix is preserved; a unique SCP host match appends `:` for the remote
+path.
 
 `Ctrl+V` pastes the shared SolarOS clipboard at the command-line cursor. Line
 breaks and tabs become spaces, and a paste stops at the shell input limit; it

@@ -109,6 +109,67 @@ static esp_err_t transport_make_config_file_path(const solar_os_ssh_transport_co
     return ESP_OK;
 }
 
+typedef struct {
+    const char *host;
+    char *resolved_host;
+    size_t resolved_host_len;
+    bool found;
+} transport_host_lookup_t;
+
+static bool transport_lookup_host_visitor(const char *address,
+                                          const char *alias,
+                                          void *user)
+{
+    transport_host_lookup_t *lookup = (transport_host_lookup_t *)user;
+
+    if (strcasecmp(alias, lookup->host) != 0) {
+        return true;
+    }
+    strlcpy(lookup->resolved_host, address, lookup->resolved_host_len);
+    lookup->found = true;
+    return false;
+}
+
+static esp_err_t transport_visit_hosts_path(const char *hosts_path,
+                                            solar_os_ssh_host_visitor_t visitor,
+                                            void *user)
+{
+    if (hosts_path == NULL || visitor == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    FILE *file = fopen(hosts_path, "r");
+    if (file == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    char line[192];
+    bool keep_visiting = true;
+    while (keep_visiting && fgets(line, sizeof(line), file) != NULL) {
+        char *comment = strchr(line, '#');
+        if (comment != NULL) {
+            *comment = '\0';
+        }
+
+        char *saveptr = NULL;
+        const char *address = strtok_r(line, " \t\r\n", &saveptr);
+        if (address == NULL) {
+            continue;
+        }
+
+        const char *alias = NULL;
+        while ((alias = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
+            if (!visitor(address, alias, user)) {
+                keep_visiting = false;
+                break;
+            }
+        }
+    }
+
+    fclose(file);
+    return ESP_OK;
+}
+
 static esp_err_t transport_lookup_hosts_file(const solar_os_ssh_transport_config_t *config,
                                              char *resolved_host,
                                              size_t resolved_host_len)
@@ -121,10 +182,6 @@ static esp_err_t transport_lookup_hosts_file(const solar_os_ssh_transport_config
     }
 
     strlcpy(resolved_host, config->host, resolved_host_len);
-    if (!solar_os_storage_is_mounted()) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
     char hosts_path[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t ret = transport_make_config_file_path(config,
                                                     SOLAR_OS_SSH_TRANSPORT_HOSTS,
@@ -133,41 +190,35 @@ static esp_err_t transport_lookup_hosts_file(const solar_os_ssh_transport_config
     if (ret != ESP_OK) {
         return ret;
     }
+    transport_host_lookup_t lookup = {
+        .host = config->host,
+        .resolved_host = resolved_host,
+        .resolved_host_len = resolved_host_len,
+    };
+    ret = transport_visit_hosts_path(hosts_path, transport_lookup_host_visitor, &lookup);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return lookup.found ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
 
-    FILE *file = fopen(hosts_path, "r");
-    if (file == NULL) {
+esp_err_t solar_os_ssh_hosts_visit(solar_os_ssh_host_visitor_t visitor, void *user)
+{
+    if (visitor == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!solar_os_storage_is_mounted()) {
         return ESP_ERR_NOT_FOUND;
     }
 
-    char line[192];
-    bool found = false;
-    while (fgets(line, sizeof(line), file) != NULL) {
-        char *comment = strchr(line, '#');
-        if (comment != NULL) {
-            *comment = '\0';
-        }
-
-        char *saveptr = NULL;
-        const char *address = strtok_r(line, " \t\r\n", &saveptr);
-        if (address == NULL) {
-            continue;
-        }
-
-        const char *name = NULL;
-        while ((name = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
-            if (strcasecmp(name, config->host) == 0) {
-                strlcpy(resolved_host, address, resolved_host_len);
-                found = true;
-                break;
-            }
-        }
-        if (found) {
-            break;
-        }
+    char hosts_path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (!transport_make_storage_path(hosts_path,
+                                     sizeof(hosts_path),
+                                     SOLAR_OS_SSH_TRANSPORT_HOSTS)) {
+        return ESP_ERR_INVALID_SIZE;
     }
 
-    fclose(file);
-    return found ? ESP_OK : ESP_ERR_NOT_FOUND;
+    return transport_visit_hosts_path(hosts_path, visitor, user);
 }
 
 int solar_os_ssh_transport_wait_socket(const solar_os_ssh_transport_config_t *config,

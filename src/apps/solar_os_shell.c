@@ -83,6 +83,9 @@
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SSH
+#include "solar_os_ssh.h"
+#endif
 #include "solar_os_terminal.h"
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi.h"
@@ -6236,6 +6239,137 @@ static void shell_completion_init_state(solar_os_context_t *ctx,
     state->print = print;
 }
 
+#if SOLAR_OS_PACKAGE_APP_SSH || SOLAR_OS_PACKAGE_APP_SCP
+typedef struct {
+    shell_completion_match_t *matches;
+    const char *authority_prefix;
+    size_t authority_prefix_len;
+} shell_ssh_host_completion_t;
+
+static bool shell_completion_visit_ssh_host(const char *address,
+                                            const char *alias,
+                                            void *user)
+{
+    shell_ssh_host_completion_t *completion = (shell_ssh_host_completion_t *)user;
+    char candidate[SHELL_INPUT_MAX];
+
+    (void)address;
+    const int written = snprintf(candidate,
+                                 sizeof(candidate),
+                                 "%.*s%s",
+                                 (int)completion->authority_prefix_len,
+                                 completion->authority_prefix,
+                                 alias);
+    if (written >= 0 && (size_t)written < sizeof(candidate)) {
+        shell_completion_emit(completion->matches, candidate);
+    }
+    return true;
+}
+
+static bool shell_scp_host_position(const char * const *tokens, size_t token_count)
+{
+    size_t positional_count = 0U;
+
+    for (size_t i = 1U; i < token_count; i++) {
+        if (strcmp(tokens[i], "-P") == 0) {
+            if (i + 1U >= token_count) {
+                return false;
+            }
+            i++;
+            continue;
+        }
+        positional_count++;
+    }
+    return positional_count < 2U;
+}
+
+static bool SHELL_NOINLINE shell_complete_ssh_host_argument(
+    solar_os_context_t *ctx,
+    const char *effective_command,
+    const char * const *tokens,
+    size_t token_count,
+    const char *prefix,
+    size_t token_start,
+    bool show_matches)
+{
+    const bool ssh_command =
+#if SOLAR_OS_PACKAGE_APP_SSH
+        strcmp(effective_command, "ssh") == 0;
+#else
+        false;
+#endif
+    const bool scp_command =
+#if SOLAR_OS_PACKAGE_APP_SCP
+        strcmp(effective_command, "scp") == 0;
+#else
+        false;
+#endif
+    if ((!ssh_command && !scp_command) || prefix == NULL) {
+        return false;
+    }
+    if ((ssh_command && token_count != 1U) ||
+        (scp_command && !shell_scp_host_position(tokens, token_count))) {
+        return false;
+    }
+    if (prefix[0] == '-' || strchr(prefix, ':') != NULL ||
+        strchr(prefix, '/') != NULL || prefix[0] == '.') {
+        return false;
+    }
+
+    const char *at = strchr(prefix, '@');
+    if (at == prefix) {
+        return false;
+    }
+    shell_completion_match_t matches;
+    shell_completion_init_state(ctx, prefix, false, &matches);
+    shell_ssh_host_completion_t completion = {
+        .matches = &matches,
+        .authority_prefix = prefix,
+        .authority_prefix_len = at != NULL ? (size_t)(at - prefix) + 1U : 0U,
+    };
+    if (solar_os_ssh_hosts_visit(shell_completion_visit_ssh_host, &completion) != ESP_OK ||
+        matches.count == 0U) {
+        return false;
+    }
+
+    shell_session(ctx)->history_browsing = false;
+    shell_session(ctx)->history_index = -1;
+    if (matches.count == 1U && !show_matches) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s%s",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 matches.match,
+                 scp_command ? ":" : " ");
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+    if (!show_matches && strlen(matches.match) > strlen(prefix)) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 matches.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+    if (show_matches) {
+        char original[SHELL_INPUT_MAX];
+        strlcpy(original, shell_session(ctx)->input, sizeof(original));
+        solar_os_shell_io_newline(shell_io(ctx));
+        shell_completion_init_state(ctx, prefix, true, &matches);
+        (void)solar_os_ssh_hosts_visit(shell_completion_visit_ssh_host, &completion);
+        shell_prompt(ctx);
+        shell_replace_input(ctx, original);
+    }
+    return true;
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 static void shell_completion_emit_ota_flavors(shell_completion_match_t *state)
 {
@@ -7302,6 +7436,18 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
     if (!parse->trailing_space && current_index < parse->count) {
         prefix = parse->tokens[current_index];
     }
+
+#if SOLAR_OS_PACKAGE_APP_SSH || SOLAR_OS_PACKAGE_APP_SCP
+    if (shell_complete_ssh_host_argument(ctx,
+                                         effective_command,
+                                         completed_tokens,
+                                         completed_count,
+                                         prefix,
+                                         token_start,
+                                         show_matches)) {
+        return true;
+    }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     if (shell_complete_ota_flavor_argument(ctx,

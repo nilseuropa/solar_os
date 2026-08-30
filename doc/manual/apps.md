@@ -1196,6 +1196,8 @@ Controls:
 SCP file transfer over SSH. It supports password or key authentication through
 the shared SSH transport and host lookup/known-host storage. When `user@` is
 omitted, SCP uses the NVS-backed SolarOS identity user.
+Tab completion reads aliases from `/.ssh/hosts`, preserves an explicit `user@`
+prefix, and appends `:` after a unique host match.
 
 Usage:
 
@@ -1241,6 +1243,8 @@ Interactive SSH client. It supports password and key authentication, known
 hosts, hostname lookup through `/.ssh/hosts`, UTF-8 text, VT-style controls, and
 remote full-screen terminal applications. When `user@` is omitted, SSH uses the
 NVS-backed SolarOS identity user.
+Tab completion reads aliases from `/.ssh/hosts` and preserves an explicit
+`user@` prefix.
 
 Usage:
 
