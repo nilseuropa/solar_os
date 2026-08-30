@@ -2,6 +2,9 @@
 
 ## 4.x
 
+- **4.10.5** — 2026-08-30 — Writer no longer draws inline-code boxes around
+  raw Markdown source while editing the active block, improving text
+  readability without changing formatted inline-code or fenced-code rendering.
 - **4.10.4** — 2026-08-30 — Web gained a visible Back, Reload, and Forward
   toolbar, bidirectional history with restored reading positions, direct
   pointer or touch activation, and non-wrapping link selection. Links now use
