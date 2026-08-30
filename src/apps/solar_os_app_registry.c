@@ -119,6 +119,9 @@
 #if SOLAR_OS_PACKAGE_APP_VIEW
 #include "solar_os_view.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_SKETCH
+#include "solar_os_sketch.h"
+#endif
 
 #define APP_ENTRY(app_name, app_summary, app_ptr, app_caps, app_usage, app_min, app_max) \
     {.name = app_name, .summary = app_summary, .app = app_ptr, .capabilities = app_caps, \
@@ -243,6 +246,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_VIEW
     APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
+#endif
+#if SOLAR_OS_PACKAGE_APP_SKETCH
+    APP_FILE_ENTRY("sketch", "pointer-driven paint application", &solar_os_sketch_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "sketch [file.png]", 1, 2, ".png"),
 #endif
     {0},
 };

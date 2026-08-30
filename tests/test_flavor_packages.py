@@ -32,6 +32,23 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(groups["games"], flavor_path.stem)
             self.assertFalse(packages["app_invaders"], flavor_path.stem)
 
+    def test_sketch_is_media_without_pointer_or_psram_gates(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["media"])
+        self.assertTrue(packages["app_sketch"])
+
+        pruned_groups, pruned_packages = (
+            generate_flavor_config.apply_board_capability_pruning(
+                self.catalog,
+                groups,
+                packages,
+                {"gfx"},
+            )
+        )
+        self.assertTrue(pruned_groups["media"])
+        self.assertTrue(pruned_packages["app_sketch"])
+        self.assertFalse(pruned_packages["app_view"])
+
     def test_board_required_package_enables_dependencies(self):
         _, _, _, packages = self.resolve("core")
         enabled = generate_flavor_config.enable_required_packages(

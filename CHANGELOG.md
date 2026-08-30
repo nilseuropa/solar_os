@@ -2,6 +2,20 @@
 
 ## 4.x
 
+- **4.10.1** — 2026-08-30 — Added Sketch, the first native pointer-driven GUI
+  application. Its Paint-style layout provides Save/Open/Import commands, a
+  aligned top menu and sidebar buttons on one equal-sized grid, with tools for
+  pen, line, rectangle, ellipse, bucket fill, eraser,
+  clear, and stroke weight, plus four-shade color and pattern selectors. Its
+  canvas is converted to a single opaque XBM blit for responsive redraws, and
+  absolute-pointer motion does not redraw until it changes the image. Line,
+  rectangle, and ellipse drags show the exact patterned, weighted result before
+  release. Sketch
+  launches without a pointer
+  capability gate, warns when no pointer is currently registered, and accepts
+  pointers attached later at runtime. It saves interoperable grayscale PNG
+  files transactionally and imports PNG, JPEG, and GIF images. App state,
+  canvas, browser, and decode buffers are cold allocated and released on exit.
 - **4.9.2** — 2026-08-29 — Unified board-integrated hardware with the expansion
   lifecycle. Battery ADC, PCF85063 RTC, SHTC3 sensing, FT6336 touch, ST7305,
   ILI9341, ST7796, SSD1683, CVBS PAL, VGA32, SDMMC, ES8311/ES7210,

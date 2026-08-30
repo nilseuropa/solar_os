@@ -100,6 +100,14 @@ GPIO Keys, and SUMP for hardware diagnostics and hacking. The `writing` group co
 Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
 Plot, Logic, and Sheet.
 
+The `media` group contains View and Sketch. View requires graphics and PSRAM
+for large decoded images. Sketch requires graphics but has no pointer or PSRAM
+capability gate: it uses a compact two-bit canvas and discovers absolute or
+relative pointers at runtime. Its PNG decoder and shared storage browser are
+package dependencies, while mutable app and canvas state remain cold until the
+app starts. The four-shade canvas is converted into a cold-allocated monochrome
+XBM buffer for one opaque graphics blit per redraw.
+
 The `retro` flavor is the full firmware plus experimental emulation packages.
 Its `retro` group currently selects `app.gameboy`, which requires graphics,
 PSRAM, and SD storage. When `service.synth` is present, Game Boy also uses the

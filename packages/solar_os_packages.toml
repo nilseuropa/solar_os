@@ -186,8 +186,8 @@ triggers = ["app_agent"]
 capabilities = ["psram", "wifi"]
 
 [groups.media]
-members = ["app_view"]
-triggers = ["app_view"]
+members = ["app_view", "app_sketch"]
+triggers = ["app_view", "app_sketch"]
 capabilities = ["gfx"]
 
 [groups.games]
@@ -1308,6 +1308,15 @@ label = "app.view"
 depends = ["service_image"]
 sources = ["apps/solar_os_view.c"]
 capabilities = ["psram", "gfx"]
+
+[packages.app_sketch]
+label = "app.sketch"
+depends = ["service_image", "service_storage_browser"]
+sources = [
+  "apps/solar_os_sketch.c",
+  "apps/solar_os_sketch_canvas.c",
+]
+capabilities = ["gfx"]
 
 [packages.app_invaders]
 label = "app.invaders"
