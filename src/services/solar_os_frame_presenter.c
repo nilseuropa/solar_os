@@ -141,8 +141,12 @@ static void frame_prepare_mono_palette(solar_os_frame_presenter_t *presenter)
     const size_t palette_size =
         presenter->config.format == SOLAR_OS_DISPLAY_FORMAT_INDEX2 ? 4U : 256U;
     for (size_t i = 0; i < palette_size; i++) {
-        presenter->mono_luma[i] = rgb565_luma(
-            presenter->config.palette_rgb565[i]);
+        /* INDEX2 is an ordinal shade ramp. Keep its dither independent of the
+         * color-display theme, then apply the terminal polarity below. */
+        presenter->mono_luma[i] =
+            presenter->config.format == SOLAR_OS_DISPLAY_FORMAT_INDEX2 ?
+                (uint8_t)(255U - i * 85U) :
+                rgb565_luma(presenter->config.palette_rgb565[i]);
     }
 }
 
@@ -161,6 +165,8 @@ static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
         .width = presenter->output_width,
         .height = presenter->output_height,
         .format = presenter->config.format,
+        .palette_inverted =
+            solar_os_gfx_palette_inverted(presenter->config.gfx),
     };
     if (presenter->mono_fallback) {
         frame_convert_to_mono(presenter);
@@ -259,6 +265,25 @@ static void frame_choose_output(solar_os_frame_presenter_t *presenter)
         presenter->config.gfx);
     const uint16_t display_height = (uint16_t)solar_os_gfx_height(
         presenter->config.gfx);
+    if (presenter->config.fit == SOLAR_OS_FRAME_FIT_HEIGHT) {
+        uint32_t output_height = display_height;
+        uint32_t output_width =
+            ((uint32_t)presenter->config.width * output_height +
+             presenter->config.height / 2U) / presenter->config.height;
+        if (output_width > display_width) {
+            output_width = display_width;
+            output_height =
+                ((uint32_t)presenter->config.height * output_width +
+                 presenter->config.width / 2U) / presenter->config.width;
+        }
+        presenter->output_width = (uint16_t)output_width;
+        presenter->output_height = (uint16_t)output_height;
+        presenter->output_x =
+            (uint16_t)((display_width - presenter->output_width) / 2U);
+        presenter->output_y =
+            (uint16_t)((display_height - presenter->output_height) / 2U);
+        return;
+    }
     uint16_t scale_x2 = (uint16_t)(
         (uint32_t)display_width * 2U / presenter->config.width);
     const uint16_t height_scale_x2 = (uint16_t)(

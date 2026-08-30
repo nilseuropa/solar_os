@@ -37,9 +37,11 @@ typedef struct {
     uint8_t *shadow;
     uint8_t *line_buffer;
     uint8_t *line_buffer_alt;
+    uint8_t *frame_scratch;
     size_t buffer_size;
     size_t shadow_size;
     size_t line_buffer_size;
+    size_t frame_scratch_size;
     const uint8_t *indexed_surface_data;
     uint64_t shadow_valid_rows;
     uint16_t foreground_rgb565;

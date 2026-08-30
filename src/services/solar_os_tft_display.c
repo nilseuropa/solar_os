@@ -8,6 +8,10 @@
 #include "solar_os_display.h"
 #include "tft_ili9341.h"
 
+#ifndef SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ
+#define SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ 40000000U
+#endif
+
 typedef struct {
     bool active;
     bool primary;
@@ -234,7 +238,7 @@ static esp_err_t attach_tft(const char *name,
         .dc_pin = dc,
         .reset_pin = reset,
         .backlight_pin = backlight,
-        .spi_clock_hz = 40000000U,
+        .spi_clock_hz = SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ,
         .backlight_pwm_hz = 20000U,
         .width = st7796 ? 320 : 240,
         .height = st7796 ? 480 : 320,

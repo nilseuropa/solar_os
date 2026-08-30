@@ -13,6 +13,7 @@
 #include "solar_os_vector.h"
 #define ILI9341_RGB565_BLACK 0x0000
 #define ILI9341_RGB565_WHITE 0xffff
+#define ILI9341_DMA_LINES 4U
 
 static const char *TAG = "tft_ili9341";
 static tft_ili9341_t *active_display;
@@ -317,10 +318,17 @@ static esp_err_t ili9341_transmit_rendered_lines(
       display->line_buffer,
       display->line_buffer_alt,
   };
+  const size_t row_bytes = (size_t)width * 2U;
+  size_t rows_per_buffer = display->line_buffer_size / row_bytes;
+  if (rows_per_buffer == 0U) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  if (rows_per_buffer > height) rows_per_buffer = height;
   size_t queued = 0U;
+  size_t batch = 0U;
   esp_err_t transmit_err = ESP_OK;
-  for (uint16_t row = 0U; row < height; row++) {
-    const size_t slot = row & 1U;
+  for (uint16_t row = 0U; row < height;) {
+    const size_t slot = batch & 1U;
     if (queued == 2U) {
       spi_transaction_t *completed = NULL;
       transmit_err = spi_device_get_trans_result(
@@ -330,8 +338,17 @@ static esp_err_t ili9341_transmit_rendered_lines(
       }
       queued--;
     }
-    render(display, context, row, width, line_buffers[slot]);
-    transactions[slot].length = (size_t)width * 16U;
+    size_t rows = height - row;
+    if (rows > rows_per_buffer) rows = rows_per_buffer;
+    for (size_t offset = 0U; offset < rows; offset++) {
+      render(display, context, (uint16_t)(row + offset), width,
+             line_buffers[slot] + offset * row_bytes);
+    }
+    transactions[slot].length = rows * row_bytes * 8U;
+    /* ESP-IDF fills a zero RX length from TX length for full-duplex devices.
+     * Clear that derived value before reusing a descriptor for a shorter final
+     * band, or the transaction is rejected as RX-longer-than-TX. */
+    transactions[slot].rxlength = 0U;
     transactions[slot].tx_buffer = line_buffers[slot];
     transmit_err = spi_device_queue_trans(
         display->spi, &transactions[slot], portMAX_DELAY);
@@ -339,6 +356,8 @@ static esp_err_t ili9341_transmit_rendered_lines(
       break;
     }
     queued++;
+    row = (uint16_t)(row + rows);
+    batch++;
   }
   while (queued > 0U) {
     spi_transaction_t *completed = NULL;
@@ -682,26 +701,6 @@ esp_err_t tft_ili9341_present_surface(
   return ESP_OK;
 }
 
-static void ili9341_native_to_logical(const tft_ili9341_t *display,
-                                      uint16_t native_x, uint16_t native_y,
-                                      uint16_t *logical_x,
-                                      uint16_t *logical_y) {
-  const u8g2_cb_t *rotation = display->u8g2.cb;
-  if (rotation == U8G2_R1) {
-    *logical_x = native_y;
-    *logical_y = (uint16_t)(display->config.width - 1U - native_x);
-  } else if (rotation == U8G2_R2) {
-    *logical_x = (uint16_t)(display->config.width - 1U - native_x);
-    *logical_y = (uint16_t)(display->config.height - 1U - native_y);
-  } else if (rotation == U8G2_R3) {
-    *logical_x = (uint16_t)(display->config.height - 1U - native_y);
-    *logical_y = native_x;
-  } else {
-    *logical_x = native_x;
-    *logical_y = native_y;
-  }
-}
-
 static void ili9341_logical_to_native(const tft_ili9341_t *display,
                                       uint16_t logical_x,
                                       uint16_t logical_y,
@@ -730,52 +729,95 @@ static uint8_t ili9341_index2_pixel(const solar_os_display_raster_t *frame,
   return (uint8_t)((packed >> ((x & 3U) * 2U)) & 3U);
 }
 
-static void ili9341_frame_line(tft_ili9341_t *display,
-                               const solar_os_display_raster_t *frame,
-                               uint16_t native_x0,
-                               uint16_t native_x1,
-                               uint16_t native_y,
+static void ili9341_index2_set(uint8_t *data, uint16_t stride,
+                              uint16_t x, uint16_t y, uint8_t index) {
+  uint8_t *packed = &data[(size_t)y * stride + (x >> 2U)];
+  const unsigned shift = (x & 3U) * 2U;
+  *packed = (uint8_t)((*packed & (uint8_t)~(3U << shift)) |
+                      ((index & 3U) << shift));
+}
+
+static esp_err_t ili9341_prepare_native_frame(
+    tft_ili9341_t *display, const solar_os_display_raster_t *frame,
+    solar_os_display_raster_t *native_frame) {
+  *native_frame = *frame;
+  if (display->u8g2.cb == U8G2_R0) {
+    return ESP_OK;
+  }
+
+  const bool quarter_turn = display->u8g2.cb == U8G2_R1 ||
+                            display->u8g2.cb == U8G2_R3;
+  const uint16_t width = quarter_turn ?
+      frame->source_height : frame->source_width;
+  const uint16_t height = quarter_turn ?
+      frame->source_width : frame->source_height;
+  const uint16_t stride = (uint16_t)((width + 3U) / 4U);
+  const size_t size = (size_t)stride * height;
+  if (display->frame_scratch_size < size) {
+    uint8_t *scratch = heap_caps_malloc_prefer(
+        size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (scratch == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+    heap_caps_free(display->frame_scratch);
+    display->frame_scratch = scratch;
+    display->frame_scratch_size = size;
+  }
+  memset(display->frame_scratch, 0, size);
+  for (uint16_t source_y = 0U; source_y < frame->source_height; source_y++) {
+    for (uint16_t source_x = 0U; source_x < frame->source_width; source_x++) {
+      uint16_t target_x = source_x;
+      uint16_t target_y = source_y;
+      if (display->u8g2.cb == U8G2_R1) {
+        target_x = (uint16_t)(frame->source_height - 1U - source_y);
+        target_y = source_x;
+      } else if (display->u8g2.cb == U8G2_R2) {
+        target_x = (uint16_t)(frame->source_width - 1U - source_x);
+        target_y = (uint16_t)(frame->source_height - 1U - source_y);
+      } else if (display->u8g2.cb == U8G2_R3) {
+        target_x = source_y;
+        target_y = (uint16_t)(frame->source_width - 1U - source_x);
+      }
+      ili9341_index2_set(
+          display->frame_scratch, stride, target_x, target_y,
+          ili9341_index2_pixel(frame, source_x, source_y));
+    }
+  }
+  native_frame->data = display->frame_scratch;
+  native_frame->data_size = size;
+  native_frame->source_width = width;
+  native_frame->source_height = height;
+  native_frame->source_stride = stride;
+  return ESP_OK;
+}
+
+static void ili9341_frame_line(const solar_os_display_raster_t *frame,
+                               uint16_t output_width,
+                               uint16_t output_height,
+                               uint16_t output_y,
                                const uint16_t colors[4],
                                uint8_t *line_buffer) {
-  const bool varying_y = display->u8g2.cb == U8G2_R1 ||
-                         display->u8g2.cb == U8G2_R3;
-  const bool reverse = display->u8g2.cb == U8G2_R1 ||
-                       display->u8g2.cb == U8G2_R2;
-  const uint16_t output_count = (uint16_t)(native_x1 - native_x0 + 1U);
-  uint16_t logical_x = 0U;
-  uint16_t logical_y = 0U;
-  ili9341_native_to_logical(display, native_x0, native_y,
-                            &logical_x, &logical_y);
-  const uint16_t constant_source = varying_y ?
-      (uint16_t)(((uint32_t)(logical_x - frame->x) * frame->source_width) /
-                 frame->width) :
-      (uint16_t)(((uint32_t)(logical_y - frame->y) * frame->source_height) /
-                 frame->height);
-  const uint16_t variable_source_extent = varying_y ?
-      frame->source_height : frame->source_width;
-  const uint16_t variable_output_extent = varying_y ?
-      frame->height : frame->width;
-  uint16_t variable_source = 0U;
+  const uint16_t source_y = (uint16_t)(
+      (uint32_t)output_y * frame->source_height / output_height);
+  const uint8_t *source = frame->data +
+      (size_t)source_y * frame->source_stride;
+  uint16_t source_x = 0U;
   uint32_t scale_accumulator = 0U;
-
-  for (uint16_t logical_offset = 0U;
-       logical_offset < output_count;
-       logical_offset++) {
-    const uint16_t source_x = varying_y ?
-        constant_source : variable_source;
-    const uint16_t source_y = varying_y ?
-        variable_source : constant_source;
-    const uint8_t index = ili9341_index2_pixel(frame, source_x, source_y);
-    const size_t output_pixel = reverse ?
-        (size_t)(output_count - 1U - logical_offset) : logical_offset;
-    const size_t output = output_pixel * 2U;
-    const uint16_t color = colors[index];
-    line_buffer[output] = (uint8_t)(color >> 8U);
-    line_buffer[output + 1U] = (uint8_t)color;
-    scale_accumulator += variable_source_extent;
-    while (scale_accumulator >= variable_output_extent) {
-      scale_accumulator -= variable_output_extent;
-      variable_source++;
+  uint16_t swapped_colors[4];
+  for (size_t i = 0U; i < 4U; i++) {
+    swapped_colors[i] = __builtin_bswap16(colors[i]);
+  }
+  uint16_t *output = (uint16_t *)line_buffer;
+  for (uint16_t x = 0U; x < output_width; x++) {
+    const uint8_t packed = source[source_x >> 2U];
+    const uint8_t index =
+        (uint8_t)((packed >> ((source_x & 3U) * 2U)) & 3U);
+    output[x] = swapped_colors[index];
+    scale_accumulator += frame->source_width;
+    while (scale_accumulator >= output_width) {
+      scale_accumulator -= output_width;
+      source_x++;
     }
   }
 }
@@ -783,9 +825,7 @@ static void ili9341_frame_line(tft_ili9341_t *display,
 typedef struct {
   const solar_os_display_raster_t *frame;
   const uint16_t *colors;
-  uint16_t native_x0;
-  uint16_t native_x1;
-  uint16_t native_y0;
+  uint16_t native_height;
 } ili9341_frame_lines_t;
 
 static void ili9341_render_frame_line(tft_ili9341_t *display,
@@ -793,11 +833,9 @@ static void ili9341_render_frame_line(tft_ili9341_t *display,
                                       uint16_t row,
                                       uint16_t width,
                                       uint8_t *output) {
-  (void)width;
+  (void)display;
   const ili9341_frame_lines_t *lines = context;
-  ili9341_frame_line(display, lines->frame,
-                     lines->native_x0, lines->native_x1,
-                     (uint16_t)(lines->native_y0 + row),
+  ili9341_frame_line(lines->frame, width, lines->native_height, row,
                      lines->colors, output);
 }
 
@@ -848,6 +886,12 @@ esp_err_t tft_ili9341_present_frame(
     if (corner_y[corner] > native_y1) native_y1 = corner_y[corner];
   }
 
+  const uint16_t native_line_width = (uint16_t)(native_x1 - native_x0 + 1U);
+  const uint16_t native_height = (uint16_t)(native_y1 - native_y0 + 1U);
+  solar_os_display_raster_t native_frame;
+  ESP_RETURN_ON_ERROR(
+      ili9341_prepare_native_frame(display, frame, &native_frame), TAG,
+      "frame rotation failed");
   ESP_RETURN_ON_ERROR(
       ili9341_set_window(display, native_x0, native_y0, native_x1, native_y1),
       TAG, "frame window failed");
@@ -855,24 +899,20 @@ esp_err_t tft_ili9341_present_frame(
                       "frame ram write failed");
   ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
                       "frame dc data failed");
-
-  const uint16_t native_line_width = (uint16_t)(native_x1 - native_x0 + 1U);
   uint16_t colors[4];
   for (size_t i = 0U; i < 4U; i++) {
     colors[i] = frame->palette_rgb565[
         frame->palette_inverted ? 3U - i : i];
   }
   const ili9341_frame_lines_t lines = {
-      .frame = frame,
+      .frame = &native_frame,
       .colors = colors,
-      .native_x0 = native_x0,
-      .native_x1 = native_x1,
-      .native_y0 = native_y0,
+      .native_height = native_height,
   };
   ESP_RETURN_ON_ERROR(
       ili9341_transmit_rendered_lines(
           display, native_line_width,
-          (uint16_t)(native_y1 - native_y0 + 1U),
+          native_height,
           ili9341_render_frame_line, &lines),
       TAG, "frame transmit failed");
 
@@ -1097,13 +1137,15 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
       .mode = 0,
       .spics_io_num = display->config.cs_pin,
       .queue_size = 2,
+      .flags = SPI_DEVICE_HALFDUPLEX,
   };
   ESP_RETURN_ON_ERROR(
       solar_os_bus_spi_add_device(display->config.spi_bus, &device_config,
                                   &display->spi),
       TAG, "spi add device failed");
 
-  display->line_buffer_size = display->config.width * 2U;
+  display->line_buffer_size =
+      display->config.width * 2U * ILI9341_DMA_LINES;
   /* SPI transmits directly from this line buffer, so it must be internal DMA
    * memory. */
   display->line_buffer = heap_caps_malloc(display->line_buffer_size,
@@ -1214,6 +1256,11 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
   if (display->shadow != NULL) {
     heap_caps_free(display->shadow);
     display->shadow = NULL;
+  }
+  if (display->frame_scratch != NULL) {
+    heap_caps_free(display->frame_scratch);
+    display->frame_scratch = NULL;
+    display->frame_scratch_size = 0U;
   }
 
   if (active_display == display) {

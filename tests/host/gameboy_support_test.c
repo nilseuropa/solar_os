@@ -128,6 +128,21 @@ static void test_frame_index2(void) {
       !solar_os_gameboy_video_scanline(bitmap, sizeof(bitmap) - 1U, line, 0));
 }
 
+static void test_theme_palette(void) {
+  uint16_t palette[4] = {0};
+  solar_os_gameboy_video_theme_palette(0x000000U, 0xffffffU, palette);
+  assert(palette[0] == 0xffffU);
+  assert(palette[1] == 0xad55U);
+  assert(palette[2] == 0x52aaU);
+  assert(palette[3] == 0x0000U);
+
+  solar_os_gameboy_video_theme_palette(0xff0000U, 0x0000ffU, palette);
+  assert(palette[0] == 0x001fU);
+  assert(palette[1] == 0x5015U);
+  assert(palette[2] == 0xa80aU);
+  assert(palette[3] == 0xf800U);
+}
+
 static void test_vendored_core_frame(void) {
   memset(core_rom, 0, sizeof(core_rom));
   core_rom[0x100U] = 0xC3U; /* JP 0x0150, past the cartridge header. */
@@ -192,6 +207,7 @@ static void test_vendored_apu_output(void) {
 int main(void) {
   test_rom_validation();
   test_frame_index2();
+  test_theme_palette();
   test_vendored_core_frame();
   test_vendored_apu_output();
   puts("gameboy support tests passed");

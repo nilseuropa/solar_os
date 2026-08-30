@@ -2,15 +2,25 @@
 
 #include "solar_os_frame_presenter.h"
 #include "solar_os_gameboy_video.h"
+#include "solar_os_display.h"
 
 static solar_os_frame_presenter_t *presenter;
 
-static const uint16_t gameboy_palette_rgb565[4] = {
+static uint16_t gameboy_palette_rgb565[4] = {
     0xffffU,
     0xad55U,
     0x52aaU,
     0x0000U,
 };
+
+static void gameboy_refresh_palette(void)
+{
+    uint32_t foreground = 0x000000U;
+    uint32_t background = 0xffffffU;
+    (void)solar_os_display_get_colors(&foreground, &background);
+    solar_os_gameboy_video_theme_palette(
+        foreground, background, gameboy_palette_rgb565);
+}
 
 esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
 {
@@ -20,6 +30,7 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
             return ESP_ERR_INVALID_STATE;
         }
     }
+    gameboy_refresh_palette();
     const solar_os_frame_presenter_config_t config = {
         .gfx = gfx,
         .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
@@ -28,7 +39,8 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
         .stride = SOLAR_OS_GAMEBOY_BITMAP_STRIDE,
         .palette_rgb565 = gameboy_palette_rgb565,
         .palette_size = 4U,
-        .preferred_fps = 0U,
+        .preferred_fps = 25U,
+        .fit = SOLAR_OS_FRAME_FIT_HEIGHT,
         .allow_mono_fallback = true,
         .request_high_refresh = true,
     };
@@ -37,6 +49,7 @@ esp_err_t solar_os_gameboy_presenter_init(solar_os_gfx_t *gfx)
 
 esp_err_t solar_os_gameboy_presenter_resume(void)
 {
+    gameboy_refresh_palette();
     return solar_os_frame_presenter_resume(presenter);
 }
 

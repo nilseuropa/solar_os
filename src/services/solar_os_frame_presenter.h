@@ -10,6 +10,11 @@
 
 typedef struct solar_os_frame_presenter solar_os_frame_presenter_t;
 
+typedef enum {
+    SOLAR_OS_FRAME_FIT_DEFAULT = 0,
+    SOLAR_OS_FRAME_FIT_HEIGHT,
+} solar_os_frame_fit_t;
+
 typedef struct {
     solar_os_gfx_t *gfx;
     solar_os_display_format_t format;
@@ -19,6 +24,7 @@ typedef struct {
     const uint16_t *palette_rgb565;
     size_t palette_size;
     uint16_t preferred_fps;
+    solar_os_frame_fit_t fit;
     bool allow_mono_fallback;
     bool request_high_refresh;
 } solar_os_frame_presenter_config_t;
