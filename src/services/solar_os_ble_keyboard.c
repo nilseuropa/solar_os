@@ -1703,6 +1703,23 @@ static void handle_keyboard_report(uint8_t map_index,
         return;
     }
 
+    const uint8_t changed_modifiers = (uint8_t)(previous_modifiers ^ modifiers);
+    for (uint8_t bit = 0U; bit < 8U; bit++) {
+        const uint8_t mask = (uint8_t)(1U << bit);
+        if ((changed_modifiers & mask) == 0U) {
+            continue;
+        }
+        const uint16_t usage = (uint16_t)(0xe0U + bit);
+        (void)solar_os_input_write_key(
+            input_source,
+            usage,
+            usage,
+            0U,
+            modifiers,
+            (modifiers & mask) != 0U ? SOLAR_OS_INPUT_KEY_PRESS :
+                                      SOLAR_OS_INPUT_KEY_RELEASE);
+    }
+
     for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
         const uint8_t key = previous_keys[i];
         if (key == 0 || key_in_report(key, keys)) {

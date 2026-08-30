@@ -287,8 +287,12 @@ static void ili9341_shadow_update(tft_ili9341_t *display,
 
   const size_t offset =
       ((size_t)y_pos * display->buffer_row_bytes) + ((size_t)x_pos * 8U);
+  const bool row_was_valid =
+      (display->shadow_valid_rows & (1ULL << y_pos)) != 0U;
   memcpy(&display->shadow[offset], tile_data, (size_t)count * 8U);
-  display->shadow_valid_rows |= (1ULL << y_pos);
+  if (row_was_valid || (x_pos == 0U && count == display->tile_width)) {
+    display->shadow_valid_rows |= (1ULL << y_pos);
+  }
 }
 
 static void ili9341_line_from_tile(tft_ili9341_t *display,

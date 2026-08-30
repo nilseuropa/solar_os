@@ -926,13 +926,16 @@ static void display_prompt_after_failed_launch(void)
     }
 }
 
-static void show_session_overlay(const solar_os_session_entry_t *session)
+static void show_session_overlay(const solar_os_session_entry_t *session,
+                                 bool after_next_frame)
 {
     if (session == NULL || session->title[0] == '\0' || session_state.display_u8g2 == NULL) {
         return;
     }
     if (session_state.overlay_fn != NULL) {
-        session_state.overlay_fn(session->title, session_state.user);
+        session_state.overlay_fn(session->title,
+                                 after_next_frame,
+                                 session_state.user);
     }
 }
 
@@ -1111,14 +1114,17 @@ static bool switch_to_session(solar_os_session_entry_t *session, bool show_overl
                   app_display_name(session->app));
     solar_os_session_entry_t *previous_session = session_state.foreground_session;
     suspend_foreground_session();
+    if (show_overlay) {
+        show_session_overlay(session, true);
+    }
     if (!start_or_resume_session(session)) {
         if (previous_session != NULL && previous_session->used) {
+            if (show_overlay) {
+                show_session_overlay(previous_session, true);
+            }
             (void)start_or_resume_session(previous_session);
         }
         return false;
-    }
-    if (show_overlay) {
-        show_session_overlay(session);
     }
     return true;
 }
@@ -2226,6 +2232,20 @@ bool solar_os_sessions_cycle_input_focus_previous(void)
         return previous == current || switch_to_session(previous, true);
     }
     return switch_detached_display_session(current, previous);
+}
+
+void solar_os_sessions_show_input_focus_overlay(void)
+{
+    char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_session_entry_t *session = session_state.foreground_session;
+    if (session_copy_input_focus(target_name, sizeof(target_name))) {
+        solar_os_session_entry_t *focused =
+            session_active_for_display(target_name);
+        if (focused != NULL) {
+            session = focused;
+        }
+    }
+    show_session_overlay(session, false);
 }
 
 void solar_os_sessions_mark_foreground_dirty(void)
