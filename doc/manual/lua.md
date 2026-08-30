@@ -650,9 +650,10 @@ headless shell it raises an error because there is no foreground display.
 `begin(target)` claims a verified named display target, such as one returned by
 `solaros.expansion.devices()`, until `end()` or script cleanup. Colors are
 `WHITE`, `LIGHT`, `DARK`, `BLACK`, `gray(level)` with `0..GRAY_MAX`, and
-`rgb(red, green, blue)` with `0..255` components. Color TFT targets retain RGB
-colors in an indexed canvas; one-bit targets render their luminance with the
-existing ordered dither. Fonts
+`rgb(red, green, blue)` with `0..255` components. On color TFT targets, the
+named colors and `gray(level)` span the `setterm foreground` and `background`
+theme, while `rgb(...)` remains literal. One-bit targets keep the existing
+luminance and ordered-dither path. Fonts
 are `FONT_SMALL`, `FONT_MONO`, `FONT_BOLD`, regular document fonts
 `FONT_MONO_12` through `FONT_MONO_20`, bold document fonts `FONT_BOLD_12`
 through `FONT_BOLD_20`, and matching italic/bold-italic constants. Italic

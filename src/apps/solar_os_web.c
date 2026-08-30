@@ -117,7 +117,7 @@ typedef enum {
 typedef struct {
     char src[WEB_URL_MAX];
     char alt[WEB_LINK_TITLE_MAX];
-    uint8_t *gray;
+    uint8_t *pixels;
     uint32_t width;
     uint32_t height;
     uint16_t draw_width;
@@ -125,6 +125,7 @@ typedef struct {
     bool attempted;
     bool loaded;
     bool truncated;
+    uint8_t channels;
     int status_code;
     web_image_decoder_t decoder;
 } web_image_t;
@@ -161,6 +162,7 @@ typedef struct {
     bool loaded;
     bool redraw;
     bool html_truncated;
+    bool color_images;
     volatile bool stop_requested;
     volatile bool task_done;
     TaskHandle_t task;
@@ -278,27 +280,28 @@ static void web_free_state(void)
 
 static void web_free_image_data(web_image_t *image)
 {
-    if (image == NULL || image->gray == NULL) {
+    if (image == NULL || image->pixels == NULL) {
         return;
     }
 
     switch (image->decoder) {
     case WEB_IMAGE_DECODE_WEBP:
-        solar_os_webp_free(image->gray);
+        solar_os_webp_free(image->pixels);
         break;
     case WEB_IMAGE_DECODE_STB:
     case WEB_IMAGE_DECODE_NONE:
     default:
-        solar_os_stb_image_free(image->gray);
+        solar_os_stb_image_free(image->pixels);
         break;
     }
 
-    image->gray = NULL;
+    image->pixels = NULL;
     image->width = 0;
     image->height = 0;
     image->draw_width = 0;
     image->draw_height = 0;
     image->loaded = false;
+    image->channels = 0;
     image->decoder = WEB_IMAGE_DECODE_NONE;
 }
 
@@ -1656,6 +1659,25 @@ static solar_os_gfx_color_t web_gray_to_color(uint8_t gray)
     return solar_os_gfx_gray(level);
 }
 
+static uint8_t web_quantize_rgb_channel(uint8_t value)
+{
+    return (uint8_t)((((unsigned)value * 5U + 127U) / 255U) * 51U);
+}
+
+static solar_os_gfx_color_t web_image_pixel_color(const web_image_t *image,
+                                                  uint32_t x,
+                                                  uint32_t y)
+{
+    const size_t pixel = (size_t)y * image->width + x;
+    if (image->channels == 3U) {
+        const uint8_t *rgb = &image->pixels[pixel * 3U];
+        return solar_os_gfx_rgb(web_quantize_rgb_channel(rgb[0]),
+                                web_quantize_rgb_channel(rgb[1]),
+                                web_quantize_rgb_channel(rgb[2]));
+    }
+    return web_gray_to_color(image->pixels[pixel]);
+}
+
 static bool web_bytes_are_webp(const uint8_t *data, size_t len)
 {
     return data != NULL &&
@@ -1834,7 +1856,7 @@ static esp_err_t web_decode_image_bytes(web_image_t *image,
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint8_t *gray = NULL;
+    uint8_t *pixels = NULL;
     uint32_t width = 0;
     uint32_t height = 0;
     web_image_decoder_t decoder = WEB_IMAGE_DECODE_STB;
@@ -1843,22 +1865,36 @@ static esp_err_t web_decode_image_bytes(web_image_t *image,
 
     esp_err_t err;
     if (decoder == WEB_IMAGE_DECODE_WEBP) {
-        err = solar_os_webp_decode_gray(data,
-                                        len,
-                                        WEB_IMAGE_MAX_PIXELS,
-                                        &gray,
-                                        &width,
-                                        &height);
+        err = web.color_images ?
+            solar_os_webp_decode_rgb(data,
+                                     len,
+                                     WEB_IMAGE_MAX_PIXELS,
+                                     &pixels,
+                                     &width,
+                                     &height) :
+            solar_os_webp_decode_gray(data,
+                                      len,
+                                      WEB_IMAGE_MAX_PIXELS,
+                                      &pixels,
+                                      &width,
+                                      &height);
     } else {
         decoder = WEB_IMAGE_DECODE_STB;
-        err = solar_os_stb_decode_gray(data,
-                                       len,
-                                       WEB_IMAGE_MAX_PIXELS,
-                                       &gray,
-                                       &width,
-                                       &height);
+        err = web.color_images ?
+            solar_os_stb_decode_rgb(data,
+                                    len,
+                                    WEB_IMAGE_MAX_PIXELS,
+                                    &pixels,
+                                    &width,
+                                    &height) :
+            solar_os_stb_decode_gray(data,
+                                     len,
+                                     WEB_IMAGE_MAX_PIXELS,
+                                     &pixels,
+                                     &width,
+                                     &height);
     }
-    if (err != ESP_OK || gray == NULL || width == 0 || height == 0) {
+    if (err != ESP_OK || pixels == NULL || width == 0 || height == 0) {
         SOLAR_OS_LOGW(TAG,
                       "%s image decode failed: %s src=%s reason=%s bytes=%u",
                       format,
@@ -1872,7 +1908,8 @@ static esp_err_t web_decode_image_bytes(web_image_t *image,
     }
 
     web_free_image_data(image);
-    image->gray = gray;
+    image->pixels = pixels;
+    image->channels = web.color_images ? 3U : 1U;
     image->decoder = decoder;
     web_apply_image_layout(image, width, height, src, format);
     return ESP_OK;
@@ -2538,7 +2575,7 @@ static void web_draw_image(solar_os_gfx_t *gfx,
 {
     if (gfx == NULL ||
         image == NULL ||
-        image->gray == NULL ||
+        image->pixels == NULL ||
         image->width == 0 ||
         image->height == 0 ||
         draw_width <= 0 ||
@@ -2556,8 +2593,7 @@ static void web_draw_image(solar_os_gfx_t *gfx,
         for (int dx = 0; dx < draw_width; dx++) {
             const uint32_t sx =
                 (uint32_t)(((uint64_t)dx * image->width) / (uint32_t)draw_width);
-            const uint8_t gray = image->gray[(size_t)sy * image->width + sx];
-            const solar_os_gfx_color_t color = web_gray_to_color(gray);
+            const solar_os_gfx_color_t color = web_image_pixel_color(image, sx, sy);
             if (!run_active) {
                 run_active = true;
                 run_color = color;
@@ -3146,6 +3182,8 @@ static esp_err_t web_start(solar_os_context_t *ctx)
     web.active = true;
     web.suspended = false;
     solar_os_context_set_graphics_active(ctx, true);
+    web.color_images =
+        solar_os_gfx_format(solar_os_context_gfx(ctx)) == SOLAR_OS_DISPLAY_FORMAT_INDEX8;
     (void)web_start_load(ctx, url, false);
     return ESP_OK;
 }

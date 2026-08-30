@@ -1409,11 +1409,12 @@ Colors:
 - `BLACK`
 - `GRAY_MAX`: maximum grayscale level accepted by `gray(level)`, currently `16`.
 
-`gray(level)` returns an encoded grayscale color. Level `0` is black and
-`GRAY_MAX` is white. `rgb(red, green, blue)` returns an encoded RGB color from
-three `0..255` components. Color-capable TFT targets preserve these values in
-an indexed-color canvas. One-bit targets convert them to luminance and use the
-existing ordered dither.
+`gray(level)` returns a semantic shade from the `setterm foreground` color at
+level `0` to the `setterm background` color at `GRAY_MAX`; `BLACK`, `DARK`,
+`LIGHT`, and `WHITE` use the same theme range. `rgb(red, green, blue)` returns
+an explicit RGB color from three `0..255` components. Color-capable TFT targets
+preserve explicit RGB values in an indexed-color canvas. One-bit targets keep
+the existing luminance and ordered-dither path.
 
 Fonts:
 

@@ -12,6 +12,12 @@
   ordered-dither path. Python and Lua graphics gained `rgb(red, green, blue)`.
   Sketch now uses a white, red, blue, and black palette, saves interoperable
   indexed-color PNG files, and imports PNG, JPEG, and GIF images in color.
+  View and Web preserve decoded image colors on indexed-color displays while
+  retaining their original grayscale buffers on one-bit displays. View now
+  scales fit-mode JPEG output during color conversion, avoiding the full RGB
+  allocation peak for large photographs. Semantic GUI colors now use the
+  persistent `setterm foreground` and `background` colors on color displays;
+  explicit image, canvas, and script RGB colors remain literal.
   Display-targeted absolute pointer coordinates now follow that display's
   `setterm orientation` setting.
 - **4.10.1** — 2026-08-30 — Added Sketch, the first native pointer-driven GUI

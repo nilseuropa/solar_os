@@ -1403,7 +1403,10 @@ Controls:
 
 Graphical image viewer. It supports the image formats compiled into the current
 firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF
-playback when the media package is enabled.
+playback when the media package is enabled. Images are decoded as RGB on a
+negotiated indexed-color display and as grayscale on a one-bit display. In the
+default fit mode, JPEG color conversion writes display-sized output directly,
+so a large source photograph does not require a full-size RGB destination.
 
 Usage:
 
@@ -1468,7 +1471,9 @@ Controls:
 ## web
 
 Simple graphical web browser for lightweight HTML pages. It shares document and
-image rendering infrastructure with `reader` where possible.
+image rendering infrastructure with `reader` where possible. Embedded and
+direct PNG, JPEG, GIF, and WebP images retain color on indexed-color displays;
+one-bit displays keep the grayscale decode and dither path.
 
 Usage:
 

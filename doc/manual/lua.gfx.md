@@ -62,9 +62,10 @@ gfx.sprite(20, 20, 8, 8, person)
 ## Colors
 
 Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
-`gfx.rgb(red, green, blue)`. RGB components are `0..255`. Color TFTs retain the
-color in a lazily allocated indexed canvas; one-bit displays dither its
-luminance.
+`gfx.rgb(red, green, blue)`. RGB components are `0..255`. On color TFTs, the
+named colors and `gray(level)` span the `setterm foreground` and `background`
+theme, while `rgb(...)` stays literal in the lazily allocated indexed canvas.
+One-bit displays keep the existing luminance and dither path.
 
 ## Quick reference
 

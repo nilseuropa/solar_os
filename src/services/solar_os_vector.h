@@ -16,3 +16,9 @@ void solar_os_vector_rgba_to_gray_scaled(uint8_t *dst_gray,
                                          const uint8_t *src_rgba,
                                          uint32_t src_width,
                                          uint32_t src_height);
+void solar_os_vector_rgba_to_rgb_scaled(uint8_t *dst_rgb,
+                                        uint32_t dst_width,
+                                        uint32_t dst_height,
+                                        const uint8_t *src_rgba,
+                                        uint32_t src_width,
+                                        uint32_t src_height);

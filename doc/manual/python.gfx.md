@@ -53,9 +53,11 @@ foreground display.
 ## Colors and dimensions
 
 Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
-`gfx.rgb(red, green, blue)`. RGB components are `0..255`. Color TFTs retain the
-color in a lazily allocated indexed canvas; one-bit targets dither its
-luminance. Do not use color-name strings or guessed integer values. Read dimensions with
+`gfx.rgb(red, green, blue)`. RGB components are `0..255`. On color TFTs, the
+named colors and `gray(level)` span the `setterm foreground` and `background`
+theme, while `rgb(...)` stays literal in the lazily allocated indexed canvas.
+One-bit targets keep the existing luminance and dither path. Do not use
+color-name strings or guessed integer values. Read dimensions with
 `width()`, `height()`, or `size()` rather than assuming a panel size.
 
 ## Bitmaps and sprites

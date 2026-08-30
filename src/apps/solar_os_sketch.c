@@ -80,10 +80,10 @@ static void *sketch_state_storage;
 #define sketch (*(sketch_state_t *)sketch_state_storage)
 
 static const solar_os_gfx_color_t sketch_colors[4] = {
-    SOLAR_OS_GFX_COLOR_WHITE,
+    SOLAR_OS_GFX_COLOR_RGB_FLAG | 0xffffffU,
     SOLAR_OS_GFX_COLOR_RGB_FLAG | 0xe53935U,
     SOLAR_OS_GFX_COLOR_RGB_FLAG | 0x1e63d5U,
-    SOLAR_OS_GFX_COLOR_BLACK,
+    SOLAR_OS_GFX_COLOR_RGB_FLAG | 0x000000U,
 };
 
 static bool sketch_is_shape_tool(void);

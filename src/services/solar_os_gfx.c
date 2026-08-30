@@ -12,8 +12,15 @@
 
 #define GFX_INDEX8_PALETTE_SIZE 256U
 #define GFX_INDEX8_COLOR_COUNT 216U
-#define GFX_INDEX8_GRAY_COUNT 40U
+#define GFX_INDEX8_LITERAL_GRAY_COUNT 23U
+#define GFX_INDEX8_THEME_COUNT 17U
+#define GFX_INDEX8_THEME_BASE \
+    (GFX_INDEX8_COLOR_COUNT + GFX_INDEX8_LITERAL_GRAY_COUNT)
 #define GFX_DIRTY_TILE_SIZE 8U
+
+_Static_assert(GFX_INDEX8_THEME_BASE + GFX_INDEX8_THEME_COUNT ==
+                   GFX_INDEX8_PALETTE_SIZE,
+               "INDEX8 palette layout must fill all entries");
 
 struct solar_os_gfx_index8_surface {
     solar_os_display_surface_t surface;
@@ -21,9 +28,14 @@ struct solar_os_gfx_index8_surface {
     uint8_t *dirty;
     uint16_t *palette;
     uint8_t draw_index;
+    uint32_t theme_foreground_rgb888;
+    uint32_t theme_background_rgb888;
 };
 
 static const char *TAG = "gfx";
+
+static bool gfx_uses_index8(const solar_os_gfx_t *gfx);
+static void gfx_mark_index8_all_dirty(solar_os_gfx_t *gfx);
 
 static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
 {
@@ -151,13 +163,31 @@ static uint8_t gfx_index8_for_rgb888(uint32_t rgb888)
     const uint8_t blue = (uint8_t)rgb888;
     if (red == green && green == blue) {
         return (uint8_t)(GFX_INDEX8_COLOR_COUNT +
-                         ((unsigned)red * (GFX_INDEX8_GRAY_COUNT - 1U) + 127U) /
-                             255U);
+            ((unsigned)red * (GFX_INDEX8_LITERAL_GRAY_COUNT - 1U) + 127U) /
+                255U);
     }
     const unsigned red_level = ((unsigned)red * 5U + 127U) / 255U;
     const unsigned green_level = ((unsigned)green * 5U + 127U) / 255U;
     const unsigned blue_level = ((unsigned)blue * 5U + 127U) / 255U;
     return (uint8_t)(red_level * 36U + green_level * 6U + blue_level);
+}
+
+static uint8_t gfx_index8_for_color(solar_os_gfx_color_t color)
+{
+    if (gfx_color_is_rgb(color)) {
+        return gfx_index8_for_rgb888(gfx_color_rgb888(color));
+    }
+
+    const unsigned threshold = gfx_dither_threshold(color);
+    return (uint8_t)(GFX_INDEX8_THEME_BASE + threshold);
+}
+
+static uint8_t gfx_blend_channel(uint8_t foreground,
+                                 uint8_t background,
+                                 unsigned background_weight)
+{
+    return (uint8_t)(((unsigned)foreground * (255U - background_weight) +
+                      (unsigned)background * background_weight + 127U) / 255U);
 }
 
 static void gfx_build_index8_palette(solar_os_gfx_t *gfx)
@@ -171,23 +201,62 @@ static void gfx_build_index8_palette(solar_os_gfx_t *gfx)
         value /= 6U;
         uint8_t green = (uint8_t)((value % 6U) * 255U / 5U);
         uint8_t red = (uint8_t)((value / 6U) * 255U / 5U);
-        if (gfx->palette_inverted) {
-            red = (uint8_t)(255U - red);
-            green = (uint8_t)(255U - green);
-            blue = (uint8_t)(255U - blue);
-        }
         gfx->index8->palette[index] = gfx_rgb888_to_rgb565(
             ((uint32_t)red << 16U) | ((uint32_t)green << 8U) | blue);
     }
-    for (unsigned gray = 0; gray < GFX_INDEX8_GRAY_COUNT; gray++) {
-        uint8_t level = (uint8_t)(gray * 255U / (GFX_INDEX8_GRAY_COUNT - 1U));
-        if (gfx->palette_inverted) {
-            level = (uint8_t)(255U - level);
-        }
+    for (unsigned gray = 0; gray < GFX_INDEX8_LITERAL_GRAY_COUNT; gray++) {
+        const uint8_t level = (uint8_t)(
+            gray * 255U / (GFX_INDEX8_LITERAL_GRAY_COUNT - 1U));
         gfx->index8->palette[GFX_INDEX8_COLOR_COUNT + gray] =
             gfx_rgb888_to_rgb565(((uint32_t)level << 16U) |
                                  ((uint32_t)level << 8U) | level);
     }
+
+    uint32_t foreground = 0x000000U;
+    uint32_t background = 0xffffffU;
+    (void)solar_os_display_get_colors(&foreground, &background);
+    gfx->index8->theme_foreground_rgb888 = foreground;
+    gfx->index8->theme_background_rgb888 = background;
+    if (gfx->palette_inverted) {
+        const uint32_t swap = foreground;
+        foreground = background;
+        background = swap;
+    }
+    for (unsigned level = 0; level < GFX_INDEX8_THEME_COUNT; level++) {
+        const unsigned background_weight =
+            level * 255U / (GFX_INDEX8_THEME_COUNT - 1U);
+        const uint8_t red = gfx_blend_channel((uint8_t)(foreground >> 16U),
+                                              (uint8_t)(background >> 16U),
+                                              background_weight);
+        const uint8_t green = gfx_blend_channel((uint8_t)(foreground >> 8U),
+                                                (uint8_t)(background >> 8U),
+                                                background_weight);
+        const uint8_t blue = gfx_blend_channel((uint8_t)foreground,
+                                               (uint8_t)background,
+                                               background_weight);
+        gfx->index8->palette[GFX_INDEX8_THEME_BASE + level] =
+            gfx_rgb888_to_rgb565(((uint32_t)red << 16U) |
+                                 ((uint32_t)green << 8U) | blue);
+    }
+}
+
+static void gfx_sync_index8_theme(solar_os_gfx_t *gfx)
+{
+    if (!gfx_uses_index8(gfx)) {
+        return;
+    }
+
+    uint32_t foreground = 0;
+    uint32_t background = 0;
+    if (solar_os_display_get_colors(&foreground, &background) != ESP_OK ||
+        (foreground == gfx->index8->theme_foreground_rgb888 &&
+         background == gfx->index8->theme_background_rgb888)) {
+        return;
+    }
+
+    gfx_build_index8_palette(gfx);
+    gfx_mark_index8_all_dirty(gfx);
+    gfx->dirty = true;
 }
 
 static bool gfx_uses_index8(const solar_os_gfx_t *gfx)
@@ -405,7 +474,7 @@ esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *gfx)
     };
     gfx->index8 = index8;
     gfx_build_index8_palette(gfx);
-    index8->draw_index = gfx_index8_for_rgb888(gfx_color_rgb888(gfx->color));
+    index8->draw_index = gfx_index8_for_color(gfx->color);
     gfx_mark_index8_all_dirty(gfx);
     gfx->dirty = true;
     SOLAR_OS_LOGI(TAG, "INDEX8 surface ready: %ux%u, %u external bytes",
@@ -671,7 +740,7 @@ void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
 
     gfx->color = color;
     if (gfx_uses_index8(gfx)) {
-        gfx->index8->draw_index = gfx_index8_for_rgb888(gfx_color_rgb888(color));
+        gfx->index8->draw_index = gfx_index8_for_color(color);
     }
 }
 
@@ -735,12 +804,12 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
     const solar_os_gfx_color_t previous_color = gfx->color;
     gfx->color = color;
     if (gfx_uses_index8(gfx)) {
-        const uint8_t index = gfx_index8_for_rgb888(gfx_color_rgb888(color));
+        const uint8_t index = gfx_index8_for_color(color);
         memset(gfx->index8->pixels, index, gfx->index8->surface.data_size);
         gfx_mark_index8_all_dirty(gfx);
         gfx->color = previous_color;
         gfx->index8->draw_index =
-            gfx_index8_for_rgb888(gfx_color_rgb888(previous_color));
+            gfx_index8_for_color(previous_color);
         gfx_mark_dirty(gfx);
         return;
     }
@@ -1061,7 +1130,7 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
     uint8_t indices[4] = {0};
     if (gfx_uses_index8(gfx)) {
         for (size_t index = 0; index < 4; index++) {
-            indices[index] = gfx_index8_for_rgb888(gfx_color_rgb888(palette[index]));
+            indices[index] = gfx_index8_for_color(palette[index]);
         }
     }
     for (int row = 0; row < height; row++) {
@@ -1146,6 +1215,7 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
     }
 
     if (gfx_uses_index8(gfx)) {
+        gfx_sync_index8_theme(gfx);
         if (solar_os_display_present_surface(
                 gfx->u8g2, &gfx->index8->surface) == ESP_OK) {
             memset(gfx->index8->dirty, 0, gfx->index8->surface.dirty_size);
