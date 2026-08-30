@@ -17,6 +17,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_text_search.h"
 #include "solar_os_writer_buffer.h"
 #include "solar_os_writer_files.h"
 
@@ -78,6 +79,7 @@ typedef struct {
     char dialog_input[WRITER_DIALOG_INPUT_MAX];
     size_t dialog_len;
     char replace_find[WRITER_DIALOG_INPUT_MAX];
+    solar_os_text_search_state_t search;
     char message[WRITER_MESSAGE_MAX];
 } writer_state_t;
 
@@ -765,8 +767,7 @@ static void writer_begin_dialog(writer_dialog_t dialog, const char *initial)
 
 static bool writer_find_from(const char *query, size_t *match_start)
 {
-    const size_t query_len = strlen(query);
-    if (query_len == 0) {
+    if (query == NULL || query[0] == '\0') {
         return false;
     }
     char *flat = NULL;
@@ -774,18 +775,16 @@ static bool writer_find_from(const char *query, size_t *match_start)
     if (solar_os_writer_buffer_flatten(&writer.buffer, &flat, &len) != ESP_OK) {
         return false;
     }
-    bool found = false;
-    size_t start = writer.cursor < len ? writer.cursor : 0;
-    for (size_t pass = 0; pass < 2 && !found; pass++) {
-        const size_t begin = pass == 0 ? start : 0;
-        const size_t limit = pass == 0 ? len : start;
-        for (size_t i = begin; i + query_len <= limit; i++) {
-            if (memcmp(&flat[i], query, query_len) == 0) {
-                *match_start = i;
-                found = true;
-                break;
-            }
-        }
+    solar_os_text_search_match_t match;
+    const bool found = solar_os_text_search_find(flat,
+                                                 len,
+                                                 query,
+                                                 writer.cursor,
+                                                 false,
+                                                 SOLAR_OS_TEXT_SEARCH_FORWARD,
+                                                 &match);
+    if (found) {
+        *match_start = match.offset;
     }
     solar_os_memory_free(flat);
     return found;
@@ -793,6 +792,11 @@ static bool writer_find_from(const char *query, size_t *match_start)
 
 static void writer_submit_find(const char *query)
 {
+    if (!solar_os_text_search_set_query(&writer.search, query)) {
+        writer_set_message("empty search");
+        writer.dialog = WRITER_DIALOG_NONE;
+        return;
+    }
     size_t match = 0;
     if (!writer_find_from(query, &match)) {
         writer_set_message("not found");
@@ -801,6 +805,9 @@ static void writer_submit_find(const char *query)
     }
     writer.selection_anchor = match;
     writer.cursor = match + strlen(query);
+    writer.search.match.offset = match;
+    writer.search.match.length = strlen(query);
+    writer.search.match_valid = true;
     writer.layout_pending = true;
     writer.render_pending = true;
     writer.dialog = WRITER_DIALOG_NONE;
@@ -1056,7 +1063,14 @@ static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
         break;
     case 0x02U: writer_wrap("**", "**"); break;
     case 0x03U: writer_copy_selection(false); break;
-    case 0x06U: writer_begin_dialog(WRITER_DIALOG_FIND, ""); break;
+    case 0x06U: writer_begin_dialog(WRITER_DIALOG_FIND, writer.search.query); break;
+    case SOLAR_OS_KEY_F3:
+        if (writer.search.query_len > 0U) {
+            writer_submit_find(writer.search.query);
+        } else {
+            writer_set_message("no search");
+        }
+        break;
     case 0x09U: writer_wrap("*", "*"); break;
     case 0x0bU: writer_link(); break;
     case 0x12U: writer_begin_dialog(WRITER_DIALOG_REPLACE_FIND, ""); break;

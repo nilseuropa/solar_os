@@ -602,6 +602,8 @@ Controls:
 - `Ctrl+Left`/`Ctrl+Right` move by words.
 - `Shift+Arrows` extend selection.
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match,
+  wrapping at the end of the file.
 - `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
   saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
@@ -926,7 +928,8 @@ Controls:
 - `Up`/`Down` or `j`/`k` scroll one line.
 - `Page Up`/`Page Down`, `b`, or `Space` page.
 - `Home`/`End` or `g`/`G` jump to start/end.
-- `/` starts search, `n`/`N` repeat search.
+- `Ctrl+F` or `/` opens Find. `F3` or `n` jumps to the next
+  case-insensitive match; `N` jumps to the previous match. Search wraps.
 - `q`, `Esc`, or app-exit key exits.
 
 ## logic
@@ -1146,7 +1149,8 @@ Controls:
 - `Page Up`/`Page Down` page with the same precise row overlap.
 - `Home`/`End` jump to start/end.
 - `+`/`-` adjust zoom.
-- `/` starts search, `n`/`N` repeat search.
+- `Ctrl+F` or `/` opens Find. `F3` or `n` jumps to the next
+  case-insensitive match; `N` jumps to the previous match. Search wraps.
 - `Esc` exits search state first; otherwise exits.
 - `q` or app-exit key exits.
 
@@ -1185,7 +1189,8 @@ Controls:
 - `F1` opens formatting for inline code, headings 1–4, bullet or numbered
   lists, quotes, fenced code, and rules. `Esc` closes the active menu/dialog;
   from the editor it exits, using the save/discard/cancel prompt when dirty.
-- `Ctrl+F` finds text; `Ctrl+R` prompts for find and replacement text.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match,
+  wrapping at the end. `Ctrl+R` prompts for find and replacement text.
 - `Ctrl+S` saves, `Ctrl+Z`/`Ctrl+Y` undo and redo, and `Ctrl++`/`Ctrl+-` adjust
   zoom.
 - `Esc` and the app-exit key open the save/discard/cancel prompt when the
@@ -1490,6 +1495,8 @@ web https://host/path
 Controls:
 
 - Keyboard navigation follows the active web UI state.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
+  rendered page text, wrapping at the end.
 - `Esc` or app-exit key exits.
 
 ## Quick reference

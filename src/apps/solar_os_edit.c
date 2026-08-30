@@ -16,6 +16,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_syntax.h"
 #include "solar_os_terminal.h"
+#include "solar_os_text_search.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
 
@@ -52,6 +53,7 @@ typedef struct {
     uint8_t hex_nibble;
     solar_os_terminal_text_size_t saved_text_size;
     solar_os_syntax_language_t syntax;
+    solar_os_text_search_state_t search;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
     char message[72];
@@ -653,7 +655,12 @@ static void editor_render(solar_os_context_t *ctx)
 
     if (rows > 1) {
         char footer[192];
-        if (editor.message[0] != '\0') {
+        if (editor.search.input_active) {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Find: %s_",
+                     editor.search.input);
+        } else if (editor.message[0] != '\0') {
             snprintf(footer,
                      sizeof(footer),
                      "Ln %u Col %u  %s",
@@ -1438,6 +1445,62 @@ static void editor_apply_hex_page_move(bool selecting, bool down)
     editor_finish_selection(selecting);
 }
 
+static bool editor_find_next(void)
+{
+    if (editor.search.query_len == 0U) {
+        editor_set_message("no search");
+        return false;
+    }
+    solar_os_text_search_match_t match;
+    if (!solar_os_text_search_find(editor.buffer,
+                                   editor.len,
+                                   editor.search.query,
+                                   editor.cursor,
+                                   false,
+                                   SOLAR_OS_TEXT_SEARCH_FORWARD,
+                                   &match)) {
+        editor.search.match_valid = false;
+        editor_set_message("not found");
+        return false;
+    }
+    editor.search.match = match;
+    editor.search.match_valid = true;
+    editor.selection_anchor = match.offset;
+    editor.cursor = match.offset + match.length;
+    editor.selection_active = match.length > 0U;
+    editor_update_preferred_col();
+    editor_set_message(match.wrapped ? "found (wrapped)" : "found");
+    return true;
+}
+
+static bool editor_handle_search_input(solar_os_context_t *ctx, uint8_t key)
+{
+    switch (key) {
+    case SOLAR_OS_KEY_ESCAPE:
+        solar_os_text_search_cancel_input(&editor.search);
+        break;
+    case '\r':
+    case '\n':
+        if (solar_os_text_search_submit_input(&editor.search)) {
+            (void)editor_find_next();
+        } else {
+            editor_set_message("empty search");
+        }
+        break;
+    case '\b':
+    case 0x7fU:
+        (void)solar_os_text_search_input_backspace(&editor.search);
+        break;
+    default:
+        if (editor_is_printable((char)key)) {
+            (void)solar_os_text_search_input_append(&editor.search, (char)key);
+        }
+        break;
+    }
+    editor_render(ctx);
+    return true;
+}
+
 static bool editor_hex_event(solar_os_context_t *ctx, uint8_t key)
 {
     switch (key) {
@@ -1592,6 +1655,10 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         return editor_hex_event(ctx, (uint8_t)ch);
     }
 
+    if (editor.search.input_active) {
+        return editor_handle_search_input(ctx, (uint8_t)ch);
+    }
+
     switch ((uint8_t)ch) {
     case SOLAR_OS_KEY_ESCAPE:
     case 0x11:
@@ -1602,6 +1669,10 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case 0x03:
         editor_copy_selection();
+        break;
+    case 0x06:
+        solar_os_text_search_begin_input(&editor.search);
+        editor_set_message("");
         break;
     case 0x13:
         (void)editor_save();
@@ -1617,6 +1688,9 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case SOLAR_OS_KEY_CTRL_MINUS:
         editor_adjust_text_size(-1);
+        break;
+    case SOLAR_OS_KEY_F3:
+        (void)editor_find_next();
         break;
     case SOLAR_OS_KEY_LEFT:
         editor_apply_move(false, editor_move_left);

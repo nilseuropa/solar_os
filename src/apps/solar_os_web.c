@@ -24,6 +24,7 @@
 #include "solar_os_queue.h"
 #include "solar_os_stb_image.h"
 #include "solar_os_task.h"
+#include "solar_os_text_search.h"
 #include "solar_os_webp_decoder.h"
 #include "solar_os_wifi.h"
 
@@ -196,6 +197,7 @@ typedef struct {
     char url[WEB_URL_MAX];
     char base_url[WEB_URL_MAX];
     char status[WEB_STATUS_MAX];
+    solar_os_text_search_state_t search;
 } web_state_t;
 
 static const char *TAG = "solar_os_web";
@@ -379,6 +381,8 @@ static void web_reset_document(void)
     web.status_code = -1;
     web.bytes_read = 0;
     web.base_url[0] = '\0';
+    web.search.input_active = false;
+    web.search.match_valid = false;
 
     if (web.html != NULL) {
         web.html[0] = '\0';
@@ -2640,7 +2644,9 @@ static void web_render(solar_os_context_t *ctx)
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
     char header[WEB_LINE_MAX];
-    if (web.loaded && web.item_count > 0) {
+    if (web.search.input_active) {
+        snprintf(header, sizeof(header), "Find: %s_", web.search.input);
+    } else if (web.loaded && web.item_count > 0) {
         snprintf(header,
                  sizeof(header),
                  "web %d/%u",
@@ -2692,7 +2698,9 @@ static void web_render(solar_os_context_t *ctx)
         }
 
         const bool selected = web_line_selected(line);
-        if (selected) {
+        const bool search_match = web.search.match_valid &&
+            web.search.match.segment_index == (size_t)line_index;
+        if (selected || search_match) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
             solar_os_gfx_fill_rect(gfx,
                                    0,
@@ -3314,6 +3322,78 @@ static bool web_open_selected(solar_os_context_t *ctx)
     return true;
 }
 
+static bool web_search_segment(void *user,
+                               size_t segment_index,
+                               const char **text,
+                               size_t *text_len)
+{
+    (void)user;
+    if (web.lines == NULL || segment_index >= web.line_count ||
+        text == NULL || text_len == NULL) {
+        return false;
+    }
+    *text = web.lines[segment_index].text;
+    *text_len = strlen(*text);
+    return true;
+}
+
+static bool web_find_next(void)
+{
+    if (web.search.query_len == 0U || web.line_count == 0U) {
+        web_set_status("no search");
+        return false;
+    }
+    const bool continuing = web.search.match_valid;
+    solar_os_text_search_match_t match;
+    if (!solar_os_text_search_find_segments(web.line_count,
+                                            web_search_segment,
+                                            NULL,
+                                            web.search.query,
+                                            continuing ? web.search.match.segment_index :
+                                                         (size_t)(web.scroll >= 0 ? web.scroll : 0),
+                                            continuing ? web.search.match.offset : 0U,
+                                            continuing,
+                                            SOLAR_OS_TEXT_SEARCH_FORWARD,
+                                            &match)) {
+        web.search.match_valid = false;
+        web_set_status("not found");
+        return false;
+    }
+    web.search.match = match;
+    web.search.match_valid = true;
+    web.scroll = (int)match.segment_index;
+    web_set_status(match.wrapped ? "found (wrapped)" : "found");
+    return true;
+}
+
+static bool web_handle_search_input(uint8_t ch)
+{
+    switch (ch) {
+    case SOLAR_OS_KEY_ESCAPE:
+        solar_os_text_search_cancel_input(&web.search);
+        break;
+    case '\r':
+    case '\n':
+        if (solar_os_text_search_submit_input(&web.search)) {
+            (void)web_find_next();
+        } else {
+            web_set_status("empty search");
+        }
+        break;
+    case '\b':
+    case 0x7fU:
+        (void)solar_os_text_search_input_backspace(&web.search);
+        break;
+    default:
+        if (isprint(ch)) {
+            (void)solar_os_text_search_input_append(&web.search, (char)ch);
+        }
+        break;
+    }
+    web.redraw = true;
+    return true;
+}
+
 static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event == NULL) {
@@ -3336,6 +3416,22 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
+    if (web.search.input_active) {
+        (void)web_handle_search_input(ch);
+        web_render(ctx);
+        return true;
+    }
+    if (ch == 0x06U) {
+        solar_os_text_search_begin_input(&web.search);
+        web.redraw = true;
+        web_render(ctx);
+        return true;
+    }
+    if (ch == SOLAR_OS_KEY_F3) {
+        (void)web_find_next();
+        web_render(ctx);
+        return true;
+    }
     if (web_handle_edit_key(ch)) {
         if (web.redraw) {
             web_render(ctx);

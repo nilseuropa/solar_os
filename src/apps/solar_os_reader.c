@@ -839,7 +839,7 @@ static void reader_draw_header(solar_os_gfx_t *gfx)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
 
     if (reader.search_input) {
-        snprintf(title, sizeof(title), "/%s_", reader.search);
+        snprintf(title, sizeof(title), "Find: %s_", reader.search);
     } else if (reader.message[0] != '\0') {
         snprintf(title, sizeof(title), "reader z%d %s", reader.zoom, reader.message);
     } else if (reader.epub && reader.epub_chapter_count > 0) {
@@ -1174,8 +1174,8 @@ static void reader_start_search(void)
 {
     reader.search_input = true;
     reader.search_status = false;
-    reader.search_len = 0;
-    reader.search[0] = '\0';
+    strlcpy(reader.search, reader.last_search, sizeof(reader.search));
+    reader.search_len = strlen(reader.search);
     reader.message[0] = '\0';
 }
 
@@ -1666,8 +1666,10 @@ static bool reader_handle_char(solar_os_context_t *ctx, char raw_ch)
         reader_zoom(ctx, -1);
         break;
     case '/':
+    case 0x06:
         reader_start_search();
         break;
+    case SOLAR_OS_KEY_F3:
     case 'n':
         (void)reader_run_search(ctx, true, true);
         break;
