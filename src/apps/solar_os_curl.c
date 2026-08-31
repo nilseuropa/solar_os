@@ -85,6 +85,7 @@ typedef struct {
     int64_t content_length;
     char location[CURL_LOCATION_MAX];
     char transfer_error_message[CURL_EVENT_MESSAGE_MAX];
+    char last_error[CURL_EVENT_MESSAGE_MAX];
 } curl_app_state_t;
 
 static const char *TAG = "solar_os_curl";
@@ -283,21 +284,6 @@ static bool curl_url_supported(const char *url)
     return strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0;
 }
 
-static void curl_render_usage(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = curl_io(ctx);
-
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_write_bold(io, "curl");
-    solar_os_shell_io_newline(io);
-    solar_os_shell_io_writeln(io, "usage: curl [-L] [-o file] URL");
-    solar_os_shell_io_writeln(io, "examples:");
-    solar_os_shell_io_writeln(io, "  curl http://example.com/");
-    solar_os_shell_io_writeln(io, "  curl -L -o page.html https://example.com/");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    solar_os_shell_io_flush(io);
-}
-
 static bool curl_parse_args(solar_os_context_t *ctx)
 {
     const int argc = solar_os_context_argc(ctx);
@@ -342,14 +328,12 @@ static esp_err_t curl_check_ready(solar_os_context_t *ctx)
     solar_os_wifi_get_status(&wifi);
     if (!wifi.started || !wifi.connected || !wifi.has_ip) {
         solar_os_shell_io_writeln(io, "curl: wifi not connected");
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
         return ESP_ERR_INVALID_STATE;
     }
 
     if (curl_app.options.output_to_file && !solar_os_storage_is_mounted()) {
         solar_os_shell_io_writeln(io, "curl: storage required for -o");
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
         return ESP_ERR_INVALID_STATE;
     }
@@ -484,6 +468,9 @@ static void curl_drain_events(solar_os_context_t *ctx)
             break;
         case CURL_EVENT_ERROR:
             curl_app.saw_error = true;
+            strlcpy(curl_app.last_error,
+                    event.message,
+                    sizeof(curl_app.last_error));
             solar_os_shell_io_printf(io, "\ncurl: %s\n", event.message);
             break;
         case CURL_EVENT_DONE:
@@ -518,7 +505,8 @@ static void curl_drain_events(solar_os_context_t *ctx)
             if (!event.success && !curl_app.saw_error) {
                 solar_os_shell_io_writeln(io, "curl: failed");
             }
-            solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
+            solar_os_context_finish(
+                ctx, event.success ? 0 : 1, NULL);
             break;
         default:
             break;
@@ -529,12 +517,13 @@ static void curl_drain_events(solar_os_context_t *ctx)
 
 static esp_err_t curl_start(solar_os_context_t *ctx)
 {
+    solar_os_shell_io_t *io = curl_io(ctx);
     if (curl_app.task != NULL && !curl_app.task_done) {
-        solar_os_shell_io_t *io = curl_io(ctx);
         solar_os_shell_io_clear(io);
         solar_os_shell_io_writeln(io, "curl: previous request is still stopping");
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
+        solar_os_context_finish(
+            ctx, 1, "curl: previous request is still stopping");
         return ESP_OK;
     }
 
@@ -542,11 +531,11 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
     memset(&curl_app, 0, sizeof(curl_app));
 
     if (!curl_parse_args(ctx)) {
-        curl_render_usage(ctx);
+        solar_os_context_finish(
+            ctx, 2, "usage: curl [-L] [-o file] URL");
         return ESP_OK;
     }
 
-    solar_os_shell_io_t *io = curl_io(ctx);
     solar_os_shell_io_clear(io);
     solar_os_shell_io_printf_bold(io, "curl %s\n", curl_app.options.url);
     if (curl_app.options.output_to_file) {
@@ -559,7 +548,13 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
     }
     solar_os_shell_io_flush(io);
 
-    if (curl_check_ready(ctx) != ESP_OK) {
+    const esp_err_t ready_err = curl_check_ready(ctx);
+    if (ready_err != ESP_OK) {
+        solar_os_context_finish(
+            ctx,
+            1,
+            curl_app.options.output_to_file && !solar_os_storage_is_mounted() ?
+                "curl: storage required for -o" : "curl: wifi not connected");
         return ESP_OK;
     }
 
@@ -567,8 +562,8 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
                                              sizeof(curl_event_t));
     if (curl_app.events == NULL) {
         solar_os_shell_io_writeln(io, "curl: out of memory");
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
+        solar_os_context_finish(ctx, 1, "curl: out of memory");
         return ESP_OK;
     }
 
@@ -591,8 +586,8 @@ static esp_err_t curl_start(solar_os_context_t *ctx)
         curl_app.events = NULL;
         curl_app.running = false;
         solar_os_shell_io_writeln(io, "curl: task create failed");
-        solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
         solar_os_shell_io_flush(io);
+        solar_os_context_finish(ctx, 1, "curl: task create failed");
         return ESP_OK;
     }
 
@@ -645,7 +640,10 @@ static bool curl_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             solar_os_shell_io_writeln(io, "\ncurl: stopping");
             solar_os_shell_io_flush(io);
         }
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(
+            ctx,
+            curl_app.running ? 130 : 0,
+            curl_app.running ? "curl: cancelled" : NULL);
         return true;
     }
     if (ch == SOLAR_OS_KEY_PAGE_UP) {
@@ -668,6 +666,7 @@ static bool curl_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_curl_app = {
     .name = "curl",
     .summary = "HTTP client",
+    .app_class = SOLAR_OS_APP_CLASS_COMMAND,
     .start = curl_start,
     .stop = curl_stop,
     .event = curl_event,

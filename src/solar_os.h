@@ -19,6 +19,9 @@ typedef struct solar_os_shell_io solar_os_shell_io_t;
 typedef struct solar_os_shell_session solar_os_shell_session_t;
 
 typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
+typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
+                                                size_t len,
+                                                void *user);
 
 #define SOLAR_OS_APP_FLAG_RESUMABLE (1U << 0)
 /* Reuse a launching display shell's terminal instead of allocating a new one. */
@@ -44,6 +47,16 @@ typedef enum {
     SOLAR_OS_APP_STATE_INTERNAL_REQUIRED,
 } solar_os_app_state_storage_t;
 
+typedef enum {
+    SOLAR_OS_APP_CLASS_UNSPECIFIED = 0,
+    /* Sequential shell-style output is preserved as a transcript. */
+    SOLAR_OS_APP_CLASS_COMMAND,
+    /* Cell-addressed screen state is private to the foreground session. */
+    SOLAR_OS_APP_CLASS_TUI,
+    /* Graphics framebuffer state is private to the foreground session. */
+    SOLAR_OS_APP_CLASS_GUI,
+} solar_os_app_class_t;
+
 #define SOLAR_OS_APP_STATIC_SRAM_EXCEPTION(reason)
 
 typedef enum {
@@ -63,9 +76,13 @@ typedef struct {
     solar_os_gfx_t *gfx;
     solar_os_shell_io_t *shell_io;
     solar_os_shell_session_t *shell_session;
+    solar_os_context_output_fn output_fn;
+    void *output_user;
     const solar_os_app_t *requested_app;
     solar_os_launch_policy_t launch_policy;
     bool exit_requested;
+    bool exit_result_pending;
+    int exit_code;
     bool sleep_requested;
     bool suspend_requested;
     solar_os_session_request_type_t session_request;
@@ -76,6 +93,7 @@ typedef struct {
     bool preserve_terminal;
     bool status_message_pending;
     char status_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+    solar_os_app_class_t app_class;
     int argc;
     char argv[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
 } solar_os_context_t;
@@ -103,6 +121,7 @@ typedef struct {
 struct solar_os_app {
     const char *name;
     const char *summary;
+    solar_os_app_class_t app_class;
     uint32_t flags;
     esp_err_t (*start)(solar_os_context_t *ctx);
     void (*suspend)(solar_os_context_t *ctx);
@@ -175,13 +194,22 @@ void solar_os_context_set_shell_session(solar_os_context_t *ctx, solar_os_shell_
 solar_os_shell_session_t *solar_os_context_shell_session(solar_os_context_t *ctx);
 void solar_os_context_detach_shell_session(solar_os_context_t *ctx,
                                            solar_os_shell_session_t *session);
+void solar_os_context_set_output_handler(solar_os_context_t *ctx,
+                                         solar_os_context_output_fn fn,
+                                         void *user);
+solar_os_context_output_fn solar_os_context_output_handler(
+    const solar_os_context_t *ctx,
+    void **user);
+void solar_os_context_set_app_class(solar_os_context_t *ctx,
+                                    solar_os_app_class_t app_class);
+solar_os_app_class_t solar_os_context_app_class(
+    const solar_os_context_t *ctx);
 void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active);
 void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx,
                                                     bool active);
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx);
 void solar_os_context_request_terminal_preserve(solar_os_context_t *ctx);
 bool solar_os_context_take_terminal_preserve(solar_os_context_t *ctx);
-void solar_os_context_set_status_message(solar_os_context_t *ctx, const char *message);
 bool solar_os_context_take_status_message(solar_os_context_t *ctx,
                                           char *buffer,
                                           size_t buffer_len);
@@ -196,8 +224,13 @@ esp_err_t solar_os_context_request_launch_ex(solar_os_context_t *ctx,
                                              solar_os_launch_policy_t policy);
 const solar_os_app_t *solar_os_context_take_launch_request(solar_os_context_t *ctx);
 solar_os_launch_policy_t solar_os_context_take_launch_policy(solar_os_context_t *ctx);
-void solar_os_context_request_exit(solar_os_context_t *ctx);
+/* The single foreground-app completion path. The first outcome wins. */
+void solar_os_context_finish(solar_os_context_t *ctx,
+                             int exit_code,
+                             const char *message);
 bool solar_os_context_take_exit_request(solar_os_context_t *ctx);
+bool solar_os_context_take_exit_result(solar_os_context_t *ctx,
+                                       int *exit_code);
 void solar_os_context_request_sleep(solar_os_context_t *ctx);
 bool solar_os_context_take_sleep_request(solar_os_context_t *ctx);
 void solar_os_context_request_suspend(solar_os_context_t *ctx);

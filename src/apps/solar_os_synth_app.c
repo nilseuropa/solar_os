@@ -3566,7 +3566,7 @@ static void synth_select_tab(synth_tab_t tab) {
 
 static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
   if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE) {
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, 0, NULL);
     return true;
   }
   synth_app.compact_parameter_valid = false;
@@ -3668,6 +3668,9 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
 
   memset(&synth_app, 0, sizeof(synth_app));
   synth_app.headless = headless;
+  solar_os_context_set_app_class(
+      ctx,
+      synth_app.headless ? SOLAR_OS_APP_CLASS_TUI : SOLAR_OS_APP_CLASS_GUI);
   synth_app.midi_subscription =
       (solar_os_midi_subscription_t)SOLAR_OS_MIDI_SUBSCRIPTION_INIT;
   synth_app.config = synth_default_config();
@@ -3696,6 +3699,13 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   if (synth_app.last_error == ESP_OK) {
     synth_app.last_error = solar_os_synth_voice_configure_performance(
         SYNTH_APP_OWNER, &synth_app.performance);
+  }
+  if (synth_app.last_error != ESP_OK) {
+    char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+    snprintf(message, sizeof(message), "synth: start failed: %s",
+             esp_err_to_name(synth_app.last_error));
+    solar_os_context_finish(ctx, 1, message);
+    return ESP_OK;
   }
   synth_parameters_register();
   solar_os_context_set_graphics_active(ctx, !synth_app.headless);
@@ -3837,6 +3847,7 @@ static bool synth_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_synth_app = {
     .name = "synth",
     .summary = "synthesizer and sound designer",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = synth_start,
     .suspend = synth_suspend,

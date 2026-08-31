@@ -21,7 +21,7 @@ class EditKeyPolicyTest(unittest.TestCase):
         discard_pattern = re.compile(
             r"case SOLAR_OS_KEY_ESCAPE:\s*"
             r"case 0x11:\s*"
-            r"solar_os_context_request_exit\(ctx\);"
+            r"solar_os_context_finish\(ctx, 0, NULL\);"
         )
         for handler in (self.text_handler, self.hex_handler):
             self.assertRegex(handler, discard_pattern)
@@ -33,11 +33,12 @@ class EditKeyPolicyTest(unittest.TestCase):
             self.assertIn("case 0x16:\n        editor_paste_clipboard();", handler)
             self.assertIn("case 0x18:\n        editor_cut_selection();", handler)
 
-    def test_error_screen_also_accepts_ctrl_q(self):
-        self.assertIn(
-            "ch == SOLAR_OS_KEY_ESCAPE || (uint8_t)ch == 0x11",
-            self.text_handler,
-        )
+    def test_startup_errors_return_without_an_error_screen(self):
+        self.assertNotIn("error_only", EDIT_SOURCE)
+        start = EDIT_SOURCE.split("static esp_err_t edit_start", 1)[1].split(
+            "static void edit_stop", 1
+        )[0]
+        self.assertIn("solar_os_context_finish", start)
 
 
 if __name__ == "__main__":

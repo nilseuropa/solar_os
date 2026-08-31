@@ -27,7 +27,6 @@ typedef struct {
     bool buffer_owned;
     size_t len;
     size_t top_offset;
-    bool error_only;
     const char *app_name;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
@@ -429,30 +428,9 @@ static void less_render_text_row(solar_os_shell_io_t *io, size_t row, size_t row
     less_render_physical_text_row(io, row, row_start);
 }
 
-static void less_render_error(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = less_io(ctx);
-
-    solar_os_shell_io_clear(io);
-    less_write_inverse_line(io, less_app_name());
-    solar_os_shell_io_set_cursor(io, 1, 0);
-    if (less_state.message[0] != '\0') {
-        solar_os_shell_io_writeln(io, less_state.message);
-    }
-    solar_os_shell_io_printf(io, "usage: %s <file>\n", less_app_name());
-    solar_os_shell_io_writeln(io, "keys: arrows, PgUp/PgDn, / search, n/N, q");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    solar_os_shell_io_flush(io);
-}
-
 static void less_render(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = less_io(ctx);
-
-    if (less_state.error_only) {
-        less_render_error(ctx);
-        return;
-    }
 
     solar_os_shell_io_clear(io);
     less_render_header(io);
@@ -684,11 +662,9 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
 
     const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
-        less_state.error_only = true;
         char message[LESS_MESSAGE_MAX];
         snprintf(message, sizeof(message), "usage: %s <file>", less_app_name());
-        less_set_message(message);
-        less_render(ctx);
+        solar_os_context_finish(ctx, 2, message);
         return ESP_OK;
     }
 
@@ -696,7 +672,8 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
     if (arg != NULL && strncmp(arg, "man:", 4) == 0) {
         const esp_err_t err = less_load_manual(arg + 4);
         if (err != ESP_OK) {
-            less_state.error_only = true;
+            solar_os_context_finish(ctx, 1, less_state.message);
+            return ESP_OK;
         }
         less_render(ctx);
         return ESP_OK;
@@ -705,16 +682,14 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
 
     esp_err_t err = solar_os_storage_resolve_path(arg, less_state.path, sizeof(less_state.path));
     if (err != ESP_OK) {
-        less_state.error_only = true;
         less_set_message(err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
-        less_render(ctx);
+        solar_os_context_finish(ctx, 1, less_state.message);
         return ESP_OK;
     }
 
     err = less_load_file();
     if (err != ESP_OK) {
-        less_state.error_only = true;
-        less_render(ctx);
+        solar_os_context_finish(ctx, 1, less_state.message);
         return ESP_OK;
     }
 
@@ -745,14 +720,7 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
-        return true;
-    }
-
-    if (less_state.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-            solar_os_context_request_exit(ctx);
-        }
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -764,7 +732,7 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_ESCAPE:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     case SOLAR_OS_KEY_DOWN:
     case 'j':
@@ -815,6 +783,7 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_less_app = {
     .name = "less",
     .summary = "text file pager",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = less_start,
     .stop = less_stop,
     .event = less_event,

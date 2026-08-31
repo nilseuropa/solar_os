@@ -874,27 +874,26 @@ static esp_err_t view_decode_file(const char *path,
     return err;
 }
 
-static void view_usage(solar_os_terminal_t *term)
+static void view_exit_error(solar_os_context_t *ctx,
+                            const char *path,
+                            esp_err_t err)
 {
-    solar_os_terminal_writeln(term, "usage: view [-fit|-actual] <image>");
-    solar_os_terminal_writeln(term, "formats: JPG, JPEG, PNG, GIF/animated GIF, WEBP, BMP, PBM, PGM, PPM");
-    solar_os_terminal_writeln(term, "keys: arrows pan, f toggles fit/actual");
-    solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
-}
-
-static void view_print_error(solar_os_terminal_t *term, const char *path, esp_err_t err)
-{
-    solar_os_terminal_clear(term);
-    solar_os_terminal_writeln_bold(term, "view");
-    if (path != NULL && path[0] != '\0') {
-        solar_os_terminal_printf(term, "file: %s\n", path);
-    }
-    solar_os_terminal_printf(term, "error: %s\n", esp_err_to_name(err));
+    char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
     if (view_error_detail[0] != '\0') {
-        solar_os_terminal_printf(term, "detail: %s\n", view_error_detail);
+        snprintf(message,
+                 sizeof(message),
+                 "view: %s: %s (%s)",
+                 path != NULL && path[0] != '\0' ? path : "image",
+                 esp_err_to_name(err),
+                 view_error_detail);
+    } else {
+        snprintf(message,
+                 sizeof(message),
+                 "view: %s: %s",
+                 path != NULL && path[0] != '\0' ? path : "image",
+                 esp_err_to_name(err));
     }
-    solar_os_terminal_writeln(term, "");
-    view_usage(term);
+    solar_os_context_finish(ctx, 1, message);
 }
 
 static void view_reset_pan(solar_os_gfx_t *gfx)
@@ -1129,12 +1128,11 @@ static esp_err_t view_start(solar_os_context_t *ctx)
     memset(&view_state, 0, sizeof(view_state));
     view_error_detail[0] = '\0';
 
-    solar_os_terminal_t *term = solar_os_context_terminal(ctx);
     view_mode_t mode;
     const char *path_arg = NULL;
     if (!view_parse_args(ctx, &mode, &path_arg)) {
-        solar_os_terminal_clear(term);
-        view_usage(term);
+        solar_os_context_finish(
+            ctx, 2, "usage: view [-fit|-actual] <image>");
         return ESP_OK;
     }
 
@@ -1142,13 +1140,13 @@ static esp_err_t view_start(solar_os_context_t *ctx)
                                                   view_state.path,
                                                   sizeof(view_state.path));
     if (err != ESP_OK) {
-        view_print_error(term, path_arg, err);
+        view_exit_error(ctx, path_arg, err);
         return ESP_OK;
     }
 
     struct stat st;
     if (stat(view_state.path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        view_print_error(term, view_state.path, ESP_ERR_NOT_FOUND);
+        view_exit_error(ctx, view_state.path, ESP_ERR_NOT_FOUND);
         return ESP_OK;
     }
 
@@ -1166,7 +1164,7 @@ static esp_err_t view_start(solar_os_context_t *ctx)
                            mode == VIEW_MODE_FIT);
     if (err != ESP_OK) {
         solar_os_context_set_graphics_active(ctx, false);
-        view_print_error(term, view_state.path, err);
+        view_exit_error(ctx, view_state.path, err);
         return ESP_OK;
     }
 
@@ -1235,7 +1233,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (!view_state.loaded) {
@@ -1288,6 +1286,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_view_app = {
     .name = "view",
     .summary = "image viewer",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = view_start,
     .suspend = view_suspend,

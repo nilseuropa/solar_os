@@ -475,7 +475,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
     }
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (contacts_app.searching) {
@@ -484,7 +484,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
         return true;
     }
     if (ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (contacts_app.detail && ch == SOLAR_OS_KEY_ESCAPE) {
@@ -494,7 +494,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
         return true;
     }
     if (!contacts_app.detail && ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -549,6 +549,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_contacts_app = {
     .name = "contacts",
     .summary = "provider-neutral contact browser",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = contacts_app_start,
     .resume = contacts_app_resume,

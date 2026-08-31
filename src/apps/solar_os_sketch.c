@@ -1110,7 +1110,7 @@ static bool sketch_char_event(solar_os_context_t *ctx, uint8_t ch)
     }
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
         ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
     } else if (ch == 's' || ch == 'S') {
         const esp_err_t err = sketch_save();
         sketch_set_info(err == ESP_OK ? sketch.path : "Save failed");
@@ -1199,7 +1199,8 @@ static esp_err_t sketch_start(solar_os_context_t *ctx)
 
     const int argc = solar_os_context_argc(ctx);
     if (argc > 2) {
-        sketch_set_info("usage: sketch [file.png]");
+        solar_os_context_finish(ctx, 2, "usage: sketch [file.png]");
+        return ESP_OK;
     } else if (argc == 2) {
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         esp_err_t err = solar_os_storage_resolve_path(
@@ -1208,7 +1209,13 @@ static esp_err_t sketch_start(solar_os_context_t *ctx)
             err = sketch_load_image(path, true);
         }
         if (err != ESP_OK) {
-            sketch_set_info("PNG open failed");
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            snprintf(message,
+                     sizeof(message),
+                     "sketch: PNG open failed: %s",
+                     esp_err_to_name(err));
+            solar_os_context_finish(ctx, 1, message);
+            return ESP_OK;
         }
     }
     sketch_render(ctx);
@@ -1292,6 +1299,7 @@ static bool sketch_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_sketch_app = {
     .name = "sketch",
     .summary = "pointer-driven paint application",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS,
     .start = sketch_start,
     .suspend = sketch_suspend,

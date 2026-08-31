@@ -80,8 +80,7 @@ static bool midi_monitor_event(solar_os_context_t *ctx,
         const uint8_t ch = (uint8_t)event->data.ch;
         if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
             ch == 'q' || ch == 'Q') {
-            solar_os_context_request_terminal_preserve(ctx);
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
         }
         return true;
     }
@@ -112,6 +111,7 @@ static bool midi_monitor_event(solar_os_context_t *ctx,
 static const solar_os_app_t midi_monitor_app = {
     .name = "midi-monitor",
     .summary = "live MIDI CC and key monitor",
+    .app_class = SOLAR_OS_APP_CLASS_COMMAND,
     .flags = SOLAR_OS_APP_FLAG_SHELL_INLINE,
     .start = midi_monitor_start,
     .stop = midi_monitor_stop,

@@ -408,17 +408,6 @@ static void com_finish_autobaud(solar_os_context_t *ctx)
     com_flush(ctx);
 }
 
-static void com_usage(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = com_io(ctx);
-    (void)solar_os_shell_io_clear(io);
-    (void)solar_os_shell_io_write_bold(io, "com");
-    (void)solar_os_shell_io_newline(io);
-    (void)solar_os_shell_io_writeln(io, "usage: com [--autobaud] [--hex] [port]");
-    (void)solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    com_flush(ctx);
-}
-
 static esp_err_t com_start(solar_os_context_t *ctx)
 {
     memset(&com_app, 0, sizeof(com_app));
@@ -426,7 +415,8 @@ static esp_err_t com_start(solar_os_context_t *ctx)
 
     const int argc = solar_os_context_argc(ctx);
     if (argc < 1 || argc > 4) {
-        com_usage(ctx);
+        solar_os_context_finish(
+            ctx, 2, "usage: com [--autobaud] [--hex] [port]");
         return ESP_OK;
     }
 
@@ -440,7 +430,8 @@ static esp_err_t com_start(solar_os_context_t *ctx)
         } else if (strcmp(arg, "--hex") == 0) {
             com_app.hex_view = true;
         } else if (arg[0] == '-' || port_seen) {
-            com_usage(ctx);
+            solar_os_context_finish(
+                ctx, 2, "usage: com [--autobaud] [--hex] [port]");
             return ESP_OK;
         } else {
             port_name = arg;
@@ -471,6 +462,12 @@ static esp_err_t com_start(solar_os_context_t *ctx)
                                            "com: %s is not a bidirectional port\n",
                                            com_app.port_name);
             com_flush(ctx);
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            snprintf(message,
+                     sizeof(message),
+                     "com: %s is not a bidirectional port",
+                     com_app.port_name);
+            solar_os_context_finish(ctx, 1, message);
             return ESP_OK;
         }
         if (claim_err == ESP_OK && request_autobaud) {
@@ -478,6 +475,8 @@ static esp_err_t com_start(solar_os_context_t *ctx)
             (void)solar_os_shell_io_writeln(com_io(ctx),
                                             "com: --autobaud requires a UART bus");
             com_flush(ctx);
+            solar_os_context_finish(
+                ctx, 2, "com: --autobaud requires a UART bus");
             return ESP_OK;
         }
         if (claim_err == ESP_OK) {
@@ -508,6 +507,28 @@ static esp_err_t com_start(solar_os_context_t *ctx)
                                            esp_err_to_name(claim_err));
         }
         com_flush(ctx);
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        if (claim_err == ESP_ERR_INVALID_STATE &&
+            solar_os_port_get_info(com_app.port_name, &info) == ESP_OK &&
+            info.claimed) {
+            snprintf(message,
+                     sizeof(message),
+                     "com: %s is busy: %s",
+                     com_app.port_name,
+                     info.owner);
+        } else if (claim_err == ESP_ERR_NOT_FOUND) {
+            snprintf(message,
+                     sizeof(message),
+                     "com: port not found: %s",
+                     com_app.port_name);
+        } else {
+            snprintf(message,
+                     sizeof(message),
+                     "com: %s open failed: %s",
+                     com_app.port_name,
+                     esp_err_to_name(claim_err));
+        }
+        solar_os_context_finish(ctx, 1, message);
         return ESP_OK;
     }
 
@@ -595,7 +616,7 @@ static bool com_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
         (void)solar_os_shell_io_newline(com_io(ctx));
         com_flush(ctx);
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -609,6 +630,7 @@ static bool com_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_com_app = {
     .name = "com",
     .summary = "serial terminal",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = com_start,
     .resume = com_resume,

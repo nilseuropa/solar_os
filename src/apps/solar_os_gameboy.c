@@ -192,10 +192,9 @@ static esp_err_t gameboy_start_error(solar_os_context_t *ctx, const char *path,
                 path != NULL ? path : "gameboy",
                 detail != NULL ? ": " : "",
                 detail != NULL ? detail : "unknown error");
-  solar_os_context_set_status_message(ctx, message);
   gameboy_free_state(false);
   solar_os_context_set_streaming_graphics_active(ctx, false);
-  solar_os_context_request_exit(ctx);
+  solar_os_context_finish(ctx, 1, message);
   return ESP_OK;
 }
 
@@ -546,9 +545,8 @@ static void gameboy_resume(solar_os_context_t *ctx) {
   if (emulator_err != ESP_OK) {
     SOLAR_OS_LOGE(TAG, "emulator resume failed: %s",
                   esp_err_to_name(emulator_err));
-    solar_os_context_set_status_message(ctx,
-                                        "gameboy: emulator resume failed");
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(
+        ctx, 1, "gameboy: emulator resume failed");
   }
 }
 
@@ -679,7 +677,7 @@ static void gameboy_press(uint8_t mask, int64_t now_us) {
 
 static bool gameboy_handle_char(solar_os_context_t *ctx, uint8_t ch) {
   if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE || ch == 'q') {
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, 0, NULL);
     return true;
   }
   if (ch == 'p') {
@@ -887,7 +885,7 @@ static bool gameboy_event(solar_os_context_t *ctx,
         const uint8_t buttons = gameboy_board_buttons_pressed_mask();
         if ((buttons & (JOYPAD_START | JOYPAD_SELECT)) ==
             (JOYPAD_START | JOYPAD_SELECT)) {
-          solar_os_context_request_exit(ctx);
+          solar_os_context_finish(ctx, 0, NULL);
           return true;
         }
       } else if (key->physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE ||
@@ -913,8 +911,8 @@ static bool gameboy_event(solar_os_context_t *ctx,
   const bool fatal_error = gameboy.fatal_error;
   gameboy_control_unlock();
   if (fatal_error) {
-    solar_os_context_set_status_message(ctx, "gameboy: emulator core error");
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(
+        ctx, 1, "gameboy: emulator core error");
   }
   return true;
 }
@@ -935,6 +933,7 @@ static void gameboy_title(solar_os_context_t *ctx, char *buffer,
 const solar_os_app_t solar_os_gameboy_app = {
     .name = "gameboy",
     .summary = "original Game Boy emulator",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS,
     .start = gameboy_start,
     .suspend = gameboy_suspend,

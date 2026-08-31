@@ -742,7 +742,7 @@ static bool player_handle_key(solar_os_context_t *ctx, uint8_t key)
 {
     if (key == SOLAR_OS_KEY_APP_EXIT ||
         (!player.browsing && (key == SOLAR_OS_KEY_ESCAPE || key == 'q' || key == 'Q'))) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (player.browsing) {
@@ -808,6 +808,13 @@ static esp_err_t player_start(solar_os_context_t *ctx)
             return ESP_ERR_INVALID_ARG;
         }
     }
+    const player_mode_t launch_mode =
+        !force_tui && player_graphical_session(ctx) ?
+            PLAYER_MODE_GRAPHICS : PLAYER_MODE_TUI;
+    solar_os_context_set_app_class(
+        ctx,
+        launch_mode == PLAYER_MODE_GRAPHICS ?
+            SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_TUI);
     player.task_done = true;
     player.active_index = SIZE_MAX;
     solar_os_audio_status_t audio_status;
@@ -825,8 +832,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
         player.browser = NULL;
         return err;
     }
-    player.mode = !force_tui && player_graphical_session(ctx) ?
-        PLAYER_MODE_GRAPHICS : PLAYER_MODE_TUI;
+    player.mode = launch_mode;
     if (player.mode == PLAYER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&player.tui, ctx);
     } else {
@@ -854,8 +860,15 @@ static esp_err_t player_start(solar_os_context_t *ctx)
             err = player_play_index(index);
         }
         if (err != ESP_OK) {
-            player_set_message("Cannot open track");
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            snprintf(message,
+                     sizeof(message),
+                     "player: cannot open %s: %s",
+                     path_arg,
+                     esp_err_to_name(err));
+            solar_os_context_finish(ctx, 1, message);
             err = ESP_OK;
+            return err;
         }
     }
     player_render(ctx);
@@ -875,7 +888,6 @@ static void player_stop(solar_os_context_t *ctx)
         solar_os_tui_set_cursor_visible(&player.tui, true);
         solar_os_tui_refresh(&player.tui);
         solar_os_tui_end(&player.tui);
-        solar_os_context_request_terminal_preserve(ctx);
     }
     solar_os_storage_browser_destroy(player.browser);
     player.browser = NULL;
@@ -946,6 +958,7 @@ static void player_title(solar_os_context_t *ctx, char *buffer, size_t buffer_le
 const solar_os_app_t solar_os_player_app = {
     .name = "player",
     .summary = "playlist audio player",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = player_start,
     .suspend = player_suspend,

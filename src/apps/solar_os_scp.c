@@ -52,6 +52,7 @@ typedef struct {
     int last_percent;
     uint64_t last_progress_step;
     bool remote_glob;
+    bool failed;
 } scp_app_state_t;
 
 typedef struct {
@@ -80,10 +81,11 @@ static bool scp_is_printable(char ch)
     return isprint(value) || value >= 0xa0;
 }
 
-static void scp_request_close(solar_os_context_t *ctx)
+static void scp_request_close(solar_os_context_t *ctx,
+                              int exit_code,
+                              const char *message)
 {
-    solar_os_context_request_terminal_preserve(ctx);
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, exit_code, message);
 }
 
 static bool scp_parse_port(const char *text, uint16_t *port)
@@ -260,7 +262,7 @@ static void scp_render_usage(solar_os_context_t *ctx)
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote-glob dir");
     solar_os_shell_io_writeln(io, "  scp [-P port] [user@]host:remote");
     solar_os_shell_io_flush(io);
-    scp_request_close(ctx);
+    scp_request_close(ctx, 2, NULL);
 }
 
 static void scp_render_password_prompt(solar_os_context_t *ctx)
@@ -306,7 +308,7 @@ static esp_err_t scp_begin_transfer(solar_os_context_t *ctx)
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "scp start failed: %s\n", esp_err_to_name(err));
         solar_os_shell_io_flush(io);
-        scp_request_close(ctx);
+        scp_request_close(ctx, 1, NULL);
         return err;
     }
 
@@ -355,13 +357,20 @@ static void scp_drain_events(solar_os_context_t *ctx)
             scp_print_progress(io, event.transferred, event.total);
             break;
         case SOLAR_OS_SCP_EVENT_ERROR:
+            scp_app.failed = true;
             solar_os_shell_io_printf(io, "scp: %s\n", event.message);
+            solar_os_shell_io_flush(io);
+            solar_os_scp_stop(scp_app.session);
+            scp_app.session = NULL;
+            scp_request_close(ctx, 1, NULL);
             break;
         case SOLAR_OS_SCP_EVENT_DONE:
             solar_os_shell_io_printf(io, "scp: %s\n", event.message);
             solar_os_scp_stop(scp_app.session);
             scp_app.session = NULL;
-            scp_request_close(ctx);
+            scp_request_close(ctx,
+                              scp_app.failed ? 1 : 0,
+                              scp_app.failed ? "scp: failed" : NULL);
             break;
         default:
             break;
@@ -487,14 +496,17 @@ static bool scp_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const char ch = event->data.ch;
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
-        if (scp_app.session != NULL) {
+        const bool was_running = scp_app.session != NULL;
+        if (was_running) {
             solar_os_shell_io_t *io = scp_io(ctx);
             solar_os_shell_io_writeln(io, "\nscp: cancelling");
             solar_os_shell_io_flush(io);
             solar_os_scp_stop(scp_app.session);
             scp_app.session = NULL;
         }
-        scp_request_close(ctx);
+        scp_request_close(ctx,
+                          was_running ? 130 : 0,
+                          was_running ? "scp: cancelled" : NULL);
         return true;
     }
 
@@ -530,6 +542,7 @@ static bool scp_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_scp_app = {
     .name = "scp",
     .summary = "SCP file copy",
+    .app_class = SOLAR_OS_APP_CLASS_COMMAND,
     .flags = SOLAR_OS_APP_FLAG_SHELL_INLINE,
     .start = scp_start,
     .stop = scp_stop,

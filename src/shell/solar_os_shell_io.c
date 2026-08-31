@@ -15,6 +15,16 @@ static uint16_t shell_io_nonzero_or_default(uint16_t value, uint16_t fallback)
     return value != 0 ? value : fallback;
 }
 
+static esp_err_t shell_io_mirror(solar_os_shell_io_t *io,
+                                 const char *text,
+                                 size_t len)
+{
+    if (io == NULL || len == 0U || io->output_mirror_fn == NULL) {
+        return ESP_OK;
+    }
+    return io->output_mirror_fn(text, len, io->output_mirror_user);
+}
+
 static bool shell_io_terminal_profile_is_valid(solar_os_shell_terminal_profile_t profile)
 {
     switch (profile) {
@@ -196,6 +206,23 @@ void solar_os_shell_io_init_port(solar_os_shell_io_t *io,
     io->cursor_visible = true;
 }
 
+void solar_os_shell_io_capture_output(solar_os_shell_io_t *io,
+                                      solar_os_context_t *ctx)
+{
+    if (io == NULL) {
+        return;
+    }
+    io->output_mirror_fn = NULL;
+    io->output_mirror_user = NULL;
+    if (ctx == NULL ||
+        solar_os_context_app_class(ctx) != SOLAR_OS_APP_CLASS_COMMAND ||
+        solar_os_context_shell_session(ctx) != NULL) {
+        return;
+    }
+    io->output_mirror_fn = solar_os_context_output_handler(
+        ctx, &io->output_mirror_user);
+}
+
 void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, uint16_t rows)
 {
     if (io == NULL || io->kind != SOLAR_OS_SHELL_IO_KIND_PORT) {
@@ -350,11 +377,12 @@ esp_err_t solar_os_shell_io_write_len(solar_os_shell_io_t *io, const char *text,
         }
         io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
         io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
-        return ESP_OK;
+        return shell_io_mirror(io, text, len);
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        return shell_io_port_write_text(io, text, len);
+        const esp_err_t err = shell_io_port_write_text(io, text, len);
+        return err == ESP_OK ? shell_io_mirror(io, text, len) : err;
     }
 
     return ESP_ERR_INVALID_STATE;
@@ -380,11 +408,12 @@ esp_err_t solar_os_shell_io_write_raw(solar_os_shell_io_t *io, const char *data,
         }
         io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
         io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
-        return ESP_OK;
+        return shell_io_mirror(io, data, len);
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        return shell_io_port_write_bytes(io, data, len);
+        const esp_err_t err = shell_io_port_write_bytes(io, data, len);
+        return err == ESP_OK ? shell_io_mirror(io, data, len) : err;
     }
 
     return ESP_ERR_INVALID_STATE;
@@ -553,7 +582,7 @@ esp_err_t solar_os_shell_io_write_bold(solar_os_shell_io_t *io, const char *text
         solar_os_terminal_write_bold(io->terminal, text);
         io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
         io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
-        return ESP_OK;
+        return shell_io_mirror(io, text, strlen(text));
     }
 
     const bool previous = io->bold;
@@ -625,7 +654,7 @@ esp_err_t solar_os_shell_io_put_char(solar_os_shell_io_t *io, char ch)
         solar_os_terminal_put_char(io->terminal, ch);
         io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
         io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
-        return ESP_OK;
+        return shell_io_mirror(io, &ch, 1U);
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_PORT) {
@@ -634,14 +663,14 @@ esp_err_t solar_os_shell_io_put_char(solar_os_shell_io_t *io, char ch)
             if (err == ESP_OK) {
                 shell_io_track_char(io, ch);
             }
-            return err;
+            return err == ESP_OK ? shell_io_mirror(io, &ch, 1U) : err;
         }
 
         const esp_err_t err = shell_io_port_write_bytes(io, &ch, 1);
         if (err == ESP_OK) {
             shell_io_track_char(io, ch);
         }
-        return err;
+        return err == ESP_OK ? shell_io_mirror(io, &ch, 1U) : err;
     }
 
     return ESP_ERR_INVALID_STATE;
@@ -657,7 +686,8 @@ esp_err_t solar_os_shell_io_put_utf8_byte(solar_os_shell_io_t *io, uint8_t byte)
         solar_os_terminal_put_utf8_byte(io->terminal, byte);
         io->cursor_row = solar_os_terminal_cursor_row(io->terminal);
         io->cursor_col = solar_os_terminal_cursor_col(io->terminal);
-        return ESP_OK;
+        const char ch = (char)byte;
+        return shell_io_mirror(io, &ch, 1U);
     }
 
     if (io->kind == SOLAR_OS_SHELL_IO_KIND_PORT) {

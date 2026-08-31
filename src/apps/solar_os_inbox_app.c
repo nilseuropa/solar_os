@@ -636,7 +636,7 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (inbox_app.view == INBOX_APP_DETAIL &&
@@ -647,7 +647,7 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
         return true;
     }
     if (inbox_app.view == INBOX_APP_LIST && ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -739,6 +739,7 @@ static bool inbox_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 const solar_os_app_t solar_os_inbox_app = {
     .name = "inbox",
     .summary = "universal incoming-message browser",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = inbox_app_start,
     .resume = inbox_app_resume,

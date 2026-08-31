@@ -688,7 +688,7 @@ static bool clock_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         const uint8_t ch = (uint8_t)event->data.ch;
         if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
         } else if (clock_state.mode == CLOCK_MODE_STOPWATCH) {
             if (event->data.ch == ' ') {
                 clock_stopwatch_toggle();
@@ -732,6 +732,7 @@ static bool clock_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_clock_app = {
     .name = "clock",
     .summary = "clock, countdown alarm, stopwatch",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = clock_start,
     .suspend = clock_suspend,

@@ -76,5 +76,3 @@ void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
 void solar_os_terminal_deinit(solar_os_terminal_t *terminal);
 void solar_os_terminal_inherit_text_profile(solar_os_terminal_t *terminal,
                                             const solar_os_terminal_t *source);
-bool solar_os_terminal_append_text(solar_os_terminal_t *destination,
-                                   const solar_os_terminal_t *source);

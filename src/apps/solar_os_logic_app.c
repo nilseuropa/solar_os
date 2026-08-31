@@ -447,7 +447,7 @@ static bool logic_handle_char(solar_os_context_t *ctx, char ch)
 {
     const uint8_t key = (uint8_t)ch;
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -506,6 +506,7 @@ static bool logic_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_logic_app = {
     .name = "logic",
     .summary = "logic analyzer waveform viewer",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = logic_start,
     .suspend = logic_suspend,

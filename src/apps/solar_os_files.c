@@ -2105,7 +2105,7 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             files.transaction.cancelling = true;
             files_render(ctx);
         } else if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_F10) {
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
         }
         return true;
     }
@@ -2121,7 +2121,7 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_F10:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     case '\t':
     case SOLAR_OS_KEY_LEFT:
@@ -2267,6 +2267,7 @@ static void files_state_release_cleanup(void)
 const solar_os_app_t solar_os_files_app = {
     .name = "files",
     .summary = "file manager and launcher",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = files_start,
     .resume = files_resume,

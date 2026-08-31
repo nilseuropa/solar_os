@@ -50,7 +50,6 @@ static const char *TAG = "solar_os_telnet";
 typedef enum {
     TELNET_MODE_CONNECTING,
     TELNET_MODE_CONNECTED,
-    TELNET_MODE_ERROR,
 } telnet_mode_t;
 
 typedef enum {
@@ -132,34 +131,19 @@ static void telnet_close_socket(void)
     }
 }
 
-static bool telnet_is_private_display_session(solar_os_context_t *ctx)
-{
-    return ctx != NULL && solar_os_context_shell_session(ctx) == NULL;
-}
-
 static void telnet_request_close_with_status(solar_os_context_t *ctx, const char *status)
 {
     if (status != NULL && status[0] != '\0') {
         SOLAR_OS_LOGW(TAG, "%s", status);
-        if (telnet_is_private_display_session(ctx)) {
-            solar_os_context_set_status_message(ctx, status);
-        }
     }
-    solar_os_context_request_terminal_preserve(ctx);
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, 1, status);
 }
 
-static void telnet_render_usage(solar_os_context_t *ctx)
+static void telnet_request_close(solar_os_context_t *ctx,
+                                 int exit_code,
+                                 const char *status)
 {
-    solar_os_shell_io_t *io = telnet_io(ctx);
-    solar_os_shell_io_clear(io);
-    solar_os_shell_io_write_bold(io, "telnet");
-    solar_os_shell_io_newline(io);
-    solar_os_shell_io_writeln(io, "usage:");
-    solar_os_shell_io_writeln(io, "  telnet host [port]");
-    solar_os_shell_io_writeln(io, "  telnet -r host [port]");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    telnet_flush(ctx);
+    solar_os_context_finish(ctx, exit_code, status);
 }
 
 static bool telnet_parse_port(const char *text, uint16_t *port)
@@ -746,7 +730,7 @@ static void telnet_drain_rx(solar_os_context_t *ctx)
             telnet_flush(ctx);
             telnet_app.active = false;
             telnet_close_socket();
-            telnet_request_close_with_status(ctx, status);
+            telnet_request_close(ctx, 0, status);
             return;
         }
         if (errno == EINTR) {
@@ -903,8 +887,8 @@ static esp_err_t telnet_start(solar_os_context_t *ctx)
     telnet_app.local_echo = true;
 
     if (!telnet_parse_args(ctx)) {
-        telnet_app.mode = TELNET_MODE_ERROR;
-        telnet_render_usage(ctx);
+        telnet_request_close(
+            ctx, 2, "usage: telnet [-r] <host> [port]");
         return ESP_OK;
     }
 
@@ -923,7 +907,6 @@ static esp_err_t telnet_start(solar_os_context_t *ctx)
         char status[80];
         snprintf(status, sizeof(status), "telnet: start failed: %s", esp_err_to_name(err));
         solar_os_shell_io_printf(io, "%s\n", status);
-        telnet_app.mode = TELNET_MODE_ERROR;
         telnet_flush(ctx);
         telnet_request_close_with_status(ctx, status);
         return ESP_OK;
@@ -991,7 +974,7 @@ static bool telnet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         solar_os_shell_io_writeln(telnet_io(ctx), "\ntelnet: closing");
         telnet_flush(ctx);
         telnet_close_socket();
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -1005,6 +988,7 @@ static bool telnet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_telnet_app = {
     .name = "telnet",
     .summary = "Telnet client",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = telnet_start,
     .suspend = telnet_suspend,

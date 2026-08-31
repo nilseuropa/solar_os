@@ -819,7 +819,7 @@ static bool funcgen_handle_key(solar_os_context_t *ctx, uint8_t key)
 {
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE ||
         key == 'q' || key == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     switch (key) {
@@ -873,6 +873,13 @@ static esp_err_t funcgen_start(solar_os_context_t *ctx)
             return ESP_ERR_INVALID_ARG;
         }
     }
+    const funcgen_mode_t launch_mode =
+        !force_tui && funcgen_graphical_session(ctx) ?
+            FUNCGEN_MODE_GRAPHICS : FUNCGEN_MODE_TUI;
+    solar_os_context_set_app_class(
+        ctx,
+        launch_mode == FUNCGEN_MODE_GRAPHICS ?
+            SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_TUI);
 
     memset(&funcgen, 0, sizeof(funcgen));
     memset(&funcgen_render_state, 0, sizeof(funcgen_render_state));
@@ -885,9 +892,7 @@ static esp_err_t funcgen_start(solar_os_context_t *ctx)
     funcgen.last_error = ESP_OK;
     funcgen_discover_outputs();
     funcgen_sync_render(true);
-    funcgen.mode = !force_tui && funcgen_graphical_session(ctx)
-                       ? FUNCGEN_MODE_GRAPHICS
-                       : FUNCGEN_MODE_TUI;
+    funcgen.mode = launch_mode;
 
     esp_err_t err;
     if (funcgen.mode == FUNCGEN_MODE_TUI) {
@@ -923,7 +928,6 @@ static void funcgen_stop(solar_os_context_t *ctx)
         solar_os_tui_set_cursor_visible(&funcgen.tui, true);
         solar_os_tui_refresh(&funcgen.tui);
         solar_os_tui_end(&funcgen.tui);
-        solar_os_context_request_terminal_preserve(ctx);
     }
     funcgen.ui_started = false;
 }
@@ -973,6 +977,7 @@ static bool funcgen_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_funcgen_app = {
     .name = "funcgen",
     .summary = "audio function generator",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = funcgen_start,
     .suspend = funcgen_suspend,

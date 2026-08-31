@@ -1529,7 +1529,7 @@ static bool recorder_handle_key(solar_os_context_t *ctx, uint8_t key)
     }
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE ||
         key == 'q' || key == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (key == '\t') {
@@ -1641,6 +1641,13 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
             return ESP_ERR_INVALID_ARG;
         }
     }
+    const recorder_mode_t launch_mode =
+        !force_tui && recorder_graphical_session(ctx) ?
+            RECORDER_MODE_GRAPHICS : RECORDER_MODE_TUI;
+    solar_os_context_set_app_class(
+        ctx,
+        launch_mode == RECORDER_MODE_GRAPHICS ?
+            SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_TUI);
     if (!solar_os_storage_is_mounted()) return ESP_ERR_INVALID_STATE;
     if (recorder_state != NULL) return ESP_ERR_INVALID_STATE;
     const uint32_t internal_before = (uint32_t)heap_caps_get_free_size(
@@ -1707,8 +1714,7 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
         recorder_wav_file, NULL, &recorder.browser);
     if (err != ESP_OK) goto fail_state;
     recorder_log_internal_memory("browser", internal_before);
-    recorder.mode = !force_tui && recorder_graphical_session(ctx) ?
-        RECORDER_MODE_GRAPHICS : RECORDER_MODE_TUI;
+    recorder.mode = launch_mode;
     if (recorder.mode == RECORDER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&recorder.tui, ctx);
     } else {
@@ -1762,7 +1768,6 @@ static void recorder_stop(solar_os_context_t *ctx)
         solar_os_tui_set_cursor_visible(&recorder.tui, true);
         solar_os_tui_refresh(&recorder.tui);
         solar_os_tui_end(&recorder.tui);
-        solar_os_context_request_terminal_preserve(ctx);
     }
     solar_os_storage_browser_destroy(recorder.browser);
     recorder.browser = NULL;
@@ -1854,6 +1859,7 @@ static void recorder_title(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_recorder_app = {
     .name = "recorder",
     .summary = "interactive WAV recorder",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = recorder_start,
     .suspend = recorder_suspend,

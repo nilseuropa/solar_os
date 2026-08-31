@@ -742,6 +742,14 @@ void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_printf(term, "WiFi: %s\n", wifi_status);
 #endif
     solar_os_shell_io_printf(term, "Uptime: %s\n", uptime);
+    solar_os_shell_session_t *shell_session =
+        solar_os_context_shell_session(ctx);
+    if (shell_session != NULL) {
+        solar_os_shell_io_printf(
+            term,
+            "Last exit: %d\n",
+            solar_os_shell_session_last_exit_code(shell_session));
+    }
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
     const esp_err_t battery_err = solar_os_battery_get_status(&battery_status);
     if (battery_err == ESP_OK) {

@@ -17,10 +17,24 @@ Exit behavior:
 
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
-- When an application exits, its complete retained terminal output is appended
-  to the shell that launched it before the next prompt. This includes Python
-  and Lua script output and errors. The normal terminal scrollback limit still
-  applies.
+- Application screens are private presentation state and are discarded when
+  the application exits. Text written to the application output channel is
+  preserved in the launching shell before its next prompt; Python and Lua use
+  this channel for stdout, errors, and tracebacks. The normal terminal
+  scrollback limit still applies.
+- Every foreground application returns an exit code to its launching shell and
+  can return an optional message. Normal exits use code 0 and stay silent;
+  failures use a nonzero code and a useful message. `status` shows the most
+  recent foreground-application exit code.
+- The runtime assigns every launchable foreground application to one lifecycle
+  class. Commands preserve their sequential text transcript. TUI applications
+  discard their screen buffer. GUI applications discard their framebuffer.
+  Hybrid applications such as `python`, `lua`, `calc`, and `webradio` select
+  the effective class from the mode that was launched.
+- A fatal startup or runtime error is an exit outcome, not an application
+  screen. The runtime closes the application immediately, restores the
+  launching shell, prints the diagnostic there, and does not wait for an
+  acknowledgement key.
 - Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
   `fg` restores the most recently suspended app.
 - `Alt+Tab` or `Alt+Right` switches to the next resumable foreground session on
@@ -995,7 +1009,8 @@ lua file.lua [args...]
 
 Controls:
 
-- `exit()` returns from the REPL.
+- `exit([code])` returns from the REPL or script and reports the optional exit
+  code to the launching shell.
 - App-exit key interrupts running code or exits.
 
 ## notes
@@ -1132,7 +1147,8 @@ python file.mpy [args...]
 
 Controls:
 
-- `exit()` returns from the REPL.
+- `exit([code])` returns from the REPL or script and reports the optional exit
+  code to the launching shell.
 - App-exit key interrupts running code or exits.
 
 ## reader

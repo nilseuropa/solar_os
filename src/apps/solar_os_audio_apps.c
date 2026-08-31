@@ -90,10 +90,11 @@ static solar_os_shell_io_t *audio_app_io(solar_os_context_t *ctx)
     return io;
 }
 
-static void audio_app_request_close(solar_os_context_t *ctx)
+static void audio_app_request_close(solar_os_context_t *ctx,
+                                    int exit_code,
+                                    const char *message)
 {
-    solar_os_context_request_terminal_preserve(ctx);
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, exit_code, message);
 }
 
 static const char *audio_app_name(audio_app_mode_t mode)
@@ -338,7 +339,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
     if (audio_app.task != NULL && !audio_app.task_done) {
         solar_os_shell_io_writeln(io, "audio: previous task is still stopping");
         solar_os_shell_io_flush(io);
-        audio_app_request_close(ctx);
+        audio_app_request_close(ctx, 1, "audio: previous task is still stopping");
         return ESP_OK;
     }
 
@@ -351,14 +352,19 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         audio_app_parse_play_args(ctx);
     if (!parsed) {
         audio_app_render_usage(ctx, mode);
-        audio_app_request_close(ctx);
+        audio_app_request_close(
+            ctx,
+            2,
+            mode == AUDIO_APP_MODE_RECORD ?
+                "usage: arecord [-d seconds] <file.wav>" :
+                "usage: aplay [-v volume] <file.wav|file.mp3>");
         return ESP_OK;
     }
 
     if (!solar_os_storage_is_mounted()) {
         solar_os_shell_io_writeln(io, "audio: storage not mounted");
         solar_os_shell_io_flush(io);
-        audio_app_request_close(ctx);
+        audio_app_request_close(ctx, 1, "audio: storage not mounted");
         return ESP_OK;
     }
 
@@ -387,19 +393,24 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
                                          "aplay: open failed: %s\n",
                                          esp_err_to_name(mp3_err));
                 solar_os_shell_io_flush(io);
-                audio_app_request_close(ctx);
+                char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+                snprintf(message,
+                         sizeof(message),
+                         "aplay: open failed: %s",
+                         esp_err_to_name(mp3_err));
+                audio_app_request_close(ctx, 1, message);
                 return ESP_OK;
             } else {
                 solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
                 solar_os_shell_io_flush(io);
-                audio_app_request_close(ctx);
+                audio_app_request_close(ctx, 1, "aplay: unsupported audio file");
                 return ESP_OK;
             }
         }
         if (source.channels == 0 || source.sample_rate == 0 || source.bits_per_sample == 0) {
             solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
             solar_os_shell_io_flush(io);
-            audio_app_request_close(ctx);
+            audio_app_request_close(ctx, 1, "aplay: unsupported audio file");
             return ESP_OK;
         }
         solar_os_shell_io_printf(io, "playing %s (", audio_app.path);
@@ -421,7 +432,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
     if (audio_app.events == NULL) {
         solar_os_shell_io_writeln(io, "audio: out of memory");
         solar_os_shell_io_flush(io);
-        audio_app_request_close(ctx);
+        audio_app_request_close(ctx, 1, "audio: out of memory");
         return ESP_OK;
     }
 
@@ -450,7 +461,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         audio_app.running = false;
         solar_os_shell_io_writeln(io, "audio: task create failed");
         solar_os_shell_io_flush(io);
-        audio_app_request_close(ctx);
+        audio_app_request_close(ctx, 1, "audio: task create failed");
     }
     return ESP_OK;
 }
@@ -500,7 +511,30 @@ static void audio_app_drain_events(solar_os_context_t *ctx)
                                          esp_err_to_name(event.err));
             }
             solar_os_shell_io_flush(io);
-            audio_app_request_close(ctx);
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            if (event.cancelled) {
+                snprintf(message,
+                         sizeof(message),
+                         "%s: cancelled",
+                         audio_app_name(audio_app.mode));
+                audio_app_request_close(ctx, 130, message);
+            } else if (event.err != ESP_OK) {
+                snprintf(message,
+                         sizeof(message),
+                         "%s: %s",
+                         audio_app_name(audio_app.mode),
+                         esp_err_to_name(event.err));
+                audio_app_request_close(ctx, 1, message);
+            } else if (audio_app.mode == AUDIO_APP_MODE_RECORD) {
+                snprintf(message,
+                         sizeof(message),
+                         "arecord: done, %" PRIu32 " bytes, %" PRIu32 " ms",
+                         event.info.data_bytes,
+                         event.info.duration_ms);
+                audio_app_request_close(ctx, 0, message);
+            } else {
+                audio_app_request_close(ctx, 0, "aplay: done");
+            }
             break;
         default:
             break;
@@ -564,7 +598,10 @@ static bool audio_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
             solar_os_shell_io_writeln(io, "\narecord: stopping");
             solar_os_shell_io_flush(io);
         }
-        audio_app_request_close(ctx);
+        audio_app_request_close(
+            ctx,
+            audio_app.running ? 130 : 0,
+            audio_app.running ? "audio: cancelled" : NULL);
         return true;
     }
     if (ch == SOLAR_OS_KEY_PAGE_UP) {
@@ -588,6 +625,7 @@ static bool audio_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 const solar_os_app_t solar_os_arecord_app = {
     .name = "arecord",
     .summary = "record WAV audio",
+    .app_class = SOLAR_OS_APP_CLASS_COMMAND,
     .start = arecord_start,
     .stop = audio_app_stop,
     .event = audio_app_event,
@@ -604,6 +642,7 @@ const solar_os_app_t solar_os_arecord_app = {
 const solar_os_app_t solar_os_aplay_app = {
     .name = "aplay",
     .summary = "play WAV/MP3 audio",
+    .app_class = SOLAR_OS_APP_CLASS_COMMAND,
     .start = aplay_start,
     .stop = audio_app_stop,
     .event = audio_app_event,

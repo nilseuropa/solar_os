@@ -2131,7 +2131,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         chat_check_messaging_generation();
         chat_check_pending_gateway_join();
         if (!chat_app.active) {
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
             return true;
         }
         if (!chat_app.suspended && chat_app.redraw) {
@@ -2146,7 +2146,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (ch == '\t') {
@@ -2163,7 +2163,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (!chat_app.active) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (chat_app.redraw) {
@@ -2175,6 +2175,7 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_chat_app = {
     .name = "chat",
     .summary = "provider-neutral conversation client",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = chat_start,
     .suspend = chat_suspend,

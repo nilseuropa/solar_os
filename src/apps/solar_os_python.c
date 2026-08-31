@@ -26,6 +26,7 @@
 #include "py/nlr.h"
 #include "py/obj.h"
 #include "py/objlist.h"
+#include "py/persistentcode.h"
 #include "py/qstr.h"
 #include "py/repl.h"
 #include "py/runtime.h"
@@ -250,6 +251,7 @@ typedef struct {
     bool running;
     bool done;
     bool interrupted;
+    int exit_code;
     bool repl_input_active;
     size_t repl_input_row;
     size_t repl_input_col;
@@ -7416,6 +7418,18 @@ static void python_setup_interactive_helpers(void)
     mp_store_global(qstr_from_str("quit"), exit_obj);
 }
 
+static int python_system_exit_code(mp_obj_t exception)
+{
+    const mp_obj_t value = mp_obj_exception_get_value(exception);
+    mp_int_t exit_code = 0;
+    if (value != mp_const_none && !mp_obj_get_int_maybe(value, &exit_code)) {
+        mp_obj_print_helper(&mp_plat_print, value, PRINT_STR);
+        mp_print_str(&mp_plat_print, "\n");
+        return 1;
+    }
+    return (int)exit_code;
+}
+
 static bool python_exec_repl_source(const char *source)
 {
     if (source == NULL || source[0] == '\0') {
@@ -7436,6 +7450,7 @@ static bool python_exec_repl_source(const char *source)
     } else {
         mp_obj_t exception = (mp_obj_t)nlr.ret_val;
         if (mp_obj_exception_match(exception, MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+            python_app.exit_code = python_system_exit_code(exception);
             python_app.repl_exit_requested = true;
             return false;
         }
@@ -7704,13 +7719,37 @@ static bool python_run_script(void)
         goto cleanup;
     }
 
-    if (is_mpy) {
-        mp_embed_exec_mpy(script, script_len);
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        if (is_mpy) {
+            mp_module_context_t *module_ctx = m_new_obj(mp_module_context_t);
+            module_ctx->module.globals = mp_globals_get();
+            mp_compiled_module_t compiled;
+            compiled.context = module_ctx;
+            mp_raw_code_load_mem(script, script_len, &compiled);
+            mp_obj_t function = mp_make_function_from_proto_fun(
+                compiled.rc, module_ctx, MP_OBJ_NULL);
+            mp_call_function_0(function);
+        } else {
+            const qstr source_name = qstr_from_str(python_app.path);
+            mp_lexer_t *lexer = mp_lexer_new_from_str_len(
+                source_name, (const char *)script, script_len, 0);
+            mp_parse_tree_t parse_tree = mp_parse(lexer, MP_PARSE_FILE_INPUT);
+            mp_obj_t function = mp_compile(&parse_tree, source_name, true);
+            mp_call_function_0(function);
+        }
+        nlr_pop();
+        success = !python_app.stop_requested;
     } else {
-        mp_embed_exec_str((const char *)script);
+        const mp_obj_t exception = (mp_obj_t)nlr.ret_val;
+        if (mp_obj_exception_match(exception, MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+            python_app.exit_code = python_system_exit_code(exception);
+            success = true;
+        } else {
+            mp_obj_print_exception(&mp_plat_print, exception);
+            python_app.exit_code = 1;
+        }
     }
-
-    success = !python_app.stop_requested;
 
 cleanup:
     solar_os_memory_free(script);
@@ -7792,13 +7831,22 @@ done:
     solar_os_task_delete(NULL);
 }
 
-static void python_render_usage(solar_os_shell_io_t *io)
+static void python_write_output_line(solar_os_context_t *ctx,
+                                     solar_os_shell_io_t *io,
+                                     const char *text)
 {
-    solar_os_shell_io_writeln(io, "usage: python [file.py|file.mpy] [args...]");
-    solar_os_shell_io_writeln(io, "examples:");
-    solar_os_shell_io_writeln(io, "  python");
-    solar_os_shell_io_writeln(io, "  python hello.py");
-    solar_os_shell_io_writeln(io, "  python /sdcard/apps/demo/main.py arg");
+    (void)ctx;
+    solar_os_shell_io_writeln(io, text);
+}
+
+static void python_render_usage(solar_os_context_t *ctx,
+                                solar_os_shell_io_t *io)
+{
+    python_write_output_line(ctx, io, "usage: python [file.py|file.mpy] [args...]");
+    python_write_output_line(ctx, io, "examples:");
+    python_write_output_line(ctx, io, "  python");
+    python_write_output_line(ctx, io, "  python hello.py");
+    python_write_output_line(ctx, io, "  python /sdcard/apps/demo/main.py arg");
     solar_os_shell_io_flush(io);
 }
 
@@ -7824,10 +7872,15 @@ static void python_finish_terminal_line(solar_os_context_t *ctx, solar_os_shell_
     }
 }
 
-static void python_return_to_shell(solar_os_context_t *ctx)
+static void python_return_to_shell(solar_os_context_t *ctx,
+                                   int exit_code,
+                                   const char *message)
 {
-    solar_os_context_request_terminal_preserve(ctx);
-    solar_os_context_request_exit(ctx);
+    const bool shared_port = solar_os_shell_io_kind(python_io(ctx)) ==
+        SOLAR_OS_SHELL_IO_KIND_PORT;
+    solar_os_context_finish(ctx,
+                                         exit_code,
+                                         shared_port ? NULL : message);
 }
 
 static size_t python_repl_max_input_len(solar_os_context_t *ctx)
@@ -7953,11 +8006,16 @@ static void python_repl_submit(solar_os_context_t *ctx)
 
 static esp_err_t python_start(solar_os_context_t *ctx)
 {
+    const int argc = solar_os_context_argc(ctx);
+    const bool repl_mode = argc < 2;
+    solar_os_context_set_app_class(
+        ctx,
+        repl_mode ? SOLAR_OS_APP_CLASS_TUI : SOLAR_OS_APP_CLASS_COMMAND);
     solar_os_shell_io_t *io = python_io(ctx);
     if (!python_runtime_claim(PYTHON_RUNTIME_OWNER_APP)) {
         solar_os_shell_io_writeln(io, "python: runtime is already in use");
         solar_os_shell_io_flush(io);
-        python_return_to_shell(ctx);
+        python_return_to_shell(ctx, 1, "python: runtime is already in use");
         return ESP_OK;
     }
 
@@ -7968,16 +8026,14 @@ static esp_err_t python_start(solar_os_context_t *ctx)
 
     io = python_io(ctx);
     python_app.session_io = io;
-    const int argc = solar_os_context_argc(ctx);
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "python: too many arguments");
         solar_os_shell_io_flush(io);
-        python_return_to_shell(ctx);
+        python_return_to_shell(ctx, 2, "python: too many arguments");
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
 
-    const bool repl_mode = argc < 2;
     python_app.mode = repl_mode ? PYTHON_MODE_REPL : PYTHON_MODE_SCRIPT;
     python_app.argc = repl_mode ? 1 : argc - 1;
     strlcpy(python_app.argv[0],
@@ -8001,8 +8057,8 @@ static esp_err_t python_start(solar_os_context_t *ctx)
 
     const char *script_arg = solar_os_context_argv(ctx, 1);
     if (script_arg == NULL || script_arg[0] == '\0') {
-        python_render_usage(io);
-        python_return_to_shell(ctx);
+        python_render_usage(ctx, io);
+        python_return_to_shell(ctx, 2, NULL);
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
@@ -8013,7 +8069,12 @@ static esp_err_t python_start(solar_os_context_t *ctx)
     if (path_err != ESP_OK) {
         solar_os_shell_io_printf(io, "python: invalid path: %s\n", esp_err_to_name(path_err));
         solar_os_shell_io_flush(io);
-        python_return_to_shell(ctx);
+        char message[96];
+        snprintf(message,
+                 sizeof(message),
+                 "python: invalid path: %s",
+                 esp_err_to_name(path_err));
+        python_return_to_shell(ctx, 1, message);
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
@@ -8021,7 +8082,7 @@ static esp_err_t python_start(solar_os_context_t *ctx)
         !python_path_has_suffix(python_app.path, ".mpy")) {
         solar_os_shell_io_writeln(io, "python: expected .py or .mpy file");
         solar_os_shell_io_flush(io);
-        python_return_to_shell(ctx);
+        python_return_to_shell(ctx, 2, "python: expected .py or .mpy file");
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
@@ -8030,7 +8091,9 @@ static esp_err_t python_start(solar_os_context_t *ctx)
     if (stat(python_app.path, &st) != 0 || !S_ISREG(st.st_mode)) {
         solar_os_shell_io_printf(io, "python: not found: %s\n", python_app.path);
         solar_os_shell_io_flush(io);
-        python_return_to_shell(ctx);
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message, sizeof(message), "python: not found: %s", python_app.path);
+        python_return_to_shell(ctx, 1, message);
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
     }
@@ -8049,7 +8112,7 @@ start_task:
         solar_os_shell_io_writeln(io, "python: out of memory");
         solar_os_shell_io_flush(io);
         if (!repl_mode) {
-            python_return_to_shell(ctx);
+            python_return_to_shell(ctx, 1, "python: out of memory");
         }
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
@@ -8062,7 +8125,7 @@ start_task:
         solar_os_shell_io_writeln(io, "python: out of memory");
         solar_os_shell_io_flush(io);
         if (!repl_mode) {
-            python_return_to_shell(ctx);
+            python_return_to_shell(ctx, 1, "python: out of memory");
         }
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
         return ESP_OK;
@@ -8090,7 +8153,7 @@ start_task:
             python_app.events = NULL;
             solar_os_shell_io_writeln(io, "python: out of memory");
             solar_os_shell_io_flush(io);
-            python_return_to_shell(ctx);
+            python_return_to_shell(ctx, 1, "python: out of memory");
             python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
             return ESP_OK;
         }
@@ -8123,13 +8186,8 @@ start_task:
         python_app.events = NULL;
         python_app.running = false;
         solar_os_shell_io_writeln(io, "python: task create failed");
-        if (!repl_mode) {
-            solar_os_shell_io_flush(io);
-            python_return_to_shell(ctx);
-        } else {
-            solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-            solar_os_shell_io_flush(io);
-        }
+        solar_os_shell_io_flush(io);
+        python_return_to_shell(ctx, 1, "python: task create failed");
         python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
     }
 
@@ -8487,26 +8545,29 @@ static void python_drain_events(solar_os_context_t *ctx)
             solar_os_context_set_graphics_active(ctx, false);
             if (python_app.mode == PYTHON_MODE_SCRIPT) {
                 python_finish_terminal_line(ctx, io);
-                if (!event.success) {
-                    const char *status =
-                        python_app.interrupted ? "python: stopped" : "python: failed";
-                    solar_os_shell_io_writeln(io, status);
-                }
                 python_flush_io(ctx, io);
-                python_return_to_shell(ctx);
+                const int exit_code = python_app.interrupted ? 130 :
+                    (python_app.exit_code != 0 ? python_app.exit_code :
+                        (event.success ? 0 : 1));
+                python_return_to_shell(
+                    ctx,
+                    exit_code,
+                    event.success ? NULL :
+                        (python_app.interrupted ? "python: stopped" : "python: failed"));
                 break;
             }
             if (event.success && python_app.repl_exit_requested) {
                 python_finish_terminal_line(ctx, io);
                 python_flush_io(ctx, io);
-                python_return_to_shell(ctx);
+                python_return_to_shell(ctx, python_app.exit_code, NULL);
                 break;
             }
-            solar_os_shell_io_writeln(io, "");
-            solar_os_shell_io_printf(io,
-                                     "python: %s\n",
-                                     event.success ? "done" : "stopped");
-            solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
+            python_finish_terminal_line(ctx, io);
+            python_flush_io(ctx, io);
+            python_return_to_shell(
+                ctx,
+                event.success ? 0 : 1,
+                event.success ? "python: stopped" : "python: failed");
             break;
         default:
             break;
@@ -8582,7 +8643,7 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                 return true;
             }
 
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
             return true;
         }
 
@@ -8593,7 +8654,7 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             python_interrupt();
         }
 
-        python_return_to_shell(ctx);
+        python_return_to_shell(ctx, 130, "python: stopped");
         return true;
     }
     if (python_app.mode == PYTHON_MODE_SCRIPT) {
@@ -8660,6 +8721,7 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_python_app = {
     .name = "python",
     .summary = "MicroPython runtime",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS,
     .start = python_start,
     .stop = python_stop,

@@ -26,6 +26,11 @@ solar_os_shell_io_t *solar_os_shell_session_io(solar_os_shell_session_t *session
 const solar_os_app_t *solar_os_shell_session_foreground_app(solar_os_shell_session_t *session);
 void solar_os_shell_session_set_foreground_app(solar_os_shell_session_t *session,
                                                const solar_os_app_t *app);
+void solar_os_shell_session_set_exit_result(solar_os_shell_session_t *session,
+                                            int exit_code,
+                                            const char *message);
+int solar_os_shell_session_last_exit_code(
+    const solar_os_shell_session_t *session);
 esp_err_t solar_os_shell_session_start(solar_os_context_t *ctx,
                                        solar_os_shell_session_t *session,
                                        solar_os_shell_io_t *io,

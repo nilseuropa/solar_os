@@ -231,7 +231,7 @@ job for periodic polling.
 | `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons]` | List all input sources or filter them by semantic class. |
 | `input` | `input test <source>` | Show event counters and the last key, pointer, or axis event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
-| `status` | `status` | Print a compact system status summary. |
+| `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
 | `top` | `top` | Print FreeRTOS task resource information when available. |

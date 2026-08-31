@@ -3452,9 +3452,7 @@ static esp_err_t web_start(solar_os_context_t *ctx)
 
     const char *url = NULL;
     if (!web_parse_args(ctx, &url)) {
-        solar_os_context_set_graphics_active(ctx, true);
-        web_set_status("usage: web http://host/");
-        web_render(ctx);
+        solar_os_context_finish(ctx, 2, "usage: web http://host/");
         return ESP_OK;
     }
 
@@ -3837,7 +3835,7 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (web.loading) {
@@ -3923,6 +3921,7 @@ static bool web_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_web_app = {
     .name = "web",
     .summary = "simple web browser",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = web_start,
     .suspend = web_suspend,

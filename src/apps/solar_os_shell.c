@@ -218,8 +218,10 @@ struct solar_os_shell_session {
     bool watch_active;
     bool watch_executing;
     bool log_follow_active;
+    bool exit_message_pending;
     uint8_t script_depth;
     uint8_t alias_depth;
+    int last_exit_code;
     uint32_t watch_interval_ms;
     uint32_t watch_next_ms;
     uint32_t log_follow_next_ms;
@@ -227,6 +229,7 @@ struct solar_os_shell_session {
     solar_os_log_level_t log_follow_level;
     const solar_os_app_t *foreground_app;
     char watch_command[SHELL_INPUT_MAX];
+    char exit_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
     solar_os_shell_io_t io;
 };
 
@@ -3429,6 +3432,20 @@ static void shell_prompt(solar_os_context_t *ctx)
     shell_session(ctx)->previous_key_was_tab = false;
     shell_session(ctx)->prompt_on_resume = false;
     shell_session(ctx)->clear_on_resume = false;
+
+    int exit_code = 0;
+    if (solar_os_context_take_exit_result(ctx, &exit_code)) {
+        shell_session(ctx)->last_exit_code = exit_code;
+    }
+
+    if (shell_session(ctx)->exit_message_pending) {
+        if (solar_os_shell_io_cursor_col(io) != 0) {
+            solar_os_shell_io_newline(io);
+        }
+        solar_os_shell_io_writeln(io, shell_session(ctx)->exit_message);
+        shell_session(ctx)->exit_message_pending = false;
+        shell_session(ctx)->exit_message[0] = '\0';
+    }
 
     if (solar_os_context_take_status_message(ctx,
                                              status_message,
@@ -7749,7 +7766,7 @@ static void cmd_exit(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, 0, NULL);
     shell_session(ctx)->builtin_suppressed_prompt = true;
 }
 
@@ -8438,6 +8455,29 @@ void solar_os_shell_session_set_foreground_app(solar_os_shell_session_t *session
     if (session != NULL) {
         session->foreground_app = app;
     }
+}
+
+void solar_os_shell_session_set_exit_result(solar_os_shell_session_t *session,
+                                            int exit_code,
+                                            const char *message)
+{
+    if (session == NULL) {
+        return;
+    }
+    session->last_exit_code = exit_code;
+    if (message == NULL || message[0] == '\0') {
+        session->exit_message_pending = false;
+        session->exit_message[0] = '\0';
+        return;
+    }
+    strlcpy(session->exit_message, message, sizeof(session->exit_message));
+    session->exit_message_pending = true;
+}
+
+int solar_os_shell_session_last_exit_code(
+    const solar_os_shell_session_t *session)
+{
+    return session != NULL ? session->last_exit_code : 0;
 }
 
 static bool shell_scp_arg_is_remote(const char *arg)
@@ -9195,6 +9235,7 @@ static void shell_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len
 static const solar_os_app_t shell_app = {
     .name = "shell",
     .summary = "SolarOS command shell",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = shell_start,
     .resume = shell_resume,

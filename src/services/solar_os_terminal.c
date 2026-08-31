@@ -1239,58 +1239,6 @@ void solar_os_terminal_printf(solar_os_terminal_t *terminal, const char *fmt, ..
     solar_os_terminal_write(terminal, buffer);
 }
 
-static const solar_os_terminal_cell_t *terminal_text_line(
-    const solar_os_terminal_t *terminal,
-    size_t index)
-{
-    if (terminal == NULL) {
-        return NULL;
-    }
-    if (index < terminal->scrollback_count) {
-        return scrollback_line(terminal, index);
-    }
-    const size_t live_row = index - terminal->scrollback_count;
-    return live_row < terminal_rows(terminal) ? terminal->lines[live_row] : NULL;
-}
-
-bool solar_os_terminal_append_text(solar_os_terminal_t *destination,
-                                   const solar_os_terminal_t *source)
-{
-    if (destination == NULL || source == NULL || destination == source) {
-        return false;
-    }
-
-    const size_t line_count = source->scrollback_count + terminal_rows(source);
-    size_t last_line = 0U;
-    bool has_text = false;
-    for (size_t index = 0; index < line_count; index++) {
-        const solar_os_terminal_cell_t *line = terminal_text_line(source, index);
-        if (terminal_line_len(source, line) > 0U) {
-            last_line = index;
-            has_text = true;
-        }
-    }
-    if (!has_text) {
-        return false;
-    }
-
-    if (solar_os_terminal_cursor_col(destination) != 0U) {
-        solar_os_terminal_newline(destination);
-    }
-    for (size_t index = 0; index <= last_line; index++) {
-        const solar_os_terminal_cell_t *line = terminal_text_line(source, index);
-        size_t len = terminal_line_len(source, line);
-        while (len > 0U && line[len - 1U] == ' ') {
-            len--;
-        }
-        for (size_t col = 0; col < len; col++) {
-            solar_os_terminal_put_codepoint(destination, line[col]);
-        }
-        solar_os_terminal_newline(destination);
-    }
-    return true;
-}
-
 void solar_os_terminal_set_bold(solar_os_terminal_t *terminal, bool enabled)
 {
     if (terminal == NULL) {
