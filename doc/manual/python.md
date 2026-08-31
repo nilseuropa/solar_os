@@ -96,6 +96,7 @@ Optional API groups follow these package gates:
 - `service.wifi`: top-level `wifi_status` and `solaros.wifi`
 - `network.mqtt`: `solaros.mqtt`
 - `network.http-client`: `solaros.http`
+- `network.ftp`: `solaros.ftp`
 - `network.base`: `solaros.net`
 - `network.ssh`: `solaros.ssh_keys`
 - `service.ble`: `solaros.ble`
@@ -1198,6 +1199,35 @@ try:
         print(frame["type"], frame["data"])
 finally:
     solaros.net.close(handle)
+```
+
+## `solaros.ftp`
+
+The package-gated FTP client uses synchronous, unencrypted IPv4 FTP with
+passive data connections. Each call connects, logs in, performs one operation,
+and disconnects:
+
+- `list(host[, path[, username[, password[, port]]]])`
+- `download(host, remote_path, local_path[, username[, password[, port]]])`
+- `upload(host, local_path, remote_path[, username[, password[, port]]])`
+- `mkdir(host, path[, username[, password[, port]]])`
+- `rmdir(host, path[, username[, password[, port]]])`
+- `remove(host, path[, username[, password[, port]]])`
+- `rename(host, old_path, new_path[, username[, password[, port]]])`
+
+The defaults are path `/`, username `anonymous`, password `solaros@`, and port
+`21`. `list()` returns dictionaries with `name`, `is_directory`, and `size`.
+Local paths use the normal SolarOS storage resolver. Calls raise `OSError` on
+DNS, login, protocol, filesystem, cancellation, or transfer failure. FTP does
+not encrypt credentials or file content; use it only on a trusted network.
+
+```python
+import solaros
+
+for item in solaros.ftp.list("fileserver", "/incoming"):
+    print(item["name"], item["size"])
+
+solaros.ftp.upload("fileserver", "/notes/todo.txt", "/incoming/todo.txt")
 ```
 
 ## `solaros.ssh_keys`

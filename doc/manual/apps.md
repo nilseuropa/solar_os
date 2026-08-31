@@ -703,6 +703,47 @@ Controls:
 - File operations refresh both panes after completion.
 - App-exit key exits.
 
+## ftp
+
+Two-pane FTP file manager. The left pane is local mounted storage. The right
+pane is a remote FTP server. The app uses unencrypted IPv4 FTP and passive data
+connections.
+
+Usage:
+
+```text
+ftp HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]
+```
+
+Anonymous login is the default (`anonymous` with `solaros@` as its password).
+Specify both `--user` and `--password` for an authenticated server. Passwords
+are plaintext on the network and remain in shell history when entered on the
+command line. Use FTP only on a trusted network.
+
+Controls:
+
+- Arrows navigate the active pane. `Tab`, Left, and Right switch panes.
+- `Enter` opens a directory. `r` refreshes the remote and local listings.
+- `F3` views a local file. For a remote file, FTP downloads a temporary hidden
+  copy into the current local folder, opens its registered viewer, and removes
+  the copy when control returns to FTP.
+- `F5` copies the current file or directory to the other pane. Directory
+  transfers are recursive. Copy and move show the same preparing/transfer
+  progress popup used by Files.
+- `F6` moves the current file or directory to the other pane by completing the
+  copy before deleting the source.
+- `F7` creates a directory in the active pane.
+- `F8` recursively deletes the current item after confirmation.
+- `q`, `F10`, or the app-exit key closes the connection and exits.
+- After an operation refreshes the current directories, both panes retain their
+  cursor and scroll positions. Opening another directory starts at its top.
+
+FTP is a resumable TUI on the display shell and VT100-compatible port shells.
+One operation runs at a time in its foreground worker. Existing destination
+files are replaced. A failed download removes its staging file and preserves an
+existing destination; a move does not delete its source unless the complete
+copy succeeds.
+
 ## flash
 
 Download verified SolarOS factory artifacts to SD and program another supported

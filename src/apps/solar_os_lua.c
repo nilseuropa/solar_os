@@ -61,6 +61,9 @@
 #include "solar_os_http_client.h"
 #include "solar_os_http_stream.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_FTP
+#include "solar_os_ftp.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
 #endif
@@ -6807,6 +6810,9 @@ static void solua_new_submodule(lua_State *L, int parent, const char *name)
 
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 #include "solar_os_lua_dsp.inc"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_FTP
+#include "solar_os_lua_ftp.inc"
 #endif
 
 static int solua_require(lua_State *L)

@@ -45,6 +45,7 @@ typedef struct {
     char port[SOLAR_OS_PORT_NAME_MAX];
     char link[SOLAR_OS_LINK_NAME_MAX];
     uint32_t peer_id;
+    solar_os_link_stream_config_t config;
     size_t data_mtu;
     QueueHandle_t rx_queue;
     QueueHandle_t tx_queue;
@@ -115,8 +116,8 @@ static uint32_t stream_retry_delay_ms(const link_stream_t *stream,
 {
     const uint32_t mixed = stream->local_session ^
         ((uint32_t)slot->sequence * 2654435761U);
-    return LINK_STREAM_RETRY_MS +
-        (mixed % (LINK_STREAM_RETRY_JITTER_MS + 1U));
+    return stream->config.retry_ms +
+        (mixed % (stream->config.retry_jitter_ms + 1U));
 }
 
 static uint32_t stream_new_session(void)
@@ -215,7 +216,7 @@ static bool stream_connected_locked(const link_stream_t *stream, uint32_t now_ms
 {
     return stream->port_open && stream->remote_session != 0U &&
            (uint32_t)(now_ms - stream->remote_last_seen_ms) <=
-               LINK_STREAM_PEER_TIMEOUT_MS;
+               stream->config.peer_timeout_ms;
 }
 
 static void stream_fill_status_locked(const link_stream_t *stream,
@@ -230,6 +231,9 @@ static void stream_fill_status_locked(const link_stream_t *stream,
     status->port_open = stream->port_open;
     status->connected = stream_connected_locked(stream, now_ms);
     status->data_mtu = stream->data_mtu;
+    status->retry_ms = stream->config.retry_ms;
+    status->retry_jitter_ms = stream->config.retry_jitter_ms;
+    status->peer_timeout_ms = stream->config.peer_timeout_ms;
     status->rx_queued = stream->rx_queue != NULL ? uxQueueMessagesWaiting(stream->rx_queue) : 0U;
     status->tx_queued = stream->tx_queue != NULL ? uxQueueMessagesWaiting(stream->tx_queue) : 0U;
     status->tx_inflight = 0U;
@@ -374,14 +378,48 @@ esp_err_t solar_os_link_stream_init(void)
     return stream_ensure_init();
 }
 
+void solar_os_link_stream_config_default(
+    solar_os_link_stream_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+    *config = (solar_os_link_stream_config_t){
+        .port_label = "SolarOS Link virtual serial",
+        .acknowledgement_delay_ms = LINK_STREAM_ACK_DELAY_MS,
+        .retry_ms = LINK_STREAM_RETRY_MS,
+        .retry_jitter_ms = LINK_STREAM_RETRY_JITTER_MS,
+        .open_interval_ms = LINK_STREAM_OPEN_INTERVAL_MS,
+        .peer_timeout_ms = LINK_STREAM_PEER_TIMEOUT_MS,
+    };
+}
+
 esp_err_t solar_os_link_stream_create(const char *link,
                                       const char *port,
                                       uint32_t peer_id)
 {
+    solar_os_link_stream_config_t config;
+    solar_os_link_stream_config_default(&config);
+    return solar_os_link_stream_create_configured(
+        link, port, peer_id, &config);
+}
+
+esp_err_t solar_os_link_stream_create_configured(
+    const char *link,
+    const char *port,
+    uint32_t peer_id,
+    const solar_os_link_stream_config_t *config)
+{
     if (link == NULL || link[0] == '\0' || port == NULL || port[0] == '\0' ||
         strnlen(link, SOLAR_OS_LINK_NAME_MAX) >= SOLAR_OS_LINK_NAME_MAX ||
         strnlen(port, SOLAR_OS_PORT_NAME_MAX) >= SOLAR_OS_PORT_NAME_MAX ||
-        peer_id == 0U || peer_id == SOLAR_OS_LINK_BROADCAST) {
+        peer_id == 0U || peer_id == SOLAR_OS_LINK_BROADCAST ||
+        config == NULL || config->port_label == NULL ||
+        strnlen(config->port_label, SOLAR_OS_PORT_LABEL_MAX) >=
+            SOLAR_OS_PORT_LABEL_MAX || config->retry_ms == 0U ||
+        config->open_interval_ms == 0U ||
+        config->peer_timeout_ms < config->retry_ms ||
+        UINT32_MAX - config->retry_ms < config->retry_jitter_ms) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t error = stream_ensure_init();
@@ -442,6 +480,7 @@ esp_err_t solar_os_link_stream_create(const char *link,
     strlcpy(stream->port, port, sizeof(stream->port));
     strlcpy(stream->link, link, sizeof(stream->link));
     stream->peer_id = peer_id;
+    stream->config = *config;
     stream->data_mtu = payload_mtu - LINK_STREAM_HEADER_SIZE;
     stream->rx_queue = rx_queue;
     stream->tx_queue = tx_queue;
@@ -452,7 +491,7 @@ esp_err_t solar_os_link_stream_create(const char *link,
 
     const solar_os_port_driver_t driver = {
         .name = stream->port,
-        .label = "SolarOS Link virtual serial",
+        .label = config->port_label,
         .capabilities = SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE,
         .read = stream_port_read,
         .write = stream_port_write,
@@ -565,18 +604,33 @@ static esp_err_t stream_decode(const solar_os_link_message_t *message,
                                uint32_t *acknowledgement_session,
                                uint16_t *acknowledgement_sequence,
                                const uint8_t **data,
-                               size_t *data_len)
+                               size_t *data_len,
+                               solar_os_link_stream_decode_issue_t *issue)
 {
+    if (issue != NULL) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_STRUCTURE;
+    }
     if (message == NULL || message->type != SOLAR_OS_LINK_MESSAGE_STREAM ||
         message->destination == SOLAR_OS_LINK_BROADCAST ||
-        message->payload_len < LINK_STREAM_HEADER_SIZE ||
-        message->payload[0] != LINK_STREAM_MAGIC_0 ||
-        message->payload[1] != LINK_STREAM_MAGIC_1 ||
-        message->payload[2] != LINK_STREAM_VERSION) {
+        message->payload_len < LINK_STREAM_HEADER_SIZE || opcode == NULL ||
+        session == NULL || sequence == NULL ||
+        acknowledgement_session == NULL ||
+        acknowledgement_sequence == NULL || data == NULL ||
+        data_len == NULL || issue == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (message->payload[0] != LINK_STREAM_MAGIC_0 ||
+        message->payload[1] != LINK_STREAM_MAGIC_1) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_MAGIC;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (message->payload[2] != LINK_STREAM_VERSION) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_VERSION;
         return ESP_ERR_INVALID_ARG;
     }
     const link_stream_opcode_t decoded = (link_stream_opcode_t)message->payload[3];
     if (decoded < LINK_STREAM_OPCODE_OPEN || decoded > LINK_STREAM_OPCODE_CLOSE) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_OPCODE;
         return ESP_ERR_INVALID_ARG;
     }
     *opcode = decoded;
@@ -586,17 +640,31 @@ static esp_err_t stream_decode(const solar_os_link_message_t *message,
     *acknowledgement_sequence = stream_read_u16(&message->payload[14]);
     *data = &message->payload[LINK_STREAM_HEADER_SIZE];
     *data_len = message->payload_len - LINK_STREAM_HEADER_SIZE;
-    if (*session == 0U ||
-        (decoded == LINK_STREAM_OPCODE_DATA &&
-         (*sequence == 0U || *data_len == 0U)) ||
-        (decoded != LINK_STREAM_OPCODE_DATA &&
-         (*sequence != 0U || *data_len != 0U)) ||
-        ((*acknowledgement_session == 0U) !=
+    if (*session == 0U) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_SESSION;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (decoded == LINK_STREAM_OPCODE_DATA &&
+        (*sequence == 0U || *data_len == 0U)) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_DATA;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (decoded != LINK_STREAM_OPCODE_DATA && *sequence != 0U) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_CONTROL_SEQUENCE;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (decoded != LINK_STREAM_OPCODE_DATA && *data_len != 0U) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_CONTROL_DATA;
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (((*acknowledgement_session == 0U) !=
          (*acknowledgement_sequence == 0U)) ||
         (decoded == LINK_STREAM_OPCODE_ACK &&
          *acknowledgement_session == 0U)) {
+        *issue = SOLAR_OS_LINK_STREAM_DECODE_ACKNOWLEDGEMENT;
         return ESP_ERR_INVALID_ARG;
     }
+    *issue = SOLAR_OS_LINK_STREAM_DECODE_NONE;
     return ESP_OK;
 }
 
@@ -639,7 +707,11 @@ static void stream_apply_acknowledgement_locked(
 
 static void stream_note_decode_error(const char *link,
                                      const solar_os_link_message_t *message,
-                                     esp_err_t error)
+                                     esp_err_t error,
+                                     solar_os_link_stream_decode_issue_t issue,
+                                     link_stream_opcode_t opcode,
+                                     uint16_t sequence,
+                                     size_t data_len)
 {
     if (link == NULL || message == NULL || stream_ensure_init() != ESP_OK) {
         return;
@@ -649,6 +721,10 @@ static void stream_note_decode_error(const char *link,
     if (index >= 0) {
         streams[index].counters.decode_errors++;
         streams[index].counters.dropped++;
+        streams[index].counters.last_decode_issue = issue;
+        streams[index].counters.last_decode_opcode = (uint8_t)opcode;
+        streams[index].counters.last_decode_sequence = sequence;
+        streams[index].counters.last_decode_data_len = data_len;
         streams[index].counters.last_error = error;
     }
     xSemaphoreGive(stream_mutex);
@@ -658,13 +734,15 @@ esp_err_t solar_os_link_stream_ingest(const char *link,
                                       const solar_os_link_message_t *message,
                                       uint32_t now_ms)
 {
-    link_stream_opcode_t opcode;
+    link_stream_opcode_t opcode = (link_stream_opcode_t)0;
     uint32_t session = 0U;
     uint16_t sequence = 0U;
     uint32_t acknowledgement_session = 0U;
     uint16_t acknowledgement_sequence = 0U;
     const uint8_t *data = NULL;
     size_t data_len = 0U;
+    solar_os_link_stream_decode_issue_t decode_issue =
+        SOLAR_OS_LINK_STREAM_DECODE_NONE;
     esp_err_t error = stream_decode(message,
                                     &opcode,
                                     &session,
@@ -672,9 +750,16 @@ esp_err_t solar_os_link_stream_ingest(const char *link,
                                     &acknowledgement_session,
                                     &acknowledgement_sequence,
                                     &data,
-                                    &data_len);
+                                    &data_len,
+                                    &decode_issue);
     if (error != ESP_OK) {
-        stream_note_decode_error(link, message, error);
+        stream_note_decode_error(link,
+                                 message,
+                                 error,
+                                 decode_issue,
+                                 opcode,
+                                 sequence,
+                                 data_len);
         return error;
     }
     if (link == NULL || stream_ensure_init() != ESP_OK) {
@@ -760,7 +845,8 @@ esp_err_t solar_os_link_stream_ingest(const char *link,
         stream->acknowledgement_session = session;
         stream->acknowledgement_sequence =
             stream_previous_sequence(stream->expected_rx_sequence);
-        stream->acknowledgement_due_ms = now_ms + LINK_STREAM_ACK_DELAY_MS;
+        stream->acknowledgement_due_ms =
+            now_ms + stream->config.acknowledgement_delay_ms;
         break;
     case LINK_STREAM_OPCODE_ACK:
         break;
@@ -785,7 +871,8 @@ static void stream_prepare_action_locked(link_stream_t *stream,
                                          link_stream_action_t *action)
 {
     if (stream->remote_session != 0U &&
-        (uint32_t)(now_ms - stream->remote_last_seen_ms) > LINK_STREAM_PEER_TIMEOUT_MS) {
+        (uint32_t)(now_ms - stream->remote_last_seen_ms) >
+            stream->config.peer_timeout_ms) {
         stream->remote_session = 0U;
         stream->remote_last_seen_ms = 0U;
         stream->next_open_ms = 0U;
@@ -941,8 +1028,8 @@ void solar_os_link_stream_process(const char *link, uint32_t now_ms)
             case LINK_STREAM_OPCODE_OPEN:
                 stream->next_open_ms = now_ms +
                     (stream_connected_locked(stream, now_ms)
-                         ? LINK_STREAM_OPEN_INTERVAL_MS
-                         : LINK_STREAM_RETRY_MS);
+                         ? stream->config.open_interval_ms
+                         : stream->config.retry_ms);
                 break;
             case LINK_STREAM_OPCODE_DATA:
                 for (size_t i = 0; i < stream->tx_window_count; i++) {

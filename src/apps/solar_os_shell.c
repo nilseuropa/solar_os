@@ -79,6 +79,9 @@
 #include "solar_os_link.h"
 #include "solar_os_link_stream.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+#include "solar_os_meshcore_stream.h"
+#endif
 #include "solar_os_ramfs.h"
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
@@ -155,6 +158,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_RADIOS,
     SHELL_COMPLETION_SOURCE_LINKS,
     SHELL_COMPLETION_SOURCE_LINK_STREAMS,
+    SHELL_COMPLETION_SOURCE_MESHCORE_STREAMS,
     SHELL_COMPLETION_SOURCE_RADIO_PROFILES,
     SHELL_COMPLETION_SOURCE_USER_RADIO_PROFILES,
     SHELL_COMPLETION_SOURCE_RAMFS_MOUNTS,
@@ -763,7 +767,7 @@ static const char * const pocsag_polarity_values[] = {"normal", "inverted"};
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
 static const char * const meshcore_subcommands[] = {
-    "status", "identity", "name", "advert", "channel",
+    "status", "identity", "name", "advert", "channel", "stream",
 };
 static const char * const meshcore_identity_subcommands[] = {
     "show", "generate", "import", "export",
@@ -773,6 +777,10 @@ static const char * const meshcore_channel_subcommands[] = {
 };
 static const char * const meshcore_advert_values[] = {"zero", "flood"};
 static const char * const meshcore_on_off_values[] = {"off", "on"};
+static const char * const meshcore_stream_subcommands[] = {
+    "status", "list", "create", "remove",
+};
+static const char * const meshcore_stream_port_values[] = {"mser0", "mser1"};
 #endif
 
 static const char * const disk_subcommands[] = {
@@ -1780,6 +1788,21 @@ static const char * const path_meshcore_channel[] = {
 static const char * const path_meshcore_channel_public[] = {
     "meshcore", "channel", "public"
 };
+static const char * const path_meshcore_stream[] = {
+    "meshcore", "stream"
+};
+static const char * const path_meshcore_stream_status[] = {
+    "meshcore", "stream", "status"
+};
+static const char * const path_meshcore_stream_create[] = {
+    "meshcore", "stream", "create"
+};
+static const char * const path_meshcore_stream_create_port[] = {
+    "meshcore", "stream", "create", SHELL_COMPLETION_ANY
+};
+static const char * const path_meshcore_stream_remove[] = {
+    "meshcore", "stream", "remove"
+};
 #endif
 static const char * const path_job_start_slip[] = {"job", "start", "slip"};
 static const char * const path_job_start_slip_port[] = {
@@ -2372,6 +2395,12 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .source = SHELL_COMPLETION_SOURCE_LINK_STREAMS, \
     }
+#define SHELL_COMPLETION_MESHCORE_STREAMS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_MESHCORE_STREAMS, \
+    }
 #define SHELL_COMPLETION_RADIO_PROFILES(path_array) \
     { \
         .path = path_array, \
@@ -2777,6 +2806,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
                             meshcore_channel_subcommands),
     SHELL_COMPLETION_STATIC(path_meshcore_channel_public,
                             meshcore_on_off_values),
+    SHELL_COMPLETION_STATIC(path_meshcore_stream,
+                            meshcore_stream_subcommands),
+    SHELL_COMPLETION_MESHCORE_STREAMS(path_meshcore_stream_status),
+    SHELL_COMPLETION_STATIC(path_meshcore_stream_create,
+                            meshcore_stream_port_values),
+    SHELL_COMPLETION_ENDPOINT_IDS(path_meshcore_stream_create_port),
+    SHELL_COMPLETION_MESHCORE_STREAMS(path_meshcore_stream_remove),
 #endif
     SHELL_COMPLETION_PORTS(path_job_start_slip),
 #if SOLAR_OS_PACKAGE_JOB_SLIP
@@ -5586,6 +5622,21 @@ static void shell_completion_emit_link_streams(shell_completion_match_t *state)
 #endif
 }
 
+static void shell_completion_emit_meshcore_streams(shell_completion_match_t *state)
+{
+#if SOLAR_OS_PACKAGE_JOB_MESHCORE
+    const size_t count = solar_os_meshcore_stream_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_meshcore_stream_status_t status;
+        if (solar_os_meshcore_stream_get(i, &status)) {
+            shell_completion_emit(state, status.stream.port);
+        }
+    }
+#else
+    (void)state;
+#endif
+}
+
 static void shell_completion_emit_radio_profiles(shell_completion_match_t *state,
                                                  bool user_only)
 {
@@ -7276,6 +7327,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             break;
         case SHELL_COMPLETION_SOURCE_LINK_STREAMS:
             shell_completion_emit_link_streams(state);
+            break;
+        case SHELL_COMPLETION_SOURCE_MESHCORE_STREAMS:
+            shell_completion_emit_meshcore_streams(state);
             break;
         case SHELL_COMPLETION_SOURCE_RADIO_PROFILES:
             shell_completion_emit_radio_profiles(state, false);

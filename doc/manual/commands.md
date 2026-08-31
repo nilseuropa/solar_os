@@ -773,6 +773,9 @@ available for the compiled board.
 | `meshcore` | `meshcore name [name]` | Show or set the MeshCore-specific advertised name. |
 | `meshcore` | `meshcore advert zero\|flood` | Queue a local or explicitly network-wide advert. |
 | `meshcore` | `meshcore channel list\|add\|remove\|public` | Join public hashtag channels or manage bounded shared-key groups while the job is stopped. |
+| `meshcore` | `meshcore stream list` or `meshcore stream status [port]` | Inspect trusted peer-bound virtual serial ports carried by encrypted MeshCore direct packets. |
+| `meshcore` | `meshcore stream create <port> <trusted-endpoint-id>` | Register a reliable MeshCore virtual serial port for one exact trusted endpoint. Configure both peers. |
+| `meshcore` | `meshcore stream remove <port>` | Remove an unclaimed MeshCore virtual serial port. |
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
