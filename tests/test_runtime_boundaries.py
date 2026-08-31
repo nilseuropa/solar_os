@@ -119,6 +119,17 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("u8g2_GetBufferPtr(gfx->u8g2)", gfx)
         self.assertIn("surface->data", gfx)
 
+    def test_session_switch_clear_is_not_presented(self):
+        main = (ROOT / "src/main.c").read_text(encoding="utf-8")
+        start = main.index("static void session_overlay_requested(")
+        end = main.index("static void dispatch_app_resume(", start)
+        overlay_request = main[start:end]
+
+        self.assertIn("u8g2_ClearBuffer(display_u8g2);", overlay_request)
+        self.assertNotIn(
+            "solar_os_display_present(display_u8g2", overlay_request
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

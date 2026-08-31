@@ -426,9 +426,11 @@ static void session_overlay_requested(const char *title,
     last_session_overlay_draw_ms = 0U;
     if (after_next_frame) {
         (void)solar_os_display_set_overlay_active(display_u8g2, false);
+        /*
+         * Discard the outgoing session's backing buffer without presenting an
+         * empty frame. The incoming session supplies the next complete frame.
+         */
         u8g2_ClearBuffer(display_u8g2);
-        solar_os_display_present(display_u8g2,
-                                 SOLAR_OS_DISPLAY_PRESENT_TEXT);
     }
     draw_session_overlay_if_needed();
 }
