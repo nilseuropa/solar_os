@@ -24,6 +24,9 @@ not compiled.
 Interactive code must check `solaros.should_exit()` and release displays,
 buses, GPIO claims, files, and interpreter-owned services on every exit path.
 Use `try/finally` in Python and `pcall` plus explicit cleanup in Lua.
+When a foreground script exits, SolarOS appends its complete retained terminal
+output to the launching shell. The normal terminal scrollback limit still
+applies.
 
 ## Read foreground input
 

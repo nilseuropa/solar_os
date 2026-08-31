@@ -35,6 +35,13 @@ struct solar_os_gfx_index8_surface {
     uint32_t theme_background_rgb888;
 };
 
+struct solar_os_gfx_snapshot {
+    size_t data_size;
+    size_t palette_size;
+    bool index8;
+    uint8_t payload[];
+};
+
 static const char *TAG = "gfx";
 
 static bool gfx_uses_index8(const solar_os_gfx_t *gfx);
@@ -543,6 +550,107 @@ void *solar_os_gfx_detach_surface_storage(solar_os_gfx_t *gfx)
 const solar_os_display_surface_t *solar_os_gfx_surface(const solar_os_gfx_t *gfx)
 {
     return gfx_uses_index8(gfx) ? &gfx->index8->surface : NULL;
+}
+
+static size_t gfx_u8g2_buffer_size(const solar_os_gfx_t *gfx)
+{
+    if (!gfx_ready(gfx) || u8g2_GetBufferPtr(gfx->u8g2) == NULL) {
+        return 0U;
+    }
+    return (size_t)gfx->u8g2->pixel_buf_width *
+        u8g2_GetBufferTileHeight(gfx->u8g2);
+}
+
+esp_err_t solar_os_gfx_snapshot_capture(
+    const solar_os_gfx_t *gfx,
+    solar_os_gfx_snapshot_t **snapshot)
+{
+    if (!gfx_ready(gfx) || snapshot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_display_surface_t *surface = solar_os_gfx_surface(gfx);
+    const bool index8 = surface != NULL;
+    const size_t data_size = index8 ?
+        surface->data_size : gfx_u8g2_buffer_size(gfx);
+    const size_t palette_size = index8 ? surface->palette_size : 0U;
+    if (palette_size > SIZE_MAX / sizeof(uint16_t)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const size_t palette_bytes = palette_size * sizeof(uint16_t);
+    if (data_size == 0U || data_size > SIZE_MAX - palette_bytes ||
+        sizeof(solar_os_gfx_snapshot_t) >
+            SIZE_MAX - data_size - palette_bytes) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    solar_os_gfx_snapshot_t *captured = solar_os_memory_alloc(
+        sizeof(*captured) + data_size + palette_bytes,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "session.gfx");
+    if (captured == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    captured->data_size = data_size;
+    captured->palette_size = palette_size;
+    captured->index8 = index8;
+    memcpy(captured->payload,
+           index8 ? surface->data : u8g2_GetBufferPtr(gfx->u8g2),
+           data_size);
+    if (index8 && palette_bytes > 0U) {
+        memcpy(captured->payload + data_size,
+               surface->palette_rgb565,
+               palette_bytes);
+    }
+
+    solar_os_gfx_snapshot_destroy(*snapshot);
+    *snapshot = captured;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_gfx_snapshot_restore(
+    solar_os_gfx_t *gfx,
+    const solar_os_gfx_snapshot_t *snapshot)
+{
+    if (!gfx_ready(gfx) || snapshot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (snapshot->index8) {
+        solar_os_gfx_prepare_surface(gfx);
+        const solar_os_display_surface_t *surface = solar_os_gfx_surface(gfx);
+        if (surface == NULL || surface->data_size != snapshot->data_size ||
+            surface->palette_size != snapshot->palette_size) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        memcpy((void *)surface->data, snapshot->payload, snapshot->data_size);
+        memcpy((void *)surface->palette_rgb565,
+               snapshot->payload + snapshot->data_size,
+               snapshot->palette_size * sizeof(uint16_t));
+        gfx_mark_index8_all_dirty(gfx);
+        if (surface->presented_hashes != NULL) {
+            memset(surface->presented_hashes,
+                   0,
+                   surface->presented_hash_count * sizeof(uint32_t));
+        }
+    } else {
+        const size_t buffer_size = gfx_u8g2_buffer_size(gfx);
+        if (buffer_size != snapshot->data_size) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        memcpy(u8g2_GetBufferPtr(gfx->u8g2),
+               snapshot->payload,
+               snapshot->data_size);
+    }
+
+    gfx->dirty = true;
+    solar_os_gfx_present(gfx);
+    return ESP_OK;
+}
+
+void solar_os_gfx_snapshot_destroy(solar_os_gfx_snapshot_t *snapshot)
+{
+    solar_os_memory_free(snapshot);
 }
 
 static bool gfx_valid_rect(int width, int height)

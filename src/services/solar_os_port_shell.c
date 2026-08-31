@@ -937,6 +937,7 @@ static void port_shell_return_to_shell(port_shell_state_t *state)
         return;
     }
     const uint8_t active_id = state->active_app_session->id;
+    solar_os_context_request_terminal_preserve(&state->ctx);
     (void)port_app_close(state, active_id, true, true, true);
 }
 

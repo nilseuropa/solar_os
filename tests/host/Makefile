@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_output_handoff_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -207,6 +207,16 @@ terminal_geometry_test: terminal_geometry_test.c $(ROOT)/src/services/solar_os_t
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services terminal_geometry_test.c \
 		$(ROOT)/src/services/solar_os_terminal_geometry.c -o $@
 
+terminal_output_handoff_test: terminal_output_handoff_test.c $(ROOT)/src/services/solar_os_terminal.c $(ROOT)/src/services/solar_os_terminal.h $(ROOT)/src/services/solar_os_terminal_internal.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -Wno-format-truncation \
+		-Wno-unused-function -Wno-unused-variable \
+		-ffunction-sections -fdata-sections -include compat.h -I. \
+		-I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/board \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		-I$(ROOT)/components/u8g2/src/clib \
+		terminal_output_handoff_test.c $(ROOT)/src/services/solar_os_terminal.c \
+		-Wl,--gc-sections -o $@
+
 terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
@@ -283,6 +293,7 @@ test: $(TARGETS)
 	./nvs_backup_test
 	./agent_reference_test
 	./terminal_geometry_test
+	./terminal_output_handoff_test
 	./terminal_preferences_test
 	./tui_widgets_test
 	./wireguard_crypto_test

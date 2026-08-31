@@ -36,6 +36,7 @@ typedef struct {
     bool owns_display_target;
     bool close_on_exit;
     bool has_return_session;
+    bool preserve_terminal_on_resume;
     bool graphics_active;
     bool terminal_redraw_requested;
     uint8_t id;
@@ -45,6 +46,7 @@ typedef struct {
     const solar_os_app_t *app;
     solar_os_terminal_t *terminal;
     solar_os_gfx_t *gfx;
+    solar_os_gfx_snapshot_t *graphics_snapshot;
     solar_os_shell_io_t *io;
     solar_os_shell_session_t *shell_session;
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
@@ -422,6 +424,55 @@ static solar_os_session_entry_t *session_return_target(uint8_t session_id,
     return target;
 }
 
+static solar_os_session_entry_t *ensure_shell_session(void);
+
+static solar_os_session_entry_t *session_return_shell(
+    const solar_os_session_entry_t *session)
+{
+    const solar_os_session_entry_t *current = session;
+    for (size_t depth = 0; depth < SOLAR_OS_SESSION_MAX; depth++) {
+        if (current == NULL || !current->has_return_session) {
+            break;
+        }
+        solar_os_session_entry_t *target =
+            session_return_target(current->return_session_id, current);
+        if (target == NULL) {
+            break;
+        }
+        if (target->app == solar_os_shell_app()) {
+            return target;
+        }
+        current = target;
+    }
+    return NULL;
+}
+
+static void session_transfer_terminal_output(solar_os_session_entry_t *session)
+{
+    if (session == NULL || session_state.ctx == NULL) {
+        return;
+    }
+
+    const bool preserve_requested =
+        solar_os_context_take_terminal_preserve(session_state.ctx);
+
+    solar_os_session_entry_t *shell = session_return_shell(session);
+    if (shell == NULL && session_state.shell_terminal != NULL &&
+        session != &session_state.sessions[0]) {
+        shell = ensure_shell_session();
+    }
+    if (shell == NULL || shell == session || shell->terminal == NULL) {
+        return;
+    }
+
+    const bool shared_terminal = session->terminal == shell->terminal;
+    const bool appended = !shared_terminal &&
+        solar_os_terminal_append_text(shell->terminal, session->terminal);
+    if (preserve_requested || shared_terminal || appended) {
+        shell->preserve_terminal_on_resume = true;
+    }
+}
+
 static bool switch_to_session(solar_os_session_entry_t *session, bool show_overlay);
 static bool close_session(solar_os_session_entry_t *session, bool preserve_context);
 
@@ -585,6 +636,50 @@ static solar_os_gfx_t *session_effective_gfx(const solar_os_session_entry_t *ses
         session_state.default_gfx;
 }
 
+static void session_discard_graphics_snapshot(solar_os_session_entry_t *session)
+{
+    if (session == NULL || session->graphics_snapshot == NULL) {
+        return;
+    }
+    solar_os_gfx_snapshot_destroy(session->graphics_snapshot);
+    session->graphics_snapshot = NULL;
+}
+
+static void session_capture_graphics_snapshot(solar_os_session_entry_t *session)
+{
+    if (session == NULL || !session->graphics_active || session->app == NULL ||
+        session->app->resume != NULL) {
+        session_discard_graphics_snapshot(session);
+        return;
+    }
+
+    const esp_err_t err = solar_os_gfx_snapshot_capture(
+        session_effective_gfx(session), &session->graphics_snapshot);
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "session %u graphics snapshot failed: %s",
+                      (unsigned)session->id,
+                      esp_err_to_name(err));
+    }
+}
+
+static void session_restore_graphics_snapshot(solar_os_session_entry_t *session)
+{
+    if (session == NULL || !session->graphics_active ||
+        session->graphics_snapshot == NULL) {
+        return;
+    }
+
+    const esp_err_t err = solar_os_gfx_snapshot_restore(
+        session_effective_gfx(session), session->graphics_snapshot);
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "session %u graphics restore failed: %s",
+                      (unsigned)session->id,
+                      esp_err_to_name(err));
+    }
+}
+
 static void session_bind_display(solar_os_session_entry_t *session,
                                  const solar_os_session_entry_t *parent)
 {
@@ -673,6 +768,7 @@ static void session_free_terminal(solar_os_session_entry_t *session)
         return;
     }
 
+    session_discard_graphics_snapshot(session);
     if (session->io != NULL) {
         solar_os_memory_free(session->io);
         session->io = NULL;
@@ -963,6 +1059,7 @@ static void suspend_foreground_session(void)
         session->app->suspend(session_state.ctx);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    session_capture_graphics_snapshot(session);
     session->suspended = true;
     session_update_title(session);
 }
@@ -979,9 +1076,18 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
         return false;
     }
 
+    const bool was_started = session->started;
     solar_os_shell_io_t *launch_io = solar_os_context_shell_io(session_state.ctx);
     session_prepare_context(session);
-    solar_os_context_set_graphics_active(session_state.ctx, false);
+    if (session->preserve_terminal_on_resume) {
+        session->preserve_terminal_on_resume = false;
+        solar_os_context_request_terminal_preserve(session_state.ctx);
+    }
+    /* A resumed graphics session owns a retained frame. Do not tear down its
+     * backing surface before an app without a resume renderer can restore it. */
+    if (!was_started || !session->graphics_active) {
+        solar_os_context_set_graphics_active(session_state.ctx, false);
+    }
 
     if (!session->started) {
         session_store_context_args(session, session_state.ctx);
@@ -1007,6 +1113,8 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
         session->started = true;
     } else if (session->app->resume != NULL) {
         session->app->resume(session_state.ctx);
+    } else {
+        session_restore_graphics_snapshot(session);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
     session->terminal_redraw_requested = false;
@@ -1039,8 +1147,16 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
         return false;
     }
 
+    const bool was_started = session->started;
     session_prepare_context(session);
-    solar_os_context_set_graphics_active(session_state.ctx, false);
+    if (session->preserve_terminal_on_resume) {
+        session->preserve_terminal_on_resume = false;
+        solar_os_context_request_terminal_preserve(session_state.ctx);
+    }
+    /* Keep the retained graphics backing alive across detached focus changes. */
+    if (!was_started || !session->graphics_active) {
+        solar_os_context_set_graphics_active(session_state.ctx, false);
+    }
     if (!session->started) {
         session_store_context_args(session, session_state.ctx);
         if (session->app->start != NULL || session->app->state_size > 0U) {
@@ -1066,6 +1182,8 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
         session->started = true;
     } else if (session->app->resume != NULL) {
         session->app->resume(session_state.ctx);
+    } else {
+        session_restore_graphics_snapshot(session);
     }
 
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
@@ -1092,6 +1210,7 @@ static void suspend_detached_session(solar_os_session_entry_t *session)
         session->app->suspend(session_state.ctx);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    session_capture_graphics_snapshot(session);
     session->suspended = true;
     session_update_title(session);
     session_context_restore(&previous);
@@ -1298,6 +1417,7 @@ static bool close_session(solar_os_session_entry_t *session, bool preserve_conte
                       app_display_name(session->app));
         solar_os_app_stop(session->app, session_state.ctx);
     }
+    session_transfer_terminal_output(session);
     session_release_display(session);
     session_release_display_target(session);
     session_free_terminal(session);
@@ -1675,6 +1795,9 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
             session->app->event(session_state.ctx, &resume_event);
         }
         session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+        if (session->app->resume == NULL) {
+            session_restore_graphics_snapshot(session);
+        }
     }
     if (session->app->event == NULL) {
         return;
@@ -1697,6 +1820,9 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
     const int64_t started_us = tick ? solar_os_tick_begin() : 0;
     session->app->event(session_state.ctx, event);
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
+    if (event->type == SOLAR_OS_EVENT_RESUME && session->app->resume == NULL) {
+        session_restore_graphics_snapshot(session);
+    }
     if (tick && solar_os_tick_end(&session->tick_stats, started_us) &&
         solar_os_tick_should_log_miss(&session->tick_stats)) {
         SOLAR_OS_LOGW(TAG,

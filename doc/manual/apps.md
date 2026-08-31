@@ -17,11 +17,17 @@ Exit behavior:
 
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
+- When an application exits, its complete retained terminal output is appended
+  to the shell that launched it before the next prompt. This includes Python
+  and Lua script output and errors. The normal terminal scrollback limit still
+  applies.
 - Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
   `fg` restores the most recently suspended app.
 - `Alt+Tab` or `Alt+Right` switches to the next resumable foreground session on
   the locally focused display. `Alt+Left` switches to the previous session.
   Either Alt key is accepted, including AltGr on compact keyboards.
+  Switching back restores the retained terminal or graphics frame, including
+  Python and Lua application screens.
 
 ## agent
 

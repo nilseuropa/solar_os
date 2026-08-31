@@ -5,6 +5,7 @@
 #include "u8g2.h"
 
 typedef struct solar_os_gfx_index8_surface solar_os_gfx_index8_surface_t;
+typedef struct solar_os_gfx_snapshot solar_os_gfx_snapshot_t;
 
 struct solar_os_gfx {
     u8g2_t *u8g2;
@@ -26,3 +27,10 @@ esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *gfx);
 void *solar_os_gfx_detach_surface_storage(solar_os_gfx_t *gfx);
 const solar_os_display_surface_t *solar_os_gfx_surface(
     const solar_os_gfx_t *gfx);
+esp_err_t solar_os_gfx_snapshot_capture(
+    const solar_os_gfx_t *gfx,
+    solar_os_gfx_snapshot_t **snapshot);
+esp_err_t solar_os_gfx_snapshot_restore(
+    solar_os_gfx_t *gfx,
+    const solar_os_gfx_snapshot_t *snapshot);
+void solar_os_gfx_snapshot_destroy(solar_os_gfx_snapshot_t *snapshot);

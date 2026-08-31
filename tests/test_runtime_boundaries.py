@@ -101,6 +101,24 @@ class RuntimeBoundaryTest(unittest.TestCase):
             self.assertIn("SOLAR_OS_APP_CAP_DISPLAY", entry)
             self.assertIn("SOLAR_OS_APP_CAP_PORT", entry)
 
+    def test_sessions_restore_apps_without_resume_renderers(self):
+        sessions = (ROOT / "src/services/solar_os_sessions.c").read_text(
+            encoding="utf-8"
+        )
+        gfx = (ROOT / "src/services/solar_os_gfx.c").read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(
+            sessions.count("session_capture_graphics_snapshot(session);"), 2
+        )
+        self.assertGreaterEqual(
+            sessions.count("session_restore_graphics_snapshot(session);"), 4
+        )
+        self.assertIn("if (!was_started || !session->graphics_active)", sessions)
+        self.assertIn("solar_os_gfx_snapshot_capture", gfx)
+        self.assertIn("solar_os_gfx_snapshot_restore", gfx)
+        self.assertIn("u8g2_GetBufferPtr(gfx->u8g2)", gfx)
+        self.assertIn("surface->data", gfx)
+
 
 if __name__ == "__main__":
     unittest.main()
