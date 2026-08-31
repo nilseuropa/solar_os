@@ -568,6 +568,40 @@ Notes:
 - MIME types are provided for common text, image, audio, JSON, JavaScript, and
   CSS files.
 
+## ftpd
+
+Unencrypted FTP file server for one exported folder. The job supports one
+client at a time and passive IPv4 data connections.
+
+Usage:
+
+```text
+job start ftpd <folder> [port] [--user USER --password PASSWORD]
+job stop ftpd
+job status ftpd
+```
+
+Examples:
+
+```text
+job start ftpd /shared
+job start ftpd /shared 2121 --user solaros --password local-secret
+```
+
+Notes:
+
+- The default port is `21`.
+- Login is anonymous by default. Anonymous clients use `anonymous` or `ftp` as
+  the username; the supplied password is ignored.
+- `--user` and `--password` must be supplied together. They provide plaintext
+  access control, not encryption. The password also remains in local shell
+  history. Use the daemon only on a trusted network.
+- FTP `/` is the exported folder. Normalized paths cannot walk above that
+  folder, and the export root itself cannot be deleted, replaced, or renamed.
+- Supported operations include directory listing, download, upload, create and
+  remove directory, delete, rename, size, current directory, and passive-mode
+  negotiation. Active mode and TLS are not supported.
+
 ## log
 
 Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or

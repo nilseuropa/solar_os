@@ -71,6 +71,9 @@
 #if SOLAR_OS_PACKAGE_APP_FILES
 #include "solar_os_files.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_FTP
+#include "solar_os_ftp_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_FLASH
 #include "solar_os_flash_app.h"
 #endif
@@ -198,6 +201,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
     APP_ENTRY("files", "two-pane file manager and launcher", &solar_os_files_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "files [--launcher] [path]", 1, 3),
+#endif
+#if SOLAR_OS_PACKAGE_APP_FTP
+    APP_ENTRY("ftp", "two-pane FTP file manager", &solar_os_ftp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ftp HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]", 2, 11),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FLASH
     APP_ENTRY("flash", "download and flash SolarOS onto another ESP board", &solar_os_flash_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "flash [refresh | list | download BOARD FLAVOR [VERSION] | BOARD FLAVOR [version=VERSION] [port=uart0] [boot=PIN] [reset=PIN] [baud=RATE]]", 1, 8),

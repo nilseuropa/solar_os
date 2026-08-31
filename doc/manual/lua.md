@@ -56,6 +56,7 @@ service packages are not available on that board.
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
 - `solaros.http`: bounded requests, retained same-origin sessions, and streaming handles when `network.http-client` is compiled
+- `solaros.ftp`: passive-mode list, download, upload, directory, delete, and rename operations when `network.ftp` is compiled
 - `solaros.hid`: typed `keyboard`, `mouse`, and `gamepad` tables when `service.hid` is compiled
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
 - `solaros.onewire`: `allowed`, `reset`, `scan`, `xfer` for the direct-pin compatibility API when OneWire support is compiled
@@ -240,6 +241,30 @@ local handle = solaros.http.session_open("https://example.com")
 local first = solaros.http.session_request(handle, "GET", "https://example.com/a")
 local second = solaros.http.session_request(handle, "GET", "https://example.com/b")
 solaros.http.session_close(handle)
+```
+
+### FTP operations
+
+`solaros.ftp` uses synchronous, unencrypted IPv4 FTP. Each call connects,
+performs one operation with passive data connections, and disconnects:
+
+- `list(host[, path[, username[, password[, port]]]])`
+- `download(host, remote_path, local_path[, username[, password[, port]]])`
+- `upload(host, local_path, remote_path[, username[, password[, port]]])`
+- `mkdir`, `rmdir`, and `remove` use
+  `(host, path[, username[, password[, port]]])`
+- `rename(host, old_path, new_path[, username[, password[, port]]])`
+
+The defaults are `/`, `anonymous`, `solaros@`, and port `21`. Listings contain
+`name`, `is_directory`, and `size`. Local paths use SolarOS storage resolution.
+Failures raise a Lua error. FTP does not encrypt credentials or content; use it
+only on a trusted network.
+
+```lua
+for _, item in ipairs(solaros.ftp.list("fileserver", "/incoming")) do
+    print(item.name, item.size)
+end
+solaros.ftp.download("fileserver", "/incoming/report.txt", "/notes/report.txt")
 ```
 
 A script-driven continuous control uses the same target mappings as an ADC

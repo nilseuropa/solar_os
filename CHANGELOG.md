@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.10.8** — 2026-08-31 — Added an unencrypted, anonymous-by-default `ftpd`
+  background job with an export-root boundary and optional username/password
+  login. Added a resumable two-pane `ftp` application for recursive copy, move,
+  delete, directory creation, and viewing between local storage and passive-mode
+  FTP servers. Added the shared native FTP client service and matching
+  `solaros.ftp` Python and Lua bindings. FTP copy and move operations show
+  Files-style progress, and same-directory refreshes preserve both pane
+  positions.
 - **4.10.6** — 2026-08-30 — Added a shared raster-frame presenter for bounded
   animation: MONO1, INDEX2, and INDEX8 frame contracts now describe source and
   destination geometry, display targets publish their supported formats and

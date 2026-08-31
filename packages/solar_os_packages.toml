@@ -142,6 +142,7 @@ members = [
   "chat_transport_gateway",
   "service_http_client",
   "service_http_server",
+  "service_ftp",
   "app_ssh",
   "app_scp",
   "app_curl",
@@ -149,11 +150,13 @@ members = [
   "app_telnet",
   "app_web",
   "app_email",
+  "app_ftp",
   "job_httpd",
   "job_displayd",
   "job_gateway_sync",
   "job_chatd",
   "job_telnetd",
+  "job_ftpd",
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
@@ -168,11 +171,13 @@ triggers = [
   "app_telnet",
   "app_web",
   "app_email",
+  "app_ftp",
   "job_httpd",
   "job_displayd",
   "job_gateway_sync",
   "job_chatd",
   "job_telnetd",
+  "job_ftpd",
   "job_email_sync",
   "job_slip",
   "job_ntp_sync",
@@ -435,6 +440,13 @@ label = "service.script-network"
 depends = ["service_net"]
 sources = ["services/solar_os_net_session.c"]
 requires = ["esp-tls", "esp_timer", "lwip", "mbedtls", "tcp_transport"]
+capabilities = ["wifi"]
+
+[packages.service_ftp]
+label = "network.ftp"
+depends = ["service_net"]
+sources = ["services/solar_os_ftp.c"]
+requires = ["lwip"]
 capabilities = ["wifi"]
 
 [packages.service_mqtt]
@@ -1337,14 +1349,14 @@ capabilities = ["gfx", "psram", "sd", "streaming_display"]
 
 [packages.app_python]
 label = "app.python"
-depends = ["service_messaging", "service_script_net", "service_script_runner"]
+depends = ["service_ftp", "service_messaging", "service_script_net", "service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
-depends = ["service_messaging", "service_script_net", "service_script_runner"]
+depends = ["service_ftp", "service_messaging", "service_script_net", "service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]
@@ -1413,6 +1425,12 @@ capabilities = ["psram", "gfx"]
 label = "app.files"
 sources = ["apps/solar_os_files.c"]
 
+[packages.app_ftp]
+label = "app.ftp"
+depends = ["service_ftp"]
+sources = ["apps/solar_os_ftp_app.c"]
+capabilities = ["wifi"]
+
 [packages.app_io]
 label = "app.io"
 depends = ["service_gpio"]
@@ -1475,6 +1493,12 @@ capabilities = ["psram", "wifi"]
 label = "job.telnetd"
 depends = ["service_net"]
 sources = ["jobs/solar_os_telnetd_job.c"]
+capabilities = ["wifi"]
+
+[packages.job_ftpd]
+label = "job.ftpd"
+depends = ["service_ftp"]
+sources = ["jobs/solar_os_ftpd_job.c"]
 capabilities = ["wifi"]
 
 [packages.job_gateway_sync]
