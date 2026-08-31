@@ -449,7 +449,7 @@ static bool wifi_tui_event(solar_os_context_t *ctx, const solar_os_event_t *even
 
     const uint8_t key = (uint8_t)event->data.ch;
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(wifi_tui.ctx);
+        solar_os_context_finish(wifi_tui.ctx, 0, NULL);
         return true;
     }
 
@@ -482,6 +482,7 @@ static bool wifi_tui_event(solar_os_context_t *ctx, const solar_os_event_t *even
 static const solar_os_app_t wifi_tui_app = {
     .name = "wifi",
     .summary = "Wi-Fi control",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = wifi_tui_start,
     .stop = wifi_tui_stop,
     .event = wifi_tui_event,

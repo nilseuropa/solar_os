@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test audio_codec_test webradio_catalog_test nvs_backup_test agent_reference_test terminal_geometry_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -26,6 +26,14 @@ doc_layout_test: doc_layout_test.c doc_test_support.c $(ROOT)/src/services/solar
 writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(WRITER_DIR)/solar_os_writer_files.h esp_err.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src/services -I$(WRITER_DIR) \
 		writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c -o $@
+
+sketch_canvas_test: sketch_canvas_test.c $(WRITER_DIR)/solar_os_sketch_canvas.c $(WRITER_DIR)/solar_os_sketch_canvas.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(WRITER_DIR) \
+		sketch_canvas_test.c $(WRITER_DIR)/solar_os_sketch_canvas.c -o $@
+
+text_search_test: text_search_test.c $(ROOT)/src/services/solar_os_text_search.c $(ROOT)/src/services/solar_os_text_search.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		text_search_test.c $(ROOT)/src/services/solar_os_text_search.c -o $@
 
 shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(ROOT)/src/shell/solar_os_shell_parse.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
@@ -97,6 +105,7 @@ board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(
 		-DSOLAR_OS_BOARD_HAS_AUDIO_INPUT=1 -DSOLAR_OS_BOARD_HAS_WIFI=1 \
 		-DSOLAR_OS_BOARD_HAS_BLE=1 -DSOLAR_OS_BOARD_HAS_GPIO=1 \
 		-DSOLAR_OS_BOARD_HAS_POINTER=1 \
+		-DSOLAR_OS_BOARD_HAS_STREAMING_DISPLAY=1 \
 		-DSOLAR_OS_BOARD_HAS_ADC=1 -DSOLAR_OS_BOARD_HAS_PWM=1 \
 		-DSOLAR_OS_BOARD_HAS_EXPANSION_GPIO=1 \
 		-DSOLAR_OS_BOARD_HAS_EXPANSION_I2C=1 \
@@ -161,6 +170,10 @@ stream_test: stream_test.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/se
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		stream_test.c $(ROOT)/src/services/solar_os_stream.c -o $@
 
+resources_test: resources_test.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/services/solar_os_resources.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		resources_test.c $(ROOT)/src/services/solar_os_resources.c -o $@
+
 audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h $(ROOT)/src/services/solar_os_audio_pcm.c $(ROOT)/src/services/solar_os_audio_pcm.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_AUDIO_CODEC_HOST_TEST -I. -I$(ROOT)/src/services -I$(ROOT)/components/minimp3/include \
 		audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c \
@@ -170,6 +183,10 @@ audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c
 webradio_catalog_test: webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c $(ROOT)/src/services/solar_os_webradio_catalog.h esp_attr.h esp_check.h esp_err.h nvs.h freertos/FreeRTOS.h freertos/portmacro.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c -o $@
+
+gif_decode_stack_test: gif_decode_stack_test.c deep_animation.gif.b64 esp_heap_caps.h esp_err.h $(ROOT)/components/stb_image/stb_image_port.c $(ROOT)/components/stb_image/include/solar_os_stb_image.h $(ROOT)/components/stb_image/include/stb_image.h
+	$(CC) $(CFLAGS) -pthread -I. -I$(ROOT)/components/stb_image/include \
+		gif_decode_stack_test.c $(ROOT)/components/stb_image/stb_image_port.c -o $@
 
 nvs_backup_test: nvs_backup_test.c $(ROOT)/src/services/solar_os_nvs_backup.c $(ROOT)/src/services/solar_os_nvs_backup.h esp_partition.h nvs_flash.h esp_err.h freertos/FreeRTOS.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
@@ -189,6 +206,14 @@ agent_reference_test: agent_reference_test.c $(MANUAL_GENERATED_HEADER) $(ROOT)/
 terminal_geometry_test: terminal_geometry_test.c $(ROOT)/src/services/solar_os_terminal_geometry.c $(ROOT)/src/services/solar_os_terminal_geometry.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services terminal_geometry_test.c \
 		$(ROOT)/src/services/solar_os_terminal_geometry.c -o $@
+
+app_exit_result_test: app_exit_result_test.c $(ROOT)/src/solar_os.c $(ROOT)/src/solar_os.h $(ROOT)/src/shell/solar_os_shell_io.c $(ROOT)/src/shell/solar_os_shell_io.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
+		-include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/shell \
+		-I$(ROOT)/components/u8g2/src/clib app_exit_result_test.c \
+		$(ROOT)/src/solar_os.c $(ROOT)/src/shell/solar_os_shell_io.c \
+		-Wl,--gc-sections -o $@
 
 terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
@@ -230,6 +255,8 @@ time_timezone_test: time_timezone_test.c \
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
+	./sketch_canvas_test
+	./text_search_test
 	./doc_layout_test
 	./shell_parse_test
 	./shell_launch_test
@@ -257,11 +284,14 @@ test: $(TARGETS)
 	./osc_test
 	./dsp_test
 	./stream_test
+	./resources_test
 	./audio_codec_test
 	./webradio_catalog_test
+	./gif_decode_stack_test
 	./nvs_backup_test
 	./agent_reference_test
 	./terminal_geometry_test
+	./app_exit_result_test
 	./terminal_preferences_test
 	./tui_widgets_test
 	./wireguard_crypto_test

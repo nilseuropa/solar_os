@@ -186,19 +186,14 @@ triggers = ["app_agent"]
 capabilities = ["psram", "wifi"]
 
 [groups.media]
-members = ["app_view"]
-triggers = ["app_view"]
+members = ["app_view", "app_sketch"]
+triggers = ["app_view", "app_sketch"]
 capabilities = ["gfx"]
 
 [groups.games]
-members = ["app_invaders"]
-triggers = ["app_invaders"]
+members = ["app_invaders", "app_gameboy"]
+triggers = ["app_invaders", "app_gameboy"]
 capabilities = ["gfx"]
-
-[groups.retro]
-members = ["app_gameboy"]
-triggers = ["app_gameboy"]
-capabilities = ["gfx", "psram", "sd"]
 
 [groups.python]
 members = ["app_python", "app_playground"]
@@ -258,6 +253,7 @@ sources = [
   "services/solar_os_cdc.c",
   "services/solar_os_clipboard.c",
   "services/solar_os_display.c",
+  "services/solar_os_frame_presenter.c",
   "services/solar_os_gfx.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
@@ -557,6 +553,10 @@ sources = [
   "services/solar_os_html.c",
   "services/solar_os_xml.c",
 ]
+
+[packages.service_text_search]
+label = "service.text_search"
+sources = ["services/solar_os_text_search.c"]
 
 [packages.service_ble]
 label = "service.ble"
@@ -1255,7 +1255,7 @@ capabilities = ["wifi"]
 
 [packages.app_web]
 label = "app.web"
-depends = ["service_document", "service_http_client"]
+depends = ["service_document", "service_http_client", "service_text_search"]
 sources = ["apps/solar_os_web.c"]
 capabilities = ["psram", "wifi", "gfx"]
 
@@ -1309,6 +1309,15 @@ depends = ["service_image"]
 sources = ["apps/solar_os_view.c"]
 capabilities = ["psram", "gfx"]
 
+[packages.app_sketch]
+label = "app.sketch"
+depends = ["service_image", "service_storage_browser"]
+sources = [
+  "apps/solar_os_sketch.c",
+  "apps/solar_os_sketch_canvas.c",
+]
+capabilities = ["gfx"]
+
 [packages.app_invaders]
 label = "app.invaders"
 sources = ["apps/solar_os_invaders.c"]
@@ -1324,7 +1333,7 @@ sources = [
   "apps/solar_os_gameboy_rom.c",
   "apps/solar_os_gameboy_video.c",
 ]
-capabilities = ["gfx", "psram", "sd"]
+capabilities = ["gfx", "psram", "sd", "streaming_display"]
 
 [packages.app_python]
 label = "app.python"
@@ -1359,6 +1368,7 @@ capabilities = ["uart"]
 
 [packages.app_edit]
 label = "app.edit"
+depends = ["service_text_search"]
 sources = [
   "apps/solar_os_edit.c",
   "services/solar_os_syntax.c",
@@ -1366,6 +1376,7 @@ sources = [
 
 [packages.app_less]
 label = "app.less"
+depends = ["service_text_search"]
 sources = ["apps/solar_os_less.c"]
 
 [packages.app_docs]
@@ -1381,7 +1392,7 @@ capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
 
 [packages.app_reader]
 label = "app.reader"
-depends = ["service_document"]
+depends = ["service_document", "service_text_search"]
 sources = [
   "apps/solar_os_reader.c",
   "services/solar_os_epub.c",
@@ -1390,7 +1401,7 @@ capabilities = ["psram", "gfx"]
 
 [packages.app_writer]
 label = "app.writer"
-depends = ["service_document"]
+depends = ["service_document", "service_text_search"]
 sources = [
   "apps/solar_os_writer.c",
   "apps/solar_os_writer_buffer.c",

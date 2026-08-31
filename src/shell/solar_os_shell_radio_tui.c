@@ -928,7 +928,7 @@ static bool radio_tui_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     }
 
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(radio_tui.ctx);
+        solar_os_context_finish(radio_tui.ctx, 0, NULL);
         return true;
     }
 
@@ -967,6 +967,7 @@ static bool radio_tui_event(solar_os_context_t *ctx, const solar_os_event_t *eve
 static const solar_os_app_t radio_tui_app = {
     .name = "radio",
     .summary = "Packet radio control",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = radio_tui_start,
     .stop = radio_tui_stop,
     .event = radio_tui_event,

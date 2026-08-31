@@ -132,7 +132,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
         )
         self.assertEqual(
             sum(map(len, entries.values())) + nested_count + hid_keycode_count,
-            523,
+            524,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

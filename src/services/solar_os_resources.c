@@ -2,13 +2,16 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-#define SOLAR_OS_RESOURCE_CLAIM_MAX 32
+/* Complex boards reserve more than 30 claims before runtime expansion use. */
+#define SOLAR_OS_RESOURCE_CLAIM_MAX 64
 
-static solar_os_resource_claim_t claims[SOLAR_OS_RESOURCE_CLAIM_MAX];
+static EXT_RAM_BSS_ATTR solar_os_resource_claim_t claims[SOLAR_OS_RESOURCE_CLAIM_MAX];
 static SemaphoreHandle_t claims_mutex;
+static StaticSemaphore_t claims_mutex_storage;
 
 static esp_err_t resources_ensure_init(void)
 {
@@ -16,7 +19,7 @@ static esp_err_t resources_ensure_init(void)
         return ESP_OK;
     }
 
-    claims_mutex = xSemaphoreCreateMutex();
+    claims_mutex = xSemaphoreCreateMutexStatic(&claims_mutex_storage);
     if (claims_mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }

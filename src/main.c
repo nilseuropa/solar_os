@@ -134,6 +134,10 @@ static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 static uint32_t last_terminal_draw_ms;
 static uint32_t last_session_overlay_draw_ms;
+static bool session_overlay_persistent;
+static bool session_overlay_after_next_frame;
+static bool session_switch_alt_held;
+static uint8_t session_switch_nav_held;
 static solar_os_runtime_loop_stats_t runtime_loop_stats;
 
 static void process_app_requests(void);
@@ -315,10 +319,14 @@ static void draw_session_overlay_if_needed(void)
     }
 
     const uint32_t now_ms = millis_u32();
-    if ((int32_t)(now_ms - session_overlay_until_ms) >= 0) {
+    if (!session_overlay_persistent &&
+        (int32_t)(now_ms - session_overlay_until_ms) >= 0) {
         session_overlay_until_ms = 0;
         session_overlay_title[0] = '\0';
         last_session_overlay_draw_ms = 0U;
+        session_overlay_persistent = false;
+        session_overlay_after_next_frame = false;
+        (void)solar_os_display_set_overlay_active(display_u8g2, false);
         if (solar_os_context_graphics_active(&os_ctx)) {
             solar_os_sessions_dispatch_resume(now_ms);
         } else {
@@ -327,10 +335,7 @@ static void draw_session_overlay_if_needed(void)
         return;
     }
 
-    if (SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS != 0U &&
-        last_session_overlay_draw_ms != 0U &&
-        now_ms - last_session_overlay_draw_ms <
-            SOLAR_OS_BOARD_DISPLAY_FRAME_INTERVAL_MS) {
+    if (last_session_overlay_draw_ms != 0U) {
         return;
     }
     last_session_overlay_draw_ms = now_ms;
@@ -364,7 +369,32 @@ static void draw_session_overlay_if_needed(void)
     u8g2_SetDrawColor(u8g2, 0);
     u8g2_DrawFrame(u8g2, box_x, box_y, box_width, box_height);
     u8g2_DrawUTF8(u8g2, text_x, text_y, session_overlay_title);
-    solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+    solar_os_display_present_overlay(u8g2,
+                                     (uint16_t)box_x,
+                                     (uint16_t)box_y,
+                                     (uint16_t)box_width,
+                                     (uint16_t)box_height,
+                                     session_overlay_after_next_frame);
+}
+
+static void close_session_overlay(void)
+{
+    if (session_overlay_until_ms == 0U) {
+        return;
+    }
+
+    session_overlay_until_ms = 0U;
+    session_overlay_title[0] = '\0';
+    last_session_overlay_draw_ms = 0U;
+    session_overlay_persistent = false;
+    session_overlay_after_next_frame = false;
+    (void)solar_os_display_set_overlay_active(display_u8g2, false);
+    const uint32_t now_ms = millis_u32();
+    if (solar_os_context_graphics_active(&os_ctx)) {
+        solar_os_sessions_dispatch_resume(now_ms);
+    } else {
+        solar_os_sessions_mark_foreground_dirty();
+    }
 }
 
 static void session_terminal_changed(solar_os_terminal_t *new_terminal, void *user)
@@ -373,17 +403,36 @@ static void session_terminal_changed(solar_os_terminal_t *new_terminal, void *us
     terminal = new_terminal;
 }
 
-static void session_overlay_requested(const char *title, void *user)
+static void session_overlay_requested(const char *title,
+                                      bool after_next_frame,
+                                      void *user)
 {
     (void)user;
 
-    if (title == NULL || title[0] == '\0' || display_u8g2 == NULL) {
+    if (display_u8g2 == NULL) {
+        return;
+    }
+    if (title == NULL || title[0] == '\0') {
+        close_session_overlay();
         return;
     }
 
+    const uint32_t now_ms = millis_u32();
     strlcpy(session_overlay_title, title, sizeof(session_overlay_title));
-    session_overlay_until_ms = millis_u32() + SESSION_OVERLAY_MS;
+    session_overlay_persistent = session_switch_alt_held;
+    session_overlay_after_next_frame = after_next_frame;
+    session_overlay_until_ms = session_overlay_persistent ? UINT32_MAX :
+        now_ms + SESSION_OVERLAY_MS;
     last_session_overlay_draw_ms = 0U;
+    if (after_next_frame) {
+        (void)solar_os_display_set_overlay_active(display_u8g2, false);
+        /*
+         * Discard the outgoing session's backing buffer without presenting an
+         * empty frame. The incoming session supplies the next complete frame.
+         */
+        u8g2_ClearBuffer(display_u8g2);
+    }
+    draw_session_overlay_if_needed();
 }
 
 static void dispatch_app_resume(uint32_t now_ms)
@@ -410,7 +459,7 @@ static void resume_display_after_sleep(uint32_t now_ms)
     if (solar_os_context_graphics_active(&os_ctx)) {
         dispatch_app_resume(now_ms);
     } else if (terminal != NULL) {
-        terminal->dirty = true;
+        solar_os_terminal_invalidate_render(terminal);
         draw_terminal_if_needed();
     }
 #endif
@@ -449,6 +498,12 @@ static void enter_suspend(const char *reason)
 
     session_overlay_until_ms = 0;
     session_overlay_title[0] = '\0';
+    last_session_overlay_draw_ms = 0U;
+    session_overlay_persistent = false;
+    session_overlay_after_next_frame = false;
+    session_switch_alt_held = false;
+    session_switch_nav_held = 0U;
+    (void)solar_os_display_set_overlay_active(display_u8g2, false);
     SOLAR_OS_LOGI(TAG,
                   "%s: suspended; profile=lowpower restore=%s",
                   reason,
@@ -483,7 +538,7 @@ static void exit_suspend(const char *reason)
     if (solar_os_context_graphics_active(&os_ctx)) {
         dispatch_app_resume(now_ms);
     } else if (terminal != NULL) {
-        terminal->dirty = true;
+        solar_os_terminal_invalidate_render(terminal);
         draw_terminal_if_needed();
     }
     SOLAR_OS_LOGI(TAG, "%s: resumed; profile=%s",
@@ -979,10 +1034,46 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     solar_os_power_note_activity(millis_u32());
-    if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 &&
+    const bool alt_active =
+        (event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0U;
+    uint8_t navigation_bit = 0U;
+    if (event->key == SOLAR_OS_KEY_LEFT) {
+        navigation_bit = 1U;
+    } else if (event->key == SOLAR_OS_KEY_RIGHT) {
+        navigation_bit = 2U;
+    } else if (event->key == '\t') {
+        navigation_bit = 4U;
+    }
+
+    if (!session_switch_alt_held &&
+        event->action == SOLAR_OS_INPUT_KEY_PRESS && event->key == 0U &&
+        (event->modifiers & SOLAR_OS_INPUT_MOD_LEFT_ALT) != 0U) {
+        session_switch_alt_held = true;
+        solar_os_sessions_show_input_focus_overlay();
+        return;
+    }
+
+    if (session_switch_alt_held && !alt_active) {
+        session_switch_alt_held = false;
+        close_session_overlay();
+        if (event->key == 0U) {
+            return;
+        }
+    }
+
+    if (navigation_bit != 0U &&
+        event->action == SOLAR_OS_INPUT_KEY_RELEASE &&
+        (session_switch_nav_held & navigation_bit) != 0U) {
+        session_switch_nav_held &= (uint8_t)~navigation_bit;
+        return;
+    }
+
+    if (alt_active &&
         (event->key == SOLAR_OS_KEY_RIGHT ||
          event->key == SOLAR_OS_KEY_LEFT)) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {
+            session_switch_alt_held = true;
+            session_switch_nav_held |= navigation_bit;
             if (event->key == SOLAR_OS_KEY_RIGHT) {
                 (void)solar_os_sessions_cycle_input_focus();
             } else {
@@ -1016,7 +1107,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         return;
     }
 
-    if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0 && ch == '\t') {
+    if (alt_active && ch == '\t') {
+        session_switch_alt_held = true;
+        session_switch_nav_held |= navigation_bit;
         (void)solar_os_sessions_cycle_input_focus();
         process_app_requests();
         return;
@@ -1041,9 +1134,24 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         return;
     }
 
+    solar_os_input_pointer_event_t oriented_pointer = *pointer;
+    if (pointer->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
+        pointer->target[0] != '\0') {
+        solar_os_display_target_t target;
+        solar_os_terminal_profile_t profile;
+        if (solar_os_display_find_target(pointer->target, &target) &&
+            solar_os_display_get_terminal_profile(pointer->target, &profile) == ESP_OK) {
+            (void)solar_os_input_pointer_apply_orientation(
+                &oriented_pointer,
+                target.width,
+                target.height,
+                profile.orientation_degrees);
+        }
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_POINTER,
-        .data.pointer = *pointer,
+        .data.pointer = oriented_pointer,
     };
     bool dispatched = false;
     if (pointer->target[0] != '\0') {
@@ -1199,15 +1307,7 @@ static void dispatch_app_tick(void)
     }
 
     last_app_tick_ms = now_ms;
-    /*
-     * A session overlay owns the display until it expires.  Animated apps can
-     * otherwise present a new frame between overlay presents, which makes the
-     * two views flash over each other.  Background jobs continue to tick; the
-     * foreground app receives a resume event when the overlay closes.
-     */
-    if (session_overlay_until_ms == 0U) {
-        solar_os_sessions_dispatch_tick(now_ms);
-    }
+    solar_os_sessions_dispatch_tick(now_ms);
 
     solar_os_jobs_tick(&os_ctx, now_ms);
     process_app_requests();

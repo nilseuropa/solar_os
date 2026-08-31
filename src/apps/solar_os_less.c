@@ -16,31 +16,21 @@
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
+#include "solar_os_text_search.h"
 
 #define LESS_MAX_BYTES (2U * 1024U * 1024U)
-#define LESS_SEARCH_MAX 64
 #define LESS_MESSAGE_MAX 72
 #define LESS_TAB_WIDTH 4
-
-typedef enum {
-    LESS_INPUT_NORMAL,
-    LESS_INPUT_SEARCH,
-} less_input_mode_t;
 
 typedef struct {
     const char *buffer;
     bool buffer_owned;
     size_t len;
     size_t top_offset;
-    size_t match_offset;
-    bool match_valid;
-    bool error_only;
-    less_input_mode_t input_mode;
     const char *app_name;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
-    char search[LESS_SEARCH_MAX];
-    size_t search_len;
+    solar_os_text_search_state_t search;
     char message[LESS_MESSAGE_MAX];
 } less_state_t;
 
@@ -356,18 +346,18 @@ static void less_write_inverse_line(solar_os_shell_io_t *io, const char *text)
 
 static void less_render_header(solar_os_shell_io_t *io)
 {
-    char header[SOLAR_OS_STORAGE_PATH_MAX + LESS_SEARCH_MAX + LESS_MESSAGE_MAX + 32];
+    char header[SOLAR_OS_STORAGE_PATH_MAX + SOLAR_OS_TEXT_SEARCH_QUERY_MAX + LESS_MESSAGE_MAX + 32];
     const unsigned percent =
         less_state.len == 0 ? 100U : (unsigned)(((uint64_t)less_state.top_offset * 100ULL) /
                                                 (uint64_t)less_state.len);
 
-    if (less_state.input_mode == LESS_INPUT_SEARCH) {
+    if (less_state.search.input_active) {
         snprintf(header,
                  sizeof(header),
-                 "%s %s  /%s",
+                 "%s %s  Find: %s_",
                  less_app_name(),
                  less_state.display_name,
-                 less_state.search);
+                 less_state.search.input);
     } else if (less_state.message[0] != '\0') {
         snprintf(header,
                  sizeof(header),
@@ -390,9 +380,9 @@ static void less_render_header(solar_os_shell_io_t *io)
 
 static bool less_source_highlighted(size_t offset)
 {
-    return less_state.match_valid &&
-        offset >= less_state.match_offset &&
-        offset < less_state.match_offset + less_state.search_len;
+    return less_state.search.match_valid &&
+        offset >= less_state.search.match.offset &&
+        offset < less_state.search.match.offset + less_state.search.query_len;
 }
 
 static void less_write_source_byte(solar_os_shell_io_t *io,
@@ -438,30 +428,9 @@ static void less_render_text_row(solar_os_shell_io_t *io, size_t row, size_t row
     less_render_physical_text_row(io, row, row_start);
 }
 
-static void less_render_error(solar_os_context_t *ctx)
-{
-    solar_os_shell_io_t *io = less_io(ctx);
-
-    solar_os_shell_io_clear(io);
-    less_write_inverse_line(io, less_app_name());
-    solar_os_shell_io_set_cursor(io, 1, 0);
-    if (less_state.message[0] != '\0') {
-        solar_os_shell_io_writeln(io, less_state.message);
-    }
-    solar_os_shell_io_printf(io, "usage: %s <file>\n", less_app_name());
-    solar_os_shell_io_writeln(io, "keys: arrows, PgUp/PgDn, / search, n/N, q");
-    solar_os_shell_io_printf(io, "%s exits\n", solar_os_shell_io_app_exit_key(io));
-    solar_os_shell_io_flush(io);
-}
-
 static void less_render(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = less_io(ctx);
-
-    if (less_state.error_only) {
-        less_render_error(ctx);
-        return;
-    }
 
     solar_os_shell_io_clear(io);
     less_render_header(io);
@@ -542,135 +511,61 @@ static void less_move_bottom(solar_os_context_t *ctx)
     less_set_message("");
 }
 
-static bool less_search_char_equal(char a, char b)
-{
-    return tolower((unsigned char)a) == tolower((unsigned char)b);
-}
-
-static bool less_search_matches_at(size_t offset)
-{
-    if (less_state.search_len == 0 || offset + less_state.search_len > less_state.len) {
-        return false;
-    }
-
-    for (size_t i = 0; i < less_state.search_len; i++) {
-        if (!less_search_char_equal(less_state.buffer[offset + i], less_state.search[i])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool less_find_forward(size_t start, size_t *found)
-{
-    if (less_state.search_len == 0 || less_state.search_len > less_state.len) {
-        return false;
-    }
-    if (start > less_state.len - less_state.search_len) {
-        return false;
-    }
-
-    for (size_t i = start; i <= less_state.len - less_state.search_len; i++) {
-        if (less_search_matches_at(i)) {
-            *found = i;
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool less_find_backward(size_t start, size_t *found)
-{
-    if (less_state.search_len == 0 || less_state.search_len > less_state.len) {
-        return false;
-    }
-    if (start > less_state.len - less_state.search_len) {
-        start = less_state.len - less_state.search_len;
-    }
-
-    for (size_t i = start + 1; i > 0; i--) {
-        const size_t offset = i - 1;
-        if (less_search_matches_at(offset)) {
-            *found = offset;
-            return true;
-        }
-    }
-    return false;
-}
-
 static void less_apply_match(solar_os_context_t *ctx, size_t offset)
 {
     const size_t cols = less_cols_or_one(less_io(ctx));
 
-    less_state.match_offset = offset;
-    less_state.match_valid = true;
+    less_state.search.match.offset = offset;
+    less_state.search.match_valid = true;
     less_state.top_offset = less_visual_start_for_offset(offset, cols);
 }
 
 static bool less_find_search(solar_os_context_t *ctx, bool forward, bool next)
 {
-    size_t found = 0;
-    bool wrapped = false;
-    bool ok = false;
-
-    if (less_state.search_len == 0) {
+    if (less_state.search.query_len == 0) {
         less_set_message("empty search");
         return false;
     }
-
-    if (forward) {
-        size_t start = less_state.top_offset;
-        if (next && less_state.match_valid && less_state.match_offset + 1 < less_state.len) {
-            start = less_state.match_offset + 1;
-        }
-        ok = less_find_forward(start, &found);
-        if (!ok && start > 0) {
-            wrapped = true;
-            ok = less_find_forward(0, &found);
-        }
-    } else {
-        size_t start = less_state.top_offset;
-        if (next && less_state.match_valid && less_state.match_offset > 0) {
-            start = less_state.match_offset - 1;
-        } else if (start > 0) {
-            start--;
-        }
-        ok = less_find_backward(start, &found);
-        if (!ok && less_state.len >= less_state.search_len) {
-            wrapped = true;
-            ok = less_find_backward(less_state.len - less_state.search_len, &found);
-        }
-    }
-
-    if (!ok) {
-        less_state.match_valid = false;
+    const bool continuing = next && less_state.search.match_valid;
+    const size_t anchor = continuing ? less_state.search.match.offset : less_state.top_offset;
+    solar_os_text_search_match_t match;
+    if (!solar_os_text_search_find(less_state.buffer,
+                                   less_state.len,
+                                   less_state.search.query,
+                                   anchor,
+                                   continuing,
+                                   forward ? SOLAR_OS_TEXT_SEARCH_FORWARD :
+                                             SOLAR_OS_TEXT_SEARCH_BACKWARD,
+                                   &match)) {
+        less_state.search.match_valid = false;
         less_set_message("not found");
         return false;
     }
 
-    less_apply_match(ctx, found);
-    less_set_message(wrapped ? "wrapped" : "");
+    less_state.search.match = match;
+    less_apply_match(ctx, match.offset);
+    less_set_message(match.wrapped ? "wrapped" : "");
     return true;
 }
 
 static void less_start_search(void)
 {
-    less_state.input_mode = LESS_INPUT_SEARCH;
-    less_state.search_len = 0;
-    less_state.search[0] = '\0';
+    solar_os_text_search_begin_input(&less_state.search);
     less_set_message("");
 }
 
 static void less_submit_search(solar_os_context_t *ctx)
 {
-    less_state.input_mode = LESS_INPUT_NORMAL;
-    less_state.match_valid = false;
-    (void)less_find_search(ctx, true, false);
+    if (solar_os_text_search_submit_input(&less_state.search)) {
+        (void)less_find_search(ctx, true, false);
+    } else {
+        less_set_message("empty search");
+    }
 }
 
 static void less_cancel_search(void)
 {
-    less_state.input_mode = LESS_INPUT_NORMAL;
+    solar_os_text_search_cancel_input(&less_state.search);
     less_set_message("");
 }
 
@@ -685,14 +580,12 @@ static bool less_handle_search_input(solar_os_context_t *ctx, uint8_t ch)
         less_submit_search(ctx);
         break;
     case '\b':
-        if (less_state.search_len > 0) {
-            less_state.search[--less_state.search_len] = '\0';
-        }
+    case 0x7fU:
+        (void)solar_os_text_search_input_backspace(&less_state.search);
         break;
     default:
-        if (less_is_printable(ch) && less_state.search_len + 1 < sizeof(less_state.search)) {
-            less_state.search[less_state.search_len++] = (char)ch;
-            less_state.search[less_state.search_len] = '\0';
+        if (less_is_printable(ch)) {
+            (void)solar_os_text_search_input_append(&less_state.search, (char)ch);
         }
         break;
     }
@@ -769,11 +662,9 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
 
     const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
-        less_state.error_only = true;
         char message[LESS_MESSAGE_MAX];
         snprintf(message, sizeof(message), "usage: %s <file>", less_app_name());
-        less_set_message(message);
-        less_render(ctx);
+        solar_os_context_finish(ctx, 2, message);
         return ESP_OK;
     }
 
@@ -781,7 +672,8 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
     if (arg != NULL && strncmp(arg, "man:", 4) == 0) {
         const esp_err_t err = less_load_manual(arg + 4);
         if (err != ESP_OK) {
-            less_state.error_only = true;
+            solar_os_context_finish(ctx, 1, less_state.message);
+            return ESP_OK;
         }
         less_render(ctx);
         return ESP_OK;
@@ -790,16 +682,14 @@ static esp_err_t less_start_common(solar_os_context_t *ctx, const char *app_name
 
     esp_err_t err = solar_os_storage_resolve_path(arg, less_state.path, sizeof(less_state.path));
     if (err != ESP_OK) {
-        less_state.error_only = true;
         less_set_message(err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
-        less_render(ctx);
+        solar_os_context_finish(ctx, 1, less_state.message);
         return ESP_OK;
     }
 
     err = less_load_file();
     if (err != ESP_OK) {
-        less_state.error_only = true;
-        less_render(ctx);
+        solar_os_context_finish(ctx, 1, less_state.message);
         return ESP_OK;
     }
 
@@ -830,18 +720,11 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
-    if (less_state.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-            solar_os_context_request_exit(ctx);
-        }
-        return true;
-    }
-
-    if (less_state.input_mode == LESS_INPUT_SEARCH) {
+    if (less_state.search.input_active) {
         return less_handle_search_input(ctx, ch);
     }
 
@@ -849,7 +732,7 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_ESCAPE:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     case SOLAR_OS_KEY_DOWN:
     case 'j':
@@ -861,7 +744,6 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case SOLAR_OS_KEY_PAGE_DOWN:
     case ' ':
-    case 0x06:
         less_page_down(ctx);
         break;
     case SOLAR_OS_KEY_PAGE_UP:
@@ -880,8 +762,10 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         less_move_bottom(ctx);
         break;
     case '/':
+    case 0x06:
         less_start_search();
         break;
+    case SOLAR_OS_KEY_F3:
     case 'n':
         (void)less_find_search(ctx, true, true);
         break;
@@ -899,6 +783,7 @@ static bool less_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_less_app = {
     .name = "less",
     .summary = "text file pager",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = less_start,
     .stop = less_stop,
     .event = less_event,

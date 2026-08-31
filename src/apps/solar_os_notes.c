@@ -74,7 +74,6 @@ typedef struct {
 
 typedef struct {
     bool running;
-    bool error_only;
     solar_os_tui_t tui;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
@@ -541,7 +540,7 @@ static void notes_render_row(const notes_view_row_t *view, size_t row_index, siz
         return;
     }
 
-    const bool selected = !notes.error_only && view == notes_current_row();
+    const bool selected = view == notes_current_row();
     char line[NOTES_LINE_MAX];
     uint8_t attr = selected ? SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_NORMAL;
 
@@ -595,9 +594,6 @@ static const char *notes_input_label(void)
 
 static const char *notes_help_text(void)
 {
-    if (notes.error_only) {
-        return "q quit";
-    }
     return notes.input_mode != NOTES_INPUT_NONE ?
         NOTES_INPUT_HELP_TEXT : NOTES_HELP_TEXT;
 }
@@ -622,7 +618,7 @@ static void notes_render(solar_os_context_t *ctx)
              sizeof(title),
              "notes %s%s",
              notes.display_name[0] ? notes.display_name : notes.path,
-             notes.error_only ? "" : "");
+             "");
     solar_os_tui_draw_title(&notes.tui, title, NULL);
 
     if (rows <= 1U) {
@@ -643,7 +639,7 @@ static void notes_render(solar_os_context_t *ctx)
         solar_os_tui_write_cell(&notes.tui, row, 0, cols, notes.preamble[i], SOLAR_OS_TUI_ATTR_NORMAL);
     }
 
-    if (notes.view_count == 0 && !notes.error_only && row < detail_row) {
+    if (notes.view_count == 0 && row < detail_row) {
         solar_os_tui_write_cell(&notes.tui, row, 0, cols, "No checklist items", SOLAR_OS_TUI_ATTR_NORMAL);
     }
 
@@ -1352,16 +1348,12 @@ static esp_err_t notes_start(solar_os_context_t *ctx)
 
     const int argc = solar_os_context_argc(ctx);
     if (argc > 2) {
-        notes.error_only = true;
-        notes_set_message("usage: notes [file.md]");
-        notes_render(ctx);
+        solar_os_context_finish(ctx, 2, "usage: notes [file.md]");
         return ESP_OK;
     }
 
     if (!solar_os_storage_is_mounted()) {
-        notes.error_only = true;
-        notes_set_message("storage not mounted");
-        notes_render(ctx);
+        solar_os_context_finish(ctx, 1, "notes: storage not mounted");
         return ESP_OK;
     }
 
@@ -1373,17 +1365,22 @@ static esp_err_t notes_start(solar_os_context_t *ctx)
 
     const esp_err_t path_err = solar_os_storage_resolve_path(arg, notes.path, sizeof(notes.path));
     if (path_err != ESP_OK) {
-        notes.error_only = true;
-        notes_set_message(path_err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
-        notes_render(ctx);
+        solar_os_context_finish(
+            ctx,
+            1,
+            path_err == ESP_ERR_INVALID_SIZE ?
+                "notes: path too long" : "notes: invalid path");
         return ESP_OK;
     }
 
     const esp_err_t load_err = notes_load();
     if (load_err != ESP_OK) {
-        notes.error_only = true;
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message, sizeof(message), "notes: %s", notes.message);
+        solar_os_context_finish(ctx, 1, message);
+        return ESP_OK;
     }
-    notes.running = !notes.error_only;
+    notes.running = true;
     notes_render(ctx);
     return ESP_OK;
 }
@@ -1412,14 +1409,7 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
-        return true;
-    }
-
-    if (notes.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-            solar_os_context_request_exit(ctx);
-        }
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -1434,7 +1424,7 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_ESCAPE:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     case SOLAR_OS_KEY_UP:
         notes_move_up();
@@ -1501,6 +1491,7 @@ static bool notes_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_notes_app = {
     .name = "notes",
     .summary = "Markdown checklist notes",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = notes_start,
     .resume = notes_resume,

@@ -21,6 +21,7 @@ drivers = [
   "adc_esp_idf",
 ]
 capabilities = [
+  "streaming_display",
   "psram", "display", "gfx", "uart", "sd", "audio", "spi", "wifi",
   "ble", "ps2_keyboard", "gpio", "adc", "expansion_gpio", "expansion_spi",
   "expansion_adc",

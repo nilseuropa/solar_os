@@ -13,6 +13,7 @@
 #include "solar_os_vector.h"
 #define ILI9341_RGB565_BLACK 0x0000
 #define ILI9341_RGB565_WHITE 0xffff
+#define ILI9341_DMA_LINES 4U
 
 static const char *TAG = "tft_ili9341";
 static tft_ili9341_t *active_display;
@@ -287,44 +288,118 @@ static void ili9341_shadow_update(tft_ili9341_t *display,
 
   const size_t offset =
       ((size_t)y_pos * display->buffer_row_bytes) + ((size_t)x_pos * 8U);
+  const bool row_was_valid =
+      (display->shadow_valid_rows & (1ULL << y_pos)) != 0U;
   memcpy(&display->shadow[offset], tile_data, (size_t)count * 8U);
-  display->shadow_valid_rows |= (1ULL << y_pos);
+  if (row_was_valid || (x_pos == 0U && count == display->tile_width)) {
+    display->shadow_valid_rows |= (1ULL << y_pos);
+  }
 }
 
 static void ili9341_line_from_tile(tft_ili9341_t *display,
                                    const uint8_t *tile_data, int row,
-                                   int width) {
+                                   int width, uint8_t *output) {
   solar_os_vector_expand_1bpp_to_rgb565_be(
-      display->line_buffer, tile_data, (unsigned)row,
+      output, tile_data, (unsigned)row,
       display->foreground_rgb565, display->background_rgb565, (size_t)width);
 }
 
-static esp_err_t ili9341_draw_tile(tft_ili9341_t *display,
-                                   const u8x8_tile_t *tile) {
-  if (display == NULL || tile == NULL || tile->tile_ptr == NULL ||
-      tile->cnt == 0) {
-    return ESP_OK;
-  }
-  if (tile->x_pos >= display->tile_width ||
-      tile->y_pos >= display->tile_height) {
-    return ESP_OK;
-  }
+typedef void (*ili9341_line_renderer_t)(tft_ili9341_t *display,
+                                        const void *context,
+                                        uint16_t row,
+                                        uint16_t width,
+                                        uint8_t *output);
 
-  uint8_t count = tile->cnt;
-  if (tile->x_pos + count > display->tile_width) {
-    count = display->tile_width - tile->x_pos;
+static esp_err_t ili9341_transmit_rendered_lines(
+    tft_ili9341_t *display, uint16_t width, uint16_t height,
+    ili9341_line_renderer_t render, const void *context) {
+  spi_transaction_t transactions[2] = {0};
+  uint8_t *line_buffers[2] = {
+      display->line_buffer,
+      display->line_buffer_alt,
+  };
+  const size_t row_bytes = (size_t)width * 2U;
+  size_t rows_per_buffer = display->line_buffer_size / row_bytes;
+  if (rows_per_buffer == 0U) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  if (rows_per_buffer > height) rows_per_buffer = height;
+  size_t queued = 0U;
+  size_t batch = 0U;
+  esp_err_t transmit_err = ESP_OK;
+  for (uint16_t row = 0U; row < height;) {
+    const size_t slot = batch & 1U;
+    if (queued == 2U) {
+      spi_transaction_t *completed = NULL;
+      transmit_err = spi_device_get_trans_result(
+          display->spi, &completed, portMAX_DELAY);
+      if (transmit_err != ESP_OK) {
+        break;
+      }
+      queued--;
+    }
+    size_t rows = height - row;
+    if (rows > rows_per_buffer) rows = rows_per_buffer;
+    for (size_t offset = 0U; offset < rows; offset++) {
+      render(display, context, (uint16_t)(row + offset), width,
+             line_buffers[slot] + offset * row_bytes);
+    }
+    transactions[slot].length = rows * row_bytes * 8U;
+    /* ESP-IDF fills a zero RX length from TX length for full-duplex devices.
+     * Clear that derived value before reusing a descriptor for a shorter final
+     * band, or the transaction is rejected as RX-longer-than-TX. */
+    transactions[slot].rxlength = 0U;
+    transactions[slot].tx_buffer = line_buffers[slot];
+    transmit_err = spi_device_queue_trans(
+        display->spi, &transactions[slot], portMAX_DELAY);
+    if (transmit_err != ESP_OK) {
+      break;
+    }
+    queued++;
+    row = (uint16_t)(row + rows);
+    batch++;
+  }
+  while (queued > 0U) {
+    spi_transaction_t *completed = NULL;
+    const esp_err_t drain_err = spi_device_get_trans_result(
+        display->spi, &completed, portMAX_DELAY);
+    if (transmit_err == ESP_OK) transmit_err = drain_err;
+    queued--;
+  }
+  return transmit_err;
+}
+
+typedef struct {
+  const uint8_t *data;
+} ili9341_tile_lines_t;
+
+static void ili9341_render_tile_line(tft_ili9341_t *display,
+                                     const void *context,
+                                     uint16_t row,
+                                     uint16_t width,
+                                     uint8_t *output) {
+  const ili9341_tile_lines_t *tile = context;
+  ili9341_line_from_tile(display, tile->data, row, width, output);
+}
+
+static esp_err_t ili9341_draw_tile_run(tft_ili9341_t *display,
+                                      const uint8_t *tile_data,
+                                      uint8_t x_pos, uint8_t y_pos,
+                                      uint8_t count) {
+  if (display == NULL || tile_data == NULL || count == 0U) {
+    return ESP_OK;
+  }
+  if (x_pos >= display->tile_width || y_pos >= display->tile_height) {
+    return ESP_OK;
+  }
+  if (x_pos + count > display->tile_width) {
+    count = display->tile_width - x_pos;
   }
   if (count == 0) {
     return ESP_OK;
   }
-
-  if (ili9341_shadow_matches(display, tile->tile_ptr, tile->x_pos, tile->y_pos,
-                             count)) {
-    return ESP_OK;
-  }
-
-  const uint16_t x = (uint16_t)tile->x_pos * 8U;
-  const uint16_t y = (uint16_t)tile->y_pos * 8U;
+  const uint16_t x = (uint16_t)x_pos * 8U;
+  const uint16_t y = (uint16_t)y_pos * 8U;
   uint16_t width = (uint16_t)count * 8U;
   uint16_t height = 8;
   if (x + width > display->config.width) {
@@ -344,15 +419,539 @@ static esp_err_t ili9341_draw_tile(tft_ili9341_t *display,
   ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
                       "dc data failed");
 
-  for (uint16_t row = 0; row < height; row++) {
-    ili9341_line_from_tile(display, tile->tile_ptr, row, width);
-    ESP_RETURN_ON_ERROR(
-        ili9341_tx_bytes(display, display->line_buffer, (size_t)width * 2U),
-        TAG, "tile transmit failed");
+  const ili9341_tile_lines_t lines = {.data = tile_data};
+  ESP_RETURN_ON_ERROR(
+      ili9341_transmit_rendered_lines(
+          display, width, height, ili9341_render_tile_line, &lines),
+      TAG, "tile transmit failed");
+
+  ili9341_shadow_update(display, tile_data, x_pos, y_pos, count);
+  return ESP_OK;
+}
+
+static esp_err_t ili9341_draw_tile(tft_ili9341_t *display,
+                                   const u8x8_tile_t *tile) {
+  if (display == NULL || tile == NULL || tile->tile_ptr == NULL ||
+      tile->cnt == 0) {
+    return ESP_OK;
+  }
+  display->indexed_surface_valid = false;
+  if (tile->x_pos >= display->tile_width ||
+      tile->y_pos >= display->tile_height) {
+    return ESP_OK;
   }
 
-  ili9341_shadow_update(display, tile->tile_ptr, tile->x_pos, tile->y_pos,
-                        count);
+  uint8_t count = tile->cnt;
+  if (tile->x_pos + count > display->tile_width) {
+    count = display->tile_width - tile->x_pos;
+  }
+
+  /* U8g2 submits a complete tile row.  Plan changed runs before opening a
+   * controller window so one changed glyph does not upload the full width. */
+  uint8_t offset = 0;
+  while (offset < count) {
+    while (offset < count &&
+           ili9341_shadow_matches(display, tile->tile_ptr + (size_t)offset * 8U,
+                                  (uint8_t)(tile->x_pos + offset), tile->y_pos,
+                                  1U)) {
+      offset++;
+    }
+    if (offset >= count) {
+      break;
+    }
+    const uint8_t first = offset;
+    while (offset < count &&
+           !ili9341_shadow_matches(display, tile->tile_ptr + (size_t)offset * 8U,
+                                   (uint8_t)(tile->x_pos + offset), tile->y_pos,
+                                   1U)) {
+      offset++;
+    }
+    ESP_RETURN_ON_ERROR(
+        ili9341_draw_tile_run(display,
+                              tile->tile_ptr + (size_t)first * 8U,
+                              (uint8_t)(tile->x_pos + first), tile->y_pos,
+                              (uint8_t)(offset - first)),
+        TAG, "tile run failed");
+  }
+  return ESP_OK;
+}
+
+static bool ili9341_surface_tile_dirty(
+    const solar_os_display_surface_t *surface,
+    uint16_t tile_x,
+    uint16_t tile_y) {
+  const size_t offset = (size_t)tile_y * surface->dirty_stride +
+                        (size_t)(tile_x >> 3U);
+  return offset < surface->dirty_size &&
+         (surface->dirty_tiles[offset] &
+          (uint8_t)(1U << (tile_x & 7U))) != 0;
+}
+
+static void ili9341_surface_native_to_logical(
+    const solar_os_display_surface_t *surface, uint16_t native_x,
+    uint16_t native_y, uint16_t *x, uint16_t *y) {
+  switch (surface->rotation) {
+    case SOLAR_OS_DISPLAY_ROTATION_90:
+      *x = native_y;
+      *y = (uint16_t)(surface->native_width - 1U - native_x);
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_180:
+      *x = (uint16_t)(surface->native_width - 1U - native_x);
+      *y = (uint16_t)(surface->native_height - 1U - native_y);
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_270:
+      *x = (uint16_t)(surface->native_height - 1U - native_y);
+      *y = native_x;
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_0:
+    default:
+      *x = native_x;
+      *y = native_y;
+      break;
+  }
+}
+
+static void ili9341_line_from_index8(
+    tft_ili9341_t *display, const solar_os_display_surface_t *surface,
+    uint16_t x_start, uint16_t y, uint16_t width, uint8_t *output) {
+  (void)display;
+  uint16_t first_x = 0U;
+  uint16_t first_y = 0U;
+  ili9341_surface_native_to_logical(surface, x_start, y, &first_x, &first_y);
+  int logical_x = first_x;
+  int logical_y = first_y;
+  int step_x = 0;
+  int step_y = 0;
+  switch (surface->rotation) {
+    case SOLAR_OS_DISPLAY_ROTATION_90:
+      step_y = -1;
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_180:
+      step_x = -1;
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_270:
+      step_y = 1;
+      break;
+    case SOLAR_OS_DISPLAY_ROTATION_0:
+    default:
+      step_x = 1;
+      break;
+  }
+  for (uint16_t column = 0; column < width; column++) {
+    const uint8_t palette_index =
+        surface->data[(size_t)logical_y * surface->stride + logical_x];
+    const uint16_t rgb565 = surface->palette_rgb565[palette_index];
+    output[(size_t)column * 2U] = (uint8_t)(rgb565 >> 8U);
+    output[(size_t)column * 2U + 1U] = (uint8_t)rgb565;
+    logical_x += step_x;
+    logical_y += step_y;
+  }
+}
+
+typedef struct {
+  const solar_os_display_surface_t *surface;
+  uint16_t x;
+  uint16_t y;
+} ili9341_index8_lines_t;
+
+static void ili9341_render_index8_line(tft_ili9341_t *display,
+                                       const void *context,
+                                       uint16_t row,
+                                       uint16_t width,
+                                       uint8_t *output) {
+  const ili9341_index8_lines_t *lines = context;
+  ili9341_line_from_index8(display, lines->surface, lines->x,
+                           (uint16_t)(lines->y + row), width, output);
+}
+
+static uint32_t ili9341_surface_tile_hash(
+    const solar_os_display_surface_t *surface, uint16_t tile_x,
+    uint16_t tile_y) {
+  const uint16_t x_start = (uint16_t)(tile_x * 8U);
+  const uint16_t y_start = (uint16_t)(tile_y * 8U);
+  uint16_t x_end = (uint16_t)(x_start + 8U);
+  uint16_t y_end = (uint16_t)(y_start + 8U);
+  if (x_end > surface->native_width) x_end = surface->native_width;
+  if (y_end > surface->native_height) y_end = surface->native_height;
+  uint32_t hash = UINT32_C(2166136261);
+  for (uint16_t y = y_start; y < y_end; y++) {
+    for (uint16_t x = x_start; x < x_end; x++) {
+      uint16_t logical_x = 0;
+      uint16_t logical_y = 0;
+      ili9341_surface_native_to_logical(surface, x, y, &logical_x, &logical_y);
+      const uint8_t palette_index =
+          surface->data[(size_t)logical_y * surface->stride + logical_x];
+      const uint16_t color = surface->palette_rgb565[palette_index];
+      hash = (hash ^ (uint8_t)(color >> 8U)) * UINT32_C(16777619);
+      hash = (hash ^ (uint8_t)color) * UINT32_C(16777619);
+    }
+  }
+  return hash != 0U ? hash : 1U;
+}
+
+esp_err_t tft_ili9341_present_surface(
+    tft_ili9341_t *display, const solar_os_display_surface_t *surface) {
+  if (display == NULL || display->spi == NULL || surface == NULL ||
+      surface->format != SOLAR_OS_DISPLAY_FORMAT_INDEX8 ||
+      surface->data == NULL || surface->palette_rgb565 == NULL ||
+      surface->palette_size < 256U || surface->dirty_tiles == NULL ||
+      surface->presented_hashes == NULL ||
+      surface->tile_size != 8U ||
+      surface->native_width != display->config.width ||
+      surface->native_height != display->config.height ||
+      surface->stride < surface->width) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  const bool rotated =
+      surface->rotation == SOLAR_OS_DISPLAY_ROTATION_90 ||
+      surface->rotation == SOLAR_OS_DISPLAY_ROTATION_270;
+  if (surface->width !=
+          (rotated ? surface->native_height : surface->native_width) ||
+      surface->height !=
+          (rotated ? surface->native_width : surface->native_height)) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+
+  const uint16_t tile_columns =
+      (uint16_t)((surface->native_width + 7U) / 8U);
+  const uint16_t tile_rows =
+      (uint16_t)((surface->native_height + 7U) / 8U);
+  if (tile_columns > 64U ||
+      surface->dirty_stride < (tile_columns + 7U) / 8U ||
+      surface->dirty_size < (size_t)surface->dirty_stride * tile_rows ||
+      surface->hash_stride < tile_columns ||
+      surface->presented_hash_count <
+          (size_t)surface->hash_stride * tile_rows) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  if (!display->indexed_surface_valid ||
+      display->indexed_surface_data != surface->data) {
+    memset(surface->presented_hashes, 0,
+           surface->presented_hash_count * sizeof(surface->presented_hashes[0]));
+    display->indexed_surface_data = surface->data;
+    display->indexed_surface_valid = true;
+  }
+
+  for (uint16_t tile_y = 0; tile_y < tile_rows; tile_y++) {
+    uint64_t changed_tiles = 0U;
+    uint32_t planned_hashes[64] = {0};
+    for (uint16_t planned_x = 0U;
+         planned_x < tile_columns;
+         planned_x++) {
+      if (!ili9341_surface_tile_dirty(surface, planned_x, tile_y)) {
+        continue;
+      }
+      const size_t hash_index =
+          (size_t)tile_y * surface->hash_stride + planned_x;
+      const uint32_t hash =
+          ili9341_surface_tile_hash(surface, planned_x, tile_y);
+      planned_hashes[planned_x] = hash;
+      if (hash_index < surface->presented_hash_count &&
+          surface->presented_hashes[hash_index] != hash) {
+        changed_tiles |= UINT64_C(1) << planned_x;
+      }
+    }
+    uint16_t tile_x = 0;
+    while (tile_x < tile_columns) {
+      while (tile_x < tile_columns &&
+             (changed_tiles & (UINT64_C(1) << tile_x)) == 0U) {
+        tile_x++;
+      }
+      if (tile_x >= tile_columns) {
+        break;
+      }
+      const uint16_t first_tile = tile_x;
+      while (tile_x < tile_columns &&
+             (changed_tiles & (UINT64_C(1) << tile_x)) != 0U) {
+        tile_x++;
+      }
+      const uint16_t x_start = (uint16_t)(first_tile * 8U);
+      const uint16_t y_start = (uint16_t)(tile_y * 8U);
+      uint16_t x_end = (uint16_t)(tile_x * 8U - 1U);
+      uint16_t y_end = (uint16_t)(y_start + 7U);
+      if (x_end >= surface->native_width) x_end = surface->native_width - 1U;
+      if (y_end >= surface->native_height) y_end = surface->native_height - 1U;
+      const uint16_t width = (uint16_t)(x_end - x_start + 1U);
+
+      ESP_RETURN_ON_ERROR(
+          ili9341_set_window(display, x_start, y_start, x_end, y_end), TAG,
+          "indexed window failed");
+      ESP_RETURN_ON_ERROR(ili9341_cmd(display, 0x2c), TAG,
+                          "indexed ram write failed");
+      ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
+                          "indexed dc data failed");
+      const ili9341_index8_lines_t lines = {
+          .surface = surface,
+          .x = x_start,
+          .y = y_start,
+      };
+      ESP_RETURN_ON_ERROR(
+          ili9341_transmit_rendered_lines(
+              display, width, (uint16_t)(y_end - y_start + 1U),
+              ili9341_render_index8_line, &lines),
+          TAG, "indexed transmit failed");
+      for (uint16_t updated = first_tile; updated < tile_x; updated++) {
+        const size_t hash_index =
+            (size_t)tile_y * surface->hash_stride + updated;
+        surface->presented_hashes[hash_index] = planned_hashes[updated];
+      }
+    }
+  }
+  ili9341_invalidate_shadow(display);
+  return ESP_OK;
+}
+
+static void ili9341_logical_to_native(const tft_ili9341_t *display,
+                                      uint16_t logical_x,
+                                      uint16_t logical_y,
+                                      uint16_t *native_x,
+                                      uint16_t *native_y) {
+  const u8g2_cb_t *rotation = display->u8g2.cb;
+  if (rotation == U8G2_R1) {
+    *native_x = (uint16_t)(display->config.width - 1U - logical_y);
+    *native_y = logical_x;
+  } else if (rotation == U8G2_R2) {
+    *native_x = (uint16_t)(display->config.width - 1U - logical_x);
+    *native_y = (uint16_t)(display->config.height - 1U - logical_y);
+  } else if (rotation == U8G2_R3) {
+    *native_x = logical_y;
+    *native_y = (uint16_t)(display->config.height - 1U - logical_x);
+  } else {
+    *native_x = logical_x;
+    *native_y = logical_y;
+  }
+}
+
+static uint8_t ili9341_index2_pixel(const solar_os_display_raster_t *frame,
+                                    uint16_t x, uint16_t y) {
+  const uint8_t packed =
+      frame->data[(size_t)y * frame->source_stride + (size_t)(x >> 2U)];
+  return (uint8_t)((packed >> ((x & 3U) * 2U)) & 3U);
+}
+
+static void ili9341_index2_set(uint8_t *data, uint16_t stride,
+                              uint16_t x, uint16_t y, uint8_t index) {
+  uint8_t *packed = &data[(size_t)y * stride + (x >> 2U)];
+  const unsigned shift = (x & 3U) * 2U;
+  *packed = (uint8_t)((*packed & (uint8_t)~(3U << shift)) |
+                      ((index & 3U) << shift));
+}
+
+static esp_err_t ili9341_prepare_native_frame(
+    tft_ili9341_t *display, const solar_os_display_raster_t *frame,
+    solar_os_display_raster_t *native_frame) {
+  *native_frame = *frame;
+  if (display->u8g2.cb == U8G2_R0) {
+    return ESP_OK;
+  }
+
+  const bool quarter_turn = display->u8g2.cb == U8G2_R1 ||
+                            display->u8g2.cb == U8G2_R3;
+  const uint16_t width = quarter_turn ?
+      frame->source_height : frame->source_width;
+  const uint16_t height = quarter_turn ?
+      frame->source_width : frame->source_height;
+  const uint16_t stride = (uint16_t)((width + 3U) / 4U);
+  const size_t size = (size_t)stride * height;
+  if (display->frame_scratch_size < size) {
+    uint8_t *scratch = heap_caps_malloc_prefer(
+        size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (scratch == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+    heap_caps_free(display->frame_scratch);
+    display->frame_scratch = scratch;
+    display->frame_scratch_size = size;
+  }
+  memset(display->frame_scratch, 0, size);
+  for (uint16_t source_y = 0U; source_y < frame->source_height; source_y++) {
+    for (uint16_t source_x = 0U; source_x < frame->source_width; source_x++) {
+      uint16_t target_x = source_x;
+      uint16_t target_y = source_y;
+      if (display->u8g2.cb == U8G2_R1) {
+        target_x = (uint16_t)(frame->source_height - 1U - source_y);
+        target_y = source_x;
+      } else if (display->u8g2.cb == U8G2_R2) {
+        target_x = (uint16_t)(frame->source_width - 1U - source_x);
+        target_y = (uint16_t)(frame->source_height - 1U - source_y);
+      } else if (display->u8g2.cb == U8G2_R3) {
+        target_x = source_y;
+        target_y = (uint16_t)(frame->source_width - 1U - source_x);
+      }
+      ili9341_index2_set(
+          display->frame_scratch, stride, target_x, target_y,
+          ili9341_index2_pixel(frame, source_x, source_y));
+    }
+  }
+  native_frame->data = display->frame_scratch;
+  native_frame->data_size = size;
+  native_frame->source_width = width;
+  native_frame->source_height = height;
+  native_frame->source_stride = stride;
+  return ESP_OK;
+}
+
+static void ili9341_frame_line(const solar_os_display_raster_t *frame,
+                               uint16_t output_width,
+                               uint16_t output_height,
+                               uint16_t output_y,
+                               const uint16_t colors[4],
+                               uint8_t *line_buffer) {
+  const uint16_t source_y = (uint16_t)(
+      (uint32_t)output_y * frame->source_height / output_height);
+  const uint8_t *source = frame->data +
+      (size_t)source_y * frame->source_stride;
+  uint16_t source_x = 0U;
+  uint32_t scale_accumulator = 0U;
+  uint16_t swapped_colors[4];
+  for (size_t i = 0U; i < 4U; i++) {
+    swapped_colors[i] = __builtin_bswap16(colors[i]);
+  }
+  uint16_t *output = (uint16_t *)line_buffer;
+  for (uint16_t x = 0U; x < output_width; x++) {
+    const uint8_t packed = source[source_x >> 2U];
+    const uint8_t index =
+        (uint8_t)((packed >> ((source_x & 3U) * 2U)) & 3U);
+    output[x] = swapped_colors[index];
+    scale_accumulator += frame->source_width;
+    while (scale_accumulator >= output_width) {
+      scale_accumulator -= output_width;
+      source_x++;
+    }
+  }
+}
+
+typedef struct {
+  const solar_os_display_raster_t *frame;
+  const uint16_t *colors;
+  uint16_t frame_x;
+  uint16_t frame_y;
+  uint16_t frame_width;
+  uint16_t native_height;
+} ili9341_frame_lines_t;
+
+static void ili9341_render_frame_line(tft_ili9341_t *display,
+                                      const void *context,
+                                      uint16_t row,
+                                      uint16_t width,
+                                      uint8_t *output) {
+  (void)display;
+  const ili9341_frame_lines_t *lines = context;
+  if (lines->frame->clear_background) {
+    uint16_t *pixels = (uint16_t *)output;
+    const uint16_t background = __builtin_bswap16(
+        lines->colors[lines->frame->background_index & 3U]);
+    for (uint16_t x = 0U; x < width; x++) {
+      pixels[x] = background;
+    }
+    if (row < lines->frame_y ||
+        row >= (uint16_t)(lines->frame_y + lines->native_height)) {
+      return;
+    }
+    ili9341_frame_line(lines->frame, lines->frame_width,
+                       lines->native_height,
+                       (uint16_t)(row - lines->frame_y), lines->colors,
+                       output + (size_t)lines->frame_x * sizeof(uint16_t));
+    return;
+  }
+  ili9341_frame_line(lines->frame, width, lines->native_height, row,
+                     lines->colors, output);
+}
+
+esp_err_t tft_ili9341_present_frame(
+    tft_ili9341_t *display, const solar_os_display_raster_t *frame) {
+  if (display == NULL || display->spi == NULL || frame == NULL ||
+      frame->format != SOLAR_OS_DISPLAY_FORMAT_INDEX2 || frame->data == NULL ||
+      frame->palette_rgb565 == NULL || frame->palette_size < 4U ||
+      frame->source_width == 0 || frame->source_height == 0 ||
+      frame->width == 0 || frame->height == 0 ||
+      frame->source_stride < (frame->source_width + 3U) / 4U) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  const bool quarter_turn = display->u8g2.cb == U8G2_R1 ||
+                            display->u8g2.cb == U8G2_R3;
+  const uint16_t logical_width =
+      quarter_turn ? display->config.height : display->config.width;
+  const uint16_t logical_height =
+      quarter_turn ? display->config.width : display->config.height;
+  if ((uint32_t)frame->x + frame->width > logical_width ||
+      (uint32_t)frame->y + frame->height > logical_height) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+
+  uint16_t corner_x[4];
+  uint16_t corner_y[4];
+  const uint16_t logical_x1 =
+      (uint16_t)(frame->x + frame->width - 1U);
+  const uint16_t logical_y1 =
+      (uint16_t)(frame->y + frame->height - 1U);
+  ili9341_logical_to_native(display, frame->x, frame->y, &corner_x[0],
+                            &corner_y[0]);
+  ili9341_logical_to_native(display, logical_x1, frame->y,
+                            &corner_x[1], &corner_y[1]);
+  ili9341_logical_to_native(display, frame->x, logical_y1,
+                            &corner_x[2], &corner_y[2]);
+  ili9341_logical_to_native(display, logical_x1, logical_y1, &corner_x[3],
+                            &corner_y[3]);
+  uint16_t native_x0 = corner_x[0];
+  uint16_t native_y0 = corner_y[0];
+  uint16_t native_x1 = corner_x[0];
+  uint16_t native_y1 = corner_y[0];
+  for (size_t corner = 1; corner < 4U; corner++) {
+    if (corner_x[corner] < native_x0) native_x0 = corner_x[corner];
+    if (corner_y[corner] < native_y0) native_y0 = corner_y[corner];
+    if (corner_x[corner] > native_x1) native_x1 = corner_x[corner];
+    if (corner_y[corner] > native_y1) native_y1 = corner_y[corner];
+  }
+
+  const uint16_t native_line_width = (uint16_t)(native_x1 - native_x0 + 1U);
+  const uint16_t native_height = (uint16_t)(native_y1 - native_y0 + 1U);
+  solar_os_display_raster_t native_frame;
+  ESP_RETURN_ON_ERROR(
+      ili9341_prepare_native_frame(display, frame, &native_frame), TAG,
+      "frame rotation failed");
+  uint16_t colors[4];
+  for (size_t i = 0U; i < 4U; i++) {
+    colors[i] = frame->palette_rgb565[
+        frame->palette_inverted ? 3U - i : i];
+  }
+  const ili9341_frame_lines_t lines = {
+      .frame = &native_frame,
+      .colors = colors,
+      .frame_x = native_x0,
+      .frame_y = native_y0,
+      .frame_width = native_line_width,
+      .native_height = native_height,
+  };
+  const uint16_t present_x0 = frame->clear_background ? 0U : native_x0;
+  const uint16_t present_y0 = frame->clear_background ? 0U : native_y0;
+  const uint16_t present_x1 = frame->clear_background ?
+      (uint16_t)(display->config.width - 1U) : native_x1;
+  const uint16_t present_y1 = frame->clear_background ?
+      (uint16_t)(display->config.height - 1U) : native_y1;
+  const uint16_t present_width =
+      (uint16_t)(present_x1 - present_x0 + 1U);
+  const uint16_t present_height =
+      (uint16_t)(present_y1 - present_y0 + 1U);
+  ESP_RETURN_ON_ERROR(
+      ili9341_set_window(display, present_x0, present_y0,
+                         present_x1, present_y1),
+      TAG, "frame window failed");
+  ESP_RETURN_ON_ERROR(ili9341_cmd(display, 0x2c), TAG,
+                      "frame ram write failed");
+  ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
+                      "frame dc data failed");
+  ESP_RETURN_ON_ERROR(
+      ili9341_transmit_rendered_lines(
+          display, present_width,
+          present_height,
+          ili9341_render_frame_line, &lines),
+      TAG, "frame transmit failed");
+
+  ili9341_invalidate_shadow(display);
+  display->indexed_surface_valid = false;
   return ESP_OK;
 }
 
@@ -571,19 +1170,23 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
       .clock_speed_hz = (int)display->config.spi_clock_hz,
       .mode = 0,
       .spics_io_num = display->config.cs_pin,
-      .queue_size = 1,
+      .queue_size = 2,
+      .flags = SPI_DEVICE_HALFDUPLEX,
   };
   ESP_RETURN_ON_ERROR(
       solar_os_bus_spi_add_device(display->config.spi_bus, &device_config,
                                   &display->spi),
       TAG, "spi add device failed");
 
-  display->line_buffer_size = display->config.width * 2U;
+  display->line_buffer_size =
+      display->config.width * 2U * ILI9341_DMA_LINES;
   /* SPI transmits directly from this line buffer, so it must be internal DMA
    * memory. */
   display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                           MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-  if (display->line_buffer == NULL) {
+  display->line_buffer_alt = heap_caps_malloc(
+      display->line_buffer_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (display->line_buffer == NULL || display->line_buffer_alt == NULL) {
     tft_ili9341_deinit(display);
     return ESP_ERR_NO_MEM;
   }
@@ -624,7 +1227,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
 
 esp_err_t tft_ili9341_resume(tft_ili9341_t *display) {
   if (display == NULL || display->spi == NULL || display->buffer == NULL ||
-      display->line_buffer == NULL) {
+      display->line_buffer == NULL || display->line_buffer_alt == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -633,6 +1236,7 @@ esp_err_t tft_ili9341_resume(tft_ili9341_t *display) {
   active_display = display;
   display->last_error = ESP_OK;
   ili9341_invalidate_shadow(display);
+  display->indexed_surface_valid = false;
   u8g2_InitDisplay(&display->u8g2);
   u8g2_SetPowerSave(&display->u8g2, 0);
   return display->last_error;
@@ -675,6 +1279,10 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
     heap_caps_free(display->line_buffer);
     display->line_buffer = NULL;
   }
+  if (display->line_buffer_alt != NULL) {
+    heap_caps_free(display->line_buffer_alt);
+    display->line_buffer_alt = NULL;
+  }
   if (display->buffer != NULL) {
     heap_caps_free(display->buffer);
     display->buffer = NULL;
@@ -682,6 +1290,11 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
   if (display->shadow != NULL) {
     heap_caps_free(display->shadow);
     display->shadow = NULL;
+  }
+  if (display->frame_scratch != NULL) {
+    heap_caps_free(display->frame_scratch);
+    display->frame_scratch = NULL;
+    display->frame_scratch_size = 0U;
   }
 
   if (active_display == display) {
@@ -692,6 +1305,8 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
   display->shadow_size = 0;
   display->line_buffer_size = 0;
   display->shadow_valid_rows = 0;
+  display->indexed_surface_data = NULL;
+  display->indexed_surface_valid = false;
 }
 
 u8g2_t *tft_ili9341_get_u8g2(tft_ili9341_t *display) {

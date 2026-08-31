@@ -61,6 +61,11 @@ struct solar_os_terminal {
     bool footer_enabled;
     uint32_t utf8_codepoint;
     uint8_t utf8_remaining;
+    uint32_t rendered_row_hash[SOLAR_OS_TERMINAL_MAX_ROWS];
+    uint32_t rendered_status_hash;
+    uint32_t rendered_footer_hash;
+    uint32_t rendered_profile_hash;
+    bool render_valid;
     bool dirty;
 };
 

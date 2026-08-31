@@ -19,6 +19,11 @@ set(U8G2_CLIB_SRCS
     "src/clib/u8x8_message.c"
     "src/clib/u8x8_setup.c"
     "src/clib/u8x8_string.c"
+    "src/fonts/u8g2_font_open_iconic_all_1x_t.c"
+    "src/fonts/u8g2_font_open_iconic_all_2x_t.c"
+    "src/fonts/u8g2_font_open_iconic_all_4x_t.c"
+    "src/fonts/u8g2_font_open_iconic_all_6x_t.c"
+    "src/fonts/u8g2_font_open_iconic_all_8x_t.c"
 )
 
 set(SOLAR_OS_GENERATED_FONT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../fonts/build/u8g2")

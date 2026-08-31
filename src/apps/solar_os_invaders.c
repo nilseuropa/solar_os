@@ -838,7 +838,7 @@ static bool invaders_handle_char(solar_os_context_t *ctx, uint8_t ch)
     }
 
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -910,6 +910,7 @@ static bool invaders_event(solar_os_context_t *ctx, const solar_os_event_t *even
 const solar_os_app_t solar_os_invaders_app = {
     .name = "invaders",
     .summary = "arcade shooter",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .start = invaders_start,
     .stop = invaders_stop,
     .event = invaders_event,

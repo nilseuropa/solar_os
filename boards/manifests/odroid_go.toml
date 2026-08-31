@@ -21,6 +21,7 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
+  "streaming_display",
   "psram", "display", "gfx", "uart", "sd", "battery", "audio", "spi",
   "gpio", "expansion_gpio", "expansion_spi", "expansion_uart",
   "expansion_pwm", "wifi", "ble", "key", "buttons", "adc_dpad", "adc",

@@ -1200,6 +1200,48 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
     return result;
 }
 
+esp_err_t solar_os_input_pointer_apply_orientation(
+    solar_os_input_pointer_event_t *event,
+    uint16_t width,
+    uint16_t height,
+    uint16_t orientation_degrees)
+{
+    if (event == NULL || event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE ||
+        width == 0 || height == 0 || width > INT16_MAX || height > INT16_MAX ||
+        (orientation_degrees != 0 && orientation_degrees != 90 &&
+         orientation_degrees != 180 && orientation_degrees != 270)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const int16_t x = event->x;
+    const int16_t y = event->y;
+    const int16_t delta_x = event->delta_x;
+    const int16_t delta_y = event->delta_y;
+    switch (orientation_degrees) {
+    case 90:
+        event->x = y;
+        event->y = (int16_t)(width - 1U - x);
+        event->delta_x = delta_y;
+        event->delta_y = (int16_t)-delta_x;
+        break;
+    case 180:
+        event->x = (int16_t)(width - 1U - x);
+        event->y = (int16_t)(height - 1U - y);
+        event->delta_x = (int16_t)-delta_x;
+        event->delta_y = (int16_t)-delta_y;
+        break;
+    case 270:
+        event->x = (int16_t)(height - 1U - y);
+        event->y = x;
+        event->delta_x = (int16_t)-delta_y;
+        event->delta_y = delta_x;
+        break;
+    default:
+        break;
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
                                     const solar_os_input_axis_event_t *event)
 {

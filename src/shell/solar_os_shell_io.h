@@ -47,6 +47,8 @@ struct solar_os_shell_io {
     uint32_t screen_generation;
     const char *diagnostic_source;
     size_t diagnostic_line;
+    solar_os_context_output_fn output_mirror_fn;
+    void *output_mirror_user;
 };
 
 void solar_os_shell_io_init_terminal(solar_os_shell_io_t *io, solar_os_terminal_t *terminal);
@@ -54,6 +56,8 @@ void solar_os_shell_io_init_port(solar_os_shell_io_t *io,
                                  const solar_os_port_handle_t *port,
                                  uint16_t cols,
                                  uint16_t rows);
+void solar_os_shell_io_capture_output(solar_os_shell_io_t *io,
+                                      solar_os_context_t *ctx);
 void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, uint16_t rows);
 solar_os_shell_io_kind_t solar_os_shell_io_kind(const solar_os_shell_io_t *io);
 solar_os_terminal_t *solar_os_shell_io_terminal(solar_os_shell_io_t *io);

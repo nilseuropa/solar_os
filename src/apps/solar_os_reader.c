@@ -44,7 +44,6 @@ typedef struct {
     solar_os_doc_layout_t layout;
     solar_os_epub_book_t *epub_book;
     bool loaded;
-    bool error_only;
     bool suspended;
     bool epub;
     bool pager;
@@ -778,7 +777,6 @@ static void reader_save_position(solar_os_context_t *ctx)
 
     if (ctx == NULL ||
         !reader.loaded ||
-        reader.error_only ||
         reader.path[0] == '\0' ||
         reader_ensure_state_dir() != ESP_OK ||
         reader_state_path(positions_path, sizeof(positions_path), READER_POSITIONS_FILE) != ESP_OK ||
@@ -839,7 +837,7 @@ static void reader_draw_header(solar_os_gfx_t *gfx)
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
 
     if (reader.search_input) {
-        snprintf(title, sizeof(title), "/%s_", reader.search);
+        snprintf(title, sizeof(title), "Find: %s_", reader.search);
     } else if (reader.message[0] != '\0') {
         snprintf(title, sizeof(title), "reader z%d %s", reader.zoom, reader.message);
     } else if (reader.epub && reader.epub_chapter_count > 0) {
@@ -1174,8 +1172,8 @@ static void reader_start_search(void)
 {
     reader.search_input = true;
     reader.search_status = false;
-    reader.search_len = 0;
-    reader.search[0] = '\0';
+    strlcpy(reader.search, reader.last_search, sizeof(reader.search));
+    reader.search_len = strlen(reader.search);
     reader.message[0] = '\0';
 }
 
@@ -1202,7 +1200,7 @@ static bool reader_handle_search_input(solar_os_context_t *ctx, uint8_t ch)
 {
     switch (ch) {
     case SOLAR_OS_KEY_APP_EXIT:
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         break;
     case SOLAR_OS_KEY_ESCAPE:
         reader_cancel_search();
@@ -1253,16 +1251,7 @@ static void reader_render(solar_os_context_t *ctx)
         view.height = 8;
     }
 
-    if (reader.error_only) {
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        reader_draw_text_clipped(gfx,
-                                  READER_MARGIN_X,
-                                  READER_HEADER_H + 28,
-                                  screen_w - (2 * READER_MARGIN_X),
-                                  reader.message,
-                                  7);
-    } else {
+    {
         reader_update_measure(gfx);
         view.scroll_y = reader.scroll_y;
         if (reader.layout_valid) {
@@ -1356,12 +1345,10 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
 
     const char *arg = NULL;
     if (!reader_parse_args(ctx, &arg)) {
-        reader.error_only = true;
-        snprintf(reader.message,
-                 sizeof(reader.message),
-                 "usage: reader [--pager] <file.txt|file.md|file.epub|man:topic>");
-        solar_os_context_set_graphics_active(ctx, true);
-        reader_render(ctx);
+        solar_os_context_finish(
+            ctx,
+            2,
+            "usage: reader [--pager] <file.txt|file.md|file.epub|man:topic>");
         return ESP_OK;
     }
 
@@ -1386,13 +1373,11 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
                                             sizeof(reader.path));
     }
     if (err != ESP_OK) {
-        reader.error_only = true;
         snprintf(reader.message,
                  sizeof(reader.message),
-                 "invalid document: %s",
+                 "reader: invalid document: %s",
                  esp_err_to_name(err));
-        solar_os_context_set_graphics_active(ctx, true);
-        reader_render(ctx);
+        solar_os_context_finish(ctx, 1, reader.message);
         return ESP_OK;
     }
 
@@ -1410,18 +1395,14 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
     if (reader.epub) {
         err = solar_os_epub_open(reader.path, &reader.epub_book);
         if (err != ESP_OK) {
-            reader.error_only = true;
-            snprintf(reader.message, sizeof(reader.message), "epub open failed: %s", esp_err_to_name(err));
-            solar_os_context_set_graphics_active(ctx, true);
-            reader_render(ctx);
+            snprintf(reader.message, sizeof(reader.message), "reader: epub open failed: %s", esp_err_to_name(err));
+            solar_os_context_finish(ctx, 1, reader.message);
             return ESP_OK;
         }
         reader.epub_chapter_count = solar_os_epub_spine_count(reader.epub_book);
         if (reader.epub_chapter_count == 0) {
-            reader.error_only = true;
-            snprintf(reader.message, sizeof(reader.message), "epub has no readable spine");
-            solar_os_context_set_graphics_active(ctx, true);
-            reader_render(ctx);
+            solar_os_context_finish(
+                ctx, 1, "reader: epub has no readable spine");
             return ESP_OK;
         }
         if (has_saved && saved.chapter < reader.epub_chapter_count) {
@@ -1437,10 +1418,8 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
         reader_load_manual_page(manual_page) :
         reader_load_doc_file(reader.path);
     if (err != ESP_OK) {
-        reader.error_only = true;
-        snprintf(reader.message, sizeof(reader.message), "load failed: %s", esp_err_to_name(err));
-        solar_os_context_set_graphics_active(ctx, true);
-        reader_render(ctx);
+        snprintf(reader.message, sizeof(reader.message), "reader: load failed: %s", esp_err_to_name(err));
+        solar_os_context_finish(ctx, 1, reader.message);
         return ESP_OK;
     }
 
@@ -1610,16 +1589,9 @@ static bool reader_handle_char(solar_os_context_t *ctx, char raw_ch)
     }
 
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
-    if (reader.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE) {
-            solar_os_context_request_exit(ctx);
-        }
-        return true;
-    }
-
     switch (ch) {
     case SOLAR_OS_KEY_ESCAPE:
         if (reader.match.valid || reader.search_status) {
@@ -1627,7 +1599,7 @@ static bool reader_handle_char(solar_os_context_t *ctx, char raw_ch)
             reader.search_status = false;
             reader.message[0] = '\0';
         } else {
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
         }
         break;
     case SOLAR_OS_KEY_UP:
@@ -1666,8 +1638,10 @@ static bool reader_handle_char(solar_os_context_t *ctx, char raw_ch)
         reader_zoom(ctx, -1);
         break;
     case '/':
+    case 0x06:
         reader_start_search();
         break;
+    case SOLAR_OS_KEY_F3:
     case 'n':
         (void)reader_run_search(ctx, true, true);
         break;
@@ -1703,6 +1677,7 @@ static bool reader_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_reader_app = {
     .name = "reader",
     .summary = "graphics Markdown/text reader",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = reader_start,
     .suspend = reader_suspend,

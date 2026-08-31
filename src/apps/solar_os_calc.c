@@ -465,8 +465,7 @@ static void calc_text_submit(solar_os_context_t *ctx)
             *arg++ = '\0';
         arg = arg != NULL ? calc_trim(arg) : NULL;
         if (strcmp(command, ":quit") == 0 || strcmp(command, ":q") == 0) {
-            solar_os_context_request_terminal_preserve(ctx);
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
             return;
         } else if (strcmp(command, ":help") == 0) {
             calc_text_help(io);
@@ -845,11 +844,15 @@ static void calc_print_usage(solar_os_context_t *ctx, const char *reason)
     solar_os_shell_io_writeln(io, "usage: calc [--tui]");
     solar_os_shell_io_writeln(io, "       calc -e <expression>");
     solar_os_shell_io_flush(io);
-    solar_os_context_request_terminal_preserve(ctx);
 }
 
 static esp_err_t calc_start(solar_os_context_t *ctx)
 {
+    const int argc = solar_os_context_argc(ctx);
+    if (argc > 1 &&
+        !(argc == 2 && strcmp(solar_os_context_argv(ctx, 1), "--tui") == 0)) {
+        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
+    }
     calc = solar_os_memory_calloc(
         1, sizeof(*calc), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "calc.state");
     if (calc == NULL)
@@ -861,7 +864,6 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
     bool force_tui = false;
     bool one_shot = false;
     char expression[CALC_SOURCE_MAX] = "";
-    const int argc = solar_os_context_argc(ctx);
     for (int i = 1; i < argc; i++) {
         const char *arg = solar_os_context_argv(ctx, i);
         if (strcmp(arg, "--tui") == 0)
@@ -874,13 +876,13 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
             strlcat(expression, arg, sizeof(expression));
         } else {
             calc_print_usage(ctx, "unknown option");
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 2, NULL);
             return ESP_OK;
         }
     }
     if (one_shot && expression[0] == '\0') {
         calc_print_usage(ctx, "-e needs an expression");
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 2, NULL);
         return ESP_OK;
     }
 
@@ -892,14 +894,21 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
             char result[32];
             calc_format(row->result, result, sizeof(result));
             solar_os_shell_io_writeln(io, result);
-        } else
+            solar_os_context_finish(ctx, 0, NULL);
+        } else {
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            snprintf(message,
+                     sizeof(message),
+                     "calc: %s",
+                     row->error.message[0] ?
+                         row->error.message : "not a scalar expression");
             solar_os_shell_io_printf(io, "calc: %s\n",
                                      row->error.message[0]
                                          ? row->error.message
                                          : "not a scalar expression");
+            solar_os_context_finish(ctx, 1, NULL);
+        }
         solar_os_shell_io_flush(io);
-        solar_os_context_request_terminal_preserve(ctx);
-        solar_os_context_request_exit(ctx);
         calc->mode = CALC_MODE_TEXT;
         return ESP_OK;
     }
@@ -910,10 +919,12 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
         solar_os_shell_io_kind(launch_io) == SOLAR_OS_SHELL_IO_KIND_PORT;
     if (!force_tui && !port_shell && solar_os_context_gfx(ctx) != NULL) {
         calc->mode = CALC_MODE_GRAPHICS;
+        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_GUI);
         solar_os_context_set_graphics_active(ctx, true);
         calc_graphics_render(ctx);
     } else {
         calc->mode = CALC_MODE_TEXT;
+        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_TUI);
         solar_os_shell_io_t *io = calc_io(ctx);
         solar_os_shell_io_writeln(
             io, "SolarOS calculator (radians). :help for commands.");
@@ -972,9 +983,7 @@ static bool calc_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             calc->input_len = calc->input_cursor = 0U;
             calc_text_render_input(ctx);
         } else {
-            if (calc->mode == CALC_MODE_TEXT)
-                solar_os_context_request_terminal_preserve(ctx);
-            solar_os_context_request_exit(ctx);
+            solar_os_context_finish(ctx, 0, NULL);
         }
         return true;
     }
@@ -1044,6 +1053,7 @@ static void calc_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
 const solar_os_app_t solar_os_calc_app = {
     .name = "calc",
     .summary = "scientific calculator and function plotter",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = calc_start,
     .suspend = calc_suspend,

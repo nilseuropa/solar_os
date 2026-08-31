@@ -2085,7 +2085,7 @@ static void io_handle_browse_key(uint8_t key)
     case SOLAR_OS_KEY_APP_EXIT:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(io.ctx);
+        solar_os_context_finish(io.ctx, 0, NULL);
         return;
     case '\t':
         io.view = (io_view_t)((io.view + 1U) % IO_VIEW_COUNT);
@@ -2363,7 +2363,7 @@ static bool io_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
     const uint8_t key = (uint8_t)event->data.ch;
     if (key == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(io.ctx);
+        solar_os_context_finish(io.ctx, 0, NULL);
         return true;
     }
     switch (io.mode) {
@@ -2400,6 +2400,7 @@ static void io_title(solar_os_context_t *ctx, char *buffer, size_t buffer_len)
 const solar_os_app_t solar_os_io_app = {
     .name = "io",
     .summary = "expansion pin and bus manager",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = io_start,
     .suspend = io_suspend,

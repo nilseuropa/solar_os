@@ -16,6 +16,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_syntax.h"
 #include "solar_os_terminal.h"
+#include "solar_os_text_search.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
 
@@ -44,7 +45,6 @@ typedef struct {
     size_t left_col;
     size_t selection_anchor;
     bool dirty;
-    bool error_only;
     bool selection_active;
     bool saved_text_size_valid;
     editor_mode_t mode;
@@ -52,6 +52,7 @@ typedef struct {
     uint8_t hex_nibble;
     solar_os_terminal_text_size_t saved_text_size;
     solar_os_syntax_language_t syntax;
+    solar_os_text_search_state_t search;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
     char message[72];
@@ -348,28 +349,6 @@ static void editor_ensure_cursor_visible(size_t text_rows, size_t cols)
     }
 }
 
-static void editor_render_error(void)
-{
-    const size_t rows = solar_os_tui_rows(&editor.tui);
-    const size_t cols = solar_os_tui_cols(&editor.tui);
-    if (rows == 0 || cols == 0) {
-        return;
-    }
-
-    solar_os_tui_clear(&editor.tui);
-    (void)solar_os_tui_set_cursor_visible(&editor.tui, false);
-    solar_os_tui_write_cell(&editor.tui, 0, 0, cols, editor_app_name(),
-                            SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
-    if (rows > 1) {
-        solar_os_tui_write_cell(&editor.tui, 1, 0, cols, editor.message,
-                                SOLAR_OS_TUI_ATTR_NORMAL);
-    }
-    if (rows > 2) {
-        solar_os_tui_draw_help(&editor.tui, "ESC quit");
-    }
-    solar_os_tui_refresh(&editor.tui);
-}
-
 static size_t editor_hex_bytes_per_row(size_t cols)
 {
     if (cols >= 75U) {
@@ -525,7 +504,7 @@ static void editor_render_hex(void)
         } else {
             snprintf(footer,
                      sizeof(footer),
-                     "Off %08X  %s  %u/%u bytes  Tab pane  ESC save",
+                     "Off %08X  %s  %u/%u bytes  Tab pane  ^S save  ^Q/ESC quit",
                      (unsigned)editor.cursor,
                      value,
                      (unsigned)editor.len,
@@ -568,10 +547,6 @@ static void editor_render(solar_os_context_t *ctx)
     const bool has_selection = editor_has_selection();
     char header[192];
 
-    if (editor.error_only) {
-        editor_render_error();
-        return;
-    }
     if (rows == 0 || cols == 0) {
         return;
     }
@@ -653,7 +628,12 @@ static void editor_render(solar_os_context_t *ctx)
 
     if (rows > 1) {
         char footer[192];
-        if (editor.message[0] != '\0') {
+        if (editor.search.input_active) {
+            snprintf(footer,
+                     sizeof(footer),
+                     "Find: %s_",
+                     editor.search.input);
+        } else if (editor.message[0] != '\0') {
             snprintf(footer,
                      sizeof(footer),
                      "Ln %u Col %u  %s",
@@ -663,7 +643,7 @@ static void editor_render(solar_os_context_t *ctx)
         } else {
             snprintf(footer,
                      sizeof(footer),
-                     "Ln %u Col %u  %u/%u bytes  ESC save",
+                     "Ln %u Col %u  %u/%u bytes  ^S save  ^Q/ESC quit",
                      (unsigned)(cursor_line + 1),
                      (unsigned)(cursor_col + 1),
                      (unsigned)editor.len,
@@ -1248,7 +1228,6 @@ static void editor_open_empty(void)
     editor.hex_pane = EDITOR_HEX_PANE_HEX;
     editor.hex_nibble = 0;
     editor.dirty = false;
-    editor.error_only = false;
     editor.buffer[0] = '\0';
     editor_set_message("");
 }
@@ -1265,8 +1244,7 @@ static esp_err_t editor_open_file(void)
         char message[sizeof(editor.message)];
         snprintf(message, sizeof(message), "open failed: %s", strerror(errno));
         editor_set_message(message);
-        editor.error_only = true;
-        return ESP_OK;
+        return ESP_FAIL;
     }
 
     editor.len = fread(editor.buffer, 1, editor.capacity - 1, file);
@@ -1275,8 +1253,7 @@ static esp_err_t editor_open_file(void)
         snprintf(message, sizeof(message), "read failed: %s", strerror(errno));
         fclose(file);
         editor_set_message(message);
-        editor.error_only = true;
-        return ESP_OK;
+        return ESP_FAIL;
     }
 
     const int extra = fgetc(file);
@@ -1285,8 +1262,7 @@ static esp_err_t editor_open_file(void)
         editor.len = 0;
         editor.buffer[0] = '\0';
         editor_set_capacity_message("file too large");
-        editor.error_only = true;
-        return ESP_OK;
+        return ESP_ERR_INVALID_SIZE;
     }
 
     editor.buffer[editor.len] = '\0';
@@ -1299,7 +1275,6 @@ static esp_err_t editor_open_file(void)
     editor.hex_pane = EDITOR_HEX_PANE_HEX;
     editor.hex_nibble = 0;
     editor.dirty = false;
-    editor.error_only = false;
     editor_set_message("");
     return ESP_OK;
 }
@@ -1336,18 +1311,14 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
     editor_capture_text_size();
 
     if (argc != 2) {
-        editor.error_only = true;
         char usage[sizeof(editor.message)];
         snprintf(usage, sizeof(usage), "usage: %s <file>", editor_app_name());
-        editor_set_message(usage);
-        editor_render(ctx);
+        solar_os_context_finish(ctx, 2, usage);
         return ESP_OK;
     }
 
     if (!solar_os_storage_is_mounted()) {
-        editor.error_only = true;
-        editor_set_message("storage not mounted");
-        editor_render(ctx);
+        solar_os_context_finish(ctx, 1, "edit: storage not mounted");
         return ESP_OK;
     }
 
@@ -1356,9 +1327,11 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
                                                              editor.path,
                                                              sizeof(editor.path));
     if (path_err != ESP_OK) {
-        editor.error_only = true;
-        editor_set_message(path_err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
-        editor_render(ctx);
+        solar_os_context_finish(
+            ctx,
+            1,
+            path_err == ESP_ERR_INVALID_SIZE ?
+                "edit: path too long" : "edit: invalid path");
         return ESP_OK;
     }
     strlcpy(editor.display_name, arg != NULL ? arg : editor.path, sizeof(editor.display_name));
@@ -1368,10 +1341,10 @@ static esp_err_t edit_start(solar_os_context_t *ctx)
 
     const esp_err_t err = editor_open_file();
     if (err != ESP_OK) {
-        solar_os_tui_end(&editor.tui);
-        solar_os_memory_free(editor.buffer);
-        memset(&editor, 0, sizeof(editor));
-        return err;
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message, sizeof(message), "%s: %s", editor_app_name(), editor.message);
+        solar_os_context_finish(ctx, 1, message);
+        return ESP_OK;
     }
 
     editor_render(ctx);
@@ -1438,13 +1411,68 @@ static void editor_apply_hex_page_move(bool selecting, bool down)
     editor_finish_selection(selecting);
 }
 
+static bool editor_find_next(void)
+{
+    if (editor.search.query_len == 0U) {
+        editor_set_message("no search");
+        return false;
+    }
+    solar_os_text_search_match_t match;
+    if (!solar_os_text_search_find(editor.buffer,
+                                   editor.len,
+                                   editor.search.query,
+                                   editor.cursor,
+                                   false,
+                                   SOLAR_OS_TEXT_SEARCH_FORWARD,
+                                   &match)) {
+        editor.search.match_valid = false;
+        editor_set_message("not found");
+        return false;
+    }
+    editor.search.match = match;
+    editor.search.match_valid = true;
+    editor.selection_anchor = match.offset;
+    editor.cursor = match.offset + match.length;
+    editor.selection_active = match.length > 0U;
+    editor_update_preferred_col();
+    editor_set_message(match.wrapped ? "found (wrapped)" : "found");
+    return true;
+}
+
+static bool editor_handle_search_input(solar_os_context_t *ctx, uint8_t key)
+{
+    switch (key) {
+    case SOLAR_OS_KEY_ESCAPE:
+        solar_os_text_search_cancel_input(&editor.search);
+        break;
+    case '\r':
+    case '\n':
+        if (solar_os_text_search_submit_input(&editor.search)) {
+            (void)editor_find_next();
+        } else {
+            editor_set_message("empty search");
+        }
+        break;
+    case '\b':
+    case 0x7fU:
+        (void)solar_os_text_search_input_backspace(&editor.search);
+        break;
+    default:
+        if (editor_is_printable((char)key)) {
+            (void)solar_os_text_search_input_append(&editor.search, (char)key);
+        }
+        break;
+    }
+    editor_render(ctx);
+    return true;
+}
+
 static bool editor_hex_event(solar_os_context_t *ctx, uint8_t key)
 {
     switch (key) {
     case SOLAR_OS_KEY_ESCAPE:
-        if (!editor.dirty || editor_save() == ESP_OK) {
-            solar_os_context_request_exit(ctx);
-        }
+    case 0x11:
+        solar_os_context_finish(ctx, 0, NULL);
         break;
     case 0x01:
         editor_select_all();
@@ -1578,14 +1606,7 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const char ch = event->data.ch;
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
-        return true;
-    }
-
-    if (editor.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE) {
-            solar_os_context_request_exit(ctx);
-        }
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -1593,17 +1614,27 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         return editor_hex_event(ctx, (uint8_t)ch);
     }
 
+    if (editor.search.input_active) {
+        return editor_handle_search_input(ctx, (uint8_t)ch);
+    }
+
     switch ((uint8_t)ch) {
     case SOLAR_OS_KEY_ESCAPE:
-        if (!editor.dirty || editor_save() == ESP_OK) {
-            solar_os_context_request_exit(ctx);
-        }
+    case 0x11:
+        solar_os_context_finish(ctx, 0, NULL);
         break;
     case 0x01:
         editor_select_all();
         break;
     case 0x03:
         editor_copy_selection();
+        break;
+    case 0x06:
+        solar_os_text_search_begin_input(&editor.search);
+        editor_set_message("");
+        break;
+    case 0x13:
+        (void)editor_save();
         break;
     case 0x16:
         editor_paste_clipboard();
@@ -1616,6 +1647,9 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case SOLAR_OS_KEY_CTRL_MINUS:
         editor_adjust_text_size(-1);
+        break;
+    case SOLAR_OS_KEY_F3:
+        (void)editor_find_next();
         break;
     case SOLAR_OS_KEY_LEFT:
         editor_apply_move(false, editor_move_left);
@@ -1724,6 +1758,7 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_edit_app = {
     .name = "edit",
     .summary = "text editor",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = edit_start,
     .resume = edit_resume,
@@ -1738,6 +1773,7 @@ const solar_os_app_t solar_os_edit_app = {
 const solar_os_app_t solar_os_hexedit_app = {
     .name = "hexedit",
     .summary = "two-pane hex editor",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = edit_start,
     .resume = edit_resume,

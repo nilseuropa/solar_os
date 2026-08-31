@@ -707,7 +707,7 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
 
     const uint8_t key = (uint8_t)event->data.ch;
     if (key == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(setterm_tui.ctx);
+        solar_os_context_finish(setterm_tui.ctx, 0, NULL);
         return true;
     }
 
@@ -736,7 +736,7 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
         setterm_tui_begin_edit();
         break;
     case SOLAR_OS_KEY_ESCAPE:
-        solar_os_context_request_exit(setterm_tui.ctx);
+        solar_os_context_finish(setterm_tui.ctx, 0, NULL);
         break;
     default:
         break;
@@ -748,6 +748,7 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
 static const solar_os_app_t setterm_tui_app = {
     .name = "setterm",
     .summary = "terminal settings",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = setterm_tui_start,
     .stop = setterm_tui_stop,
     .event = setterm_tui_event,

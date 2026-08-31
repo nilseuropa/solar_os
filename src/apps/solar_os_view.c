@@ -42,7 +42,8 @@ typedef enum {
 typedef struct {
     uint32_t width;
     uint32_t height;
-    uint8_t *gray;
+    uint8_t *pixels;
+    uint8_t channels;
     uint32_t frame_count;
     uint32_t frame_index;
     uint32_t next_frame_ms;
@@ -114,9 +115,10 @@ static void view_free_image(view_image_t *image)
         return;
     }
 
-    solar_os_memory_free(image->gray);
+    solar_os_memory_free(image->pixels);
     solar_os_memory_free(image->frame_delays_ms);
-    image->gray = NULL;
+    image->pixels = NULL;
+    image->channels = 0;
     image->frame_delays_ms = NULL;
     image->width = 0;
     image->height = 0;
@@ -125,33 +127,39 @@ static void view_free_image(view_image_t *image)
     image->next_frame_ms = 0;
 }
 
-static esp_err_t view_alloc_image(view_image_t *image, uint32_t width, uint32_t height)
+static esp_err_t view_alloc_image(view_image_t *image,
+                                  uint32_t width,
+                                  uint32_t height,
+                                  uint8_t channels)
 {
-    if (image == NULL || width == 0 || height == 0) {
+    if (image == NULL || width == 0 || height == 0 ||
+        (channels != 1U && channels != 3U)) {
         return ESP_ERR_INVALID_ARG;
     }
 
     const uint64_t pixels = (uint64_t)width * (uint64_t)height;
-    if (pixels > VIEW_MAX_PIXELS || pixels > SIZE_MAX) {
+    if (pixels > VIEW_MAX_PIXELS || pixels > SIZE_MAX / channels) {
         return ESP_ERR_INVALID_SIZE;
     }
 
-    uint8_t *gray = view_alloc((size_t)pixels);
-    if (gray == NULL) {
+    uint8_t *storage = view_alloc((size_t)pixels * channels);
+    if (storage == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
     view_free_image(image);
     image->width = width;
     image->height = height;
-    image->gray = gray;
+    image->pixels = storage;
+    image->channels = channels;
     image->frame_count = 1;
     return ESP_OK;
 }
 
-static uint8_t *view_current_frame_gray(view_image_t *image)
+static uint8_t *view_current_frame_pixels(view_image_t *image)
 {
-    if (image == NULL || image->gray == NULL || image->width == 0 || image->height == 0) {
+    if (image == NULL || image->pixels == NULL || image->width == 0 ||
+        image->height == 0 || (image->channels != 1U && image->channels != 3U)) {
         return NULL;
     }
 
@@ -160,7 +168,8 @@ static uint8_t *view_current_frame_gray(view_image_t *image)
         image->frame_index = 0;
     }
     const size_t frame_pixels = (size_t)image->width * image->height;
-    return image->gray + ((size_t)image->frame_index * frame_pixels);
+    return image->pixels +
+        ((size_t)image->frame_index * frame_pixels * image->channels);
 }
 
 static uint32_t view_current_frame_delay_ms(const view_image_t *image)
@@ -183,10 +192,45 @@ static uint8_t view_rgb_to_gray(uint8_t red, uint8_t green, uint8_t blue)
                       (uint32_t)blue * 29U) >> 8);
 }
 
+static void view_store_pixel(uint8_t *destination,
+                             uint8_t channels,
+                             uint8_t red,
+                             uint8_t green,
+                             uint8_t blue)
+{
+    if (channels == 3U) {
+        destination[0] = red;
+        destination[1] = green;
+        destination[2] = blue;
+    } else {
+        destination[0] = view_rgb_to_gray(red, green, blue);
+    }
+}
+
 static solar_os_gfx_color_t view_gray_to_color(uint8_t gray)
 {
     const uint8_t level = (uint8_t)(((uint16_t)gray * SOLAR_OS_GFX_GRAY_MAX + 127U) / 255U);
     return solar_os_gfx_gray(level);
+}
+
+static uint8_t view_quantize_rgb_channel(uint8_t value)
+{
+    return (uint8_t)((((unsigned)value * 5U + 127U) / 255U) * 51U);
+}
+
+static solar_os_gfx_color_t view_image_pixel_color(const view_image_t *image,
+                                                   const uint8_t *pixels,
+                                                   uint32_t x,
+                                                   uint32_t y)
+{
+    const size_t pixel = (size_t)y * image->width + x;
+    if (image->channels == 3U) {
+        const uint8_t *rgb = &pixels[pixel * 3U];
+        return solar_os_gfx_rgb(view_quantize_rgb_channel(rgb[0]),
+                                view_quantize_rgb_channel(rgb[1]),
+                                view_quantize_rgb_channel(rgb[2]));
+    }
+    return view_gray_to_color(pixels[pixel]);
 }
 
 static bool view_read_exact(FILE *file, void *data, size_t len)
@@ -232,7 +276,13 @@ static esp_err_t view_read_stream(FILE *file, uint8_t **out_data, size_t *out_le
     return ESP_OK;
 }
 
-static esp_err_t view_decode_stb(FILE *file, view_image_t *image, const char *format)
+static esp_err_t view_decode_stb(FILE *file,
+                                 view_image_t *image,
+                                 const char *format,
+                                 bool color,
+                                 bool scale_jpeg,
+                                 uint32_t target_width,
+                                 uint32_t target_height)
 {
     uint8_t *image_data = NULL;
     size_t image_len = 0;
@@ -242,21 +292,40 @@ static esp_err_t view_decode_stb(FILE *file, view_image_t *image, const char *fo
         return err;
     }
 
-    uint8_t *gray = NULL;
+    uint8_t *pixels = NULL;
     uint32_t width = 0;
     uint32_t height = 0;
-    err = solar_os_stb_decode_gray(image_data,
-                                   image_len,
-                                   VIEW_MAX_PIXELS,
-                                   &gray,
-                                   &width,
-                                   &height);
+    if (color && scale_jpeg) {
+        err = solar_os_stb_decode_jpeg_rgb_scaled(image_data,
+                                                  image_len,
+                                                  VIEW_MAX_PIXELS,
+                                                  target_width,
+                                                  target_height,
+                                                  &pixels,
+                                                  &width,
+                                                  &height);
+    } else if (color) {
+        err = solar_os_stb_decode_rgb(image_data,
+                                      image_len,
+                                      VIEW_MAX_PIXELS,
+                                      &pixels,
+                                      &width,
+                                      &height);
+    } else {
+        err = solar_os_stb_decode_gray(image_data,
+                                       image_len,
+                                       VIEW_MAX_PIXELS,
+                                       &pixels,
+                                       &width,
+                                       &height);
+    }
     if (err == ESP_OK) {
         view_error_detail[0] = '\0';
         view_free_image(image);
         image->width = width;
         image->height = height;
-        image->gray = gray;
+        image->pixels = pixels;
+        image->channels = color ? 3U : 1U;
         image->frame_count = 1;
         SOLAR_OS_LOGI(TAG, "decoded %s %" PRIu32 "x%" PRIu32 " bytes=%u",
                  format != NULL ? format : "image",
@@ -284,7 +353,8 @@ static esp_err_t view_decode_stb(FILE *file, view_image_t *image, const char *fo
 static esp_err_t view_decode_gif(FILE *file,
                                  view_image_t *image,
                                  uint32_t target_width,
-                                 uint32_t target_height)
+                                 uint32_t target_height,
+                                 bool color)
 {
     uint8_t *image_data = NULL;
     size_t image_len = 0;
@@ -295,23 +365,37 @@ static esp_err_t view_decode_gif(FILE *file,
     }
 
     solar_os_stb_gif_animation_t animation = {0};
-    err = solar_os_stb_decode_gif_gray(image_data,
-                                       image_len,
-                                       view_gif_max_canvas_pixels(),
-                                       view_gif_max_stored_pixels(),
-                                       target_width,
-                                       target_height,
-                                       solar_os_vector_rgba_to_gray_scaled,
-                                       &animation);
+    uint32_t max_stored_pixels = view_gif_max_stored_pixels();
+    if (color) {
+        max_stored_pixels /= 3U;
+    }
+    err = color ?
+        solar_os_stb_decode_gif_rgb(image_data,
+                                    image_len,
+                                    view_gif_max_canvas_pixels(),
+                                    max_stored_pixels,
+                                    target_width,
+                                    target_height,
+                                    solar_os_vector_rgba_to_rgb_scaled,
+                                    &animation) :
+        solar_os_stb_decode_gif_gray(image_data,
+                                     image_len,
+                                     view_gif_max_canvas_pixels(),
+                                     max_stored_pixels,
+                                     target_width,
+                                     target_height,
+                                     solar_os_vector_rgba_to_gray_scaled,
+                                     &animation);
     if (err == ESP_OK) {
         view_error_detail[0] = '\0';
         view_free_image(image);
         image->width = animation.width;
         image->height = animation.height;
-        image->gray = animation.gray;
+        image->pixels = animation.pixels;
+        image->channels = animation.channels;
         image->frame_count = animation.frame_count;
         image->frame_delays_ms = animation.delays_ms;
-        animation.gray = NULL;
+        animation.pixels = NULL;
         animation.delays_ms = NULL;
         SOLAR_OS_LOGI(TAG,
                       "decoded GIF %" PRIu32 "x%" PRIu32 " frames=%" PRIu32 " bytes=%u",
@@ -342,7 +426,7 @@ static esp_err_t view_decode_gif(FILE *file,
     return err;
 }
 
-static esp_err_t view_decode_webp(FILE *file, view_image_t *image)
+static esp_err_t view_decode_webp(FILE *file, view_image_t *image, bool color)
 {
     uint8_t *image_data = NULL;
     size_t image_len = 0;
@@ -352,21 +436,29 @@ static esp_err_t view_decode_webp(FILE *file, view_image_t *image)
         return err;
     }
 
-    uint8_t *gray = NULL;
+    uint8_t *pixels = NULL;
     uint32_t width = 0;
     uint32_t height = 0;
-    err = solar_os_webp_decode_gray(image_data,
-                                    image_len,
-                                    VIEW_MAX_PIXELS,
-                                    &gray,
-                                    &width,
-                                    &height);
+    err = color ?
+        solar_os_webp_decode_rgb(image_data,
+                                 image_len,
+                                 VIEW_MAX_PIXELS,
+                                 &pixels,
+                                 &width,
+                                 &height) :
+        solar_os_webp_decode_gray(image_data,
+                                  image_len,
+                                  VIEW_MAX_PIXELS,
+                                  &pixels,
+                                  &width,
+                                  &height);
     if (err == ESP_OK) {
         view_error_detail[0] = '\0';
         view_free_image(image);
         image->width = width;
         image->height = height;
-        image->gray = gray;
+        image->pixels = pixels;
+        image->channels = color ? 3U : 1U;
         image->frame_count = 1;
         SOLAR_OS_LOGI(TAG, "decoded WebP %" PRIu32 "x%" PRIu32 " bytes=%u",
                  width,
@@ -384,7 +476,7 @@ static esp_err_t view_decode_webp(FILE *file, view_image_t *image)
     return err;
 }
 
-static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
+static esp_err_t view_decode_bmp(FILE *file, view_image_t *image, bool color)
 {
     uint8_t file_header[14];
     uint8_t dib_header[40];
@@ -429,7 +521,7 @@ static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
     }
     const size_t row_stride = (size_t)row_stride64;
 
-    uint8_t palette[256] = {0};
+    uint8_t palette[256][3] = {{0}};
     if (bits_per_pixel <= 8) {
         uint32_t palette_entries = colors_used != 0 ? colors_used : (1UL << bits_per_pixel);
         if (palette_entries > 256) {
@@ -443,11 +535,14 @@ static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
             if (!view_read_exact(file, entry, sizeof(entry))) {
                 return ESP_FAIL;
             }
-            palette[i] = view_rgb_to_gray(entry[2], entry[1], entry[0]);
+            palette[i][0] = entry[2];
+            palette[i][1] = entry[1];
+            palette[i][2] = entry[0];
         }
     }
 
-    esp_err_t err = view_alloc_image(image, width, height);
+    const uint8_t channels = color ? 3U : 1U;
+    esp_err_t err = view_alloc_image(image, width, height, channels);
     if (err != ESP_OK) {
         return err;
     }
@@ -469,32 +564,36 @@ static esp_err_t view_decode_bmp(FILE *file, view_image_t *image)
             return ESP_FAIL;
         }
 
-        uint8_t *dest = &image->gray[(size_t)y * width];
+        uint8_t *dest = &image->pixels[(size_t)y * width * channels];
         for (uint32_t x = 0; x < width; x++) {
+            uint8_t *pixel_dest = &dest[(size_t)x * channels];
             switch (bits_per_pixel) {
             case 1: {
                 const uint8_t byte = row[x / 8U];
                 const uint8_t index = (byte >> (7U - (x & 7U))) & 0x01U;
-                dest[x] = palette[index];
+                view_store_pixel(pixel_dest, channels,
+                                 palette[index][0], palette[index][1], palette[index][2]);
                 break;
             }
             case 4: {
                 const uint8_t byte = row[x / 2U];
                 const uint8_t index = (x & 1U) == 0 ? (byte >> 4) : (byte & 0x0fU);
-                dest[x] = palette[index];
+                view_store_pixel(pixel_dest, channels,
+                                 palette[index][0], palette[index][1], palette[index][2]);
                 break;
             }
             case 8:
-                dest[x] = palette[row[x]];
+                view_store_pixel(pixel_dest, channels,
+                                 palette[row[x]][0], palette[row[x]][1], palette[row[x]][2]);
                 break;
             case 24: {
                 const uint8_t *pixel = &row[(size_t)x * 3U];
-                dest[x] = view_rgb_to_gray(pixel[2], pixel[1], pixel[0]);
+                view_store_pixel(pixel_dest, channels, pixel[2], pixel[1], pixel[0]);
                 break;
             }
             case 32: {
                 const uint8_t *pixel = &row[(size_t)x * 4U];
-                dest[x] = view_rgb_to_gray(pixel[2], pixel[1], pixel[0]);
+                view_store_pixel(pixel_dest, channels, pixel[2], pixel[1], pixel[0]);
                 break;
             }
             default:
@@ -596,7 +695,7 @@ static esp_err_t view_pnm_read_binary_sample(FILE *file,
     return ESP_OK;
 }
 
-static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
+static esp_err_t view_decode_pnm(FILE *file, view_image_t *image, bool color)
 {
     if (fseek(file, 0, SEEK_SET) != 0) {
         return ESP_FAIL;
@@ -621,23 +720,28 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
         }
     }
 
-    esp_err_t err = view_alloc_image(image, width, height);
+    const uint8_t channels = color ? 3U : 1U;
+    esp_err_t err = view_alloc_image(image, width, height, channels);
     if (err != ESP_OK) {
         return err;
     }
 
     if (type == 1 || type == 2 || type == 3) {
         for (uint32_t y = 0; y < height; y++) {
-            uint8_t *dest = &image->gray[(size_t)y * width];
+            uint8_t *dest = &image->pixels[(size_t)y * width * channels];
             for (uint32_t x = 0; x < width; x++) {
                 uint32_t value = 0;
                 if (!view_pnm_parse_u32(file, &value)) {
                     return ESP_FAIL;
                 }
                 if (type == 1) {
-                    dest[x] = value == 0 ? 255 : 0;
+                    const uint8_t level = value == 0 ? 255U : 0U;
+                    view_store_pixel(&dest[(size_t)x * channels], channels,
+                                     level, level, level);
                 } else if (type == 2) {
-                    dest[x] = view_scale_sample(value, max_value);
+                    const uint8_t level = view_scale_sample(value, max_value);
+                    view_store_pixel(&dest[(size_t)x * channels], channels,
+                                     level, level, level);
                 } else {
                     uint32_t green = 0;
                     uint32_t blue = 0;
@@ -645,9 +749,11 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
                         !view_pnm_parse_u32(file, &blue)) {
                         return ESP_FAIL;
                     }
-                    dest[x] = view_rgb_to_gray(view_scale_sample(value, max_value),
-                                               view_scale_sample(green, max_value),
-                                               view_scale_sample(blue, max_value));
+                    view_store_pixel(&dest[(size_t)x * channels],
+                                     channels,
+                                     view_scale_sample(value, max_value),
+                                     view_scale_sample(green, max_value),
+                                     view_scale_sample(blue, max_value));
                 }
             }
         }
@@ -665,11 +771,13 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
                 solar_os_memory_free(row);
                 return ESP_FAIL;
             }
-            uint8_t *dest = &image->gray[(size_t)y * width];
+            uint8_t *dest = &image->pixels[(size_t)y * width * channels];
             for (uint32_t x = 0; x < width; x++) {
                 const uint8_t byte = row[x / 8U];
                 const bool black = ((byte >> (7U - (x & 7U))) & 0x01U) != 0;
-                dest[x] = black ? 0 : 255;
+                const uint8_t level = black ? 0U : 255U;
+                view_store_pixel(&dest[(size_t)x * channels], channels,
+                                 level, level, level);
             }
         }
         solar_os_memory_free(row);
@@ -677,13 +785,16 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
     }
 
     for (uint32_t y = 0; y < height; y++) {
-        uint8_t *dest = &image->gray[(size_t)y * width];
+        uint8_t *dest = &image->pixels[(size_t)y * width * channels];
         for (uint32_t x = 0; x < width; x++) {
             if (type == 5) {
-                err = view_pnm_read_binary_sample(file, max_value, &dest[x]);
+                uint8_t level = 0;
+                err = view_pnm_read_binary_sample(file, max_value, &level);
                 if (err != ESP_OK) {
                     return err;
                 }
+                view_store_pixel(&dest[(size_t)x * channels], channels,
+                                 level, level, level);
             } else {
                 uint8_t red;
                 uint8_t green;
@@ -698,7 +809,8 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
                 if (err != ESP_OK) {
                     return err;
                 }
-                dest[x] = view_rgb_to_gray(red, green, blue);
+                view_store_pixel(&dest[(size_t)x * channels], channels,
+                                 red, green, blue);
             }
         }
     }
@@ -709,7 +821,9 @@ static esp_err_t view_decode_pnm(FILE *file, view_image_t *image)
 static esp_err_t view_decode_file(const char *path,
                                   view_image_t *image,
                                   uint32_t target_width,
-                                  uint32_t target_height)
+                                  uint32_t target_height,
+                                  bool color,
+                                  bool fit)
 {
     if (path == NULL || image == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -726,9 +840,10 @@ static esp_err_t view_decode_file(const char *path,
     const size_t signature_len = fread(signature, 1, sizeof(signature), file);
     if (signature_len >= 2U) {
         if (signature[0] == 'B' && signature[1] == 'M') {
-            err = view_decode_bmp(file, image);
+            err = view_decode_bmp(file, image, color);
         } else if (signature[0] == 0xff && signature[1] == 0xd8) {
-            err = view_decode_stb(file, image, "JPEG");
+            err = view_decode_stb(file, image, "JPEG", color, fit,
+                                  target_width, target_height);
         } else if (signature_len >= 8U &&
                    signature[0] == 0x89 &&
                    signature[1] == 'P' &&
@@ -738,15 +853,15 @@ static esp_err_t view_decode_file(const char *path,
                    signature[5] == 0x0a &&
                    signature[6] == 0x1a &&
                    signature[7] == 0x0a) {
-            err = view_decode_stb(file, image, "PNG");
+            err = view_decode_stb(file, image, "PNG", color, false, 0, 0);
         } else if (signature[0] == 'G' && signature[1] == 'I') {
-            err = view_decode_gif(file, image, target_width, target_height);
+            err = view_decode_gif(file, image, target_width, target_height, color);
         } else if (signature_len >= 12U &&
                    memcmp(signature, "RIFF", 4) == 0 &&
                    memcmp(signature + 8, "WEBP", 4) == 0) {
-            err = view_decode_webp(file, image);
+            err = view_decode_webp(file, image, color);
         } else if (signature[0] == 'P' && signature[1] >= '1' && signature[1] <= '6') {
-            err = view_decode_pnm(file, image);
+            err = view_decode_pnm(file, image, color);
         }
     } else {
         err = ESP_FAIL;
@@ -759,32 +874,31 @@ static esp_err_t view_decode_file(const char *path,
     return err;
 }
 
-static void view_usage(solar_os_terminal_t *term)
+static void view_exit_error(solar_os_context_t *ctx,
+                            const char *path,
+                            esp_err_t err)
 {
-    solar_os_terminal_writeln(term, "usage: view [-fit|-actual] <image>");
-    solar_os_terminal_writeln(term, "formats: JPG, JPEG, PNG, GIF/animated GIF, WEBP, BMP, PBM, PGM, PPM");
-    solar_os_terminal_writeln(term, "keys: arrows pan, f toggles fit/actual");
-    solar_os_terminal_writeln(term, "CTRL+ALT+DEL exits");
-}
-
-static void view_print_error(solar_os_terminal_t *term, const char *path, esp_err_t err)
-{
-    solar_os_terminal_clear(term);
-    solar_os_terminal_writeln_bold(term, "view");
-    if (path != NULL && path[0] != '\0') {
-        solar_os_terminal_printf(term, "file: %s\n", path);
-    }
-    solar_os_terminal_printf(term, "error: %s\n", esp_err_to_name(err));
+    char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
     if (view_error_detail[0] != '\0') {
-        solar_os_terminal_printf(term, "detail: %s\n", view_error_detail);
+        snprintf(message,
+                 sizeof(message),
+                 "view: %s: %s (%s)",
+                 path != NULL && path[0] != '\0' ? path : "image",
+                 esp_err_to_name(err),
+                 view_error_detail);
+    } else {
+        snprintf(message,
+                 sizeof(message),
+                 "view: %s: %s",
+                 path != NULL && path[0] != '\0' ? path : "image",
+                 esp_err_to_name(err));
     }
-    solar_os_terminal_writeln(term, "");
-    view_usage(term);
+    solar_os_context_finish(ctx, 1, message);
 }
 
 static void view_reset_pan(solar_os_gfx_t *gfx)
 {
-    if (gfx == NULL || view_state.image.gray == NULL) {
+    if (gfx == NULL || view_state.image.pixels == NULL) {
         view_state.pan_x = 0;
         view_state.pan_y = 0;
         return;
@@ -868,8 +982,8 @@ static void view_draw_scaled(solar_os_gfx_t *gfx,
                              int draw_height)
 {
     const view_image_t *image = &view_state.image;
-    uint8_t *gray = view_current_frame_gray(&view_state.image);
-    if (gray == NULL) {
+    uint8_t *pixels = view_current_frame_pixels(&view_state.image);
+    if (pixels == NULL) {
         return;
     }
 
@@ -899,8 +1013,8 @@ static void view_draw_scaled(solar_os_gfx_t *gfx,
         for (int dx = clip_x0; dx < clip_x1; dx++) {
             const uint32_t sx =
                 (uint32_t)(((uint64_t)(dx - origin_x) * image->width) / (uint32_t)draw_width);
-            const uint8_t sample = gray[(size_t)sy * image->width + sx];
-            const solar_os_gfx_color_t color = view_gray_to_color(sample);
+            const solar_os_gfx_color_t color =
+                view_image_pixel_color(image, pixels, sx, sy);
             if (!run_active) {
                 run_active = true;
                 run_color = color;
@@ -923,7 +1037,7 @@ static void view_draw_scaled(solar_os_gfx_t *gfx,
 static void view_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
-    if (gfx == NULL || view_state.suspended || view_state.image.gray == NULL) {
+    if (gfx == NULL || view_state.suspended || view_state.image.pixels == NULL) {
         return;
     }
 
@@ -962,7 +1076,7 @@ static void view_advance_animation(solar_os_context_t *ctx, uint32_t now_ms)
     view_image_t *image = &view_state.image;
     if (!view_state.loaded ||
         view_state.suspended ||
-        image->gray == NULL ||
+        image->pixels == NULL ||
         image->frame_count <= 1) {
         return;
     }
@@ -1014,12 +1128,11 @@ static esp_err_t view_start(solar_os_context_t *ctx)
     memset(&view_state, 0, sizeof(view_state));
     view_error_detail[0] = '\0';
 
-    solar_os_terminal_t *term = solar_os_context_terminal(ctx);
     view_mode_t mode;
     const char *path_arg = NULL;
     if (!view_parse_args(ctx, &mode, &path_arg)) {
-        solar_os_terminal_clear(term);
-        view_usage(term);
+        solar_os_context_finish(
+            ctx, 2, "usage: view [-fit|-actual] <image>");
         return ESP_OK;
     }
 
@@ -1027,29 +1140,37 @@ static esp_err_t view_start(solar_os_context_t *ctx)
                                                   view_state.path,
                                                   sizeof(view_state.path));
     if (err != ESP_OK) {
-        view_print_error(term, path_arg, err);
+        view_exit_error(ctx, path_arg, err);
         return ESP_OK;
     }
 
     struct stat st;
     if (stat(view_state.path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        view_print_error(term, view_state.path, ESP_ERR_NOT_FOUND);
+        view_exit_error(ctx, view_state.path, ESP_ERR_NOT_FOUND);
         return ESP_OK;
     }
 
+    solar_os_context_set_graphics_active(ctx, true);
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     const uint32_t target_width = gfx != NULL ? (uint32_t)solar_os_gfx_width(gfx) : 0;
     const uint32_t target_height = gfx != NULL ? (uint32_t)solar_os_gfx_height(gfx) : 0;
-    err = view_decode_file(view_state.path, &view_state.image, target_width, target_height);
+    const bool color = gfx != NULL &&
+        solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8;
+    err = view_decode_file(view_state.path,
+                           &view_state.image,
+                           target_width,
+                           target_height,
+                           color,
+                           mode == VIEW_MODE_FIT);
     if (err != ESP_OK) {
-        view_print_error(term, view_state.path, err);
+        solar_os_context_set_graphics_active(ctx, false);
+        view_exit_error(ctx, view_state.path, err);
         return ESP_OK;
     }
 
     view_state.loaded = true;
     view_state.suspended = false;
     view_state.mode = mode;
-    solar_os_context_set_graphics_active(ctx, true);
     view_reset_pan(solar_os_context_gfx(ctx));
     view_render(ctx);
     return ESP_OK;
@@ -1112,7 +1233,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (!view_state.loaded) {
@@ -1165,6 +1286,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_view_app = {
     .name = "view",
     .summary = "image viewer",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = view_start,
     .suspend = view_suspend,

@@ -6619,6 +6619,7 @@ typedef struct
    stbi_uc  pal[256][4];
    stbi_uc lpal[256][4];
    stbi__gif_lzw codes[8192];
+   stbi_uc code_buffer[4096];
    stbi_uc *color_table;
    int parse, step;
    int lflags;
@@ -6703,41 +6704,54 @@ static int stbi__gif_info_raw(stbi__context *s, int *x, int *y, int *comp)
    return 1;
 }
 
-static void stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
+static int stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
 {
    stbi_uc *p, *c;
-   int idx;
+   int idx, count;
 
-   // recurse to decode the prefixes, since the linked-list is backwards,
-   // and working backwards through an interleaved image would be nasty
-   if (g->codes[code].prefix >= 0)
-      stbi__out_gif_code(g, g->codes[code].prefix);
-
-   if (g->cur_y >= g->max_y) return;
-
-   idx = g->cur_x + g->cur_y;
-   p = &g->out[idx];
-   g->history[idx / 4] = 1;
-
-   c = &g->color_table[g->codes[code].suffix * 4];
-   if (c[3] > 128) { // don't render transparent pixels;
-      p[0] = c[2];
-      p[1] = c[1];
-      p[2] = c[0];
-      p[3] = c[3];
+   // Decode the backwards prefix chain into heap-backed GIF state. Recursing
+   // here can exhaust small embedded task stacks on highly compressed images.
+   count = 0;
+   for (;;) {
+      if (code >= 8192 || count >= 4096)
+         return 0;
+      g->code_buffer[count++] = g->codes[code].suffix;
+      if (g->codes[code].prefix < 0)
+         break;
+      code = (stbi__uint16) g->codes[code].prefix;
    }
-   g->cur_x += 4;
 
-   if (g->cur_x >= g->max_x) {
-      g->cur_x = g->start_x;
-      g->cur_y += g->step;
+   while (count > 0) {
+      stbi_uc suffix;
+      if (g->cur_y >= g->max_y)
+         return 1;
+      suffix = g->code_buffer[--count];
 
-      while (g->cur_y >= g->max_y && g->parse > 0) {
-         g->step = (1 << g->parse) * g->line_size;
-         g->cur_y = g->start_y + (g->step >> 1);
-         --g->parse;
+      idx = g->cur_x + g->cur_y;
+      p = &g->out[idx];
+      g->history[idx / 4] = 1;
+
+      c = &g->color_table[suffix * 4];
+      if (c[3] > 128) { // don't render transparent pixels;
+         p[0] = c[2];
+         p[1] = c[1];
+         p[2] = c[0];
+         p[3] = c[3];
+      }
+      g->cur_x += 4;
+
+      if (g->cur_x >= g->max_x) {
+         g->cur_x = g->start_x;
+         g->cur_y += g->step;
+
+         while (g->cur_y >= g->max_y && g->parse > 0) {
+            g->step = (1 << g->parse) * g->line_size;
+            g->cur_y = g->start_y + (g->step >> 1);
+            --g->parse;
+         }
       }
    }
+   return 1;
 }
 
 static stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
@@ -6810,7 +6824,8 @@ static stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
             } else if (code == avail)
                return stbi__errpuc("illegal code in raster", "Corrupt GIF");
 
-            stbi__out_gif_code(g, (stbi__uint16) code);
+            if (!stbi__out_gif_code(g, (stbi__uint16) code))
+               return stbi__errpuc("too many codes", "Corrupt GIF");
 
             if ((avail & codemask) == 0 && avail <= 0x0FFF) {
                codesize++;

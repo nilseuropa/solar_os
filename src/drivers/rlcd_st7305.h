@@ -40,8 +40,14 @@ typedef struct {
     uint8_t high_refresh_saved_hpm_frame_rate;
     uint8_t high_refresh_saved_power_policy;
     uint16_t high_refresh_hz_tenths;
+    uint16_t direct_x;
+    uint16_t direct_y;
+    uint16_t direct_width;
+    uint16_t direct_height;
     esp_err_t last_error;
     bool frame_content_changed;
+    bool direct_frame_valid;
+    bool direct_palette_inverted;
     bool inverted;
     bool high_refresh_override;
     const char *controller_mode;

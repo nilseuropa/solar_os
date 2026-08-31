@@ -146,6 +146,20 @@ static esp_err_t present_mono(solar_os_board_display_t *display,
         ESP_ERR_INVALID_STATE;
 }
 
+static esp_err_t present_frame(solar_os_board_display_t *display,
+                               const solar_os_display_raster_t *frame)
+{
+    if (display == NULL || frame == NULL ||
+        frame->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
+        frame->source_width != frame->width ||
+        frame->source_height != frame->height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return present_mono(display, frame->data, frame->data_size,
+                        frame->x, frame->y, frame->width, frame->height,
+                        frame->source_stride, frame->palette_inverted);
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
@@ -156,7 +170,24 @@ static const solar_os_board_display_ops_t display_ops = {
     .set_controller_mode = set_controller_mode,
     .set_high_refresh_override = set_high_refresh,
     .present_mono_xbm = present_mono,
+    .present_frame = present_frame,
 };
+
+static esp_err_t target_present_frame(
+    void *context,
+    const solar_os_display_raster_t *frame)
+{
+    if (context == NULL || frame == NULL ||
+        frame->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
+        frame->source_width != frame->width ||
+        frame->source_height != frame->height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return rlcd_st7305_present_mono_xbm(
+        context, frame->data, frame->data_size, frame->x, frame->y,
+        frame->width, frame->height, frame->source_stride,
+        frame->palette_inverted);
+}
 
 static const char *target_mode(const void *context)
 {
@@ -184,11 +215,16 @@ static esp_err_t register_auxiliary(st7305_device_t *attached)
     target.width = 400;
     target.height = 300;
     target.ready = true;
+    target.frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
+    target.preferred_stream_fps = 25;
+    target.max_stream_pixels_per_second = 2400000U;
     target.u8g2 = attached->display.u8g2;
     target.controller_context = &attached->driver;
     target.controller_mode = target_mode;
     target.controller_mode_values = target_mode_values;
     target.set_controller_mode = target_set_mode;
+    target.frame_context = &attached->driver;
+    target.present_frame = target_present_frame;
     return solar_os_display_register_target(&target);
 }
 
@@ -234,6 +270,9 @@ static esp_err_t attach(const char *name,
         .controller = "ST7305",
         .width = 400,
         .height = 300,
+        .frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT,
+        .preferred_stream_fps = 25,
+        .max_stream_pixels_per_second = 2400000U,
         .ready = true,
     };
     device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;

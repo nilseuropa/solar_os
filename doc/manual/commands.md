@@ -26,6 +26,9 @@ Wildcard patterns are supported by selected filesystem commands, for example
 
 Tab completion covers commands, subcommands, filesystem paths, job names, port
 names, and stream IDs where the command exposes enough structure.
+For `ssh` and `scp`, it also reads host aliases from `/.ssh/hosts`. An explicit
+`user@` prefix is preserved; a unique SCP host match appends `:` for the remote
+path.
 
 `Ctrl+V` pastes the shared SolarOS clipboard at the command-line cursor. Line
 breaks and tabs become spaces, and a paste stops at the shell input limit; it
@@ -228,7 +231,7 @@ job for periodic polling.
 | `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons]` | List all input sources or filter them by semantic class. |
 | `input` | `input test <source>` | Show event counters and the last key, pointer, or axis event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
-| `status` | `status` | Print a compact system status summary. |
+| `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
 | `top` | `top` | Print FreeRTOS task resource information when available. |
@@ -347,11 +350,12 @@ a named runtime display target, even when a TUI application rather than a shell
 owns that display. The target profile is initialized from the single global NVS
 parameter set when the display registers. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
-mounting even when their drivers use different U8g2 rotations. A targeted
-change applies to current and future sessions on that display until reboot or
-until the display target is unregistered; it does not create or update
-per-display NVS keys. Without a setting, the command prints the target's
-complete volatile profile. For example:
+mounting even when their drivers use different U8g2 rotations. Display-targeted
+absolute pointer coordinates follow this logical orientation. A targeted change
+applies to current and future sessions on that display until reboot or until the
+display target is unregistered; it does not create or update per-display NVS
+keys. Without a setting, the command prints the target's complete volatile
+profile. For example:
 
 ```text
 setterm --display oled0 statusbar hide
@@ -359,13 +363,15 @@ setterm --display oled0 textsize 10
 setterm --display oled0 palette inverted
 ```
 
-`foreground` and `background` select the RGB colors that the built-in color
-display uses when it converts the monochrome framebuffer for scanout. Use six
-hexadecimal digits, for example `setterm foreground '#d8e8ff'` and
-`setterm background '#102030'`; the leading `#` can be omitted. The defaults
-are `#000000` and `#ffffff`. These settings are persistent, do not change the
-framebuffer format, and have no visible effect on monochrome displays.
-`palette inverted` continues to exchange the foreground and background roles.
+`foreground` and `background` select the persistent RGB theme colors for the
+built-in color display. They color terminal scanout and semantic GUI elements,
+including text, backgrounds, borders, and intermediate shades. Explicit RGB
+image, canvas, and script colors remain literal. Use six hexadecimal digits,
+for example `setterm foreground '#d8e8ff'` and `setterm background '#102030'`;
+the leading `#` can be omitted. The defaults are `#000000` and `#ffffff`.
+These settings do not add a color framebuffer or affect monochrome-display
+rendering. `palette inverted` continues to exchange the foreground and
+background roles.
 
 `setterm statusbar hide` removes the top status bar from graphical shell
 sessions and gives its space to the terminal. `show` restores it. The default is

@@ -467,7 +467,7 @@ static bool docs_app_event(solar_os_context_t *ctx,
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE ||
         ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -534,6 +534,7 @@ static bool docs_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_docs_app = {
     .name = "help",
     .summary = "browse the SolarOS manual",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = docs_app_start,
     .resume = docs_app_resume,

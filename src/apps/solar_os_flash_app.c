@@ -111,6 +111,7 @@ typedef struct {
   bool running;
   bool command_mode;
   bool command_exit_requested;
+  int command_exit_code;
   bool result_received;
   bool tui_active;
   char input[4];
@@ -900,6 +901,7 @@ static void flash_app_drain_events(flash_app_state_t *state) {
         flash_app_reload_catalog(state);
       }
     } else {
+      state->command_exit_code = 1;
       snprintf(state->message, sizeof(state->message),
                "%s failed at %s: %s (0x%x)", operation, stage,
                esp_err_to_name(event.result), (unsigned)event.result);
@@ -915,6 +917,7 @@ static void flash_app_drain_events(flash_app_state_t *state) {
   if (state->task_done && state->running) {
     state->running = false;
     if (!state->result_received) {
+      state->command_exit_code = 1;
       strlcpy(state->message, "operation ended without a result event",
               sizeof(state->message));
       SOLAR_OS_LOGE(TAG, "%s", state->message);
@@ -1183,6 +1186,7 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
     solar_os_shell_io_writeln(io, "flash: refreshing signed catalog");
     if (!flash_app_start_worker(state, FLASH_APP_OPERATION_REFRESH)) {
       solar_os_shell_io_writeln(io, "flash: worker could not start");
+      state->command_exit_code = 1;
       state->command_exit_requested = true;
     }
     return true;
@@ -1191,6 +1195,7 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
     if (state->catalog == NULL) {
       solar_os_shell_io_writeln(
           io, "flash: no verified catalog; run flash refresh");
+      state->command_exit_code = 1;
     } else {
       for (size_t i = 0U; i < state->catalog->count; i++) {
         const solar_os_flash_artifact_t *artifact =
@@ -1205,30 +1210,39 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
     return true;
   }
   if (strcmp(command, "download") == 0) {
-    if ((argc != 4 && argc != 5) || state->catalog == NULL ||
+    if (argc != 4 && argc != 5) {
+      solar_os_shell_io_writeln(io,
+                                "usage: flash download BOARD FLAVOR [VERSION]");
+      state->command_exit_code = 2;
+      state->command_exit_requested = true;
+    } else if (state->catalog == NULL ||
         !flash_app_select(state, solar_os_context_argv(ctx, 2),
                           solar_os_context_argv(ctx, 3),
                           argc == 5 ? solar_os_context_argv(ctx, 4) : NULL)) {
-      solar_os_shell_io_writeln(io,
-                                "usage: flash download BOARD FLAVOR [VERSION]");
       solar_os_shell_io_writeln(
           io, "flash: artifact not found in the verified catalog");
+      state->command_exit_code = 1;
       state->command_exit_requested = true;
     } else if (!flash_app_start_worker(state, FLASH_APP_OPERATION_DOWNLOAD)) {
       solar_os_shell_io_writeln(io, "flash: worker could not start");
+      state->command_exit_code = 1;
       state->command_exit_requested = true;
     }
     return true;
   }
 
-  if (argc < 3 || state->catalog == NULL) {
+  if (argc < 3) {
     solar_os_shell_io_writeln(
         io, "usage: flash BOARD FLAVOR [version=VERSION] [port=uart0] "
             "[boot=PIN] [reset=PIN] [baud=RATE]");
-    if (state->catalog == NULL) {
-      solar_os_shell_io_writeln(
-          io, "flash: no verified catalog; run flash refresh");
-    }
+    state->command_exit_code = 2;
+    state->command_exit_requested = true;
+    return true;
+  }
+  if (state->catalog == NULL) {
+    solar_os_shell_io_writeln(
+        io, "flash: no verified catalog; run flash refresh");
+    state->command_exit_code = 1;
     state->command_exit_requested = true;
     return true;
   }
@@ -1260,10 +1274,12 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
                                   solar_os_context_argv(ctx, 2), version)) {
     solar_os_shell_io_writeln(io,
                               "flash: invalid options or artifact not found");
+    state->command_exit_code = 2;
     state->command_exit_requested = true;
   } else if (!state->artifact.cached) {
     solar_os_shell_io_writeln(
         io, "flash: selected artifact is not cached; use flash download first");
+    state->command_exit_code = 1;
     state->command_exit_requested = true;
   } else {
     solar_os_shell_io_printf(io, "flash: %s/%s/%s via %s\n",
@@ -1276,6 +1292,7 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
     }
     if (!flash_app_start_worker(state, FLASH_APP_OPERATION_PROGRAM)) {
       solar_os_shell_io_writeln(io, "flash: worker could not start");
+      state->command_exit_code = 1;
       state->command_exit_requested = true;
     }
   }
@@ -1300,6 +1317,9 @@ static void flash_app_cleanup(void) {
 }
 
 static esp_err_t flash_app_start(solar_os_context_t *ctx) {
+  if (solar_os_context_argc(ctx) > 1) {
+    solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
+  }
   if (flash_app != NULL) {
     if (!flash_app->task_done && flash_app->task != NULL) {
       return ESP_ERR_INVALID_STATE;
@@ -1327,6 +1347,8 @@ static esp_err_t flash_app_start(solar_os_context_t *ctx) {
     }
     flash_app->tui_active = true;
     flash_app_render(flash_app);
+  } else if (flash_app->command_exit_requested) {
+    solar_os_context_finish(ctx, flash_app->command_exit_code, NULL);
   }
   solar_os_shell_io_flush(flash_io(flash_app));
   return ESP_OK;
@@ -1351,7 +1373,7 @@ static bool flash_app_event(solar_os_context_t *ctx,
   if (event->type == SOLAR_OS_EVENT_TICK) {
     flash_app_drain_events(flash_app);
     if (flash_app->command_exit_requested) {
-      solar_os_context_request_exit(ctx);
+      solar_os_context_finish(ctx, flash_app->command_exit_code, NULL);
     }
     return true;
   }
@@ -1365,7 +1387,7 @@ static bool flash_app_event(solar_os_context_t *ctx,
               sizeof(flash_app->message));
       flash_app_render(flash_app);
     } else {
-      solar_os_context_request_exit(ctx);
+      solar_os_context_finish(ctx, 0, NULL);
     }
     return true;
   }
@@ -1380,7 +1402,7 @@ static bool flash_app_event(solar_os_context_t *ctx,
     return true;
 
   if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, 0, NULL);
     return true;
   }
   if (ch == '\t') {
@@ -1497,6 +1519,7 @@ static bool flash_app_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_flash_app = {
     .name = "flash",
     .summary = "download and flash SolarOS onto another ESP board",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = flash_app_start,
     .stop = flash_app_stop,
     .event = flash_app_event,

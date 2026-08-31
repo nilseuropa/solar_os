@@ -3248,7 +3248,8 @@ void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
                     SOLAR_OS_GFX_COLOR_BLACK;
             solar_os_gfx_set_color(gfx, text_color);
 
-            if ((run->style & SOLAR_OS_DOC_RUN_CODE) != 0 &&
+            if (!run->raw_source &&
+                (run->style & SOLAR_OS_DOC_RUN_CODE) != 0 &&
                 doc->blocks[run->block_index].type != SOLAR_OS_DOC_BLOCK_PRE &&
                 run->width > 0) {
                 solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);

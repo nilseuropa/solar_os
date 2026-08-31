@@ -229,6 +229,7 @@ The current capability flags are:
 | `STATUS_LED` | Board status LED output is available. |
 | `DISPLAY_BRIGHTNESS` | Display backlight or brightness control is available. |
 | `POINTER` | Board-integrated absolute or relative pointing input. Events carry a source, pointer ID, display target, coordinates, deltas, buttons, and press/move/release action. |
+| `STREAMING_DISPLAY` | The board's primary display has a bounded-cadence raster-frame presenter suitable for animation or games. This is separate from ordinary terminal and GUI drawing. |
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 
@@ -509,24 +510,22 @@ Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
 PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
 clamps all power profiles to that board-specific CPU floor on this target.
 
-For the Game Boy-focused build, use the full 384x288 PAL mode:
+Use the focused `rover-gameboy` flavor for Game Boy. It enables the `games`
+group but leaves Invaders out so the image fits the board's 4 MB flash. The
+default full PAL mode gives Game Boy the largest image:
 
 ```sh
-SOLAR_OS_FLAVOR=rover-retro pio run -e freenove_esp32_wrover_v3
+SOLAR_OS_FLAVOR=rover-gameboy pio run -e freenove_esp32_wrover_v3
 ```
 
-This flavor uses the normal system-service baseline and includes BLE keyboard
-input, SD access, UART ports, hardware I/O, Files, basic maintenance apps, Log,
-Bridge, Wi-Fi, and the SSH/SCP clients. It keeps the rest of the network stack
-and unrelated application groups disabled so they do not compete with PAL
-scanout and emulation. For serial diagnostics, run:
+The 320x200 safe-area mode also supports Game Boy; its presenter selects a
+smaller centered raster. For serial diagnostics, run:
 
 ```text
 job start log uart0 debug
 ```
 
-It is silent because composite scanout owns I2S0. Do not combine
-`rover-retro` with `SOLAR_OS_CVBS_MODE=320x200`; the Game Boy image is 320x288.
+It is silent because composite scanout owns I2S0.
 
 For the focused Synth build, use:
 
@@ -558,7 +557,7 @@ registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
 slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
-`rover-python`, `rover-lua`, `rover-synth`, and `rover-retro` flavors do not use
+`rover-gameboy`, `rover-python`, `rover-lua`, and `rover-synth` flavors do not use
 a dual-OTA layout on 4 MB flash. Install firmware through the CH340 serial
 connection; this partition layout does not support on-device OTA updates.
 
@@ -610,6 +609,13 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
+To include Game Boy instead, use the same compact game profile as the PAL
+target. It omits Invaders and unrelated application groups:
+
+```sh
+SOLAR_OS_FLAVOR=rover-gameboy pio run -e ttgo_vga32_v14
+```
+
 The board profile declares `ps2kbd0` and creates the default `keyboard0`
 `ps2-keyboard` expansion attachment before the shell. Its topology and input
 state remain visible through the generic commands:
@@ -640,6 +646,11 @@ buttons, ADC D-pad input, status LED, PWM display brightness, Wi-Fi, and BLE.
 The board does not have CDC, I2C, RTC, onboard temperature/humidity sensors, or
 audio input enabled. It boots into the display shell, and `uart0` on GPIO1/GPIO3
 is available as the serial byte-stream port.
+
+The ILI9341 backend plans changed monochrome tile runs, INDEX8 GUI tiles, and
+INDEX2 game rasters separately, then sends all three through the same queued
+two-line DMA pump. Game Boy uses a centered 240x216 raster at 30 presentation
+frames per second so RGB565 transfer stays below the shared-SPI pixel budget.
 
 ODROID-GO uses the shared VSPI bus for the TFT, SD card, and external chip
 selects:
@@ -675,6 +686,12 @@ The board profile creates this as the default `ft6336` expansion attachment
 named `touch0`; inspect it with `expansion devices`, `input touch`, and `input
 test touch0`. Optional logical-range correction is stored with `input calibrate
 touch0 ...`.
+
+The ST7796 backend uses the same changed-region planner and queued two-line DMA
+pump for monochrome terminal, INDEX8 GUI, and INDEX2 game content. A full
+320x288 Game Boy image would leave too little margin on the 40 MHz RGB565 SPI
+link, so the presenter selects a centered 240x216 raster at 25 frames per
+second.
 
 The ES8311 is configured as one duplex codec: GPIO8 carries playback data to
 the codec, GPIO6 carries microphone data to the ESP32-S3, and GPIO1 controls

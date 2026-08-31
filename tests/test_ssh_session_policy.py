@@ -14,13 +14,23 @@ class SshSessionPolicyTest(unittest.TestCase):
         self.assertIn(".flags = SOLAR_OS_APP_FLAG_RESUMABLE,", app_definition)
         self.assertNotIn("SOLAR_OS_APP_FLAG_SHELL_INLINE", app_definition)
 
-    def test_only_port_shell_close_preserves_the_shared_terminal(self):
+    def test_ssh_uses_the_shared_tui_exit_contract(self):
+        app_definition = SSH_SOURCE.split(
+            "const solar_os_app_t solar_os_ssh_app =", 1
+        )[1]
+        self.assertIn(".app_class = SOLAR_OS_APP_CLASS_TUI,", app_definition)
         close_policy = SSH_SOURCE.split(
             "static void ssh_request_close", 1
         )[1].split("static bool ssh_is_printable", 1)[0]
-        self.assertIn("ssh_is_private_display_session(ctx)", close_policy)
-        self.assertIn("solar_os_context_set_status_message(ctx, status)", close_policy)
-        self.assertIn("solar_os_context_request_terminal_preserve(ctx)", close_policy)
+        self.assertIn("solar_os_context_finish(ctx, exit_code, status)", close_policy)
+        self.assertNotIn("request_terminal_preserve", SSH_SOURCE)
+
+    def test_connection_errors_stop_and_return_immediately(self):
+        error_case = SSH_SOURCE.split(
+            "case SOLAR_OS_SSH_EVENT_ERROR:", 1
+        )[1].split("case SOLAR_OS_SSH_EVENT_DISCONNECTED:", 1)[0]
+        self.assertIn("solar_os_ssh_stop(ssh_app.session)", error_case)
+        self.assertIn("ssh_request_close(ctx, 1, status)", error_case)
 
 
 if __name__ == "__main__":

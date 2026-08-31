@@ -15,6 +15,10 @@
 
 typedef struct solar_os_ssh_session solar_os_ssh_session_t;
 
+typedef bool (*solar_os_ssh_host_visitor_t)(const char *address,
+                                            const char *alias,
+                                            void *user);
+
 typedef enum {
     SOLAR_OS_SSH_EVENT_STATUS,
     SOLAR_OS_SSH_EVENT_CONNECTED,
@@ -44,3 +48,4 @@ esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
 bool solar_os_ssh_stop(solar_os_ssh_session_t *session);
 esp_err_t solar_os_ssh_send(solar_os_ssh_session_t *session, const char *data, size_t len);
 bool solar_os_ssh_poll(solar_os_ssh_session_t *session, solar_os_ssh_event_t *event);
+esp_err_t solar_os_ssh_hosts_visit(solar_os_ssh_host_visitor_t visitor, void *user);

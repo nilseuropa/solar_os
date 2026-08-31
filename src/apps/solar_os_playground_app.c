@@ -597,7 +597,10 @@ static void playground_finish_operation(void)
             solar_os_shell_io_printf(io, "playground: %s\n", playground.status);
         }
         solar_os_shell_io_flush(io);
-        solar_os_context_request_exit(playground.ctx);
+        solar_os_context_finish(
+            playground.ctx,
+            result == ESP_OK ? 0 : (playground.stop_requested ? 130 : 1),
+            NULL);
         return;
     }
     playground_render();
@@ -728,6 +731,7 @@ static bool playground_handle_source_command(solar_os_context_t *ctx)
     }
     solar_os_shell_io_t *io = playground_io(ctx);
     esp_err_t err = ESP_OK;
+    int exit_code = 0;
     if (argc == 2) {
         char source[SOLAR_OS_PLAYGROUND_SOURCE_URL_MAX];
         solar_os_playground_get_source(source, sizeof(source));
@@ -748,16 +752,20 @@ static bool playground_handle_source_command(solar_os_context_t *ctx)
     } else {
         solar_os_shell_io_writeln(
             io, "usage: playground source [repository-or-catalog-url|reset]");
+        exit_code = 2;
+    }
+    if (err != ESP_OK) {
+        exit_code = 1;
     }
     solar_os_shell_io_flush(io);
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, exit_code, NULL);
     return true;
 }
 
-static void playground_command_finish(solar_os_context_t *ctx)
+static void playground_command_finish(solar_os_context_t *ctx, int exit_code)
 {
     solar_os_shell_io_flush(playground_io(ctx));
-    solar_os_context_request_exit(ctx);
+    solar_os_context_finish(ctx, exit_code, NULL);
 }
 
 static bool playground_handle_delete_command(solar_os_context_t *ctx)
@@ -767,8 +775,10 @@ static bool playground_handle_delete_command(solar_os_context_t *ctx)
         return false;
     }
     solar_os_shell_io_t *io = playground_io(ctx);
+    int exit_code = 0;
     if (argc != 2) {
         solar_os_shell_io_writeln(io, "usage: playground delete");
+        exit_code = 2;
     } else {
         const esp_err_t err = solar_os_playground_delete();
         solar_os_shell_io_printf(
@@ -777,8 +787,9 @@ static bool playground_handle_delete_command(solar_os_context_t *ctx)
             err == ESP_OK ?
                 "storage deleted; catalog cleared" :
                 esp_err_to_name(err));
+        exit_code = err == ESP_OK ? 0 : 1;
     }
-    playground_command_finish(ctx);
+    playground_command_finish(ctx, exit_code);
     return true;
 }
 
@@ -789,6 +800,7 @@ static bool playground_handle_storage_command(solar_os_context_t *ctx)
         return false;
     }
     solar_os_shell_io_t *io = playground_io(ctx);
+    int exit_code = 0;
     if (argc == 2) {
         solar_os_shell_io_printf(
             io,
@@ -807,14 +819,16 @@ static bool playground_handle_storage_command(solar_os_context_t *ctx)
         if (!valid) {
             solar_os_shell_io_writeln(
                 io, "usage: playground storage [flash|sd]");
+            exit_code = 2;
         } else {
             solar_os_shell_io_printf(
                 io,
                 "playground storage: %s\n",
                 err == ESP_OK ? "saved" : esp_err_to_name(err));
+            exit_code = err == ESP_OK ? 0 : 1;
         }
     }
-    playground_command_finish(ctx);
+    playground_command_finish(ctx, exit_code);
     return true;
 }
 
@@ -825,16 +839,19 @@ static bool playground_handle_reload_command(solar_os_context_t *ctx)
         return false;
     }
     solar_os_shell_io_t *io = playground_io(ctx);
+    int exit_code = 0;
     if (argc != 2) {
         solar_os_shell_io_writeln(io, "usage: playground reload");
+        exit_code = 2;
     } else {
         const esp_err_t err = solar_os_playground_reload();
         solar_os_shell_io_printf(
             io,
             "playground: %s\n",
             err == ESP_OK ? "local catalog loaded" : esp_err_to_name(err));
+        exit_code = err == ESP_OK ? 0 : 1;
     }
-    playground_command_finish(ctx);
+    playground_command_finish(ctx, exit_code);
     return true;
 }
 
@@ -846,7 +863,7 @@ static bool playground_catalog_required(solar_os_context_t *ctx)
     solar_os_shell_io_writeln(
         playground_io(ctx),
         "playground: catalog unavailable; run playground refresh");
-    playground_command_finish(ctx);
+    playground_command_finish(ctx, 1);
     return false;
 }
 
@@ -885,7 +902,7 @@ static bool playground_handle_search_command(solar_os_context_t *ctx)
     if (!playground_join_query(
             ctx, 2, playground.search, sizeof(playground.search))) {
         solar_os_shell_io_writeln(io, "usage: playground search QUERY...");
-        playground_command_finish(ctx);
+        playground_command_finish(ctx, 2);
         return true;
     }
     if (!playground_catalog_required(ctx)) {
@@ -914,7 +931,7 @@ static bool playground_handle_search_command(solar_os_context_t *ctx)
         solar_os_shell_io_printf(
             io, "playground: no matches for %s\n", playground.search);
     }
-    playground_command_finish(ctx);
+    playground_command_finish(ctx, 0);
     return true;
 }
 
@@ -952,7 +969,7 @@ static bool playground_handle_install_command(solar_os_context_t *ctx)
             argc == 4 ? solar_os_context_argv(ctx, 3) : NULL, &target)) {
         solar_os_shell_io_writeln(
             io, "usage: playground install ID [auto|flash|sd]");
-        playground_command_finish(ctx);
+        playground_command_finish(ctx, 2);
         return true;
     }
     if (!playground_catalog_required(ctx)) {
@@ -963,13 +980,13 @@ static bool playground_handle_install_command(solar_os_context_t *ctx)
     const char *id = solar_os_context_argv(ctx, 2);
     if (!solar_os_playground_find_app(id, NULL, &app)) {
         solar_os_shell_io_printf(io, "playground: application not found: %s\n", id);
-        playground_command_finish(ctx);
+        playground_command_finish(ctx, 1);
         return true;
     }
     if (!app.compatible) {
         solar_os_shell_io_printf(
             io, "playground: %s is unavailable: %s\n", id, app.incompatibility);
-        playground_command_finish(ctx);
+        playground_command_finish(ctx, 1);
         return true;
     }
 
@@ -977,13 +994,20 @@ static bool playground_handle_install_command(solar_os_context_t *ctx)
     solar_os_shell_io_flush(io);
     if (!playground_start_operation(PLAYGROUND_OPERATION_INSTALL, &app, target)) {
         solar_os_shell_io_writeln(io, "playground: install worker could not start");
-        playground_command_finish(ctx);
+        playground_command_finish(ctx, 1);
     }
     return true;
 }
 
 static esp_err_t playground_start(solar_os_context_t *ctx)
 {
+    const int argc = solar_os_context_argc(ctx);
+    const char *subcommand = argc >= 2 ? solar_os_context_argv(ctx, 1) : NULL;
+    const bool command_mode =
+        subcommand != NULL && strcmp(subcommand, "refresh") != 0;
+    if (command_mode) {
+        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
+    }
     if (solar_os_playground_init() != ESP_OK) {
         return ESP_FAIL;
     }
@@ -999,16 +1023,15 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
         playground_handle_install_command(ctx)) {
         return ESP_OK;
     }
-    const bool force_refresh =
-        solar_os_context_argc(ctx) == 2 &&
+    const bool force_refresh = argc == 2 &&
         strcmp(solar_os_context_argv(ctx, 1), "refresh") == 0;
-    if (solar_os_context_argc(ctx) > 1 && !force_refresh) {
+    if (argc > 1 && !force_refresh) {
         solar_os_shell_io_t *io = playground_io(ctx);
         solar_os_shell_io_writeln(
             io,
             "usage: playground [delete|refresh|reload|search QUERY|install ID [target]|"
             "run ID [ARG...]|source [url|reset]|storage [flash|sd]]");
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 2, NULL);
         return ESP_OK;
     }
 
@@ -1023,7 +1046,7 @@ static esp_err_t playground_start(solar_os_context_t *ctx)
             playground_io(ctx),
             "playground: terminal is not TUI capable: %s\n",
             esp_err_to_name(err));
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 1, NULL);
         return ESP_OK;
     }
     playground.tui_active = true;
@@ -1158,7 +1181,7 @@ static bool playground_event(solar_os_context_t *ctx,
     if (ch == SOLAR_OS_KEY_APP_EXIT ||
         (!playground.details &&
          (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q'))) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (playground.busy) {
@@ -1264,6 +1287,7 @@ static bool playground_event(solar_os_context_t *ctx,
 const solar_os_app_t solar_os_playground_app = {
     .name = "playground",
     .summary = "browse and run community Python and Lua apps",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = playground_start,
     .resume = playground_resume,

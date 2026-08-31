@@ -2,6 +2,72 @@
 
 ## 4.x
 
+- **4.10.6** — 2026-08-30 — Added a shared raster-frame presenter for bounded
+  animation: MONO1, INDEX2, and INDEX8 frame contracts now describe source and
+  destination geometry, display targets publish their supported formats and
+  preferred 25-30 Hz cadence, and pending frames use latest-wins replacement.
+  Game Boy moved into the `games` group and now runs its emulator at the fixed
+  native frequency in a dedicated worker while Peanut-GB's 30 Hz LCD frame
+  skip keeps unused video work out of the emulation path. It submits compact
+  160x144 INDEX2 frames; TFTs render those four colors directly, while RLCD,
+  PAL, and VGA use the common ordered-dither MONO1 fallback. Per-target pixel
+  budgets select a sustainable scaled raster before presentation. Game Boy
+  audio has bounded local gain and reports output blocks and peak level with
+  the timing statistics. The obsolete Retro and Rover Retro flavors were
+  removed, and the focused `rover-gameboy` flavor omits Invaders to fit classic
+  4 MB targets.
+  A `streaming_display` capability keeps Game Boy off e-paper targets. Normal
+  terminal rendering now redraws changed rows and UI bands only. TFT terminal,
+  INDEX8 GUI, and INDEX2 game output share one queued two-line DMA pump and
+  upload coalesced changed regions; repeated RLCD direct frames update only the
+  centered raster window after the initial full synchronization.
+- **4.10.5** — 2026-08-30 — Writer no longer draws inline-code boxes around
+  raw Markdown source while editing the active block, improving text
+  readability without changing formatted inline-code or fenced-code rendering.
+- **4.10.4** — 2026-08-30 — Web gained a visible Back, Reload, and Forward
+  toolbar, bidirectional history with restored reading positions, direct
+  pointer or touch activation, and non-wrapping link selection. Links now use
+  the same font size as surrounding text, and page text locally reflows across
+  five Reader-style zoom levels without refetching images.
+- **4.10.3** — 2026-08-30 — Added dynamic `ssh` and `scp` host completion from
+  aliases in `/.ssh/hosts`, including preservation of an explicit `user@`
+  prefix. Unique SCP host matches append the remote-path colon. Edit and
+  Hexedit now save with `Ctrl+S`, while `Ctrl+Q` and Esc quit without saving.
+  Edit, Less, Reader, Writer, and Web now share `Ctrl+F` Find and `F3` Find
+  Next controls with case-insensitive, wrapping search; Less and Reader retain
+  their `/`, `n`, and `N` aliases.
+- **4.10.2** — 2026-08-30 — Added adaptive color graphics for ILI9341 and
+  ST7796 targets. GUI apps negotiate a lazily allocated 8-bit indexed canvas
+  when they enter graphics mode and release it when graphics mode ends. TFT
+  presentation converts only changed tiles through a small DMA scanline and
+  uses compact tile fingerprints instead of a second color framebuffer.
+  Missing PSRAM falls back to the original monochrome renderer without
+  preventing app launch; one-bit displays retain the existing framebuffer and
+  ordered-dither path. Python and Lua graphics gained `rgb(red, green, blue)`.
+  Sketch now uses a white, red, blue, and black palette, saves interoperable
+  indexed-color PNG files, and imports PNG, JPEG, and GIF images in color.
+  View and Web preserve decoded image colors on indexed-color displays while
+  retaining their original grayscale buffers on one-bit displays. View now
+  scales fit-mode JPEG output during color conversion, avoiding the full RGB
+  allocation peak for large photographs. Semantic GUI colors now use the
+  persistent `setterm foreground` and `background` colors on color displays;
+  explicit image, canvas, and script RGB colors remain literal.
+  Display-targeted absolute pointer coordinates now follow that display's
+  `setterm orientation` setting.
+- **4.10.1** — 2026-08-30 — Added Sketch, the first native pointer-driven GUI
+  application. Its Paint-style layout provides Save/Open/Import commands, a
+  aligned top menu and sidebar buttons on one equal-sized grid, with tools for
+  pen, line, rectangle, ellipse, bucket fill, eraser,
+  clear, and stroke weight, plus four-shade color and pattern selectors. Its
+  canvas is converted to a single opaque XBM blit for responsive redraws, and
+  absolute-pointer motion does not redraw until it changes the image. Line,
+  rectangle, and ellipse drags show the exact patterned, weighted result before
+  release. Sketch
+  launches without a pointer
+  capability gate, warns when no pointer is currently registered, and accepts
+  pointers attached later at runtime. It saves interoperable grayscale PNG
+  files transactionally and imports PNG, JPEG, and GIF images. App state,
+  canvas, browser, and decode buffers are cold allocated and released on exit.
 - **4.9.2** — 2026-08-29 — Unified board-integrated hardware with the expansion
   lifecycle. Battery ADC, PCF85063 RTC, SHTC3 sensing, FT6336 touch, ST7305,
   ILI9341, ST7796, SSD1683, CVBS PAL, VGA32, SDMMC, ES8311/ES7210,

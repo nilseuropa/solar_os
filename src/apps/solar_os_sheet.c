@@ -44,7 +44,6 @@ typedef enum {
 
 typedef struct {
     bool running;
-    bool error_only;
     sheet_input_mode_t input_mode;
     solar_os_tui_t tui;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -407,16 +406,6 @@ static void sheet_render(solar_os_context_t *ctx)
 
     solar_os_tui_clear(&sheet.tui);
     solar_os_tui_set_cursor_visible(&sheet.tui, false);
-    if (sheet.error_only) {
-        sheet_write_line(0, "sheet", SOLAR_OS_TUI_ATTR_INVERSE);
-        if (sheet.message[0] != '\0') {
-            sheet_write_line(2, sheet.message, SOLAR_OS_TUI_ATTR_NORMAL);
-        }
-        sheet_write_line(3, "usage: sheet <file.csv>", SOLAR_OS_TUI_ATTR_NORMAL);
-        solar_os_tui_refresh(&sheet.tui);
-        return;
-    }
-
     sheet_clamp_view();
 
     char header[SHEET_LINE_MAX];
@@ -833,9 +822,7 @@ static esp_err_t sheet_start(solar_os_context_t *ctx)
 
     const int argc = solar_os_context_argc(ctx);
     if (argc != 2) {
-        sheet.error_only = true;
-        sheet_set_message("usage: sheet <file.csv>");
-        sheet_render(ctx);
+        solar_os_context_finish(ctx, 2, "usage: sheet <file.csv>");
         return ESP_OK;
     }
 
@@ -844,16 +831,19 @@ static esp_err_t sheet_start(solar_os_context_t *ctx)
 
     err = solar_os_storage_resolve_path(arg, sheet.path, sizeof(sheet.path));
     if (err != ESP_OK) {
-        sheet.error_only = true;
-        sheet_set_message(err == ESP_ERR_INVALID_SIZE ? "path too long" : "invalid path");
-        sheet_render(ctx);
+        solar_os_context_finish(
+            ctx,
+            1,
+            err == ESP_ERR_INVALID_SIZE ?
+                "sheet: path too long" : "sheet: invalid path");
         return ESP_OK;
     }
 
     err = sheet_index_file();
     if (err != ESP_OK) {
-        sheet.error_only = true;
-        sheet_render(ctx);
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message, sizeof(message), "sheet: %s", sheet.message);
+        solar_os_context_finish(ctx, 1, message);
         return ESP_OK;
     }
 
@@ -884,14 +874,7 @@ static bool sheet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_request_exit(ctx);
-        return true;
-    }
-
-    if (sheet.error_only) {
-        if (ch == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-            solar_os_context_request_exit(ctx);
-        }
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -903,7 +886,7 @@ static bool sheet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_ESCAPE:
     case 'q':
     case 'Q':
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     case SOLAR_OS_KEY_LEFT:
         if (sheet.cursor_col > 0) {
@@ -956,6 +939,7 @@ static bool sheet_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_sheet_app = {
     .name = "sheet",
     .summary = "CSV sheet viewer",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .start = sheet_start,
     .stop = sheet_stop,
     .event = sheet_event,

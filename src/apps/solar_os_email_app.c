@@ -420,7 +420,7 @@ static bool email_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     }
     const uint8_t ch = (uint8_t)event->data.ch;
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
     if (email_app.view == EMAIL_APP_DETAIL &&
@@ -431,7 +431,7 @@ static bool email_app_event(solar_os_context_t *ctx, const solar_os_event_t *eve
         return true;
     }
     if (email_app.view == EMAIL_APP_LIST && ch == SOLAR_OS_KEY_ESCAPE) {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -521,6 +521,7 @@ static void email_app_title(solar_os_context_t *ctx, char *buffer, size_t buffer
 const solar_os_app_t solar_os_email_app = {
     .name = "email",
     .summary = "IMAP email client",
+    .app_class = SOLAR_OS_APP_CLASS_TUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = email_app_start,
     .resume = email_app_resume,

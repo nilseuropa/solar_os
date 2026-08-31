@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples reader writer markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
+keywords = "apps applications foreground controls usage examples reader writer sketch paint pointer png markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -17,11 +17,31 @@ Exit behavior:
 
 - Display shell: `CTRL+ALT+DEL` exits foreground apps.
 - Port shells: `Ctrl+]` exits foreground apps.
+- Application screens are private presentation state and are discarded when
+  the application exits. Text written to the application output channel is
+  preserved in the launching shell before its next prompt; Python and Lua use
+  this channel for stdout, errors, and tracebacks. The normal terminal
+  scrollback limit still applies.
+- Every foreground application returns an exit code to its launching shell and
+  can return an optional message. Normal exits use code 0 and stay silent;
+  failures use a nonzero code and a useful message. `status` shows the most
+  recent foreground-application exit code.
+- The runtime assigns every launchable foreground application to one lifecycle
+  class. Commands preserve their sequential text transcript. TUI applications
+  discard their screen buffer. GUI applications discard their framebuffer.
+  Hybrid applications such as `python`, `lua`, `calc`, and `webradio` select
+  the effective class from the mode that was launched.
+- A fatal startup or runtime error is an exit outcome, not an application
+  screen. The runtime closes the application immediately, restores the
+  launching shell, prints the diagnostic there, and does not wait for an
+  acknowledgement key.
 - Port shells: `Ctrl+Z` suspends a resumable app and returns to the prompt;
   `fg` restores the most recently suspended app.
 - `Alt+Tab` or `Alt+Right` switches to the next resumable foreground session on
   the locally focused display. `Alt+Left` switches to the previous session.
   Either Alt key is accepted, including AltGr on compact keyboards.
+  Switching back restores the retained terminal or graphics frame, including
+  Python and Lua application screens.
 
 ## agent
 
@@ -602,8 +622,11 @@ Controls:
 - `Ctrl+Left`/`Ctrl+Right` move by words.
 - `Shift+Arrows` extend selection.
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match,
+  wrapping at the end of the file.
+- `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
+  saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
-- `Esc` saves if needed and exits; app-exit key exits.
 
 ## hexedit
 
@@ -629,8 +652,8 @@ Controls:
 - `Shift` with navigation extends a byte selection. `Ctrl+A`, `Ctrl+C`,
   `Ctrl+X`, and `Ctrl+V` select all, copy, cut, and paste binary data.
 - Backspace and Delete remove bytes. Typing at end of file appends data.
-- `Ctrl+S` saves in place. `Esc` saves if needed and exits; the app-exit key
-  exits without forcing a save.
+- `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
+  saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## files
@@ -859,33 +882,32 @@ Controls:
 
 ## gameboy
 
-Experimental original Game Boy (DMG) emulator for the Waveshare
-ESP32-S3-RLCD-4.2 and the full-PAL Freenove ESP32-WROVER v3.0 target. It is
-included in the `retro` and `rover-retro` flavors. The application loads a
-user-supplied ROM into PSRAM, renders its four shades as a 320x288 dithered
-image, and writes battery-backed cartridge RAM beside the ROM as a `.sav`
-file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
+Original Game Boy (DMG) emulator included in the `games` group on boards with
+PSRAM, SD storage, graphics, and a streaming display. Current integrated
+targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO
+VGA32. The application loads a user-supplied ROM into PSRAM and writes
+battery-backed cartridge RAM beside it as a `.sav` file. Game Boy Color-only
+ROMs and ROMs larger than 4 MiB are rejected.
 
-The emulator runs the core independently from the relatively expensive RLCD
-update. It keeps Peanut-GB's hot state and up to two 16 KiB ROM banks in
-internal RAM when the SolarOS reserve permits, skips alternate core-rendered
-frames by default, and presents the newest frame once per three emulated
-frames. On the Waveshare display, a dedicated monochrome presentation path
-rotates and streams the frame in one controller write sequence. On Rover, a
-direct byte-aligned conversion copies XBM rows into the inactive PAL scanout
-buffer and swaps it at a field boundary; the 320x288 image is centered in the
-384x288 canvas and reaches the top and bottom edges. Runtime logs report
-emulation and presentation rates separately.
+The emulator runs Peanut-GB at its fixed native frame frequency in a dedicated
+worker. Peanut-GB renders alternate LCD frames, producing a compact 160x144
+INDEX2 raster at about 30 frames per second while still emulating every frame.
+A shared frame presenter owns display cadence, retains the newest submitted
+frame, and replaces stale pending frames instead of blocking emulation. TFT
+targets scale the four-color raster directly to RGB565. One-bit targets convert
+the latest frame through ordered dithering, then use their scan-synchronized
+mono path. The target selects a bounded presentation rate of 25 or 30 frames
+per second and reduces output scale when the driver's pixel-rate budget cannot
+sustain the larger raster. Runtime logs report emulation, presentation,
+replacement, timing rebase, audio block, peak level, and transfer timing.
 
-Audio rendering runs in its own bounded worker and holds exclusive speaker
-output while Game Boy is active. RLCD presentation runs independently at about
-20 Hz, temporarily requests the panel's 25.5 Hz HPM profile, and drops stale
-frames instead of blocking emulation. Pausing, suspending, or exiting the app
-stops the synth and restores the previous display and audio policies.
-These audio and HPM behaviors apply to the Waveshare `retro` build. The Rover
-build deliberately compiles Game Boy without sound because PAL scanout owns
-I2S0. Its 320x200 composite safe-area mode is too short for the 320x288 Game
-Boy canvas and is not supported by `rover-retro`.
+Audio rendering runs in its own bounded worker, applies a Game Boy-local
+bounded gain for low-resolution DAC outputs, and holds exclusive speaker output
+while Game Boy is active. The Waveshare presenter temporarily requests
+the panel's 25.5 Hz HPM profile. Pausing, suspending, or exiting stops the
+workers and restores the previous display and audio policies. PAL builds run
+without audio because composite scanout owns I2S0; both the 384x288 raster and
+the centered 320x200 safe-area mode can fit the scaled Game Boy frame.
 
 Usage:
 
@@ -899,6 +921,8 @@ Controls:
 - The physical US-Z key position is A; on a German QWERTZ keyboard this key is
   labeled `Y`. The physical X key is B.
 - `Enter` is Start; `Backspace` or `Delete` is Select.
+- On ODROID-GO, A and B are the Game Boy A and B buttons, Menu is Start,
+  Select is Select, and Menu+Select exits.
 - `p` pauses and `r` resets.
 - `q`, `Esc`, or the app-exit key exits.
 
@@ -925,7 +949,8 @@ Controls:
 - `Up`/`Down` or `j`/`k` scroll one line.
 - `Page Up`/`Page Down`, `b`, or `Space` page.
 - `Home`/`End` or `g`/`G` jump to start/end.
-- `/` starts search, `n`/`N` repeat search.
+- `Ctrl+F` or `/` opens Find. `F3` or `n` jumps to the next
+  case-insensitive match; `N` jumps to the previous match. Search wraps.
 - `q`, `Esc`, or app-exit key exits.
 
 ## logic
@@ -984,7 +1009,8 @@ lua file.lua [args...]
 
 Controls:
 
-- `exit()` returns from the REPL.
+- `exit([code])` returns from the REPL or script and reports the optional exit
+  code to the launching shell.
 - App-exit key interrupts running code or exits.
 
 ## notes
@@ -1121,7 +1147,8 @@ python file.mpy [args...]
 
 Controls:
 
-- `exit()` returns from the REPL.
+- `exit([code])` returns from the REPL or script and reports the optional exit
+  code to the launching shell.
 - App-exit key interrupts running code or exits.
 
 ## reader
@@ -1145,7 +1172,8 @@ Controls:
 - `Page Up`/`Page Down` page with the same precise row overlap.
 - `Home`/`End` jump to start/end.
 - `+`/`-` adjust zoom.
-- `/` starts search, `n`/`N` repeat search.
+- `Ctrl+F` or `/` opens Find. `F3` or `n` jumps to the next
+  case-insensitive match; `N` jumps to the previous match. Search wraps.
 - `Esc` exits search state first; otherwise exits.
 - `q` or app-exit key exits.
 
@@ -1184,7 +1212,8 @@ Controls:
 - `F1` opens formatting for inline code, headings 1–4, bullet or numbered
   lists, quotes, fenced code, and rules. `Esc` closes the active menu/dialog;
   from the editor it exits, using the save/discard/cancel prompt when dirty.
-- `Ctrl+F` finds text; `Ctrl+R` prompts for find and replacement text.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match,
+  wrapping at the end. `Ctrl+R` prompts for find and replacement text.
 - `Ctrl+S` saves, `Ctrl+Z`/`Ctrl+Y` undo and redo, and `Ctrl++`/`Ctrl+-` adjust
   zoom.
 - `Esc` and the app-exit key open the save/discard/cancel prompt when the
@@ -1196,6 +1225,8 @@ Controls:
 SCP file transfer over SSH. It supports password or key authentication through
 the shared SSH transport and host lookup/known-host storage. When `user@` is
 omitted, SCP uses the NVS-backed SolarOS identity user.
+Tab completion reads aliases from `/.ssh/hosts`, preserves an explicit `user@`
+prefix, and appends `:` after a unique host match.
 
 Usage:
 
@@ -1241,6 +1272,8 @@ Interactive SSH client. It supports password and key authentication, known
 hosts, hostname lookup through `/.ssh/hosts`, UTF-8 text, VT-style controls, and
 remote full-screen terminal applications. When `user@` is omitted, SSH uses the
 NVS-backed SolarOS identity user.
+Tab completion reads aliases from `/.ssh/hosts` and preserves an explicit
+`user@` prefix.
 
 Usage:
 
@@ -1403,7 +1436,10 @@ Controls:
 
 Graphical image viewer. It supports the image formats compiled into the current
 firmware, including common PNG/JPEG/GIF/WebP paths and automatic animated GIF
-playback when the media package is enabled.
+playback when the media package is enabled. Images are decoded as RGB on a
+negotiated indexed-color display and as grayscale on a one-bit display. In the
+default fit mode, JPEG color conversion writes display-sized output directly,
+so a large source photograph does not require a full-size RGB destination.
 
 Usage:
 
@@ -1419,10 +1455,58 @@ Controls:
 - `1` selects fit-to-screen.
 - `Esc` or app-exit key exits.
 
+## sketch
+
+Pointer-driven graphical paint application. Its layout follows classic desktop
+paint programs: Save, Open, Import, and the sidebar controls share one aligned,
+equal-sized button grid; color and pattern choices are
+in the bottom bar. Sketch uses a compact four-color canvas and stores finished
+documents as interoperable indexed-color PNG files. Color TFTs show the native
+palette; one-bit displays use the existing dithered rendering path.
+
+Usage:
+
+```text
+sketch
+sketch file.png
+```
+
+Sketch is intentionally not gated on a pointer hardware capability. If no ready
+absolute or relative pointer is registered when the app starts, a popup explains
+that a pointer can be attached at any time. Press Enter or Esc to dismiss it;
+the first attached pointer is accepted without restarting the app.
+
+Controls:
+
+- Click Save to update the current PNG. For an untitled or imported image, the
+  first save selects the next free `Sketches/sketchNNN.png` path on persistent
+  storage. Saves use a synced staging file, backup rename, atomic replacement,
+  and rollback.
+- Click Open to select a PNG as the current document. Click Import to flatten a
+  PNG, JPEG, or GIF into the current four-color canvas; the next save creates a
+  new PNG instead of overwriting the imported source.
+- The sidebar selects pen, straight-line, rectangle, ellipse, bucket fill,
+  or eraser drawing. The weight control cycles through 1, 2, 4, and 8 pixels.
+  Eraser uses the selected weight and restores white pixels. Clear immediately
+  resets the complete canvas to white.
+- Line, rectangle, and ellipse show an exact non-destructive preview during the
+  drag, including the selected color, pattern, and stroke weight. Releasing the
+  pointer commits that preview to the canvas.
+- The first four bottom swatches select white, red, blue, or black. The next
+  four select solid, checker, dot, or diagonal-hatch application.
+- Keyboard fallbacks are `S` Save, `O` Open, `I` Import, `P` Pen, `L` Line,
+  `R` Rectangle, `E` Ellipse, `B` bucket fill, `X` eraser, and `C` clear.
+  Arrows and Enter operate the file browser.
+- `Q`, Esc, or the app-exit key exits. Suspending and resuming retains the
+  current cold-allocated canvas; closing the app releases it and all browser or
+  image resources.
+
 ## web
 
 Simple graphical web browser for lightweight HTML pages. It shares document and
-image rendering infrastructure with `reader` where possible.
+image rendering infrastructure with `reader` where possible. Embedded and
+direct PNG, JPEG, GIF, and WebP images retain color on indexed-color displays;
+one-bit displays keep the grayscale decode and dither path.
 
 Usage:
 
@@ -1433,7 +1517,19 @@ web https://host/path
 
 Controls:
 
-- Keyboard navigation follows the active web UI state.
+- The top toolbar provides Back, Reload, and Forward. Pointer or touch presses
+  activate the toolbar and open links or form controls directly.
+- `Left` or `b` goes back, `Right` or `f` goes forward, and `r` reloads while
+  retaining the current reading position.
+- `Up`/`Down` or `k`/`j` scroll one rendered line. Page Up/Page Down, Home,
+  and End provide larger movement.
+- `n` or Tab selects the next link or form control; `p` selects the previous
+  one. Selection stops at each end, and Enter activates it.
+- Links and plain page text use the same font size. Links remain underlined,
+  headings remain bold, and `+`/`-` or `Ctrl++`/`Ctrl+-` reflow page text
+  through the same five zoom levels as Reader.
+- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
+  rendered page text, wrapping at the end.
 - `Esc` or app-exit key exits.
 
 ## Quick reference

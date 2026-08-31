@@ -641,6 +641,7 @@ static void rlcd_invalidate_shadow(rlcd_st7305_t *display)
 {
     if (display != NULL) {
         display->shadow_valid_rows = 0;
+        display->direct_frame_valid = false;
     }
 }
 
@@ -1158,6 +1159,7 @@ static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
 
     case U8X8_MSG_DISPLAY_DRAW_TILE: {
         const u8x8_tile_t *tile = (const u8x8_tile_t *)arg_ptr;
+        display->direct_frame_valid = false;
         const uint8_t count = tile->cnt;
         const uint8_t y_pos = tile->y_pos;
         const uint8_t x_pos = tile->x_pos;
@@ -1272,7 +1274,6 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         return ESP_ERR_INVALID_ARG;
     }
     if ((x & 7U) != 0 ||
-        (width & 7U) != 0 ||
         (uint32_t)x + width > RLCD_NATIVE_HEIGHT ||
         (uint32_t)y + height > RLCD_NATIVE_WIDTH ||
         display->u8g2.cb != U8G2_R1) {
@@ -1284,6 +1285,7 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
 
     memset(display->buffer, palette_inverted ? 0x00 : 0xFF, display->buffer_size);
     const size_t source_bytes = width / 8U;
+    const uint8_t source_tail_bits = (uint8_t)(width & 7U);
     const size_t destination_byte = x / 8U;
     for (size_t source_y = 0; source_y < height; source_y++) {
         const size_t native_x = RLCD_NATIVE_WIDTH - 1U - ((size_t)y + source_y);
@@ -1294,6 +1296,13 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
             destination[source_byte * RLCD_BUFFER_ROW_BYTES] =
                 palette_inverted ? source[source_byte] : (uint8_t)~source[source_byte];
         }
+        if (source_tail_bits != 0U) {
+            const uint8_t mask = (uint8_t)((1U << source_tail_bits) - 1U);
+            uint8_t *tail = destination + source_bytes * RLCD_BUFFER_ROW_BYTES;
+            const uint8_t pixels = palette_inverted ?
+                source[source_bytes] : (uint8_t)~source[source_bytes];
+            *tail = (uint8_t)((*tail & (uint8_t)~mask) | (pixels & mask));
+        }
     }
 
     rlcd_cancel_idle_lpm_timer(display);
@@ -1303,15 +1312,33 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         ret = rlcd_apply_frame_power_mode(display, true);
     }
 
-    const int addr_start = RLCD_ADDR_START;
-    const int addr_end = RLCD_ADDR_START + RLCD_COLUMN_GROUPS - 1;
+    const bool partial = display->direct_frame_valid &&
+        display->direct_x == x && display->direct_y == y &&
+        display->direct_width == width && display->direct_height == height &&
+        display->direct_palette_inverted == palette_inverted;
+    const uint8_t first_tile = partial ? (uint8_t)(x / 8U) : 0U;
+    const uint8_t last_tile = partial ?
+        (uint8_t)((x + width - 1U) / 8U) : RLCD_TILE_HEIGHT - 1U;
+    const int first_col = partial ?
+        (int)(RLCD_NATIVE_WIDTH - ((uint32_t)y + height)) : 0;
+    const int last_col = partial ?
+        (int)(RLCD_NATIVE_WIDTH - 1U - y) : RLCD_NATIVE_WIDTH - 1;
+    const int addr_start = RLCD_ADDR_START + first_col / 12;
+    const int addr_end = RLCD_ADDR_START + last_col / 12;
+    const int send_start = (addr_start - RLCD_ADDR_START) * 3;
+    const int send_count = (addr_end - addr_start + 1) * 3;
+    const int addr_first_col = (addr_start - RLCD_ADDR_START) * 12;
+    int addr_last_col = (addr_end - RLCD_ADDR_START) * 12 + 11;
+    if (addr_last_col >= RLCD_NATIVE_WIDTH) {
+        addr_last_col = RLCD_NATIVE_WIDTH - 1;
+    }
     const uint8_t col_bounds[] = {
         (uint8_t)(0x3C - addr_end),
         (uint8_t)(0x3C - addr_start),
     };
     const uint8_t row_bounds[] = {
-        0,
-        (uint8_t)(RLCD_TILE_HEIGHT * RLCD_CONTROLLER_ROWS_PER_TILE - 1),
+        (uint8_t)(first_tile * RLCD_CONTROLLER_ROWS_PER_TILE),
+        (uint8_t)((last_tile + 1U) * RLCD_CONTROLLER_ROWS_PER_TILE - 1U),
     };
     if (ret == ESP_OK &&
         !rlcd_checked_cmd_data(display, 0x2A, col_bounds, sizeof(col_bounds))) {
@@ -1326,22 +1353,26 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     }
 
     uint8_t rows[RLCD_CONTROLLER_ROW_BYTES * RLCD_CONTROLLER_ROWS_PER_TILE];
-    for (uint8_t y_pos = 0; ret == ESP_OK && y_pos < RLCD_TILE_HEIGHT; y_pos++) {
+    for (uint8_t y_pos = first_tile;
+         ret == ESP_OK && y_pos <= last_tile;
+         y_pos++) {
         const uint8_t *row_base =
             display->buffer + (size_t)y_pos * RLCD_BUFFER_ROW_BYTES;
         rlcd_pack_tile_window(row_base,
-                              0,
-                              RLCD_NATIVE_WIDTH - 1,
-                              0,
-                              RLCD_CONTROLLER_ROW_BYTES,
+                              addr_first_col,
+                              addr_last_col,
+                              send_start,
+                              send_count,
                               rows);
-        ret = rlcd_write_bytes(display, rows, sizeof(rows));
+        ret = rlcd_write_bytes(
+            display, rows,
+            (size_t)send_count * RLCD_CONTROLLER_ROWS_PER_TILE);
         if (ret == ESP_OK) {
             rlcd_shadow_update_window(display,
                                       rows,
                                       y_pos,
-                                      0,
-                                      RLCD_CONTROLLER_ROW_BYTES);
+                                      send_start,
+                                      send_count);
         }
     }
 
@@ -1356,6 +1387,12 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     }
 
     if (ret == ESP_OK) {
+        display->direct_x = x;
+        display->direct_y = y;
+        display->direct_width = width;
+        display->direct_height = height;
+        display->direct_palette_inverted = palette_inverted;
+        display->direct_frame_valid = true;
         display->frame_content_changed = false;
         if (display->power_policy == RLCD_POWER_POLICY_AUTO) {
             ret = rlcd_schedule_idle_lpm_timer(display);

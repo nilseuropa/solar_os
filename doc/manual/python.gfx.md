@@ -52,8 +52,12 @@ foreground display.
 
 ## Colors and dimensions
 
-Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, or `gfx.gray(level)`.
-Do not use color-name strings or guessed integer values. Read dimensions with
+Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
+`gfx.rgb(red, green, blue)`. RGB components are `0..255`. On color TFTs, the
+named colors and `gray(level)` span the `setterm foreground` and `background`
+theme, while `rgb(...)` stays literal in the lazily allocated indexed canvas.
+One-bit targets keep the existing luminance and dither path. Do not use
+color-name strings or guessed integer values. Read dimensions with
 `width()`, `height()`, or `size()` rather than assuming a panel size.
 
 ## Bitmaps and sprites
@@ -82,7 +86,7 @@ fill_rect, circle, fill_circle, text; refresh() or present(); then end().
 Use bitmap(x, y, width, height, data) or its sprite alias for transparent
 packed 1-bit XBM data, with at most 128 bytes per call.
 Standard min() and max() are available. Colors are gfx.WHITE, gfx.LIGHT,
-gfx.DARK, gfx.BLACK, and gfx.gray(level); pass these constants to clear() and
+gfx.DARK, gfx.BLACK, gfx.gray(level), and gfx.rgb(red, green, blue); pass these values to clear() and
 color(), never color-name strings or guessed integers. Required
 attached-display pattern (replace the quoted target with a ready display_list
 name):

@@ -97,6 +97,47 @@ void solar_os_vector_rgba_to_gray_scaled(uint8_t *dst_gray,
     }
 }
 
+void solar_os_vector_rgba_to_rgb_scaled(uint8_t *dst_rgb,
+                                        uint32_t dst_width,
+                                        uint32_t dst_height,
+                                        const uint8_t *src_rgba,
+                                        uint32_t src_width,
+                                        uint32_t src_height)
+{
+    if (dst_rgb == NULL || src_rgba == NULL ||
+        dst_width == 0 || dst_height == 0 ||
+        src_width == 0 || src_height == 0) {
+        return;
+    }
+
+    const uint64_t pixels = (uint64_t)dst_width * dst_height;
+    solar_os_engine_token_t token = {0};
+    const bool tracked = vector_begin("rgba.rgb.scale", &token);
+
+    for (uint32_t y = 0; y < dst_height; y++) {
+        const uint32_t sy = (uint32_t)(((uint64_t)y * src_height) / dst_height);
+        for (uint32_t x = 0; x < dst_width; x++) {
+            const uint32_t sx = (uint32_t)(((uint64_t)x * src_width) / dst_width);
+            const uint8_t *source =
+                &src_rgba[((size_t)sy * src_width + sx) * 4U];
+            uint8_t *target = &dst_rgb[((size_t)y * dst_width + x) * 3U];
+            if (source[3] < 128U) {
+                target[0] = 255U;
+                target[1] = 255U;
+                target[2] = 255U;
+            } else {
+                target[0] = source[0];
+                target[1] = source[1];
+                target[2] = source[2];
+            }
+        }
+    }
+
+    if (tracked) {
+        vector_end(&token, pixels);
+    }
+}
+
 void solar_os_vector_expand_1bpp_to_rgb565_be(uint8_t *dst,
                                               const uint8_t *columns,
                                               unsigned bit,

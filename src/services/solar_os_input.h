@@ -203,6 +203,11 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch);
 esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event);
+esp_err_t solar_os_input_pointer_apply_orientation(
+    solar_os_input_pointer_event_t *event,
+    uint16_t width,
+    uint16_t height,
+    uint16_t orientation_degrees);
 esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
                                     const solar_os_input_axis_event_t *event);
 esp_err_t solar_os_input_pointer_calibration_get(

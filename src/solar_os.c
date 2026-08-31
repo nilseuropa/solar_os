@@ -1,15 +1,17 @@
 #include "solar_os.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "solar_os_gfx.h"
+#include "solar_os_gfx_internal.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_splash.h"
+#include "solar_os_shell_io.h"
 
 static const char *TAG = "solar_os";
 
@@ -46,12 +48,35 @@ static bool app_release_state(const solar_os_app_t *app)
     return true;
 }
 
+static esp_err_t app_start_failure(const solar_os_app_t *app,
+                                   solar_os_context_t *ctx,
+                                   esp_err_t err)
+{
+    if (ctx != NULL && !ctx->exit_result_pending) {
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message,
+                 sizeof(message),
+                 "%s: start failed: %s",
+                 app != NULL && app->name != NULL ? app->name : "app",
+                 esp_err_to_name(err));
+        solar_os_context_finish(ctx, 1, message);
+    }
+    return err;
+}
+
 esp_err_t solar_os_app_start(const solar_os_app_t *app,
                              solar_os_context_t *ctx)
 {
-    if (app == NULL) {
+    if (app == NULL || ctx == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (app->app_class == SOLAR_OS_APP_CLASS_UNSPECIFIED) {
+        SOLAR_OS_LOGE(TAG,
+                      "%s has no foreground app class",
+                      app->name != NULL ? app->name : "?");
+        return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
+    }
+    solar_os_context_set_app_class(ctx, app->app_class);
     if ((app->state_size == 0U) != (app->state_slot == NULL) ||
         (app->state_size > 0U &&
          app->state_storage == SOLAR_OS_APP_STATE_NONE) ||
@@ -59,14 +84,14 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
         (app->state_release_cleanup != NULL && app->state_size == 0U)) {
         SOLAR_OS_LOGE(TAG, "%s has an invalid cold-state descriptor",
                       app->name != NULL ? app->name : "?");
-        return ESP_ERR_INVALID_STATE;
+        return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
     }
     if (app->state_size > 0U) {
         if (app->state_slot == NULL) {
-            return ESP_ERR_INVALID_STATE;
+            return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
         }
         if (*app->state_slot != NULL && !app_release_state(app)) {
-            return ESP_ERR_INVALID_STATE;
+            return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
         }
         *app->state_slot = solar_os_memory_calloc(
             1U,
@@ -74,10 +99,13 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
             app_state_memory_class(app->state_storage),
             app->name);
         if (*app->state_slot == NULL) {
-            return ESP_ERR_NO_MEM;
+            return app_start_failure(app, ctx, ESP_ERR_NO_MEM);
         }
     }
     const esp_err_t err = app->start != NULL ? app->start(ctx) : ESP_OK;
+    if (err != ESP_OK) {
+        (void)app_start_failure(app, ctx, err);
+    }
     if (err != ESP_OK && !app_release_state(app)) {
         SOLAR_OS_LOGW(TAG, "%s retained cold state after failed start",
                       app->name != NULL ? app->name : "?");
@@ -111,9 +139,13 @@ void solar_os_context_init(solar_os_context_t *ctx,
     ctx->gfx = gfx;
     ctx->shell_io = NULL;
     ctx->shell_session = NULL;
+    ctx->output_fn = NULL;
+    ctx->output_user = NULL;
     ctx->requested_app = NULL;
     ctx->launch_policy = SOLAR_OS_LAUNCH_REPLACE;
     ctx->exit_requested = false;
+    ctx->exit_result_pending = false;
+    ctx->exit_code = 0;
     ctx->sleep_requested = false;
     ctx->suspend_requested = false;
     ctx->session_request = SOLAR_OS_SESSION_REQUEST_NONE;
@@ -124,6 +156,7 @@ void solar_os_context_init(solar_os_context_t *ctx,
     ctx->preserve_terminal = false;
     ctx->status_message_pending = false;
     ctx->status_message[0] = '\0';
+    ctx->app_class = SOLAR_OS_APP_CLASS_UNSPECIFIED;
     ctx->argc = 0;
     memset(ctx->argv, 0, sizeof(ctx->argv));
 }
@@ -162,6 +195,7 @@ void solar_os_context_set_shell_io(solar_os_context_t *ctx, solar_os_shell_io_t 
     }
 
     ctx->shell_io = io;
+    solar_os_shell_io_capture_output(io, ctx);
 }
 
 solar_os_shell_io_t *solar_os_context_shell_io(solar_os_context_t *ctx)
@@ -202,17 +236,70 @@ void solar_os_context_detach_shell_session(solar_os_context_t *ctx,
     ctx->shell_io = NULL;
 }
 
+void solar_os_context_set_output_handler(solar_os_context_t *ctx,
+                                         solar_os_context_output_fn fn,
+                                         void *user)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->output_fn = fn;
+    ctx->output_user = fn != NULL ? user : NULL;
+    solar_os_shell_io_capture_output(ctx->shell_io, ctx);
+}
+
+solar_os_context_output_fn solar_os_context_output_handler(
+    const solar_os_context_t *ctx,
+    void **user)
+{
+    if (user != NULL) {
+        *user = ctx != NULL ? ctx->output_user : NULL;
+    }
+    return ctx != NULL ? ctx->output_fn : NULL;
+}
+
+void solar_os_context_set_app_class(solar_os_context_t *ctx,
+                                    solar_os_app_class_t app_class)
+{
+    if (ctx == NULL || app_class > SOLAR_OS_APP_CLASS_GUI) {
+        return;
+    }
+    ctx->app_class = app_class;
+    solar_os_shell_io_capture_output(ctx->shell_io, ctx);
+}
+
+solar_os_app_class_t solar_os_context_app_class(
+    const solar_os_context_t *ctx)
+{
+    return ctx != NULL ? ctx->app_class : SOLAR_OS_APP_CLASS_UNSPECIFIED;
+}
+
 void solar_os_context_set_graphics_active(solar_os_context_t *ctx, bool active)
 {
     if (ctx == NULL) {
         return;
     }
 
-    ctx->graphics_active = active;
     if (active && ctx->gfx != NULL) {
+        solar_os_gfx_prepare_surface(ctx->gfx);
         solar_os_gfx_clear(ctx->gfx, SOLAR_OS_GFX_COLOR_WHITE);
         solar_os_gfx_set_color(ctx->gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    } else if (!active && ctx->gfx != NULL) {
+        solar_os_gfx_release_surface(ctx->gfx);
     }
+    ctx->graphics_active = active;
+}
+
+void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx,
+                                                    bool active)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    if (ctx->gfx != NULL) {
+        solar_os_gfx_release_surface(ctx->gfx);
+    }
+    ctx->graphics_active = active;
 }
 
 bool solar_os_context_graphics_active(const solar_os_context_t *ctx)
@@ -237,7 +324,8 @@ bool solar_os_context_take_terminal_preserve(solar_os_context_t *ctx)
     return true;
 }
 
-void solar_os_context_set_status_message(solar_os_context_t *ctx, const char *message)
+static void context_set_status_message(solar_os_context_t *ctx,
+                                       const char *message)
 {
     if (ctx == NULL) {
         return;
@@ -309,6 +397,11 @@ esp_err_t solar_os_context_request_launch_ex(solar_os_context_t *ctx,
     ctx->requested_app = app;
     ctx->launch_policy = policy;
     ctx->exit_requested = false;
+    ctx->exit_result_pending = false;
+    ctx->exit_code = 0;
+    ctx->preserve_terminal = false;
+    ctx->status_message_pending = false;
+    ctx->status_message[0] = '\0';
     ctx->sleep_requested = false;
     ctx->suspend_requested = false;
     ctx->graphics_active = false;
@@ -337,11 +430,23 @@ solar_os_launch_policy_t solar_os_context_take_launch_policy(solar_os_context_t 
     return policy;
 }
 
-void solar_os_context_request_exit(solar_os_context_t *ctx)
+void solar_os_context_finish(solar_os_context_t *ctx,
+                             int exit_code,
+                             const char *message)
 {
-    if (ctx != NULL) {
-        ctx->exit_requested = true;
+    if (ctx == NULL) {
+        return;
     }
+    if (ctx->exit_requested) {
+        return;
+    }
+    ctx->exit_code = exit_code;
+    ctx->exit_result_pending = true;
+    context_set_status_message(ctx, message);
+    if (ctx->app_class == SOLAR_OS_APP_CLASS_COMMAND) {
+        ctx->preserve_terminal = true;
+    }
+    ctx->exit_requested = true;
 }
 
 bool solar_os_context_take_exit_request(solar_os_context_t *ctx)
@@ -351,6 +456,20 @@ bool solar_os_context_take_exit_request(solar_os_context_t *ctx)
     }
 
     ctx->exit_requested = false;
+    return true;
+}
+
+bool solar_os_context_take_exit_result(solar_os_context_t *ctx,
+                                       int *exit_code)
+{
+    if (ctx == NULL || !ctx->exit_result_pending) {
+        return false;
+    }
+    if (exit_code != NULL) {
+        *exit_code = ctx->exit_code;
+    }
+    ctx->exit_result_pending = false;
+    ctx->exit_code = 0;
     return true;
 }
 

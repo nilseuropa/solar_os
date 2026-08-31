@@ -125,7 +125,6 @@ static void plot_print_usage(solar_os_context_t *ctx, const char *reason)
     solar_os_shell_io_writeln(io, "  plot temperature humidity --rate 1000");
     solar_os_shell_io_writeln(io, "  plot -f /logs/env.csv temperature humidity");
     solar_os_shell_io_flush(io);
-    solar_os_context_request_terminal_preserve(ctx);
 }
 
 static void *plot_alloc(size_t bytes)
@@ -1118,7 +1117,11 @@ static esp_err_t plot_start(solar_os_context_t *ctx)
         plot_print_usage(ctx, "invalid arguments");
         plot_free_buffers();
         plot_free_state();
-        return ESP_ERR_INVALID_ARG;
+        solar_os_context_finish(
+            ctx,
+            2,
+            "plot: invalid arguments; usage: plot <streams...> [--rate ms] | plot -f <file.csv> [columns...]");
+        return ESP_OK;
     }
 
     esp_err_t err = ESP_OK;
@@ -1134,12 +1137,17 @@ static esp_err_t plot_start(solar_os_context_t *ctx)
         if (io != NULL) {
             solar_os_shell_io_printf(io, "plot: start failed: %s\n", esp_err_to_name(err));
             solar_os_shell_io_flush(io);
-            solar_os_context_request_terminal_preserve(ctx);
         }
         plot_close_live_streams();
         plot_free_buffers();
         plot_free_state();
-        return err;
+        char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+        snprintf(message,
+                 sizeof(message),
+                 "plot: start failed: %s",
+                 esp_err_to_name(err));
+        solar_os_context_finish(ctx, 1, message);
+        return ESP_OK;
     }
 
     plot.suspended = false;
@@ -1209,7 +1217,7 @@ static bool plot_handle_char(solar_os_context_t *ctx, char ch)
 {
     const uint8_t key = (uint8_t)ch;
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE || ch == 'q' || ch == 'Q') {
-        solar_os_context_request_exit(ctx);
+        solar_os_context_finish(ctx, 0, NULL);
         return true;
     }
 
@@ -1321,6 +1329,7 @@ static bool plot_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 const solar_os_app_t solar_os_plot_app = {
     .name = "plot",
     .summary = "plot DAQ CSV files or scalar streams",
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
     .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = plot_start,
     .suspend = plot_suspend,
