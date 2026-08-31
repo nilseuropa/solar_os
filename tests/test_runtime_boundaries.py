@@ -131,6 +131,23 @@ class RuntimeBoundaryTest(unittest.TestCase):
             "solar_os_display_present(display_u8g2", overlay_request
         )
 
+    def test_gameboy_presents_clean_first_resume_frame(self):
+        gameboy = (ROOT / "src/apps/solar_os_gameboy_presenter.c").read_text(
+            encoding="utf-8"
+        )
+        presenter = (ROOT / "src/services/solar_os_frame_presenter.c").read_text(
+            encoding="utf-8"
+        )
+        tft = (ROOT / "src/drivers/tft_ili9341.c").read_text(encoding="utf-8")
+
+        self.assertIn(".clear_background_on_resume = true", gameboy)
+        self.assertIn(".background_index = 0U", gameboy)
+        self.assertIn("presenter->clear_background_pending", presenter)
+        self.assertIn(".clear_background = presenter->clear_background_pending", presenter)
+        self.assertIn("if (lines->frame->clear_background)", tft)
+        self.assertIn("display->config.width - 1U", tft)
+        self.assertIn("display->config.height - 1U", tft)
+
     def test_foreground_apps_use_one_class_lifecycle(self):
         sources = list((ROOT / "src/apps").glob("*.c"))
         sources += list((ROOT / "src/shell").glob("*.c"))

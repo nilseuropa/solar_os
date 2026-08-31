@@ -825,6 +825,9 @@ static void ili9341_frame_line(const solar_os_display_raster_t *frame,
 typedef struct {
   const solar_os_display_raster_t *frame;
   const uint16_t *colors;
+  uint16_t frame_x;
+  uint16_t frame_y;
+  uint16_t frame_width;
   uint16_t native_height;
 } ili9341_frame_lines_t;
 
@@ -835,6 +838,23 @@ static void ili9341_render_frame_line(tft_ili9341_t *display,
                                       uint8_t *output) {
   (void)display;
   const ili9341_frame_lines_t *lines = context;
+  if (lines->frame->clear_background) {
+    uint16_t *pixels = (uint16_t *)output;
+    const uint16_t background = __builtin_bswap16(
+        lines->colors[lines->frame->background_index & 3U]);
+    for (uint16_t x = 0U; x < width; x++) {
+      pixels[x] = background;
+    }
+    if (row < lines->frame_y ||
+        row >= (uint16_t)(lines->frame_y + lines->native_height)) {
+      return;
+    }
+    ili9341_frame_line(lines->frame, lines->frame_width,
+                       lines->native_height,
+                       (uint16_t)(row - lines->frame_y), lines->colors,
+                       output + (size_t)lines->frame_x * sizeof(uint16_t));
+    return;
+  }
   ili9341_frame_line(lines->frame, width, lines->native_height, row,
                      lines->colors, output);
 }
@@ -892,13 +912,6 @@ esp_err_t tft_ili9341_present_frame(
   ESP_RETURN_ON_ERROR(
       ili9341_prepare_native_frame(display, frame, &native_frame), TAG,
       "frame rotation failed");
-  ESP_RETURN_ON_ERROR(
-      ili9341_set_window(display, native_x0, native_y0, native_x1, native_y1),
-      TAG, "frame window failed");
-  ESP_RETURN_ON_ERROR(ili9341_cmd(display, 0x2c), TAG,
-                      "frame ram write failed");
-  ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
-                      "frame dc data failed");
   uint16_t colors[4];
   for (size_t i = 0U; i < 4U; i++) {
     colors[i] = frame->palette_rgb565[
@@ -907,12 +920,33 @@ esp_err_t tft_ili9341_present_frame(
   const ili9341_frame_lines_t lines = {
       .frame = &native_frame,
       .colors = colors,
+      .frame_x = native_x0,
+      .frame_y = native_y0,
+      .frame_width = native_line_width,
       .native_height = native_height,
   };
+  const uint16_t present_x0 = frame->clear_background ? 0U : native_x0;
+  const uint16_t present_y0 = frame->clear_background ? 0U : native_y0;
+  const uint16_t present_x1 = frame->clear_background ?
+      (uint16_t)(display->config.width - 1U) : native_x1;
+  const uint16_t present_y1 = frame->clear_background ?
+      (uint16_t)(display->config.height - 1U) : native_y1;
+  const uint16_t present_width =
+      (uint16_t)(present_x1 - present_x0 + 1U);
+  const uint16_t present_height =
+      (uint16_t)(present_y1 - present_y0 + 1U);
+  ESP_RETURN_ON_ERROR(
+      ili9341_set_window(display, present_x0, present_y0,
+                         present_x1, present_y1),
+      TAG, "frame window failed");
+  ESP_RETURN_ON_ERROR(ili9341_cmd(display, 0x2c), TAG,
+                      "frame ram write failed");
+  ESP_RETURN_ON_ERROR(gpio_set_level(display->config.dc_pin, 1), TAG,
+                      "frame dc data failed");
   ESP_RETURN_ON_ERROR(
       ili9341_transmit_rendered_lines(
-          display, native_line_width,
-          native_height,
+          display, present_width,
+          present_height,
           ili9341_render_frame_line, &lines),
       TAG, "frame transmit failed");
 

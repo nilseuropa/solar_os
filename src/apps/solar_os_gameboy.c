@@ -456,8 +456,6 @@ static esp_err_t gameboy_start(solar_os_context_t *ctx) {
   }
 
   gb_init_lcd(gameboy.core, gameboy_draw_line);
-  solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-  solar_os_gfx_present(gfx);
   err = solar_os_gameboy_presenter_init(gfx);
   if (err != ESP_OK) {
     return gameboy_start_error(ctx, gameboy.rom_path,

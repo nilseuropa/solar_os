@@ -40,6 +40,7 @@ struct solar_os_frame_presenter {
     bool stop_requested;
     bool mono_fallback;
     bool high_refresh_active;
+    bool clear_background_pending;
     uint8_t mono_luma[256];
     solar_os_frame_presenter_stats_t stats;
 };
@@ -168,6 +169,8 @@ static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
         .palette_inverted =
             solar_os_gfx_palette_inverted(presenter->config.gfx) !=
             presenter->config.reverse_direct_palette,
+        .clear_background = presenter->clear_background_pending,
+        .background_index = presenter->config.background_index,
     };
     if (presenter->mono_fallback) {
         frame_convert_to_mono(presenter);
@@ -181,6 +184,8 @@ static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
         frame.format = SOLAR_OS_DISPLAY_FORMAT_MONO1;
         frame.palette_inverted =
             solar_os_gfx_palette_inverted(presenter->config.gfx);
+        frame.clear_background = false;
+        frame.background_index = 0U;
     }
     return solar_os_gfx_present_frame(presenter->config.gfx, &frame);
 }
@@ -236,6 +241,7 @@ static void frame_presenter_worker(void *arg)
             if (err == ESP_OK) {
                 presenter->stats.present_us += elapsed_us;
                 presenter->stats.presented_frames++;
+                presenter->clear_background_pending = false;
             }
             xSemaphoreGive(presenter->mutex);
         }
@@ -462,6 +468,8 @@ esp_err_t solar_os_frame_presenter_resume(
         presenter->stop_requested = false;
         presenter->task_done = false;
         presenter->queued_ready = false;
+        presenter->clear_background_pending =
+            presenter->config.clear_background_on_resume;
         xSemaphoreGive(presenter->mutex);
     }
     const BaseType_t created = solar_os_task_create_pinned_internal(

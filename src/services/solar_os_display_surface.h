@@ -27,7 +27,9 @@ typedef enum {
 
 /* Immutable raster submitted at a frame boundary. MONO1 and INDEX2 pixels are
  * packed least-significant pixel first within each byte. Destination scaling
- * uses nearest-neighbour sampling. */
+ * uses nearest-neighbour sampling. If clear_background is true, the presenter
+ * composes the destination rectangle over a full-screen background in the
+ * same frame transaction. */
 typedef struct {
     const uint8_t *data;
     size_t data_size;
@@ -42,6 +44,8 @@ typedef struct {
     uint16_t height;
     solar_os_display_format_t format;
     bool palette_inverted;
+    bool clear_background;
+    uint8_t background_index;
 } solar_os_display_raster_t;
 
 typedef struct {

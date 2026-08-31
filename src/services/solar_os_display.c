@@ -1467,18 +1467,22 @@ esp_err_t solar_os_display_present_frame(
     }
 
     size_t minimum_stride = 0U;
+    size_t palette_entries = 0U;
     switch (frame->format) {
     case SOLAR_OS_DISPLAY_FORMAT_MONO1:
         minimum_stride = ((size_t)frame->source_width + 7U) / 8U;
+        palette_entries = 2U;
         break;
     case SOLAR_OS_DISPLAY_FORMAT_INDEX2:
         minimum_stride = ((size_t)frame->source_width + 3U) / 4U;
+        palette_entries = 4U;
         if (frame->palette_rgb565 == NULL || frame->palette_size < 4U) {
             return ESP_ERR_INVALID_ARG;
         }
         break;
     case SOLAR_OS_DISPLAY_FORMAT_INDEX8:
         minimum_stride = frame->source_width;
+        palette_entries = 256U;
         if (frame->palette_rgb565 == NULL || frame->palette_size < 256U) {
             return ESP_ERR_INVALID_ARG;
         }
@@ -1488,7 +1492,9 @@ esp_err_t solar_os_display_present_frame(
     }
     if (frame->source_stride < minimum_stride ||
         frame->source_height > SIZE_MAX / frame->source_stride ||
-        frame->data_size < (size_t)frame->source_height * frame->source_stride) {
+        frame->data_size < (size_t)frame->source_height * frame->source_stride ||
+        (frame->clear_background &&
+         (size_t)frame->background_index >= palette_entries)) {
         return ESP_ERR_INVALID_SIZE;
     }
 
