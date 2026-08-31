@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test time_timezone_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -246,6 +246,13 @@ meshcore_channel_key_test: meshcore_channel_key_test.cpp \
 		$(ROOT)/src/vendor/meshcore/crypto/Hash.cpp \
 		$(ROOT)/src/vendor/meshcore/crypto/Crypto.cpp -o $@
 
+meshcore_stream_codec_test: meshcore_stream_codec_test.c \
+		$(ROOT)/src/services/solar_os_meshcore_stream_codec.c \
+		$(ROOT)/src/services/solar_os_meshcore_stream_codec.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		meshcore_stream_codec_test.c \
+		$(ROOT)/src/services/solar_os_meshcore_stream_codec.c -o $@
+
 time_timezone_test: time_timezone_test.c \
 		$(ROOT)/src/services/solar_os_timezone.c \
 		$(ROOT)/src/services/solar_os_timezone.h
@@ -296,6 +303,7 @@ test: $(TARGETS)
 	./tui_widgets_test
 	./wireguard_crypto_test
 	./meshcore_channel_key_test
+	./meshcore_stream_codec_test
 	./time_timezone_test
 
 clean:

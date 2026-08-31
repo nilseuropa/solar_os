@@ -764,12 +764,15 @@ label = "service.meshcore"
 depends = [
   "service_contacts",
   "service_credentials",
+  "service_link",
   "service_messaging",
   "service_radio",
 ]
 sources = [
   "services/solar_os_meshcore.cpp",
   "services/solar_os_meshcore_channel_key.cpp",
+  "services/solar_os_meshcore_stream.c",
+  "services/solar_os_meshcore_stream_codec.c",
   "vendor/meshcore/Dispatcher.cpp",
   "vendor/meshcore/Identity.cpp",
   "vendor/meshcore/Mesh.cpp",

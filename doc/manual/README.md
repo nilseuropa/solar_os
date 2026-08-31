@@ -213,7 +213,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [Device identity](identity.md) — Read and configure the NVS-backed user and hostname
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
-- [MeshCore companion messaging](meshcore.md) — Secure direct and shared-group messages over a claimed packet radio
+- [MeshCore companion messaging](meshcore.md) — Secure messages and trusted virtual serial ports over a claimed packet radio
 - [Messaging, contacts, and credential security](messaging.md) — Provider-neutral messaging identities, trust, persistence, and secret handling
 - [SolarOS Link](link.md) — Packet messaging and reliable virtual serial ports over packet radio or ESP-NOW
 

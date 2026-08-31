@@ -2,9 +2,9 @@
 id = "meshcore"
 title = "MeshCore companion messaging"
 section = "service"
-summary = "Secure direct and shared-group messages over a claimed packet radio"
+summary = "Secure messages and trusted virtual serial ports over a claimed packet radio"
 aliases = ["meshcore.job", "meshcore.radio"]
-keywords = "meshcore lora radio identity advert contacts direct group public psk trust"
+keywords = "meshcore lora radio identity advert contacts direct group public psk trust stream serial com shell bridge repeater"
 packages_any = ["service_meshcore", "job_meshcore"]
 +++
 # MeshCore companion messaging
@@ -12,9 +12,11 @@ packages_any = ["service_meshcore", "job_meshcore"]
 SolarOS implements a non-forwarding MeshCore companion node. It exchanges
 signed adverts, end-to-end encrypted direct messages, acknowledgements, and
 shared-key group messages through the provider-neutral Contacts and Messages
-services. It does not repeat traffic or include MeshCore's Arduino interface,
-companion protocol, room server, remote administration, sensors, or telemetry.
-SolarOS Link remains a separate protocol.
+services. It can also carry a peer-bound SolarOS virtual serial port through
+ordinary encrypted MeshCore direct packets. SolarOS does not repeat traffic or
+include MeshCore's Arduino interface, companion protocol, room server, remote
+administration, sensors, or telemetry. SolarOS Link remains a separate
+protocol; the virtual serial feature only reuses its reliable stream framing.
 
 ## Quick start
 
@@ -109,6 +111,64 @@ do not take a pre-shared-key argument. Anyone who knows or guesses the name can
 derive the same key, so hashtag channels are not private. Use the explicit
 Base64 key form only for private channels without the `#` prefix.
 
+## Reliable virtual serial ports
+
+A MeshCore stream is a normal SolarOS byte-stream port carried in encrypted
+MeshCore direct-request packets. Standard MeshCore repeaters can route those
+opaque packets between two SolarOS endpoints; the repeaters do not need
+SolarOS support. Create the stream explicitly on both devices and bind each
+side to the other device's trusted MeshCore endpoint.
+
+First start MeshCore on both devices. Use flood adverts when the endpoints are
+not in direct radio range, then review and trust the discovered endpoint on
+each side:
+
+```text
+job start meshcore radio0 meshcore-eu868
+meshcore advert flood
+contacts list
+contacts show <contact-id>
+contacts trust <contact-id> <endpoint-id>
+meshcore stream create mser0 <endpoint-id>
+meshcore stream status mser0
+```
+
+Endpoint IDs are local database IDs and can differ between the two devices.
+The endpoint must be a trusted MeshCore endpoint with the exact peer public
+key. A discovered, blocked, group, or changed identity is rejected. Configure
+only one stream for a peer identity.
+
+For example, expose a shell on the internet-connected ground station:
+
+```text
+session create shell mser0 --term dumb
+```
+
+On the pocket terminal, open it as a serial connection:
+
+```text
+com mser0
+```
+
+To expose another machine instead, connect its serial interface to the ground
+station and bridge the UART port:
+
+```text
+job start bridge uart0 mser0
+```
+
+The stream is a slow, stop-and-wait serial link, not an IP or Telnet tunnel.
+It carries up to 82 data bytes per MeshCore packet, uses 2048-byte transmit and
+receive queues, retries after 12 to 16 seconds, and treats a peer as absent
+after 180 seconds. Interactive command shells are practical; full-screen TUIs,
+bulk transfers, and chatty terminal negotiation are poor fits. Use the `dumb`
+terminal mode where possible.
+
+At most two Link-backed streams can exist at once, including MeshCore streams.
+Stream definitions remain in RAM if the MeshCore job stops and reconnect after
+it starts again, but they do not persist across a reboot. Remove an unclaimed
+port with `meshcore stream remove <port>`.
+
 ## Implementation and limits
 
 The complete provider context and its 16-packet pool use external-required
@@ -137,6 +197,10 @@ meshcore channel add <#hashtag>
 meshcore channel add <name> <base64-psk>
 meshcore channel remove <name>
 meshcore channel public on|off
+meshcore stream list
+meshcore stream status [port]
+meshcore stream create <port> <trusted-endpoint-id>
+meshcore stream remove <port>
 job start meshcore <radio> <profile>
 job status meshcore
 job stop meshcore

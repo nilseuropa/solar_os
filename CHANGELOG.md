@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.10.9** — 2026-08-31 — Added trusted MeshCore virtual serial ports. Two
+  SolarOS devices can create matching peer-bound streams that carry reliable
+  SolarOS Link framing inside end-to-end encrypted MeshCore direct packets, so
+  standard MeshCore repeaters can route interactive shell or serial-bridge
+  traffic without understanding SolarOS. The new `meshcore stream` commands
+  create, inspect, and remove normal byte-stream ports for use with `com`,
+  shell sessions, and `bridge`.
 - **4.10.8** — 2026-08-31 — Added an unencrypted, anonymous-by-default `ftpd`
   background job with an export-root boundary and optional username/password
   login. Added a resumable two-pane `ftp` application for recursive copy, move,
