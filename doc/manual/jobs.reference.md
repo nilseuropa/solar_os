@@ -661,6 +661,9 @@ Notes:
   and update the shell dimensions.
 - Interactive line edits use the shared port shell's coalesced redraws, so the
   cursor does not visibly jump to the prompt while typing.
+- While a client is attached, telnetd holds a low-latency Wi-Fi lease that
+  disables modem sleep. Disconnecting restores the normal Wi-Fi power-save
+  policy.
 - Disconnecting closes the child shell session and releases any foreground app
   or resource it owns.
 - Remote sessions do not run `/.shell/startup`.

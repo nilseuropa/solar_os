@@ -20,9 +20,11 @@
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
 #include "solar_os_task.h"
+#include "solar_os_wifi.h"
 
 #define TELNETD_DEFAULT_PORT 23U
 #define TELNETD_PORT_NAME "telnet0"
+#define TELNETD_LATENCY_OWNER "job:telnetd"
 #define TELNETD_PASSWORD_MAX 64U
 #define TELNETD_PEER_MAX 40U
 #define TELNETD_TTYPE_MAX 32U
@@ -85,6 +87,7 @@ typedef struct {
     bool stop_requested;
     bool port_registered;
     bool client_disconnected;
+    bool latency_lease;
     TaskHandle_t task;
     int listen_fd;
     int client_fd;
@@ -716,11 +719,13 @@ static bool telnetd_cleanup_client(void)
     uint8_t session_id = 0;
     int fd = -1;
     bool port_registered = false;
+    bool latency_lease = false;
 
     portENTER_CRITICAL(&telnetd_lock);
     session_id = telnetd_job.session_id;
     fd = telnetd_job.client_fd;
     port_registered = telnetd_job.port_registered;
+    latency_lease = telnetd_job.latency_lease;
     portEXIT_CRITICAL(&telnetd_lock);
 
     if (fd >= 0) {
@@ -754,12 +759,23 @@ static bool telnetd_cleanup_client(void)
     telnetd_job.client_fd = -1;
     telnetd_job.client_disconnected = false;
     telnetd_job.port_registered = false;
+    telnetd_job.latency_lease = false;
     telnetd_job.session_id = 0;
     telnetd_job.peer[0] = '\0';
     portEXIT_CRITICAL(&telnetd_lock);
     memset(&telnetd_job.parser, 0, sizeof(telnetd_job.parser));
     telnetd_job.pending_len = 0;
     telnetd_job.terminal_type[0] = '\0';
+    if (latency_lease) {
+        const esp_err_t err =
+            solar_os_wifi_latency_release(TELNETD_LATENCY_OWNER);
+        if (err != ESP_OK) {
+            telnetd_job.last_error = err;
+            SOLAR_OS_LOGW(TAG,
+                          "Wi-Fi latency release failed: %s",
+                          esp_err_to_name(err));
+        }
+    }
     return true;
 }
 
@@ -824,6 +840,18 @@ static bool telnetd_accept_one(bool busy)
              inet_ntoa(addr.sin_addr),
              (unsigned)ntohs(addr.sin_port));
     portEXIT_CRITICAL(&telnetd_lock);
+
+    const esp_err_t latency_err =
+        solar_os_wifi_latency_acquire(TELNETD_LATENCY_OWNER);
+    if (latency_err == ESP_OK) {
+        portENTER_CRITICAL(&telnetd_lock);
+        telnetd_job.latency_lease = true;
+        portEXIT_CRITICAL(&telnetd_lock);
+    } else {
+        SOLAR_OS_LOGW(TAG,
+                      "Wi-Fi latency acquire failed: %s",
+                      esp_err_to_name(latency_err));
+    }
 
     telnetd_job.connection_count++;
     telnetd_job.cols = TELNETD_DEFAULT_COLS;
@@ -1060,6 +1088,7 @@ static esp_err_t telnetd_job_start(solar_os_context_t *ctx, int argc, char **arg
     telnetd_job.stop_requested = false;
     telnetd_job.port_registered = false;
     telnetd_job.client_disconnected = false;
+    telnetd_job.latency_lease = false;
     telnetd_job.listen_fd = listen_fd;
     telnetd_job.client_fd = -1;
     telnetd_job.port = port;
