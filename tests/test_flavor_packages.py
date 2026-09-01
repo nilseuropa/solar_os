@@ -86,6 +86,7 @@ class FlavorPackagesTest(unittest.TestCase):
             )
             self.assertTrue(pruned["expansion_neopixel"], target)
             self.assertTrue(pruned["expansion_audio_pwm"], target)
+            self.assertTrue(pruned["expansion_pcm1808"], target)
             self.assertTrue(pruned["expansion_pcm5102"], target)
             self.assertTrue(pruned["driver_pcf85063"], target)
             self.assertTrue(pruned["driver_shtc3"], target)
@@ -102,6 +103,7 @@ class FlavorPackagesTest(unittest.TestCase):
 
         self.assertFalse(pruned["expansion_neopixel"])
         self.assertFalse(pruned["expansion_audio_pwm"])
+        self.assertFalse(pruned["expansion_pcm1808"])
         self.assertFalse(pruned["expansion_pcm5102"])
 
     def test_sdmmc_expansion_uses_direct_gpio_capability(self):
@@ -273,6 +275,14 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(
             self.catalog.package_defs["expansion_audio_pwm"].capabilities,
             ("expansion_pwm",),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_pcm1808"].depends,
+            ("service_audio", "service_expansion"),
+        )
+        self.assertEqual(
+            self.catalog.package_defs["expansion_pcm1808"].capabilities,
+            ("expansion_i2s",),
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_pcm5102"].depends,
@@ -451,6 +461,36 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_audio_board"])
+
+    def test_pcm1808_expansion_survives_without_builtin_audio(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_i2s"},
+        )
+
+        for package in (
+            "service_audio",
+            "service_expansion",
+            "expansion_pcm1808",
+            "app_arecord",
+            "app_recorder",
+        ):
+            self.assertTrue(pruned[package], package)
+        self.assertFalse(pruned["service_audio_board"])
+
+    def test_pcm1808_expansion_is_pruned_without_i2s_capability(self):
+        _, _, groups, packages = self.resolve("full")
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog,
+            groups,
+            packages,
+            {"expansion_gpio"},
+        )
+
+        self.assertFalse(pruned["expansion_pcm1808"])
 
     def test_pcm5102_expansion_is_pruned_without_i2s_capability(self):
         _, _, groups, packages = self.resolve("full")

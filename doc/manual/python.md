@@ -843,8 +843,9 @@ service is compiled.
 
 Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
 `ps2`, `gpio`, `irq`, `reset` (or `rst`), `data`, `bck`, `din`, `rck`, `dc`,
-`busy`, `adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`, `center`, `max`, and
-`deadzone`. `ps2` names an existing PS/2 bus; `x` and `y` name scalar streams;
+`mclk`, `ws`, `dout`, `busy`, `adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`,
+`center`, `max`, and `deadzone`. `ps2` names an existing PS/2 bus; `x` and `y`
+name scalar streams;
 `keys` maps logical key names to GPIO numbers. `cs` requires `spi`, and `addr`
 requires `i2c`. Unknown keys are rejected.
 

@@ -564,6 +564,35 @@ kind = "gpio"
 hint = "gpio"
 required = true
 
+[drivers.pcm1808]
+summary = "I2S stereo audio input"
+package = "expansion_pcm1808"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "audio0"
+[[drivers.pcm1808.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.pcm1808.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.pcm1808.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.pcm1808.bindings]]
+key = "dout"
+kind = "gpio"
+hint = "gpio"
+required = true
+
 [drivers.es8311-es7210]
 summary = "ES8311 output + ES7210 input"
 package = "driver_audio_es8311_codecs"

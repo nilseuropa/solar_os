@@ -28,9 +28,11 @@ on `service.audio-board`. On a board with expansion PWM it can therefore add a
 runtime playback device even when no built-in codec or DAC exists.
 `expansion.pcm5102` follows the same ownership model on boards with the
 `expansion_i2s` capability and adds an I2S playback device without requiring
-built-in audio. That capability guarantees a spare I2S controller and at least
-three runtime-safe output GPIOs, so the package is pruned from boards such as
-ODROID-GO that cannot expose all required signals.
+built-in audio. `expansion.pcm1808` uses that model for a four-GPIO I2S capture
+device. The capability guarantees a spare I2S controller and runtime-safe
+GPIOs; individual driver binding validation enforces the required signal
+count. Both packages are pruned from boards such as ODROID-GO that cannot
+expose an I2S controller for expansion use.
 `driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
 only for ESP32-S3 targets with I2C and expansion I2S resources.
 `driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.

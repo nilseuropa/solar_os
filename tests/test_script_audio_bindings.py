@@ -62,6 +62,18 @@ class ScriptAudioBindingsTest(unittest.TestCase):
         self.assertIn("mp_obj_new_tuple(2, result)", PYTHON_SOURCE)
         self.assertIn("return 2;", LUA_SOURCE)
 
+    def test_python_and_lua_accept_i2s_capture_pins(self):
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn(
+                '{"mclk", "mclk", SOLAR_OS_EXPANSION_BINDING_GPIO}', source
+            )
+            self.assertIn(
+                '{"ws", "ws", SOLAR_OS_EXPANSION_BINDING_GPIO}', source
+            )
+            self.assertIn(
+                '{"dout", "dout", SOLAR_OS_EXPANSION_BINDING_GPIO}', source
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

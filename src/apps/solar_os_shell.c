@@ -1311,7 +1311,7 @@ static const char * const aplay_options[] = {"-v"};
 static const char * const aplay_volume_values[] = {"0", "25", "50", "75", "100"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
-static const char * const arecord_options[] = {"-d"};
+static const char * const arecord_options[] = {"-d", "-i"};
 static const char * const arecord_duration_values[] = {"1", "5", "10", "30", "60"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_RECORDER
@@ -1393,6 +1393,7 @@ static const char * const path_aplay_volume[] = {"aplay", "-v"};
 #if SOLAR_OS_PACKAGE_APP_ARECORD
 static const char * const path_arecord[] = {"arecord"};
 static const char * const path_arecord_duration[] = {"arecord", "-d"};
+static const char * const path_arecord_input[] = {"arecord", "-i"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 static const char * const path_clock[] = {"clock"};
@@ -2573,6 +2574,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_ARECORD
     SHELL_COMPLETION_OPTIONS(path_arecord, arecord_options),
     SHELL_COMPLETION_STATIC(path_arecord_duration, arecord_duration_values),
+    SHELL_COMPLETION_STREAMS(path_arecord_input),
 #endif
 #if SOLAR_OS_PACKAGE_APP_RECORDER
     SHELL_COMPLETION_OPTIONS(path_recorder, recorder_options),

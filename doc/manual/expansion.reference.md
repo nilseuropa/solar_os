@@ -4,7 +4,7 @@ title = "Expansion hardware reference"
 section = "hardware"
 summary = "Resource rules, workflows, drivers, bindings, and wiring examples"
 aliases = ["hardware.expansion"]
-keywords = "expansion ports gpio adc pwm ledc audio buses i2c spi uart midi wiring displays neopixel ws2812 rgb led strip"
+keywords = "expansion ports gpio adc pwm ledc audio pcm1808 buses i2c spi uart midi wiring displays neopixel ws2812 rgb led strip"
 packages_any = []
 +++
 # Expansion Ports
@@ -257,6 +257,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `sdspi` | SPI microSD card adapter | `spi=<bus> cs=<pin>` | On boards without built-in SD, mounts removable FAT storage at `/sdcard`; run `disk umount` before detach. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |
+| `pcm1808` | PCM1808 four-wire I2S ADC | `mclk=<pin> bck=<pin> ws=<pin> dout=<pin>` | Requires `expansion_i2s`, claims four GPIOs and a runtime I2S controller, then registers a 16 kHz stereo capture device and stream. One instance can be attached. |
 | `pcm5102` | PCM5102A three-wire I2S DAC | `bck=<pin> din=<pin> rck=<pin>` | Requires `expansion_i2s`, claims three GPIOs and I2S1, then registers a 16 kHz stereo playback device and stream. One instance can be attached. |
 | `es8311-es7210` | ES8311 playback with ES7210 capture | `i2c=<bus> i2s=<port> mclk=<pin> bck=<pin> ws=<pin> din=<pin> dout=<pin> pa=<pin>` | ESP32-S3 primary audio backend with stereo capture and playback. Waveshare registers it as fixed `audio0`. |
 | `es8311-duplex` | ES8311 duplex codec | `i2c=<bus> i2s=<port> mclk=<pin> bck=<pin> ws=<pin> din=<pin> dout=<pin> pa=<pin>` | ESP32-S3 primary audio backend with mono codec capture and playback. Freenove registers it as fixed `audio0`. |
@@ -362,6 +363,38 @@ PCM5102A output is line level: use a powered input or a suitable amplifier, not
 a passive speaker. Stop playback before detaching; detach reports busy while
 the playback stream is open. Run `audio default auto` after testing to restore
 automatic output selection.
+
+### PCM1808 I2S audio input
+
+The driver makes the ESP32 the I2S clock master. Configure the PCM1808 mode
+pins before power-up: `MD1=LOW`, `MD0=LOW` selects slave mode and `FMT=LOW`
+selects 24-bit Philips I2S. Wire the driver MCLK signal to the module's SCKI or
+SCK pin. The PCM1808 mode pins are hardware straps, not runtime driver GPIOs:
+
+```text
+PCM1808 +5V -> SolarOS 5V               PCM1808 3.3V -> SolarOS 3.3V
+PCM1808 GND -> SolarOS GND
+PCM1808 MD1 -> GND                      PCM1808 MD0 -> GND
+PCM1808 FMT -> GND                      PCM1808 SCKI/SCK -> GPIO1
+PCM1808 BCK -> GPIO2                    PCM1808 LRCK -> GPIO3
+PCM1808 DOUT -> GPIO17
+
+expansion attach pcm1808 adc0 mclk=gpio1 bck=gpio2 ws=gpio3 dout=gpio17
+audio device adc0
+arecord -d 5 -i adc0.capture /sdcard/pcm1808.wav
+```
+
+The example uses all four runtime-safe Waveshare expansion GPIOs. The driver
+generates 4.096 MHz MCLK and 64 BCK cycles per 16 kHz stereo frame. It receives
+the converter's 24-bit I2S slots, keeps the most-significant 16 bits, and
+publishes `adc0.capture` as an exclusive signed 16-bit stereo PCM source. It
+uses the board's runtime I2S controller (I2S1 on current ESP32-S3 profiles), so
+it can coexist with fixed onboard audio on I2S0 but not with another attachment
+that owns I2S1. Stop recording before detach. A raw PCM1808 circuit requires
+the analog supply, digital supply, reference components, and input network from
+the manufacturer reference design; follow the breakout's own supply markings
+when using a module. Common modules expose separate `+5V` analog and `3.3V`
+digital supply pins; both rails must be powered.
 
 ## Wiring Examples
 

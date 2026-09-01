@@ -65,6 +65,7 @@ members = [
   "driver_display_vga32",
   "expansion_neopixel",
   "expansion_audio_pwm",
+  "expansion_pcm1808",
   "expansion_pcm5102",
   "job_midi",
   "job_pocsag",
@@ -983,6 +984,19 @@ sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
   "services/solar_os_pcm5102_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
+
+[packages.expansion_pcm1808]
+label = "expansion.pcm1808"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_pcm1808_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/pcm1808.c",
+  "services/solar_os_pcm1808.c",
+  "services/solar_os_pcm1808_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]

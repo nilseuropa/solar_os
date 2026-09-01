@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "sdmmc", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdmmc sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "sdmmc", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard mouse joystick pointer input i2c sd sdmmc sdspi microsd storage oled lcd sensor peripheral audio pwm ledc pcm1808 adc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -249,6 +249,28 @@ duplicated to both channels and device volume is applied in software. Current
 dual-I2S boards use I2S1, leaving onboard audio or composite video on I2S0.
 PCM5102A modules provide line-level output; connect an amplifier or powered
 input rather than a passive speaker.
+
+A PCM1808 module uses four runtime-safe GPIOs and appears as a stereo capture
+device:
+
+```text
+expansion attach pcm1808 adc0 mclk=gpio1 bck=gpio2 ws=gpio3 dout=gpio17
+audio devices
+arecord -d 5 -i adc0.capture /sdcard/pcm1808.wav
+expansion detach adc0
+```
+
+The example consumes every runtime-safe GPIO on the Waveshare expansion
+header. Before applying power, configure the module for slave I2S mode:
+`MD1=0`, `MD0=0`, and `FMT=0`. Connect `MCLK` to the module's `SCKI` or `SCK`
+pin, `WS` to `LRCK`, and `DOUT` to `DOUT`. The driver supplies a 4.096 MHz
+system clock and 64 BCK cycles per 16 kHz stereo frame, receives the PCM1808's
+24-bit samples, and registers `adc0.capture` as an exclusive signed 16-bit PCM
+source. Use the module-rated supply and a common ground; raw PCM1808 circuits
+need separate analog and digital supplies as specified by the manufacturer.
+On modules that expose both rails, connect `+5V` for the analog supply and
+`3.3V` for the digital supply; powering only `3.3V` leaves the converter's
+analog section unpowered.
 
 The integrated codec and classic ESP32 DAC backends are also attachable when
 the target MCU and board resources support them. Codec attachments need a

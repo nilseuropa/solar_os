@@ -505,8 +505,9 @@ devices with `name`, `driver`, `origin` (`board` or `runtime`), `ready`,
 `kind`, `role`, `target`, `value`, and `aux`. `attach(driver, name, bindings)`
 and `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`,
 `cs` (or `ce`), `i2c`, `addr`, `uart`, `ps2`, `gpio`, `irq`, `reset` (or
-`rst`), `dc`, `busy`, `data`, `bck`, `din`, `rck`, `adc`, `pwm`, `count`,
-`keys`, `x`, `y`, `min`, `center`, `max`, and `deadzone`. `ps2` names an
+`rst`), `dc`, `busy`, `data`, `bck`, `din`, `rck`, `mclk`, `ws`, `dout`,
+`adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`, `center`, `max`, and
+`deadzone`. `ps2` names an
 existing PS/2 bus; `x` and `y` name scalar streams; `keys` maps logical key
 names to GPIO numbers. `cs` requires `spi`, `addr` requires `i2c`, and unknown
 fields are rejected.
