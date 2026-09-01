@@ -191,6 +191,10 @@ members = ["app_agent"]
 triggers = ["app_agent"]
 capabilities = ["psram", "wifi"]
 
+[groups.experimental]
+members = ["service_hid"]
+triggers = ["service_hid"]
+
 [groups.media]
 members = ["app_view", "app_sketch"]
 triggers = ["app_view", "app_sketch"]
@@ -601,11 +605,6 @@ sources = [
   "services/solar_os_audio_player.c",
   "services/solar_os_audio_pcm.c",
 ]
-
-[packages.service_audio_board]
-label = "service.audio-board"
-depends = ["service_audio"]
-capabilities = ["audio"]
 
 [packages.service_audio_codecs]
 label = "service.audio-codecs"

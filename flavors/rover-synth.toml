@@ -25,7 +25,6 @@ system_shell = true
 service_ble = true
 service_sd = true
 service_audio = true
-service_audio_board = false
 service_synth = true
 service_controls = true
 job_controls = true

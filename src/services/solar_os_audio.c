@@ -18,7 +18,6 @@
 #include "solar_os_audio_player.h"
 #include "solar_os_audio_pcm.h"
 #define SOLAR_OS_AUDIO_BACKEND_PACKAGE ( \
-    SOLAR_OS_PACKAGE_SERVICE_AUDIO_BOARD || \
     SOLAR_OS_PACKAGE_DRIVER_AUDIO_ES8311_CODECS || \
     SOLAR_OS_PACKAGE_DRIVER_AUDIO_ESP32_DAC)
 

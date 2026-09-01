@@ -202,6 +202,10 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("job_controls", self.catalog.group_defs["system"].members)
         self.assertIn("service_synth", self.catalog.group_defs["audio"].members)
         self.assertEqual(
+            self.catalog.group_defs["experimental"].members,
+            ("service_hid",),
+        )
+        self.assertEqual(
             self.catalog.package_defs["service_synth"].depends,
             ("service_audio", "service_dsp", "service_streams"),
         )
@@ -387,10 +391,14 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_funcgen",
         ):
             self.assertTrue(pruned[package], package)
-        self.assertFalse(pruned["service_audio_board"])
         self.assertFalse(pruned["service_espnow"])
         self.assertFalse(pruned["service_wireguard"])
         self.assertFalse(pruned["job_espnow_link"])
+
+    def test_full_does_not_select_dormant_hid(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertFalse(groups["experimental"])
+        self.assertFalse(packages["service_hid"])
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -416,7 +424,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_espnow_link",
         ):
             self.assertTrue(pruned[package], package)
-        self.assertFalse(pruned["service_audio_board"])
 
     def test_pwm_audio_expansion_survives_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -438,7 +445,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_funcgen",
         ):
             self.assertTrue(pruned[package], package)
-        self.assertFalse(pruned["service_audio_board"])
 
     def test_pcm5102_expansion_survives_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -460,7 +466,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_funcgen",
         ):
             self.assertTrue(pruned[package], package)
-        self.assertFalse(pruned["service_audio_board"])
 
     def test_pcm1808_expansion_survives_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
@@ -479,7 +484,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_recorder",
         ):
             self.assertTrue(pruned[package], package)
-        self.assertFalse(pruned["service_audio_board"])
 
     def test_pcm1808_expansion_is_pruned_without_i2s_capability(self):
         _, _, groups, packages = self.resolve("full")
@@ -513,7 +517,6 @@ class FlavorPackagesTest(unittest.TestCase):
             {"i2c", "expansion_i2s"},
         )
         self.assertTrue(s3["driver_audio_es8311_codecs"])
-        self.assertFalse(s3["service_audio_board"])
 
         _, classic = generate_flavor_config.apply_board_capability_pruning(
             self.catalog,
@@ -522,7 +525,6 @@ class FlavorPackagesTest(unittest.TestCase):
             {"expansion_gpio"},
         )
         self.assertTrue(classic["driver_audio_esp32_dac"])
-        self.assertFalse(classic["service_audio_board"])
 
     def test_rover_flavors_share_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")
@@ -660,7 +662,6 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertTrue(packages[package], package)
 
         for package in (
-            "service_audio_board",
             "service_wifi",
             "service_radio",
             "service_meshcore",

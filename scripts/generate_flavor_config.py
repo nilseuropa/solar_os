@@ -233,6 +233,23 @@ def load_catalog(path: Path) -> PackageCatalog:
     if not immutable_groups:
         raise ValueError("package catalog must define an immutable bootstrap group")
 
+    group_reachable = {
+        package
+        for group_def in group_defs.values()
+        for package in group_def.members
+    }
+    pending = list(group_reachable)
+    while pending:
+        package = pending.pop()
+        for dependency in package_defs[package].depends:
+            if dependency not in group_reachable:
+                group_reachable.add(dependency)
+                pending.append(dependency)
+    unreachable = sorted(package_set - group_reachable)
+    if unreachable:
+        raise ValueError(
+            "package(s) not reachable from any group: " + ", ".join(unreachable))
+
     return PackageCatalog(
         groups=groups,
         packages=packages,

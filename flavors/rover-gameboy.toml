@@ -21,7 +21,6 @@ utils = false
 # PAL scanout owns I2S0, so Game Boy audio remains off. Keep the focused Wi-Fi
 # and SSH/SCP client stack while leaving Invaders out of this single-game image.
 service_wifi = true
-service_audio_board = false
 service_synth = false
 core_fs_commands = true
 app_docs = true

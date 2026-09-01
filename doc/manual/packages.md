@@ -17,15 +17,15 @@ package dependencies and then removes packages unsupported by the target board.
 audio providers register their endpoints there at runtime. `service.audio`
 also owns audio-device discovery; devices refer to their capture and playback
 stream IDs instead of exposing a board-specific global data path. It has no
-board-audio capability requirement. `service.audio-board` publishes built-in
-board endpoints and retains the hardware capability gate. The independent
-`service.audio-codecs` package owns incremental compressed-audio decoding, so
-file players and network sources can share the same decoder without owning an
-audio device.
+board-audio capability requirement. Concrete audio driver packages publish
+devices and endpoints when attached, including immutable board-default
+attachments for built-in hardware. The independent `service.audio-codecs`
+package owns incremental compressed-audio decoding, so file players and
+network sources can share the same decoder without owning an audio device.
 
-`expansion.audio-pwm` depends on the generic audio and expansion services, not
-on `service.audio-board`. On a board with expansion PWM it can therefore add a
-runtime playback device even when no built-in codec or DAC exists.
+`expansion.audio-pwm` depends on the generic audio and expansion services. On a
+board with expansion PWM it can therefore add a runtime playback device even
+when no built-in codec or DAC exists.
 `expansion.pcm5102` follows the same ownership model on boards with the
 `expansion_i2s` capability and adds an I2S playback device without requiring
 built-in audio. `expansion.pcm1808` uses that model for a four-GPIO I2S capture
@@ -36,9 +36,8 @@ expose an I2S controller for expansion use.
 `driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
 only for ESP32-S3 targets with I2C and expansion I2S resources.
 `driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.
-Both use the generic audio backend and remain available without
-`service.audio-board`; a board with built-in audio declares a fixed default
-attachment instead of compiling a separate board adapter.
+Both use the generic audio backend; a board with built-in audio declares a
+fixed default attachment instead of compiling a separate board adapter.
 The `driver.display-st7305`, `driver.display-st7796`,
 `driver.display-ili9341`, `driver.display-cvbs-pal`, `driver.display-vga32`, and
 `expansion.ssd1683` packages use the same model. Each package registers an
@@ -96,7 +95,9 @@ matrix.
 
 The standard selectors are `system`, `expansions`, `maintenance_apps`,
 `maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
-`python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
+`python`, `lua`, `writing`, and `utils`. The opt-in `experimental` selector
+contains dormant packages that are intentionally excluded from standard
+flavors. Maintenance jobs contain
 background logging and battery monitoring. Hardware jobs contain Bridge, DAQ,
 GPIO Keys, and SUMP for hardware diagnostics and hacking. The `writing` group contains
 Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
@@ -263,6 +264,43 @@ dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.
 
 ## Custom Flavor Example
+
+Use the host-side flavor configurator to create or modify a selection without
+editing TOML by hand:
+
+```sh
+python3 scripts/flavor_config.py
+```
+
+The TUI presents every package group as an expandable folder. Each folder shows
+its direct selectors followed by their complete dependency closure. Shared
+services can therefore appear under multiple relevant folders, with one
+synchronized checkbox state. Selecting a folder selects its direct members and
+automatically resolves every displayed dependency; an individual app, job,
+service, expansion, or driver can still be removed. `[+]` marks a package
+selected automatically as a dependency and `[!]` marks the immutable bootstrap
+closure.
+
+The top bar leads with the total estimated firmware image size as the selection
+changes. It also reports the optional-package contribution above the immutable
+bootstrap. When available, the estimate uses text and initialized-data sizes
+from cached PlatformIO objects and from the ESP-IDF component archives declared
+by package `requires` entries. Shared objects and components are counted once.
+The TUI automatically chooses the cached build with the broadest package
+coverage, or one can be selected explicitly:
+
+```sh
+python3 scripts/flavor_config.py \
+  --input flavors/core.toml \
+  --output flavors/my-flavor.toml \
+  --environment waveshare_esp32_s3_rlcd_4_2
+```
+
+If no suitable build object exists, the TUI uses a source-size fallback and
+identifies that model in its status line. All displayed values are estimates:
+board capability pruning, compiler options, transitive framework components,
+and linker garbage collection determine the final `firmware.bin` size. Build
+the saved flavor for the target board before relying on partition fit.
 
 This flavor adds only `curl` and the dependency closure needed by that app to
 the immutable bootstrap:
