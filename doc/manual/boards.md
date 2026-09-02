@@ -539,33 +539,29 @@ Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
 PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
 clamps all power profiles to that board-specific CPU floor on this target.
 
-Use the focused `rover-gameboy` flavor for Game Boy. It enables the `gameboy`
-group but leaves `invaders` out so the image fits the board's 4 MB flash. The
-default full PAL mode gives Game Boy the largest image:
+Use `os_builder` with the `rover` baseline to make a specialized Game Boy or
+Synth image. Add the required group, remove unrelated groups until the measured
+image fits, then build and flash from the same TUI:
 
 ```sh
-SOLAR_OS_FLAVOR=rover-gameboy pio run -e freenove_esp32_wrover_v3
+python3 scripts/os_builder.py \
+  --input flavors/rover.toml \
+  --board freenove_esp32_wrover_v3 \
+  --layout single
 ```
 
-The 320x200 safe-area mode also supports Game Boy; its presenter selects a
-smaller centered raster. For serial diagnostics, run:
+The default full PAL mode gives Game Boy the largest image. The 320x200
+safe-area mode also supports Game Boy; its presenter selects a smaller centered
+raster. For serial diagnostics, run:
 
 ```text
 job start log uart0 debug
 ```
 
-It is silent because composite scanout owns I2S0.
-
-For the focused Synth build, use:
-
-```sh
-SOLAR_OS_FLAVOR=rover-synth pio run -e freenove_esp32_wrover_v3
-```
-
-`rover-synth` keeps BLE and PS/2 keyboard input, MIDI, controls, storage, and
-basic file tools. It omits Wi-Fi/networking and unrelated application stacks
-to retain classic-ESP32 internal memory for Bluetooth and real-time audio.
-Attach an LEDC PWM audio output at runtime because PAL scanout owns I2S0:
+It is silent because composite scanout owns I2S0. For a custom Synth image,
+retain BLE, MIDI, controls, storage, basic file tools, Synth, and the PWM audio
+driver while removing unrelated stacks. Attach an LEDC PWM audio output at
+runtime because PAL scanout owns I2S0:
 
 ```text
 expansion attach audio-pwm audio pwm=gpio26
@@ -637,11 +633,15 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
-To include Game Boy instead, use the same compact game profile as the PAL
-target. It omits Invaders and unrelated application groups:
+To create a compact Game Boy or another specialized build, start from `rover`
+in `os_builder`, adjust the granular groups, and build against this board's
+single-image limit:
 
 ```sh
-SOLAR_OS_FLAVOR=rover-gameboy pio run -e ttgo_vga32_v14
+python3 scripts/os_builder.py \
+  --input flavors/rover.toml \
+  --board ttgo_vga32_v14 \
+  --layout single
 ```
 
 The board profile declares `ps2kbd0` and creates the default `keyboard0`

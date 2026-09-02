@@ -129,30 +129,14 @@ The `writerdeck` flavor targets the Elecrow e-paper board with the `reader`,
 tools. It excludes general utilities and hardware-diagnostics jobs to stay
 focused and fit the board's smaller OTA slot.
 
-The `rover`, `rover-python`, and `rover-lua` flavors target the Freenove
-ESP32-WROVER v3.0 composite-video terminal. All three include the expansion
-framework and drivers, networking, media viewing, general utilities, Files,
-the log job, Bridge, and the GPIO Keys job. The base `rover` flavor also
-includes the remaining writing applications. They omit the battery monitor
-because the board has no battery hardware, and omit the DAQ and SUMP jobs by
-default. The Logic app is also omitted because its timing-sensitive capture
-buffer requires more internal-memory margin than this configuration provides.
-`rover` has no embedded interpreter; `rover-python` and `rover-lua` omit
-Reader, Writer, and Notes, and add only their selected scripting stack. These
-three general-purpose images omit games. `rover-gameboy` is the focused PAL
-game image: it enables `gameboy` but leaves `invaders` out to fit the 4 MB
-board while retaining basic files, Wi-Fi, and SSH/SCP tools. Agent remains
-excluded because its runtime memory requirements exceed the practical
-internal-memory margin. The board's 4 MB flash uses one
-large factory application slot without OTA; these flavors also omit remote
-manual synchronization. The embedded `docs` application remains available.
-
-`rover-synth` is a focused classic-ESP32 synthesizer build. It retains BLE and
-PS/2 keyboard input, SD and basic file tools, controls, MIDI, and the LEDC PWM
-audio expansion while omitting Wi-Fi/networking, packet radio, media, games,
-scripting, and unrelated application groups. Composite video owns I2S0, so the
-on-board audio package remains disabled and Synth uses a runtime-attached PWM
-output. This smaller profile preserves Bluetooth controller memory headroom.
+The `rover` flavor targets the 4 MiB classic-ESP32 boards. It includes the
+expansion framework and drivers, networking, media viewing, writing and general
+utilities, Files, logging, Bridge, and GPIO Keys. It omits the battery monitor,
+DAQ, SUMP, Logic, games, scripting, Agent, and remote manual synchronization to
+fit the factory application slot and preserve internal-memory margin. The
+embedded `docs` application remains available. Specialized Rover images are
+created from this portable baseline with `os_builder` instead of being kept as
+separate checked-in `rover-*` flavors.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and

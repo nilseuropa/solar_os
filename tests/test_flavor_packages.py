@@ -26,17 +26,13 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog,
         )
 
-    def test_games_are_in_full_beta_and_rover_gameboy(self):
-        built_in_flavors = (
-            "beta", "core", "full", "netrunner", "rover-gameboy", "rover-lua",
-            "rover-python", "rover-synth", "rover", "writerdeck",
-        )
+    def test_games_are_only_in_full(self):
+        built_in_flavors = ("core", "full", "netrunner", "rover", "writerdeck")
         for flavor in built_in_flavors:
             _, _, groups, packages = self.resolve(flavor)
-            expected = flavor in {"full", "beta", "rover-gameboy"}
+            expected = flavor == "full"
             self.assertEqual(groups["gameboy"], expected, flavor)
-            invaders_expected = flavor in {"full", "beta"}
-            self.assertEqual(packages["app_invaders"], invaders_expected,
+            self.assertEqual(packages["app_invaders"], expected,
                              flavor)
             self.assertEqual(packages["app_gameboy"], expected,
                              flavor)
@@ -414,7 +410,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(pruned["job_espnow_link"])
 
     def test_standard_flavors_do_not_select_dormant_hid(self):
-        for flavor in ("full", "beta"):
+        for flavor in ("core", "full", "netrunner", "rover", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
             self.assertFalse(groups["usb_hid"], flavor)
             self.assertFalse(packages["service_hid"], flavor)
@@ -545,142 +541,38 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertTrue(classic["driver_audio_esp32_dac"])
 
-    def test_rover_flavors_share_an_expansion_capable_baseline(self):
+    def test_rover_is_an_expansion_capable_baseline(self):
         rover_name, _, rover_groups, rover_packages = self.resolve("rover")
-        python_name, _, python_groups, python_packages = self.resolve("rover-python")
-        lua_name, _, lua_groups, lua_packages = self.resolve("rover-lua")
 
         self.assertEqual(rover_name, "rover")
-        self.assertEqual(python_name, "rover-python")
-        self.assertEqual(lua_name, "rover-lua")
-        for groups in (rover_groups, python_groups, lua_groups):
-            self.assertTrue(groups["hardware_shell"])
-            self.assertTrue(groups["rfm69"])
-            self.assertTrue(groups["meshcore"])
-            self.assertFalse(groups["ota"])
-            self.assertTrue(groups["logging"])
-            self.assertTrue(groups["bridge"])
-            self.assertFalse(groups["audio_commands"])
-            self.assertFalse(groups["agent"])
-            self.assertTrue(groups["ssh"])
-            self.assertTrue(groups["image_viewer"])
-            self.assertTrue(groups["clock"])
+        self.assertTrue(rover_groups["hardware_shell"])
+        self.assertTrue(rover_groups["rfm69"])
+        self.assertTrue(rover_groups["meshcore"])
+        self.assertFalse(rover_groups["ota"])
+        self.assertTrue(rover_groups["logging"])
+        self.assertTrue(rover_groups["bridge"])
+        self.assertFalse(rover_groups["audio_commands"])
+        self.assertFalse(rover_groups["agent"])
+        self.assertTrue(rover_groups["ssh"])
+        self.assertTrue(rover_groups["image_viewer"])
+        self.assertTrue(rover_groups["clock"])
         self.assertTrue(rover_groups["writer"])
-        self.assertFalse(python_groups["writer"])
-        self.assertFalse(lua_groups["writer"])
-        for packages in (rover_packages, python_packages, lua_packages):
-            self.assertTrue(packages["service_expansion"])
-            self.assertTrue(packages["app_files"])
-            self.assertFalse(packages["service_ota"])
-            self.assertFalse(packages["service_docs"])
-            self.assertTrue(packages["job_log"])
-            self.assertTrue(packages["job_bridge"])
-            self.assertFalse(packages["job_batmon"])
-            self.assertFalse(packages["job_daq"])
-            self.assertFalse(packages["job_sump"])
-            self.assertFalse(packages["app_agent"])
-            self.assertFalse(packages["app_logic"])
-            for audio_app in (
-                "app_aplay",
-                "app_arecord",
-                "app_recorder",
-                "app_player",
-                "app_synth",
-                "app_funcgen",
-            ):
-                self.assertFalse(packages[audio_app], audio_app)
-
+        self.assertTrue(rover_packages["service_expansion"])
+        self.assertTrue(rover_packages["app_files"])
+        self.assertFalse(rover_packages["service_ota"])
+        self.assertFalse(rover_packages["service_docs"])
+        self.assertTrue(rover_packages["job_log"])
+        self.assertTrue(rover_packages["job_bridge"])
+        self.assertFalse(rover_packages["job_batmon"])
+        self.assertFalse(rover_packages["job_daq"])
+        self.assertFalse(rover_packages["job_sump"])
+        self.assertFalse(rover_packages["app_agent"])
+        self.assertFalse(rover_packages["app_logic"])
         self.assertFalse(rover_groups["gameboy"])
         self.assertFalse(rover_packages["app_invaders"])
         self.assertFalse(rover_packages["app_gameboy"])
         self.assertFalse(rover_packages["app_python"])
         self.assertFalse(rover_packages["app_lua"])
-        self.assertFalse(python_groups["gameboy"])
-        self.assertFalse(python_packages["app_invaders"])
-        self.assertTrue(python_groups["python"])
-        self.assertTrue(python_packages["app_python"])
-        self.assertFalse(python_packages["app_lua"])
-        self.assertFalse(lua_groups["gameboy"])
-        self.assertFalse(lua_packages["app_invaders"])
-        self.assertTrue(lua_groups["lua"])
-        self.assertTrue(lua_packages["app_lua"])
-        self.assertFalse(lua_packages["app_python"])
-
-        python_difference = {
-            package
-            for package in rover_packages
-            if rover_packages[package] != python_packages[package]
-        }
-        lua_difference = {
-            package
-            for package in rover_packages
-            if rover_packages[package] != lua_packages[package]
-        }
-        self.assertEqual(
-            python_difference,
-            {
-                "service_playground",
-                "service_script_net",
-                "service_script_runner",
-                "service_json",
-                "app_python",
-                "app_playground",
-                "app_reader",
-                "app_writer",
-                "app_notes",
-            },
-        )
-        self.assertEqual(
-            lua_difference,
-            {
-                "service_playground",
-                "service_script_net",
-                "service_script_runner",
-                "service_json",
-                "app_lua",
-                "app_playground",
-                "app_reader",
-                "app_writer",
-                "app_notes",
-            },
-        )
-
-    def test_rover_synth_is_a_focused_ble_audio_expansion_flavor(self):
-        name, _, groups, packages = self.resolve("rover-synth")
-
-        self.assertEqual(name, "rover-synth")
-        for group in (
-            "wifi", "ota", "agent", "image_viewer", "gameboy", "python", "lua",
-            "clock", "rfm69", "meshcore",
-        ):
-            self.assertFalse(groups[group], group)
-        self.assertTrue(groups["midi"])
-
-        for package in (
-            "system_shell",
-            "service_ble",
-            "service_sd",
-            "service_audio",
-            "service_synth",
-            "service_controls",
-            "job_controls",
-            "service_expansion",
-            "expansion_audio_pwm",
-            "app_synth",
-            "job_midi",
-            "job_log",
-        ):
-            self.assertTrue(packages[package], package)
-
-        for package in (
-            "service_wifi",
-            "service_radio",
-            "service_meshcore",
-            "app_funcgen",
-            "app_invaders",
-            "app_view",
-        ):
-            self.assertFalse(packages[package], package)
 
     def test_existing_flavors_preserve_hardware_job_selection(self):
         for flavor in ("core", "full", "netrunner"):
@@ -715,20 +607,6 @@ class FlavorPackagesTest(unittest.TestCase):
             {"gfx", "psram", "sd", "streaming_display"},
         )
         self.assertTrue(capable["app_gameboy"])
-
-    def test_rover_gameboy_is_focused_and_omits_invaders(self):
-        name, _, groups, packages = self.resolve("rover-gameboy")
-
-        self.assertEqual(name, "rover-gameboy")
-        self.assertTrue(groups["gameboy"])
-        self.assertTrue(packages["app_gameboy"])
-        self.assertFalse(packages["app_invaders"])
-        self.assertFalse(groups["image_viewer"])
-        self.assertFalse(groups["audio_commands"])
-        self.assertTrue(packages["service_wifi"])
-        self.assertTrue(packages["app_ssh"])
-        self.assertTrue(packages["app_scp"])
-
 
 if __name__ == "__main__":
     unittest.main()
