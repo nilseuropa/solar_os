@@ -793,7 +793,11 @@ def render_catalog(
         },
         "pages": catalog_pages,
     }
-    return json.dumps(catalog, indent=2, ensure_ascii=True) + "\n"
+    # This signed wire artifact is downloaded into a bounded device buffer.
+    # Keep it compact so formatting does not consume firmware-side headroom.
+    return json.dumps(
+        catalog, separators=(",", ":"), ensure_ascii=True
+    ) + "\n"
 
 
 def render_github_index(pages: list[dict[str, object]]) -> str:
