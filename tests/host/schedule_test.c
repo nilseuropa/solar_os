@@ -3,13 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
-#include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_rtc.h"
 #include "solar_os_schedule.h"
+#include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
 
@@ -20,7 +22,11 @@ static bool fake_rtc_available;
 static solar_os_rtc_alarm_t fake_rtc_alarm;
 static unsigned rtc_alarm_sets;
 static uint32_t fake_rtc_countdown_seconds;
-static unsigned nvs_writes;
+static unsigned storage_writes;
+
+#define TEST_STORAGE_ROOT "/tmp/solaros_schedule_test"
+#define TEST_SCHEDULE_DIR TEST_STORAGE_ROOT "/.solar"
+#define TEST_SCHEDULE_FILE TEST_SCHEDULE_DIR "/schedule.bin"
 
 const char *esp_err_to_name(esp_err_t err)
 {
@@ -64,37 +70,57 @@ void solar_os_memory_free(void *ptr)
     free(ptr);
 }
 
-esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
+bool solar_os_storage_flash_is_mounted(void) { return true; }
+const char *solar_os_storage_flash_mount_point(void) { return TEST_STORAGE_ROOT; }
+
+esp_err_t solar_os_storage_join_path(const char *base_path,
+                                     const char *relative_path,
+                                     char *path,
+                                     size_t path_len)
 {
-    (void)name;
-    (void)mode;
-    *handle = 1;
+    const int written = snprintf(path, path_len, "%s/%s", base_path, relative_path);
+    return written >= 0 && (size_t)written < path_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t solar_os_storage_mkdir(const char *path)
+{
+    return mkdir(path, 0777) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_remove(const char *path)
+{
+    return unlink(path) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_sync_file(FILE *file)
+{
+    return fflush(file) == 0 && fsync(fileno(file)) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t solar_os_storage_sibling_path(const char *path,
+                                        const char *suffix,
+                                        char *out,
+                                        size_t out_len)
+{
+    const int written = snprintf(out, out_len, "%s%s", path, suffix);
+    return written >= 0 && (size_t)written < out_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t solar_os_storage_replace_file(const char *staged_path,
+                                        const char *active_path,
+                                        const char *backup_path)
+{
+    (void)unlink(backup_path);
+    const bool had_active = access(active_path, F_OK) == 0;
+    if (had_active && rename(active_path, backup_path) != 0) return ESP_FAIL;
+    if (rename(staged_path, active_path) != 0) {
+        if (had_active) (void)rename(backup_path, active_path);
+        return ESP_FAIL;
+    }
+    if (had_active) (void)unlink(backup_path);
+    storage_writes++;
     return ESP_OK;
 }
-
-esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key,
-                       void *value, size_t *length)
-{
-    (void)handle;
-    (void)key;
-    (void)value;
-    (void)length;
-    return ESP_ERR_NVS_NOT_FOUND;
-}
-
-esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key,
-                       const void *value, size_t length)
-{
-    (void)handle;
-    (void)key;
-    (void)value;
-    (void)length;
-    nvs_writes++;
-    return ESP_OK;
-}
-
-esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return ESP_OK; }
-void nvs_close(nvs_handle_t handle) { (void)handle; }
 
 uint64_t solar_os_time_uptime_ms(void) { return fake_uptime_ms; }
 
@@ -223,8 +249,32 @@ static uint64_t utc_ms(int year, int month, int day, int hour, int minute, int s
     return (uint64_t)timegm(&tm) * 1000ULL;
 }
 
-int main(void)
+static void clean_test_storage(void)
 {
+    (void)unlink(TEST_SCHEDULE_FILE ".tmp");
+    (void)unlink(TEST_SCHEDULE_FILE ".bak");
+    (void)unlink(TEST_SCHEDULE_FILE);
+    (void)rmdir(TEST_SCHEDULE_DIR);
+    (void)rmdir(TEST_STORAGE_ROOT);
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 2 && strcmp(argv[1], "--reload") == 0) {
+        assert(solar_os_schedule_init() == ESP_OK);
+        assert(solar_os_schedule_count() == 3);
+        solar_os_schedule_entry_t entry;
+        assert(solar_os_schedule_get_by_name("hourly", &entry) == ESP_OK);
+        assert(!entry.enabled);
+        assert(solar_os_schedule_get_by_name("wake", &entry) == ESP_OK);
+        assert(!entry.enabled);
+        assert(solar_os_schedule_get_by_name("far", &entry) == ESP_OK);
+        assert(entry.enabled);
+        return 0;
+    }
+
+    clean_test_storage();
+    assert(mkdir(TEST_STORAGE_ROOT, 0777) == 0);
     assert(solar_os_schedule_init() == ESP_OK);
     assert(solar_os_schedule_count() == 0);
 
@@ -248,7 +298,8 @@ int main(void)
 
     assert(solar_os_schedule_add_interval("hourly", 3600,
         SOLAR_OS_SCHEDULE_ACTION_ALARM, NULL) == ESP_OK);
-    assert(nvs_writes == 1);
+    assert(storage_writes == 1);
+    assert(access(TEST_SCHEDULE_FILE, F_OK) == 0);
     assert(solar_os_schedule_set_enabled("hourly", false) == ESP_OK);
 
     fake_time_valid = true;
@@ -285,6 +336,13 @@ int main(void)
     solar_os_schedule_poll();
     assert(fake_rtc_countdown_seconds == 90);
 
+    char reload_command[512];
+    const int written = snprintf(reload_command, sizeof(reload_command),
+                                 "%s --reload", argv[0]);
+    assert(written > 0 && (size_t)written < sizeof(reload_command));
+    assert(system(reload_command) == 0);
+
+    clean_test_storage();
     puts("schedule tests passed");
     return 0;
 }

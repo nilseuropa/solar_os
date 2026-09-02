@@ -83,6 +83,7 @@
 #include "solar_os_meshcore_stream.h"
 #endif
 #include "solar_os_ramfs.h"
+#include "solar_os_schedule.h"
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
@@ -180,6 +181,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_BUSES,
     SHELL_COMPLETION_SOURCE_SPI_CS,
     SHELL_COMPLETION_SOURCE_STREAMS,
+    SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES,
     SHELL_COMPLETION_SOURCE_CONTROLS,
     SHELL_COMPLETION_SOURCE_PARAMETERS,
     SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
@@ -2232,6 +2234,12 @@ static const char * const path_rtc_alarm[] = {"rtc", "alarm"};
 static const char * const path_rtc_timer[] = {"rtc", "timer"};
 static const char * const path_schedule[] = {"schedule"};
 static const char * const path_schedule_add_name[] = {"schedule", "add", "*"};
+static const char * const path_schedule_show[] = {"schedule", "show"};
+static const char * const path_schedule_enable[] = {"schedule", "enable"};
+static const char * const path_schedule_disable[] = {"schedule", "disable"};
+static const char * const path_schedule_remove[] = {"schedule", "remove"};
+static const char * const path_schedule_run[] = {"schedule", "run"};
+static const char * const path_schedule_stop[] = {"schedule", "stop"};
 static const char * const path_battery[] = {"battery"};
 static const char * const path_battery_capacity[] = {"battery", "capacity"};
 static const char * const path_battery_min_voltage[] = {"battery", "min_voltage"};
@@ -2544,6 +2552,12 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .source = SHELL_COMPLETION_SOURCE_STREAMS, \
+    }
+#define SHELL_COMPLETION_SCHEDULE_ENTRIES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES, \
     }
 #define SHELL_COMPLETION_SCALAR_STREAMS(path_array) \
     { \
@@ -3131,6 +3145,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_rtc_timer, rtc_timer_subcommands),
     SHELL_COMPLETION_STATIC(path_schedule, schedule_subcommands),
     SHELL_COMPLETION_STATIC(path_schedule_add_name, schedule_kinds),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_show),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_enable),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_disable),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_remove),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_run),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_stop),
     SHELL_COMPLETION_STATIC(path_battery, battery_subcommands),
     SHELL_COMPLETION_STATIC(path_battery_capacity, battery_capacity_values),
     SHELL_COMPLETION_STATIC(path_battery_min_voltage, battery_min_voltage_values),
@@ -5303,6 +5323,18 @@ static void shell_completion_emit_jobs(shell_completion_match_t *state)
     }
 }
 
+static void shell_completion_emit_schedule_entries(
+    shell_completion_match_t *state)
+{
+    const size_t count = solar_os_schedule_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_schedule_entry_t entry;
+        if (solar_os_schedule_get(i, &entry)) {
+            shell_completion_emit(state, entry.name);
+        }
+    }
+}
+
 static void shell_completion_emit_agent_conversations(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_APP_AGENT
@@ -7420,6 +7452,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             shell_completion_emit_streams(
                 state,
                 (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_STREAMS) != 0U);
+            break;
+        case SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES:
+            shell_completion_emit_schedule_entries(state);
             break;
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
         case SHELL_COMPLETION_SOURCE_CONTROLS:

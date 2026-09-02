@@ -303,8 +303,9 @@ Direct alarm and timer controls are leased. If the scheduler or a script owns
 the requested hardware slot, the command reports the owner instead of replacing
 its wake-up configuration.
 
-`schedule` stores named alarms and script jobs. Durations accept `s`, `m`, `h`,
-or `d`; dates and times use configured local time.
+`schedule` stores named alarms and script jobs in the internal flash filesystem
+at `.solar/schedule.bin`. Updates replace the file atomically. Durations accept
+`s`, `m`, `h`, or `d`; dates and times use configured local time.
 
 ```text
 schedule list
@@ -318,7 +319,7 @@ schedule enable <name>
 schedule disable <name>
 schedule remove <name>
 schedule run <name>
-schedule stop
+schedule stop [name]
 ```
 
 Only one scheduled shell script runs at a time. A due script is skipped and its

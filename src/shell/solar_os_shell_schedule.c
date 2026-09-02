@@ -482,7 +482,15 @@ void solar_os_shell_cmd_schedule(solar_os_context_t *ctx, int argc, char **argv)
                                  err == ESP_OK ? " started" : " could not start");
         return;
     }
-    if (argc == 2 && strcmp(argv[1], "stop") == 0) {
+    if ((argc == 2 || argc == 3) && strcmp(argv[1], "stop") == 0) {
+        if (argc == 3) {
+            char active_name[SOLAR_OS_SCHEDULE_NAME_MAX];
+            if (!solar_os_schedule_alarm_active(active_name, sizeof(active_name)) ||
+                strcmp(active_name, argv[2]) != 0) {
+                solar_os_shell_io_printf(io, "schedule: %s is not ringing\n", argv[2]);
+                return;
+            }
+        }
         solar_os_schedule_stop_alarm();
         solar_os_shell_io_writeln(io, "schedule: alarm stopped");
         return;

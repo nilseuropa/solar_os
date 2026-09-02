@@ -1,27 +1,29 @@
 #include "solar_os_schedule.h"
 
+#include <errno.h>
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "nvs.h"
 #include "solar_os_config.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_rtc.h"
+#include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
 
-#define SCHEDULE_NVS_NAMESPACE "schedule"
-#define SCHEDULE_NVS_KEY "entries"
 #define SCHEDULE_STORE_MAGIC 0x53434844U
 #define SCHEDULE_STORE_VERSION 1U
+#define SCHEDULE_STORE_DIR ".solar"
+#define SCHEDULE_STORE_FILE ".solar/schedule.bin"
 #define SCHEDULE_RTC_OWNER "schedule"
 #define SCHEDULE_SCRIPT_STACK 6144U
 #define SCHEDULE_ALARM_TONE_INTERVAL_MS 1600U
@@ -49,6 +51,7 @@ typedef struct {
     uint64_t armed_countdown_uptime_ms;
     uint64_t attempted_countdown_uptime_ms;
     uint64_t countdown_attempt_ms;
+    char store_path[SOLAR_OS_STORAGE_PATH_MAX];
 } schedule_state_t;
 
 static schedule_state_t state;
@@ -100,8 +103,81 @@ static int entry_index_locked(const char *name)
     return -1;
 }
 
+static bool stored_entry_valid(const solar_os_schedule_entry_t *entry)
+{
+    if (entry == NULL || !entry->persistent || !name_valid(entry->name) ||
+        !action_valid(entry->action, entry->value) ||
+        entry->kind < SOLAR_OS_SCHEDULE_ONCE_RELATIVE ||
+        entry->kind > SOLAR_OS_SCHEDULE_WEEKLY) {
+        return false;
+    }
+    if ((entry->kind == SOLAR_OS_SCHEDULE_ONCE_RELATIVE ||
+         entry->kind == SOLAR_OS_SCHEDULE_INTERVAL) &&
+        entry->interval_seconds == 0U) {
+        return false;
+    }
+    if (entry->kind == SOLAR_OS_SCHEDULE_ONCE_CALENDAR &&
+        entry->at_utc_seconds == 0U) {
+        return false;
+    }
+    if ((entry->kind == SOLAR_OS_SCHEDULE_DAILY ||
+         entry->kind == SOLAR_OS_SCHEDULE_WEEKLY) &&
+        (entry->hour > 23U || entry->minute > 59U || entry->second > 59U)) {
+        return false;
+    }
+    return entry->kind != SOLAR_OS_SCHEDULE_WEEKLY ||
+        (entry->weekdays != 0U && (entry->weekdays & 0x80U) == 0U);
+}
+
+static bool store_valid(const schedule_store_t *store)
+{
+    if (store == NULL || store->magic != SCHEDULE_STORE_MAGIC ||
+        store->version != SCHEDULE_STORE_VERSION ||
+        store->count > SOLAR_OS_SCHEDULE_MAX_ENTRIES) {
+        return false;
+    }
+    for (size_t i = 0; i < store->count; i++) {
+        if (!stored_entry_valid(&store->entries[i])) {
+            return false;
+        }
+        for (size_t other = 0; other < i; other++) {
+            if (strcmp(store->entries[i].name, store->entries[other].name) == 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static esp_err_t prepare_store_path(void)
+{
+    if (!solar_os_storage_flash_is_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    char directory[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t err = solar_os_storage_join_path(
+        solar_os_storage_flash_mount_point(),
+        SCHEDULE_STORE_DIR,
+        directory,
+        sizeof(directory));
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (solar_os_storage_mkdir(directory) != ESP_OK && errno != EEXIST) {
+        return ESP_FAIL;
+    }
+    return solar_os_storage_join_path(
+        solar_os_storage_flash_mount_point(),
+        SCHEDULE_STORE_FILE,
+        state.store_path,
+        sizeof(state.store_path));
+}
+
 static esp_err_t save_locked(void)
 {
+    if (state.store_path[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
     schedule_store_t *store = solar_os_memory_calloc(
         1, sizeof(*store), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "schedule.store");
     if (store == NULL) {
@@ -118,40 +194,63 @@ static esp_err_t save_locked(void)
         store->entries[store->count - 1U].next_uptime_ms = 0;
     }
 
-    nvs_handle_t handle = 0;
-    esp_err_t err = nvs_open(SCHEDULE_NVS_NAMESPACE, NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        solar_os_memory_free(store);
-        return err;
-    }
-    err = nvs_set_blob(handle, SCHEDULE_NVS_KEY, store, sizeof(*store));
+    char staged_path[SOLAR_OS_STORAGE_PATH_MAX] = {0};
+    char backup_path[SOLAR_OS_STORAGE_PATH_MAX] = {0};
+    esp_err_t err = solar_os_storage_sibling_path(
+        state.store_path, ".tmp", staged_path, sizeof(staged_path));
     if (err == ESP_OK) {
-        err = nvs_commit(handle);
+        err = solar_os_storage_sibling_path(
+            state.store_path, ".bak", backup_path, sizeof(backup_path));
     }
-    nvs_close(handle);
+    if (err == ESP_OK) {
+        FILE *file = fopen(staged_path, "wb");
+        if (file == NULL) {
+            err = ESP_FAIL;
+        } else {
+            if (fwrite(store, sizeof(*store), 1U, file) != 1U) {
+                err = ESP_FAIL;
+            } else {
+                err = solar_os_storage_sync_file(file);
+            }
+            if (fclose(file) != 0 && err == ESP_OK) {
+                err = ESP_FAIL;
+            }
+        }
+    }
+    if (err == ESP_OK) {
+        err = solar_os_storage_replace_file(
+            staged_path, state.store_path, backup_path);
+    }
+    if (err != ESP_OK && staged_path[0] != '\0') {
+        (void)solar_os_storage_remove(staged_path);
+    }
     solar_os_memory_free(store);
     return err;
 }
 
 static void load_entries(void)
 {
-    nvs_handle_t handle = 0;
-    if (nvs_open(SCHEDULE_NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) {
+    if (state.store_path[0] == '\0') {
+        return;
+    }
+    FILE *file = fopen(state.store_path, "rb");
+    if (file == NULL) {
+        if (errno != ENOENT) {
+            SOLAR_OS_LOGW(TAG, "cannot open schedule store: %s", state.store_path);
+        }
         return;
     }
     schedule_store_t *store = solar_os_memory_calloc(
         1, sizeof(*store), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "schedule.load");
     if (store == NULL) {
-        nvs_close(handle);
+        fclose(file);
         return;
     }
-    size_t size = sizeof(*store);
-    const esp_err_t err = nvs_get_blob(handle, SCHEDULE_NVS_KEY, store, &size);
-    nvs_close(handle);
-    if (err != ESP_OK || size != sizeof(*store) ||
-        store->magic != SCHEDULE_STORE_MAGIC ||
-        store->version != SCHEDULE_STORE_VERSION ||
-        store->count > SOLAR_OS_SCHEDULE_MAX_ENTRIES) {
+    const bool loaded = fread(store, sizeof(*store), 1U, file) == 1U &&
+        fgetc(file) == EOF && store_valid(store);
+    fclose(file);
+    if (!loaded) {
+        SOLAR_OS_LOGW(TAG, "invalid schedule store ignored: %s", state.store_path);
         solar_os_memory_free(store);
         return;
     }
@@ -288,6 +387,10 @@ static esp_err_t add_entry(const solar_os_schedule_entry_t *entry)
     }
     schedule_entries[state.count++] = *entry;
     const esp_err_t err = entry->persistent ? save_locked() : ESP_OK;
+    if (err != ESP_OK) {
+        state.count--;
+        memset(&schedule_entries[state.count], 0, sizeof(schedule_entries[0]));
+    }
     schedule_unlock();
     return err;
 }
@@ -302,7 +405,13 @@ esp_err_t solar_os_schedule_init(void)
     if (state.mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    load_entries();
+    const esp_err_t store_err = prepare_store_path();
+    if (store_err == ESP_OK) {
+        load_entries();
+    } else {
+        SOLAR_OS_LOGW(TAG, "schedule persistence unavailable: %s",
+                      esp_err_to_name(store_err));
+    }
     const uint64_t now_ms = solar_os_time_uptime_ms();
     for (size_t i = 0; i < state.count; i++) {
         if (schedule_entries[i].kind == SOLAR_OS_SCHEDULE_INTERVAL) {
@@ -810,11 +919,19 @@ esp_err_t solar_os_schedule_remove(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     const bool persistent = schedule_entries[index].persistent;
+    const solar_os_schedule_entry_t removed = schedule_entries[index];
     for (size_t i = (size_t)index + 1U; i < state.count; i++) {
         schedule_entries[i - 1U] = schedule_entries[i];
     }
     state.count--;
     const esp_err_t err = persistent ? save_locked() : ESP_OK;
+    if (err != ESP_OK) {
+        for (size_t i = state.count; i > (size_t)index; i--) {
+            schedule_entries[i] = schedule_entries[i - 1U];
+        }
+        schedule_entries[index] = removed;
+        state.count++;
+    }
     schedule_unlock();
     return err;
 }
@@ -830,14 +947,19 @@ esp_err_t solar_os_schedule_set_enabled(const char *name, bool enabled)
         schedule_unlock();
         return ESP_ERR_NOT_FOUND;
     }
-    schedule_entries[index].enabled = enabled;
-    schedule_entries[index].next_utc_seconds = 0;
+    solar_os_schedule_entry_t *entry = &schedule_entries[index];
+    const solar_os_schedule_entry_t previous = *entry;
+    entry->enabled = enabled;
+    entry->next_utc_seconds = 0;
     if (enabled && (schedule_entries[index].kind == SOLAR_OS_SCHEDULE_INTERVAL ||
                     schedule_entries[index].kind == SOLAR_OS_SCHEDULE_ONCE_RELATIVE)) {
-        schedule_entries[index].next_uptime_ms = solar_os_time_uptime_ms() +
-            (uint64_t)schedule_entries[index].interval_seconds * 1000ULL;
+        entry->next_uptime_ms = solar_os_time_uptime_ms() +
+            (uint64_t)entry->interval_seconds * 1000ULL;
     }
-    const esp_err_t err = schedule_entries[index].persistent ? save_locked() : ESP_OK;
+    const esp_err_t err = entry->persistent ? save_locked() : ESP_OK;
+    if (err != ESP_OK) {
+        *entry = previous;
+    }
     schedule_unlock();
     return err;
 }

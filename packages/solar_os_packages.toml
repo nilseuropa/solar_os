@@ -1472,7 +1472,6 @@ sources = ["services/solar_os_rtc.c"]
 label = "service.schedule"
 depends = ["service_rtc"]
 sources = ["services/solar_os_schedule.c"]
-requires = ["nvs_flash"]
 
 [packages.service_sensors]
 label = "service.sensors"
