@@ -409,7 +409,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"status", "show system status", solar_os_shell_cmd_status},
     {"uptime", "show time since boot", solar_os_shell_cmd_uptime},
     {"mem", "show free memory", solar_os_shell_cmd_mem},
-    {"nvs", "inspect, back up, restore, or clear persistent settings", solar_os_shell_cmd_nvs},
+    {"nvs", "inspect or erase persistent settings", solar_os_shell_cmd_nvs},
     {"ramfs", "PSRAM-backed volatile filesystem", solar_os_shell_cmd_ramfs},
     {"stream", "list data streams", solar_os_shell_cmd_stream},
 #if SOLAR_OS_PACKAGE_JOB_DAQ
@@ -634,7 +634,7 @@ static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
 static const char * const mem_subcommands[] = {"policy"};
 static const char * const nvs_subcommands[] = {
-    "status", "backup", "restore", "clear",
+    "status", "list", "erase", "backup", "restore", "clear",
 };
 static const char * const identity_subcommands[] = {"status", "user", "hostname"};
 

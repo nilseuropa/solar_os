@@ -35,7 +35,7 @@ static const char * const power_commands[] = {
     "status", "profile", "idle", "key", "sleep", "suspend",
 };
 static const char * const nvs_commands[] = {
-    "status", "backup", "restore", "clear",
+    "status", "list", "erase", "backup", "restore", "clear",
 };
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_commands[] = {"status", "list", "reset"};
@@ -865,6 +865,303 @@ void solar_os_shell_cmd_uptime(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_printf(term, "up %s\n", uptime);
 }
 
+typedef struct {
+    char name[NVS_NS_NAME_MAX_SIZE];
+    size_t key_count;
+    size_t used_entries;
+    bool usage_valid;
+} nvs_namespace_summary_t;
+
+static const char *nvs_type_name(nvs_type_t type)
+{
+    switch (type) {
+    case NVS_TYPE_U8: return "u8";
+    case NVS_TYPE_I8: return "i8";
+    case NVS_TYPE_U16: return "u16";
+    case NVS_TYPE_I16: return "i16";
+    case NVS_TYPE_U32: return "u32";
+    case NVS_TYPE_I32: return "i32";
+    case NVS_TYPE_U64: return "u64";
+    case NVS_TYPE_I64: return "i64";
+    case NVS_TYPE_STR: return "string";
+    case NVS_TYPE_BLOB: return "blob";
+    default: return "unknown";
+    }
+}
+
+static size_t nvs_scalar_size(nvs_type_t type)
+{
+    switch (type) {
+    case NVS_TYPE_U8:
+    case NVS_TYPE_I8:
+        return 1U;
+    case NVS_TYPE_U16:
+    case NVS_TYPE_I16:
+        return 2U;
+    case NVS_TYPE_U32:
+    case NVS_TYPE_I32:
+        return 4U;
+    case NVS_TYPE_U64:
+    case NVS_TYPE_I64:
+        return 8U;
+    default:
+        return 0U;
+    }
+}
+
+static esp_err_t nvs_value_size(nvs_handle_t handle,
+                                const nvs_entry_info_t *info,
+                                size_t *size)
+{
+    *size = nvs_scalar_size(info->type);
+    if (*size != 0U) {
+        return ESP_OK;
+    }
+    if (info->type == NVS_TYPE_STR) {
+        return nvs_get_str(handle, info->key, NULL, size);
+    }
+    if (info->type == NVS_TYPE_BLOB) {
+        return nvs_get_blob(handle, info->key, NULL, size);
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static size_t nvs_value_entries(nvs_type_t type, size_t size)
+{
+    if (type == NVS_TYPE_BLOB) {
+        return 2U + (size + 31U) / 32U;
+    }
+    if (type == NVS_TYPE_STR) {
+        return 1U + (size + 31U) / 32U;
+    }
+    return nvs_scalar_size(type) != 0U ? 1U : 0U;
+}
+
+static int nvs_namespace_compare(const void *left, const void *right)
+{
+    const nvs_namespace_summary_t *a = left;
+    const nvs_namespace_summary_t *b = right;
+    return strcmp(a->name, b->name);
+}
+
+static void nvs_list_namespaces(solar_os_shell_io_t *term)
+{
+    nvs_stats_t stats;
+    esp_err_t error = nvs_get_stats(NULL, &stats);
+    if (error != ESP_OK) {
+        solar_os_shell_io_printf(term, "nvs list: %s\n",
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+    if (stats.namespace_count == 0U) {
+        solar_os_shell_io_writeln(term, "nvs: no namespaces");
+        return;
+    }
+
+    nvs_namespace_summary_t *summaries = solar_os_memory_calloc(
+        stats.namespace_count,
+        sizeof(*summaries),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "nvs.list");
+    if (summaries == NULL) {
+        solar_os_shell_io_writeln(term, "nvs list: out of memory");
+        return;
+    }
+
+    size_t count = 0;
+    nvs_iterator_t iterator = NULL;
+    error = nvs_entry_find(NVS_DEFAULT_PART_NAME, NULL, NVS_TYPE_ANY,
+                           &iterator);
+    while (error == ESP_OK) {
+        nvs_entry_info_t info;
+        error = nvs_entry_info(iterator, &info);
+        if (error != ESP_OK) {
+            break;
+        }
+        size_t index = 0;
+        while (index < count &&
+               strcmp(summaries[index].name, info.namespace_name) != 0) {
+            index++;
+        }
+        if (index == count && count < stats.namespace_count) {
+            strlcpy(summaries[count].name,
+                    info.namespace_name,
+                    sizeof(summaries[count].name));
+            count++;
+        }
+        if (index < count) {
+            summaries[index].key_count++;
+        }
+        error = nvs_entry_next(&iterator);
+    }
+    nvs_release_iterator(iterator);
+    if (error != ESP_ERR_NVS_NOT_FOUND) {
+        solar_os_memory_free(summaries);
+        solar_os_shell_io_printf(term, "nvs list: %s\n",
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        nvs_handle_t handle = 0;
+        if (nvs_open(summaries[i].name, NVS_READONLY, &handle) == ESP_OK) {
+            size_t used = 0;
+            if (nvs_get_used_entry_count(handle, &used) == ESP_OK) {
+                summaries[i].used_entries = used + 1U;
+                summaries[i].usage_valid = true;
+            }
+            nvs_close(handle);
+        }
+    }
+    qsort(summaries, count, sizeof(*summaries), nvs_namespace_compare);
+
+    solar_os_shell_io_writeln(term, "Namespace        Keys Entries");
+    for (size_t i = 0; i < count; i++) {
+        if (summaries[i].usage_valid) {
+            solar_os_shell_io_printf(term, "%-15s %4u %7u\n",
+                                     summaries[i].name,
+                                     (unsigned)summaries[i].key_count,
+                                     (unsigned)summaries[i].used_entries);
+        } else {
+            solar_os_shell_io_printf(term, "%-15s %4u       ?\n",
+                                     summaries[i].name,
+                                     (unsigned)summaries[i].key_count);
+        }
+    }
+    solar_os_shell_io_printf(term,
+                             "%u non-empty namespaces listed; NVS reports %u total\n",
+                             (unsigned)count,
+                             (unsigned)stats.namespace_count);
+    solar_os_memory_free(summaries);
+}
+
+static void nvs_list_namespace(solar_os_shell_io_t *term,
+                               const char *namespace_name)
+{
+    nvs_handle_t handle = 0;
+    esp_err_t error = nvs_open(namespace_name, NVS_READONLY, &handle);
+    if (error != ESP_OK) {
+        solar_os_shell_io_printf(term, "nvs list: %s: %s\n",
+                                 namespace_name,
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+
+    size_t used = 0;
+    const bool usage_valid = nvs_get_used_entry_count(handle, &used) == ESP_OK;
+    solar_os_shell_io_writeln(term, "Key             Type      Bytes Entries");
+    size_t key_count = 0;
+    nvs_iterator_t iterator = NULL;
+    error = nvs_entry_find(NVS_DEFAULT_PART_NAME,
+                           namespace_name,
+                           NVS_TYPE_ANY,
+                           &iterator);
+    while (error == ESP_OK) {
+        nvs_entry_info_t info;
+        error = nvs_entry_info(iterator, &info);
+        if (error != ESP_OK) {
+            break;
+        }
+        size_t size = 0;
+        const esp_err_t size_error = nvs_value_size(handle, &info, &size);
+        const size_t entries = size_error == ESP_OK ?
+            nvs_value_entries(info.type, size) : 0U;
+        if (size_error == ESP_OK) {
+            solar_os_shell_io_printf(term, "%-15s %-8s %6u %7u\n",
+                                     info.key,
+                                     nvs_type_name(info.type),
+                                     (unsigned)size,
+                                     (unsigned)entries);
+        } else {
+            solar_os_shell_io_printf(term, "%-15s %-8s      ?       ?\n",
+                                     info.key,
+                                     nvs_type_name(info.type));
+        }
+        key_count++;
+        error = nvs_entry_next(&iterator);
+    }
+    nvs_release_iterator(iterator);
+    nvs_close(handle);
+
+    if (error != ESP_ERR_NVS_NOT_FOUND) {
+        solar_os_shell_io_printf(term, "nvs list: %s: %s\n",
+                                 namespace_name,
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+    if (usage_valid) {
+        solar_os_shell_io_printf(term,
+                                 "%s: %u keys, %u entries including namespace\n",
+                                 namespace_name,
+                                 (unsigned)key_count,
+                                 (unsigned)(used + 1U));
+    } else {
+        solar_os_shell_io_printf(term, "%s: %u keys\n",
+                                 namespace_name, (unsigned)key_count);
+    }
+}
+
+static void nvs_erase_selection(solar_os_context_t *ctx,
+                                solar_os_shell_io_t *term,
+                                const char *namespace_name,
+                                const char *key)
+{
+    nvs_handle_t handle = 0;
+    esp_err_t error = nvs_open(namespace_name, NVS_READONLY, &handle);
+    if (error != ESP_OK) {
+        solar_os_shell_io_printf(term, "nvs erase: %s: %s\n",
+                                 namespace_name,
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+    if (key != NULL) {
+        nvs_type_t type;
+        error = nvs_find_key(handle, key, &type);
+    }
+    nvs_close(handle);
+    if (error != ESP_OK) {
+        solar_os_shell_io_printf(term, "nvs erase: %s%s%s: %s\n",
+                                 namespace_name,
+                                 key != NULL ? "/" : "",
+                                 key != NULL ? key : "",
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+
+    error = nvs_open(namespace_name, NVS_READWRITE, &handle);
+    if (error == ESP_OK) {
+        error = key != NULL ? nvs_erase_key(handle, key) : nvs_erase_all(handle);
+    }
+    if (error == ESP_OK) {
+        error = nvs_commit(handle);
+    }
+    if (handle != 0) {
+        nvs_close(handle);
+    }
+    if (error != ESP_OK) {
+        solar_os_shell_io_printf(term, "nvs erase: %s%s%s: %s\n",
+                                 namespace_name,
+                                 key != NULL ? "/" : "",
+                                 key != NULL ? key : "",
+                                 solar_os_shell_error_text(error));
+        return;
+    }
+
+    if (key != NULL) {
+        solar_os_shell_io_printf(term,
+                                 "NVS key %s/%s erased; rebooting\n",
+                                 namespace_name, key);
+    } else {
+        solar_os_shell_io_printf(
+            term,
+            "NVS namespace %s cleared; its namespace record remains; rebooting\n",
+            namespace_name);
+    }
+    solar_os_shell_io_flush(term);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    solar_os_context_reboot(ctx, "NVS selection erased");
+}
+
 void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -875,9 +1172,41 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
             "nvs",
             argc,
             argv,
-            "nvs status|backup [file]|restore [file]|clear",
+            "nvs status|list [namespace]|erase <namespace> [key]|backup [file]|restore [file]|clear",
             nvs_commands,
             sizeof(nvs_commands) / sizeof(nvs_commands[0]));
+        return;
+    }
+
+    if (strcmp(argv[1], "list") == 0) {
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "nvs list",
+                                           argv[3],
+                                           "nvs list [namespace]");
+            return;
+        }
+        if (argc == 3) {
+            nvs_list_namespace(term, argv[2]);
+        } else {
+            nvs_list_namespaces(term);
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "erase") == 0) {
+        if (argc < 3) {
+            solar_os_shell_io_writeln(
+                term, "usage: nvs erase <namespace> [key]");
+            return;
+        }
+        if (argc > 4) {
+            solar_os_shell_diag_unexpected(
+                term, "nvs erase", argv[4],
+                "nvs erase <namespace> [key]");
+            return;
+        }
+        nvs_erase_selection(ctx, term, argv[2], argc == 4 ? argv[3] : NULL);
         return;
     }
 
@@ -1006,7 +1335,7 @@ void solar_os_shell_cmd_nvs(solar_os_context_t *ctx, int argc, char **argv)
             "nvs",
             argc,
             argv,
-            "nvs status|backup [file]|restore [file]|clear",
+            "nvs status|list [namespace]|erase <namespace> [key]|backup [file]|restore [file]|clear",
             nvs_commands,
             sizeof(nvs_commands) / sizeof(nvs_commands[0]));
         return;

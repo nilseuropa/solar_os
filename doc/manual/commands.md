@@ -97,6 +97,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
 | `nvs` | `nvs status` | Show the default NVS partition size, entry usage, and namespace count. |
+| `nvs` | `nvs list [namespace]` | List non-empty namespaces and their entry usage, or list one namespace's keys, types, sizes, and storage cost. Values are never displayed. |
+| `nvs` | `nvs erase <namespace> [key]` | Erase one key or all data in one namespace, then reboot. |
 | `nvs` | `nvs backup [file]` | Back up the complete NVS partition to disk. The default is `/.solar/nvs.bin`. |
 | `nvs` | `nvs restore [file]` | Validate and restore a complete NVS backup, then reboot. The default is `/.solar/nvs.bin`. |
 | `nvs` | `nvs clear` | Erase all NVS-backed settings and reboot immediately. |
@@ -147,6 +149,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 `nvs status` distinguishes raw free entries from entries currently available
 for new data; use the available count when diagnosing a failed NVS write.
+`nvs list` does not display values, so credentials and other secrets are not
+printed. Namespace entry totals include the namespace record itself. Clearing a
+namespace removes all of its keys, but ESP-IDF retains its one-entry namespace
+record. `nvs erase` reboots after a successful change because running services
+can cache NVS-backed settings. Use `nvs backup` before erasing unfamiliar
+namespaces or keys.
 `nvs backup` writes a versioned, CRC-protected image of the complete default NVS
 partition. The file contains unencrypted credentials and settings, so protect
 it like a password. `nvs restore` accepts only a complete backup for the current
