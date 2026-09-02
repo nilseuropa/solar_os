@@ -27,6 +27,9 @@ class PackageDef:
 
 @dataclass(frozen=True)
 class GroupDef:
+    label: str
+    category: str
+    hidden: bool
     immutable: bool
     members: tuple[str, ...]
     triggers: tuple[str, ...]
@@ -219,9 +222,12 @@ def load_catalog(path: Path) -> PackageCatalog:
             raise ValueError(
                 f"groups.{name} cannot own sources or requirements; assign them to packages")
         group_defs[name] = GroupDef(
+            label=str(raw.get("label") or name.replace("_", " ").title()),
+            category=str(raw.get("category") or "Other"),
+            hidden=bool(raw.get("hidden", False)),
             immutable=bool(raw.get("immutable", False)),
             members=members,
-            triggers=triggers,
+            triggers=triggers or members,
             capabilities=normalize_capability_tuple(
                 string_tuple(raw.get("capabilities"), f"groups.{name}.capabilities")),
             any_capabilities=normalize_capability_tuple(
@@ -264,7 +270,7 @@ def load_flavor(path: Path,
         data = tomllib.load(file)
 
     flavor = data.get("flavor", {})
-    package_groups = data.get("package_groups", {})
+    package_groups = data.get("groups", data.get("package_groups", {}))
     packages = data.get("packages", {})
     name = str(flavor.get("name") or path.stem)
     description = str(flavor.get("description") or "")
@@ -273,6 +279,8 @@ def load_flavor(path: Path,
     packages_enabled = {package: False for package in catalog.packages}
     package_overrides: dict[str, bool] = {}
 
+    if not isinstance(package_groups, dict):
+        raise ValueError("flavor groups must be a TOML table")
     unknown_groups = sorted(set(package_groups) - set(catalog.groups))
     if unknown_groups:
         raise ValueError(f"unknown package group key(s): {', '.join(unknown_groups)}")
@@ -367,6 +375,17 @@ def enable_required_packages(catalog: PackageCatalog,
         result[package] = True
         pending.extend(catalog.package_defs[package].depends)
     return result
+
+
+def apply_update_layout(catalog: PackageCatalog,
+                        packages_enabled: dict[str, bool],
+                        layout: str) -> dict[str, bool]:
+    """Add packages inherent to the physical update layout."""
+    if layout not in {"ota", "single"}:
+        raise ValueError(f"unknown update layout: {layout}")
+    if layout == "single":
+        return dict(packages_enabled)
+    return enable_required_packages(catalog, packages_enabled, {"service_ota"})
 
 
 def apply_board_capability_pruning(catalog: PackageCatalog,
@@ -588,6 +607,7 @@ def main() -> int:
     parser.add_argument("--packages", default=DEFAULT_PACKAGE_CATALOG, type=Path)
     parser.add_argument("--board-capabilities", default="")
     parser.add_argument("--board-required-packages", default="")
+    parser.add_argument("--layout", choices=("ota", "single"), default="ota")
     parser.add_argument("--target", required=True)
     parser.add_argument("--header", required=True, type=Path)
     parser.add_argument("--cmake", required=True, type=Path)
@@ -602,6 +622,7 @@ def main() -> int:
             packages_enabled,
             required_packages,
         )
+        packages_enabled = apply_update_layout(catalog, packages_enabled, args.layout)
         packages_enabled = apply_target_pruning(
             catalog,
             packages_enabled,

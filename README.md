@@ -44,6 +44,12 @@ SOLAR_OS_VGA_MODE=320x200 pio run -e ttgo_vga32_v14
 SOLAR_OS_VGA_MODE=320x240 pio run -e ttgo_vga32_v14
 ```
 
+For an interactive board, update-layout, group, build, and flash workflow, run:
+
+```sh
+python3 scripts/os_builder.py
+```
+
 The VGA32 target supports build-time `640x480` (default), `640x400`, `320x240`,
 and `320x200` VGA modes through `SOLAR_OS_VGA_MODE`.
 

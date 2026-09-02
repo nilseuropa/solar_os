@@ -2,50 +2,31 @@
 name = "rover-synth"
 description = "Focused SolarOS Rover synthesizer terminal."
 
-[packages]
-system = false
-expansions = false
-maintenance_apps = false
-maintenance_jobs = false
-hardware_jobs = false
-audio = false
-net = false
-agent = false
-media = false
-games = false
-python = false
-lua = false
-writing = false
-utils = false
-
+[groups]
 # Keep this profile small enough for the classic ESP32 Bluetooth controller
 # and PAL scanout. Audio comes from an attached LEDC PWM expansion because
 # composite video owns I2S0 on the Rover board.
-system_shell = true
-service_ble = true
-service_sd = true
-service_audio = true
-service_synth = true
-service_controls = true
-job_controls = true
-service_resources = true
-service_gpio = true
-service_i2c = true
-service_spi = true
-service_uart = true
-service_adc = true
-service_pwm = true
-service_expansion = true
-expansion_audio_pwm = true
-core_fs_commands = true
-app_synth = true
-app_docs = true
-app_edit = true
-app_less = true
-app_com = true
-app_files = true
-app_io = true
-job_midi = true
-job_log = true
-job_gpio_keys = true
-job_ps2_keyboard = true
+hardware_shell = true
+filesystem = true
+bluetooth = true
+sd_storage = true
+audio_support = true
+control_bindings = true
+gpio = true
+i2c = true
+spi = true
+uart = true
+adc = true
+pwm = true
+logging = true
+embedded_docs = true
+serial_terminal = true
+editor = true
+pager = true
+files = true
+io = true
+gpio_keys = true
+ps2_keyboard = true
+midi = true
+synth = true
+audio_pwm = true

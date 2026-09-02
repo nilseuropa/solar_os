@@ -924,7 +924,7 @@ Controls:
 
 ## gameboy
 
-Original Game Boy (DMG) emulator included in the `games` group on boards with
+Original Game Boy (DMG) emulator selected by the `gameboy` group on boards with
 PSRAM, SD storage, graphics, and a streaming display. Current integrated
 targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO
 VGA32. The application loads a user-supplied ROM into PSRAM and writes

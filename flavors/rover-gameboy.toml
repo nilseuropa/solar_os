@@ -2,37 +2,36 @@
 name = "rover-gameboy"
 description = "Focused SolarOS Rover Game Boy terminal."
 
-[packages]
-system = true
-expansions = false
-maintenance_apps = false
-maintenance_jobs = false
-hardware_jobs = false
-audio = false
-net = false
-agent = false
-media = false
-games = true
-python = false
-lua = false
-writing = false
-utils = false
-
+[groups]
 # PAL scanout owns I2S0, so Game Boy audio remains off. Keep the focused Wi-Fi
 # and SSH/SCP client stack while leaving Invaders out of this single-game image.
-service_wifi = true
-service_synth = false
-core_fs_commands = true
-app_docs = true
-app_edit = true
-app_less = true
-app_com = true
-app_files = true
-app_io = true
-app_ssh = true
-app_scp = true
-app_invaders = false
-job_log = true
-job_bridge = true
-job_gpio_keys = true
-job_ps2_keyboard = true
+hardware_shell = true
+filesystem = true
+wifi = true
+bluetooth = true
+sd_storage = true
+audio_support = true
+control_bindings = true
+signal_processing = true
+vector_math = true
+gpio = true
+onewire = true
+i2c = true
+spi = true
+uart = true
+adc = true
+pwm = true
+board_buttons = true
+adc_dpad = true
+logging = true
+embedded_docs = true
+serial_terminal = true
+editor = true
+pager = true
+files = true
+io = true
+bridge = true
+gpio_keys = true
+ps2_keyboard = true
+ssh = true
+gameboy = true
