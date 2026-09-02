@@ -47,7 +47,7 @@ class AgentReferenceTest(unittest.TestCase):
             descriptor,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 40)
+        self.assertEqual(len(modules), 42)
 
         for language in ("python", "lua"):
             page = self.pages_by_id[language]
@@ -76,6 +76,8 @@ class AgentReferenceTest(unittest.TestCase):
         self.assertIn("python.solaros-ftp", python_topics)
         self.assertIn("python.solaros-net", python_topics)
         self.assertIn("python.solaros-input", python_topics)
+        self.assertIn("python.solaros-rtc", python_topics)
+        self.assertIn("python.solaros-schedule", python_topics)
         self.assertIn("lua.http-requests", lua_topics)
         self.assertIn("lua.ftp-operations", lua_topics)
         self.assertIn("lua.managed-tcp-udp-and-websocket-clients", lua_topics)

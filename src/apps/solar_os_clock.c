@@ -7,23 +7,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "esp_timer.h"
-#include "solar_os_config.h"
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-#include "solar_os_audio.h"
-#endif
-#include "solar_os_ble_keyboard.h"
 #include "solar_os_gfx.h"
-#include "solar_os_log.h"
-#include "solar_os_task.h"
+#include "solar_os_keys.h"
+#include "solar_os_schedule.h"
 #include "solar_os_time.h"
 
-#define CLOCK_ALARM_SOUND_TASK_STACK 4096
-#define CLOCK_ALARM_SOUND_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
-SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(CLOCK_ALARM_SOUND_TASK_STACK);
 #define CLOCK_DISPLAY_MAX_MINUTES 99U
+#define CLOCK_TRANSIENT_SCHEDULE "_clock"
 
 typedef enum {
     CLOCK_MODE_TIME,
@@ -35,18 +26,13 @@ typedef struct {
     uint32_t last_second;
     clock_mode_t mode;
     uint32_t alarm_total_seconds;
-    uint32_t alarm_start_ms;
-    bool alarm_done;
-    volatile bool alarm_sound_stop_requested;
-    volatile bool alarm_sound_running;
-    TaskHandle_t alarm_sound_task;
+    bool alarm_schedule_created;
     bool suspended;
     bool stopwatch_running;
     uint32_t stopwatch_accum_ms;
     uint32_t stopwatch_start_ms;
 } clock_state_t;
 
-static const char *TAG = "solar_os_clock";
 static void *clock_state_storage;
 #define clock_state (*(clock_state_t *)clock_state_storage)
 
@@ -385,11 +371,11 @@ static uint32_t clock_stopwatch_elapsed_ms(uint32_t now_ms)
 
 static uint32_t clock_alarm_remaining_seconds(uint32_t now_ms)
 {
-    const uint32_t elapsed_seconds = (now_ms - clock_state.alarm_start_ms) / 1000U;
-    if (elapsed_seconds >= clock_state.alarm_total_seconds) {
-        return 0;
-    }
-    return clock_state.alarm_total_seconds - elapsed_seconds;
+    (void)now_ms;
+    uint32_t remaining = 0;
+    return solar_os_schedule_remaining_seconds(CLOCK_TRANSIENT_SCHEDULE,
+                                               &remaining) == ESP_OK ?
+        remaining : 0;
 }
 
 static void clock_render_mmss(solar_os_context_t *ctx, uint32_t total_seconds, bool colon_active)
@@ -516,79 +502,6 @@ static bool clock_parse_args(solar_os_context_t *ctx)
     return false;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
-static void clock_alarm_sound_task(void *arg)
-{
-    (void)arg;
-
-    clock_state.alarm_sound_running = true;
-    bool sound_available = true;
-
-    while (!clock_state.alarm_sound_stop_requested) {
-        if (sound_available) {
-            for (int i = 0; i < 4 && !clock_state.alarm_sound_stop_requested; i++) {
-                const esp_err_t err = solar_os_audio_play_tone(1200,
-                                                               70,
-                                                               SOLAR_OS_AUDIO_VOLUME_GLOBAL);
-                if (err != ESP_OK) {
-                    sound_available = false;
-                    SOLAR_OS_LOGW(TAG, "alarm sound unavailable: %s", esp_err_to_name(err));
-                    break;
-                }
-                vTaskDelay(pdMS_TO_TICKS(45));
-            }
-        }
-
-        for (int i = 0; i < 10 && !clock_state.alarm_sound_stop_requested; i++) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-    }
-
-    clock_state.alarm_sound_running = false;
-    clock_state.alarm_sound_task = NULL;
-    solar_os_task_delete_internal(NULL);
-}
-
-static void clock_alarm_sound_start(void)
-{
-    if (clock_state.alarm_sound_task != NULL || clock_state.alarm_sound_running) {
-        return;
-    }
-
-    clock_state.alarm_sound_stop_requested = false;
-    if (solar_os_task_create_pinned_internal(
-            clock_alarm_sound_task,
-            "clock_alarm",
-            CLOCK_ALARM_SOUND_TASK_STACK,
-            NULL,
-            CLOCK_ALARM_SOUND_TASK_PRIORITY,
-            &clock_state.alarm_sound_task,
-            tskNO_AFFINITY,
-            SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
-        clock_state.alarm_sound_task = NULL;
-        SOLAR_OS_LOGW(TAG, "alarm sound task allocation failed");
-    }
-}
-
-static void clock_alarm_sound_stop(void)
-{
-    clock_state.alarm_sound_stop_requested = true;
-    for (uint32_t i = 0; i < 40 &&
-         (clock_state.alarm_sound_task != NULL || clock_state.alarm_sound_running); i++) {
-        vTaskDelay(pdMS_TO_TICKS(25));
-    }
-}
-#else
-static void clock_alarm_sound_start(void)
-{
-}
-
-static void clock_alarm_sound_stop(void)
-{
-    clock_state.alarm_sound_stop_requested = true;
-}
-#endif
-
 static esp_err_t clock_start(solar_os_context_t *ctx)
 {
     if (solar_os_context_gfx(ctx) == NULL) {
@@ -599,13 +512,23 @@ static esp_err_t clock_start(solar_os_context_t *ctx)
     }
 
     clock_state.last_second = UINT32_MAX;
-    clock_state.alarm_start_ms = clock_now_ms();
-    clock_state.alarm_done = false;
-    clock_state.alarm_sound_stop_requested = false;
     clock_state.suspended = false;
     clock_state.stopwatch_running = false;
     clock_state.stopwatch_accum_ms = 0;
     clock_state.stopwatch_start_ms = clock_now_ms();
+    clock_state.alarm_schedule_created = false;
+    if (clock_state.mode == CLOCK_MODE_ALARM) {
+        const esp_err_t err = solar_os_schedule_add_relative(
+            CLOCK_TRANSIENT_SCHEDULE,
+            clock_state.alarm_total_seconds,
+            SOLAR_OS_SCHEDULE_ACTION_ALARM,
+            NULL,
+            false);
+        if (err != ESP_OK) {
+            return err;
+        }
+        clock_state.alarm_schedule_created = true;
+    }
     solar_os_context_set_graphics_active(ctx, true);
     clock_render(ctx);
     return ESP_OK;
@@ -613,15 +536,17 @@ static esp_err_t clock_start(solar_os_context_t *ctx)
 
 static void clock_stop(solar_os_context_t *ctx)
 {
-    clock_alarm_sound_stop();
+    if (clock_state.alarm_schedule_created) {
+        char alarm_name[SOLAR_OS_SCHEDULE_NAME_MAX];
+        if (solar_os_schedule_alarm_active(alarm_name, sizeof(alarm_name)) &&
+            strcmp(alarm_name, CLOCK_TRANSIENT_SCHEDULE) == 0) {
+            solar_os_schedule_stop_alarm();
+        }
+        (void)solar_os_schedule_remove(CLOCK_TRANSIENT_SCHEDULE);
+        clock_state.alarm_schedule_created = false;
+    }
     clock_state.suspended = false;
     solar_os_context_set_graphics_active(ctx, false);
-}
-
-static bool clock_state_release_ready(void)
-{
-    return clock_state.alarm_sound_task == NULL &&
-           !clock_state.alarm_sound_running;
 }
 
 static void clock_suspend(solar_os_context_t *ctx)
@@ -705,10 +630,6 @@ static bool clock_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         if (clock_state.mode == CLOCK_MODE_ALARM) {
             const uint32_t remaining = clock_alarm_remaining_seconds(event->data.tick_ms);
             second = remaining;
-            if (remaining == 0 && !clock_state.alarm_done) {
-                clock_state.alarm_done = true;
-                clock_alarm_sound_start();
-            }
         } else if (clock_state.mode == CLOCK_MODE_STOPWATCH) {
             second = clock_stopwatch_elapsed_ms(event->data.tick_ms) / 1000U;
         }
@@ -743,8 +664,6 @@ const solar_os_app_t solar_os_clock_app = {
     .state_slot = &clock_state_storage,
     .state_size = sizeof(clock_state_t),
     .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
-    .state_release_ready = clock_state_release_ready,
-    .worker_stack_bytes = CLOCK_ALARM_SOUND_TASK_STACK,
     .tick_interval_ms = 250U,
     .tick_deadline_ms = 25U,
 };

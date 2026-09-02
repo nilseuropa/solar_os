@@ -425,6 +425,10 @@ Controls:
 ## clock
 
 Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
+The countdown is serviced in the background, so it continues when the Clock
+session is suspended. It works without RTC hardware while SolarOS remains
+powered. With a wired RTC interrupt, the RTC alarm or countdown is also armed
+and explicit light sleep can wake for it.
 
 Usage:
 
@@ -438,6 +442,7 @@ Controls:
 
 - In stopwatch mode, `Space` starts/stops.
 - In stopwatch mode, any other ordinary key resets to zero.
+- Exiting a countdown removes that transient alarm and stops it if ringing.
 - `Esc` or app-exit key exits.
 
 ## com
