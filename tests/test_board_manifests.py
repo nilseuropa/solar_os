@@ -114,6 +114,40 @@ class BoardManifestTest(unittest.TestCase):
             runtime_driver,
         )
 
+    def test_cl32_manifest_keeps_m2_memory_and_system_signals_fixed(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "cl_32.toml",
+            self.manifest_dir,
+        )
+        pins = {pin["gpio"]: pin for pin in board["pins"]}
+        self.assertEqual(
+            {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
+            {4, 8, 15, 16, 17, 18, 21, 38, 39, 40, 41, 42, 47, 48},
+        )
+        for gpio in (1, 2, 3, 19, 20, 35, 36, 37, 46):
+            self.assertEqual(pins[gpio]["policy"], "fixed")
+
+        buses = {bus["name"]: bus for bus in board["buses"]}
+        self.assertEqual(
+            (buses["spi0"]["sclk"], buses["spi0"]["mosi"], buses["spi0"]["miso"]),
+            (9, 10, 11),
+        )
+        self.assertEqual(buses["spi0"]["cs"], [6, 7])
+        self.assertEqual(
+            {device["name"] for device in board["devices"]},
+            {"rtc0", "storage0"},
+        )
+
+        connectors = {
+            (pin["connector"], pin["position"]): pin
+            for pin in board["connectors"]
+        }
+        self.assertEqual(connectors[("EX1", 52)]["gpio"], 4)
+        self.assertEqual(connectors[("EX1", 58)]["gpio"], 1)
+        self.assertEqual(connectors[("EX1", 60)]["gpio"], 2)
+        self.assertEqual(connectors[("EX1", 62)]["gpio"], 3)
+        self.assertEqual(connectors[("EX1", 53)]["gpio"], 35)
+
     def test_pin_conflict_is_rejected(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "devkitc1_epaper_workbench.toml",

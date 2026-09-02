@@ -1,0 +1,853 @@
+schema = 1
+
+[board]
+id = "cl_32"
+name = "CL-32"
+vendor = "CL-32"
+module = "ESP32-S3-WROOM-1-N16R8"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "esp32-s3-devkitc1-n16r8"
+
+[build]
+drivers = [
+  "cdc_usb_serial_jtag",
+  "uart_esp_idf",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "rtc_pcf85063",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "gfx", "cdc", "uart", "sd", "i2c", "spi", "rtc",
+  "wifi", "ble", "gpio", "adc", "pwm", "expansion_gpio",
+  "expansion_i2c", "expansion_spi", "expansion_uart", "expansion_adc",
+  "expansion_pwm", "expansion_i2s",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_1"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_2"
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"FSPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_10"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+
+[runtime]
+spi_hosts = ["SPI3_HOST"]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 1
+scl = 2
+speed_hz = "SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ"
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 9
+miso = 11
+mosi = 10
+cs = [6, 7]
+max_transfer_size = 4096
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "pcf85063"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x51 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 7 }
+
+[connector]
+title = "EX1 M.2 add-on and I2C expansion connectors"
+view = "schematic contact order; EX1 key gap is between pins 23 and 32; physical orientation unverified"
+rows = 39
+columns = 4
+
+[[connectors]]
+connector = "EX1"
+position = 1
+row = 0
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 2
+row = 0
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "EX1"
+position = 3
+row = 1
+column = 0
+gpio = 20
+kind = "gpio"
+label = "USB D+"
+[[connectors]]
+connector = "EX1"
+position = 4
+row = 1
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "EX1"
+position = 5
+row = 2
+column = 0
+gpio = 19
+kind = "gpio"
+label = "USB D-"
+[[connectors]]
+connector = "EX1"
+position = 6
+row = 2
+column = 1
+kind = "power"
+label = "VSYS"
+[[connectors]]
+connector = "EX1"
+position = 7
+row = 3
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 8
+row = 3
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 9
+row = 4
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 10
+row = 4
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 11
+row = 5
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 12
+row = 5
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 13
+row = 6
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 14
+row = 6
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 15
+row = 7
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 16
+row = 7
+column = 1
+kind = "control"
+label = "UPDI"
+[[connectors]]
+connector = "EX1"
+position = 17
+row = 8
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 18
+row = 8
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 19
+row = 9
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 20
+row = 9
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 21
+row = 10
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 22
+row = 10
+column = 1
+gpio = 44
+kind = "gpio"
+label = "UART RX"
+[[connectors]]
+connector = "EX1"
+position = 23
+row = 11
+column = 0
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 32
+row = 15
+column = 1
+gpio = 43
+kind = "gpio"
+label = "UART TX"
+[[connectors]]
+connector = "EX1"
+position = 33
+row = 16
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 34
+row = 16
+column = 1
+kind = "control"
+label = "DTR"
+[[connectors]]
+connector = "EX1"
+position = 35
+row = 17
+column = 0
+gpio = 8
+kind = "gpio"
+label = "IO8"
+[[connectors]]
+connector = "EX1"
+position = 36
+row = 17
+column = 1
+kind = "control"
+label = "RTS"
+[[connectors]]
+connector = "EX1"
+position = 37
+row = 18
+column = 0
+gpio = 15
+kind = "gpio"
+label = "IO15"
+[[connectors]]
+connector = "EX1"
+position = 38
+row = 18
+column = 1
+kind = "control"
+label = "ANT1"
+[[connectors]]
+connector = "EX1"
+position = 39
+row = 19
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 40
+row = 19
+column = 1
+kind = "control"
+label = "ANT2"
+[[connectors]]
+connector = "EX1"
+position = 41
+row = 20
+column = 0
+gpio = 16
+kind = "gpio"
+label = "IO16"
+[[connectors]]
+connector = "EX1"
+position = 42
+row = 20
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 43
+row = 21
+column = 0
+gpio = 17
+kind = "gpio"
+label = "IO17"
+[[connectors]]
+connector = "EX1"
+position = 44
+row = 21
+column = 1
+gpio = 46
+kind = "gpio"
+label = "IO46"
+[[connectors]]
+connector = "EX1"
+position = 45
+row = 22
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 46
+row = 22
+column = 1
+gpio = 47
+kind = "gpio"
+label = "IO47"
+[[connectors]]
+connector = "EX1"
+position = 47
+row = 23
+column = 0
+gpio = 18
+kind = "gpio"
+label = "IO18"
+[[connectors]]
+connector = "EX1"
+position = 48
+row = 23
+column = 1
+gpio = 48
+kind = "gpio"
+label = "IO48"
+[[connectors]]
+connector = "EX1"
+position = 49
+row = 24
+column = 0
+gpio = 21
+kind = "gpio"
+label = "IO21"
+[[connectors]]
+connector = "EX1"
+position = 50
+row = 24
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 51
+row = 25
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 52
+row = 25
+column = 1
+gpio = 4
+kind = "gpio"
+label = "IO4"
+[[connectors]]
+connector = "EX1"
+position = 53
+row = 26
+column = 0
+gpio = 35
+kind = "gpio"
+label = "IO35"
+[[connectors]]
+connector = "EX1"
+position = 54
+row = 26
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 55
+row = 27
+column = 0
+gpio = 36
+kind = "gpio"
+label = "IO36"
+[[connectors]]
+connector = "EX1"
+position = 56
+row = 27
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 57
+row = 28
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 58
+row = 28
+column = 1
+gpio = 1
+kind = "gpio"
+label = "SDA"
+[[connectors]]
+connector = "EX1"
+position = 59
+row = 29
+column = 0
+gpio = 37
+kind = "gpio"
+label = "IO37"
+[[connectors]]
+connector = "EX1"
+position = 60
+row = 29
+column = 1
+gpio = 2
+kind = "gpio"
+label = "SCL"
+[[connectors]]
+connector = "EX1"
+position = 61
+row = 30
+column = 0
+gpio = 38
+kind = "gpio"
+label = "IO38"
+[[connectors]]
+connector = "EX1"
+position = 62
+row = 30
+column = 1
+gpio = 3
+kind = "gpio"
+label = "INT"
+[[connectors]]
+connector = "EX1"
+position = 63
+row = 31
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 64
+row = 31
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 65
+row = 32
+column = 0
+gpio = 39
+kind = "gpio"
+label = "IO39"
+[[connectors]]
+connector = "EX1"
+position = 66
+row = 32
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 67
+row = 33
+column = 0
+gpio = 40
+kind = "gpio"
+label = "IO40"
+[[connectors]]
+connector = "EX1"
+position = 68
+row = 33
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 69
+row = 34
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 70
+row = 34
+column = 1
+kind = "nc"
+label = "NC"
+[[connectors]]
+connector = "EX1"
+position = 71
+row = 35
+column = 0
+gpio = 41
+kind = "gpio"
+label = "IO41"
+[[connectors]]
+connector = "EX1"
+position = 72
+row = 35
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "EX1"
+position = 73
+row = 36
+column = 0
+gpio = 42
+kind = "gpio"
+label = "IO42"
+[[connectors]]
+connector = "EX1"
+position = 74
+row = 36
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "EX1"
+position = 75
+row = 37
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "EX1"
+position = 76
+row = 38
+column = 1
+kind = "ground"
+label = "SHIELD"
+[[connectors]]
+connector = "EX1"
+position = 77
+row = 38
+column = 0
+kind = "ground"
+label = "SHIELD"
+
+[[connectors]]
+connector = "CN1"
+position = 1
+row = 0
+column = 2
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "CN1"
+position = 2
+row = 1
+column = 2
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "CN1"
+position = 3
+row = 2
+column = 2
+gpio = 1
+kind = "gpio"
+label = "SDA"
+[[connectors]]
+connector = "CN1"
+position = 4
+row = 3
+column = 2
+gpio = 2
+kind = "gpio"
+label = "SCL"
+
+[[connectors]]
+connector = "CN2"
+position = 1
+row = 0
+column = 3
+gpio = 2
+kind = "gpio"
+label = "SCL"
+[[connectors]]
+connector = "CN2"
+position = 2
+row = 1
+column = 3
+gpio = 1
+kind = "gpio"
+label = "SDA"
+[[connectors]]
+connector = "CN2"
+position = 3
+row = 2
+column = 3
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "CN2"
+position = 4
+row = 3
+column = 3
+kind = "ground"
+label = "GND"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download"
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "shared I2C SDA"
+expansion = true
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "shared I2C SCL"
+expansion = true
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "shared peripheral interrupt"
+expansion = true
+[[pins]]
+gpio = 4
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "buzzer"
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "display SPI CS"
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "microSD SPI CS"
+[[pins]]
+gpio = 8
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "display/microSD SPI SCLK"
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "display/microSD SPI MOSI"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "display/microSD SPI MISO"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "display reset"
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "display D/C"
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "display BUSY"
+[[pins]]
+gpio = 15
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 16
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 17
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 18
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D-/CDC"
+expansion = true
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+/CDC"
+expansion = true
+[[pins]]
+gpio = 21
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 35
+policy = "fixed"
+role = "Octal PSRAM"
+expansion = true
+[[pins]]
+gpio = 36
+policy = "fixed"
+role = "Octal PSRAM"
+expansion = true
+[[pins]]
+gpio = 37
+policy = "fixed"
+role = "Octal PSRAM"
+expansion = true
+[[pins]]
+gpio = 38
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 39
+policy = "free"
+role = "M.2 expansion / JTAG MTCK"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 40
+policy = "free"
+role = "M.2 expansion / JTAG MTDO"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 41
+policy = "free"
+role = "M.2 expansion / JTAG MTDI"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 42
+policy = "free"
+role = "M.2 expansion / JTAG MTMS"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 43
+policy = "releasable"
+role = "M.2 UART TX"
+expansion = true
+[[pins]]
+gpio = 44
+policy = "releasable"
+role = "M.2 UART RX"
+expansion = true
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "M.2 strapping input"
+expansion = true
+[[pins]]
+gpio = 47
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 48
+policy = "free"
+role = "M.2 expansion"
+expansion = true
+pwm = true
