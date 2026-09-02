@@ -65,6 +65,7 @@ static esp_err_t set_alarm(void *user, const solar_os_rtc_alarm_t *alarm)
 {
     assert(user == &user_token);
     last_alarm = *alarm;
+    alarm_disabled = false;
     return ESP_OK;
 }
 
@@ -80,6 +81,7 @@ static esp_err_t set_countdown(void *user, uint32_t period_seconds, bool repeat)
     assert(user == &user_token);
     last_countdown_seconds = period_seconds;
     last_countdown_repeat = repeat;
+    countdown_disabled = false;
     return ESP_OK;
 }
 
@@ -136,6 +138,7 @@ int main(void)
         .clear_interrupt_status = clear_interrupt_status,
         .user = &user_token,
         .interrupt_gpio = 15,
+        .interrupt_active_level = 0,
     };
     assert(solar_os_rtc_register_provider("rtc0", &waveshare) == ESP_OK);
     assert(solar_os_rtc_get_info(&info) == ESP_OK);
@@ -145,6 +148,12 @@ int main(void)
                                  SOLAR_OS_RTC_CAP_COUNTDOWN |
                                  SOLAR_OS_RTC_CAP_INTERRUPT_STATUS));
     assert(info.interrupt_gpio == 15);
+    assert(info.interrupt_active_level == 0);
+    assert(info.alarm_owner[0] == '\0');
+    assert(alarm_disabled);
+    assert(countdown_disabled);
+    assert(last_cleared_interrupts == (SOLAR_OS_RTC_INTERRUPT_ALARM |
+                                       SOLAR_OS_RTC_INTERRUPT_COUNTDOWN));
     assert(registered_time_provider.get_utc_datetime == get_time);
     assert(registered_time_provider.set_utc_datetime == set_time);
 
@@ -154,17 +163,23 @@ int main(void)
         .hour = 7,
         .minute = 30,
     };
-    assert(solar_os_rtc_set_alarm(&alarm) == ESP_OK);
+    assert(solar_os_rtc_set_alarm_for("scheduler", &alarm) == ESP_OK);
+    assert(solar_os_rtc_get_info(&info) == ESP_OK);
+    assert(strcmp(info.alarm_owner, "scheduler") == 0);
+    assert(solar_os_rtc_set_alarm_for("python", &alarm) == ESP_ERR_INVALID_STATE);
     assert(last_alarm.match_fields == alarm.match_fields);
     assert(last_alarm.hour == 7);
     assert(last_alarm.minute == 30);
-    assert(solar_os_rtc_disable_alarm() == ESP_OK);
+    assert(solar_os_rtc_disable_alarm_for("python") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_rtc_disable_alarm_for("scheduler") == ESP_OK);
     assert(alarm_disabled);
-    assert(solar_os_rtc_set_countdown(90, true) == ESP_OK);
+    assert(solar_os_rtc_set_countdown_for("lua", 90, true) == ESP_OK);
     assert(last_countdown_seconds == 90);
     assert(last_countdown_repeat);
-    assert(solar_os_rtc_disable_countdown() == ESP_OK);
+    solar_os_rtc_release_owner("lua");
     assert(countdown_disabled);
+    assert(solar_os_rtc_get_info(&info) == ESP_OK);
+    assert(info.countdown_owner[0] == '\0');
 
     uint32_t interrupts = 0;
     assert(solar_os_rtc_get_interrupt_status(&interrupts) == ESP_OK);

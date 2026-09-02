@@ -7,6 +7,7 @@
 #include "solar_os_time.h"
 
 #define SOLAR_OS_RTC_PROVIDER_NAME_MAX 24
+#define SOLAR_OS_RTC_OWNER_NAME_MAX 24
 #define SOLAR_OS_RTC_INTERRUPT_GPIO_NONE (-1)
 
 typedef enum {
@@ -65,12 +66,16 @@ typedef struct {
     solar_os_rtc_clear_interrupt_status_fn_t clear_interrupt_status;
     void *user;
     int interrupt_gpio;
+    int interrupt_active_level;
 } solar_os_rtc_provider_t;
 
 typedef struct {
     char provider[SOLAR_OS_RTC_PROVIDER_NAME_MAX];
     uint32_t capabilities;
     int interrupt_gpio;
+    int interrupt_active_level;
+    char alarm_owner[SOLAR_OS_RTC_OWNER_NAME_MAX];
+    char countdown_owner[SOLAR_OS_RTC_OWNER_NAME_MAX];
 } solar_os_rtc_info_t;
 
 esp_err_t solar_os_rtc_register_provider(
@@ -79,6 +84,14 @@ esp_err_t solar_os_rtc_register_provider(
 esp_err_t solar_os_rtc_unregister_provider(const char *owner);
 bool solar_os_rtc_has_provider(void);
 esp_err_t solar_os_rtc_get_info(solar_os_rtc_info_t *info);
+esp_err_t solar_os_rtc_set_alarm_for(const char *owner,
+                                     const solar_os_rtc_alarm_t *alarm);
+esp_err_t solar_os_rtc_disable_alarm_for(const char *owner);
+esp_err_t solar_os_rtc_set_countdown_for(const char *owner,
+                                         uint32_t period_seconds,
+                                         bool repeat);
+esp_err_t solar_os_rtc_disable_countdown_for(const char *owner);
+void solar_os_rtc_release_owner(const char *owner);
 esp_err_t solar_os_rtc_set_alarm(const solar_os_rtc_alarm_t *alarm);
 esp_err_t solar_os_rtc_disable_alarm(void);
 esp_err_t solar_os_rtc_set_countdown(uint32_t period_seconds, bool repeat);

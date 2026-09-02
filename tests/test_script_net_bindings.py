@@ -98,6 +98,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    python_http_stream_destroy();\n"
             "    python_http_session_destroy();\n#endif\n"
+            "    solar_os_rtc_release_owner(\"python\");\n"
             "    mp_embed_deinit();",
             PYTHON_SOURCE,
         )
@@ -106,6 +107,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    solua_http_stream_destroy();\n"
             "    solua_http_session_destroy();\n#endif\n"
+            "    solar_os_rtc_release_owner(\"lua\");\n"
             "    lua_close(L);",
             LUA_SOURCE,
         )

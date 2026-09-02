@@ -402,6 +402,8 @@ static const shell_command_t shell_builtin_commands[] = {
     {"sleep", "enter light sleep", solar_os_shell_cmd_sleep},
     {"suspend", "keep services running with the display off", solar_os_shell_cmd_suspend},
     {"power", "power profile and sleep policy", solar_os_shell_cmd_power},
+    {"rtc", "real-time clock hardware", solar_os_shell_cmd_rtc},
+    {"schedule", "alarms and scheduled scripts", solar_os_shell_cmd_schedule},
     {"watch", "repeat a command", cmd_watch},
     {"setterm", "configure terminal settings", solar_os_shell_cmd_setterm},
     {"status", "show system status", solar_os_shell_cmd_status},
@@ -1221,6 +1223,15 @@ static const char * const power_subcommands[] = {
     "sleep",
     "suspend",
 };
+static const char * const rtc_subcommands[] = {
+    "status", "alarm", "timer", "pending", "ack",
+};
+static const char * const rtc_alarm_subcommands[] = {"set", "clear"};
+static const char * const rtc_timer_subcommands[] = {"set", "clear"};
+static const char * const schedule_subcommands[] = {
+    "list", "show", "add", "enable", "disable", "remove", "run", "stop",
+};
+static const char * const schedule_kinds[] = {"in", "every", "at", "daily", "weekly"};
 
 static const char * const power_profile_values[] = {
     "performance",
@@ -2216,6 +2227,11 @@ static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
 static const char * const path_power_idle[] = {"power", "idle"};
 static const char * const path_power_key[] = {"power", "key"};
+static const char * const path_rtc[] = {"rtc"};
+static const char * const path_rtc_alarm[] = {"rtc", "alarm"};
+static const char * const path_rtc_timer[] = {"rtc", "timer"};
+static const char * const path_schedule[] = {"schedule"};
+static const char * const path_schedule_add_name[] = {"schedule", "add", "*"};
 static const char * const path_battery[] = {"battery"};
 static const char * const path_battery_capacity[] = {"battery", "capacity"};
 static const char * const path_battery_min_voltage[] = {"battery", "min_voltage"};
@@ -3110,6 +3126,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
     SHELL_COMPLETION_STATIC(path_power_idle, power_idle_values),
     SHELL_COMPLETION_STATIC(path_power_key, power_key_values),
+    SHELL_COMPLETION_STATIC(path_rtc, rtc_subcommands),
+    SHELL_COMPLETION_STATIC(path_rtc_alarm, rtc_alarm_subcommands),
+    SHELL_COMPLETION_STATIC(path_rtc_timer, rtc_timer_subcommands),
+    SHELL_COMPLETION_STATIC(path_schedule, schedule_subcommands),
+    SHELL_COMPLETION_STATIC(path_schedule_add_name, schedule_kinds),
     SHELL_COMPLETION_STATIC(path_battery, battery_subcommands),
     SHELL_COMPLETION_STATIC(path_battery_capacity, battery_capacity_values),
     SHELL_COMPLETION_STATIC(path_battery_min_voltage, battery_min_voltage_values),
@@ -7769,6 +7790,39 @@ bool solar_os_shell_run_script(solar_os_context_t *ctx,
     shell_session(ctx)->script_depth--;
     fclose(file);
     return should_prompt;
+}
+
+esp_err_t solar_os_shell_run_background_script(const char *path)
+{
+    if (path == NULL || path[0] != '/') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *probe = fopen(path, "r");
+    if (probe == NULL) {
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+    fclose(probe);
+
+    solar_os_shell_session_t *session = solar_os_shell_session_create();
+    if (session == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    solar_os_context_t ctx;
+    solar_os_context_init(&ctx, NULL, NULL);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
+    solar_os_shell_io_init_terminal(io, NULL);
+    esp_err_t err = solar_os_shell_session_start(&ctx,
+                                                 session,
+                                                 io,
+                                                 false,
+                                                 false);
+    if (err == ESP_OK) {
+        session->watch_executing = true;
+        (void)solar_os_shell_run_script(&ctx, path, path, false);
+        session->watch_executing = false;
+    }
+    solar_os_shell_session_destroy(session);
+    return err;
 }
 
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv)

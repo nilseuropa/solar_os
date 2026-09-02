@@ -238,6 +238,8 @@ job for periodic polling.
 | `sleep` | `sleep` | Enter explicit light sleep. |
 | `suspend` | `suspend` | Turn off the primary display and temporarily use the `lowpower` profile while services and jobs continue. Press KEY to resume. |
 | `power` | See below | Inspect and configure power policy. |
+| `rtc` | See below | Inspect or directly control optional RTC alarm/timer hardware. |
+| `schedule` | See below | Manage persistent alarms and scheduled shell scripts. |
 | `setterm` | See below | Configure terminal/input preferences. Without arguments, opens the display TUI when available. |
 
 Input completion lists every current source after `input test`, only absolute
@@ -275,6 +277,55 @@ the selected profile, effective profile, and suspend state.
 sleep path, and `suspend` toggles the runtime suspend state. The default for a
 new or cleared NVS configuration is `suspend`; an existing saved value remains
 unchanged.
+
+`rtc` is the low-level hardware interface. `rtc status` remains useful on
+boards without RTC hardware and reports `unavailable` there.
+
+```text
+rtc status
+rtc alarm set HH:MM[:SS] [day=N] [weekday=N]
+rtc alarm clear
+rtc timer set <duration> [repeat]
+rtc timer clear
+rtc pending
+rtc ack <alarm|timer|all>
+```
+
+Direct alarm and timer controls are leased. If the scheduler or a script owns
+the requested hardware slot, the command reports the owner instead of replacing
+its wake-up configuration.
+
+`schedule` stores named alarms and script jobs. Durations accept `s`, `m`, `h`,
+or `d`; dates and times use configured local time.
+
+```text
+schedule list
+schedule show <name>
+schedule add <name> in <duration> <alarm|run script>
+schedule add <name> every <duration> <alarm|run script>
+schedule add <name> at YYYY-MM-DD HH:MM[:SS] <alarm|run script>
+schedule add <name> daily HH:MM[:SS] <alarm|run script>
+schedule add <name> weekly <sun,mon,...> HH:MM[:SS] <alarm|run script>
+schedule enable <name>
+schedule disable <name>
+schedule remove <name>
+schedule run <name>
+schedule stop
+```
+
+Only one scheduled shell script runs at a time. A due script is skipped and its
+skip counter increases if another scheduled script is still running. Scheduled
+scripts run without a terminal, and attempts to launch foreground applications
+are rejected. Calendar schedules wait for valid wall-clock time. Interval
+schedules continue to work from monotonic uptime without an RTC.
+
+During explicit light sleep, the nearest schedule is armed as an internal timer.
+When a wired interrupt-capable RTC is available, the scheduler also programs its
+calendar alarm when wall-clock time is valid and, for a monotonic schedule, its
+countdown timer. The RTC GPIO is added to the wake sources. This lets countdowns
+use the RTC even while wall-clock time is invalid. An RTC interrupt can wake
+light sleep; it cannot turn on a board whose hardware power has been switched
+off.
 
 `setterm` usage:
 

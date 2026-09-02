@@ -207,6 +207,7 @@ esp_err_t solar_os_pcf85063_attach(const char *name,
         .clear_interrupt_status = rtc_clear_interrupt_status,
         .user = &rtc_device,
         .interrupt_gpio = rtc_device.irq_pin,
+        .interrupt_active_level = 0,
     };
     const esp_err_t ret = solar_os_rtc_register_provider(name, &provider);
     if (ret != ESP_OK) {

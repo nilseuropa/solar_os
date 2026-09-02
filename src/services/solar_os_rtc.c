@@ -6,6 +6,8 @@
 
 static solar_os_rtc_provider_t rtc_provider;
 static char rtc_provider_owner[SOLAR_OS_RTC_PROVIDER_NAME_MAX];
+static char rtc_alarm_owner[SOLAR_OS_RTC_OWNER_NAME_MAX];
+static char rtc_countdown_owner[SOLAR_OS_RTC_OWNER_NAME_MAX];
 static portMUX_TYPE rtc_provider_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define RTC_ALARM_MATCH_ALL (SOLAR_OS_RTC_ALARM_MATCH_SECOND | \
@@ -19,6 +21,48 @@ static portMUX_TYPE rtc_provider_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool callback_pair_is_valid(bool first_present, bool second_present)
 {
     return first_present == second_present;
+}
+
+static bool owner_is_valid(const char *owner)
+{
+    return owner != NULL && owner[0] != '\0' &&
+        strnlen(owner, SOLAR_OS_RTC_OWNER_NAME_MAX) < SOLAR_OS_RTC_OWNER_NAME_MAX;
+}
+
+static esp_err_t claim_slot(char *slot, const char *owner)
+{
+    if (!owner_is_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&rtc_provider_lock);
+    esp_err_t ret = ESP_OK;
+    if (slot[0] != '\0' && strcmp(slot, owner) != 0) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        strlcpy(slot, owner, SOLAR_OS_RTC_OWNER_NAME_MAX);
+    }
+    portEXIT_CRITICAL(&rtc_provider_lock);
+    return ret;
+}
+
+static esp_err_t check_slot_owner(const char *slot, const char *owner)
+{
+    if (!owner_is_valid(owner)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&rtc_provider_lock);
+    const bool matches = slot[0] != '\0' && strcmp(slot, owner) == 0;
+    portEXIT_CRITICAL(&rtc_provider_lock);
+    return matches ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+static void release_slot(char *slot, const char *owner)
+{
+    portENTER_CRITICAL(&rtc_provider_lock);
+    if (strcmp(slot, owner) == 0) {
+        slot[0] = '\0';
+    }
+    portEXIT_CRITICAL(&rtc_provider_lock);
 }
 
 static bool rtc_provider_snapshot(solar_os_rtc_provider_t *provider)
@@ -67,7 +111,10 @@ esp_err_t solar_os_rtc_register_provider(
                                 provider->disable_countdown != NULL) ||
         !callback_pair_is_valid(provider->get_interrupt_status != NULL,
                                 provider->clear_interrupt_status != NULL) ||
-        provider->interrupt_gpio < SOLAR_OS_RTC_INTERRUPT_GPIO_NONE) {
+        provider->interrupt_gpio < SOLAR_OS_RTC_INTERRUPT_GPIO_NONE ||
+        (provider->interrupt_gpio != SOLAR_OS_RTC_INTERRUPT_GPIO_NONE &&
+         provider->interrupt_active_level != 0 &&
+         provider->interrupt_active_level != 1)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -90,7 +137,26 @@ esp_err_t solar_os_rtc_register_provider(
     }
     portEXIT_CRITICAL(&rtc_provider_lock);
 
+    if (ret == ESP_OK && provider->disable_alarm != NULL) {
+        ret = provider->disable_alarm(provider->user);
+    }
+    if (ret == ESP_OK && provider->disable_countdown != NULL) {
+        ret = provider->disable_countdown(provider->user);
+    }
+    if (ret == ESP_OK && provider->clear_interrupt_status != NULL) {
+        ret = provider->clear_interrupt_status(
+            provider->user,
+            SOLAR_OS_RTC_INTERRUPT_ALARM | SOLAR_OS_RTC_INTERRUPT_COUNTDOWN);
+    }
     if (ret != ESP_OK) {
+        portENTER_CRITICAL(&rtc_provider_lock);
+        if (strcmp(rtc_provider_owner, owner) == 0) {
+            memset(&rtc_provider, 0, sizeof(rtc_provider));
+            rtc_provider_owner[0] = '\0';
+            rtc_alarm_owner[0] = '\0';
+            rtc_countdown_owner[0] = '\0';
+        }
+        portEXIT_CRITICAL(&rtc_provider_lock);
         (void)solar_os_time_unregister_provider(owner);
     }
     return ret;
@@ -117,6 +183,8 @@ esp_err_t solar_os_rtc_unregister_provider(const char *owner)
     portENTER_CRITICAL(&rtc_provider_lock);
     memset(&rtc_provider, 0, sizeof(rtc_provider));
     rtc_provider_owner[0] = '\0';
+    rtc_alarm_owner[0] = '\0';
+    rtc_countdown_owner[0] = '\0';
     portEXIT_CRITICAL(&rtc_provider_lock);
     return ESP_OK;
 }
@@ -152,50 +220,135 @@ esp_err_t solar_os_rtc_get_info(solar_os_rtc_info_t *info)
         info->capabilities |= SOLAR_OS_RTC_CAP_INTERRUPT_STATUS;
     }
     info->interrupt_gpio = rtc_provider.interrupt_gpio;
+    info->interrupt_active_level = rtc_provider.interrupt_active_level;
+    strlcpy(info->alarm_owner, rtc_alarm_owner, sizeof(info->alarm_owner));
+    strlcpy(info->countdown_owner,
+            rtc_countdown_owner,
+            sizeof(info->countdown_owner));
     portEXIT_CRITICAL(&rtc_provider_lock);
     return ESP_OK;
 }
 
-esp_err_t solar_os_rtc_set_alarm(const solar_os_rtc_alarm_t *alarm)
+esp_err_t solar_os_rtc_set_alarm_for(const char *owner,
+                                     const solar_os_rtc_alarm_t *alarm)
 {
     if (!alarm_is_valid(alarm)) {
         return ESP_ERR_INVALID_ARG;
     }
+    esp_err_t ret = claim_slot(rtc_alarm_owner, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
     solar_os_rtc_provider_t provider;
     if (!rtc_provider_snapshot(&provider) || provider.set_alarm == NULL) {
+        release_slot(rtc_alarm_owner, owner);
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return provider.set_alarm(provider.user, alarm);
+    ret = provider.set_alarm(provider.user, alarm);
+    if (ret != ESP_OK) {
+        release_slot(rtc_alarm_owner, owner);
+    }
+    return ret;
 }
 
-esp_err_t solar_os_rtc_disable_alarm(void)
+esp_err_t solar_os_rtc_disable_alarm_for(const char *owner)
 {
+    esp_err_t ret = check_slot_owner(rtc_alarm_owner, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
     solar_os_rtc_provider_t provider;
     if (!rtc_provider_snapshot(&provider) || provider.disable_alarm == NULL) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return provider.disable_alarm(provider.user);
+    ret = provider.disable_alarm(provider.user);
+    if (ret == ESP_OK) {
+        release_slot(rtc_alarm_owner, owner);
+    }
+    return ret;
 }
 
-esp_err_t solar_os_rtc_set_countdown(uint32_t period_seconds, bool repeat)
+esp_err_t solar_os_rtc_set_countdown_for(const char *owner,
+                                         uint32_t period_seconds,
+                                         bool repeat)
 {
     if (period_seconds == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+    esp_err_t ret = claim_slot(rtc_countdown_owner, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
     solar_os_rtc_provider_t provider;
     if (!rtc_provider_snapshot(&provider) || provider.set_countdown == NULL) {
+        release_slot(rtc_countdown_owner, owner);
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return provider.set_countdown(provider.user, period_seconds, repeat);
+    ret = provider.set_countdown(provider.user, period_seconds, repeat);
+    if (ret != ESP_OK) {
+        release_slot(rtc_countdown_owner, owner);
+    }
+    return ret;
 }
 
-esp_err_t solar_os_rtc_disable_countdown(void)
+esp_err_t solar_os_rtc_disable_countdown_for(const char *owner)
 {
+    esp_err_t ret = check_slot_owner(rtc_countdown_owner, owner);
+    if (ret != ESP_OK) {
+        return ret;
+    }
     solar_os_rtc_provider_t provider;
     if (!rtc_provider_snapshot(&provider) || provider.disable_countdown == NULL) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return provider.disable_countdown(provider.user);
+    ret = provider.disable_countdown(provider.user);
+    if (ret == ESP_OK) {
+        release_slot(rtc_countdown_owner, owner);
+    }
+    return ret;
+}
+
+void solar_os_rtc_release_owner(const char *owner)
+{
+    if (!owner_is_valid(owner)) {
+        return;
+    }
+    solar_os_rtc_provider_t provider;
+    if (!rtc_provider_snapshot(&provider)) {
+        return;
+    }
+    portENTER_CRITICAL(&rtc_provider_lock);
+    const bool owns_alarm = strcmp(rtc_alarm_owner, owner) == 0;
+    const bool owns_countdown = strcmp(rtc_countdown_owner, owner) == 0;
+    portEXIT_CRITICAL(&rtc_provider_lock);
+    if (owns_alarm && provider.disable_alarm != NULL &&
+        provider.disable_alarm(provider.user) == ESP_OK) {
+        release_slot(rtc_alarm_owner, owner);
+    }
+    if (owns_countdown && provider.disable_countdown != NULL &&
+        provider.disable_countdown(provider.user) == ESP_OK) {
+        release_slot(rtc_countdown_owner, owner);
+    }
+}
+
+esp_err_t solar_os_rtc_set_alarm(const solar_os_rtc_alarm_t *alarm)
+{
+    return solar_os_rtc_set_alarm_for("direct", alarm);
+}
+
+esp_err_t solar_os_rtc_disable_alarm(void)
+{
+    return solar_os_rtc_disable_alarm_for("direct");
+}
+
+esp_err_t solar_os_rtc_set_countdown(uint32_t period_seconds, bool repeat)
+{
+    return solar_os_rtc_set_countdown_for("direct", period_seconds, repeat);
+}
+
+esp_err_t solar_os_rtc_disable_countdown(void)
+{
+    return solar_os_rtc_disable_countdown_for("direct");
 }
 
 esp_err_t solar_os_rtc_get_interrupt_status(uint32_t *interrupts)
