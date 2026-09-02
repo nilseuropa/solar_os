@@ -32,6 +32,8 @@ required_packages = []
 psram_bytes = 8388608
 
 [defines]
+# Temporary bring-up console until the onboard display becomes the primary shell.
+SOLAR_OS_BOARD_HEADLESS_PREFER_CDC = "1"
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
 SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"

@@ -119,6 +119,8 @@ class BoardManifestTest(unittest.TestCase):
             self.manifest_dir / "cl_32.toml",
             self.manifest_dir,
         )
+        header = generate_header(board, self.drivers)
+        self.assertIn("#define SOLAR_OS_BOARD_HEADLESS_PREFER_CDC 1", header)
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
