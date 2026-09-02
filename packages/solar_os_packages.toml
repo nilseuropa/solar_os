@@ -1465,6 +1465,7 @@ sources = ["services/solar_os_battery.c"]
 
 [packages.service_rtc]
 label = "service.rtc"
+sources = ["services/solar_os_rtc.c"]
 
 [packages.service_sensors]
 label = "service.sensors"

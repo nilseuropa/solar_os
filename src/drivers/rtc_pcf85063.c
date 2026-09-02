@@ -5,11 +5,32 @@
 #include "solar_os_buses.h"
 
 #define PCF85063_CTRL1_REG 0x00
+#define PCF85063_CTRL2_REG 0x01
 #define PCF85063_RAM_REG 0x03
 #define PCF85063_SEC_REG 0x04
+#define PCF85063_ALARM_REG 0x0b
+#define PCF85063_TIMER_VALUE_REG 0x10
+#define PCF85063_TIMER_MODE_REG 0x11
 #define PCF85063_CTRL1_STOP_BIT 0x20
 #define PCF85063_CTRL1_12H_BIT 0x02
 #define PCF85063_SECONDS_OS_BIT 0x80
+#define PCF85063_ALARM_DISABLE_BIT 0x80
+#define PCF85063_CTRL2_AIE_BIT 0x80
+#define PCF85063_CTRL2_AF_BIT 0x40
+#define PCF85063_CTRL2_TF_BIT 0x08
+#define PCF85063_TIMER_TCF_1HZ 0x10
+#define PCF85063_TIMER_TCF_1_60HZ 0x18
+#define PCF85063_TIMER_TE_BIT 0x04
+#define PCF85063_TIMER_TIE_BIT 0x02
+#define PCF85063_TIMER_TP_BIT 0x01
+
+#define PCF85063_ALARM_MATCH_ALL (RTC_PCF85063_ALARM_MATCH_SECOND | \
+                                  RTC_PCF85063_ALARM_MATCH_MINUTE | \
+                                  RTC_PCF85063_ALARM_MATCH_HOUR | \
+                                  RTC_PCF85063_ALARM_MATCH_DAY | \
+                                  RTC_PCF85063_ALARM_MATCH_WEEKDAY)
+#define PCF85063_INTERRUPT_ALL (RTC_PCF85063_INTERRUPT_ALARM | \
+                                RTC_PCF85063_INTERRUPT_COUNTDOWN)
 
 static rtc_pcf85063_t default_device;
 
@@ -21,6 +42,32 @@ static uint8_t bcd_to_dec(uint8_t value)
 static uint8_t dec_to_bcd(uint8_t value)
 {
     return (uint8_t)(((value / 10) << 4) | (value % 10));
+}
+
+static bool device_is_valid(const rtc_pcf85063_t *device)
+{
+    return device != NULL && device->bus[0] != '\0' && device->address <= 0x7fU;
+}
+
+static esp_err_t update_control2(const rtc_pcf85063_t *device,
+                                 uint8_t set_bits,
+                                 uint8_t clear_bits)
+{
+    uint8_t control = 0;
+    esp_err_t ret = solar_os_bus_i2c_read_reg(device->bus,
+                                              device->address,
+                                              PCF85063_CTRL2_REG,
+                                              &control,
+                                              1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    control = (uint8_t)((control | set_bits) & ~clear_bits);
+    return solar_os_bus_i2c_write_reg(device->bus,
+                                      device->address,
+                                      PCF85063_CTRL2_REG,
+                                      &control,
+                                      1);
 }
 
 static bool is_leap_year(uint16_t year)
@@ -194,6 +241,222 @@ esp_err_t rtc_pcf85063_set_datetime_device(const rtc_pcf85063_t *device,
     return rtc_pcf85063_init_device(&refreshed,
                                     device->bus,
                                     device->address);
+}
+
+esp_err_t rtc_pcf85063_set_alarm_device(const rtc_pcf85063_t *device,
+                                        const rtc_pcf85063_alarm_t *alarm)
+{
+    if (!device_is_valid(device) || alarm == NULL || alarm->match_fields == 0 ||
+        (alarm->match_fields & ~PCF85063_ALARM_MATCH_ALL) != 0 ||
+        ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_SECOND) != 0 &&
+         alarm->second > 59) ||
+        ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_MINUTE) != 0 &&
+         alarm->minute > 59) ||
+        ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_HOUR) != 0 &&
+         alarm->hour > 23) ||
+        ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_DAY) != 0 &&
+         (alarm->day < 1 || alarm->day > 31)) ||
+        ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_WEEKDAY) != 0 &&
+         alarm->weekday > 6)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t registers[5] = {
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+    };
+    if ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_SECOND) != 0) {
+        registers[0] = dec_to_bcd(alarm->second);
+    }
+    if ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_MINUTE) != 0) {
+        registers[1] = dec_to_bcd(alarm->minute);
+    }
+    if ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_HOUR) != 0) {
+        registers[2] = dec_to_bcd(alarm->hour);
+    }
+    if ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_DAY) != 0) {
+        registers[3] = dec_to_bcd(alarm->day);
+    }
+    if ((alarm->match_fields & RTC_PCF85063_ALARM_MATCH_WEEKDAY) != 0) {
+        registers[4] = dec_to_bcd(alarm->weekday);
+    }
+
+    esp_err_t ret = update_control2(device, 0, PCF85063_CTRL2_AIE_BIT);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_ALARM_REG,
+                                     registers,
+                                     sizeof(registers));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return update_control2(device,
+                           PCF85063_CTRL2_AIE_BIT,
+                           PCF85063_CTRL2_AF_BIT);
+}
+
+esp_err_t rtc_pcf85063_disable_alarm_device(const rtc_pcf85063_t *device)
+{
+    if (!device_is_valid(device)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint8_t registers[5] = {
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+        PCF85063_ALARM_DISABLE_BIT,
+    };
+    esp_err_t ret = update_control2(device, 0, PCF85063_CTRL2_AIE_BIT);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_ALARM_REG,
+                                     registers,
+                                     sizeof(registers));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return update_control2(device,
+                           0,
+                           PCF85063_CTRL2_AIE_BIT | PCF85063_CTRL2_AF_BIT);
+}
+
+esp_err_t rtc_pcf85063_set_countdown_device(const rtc_pcf85063_t *device,
+                                            uint32_t period_seconds,
+                                            bool repeat)
+{
+    if (!device_is_valid(device) || period_seconds == 0 ||
+        (period_seconds > 255 &&
+         (period_seconds > 255U * 60U || period_seconds % 60U != 0))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t timer_mode = 0;
+    esp_err_t ret = solar_os_bus_i2c_read_reg(device->bus,
+                                              device->address,
+                                              PCF85063_TIMER_MODE_REG,
+                                              &timer_mode,
+                                              1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    timer_mode = (uint8_t)(timer_mode &
+        ~(PCF85063_TIMER_TE_BIT | PCF85063_TIMER_TIE_BIT | PCF85063_TIMER_TP_BIT));
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_TIMER_MODE_REG,
+                                     &timer_mode,
+                                     1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const bool use_minutes = period_seconds > 255;
+    const uint8_t timer_value = (uint8_t)(use_minutes
+        ? period_seconds / 60U
+        : period_seconds);
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_TIMER_VALUE_REG,
+                                     &timer_value,
+                                     1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = update_control2(device, 0, PCF85063_CTRL2_TF_BIT);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    timer_mode = (uint8_t)((use_minutes
+        ? PCF85063_TIMER_TCF_1_60HZ
+        : PCF85063_TIMER_TCF_1HZ) |
+        PCF85063_TIMER_TE_BIT | PCF85063_TIMER_TIE_BIT |
+        (repeat ? PCF85063_TIMER_TP_BIT : 0));
+    return solar_os_bus_i2c_write_reg(device->bus,
+                                      device->address,
+                                      PCF85063_TIMER_MODE_REG,
+                                      &timer_mode,
+                                      1);
+}
+
+esp_err_t rtc_pcf85063_disable_countdown_device(const rtc_pcf85063_t *device)
+{
+    if (!device_is_valid(device)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint8_t timer_mode = PCF85063_TIMER_TCF_1_60HZ;
+    esp_err_t ret = solar_os_bus_i2c_write_reg(device->bus,
+                                               device->address,
+                                               PCF85063_TIMER_MODE_REG,
+                                               &timer_mode,
+                                               1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint8_t timer_value = 0;
+    ret = solar_os_bus_i2c_write_reg(device->bus,
+                                     device->address,
+                                     PCF85063_TIMER_VALUE_REG,
+                                     &timer_value,
+                                     1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return update_control2(device, 0, PCF85063_CTRL2_TF_BIT);
+}
+
+esp_err_t rtc_pcf85063_get_interrupt_status_device(const rtc_pcf85063_t *device,
+                                                   uint32_t *interrupts)
+{
+    if (!device_is_valid(device) || interrupts == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t control = 0;
+    const esp_err_t ret = solar_os_bus_i2c_read_reg(device->bus,
+                                                    device->address,
+                                                    PCF85063_CTRL2_REG,
+                                                    &control,
+                                                    1);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    *interrupts = 0;
+    if ((control & PCF85063_CTRL2_AF_BIT) != 0) {
+        *interrupts |= RTC_PCF85063_INTERRUPT_ALARM;
+    }
+    if ((control & PCF85063_CTRL2_TF_BIT) != 0) {
+        *interrupts |= RTC_PCF85063_INTERRUPT_COUNTDOWN;
+    }
+    return ESP_OK;
+}
+
+esp_err_t rtc_pcf85063_clear_interrupt_status_device(const rtc_pcf85063_t *device,
+                                                     uint32_t interrupts)
+{
+    if (!device_is_valid(device) || interrupts == 0 ||
+        (interrupts & ~PCF85063_INTERRUPT_ALL) != 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t clear_bits = 0;
+    if ((interrupts & RTC_PCF85063_INTERRUPT_ALARM) != 0) {
+        clear_bits |= PCF85063_CTRL2_AF_BIT;
+    }
+    if ((interrupts & RTC_PCF85063_INTERRUPT_COUNTDOWN) != 0) {
+        clear_bits |= PCF85063_CTRL2_TF_BIT;
+    }
+    return update_control2(device,
+                           PCF85063_CTRL2_AF_BIT | PCF85063_CTRL2_TF_BIT,
+                           clear_bits);
 }
 
 esp_err_t rtc_pcf85063_init(void)

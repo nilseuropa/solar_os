@@ -49,6 +49,7 @@ SOLAR_OS_BOARD_PIN_LCD_TE = "GPIO_NUM_6"
 SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
 SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_13"
 SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_RTC_INT = "GPIO_NUM_15"
 SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_38"
 SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_21"
 SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_39"
@@ -83,6 +84,7 @@ WS_RLCD_PIN_LCD_RST = "SOLAR_OS_BOARD_PIN_LCD_RST"
 WS_RLCD_PIN_LCD_TE = "SOLAR_OS_BOARD_PIN_LCD_TE"
 WS_RLCD_PIN_I2C_SDA = "SOLAR_OS_BOARD_PIN_I2C_SDA"
 WS_RLCD_PIN_I2C_SCL = "SOLAR_OS_BOARD_PIN_I2C_SCL"
+WS_RLCD_PIN_RTC_INT = "SOLAR_OS_BOARD_PIN_RTC_INT"
 WS_RLCD_PIN_SDMMC_CLK = "SOLAR_OS_BOARD_PIN_SDMMC_CLK"
 WS_RLCD_PIN_SDMMC_CMD = "SOLAR_OS_BOARD_PIN_SDMMC_CMD"
 WS_RLCD_PIN_SDMMC_D0 = "SOLAR_OS_BOARD_PIN_SDMMC_D0"
@@ -148,7 +150,7 @@ bindings = { spi = "spi0", cs = 40, dc = 5, reset = 41 }
 [[devices]]
 driver = "pcf85063"
 name = "rtc0"
-bindings = { i2c = "i2c0", addr = 0x51 }
+bindings = { i2c = "i2c0", addr = 0x51, irq = 15 }
 
 [[devices]]
 driver = "shtc3"
@@ -372,6 +374,10 @@ gpio = 14
 policy = "fixed"
 role = "I2C SCL"
 expansion = true
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "RTC interrupt"
 [[pins]]
 gpio = 16
 policy = "fixed"
