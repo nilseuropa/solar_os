@@ -18,6 +18,7 @@ FRONT_MATTER_DELIMITER = "+++"
 QUICK_REFERENCE_HEADING = "quick reference"
 CATALOG_SCHEMA_VERSION = 2
 ARCHIVE_PATH = "manual.zip"
+RELEASE_PAGE_MAX = 128 * 1024
 AGENT_REFERENCE_CHUNK_MAX = 900
 COMMAND_GITHUB_HREFS = {
     "agent": "agent.md",
@@ -746,6 +747,17 @@ def build_archive(pages: list[dict[str, object]]) -> bytes:
     return output.getvalue()
 
 
+def validate_release_pages(pages: list[dict[str, object]]) -> None:
+    for page in pages:
+        page_id = str(page["id"])
+        size = len(str(page["release_markdown"]).encode("utf-8"))
+        if size == 0 or size > RELEASE_PAGE_MAX:
+            raise ValueError(
+                f"manual page {page_id!r} is {size} bytes; "
+                f"release pages must be 1..{RELEASE_PAGE_MAX} bytes"
+            )
+
+
 def render_catalog(
     pages: list[dict[str, object]], version: str, archive: bytes
 ) -> str:
@@ -883,6 +895,12 @@ def main() -> int:
         parser.error("--archive-output is required with --catalog-output")
 
     pages = load_pages(args.input, args.packages)
+    if (
+        args.catalog_output is not None
+        or args.release_output_dir is not None
+        or args.archive_output is not None
+    ):
+        validate_release_pages(pages)
     archive = (
         build_archive(pages)
         if args.archive_output is not None or args.catalog_output is not None

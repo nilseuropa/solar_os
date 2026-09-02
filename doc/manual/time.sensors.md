@@ -3,7 +3,7 @@ id = "time.sensors"
 title = "Time, battery, and environment APIs"
 section = "hardware"
 summary = "Read clocks, battery state, temperature, and humidity"
-aliases = ["time", "rtc", "schedule", "battery", "sensors"]
+aliases = ["sensors"]
 keywords = "python lua time clock date timezone ntp uptime rtc alarm timer schedule battery sensor temperature humidity environment"
 packages_any = []
 +++
