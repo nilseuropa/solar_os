@@ -44,6 +44,7 @@ The source and generated paths are:
 boards/manifests/<target>.toml                 source board profile
 boards/expansion_drivers.toml                  selectable driver catalog
 scripts/board_config.py                        desktop TUI
+scripts/os_builder.py                          flavor build/flash TUI
 scripts/generate_board_profile.py              manifest validator/compiler
 .pio/build/<env>/generated/solar_os/            generated CMake and C metadata
 ```
@@ -467,6 +468,34 @@ board = odroid_esp32
 board_build.cmake_extra_args = -DSOLAR_OS_BOARD=odroid_go -DSDKCONFIG_DEFAULTS=sdkconfig.defaults.odroid_go
 ```
 
+## Update Layouts
+
+`os_builder` selects an update layout after board selection. This choice fixes
+the partition table and application-image limit; internal storage size is not a
+separate user setting.
+
+| Flash | OTA updates | Serial updates |
+| --- | --- | --- |
+| 16 MiB | Two 0x700000-byte (7 MiB) app slots and 0x1F0000 bytes of internal storage | One 0xE00000-byte (14 MiB) app slot and 0x1F0000 bytes of internal storage |
+| 8 MiB | Two 0x3E0000-byte (3.875 MiB) app slots and 0x20000 bytes (128 KiB) of internal storage | One 0x700000-byte (7 MiB) app slot and 0xF0000 bytes (960 KiB) of internal storage |
+| 4 MiB | Not available | One 0x3D0000-byte app slot and 0x20000 bytes (128 KiB) of internal storage |
+
+The OTA layout also includes the internal OTA service and its dependencies.
+The service is not a flavor group. The serial layout does not add it, although
+another selected feature can still depend on the shared OTA implementation.
+Changing layouts changes the partition table, so install the first image for a
+new layout through serial flashing. Do not switch a deployed device's layout
+with an ordinary OTA update.
+
+For a direct PlatformIO build outside `os_builder`, set `SOLAR_OS_LAYOUT`:
+
+```sh
+SOLAR_OS_LAYOUT=single pio run -e waveshare_esp32_s3_rlcd_4_2
+```
+
+If it is omitted, 8 MiB and 16 MiB environments use the OTA layout and 4 MiB
+environments use their fixed serial layout.
+
 ## Freenove ESP32-WROVER v3.0
 
 The `freenove_esp32_wrover_v3` target covers the FNK0060 v3.0 board with an
@@ -510,33 +539,29 @@ Omit `SOLAR_OS_CVBS_MODE` (or set it to `384x288`) to build the default full
 PAL mode. Composite scanout requires the ESP32's full 240 MHz clock, so SolarOS
 clamps all power profiles to that board-specific CPU floor on this target.
 
-Use the focused `rover-gameboy` flavor for Game Boy. It enables the `games`
-group but leaves Invaders out so the image fits the board's 4 MB flash. The
-default full PAL mode gives Game Boy the largest image:
+Use `os_builder` with the `rover` baseline to make a specialized Game Boy or
+Synth image. Add the required group, remove unrelated groups until the measured
+image fits, then build and flash from the same TUI:
 
 ```sh
-SOLAR_OS_FLAVOR=rover-gameboy pio run -e freenove_esp32_wrover_v3
+python3 scripts/os_builder.py \
+  --input flavors/rover.toml \
+  --board freenove_esp32_wrover_v3 \
+  --layout single
 ```
 
-The 320x200 safe-area mode also supports Game Boy; its presenter selects a
-smaller centered raster. For serial diagnostics, run:
+The default full PAL mode gives Game Boy the largest image. The 320x200
+safe-area mode also supports Game Boy; its presenter selects a smaller centered
+raster. For serial diagnostics, run:
 
 ```text
 job start log uart0 debug
 ```
 
-It is silent because composite scanout owns I2S0.
-
-For the focused Synth build, use:
-
-```sh
-SOLAR_OS_FLAVOR=rover-synth pio run -e freenove_esp32_wrover_v3
-```
-
-`rover-synth` keeps BLE and PS/2 keyboard input, MIDI, controls, storage, and
-basic file tools. It omits Wi-Fi/networking and unrelated application stacks
-to retain classic-ESP32 internal memory for Bluetooth and real-time audio.
-Attach an LEDC PWM audio output at runtime because PAL scanout owns I2S0:
+It is silent because composite scanout owns I2S0. For a custom Synth image,
+retain BLE, MIDI, controls, storage, basic file tools, Synth, and the PWM audio
+driver while removing unrelated stacks. Attach an LEDC PWM audio output at
+runtime because PAL scanout owns I2S0:
 
 ```text
 expansion attach audio-pwm audio pwm=gpio26
@@ -556,10 +581,9 @@ PWM and can form runtime I2C, SPI, UART, or 1-Wire buses. UART0 remains
 registered on the CH340 pins and cannot be detached by the shell using it.
 
 The board uses `partitions_4mb.csv`, with one 0x3D0000-byte factory application
-slot and a 0x20000-byte (128 KiB) flash filesystem. The board-specific `rover`,
-`rover-gameboy`, `rover-python`, `rover-lua`, and `rover-synth` flavors do not use
-a dual-OTA layout on 4 MB flash. Install firmware through the CH340 serial
-connection; this partition layout does not support on-device OTA updates.
+slot and a 0x20000-byte (128 KiB) flash filesystem. A dual-OTA layout is not
+available on 4 MB flash. Install firmware through the CH340 serial connection;
+this partition layout does not support on-device OTA updates.
 
 ## LilyGO TTGO VGA32 v1.4
 
@@ -609,11 +633,15 @@ The board has 4 MB flash, so its PlatformIO environment defaults to the focused
 pio run -e ttgo_vga32_v14
 ```
 
-To include Game Boy instead, use the same compact game profile as the PAL
-target. It omits Invaders and unrelated application groups:
+To create a compact Game Boy or another specialized build, start from `rover`
+in `os_builder`, adjust the granular groups, and build against this board's
+single-image limit:
 
 ```sh
-SOLAR_OS_FLAVOR=rover-gameboy pio run -e ttgo_vga32_v14
+python3 scripts/os_builder.py \
+  --input flavors/rover.toml \
+  --board ttgo_vga32_v14 \
+  --layout single
 ```
 
 The board profile declares `ps2kbd0` and creates the default `keyboard0`
@@ -718,7 +746,7 @@ pio run -e freenove_esp32_s3_display_4_0
 The built-in `elecrow_crowpanel_esp32_s3_4_2_epaper` target covers Elecrow's
 V1.0 400x300 monochrome CrowPanel. It uses an ESP32-S3-WROOM-1-N8R8 module,
 the SSD1683 e-paper driver, microSD over a dedicated SDSPI bus, five digital
-controls, a status LED, Wi-Fi, BLE, and an 8 MB dual-OTA partition layout.
+controls, a status LED, Wi-Fi, BLE, and selectable OTA or serial-update layouts.
 
 Elecrow has shipped both the original panel and a newer panel identified by a
 green circular sticker on the back. The newer revision keeps the same GPIO
@@ -763,8 +791,10 @@ The panel and storage wiring remains internal board wiring:
   SD-power enable.
 - GPIO41: active-high status LED.
 
-The target uses `partitions_8mb.csv`, with two 0x3B0000-byte OTA application
-slots and a 0x90000-byte flash filesystem partition.
+The default OTA layout uses `partitions_8mb.csv`, with two 0x3E0000-byte OTA
+application slots and a 0x20000-byte flash filesystem partition. The serial
+layout uses `partitions_8mb_single.csv`, with one 0x700000-byte factory slot and
+a 0xF0000-byte flash filesystem partition.
 
 ## Headless Boards
 
@@ -799,9 +829,10 @@ Its active-low BOOT button on GPIO0 is also the SolarOS KEY for the configured
 short-press sleep/suspend action, light-sleep wake, and long-press BLE keyboard
 replacement. GPIO0 remains reserved from runtime routing. Do not hold the
 button during reset or power-up, because that selects download boot mode.
-The N16R8 target uses the common 16 MiB `partitions.csv` layout described
-above. Its internal volume supports durable agent conversations and normal
-file workflows without an SD card.
+The N16R8 target defaults to the common 16 MiB OTA `partitions.csv` layout. Its
+serial alternative uses `partitions_16mb_single.csv`. Both retain the same
+0x1F0000-byte internal volume for durable agent conversations and normal file
+workflows without an SD card.
 The board also permits runtime routing on the spare SPI3 host. Static `spi0`
 remains the usual choice; the runtime host is useful for isolated experiments
 on another set of routable expansion pins.

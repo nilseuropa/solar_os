@@ -152,8 +152,8 @@ Inbox notification sound is a persisted policy and defaults to on when the
 board has audio output. It can be disabled with `inbox notify off`.
 Only a newly committed, non-duplicate entry can request it. Bursts are
 coalesced, and the request is dropped while another audio user is active.
-`service.audio-board` owns the bounded tone queue, built-in playback
-serialization, and cancellation; Inbox never drives board audio directly.
+`service.audio` owns the bounded tone queue, primary-backend playback
+serialization, and cancellation; Inbox never drives an audio driver directly.
 
 Deleting a retained message also deletes its linked Inbox projection. Provider
 history can be cleared independently with `messages clear gateway`,

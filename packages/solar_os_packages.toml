@@ -1,242 +1,541 @@
 [groups.bootstrap]
+label = "SolarOS runtime"
+category = "System"
+hidden = true
 immutable = true
 members = ["core_runtime", "core_shell"]
 
-[groups.system]
-members = [
-  "system_shell",
-  "service_wifi",
-  "service_ble",
-  "service_sd",
-  "service_audio",
-  "service_streams",
-  "service_synth",
-  "service_controls",
-  "job_controls",
-  "service_resources",
-  "service_engines",
-  "service_vector",
-  "service_dsp",
-  "service_gpio",
-  "service_onewire",
-  "service_logic",
-  "service_i2c",
-  "service_spi",
-  "service_json",
-  "service_crypto",
-  "service_uart",
-  "service_battery",
-  "service_rtc",
-  "service_sensors",
-  "service_adc",
-  "service_pwm",
-  "service_buttons",
-  "service_adc_dpad",
-]
+[groups.hardware_shell]
+label = "Hardware shell commands"
+category = "System"
+members = ["system_shell"]
 
-[groups.expansions]
-members = [
-  "service_expansion",
-  "service_radio",
-  "service_link",
-  "service_meshcore",
-  "expansion_rfm69",
-  "expansion_rfm95",
-  "expansion_pcd8544",
-  "expansion_ssd1683",
-  "expansion_ssd1306",
-  "expansion_sdmmc",
-  "expansion_sdspi",
-  "expansion_cardkb",
-  "expansion_analog_joystick",
-  "expansion_gpio_keys",
-  "expansion_ps2_keyboard",
-  "expansion_ps2_mouse",
-  "driver_ft6336",
-  "driver_pcf85063",
-  "driver_shtc3",
-  "driver_battery_adc",
-  "driver_audio_es8311_codecs",
-  "driver_audio_esp32_dac",
-  "driver_display_st7305",
-  "driver_display_ili9341",
-  "driver_display_st7796",
-  "driver_display_cvbs_pal",
-  "driver_display_vga32",
-  "expansion_neopixel",
-  "expansion_audio_pwm",
-  "expansion_pcm5102",
-  "job_midi",
-  "job_pocsag",
-  "job_radio_link",
-  "job_meshcore",
-]
+[groups.filesystem]
+label = "Filesystem commands"
+category = "System"
+members = ["core_fs_commands"]
 
-[groups.maintenance_apps]
-members = [
-  "service_ota",
-  "service_docs",
-  "service_contacts",
-  "service_credentials",
-  "service_messaging",
-  "service_gateway",
-  "core_fs_commands",
-  "app_docs",
-  "app_inbox",
-  "app_contacts",
-  "app_chat",
-  "app_com",
-  "app_edit",
-  "app_less",
-  "app_io",
-  "app_flash",
-]
+[groups.wifi]
+label = "Wi-Fi"
+category = "System"
+members = ["service_wifi"]
 
-[groups.maintenance_jobs]
-members = [
-  "job_log",
-  "job_batmon",
-]
+[groups.bluetooth]
+label = "Bluetooth keyboard"
+category = "System"
+members = ["service_ble"]
 
-[groups.hardware_jobs]
-members = [
-  "job_bridge",
-  "job_daq",
-  "job_gpio_keys",
-  "job_ps2_keyboard",
-  "job_sump",
-]
+[groups.sd_storage]
+label = "SD storage"
+category = "System"
+members = ["service_sd"]
 
-[groups.audio]
-members = [
-  "service_audio",
-  "service_audio_codecs",
-  "service_synth",
-  "app_aplay",
-  "app_arecord",
-  "app_recorder",
-  "app_player",
-  "app_synth",
-  "app_funcgen",
-]
-triggers = [
-  "app_aplay",
-  "app_arecord",
-  "app_recorder",
-  "app_player",
-  "app_synth",
-  "app_funcgen",
-]
+[groups.audio_support]
+label = "Audio support"
+category = "System"
+members = ["service_audio"]
 
-[groups.net]
-capabilities = ["wifi"]
-members = [
-  "service_wifi",
-  "service_wireguard",
-  "service_espnow",
-  "service_net",
-  "service_osc",
-  "service_mqtt",
-  "service_ssh",
-  "service_mail",
-  "chat_transport_gateway",
-  "service_http_client",
-  "service_http_server",
-  "service_ftp",
-  "app_ssh",
-  "app_scp",
-  "app_curl",
-  "app_webradio",
-  "app_telnet",
-  "app_web",
-  "app_email",
-  "app_ftp",
-  "job_httpd",
-  "job_displayd",
-  "job_gateway_sync",
-  "job_chatd",
-  "job_telnetd",
-  "job_ftpd",
-  "job_email_sync",
-  "job_slip",
-  "job_ntp_sync",
-  "job_osc",
-  "job_espnow_link",
-]
-triggers = [
-  "app_ssh",
-  "app_scp",
-  "app_curl",
-  "app_webradio",
-  "app_telnet",
-  "app_web",
-  "app_email",
-  "app_ftp",
-  "job_httpd",
-  "job_displayd",
-  "job_gateway_sync",
-  "job_chatd",
-  "job_telnetd",
-  "job_ftpd",
-  "job_email_sync",
-  "job_slip",
-  "job_ntp_sync",
-  "job_osc",
-  "job_espnow_link",
-]
+[groups.control_bindings]
+label = "Control bindings"
+category = "System"
+members = ["job_controls"]
+
+[groups.signal_processing]
+label = "Signal processing"
+category = "System"
+members = ["service_dsp"]
+
+[groups.vector_math]
+label = "Vector math"
+category = "System"
+members = ["service_vector"]
+
+[groups.gpio]
+label = "GPIO"
+category = "Hardware interfaces"
+members = ["service_gpio"]
+
+[groups.onewire]
+label = "1-Wire"
+category = "Hardware interfaces"
+members = ["service_onewire"]
+
+[groups.i2c]
+label = "I2C"
+category = "Hardware interfaces"
+members = ["service_i2c"]
+
+[groups.spi]
+label = "SPI"
+category = "Hardware interfaces"
+members = ["service_spi"]
+
+[groups.uart]
+label = "UART"
+category = "Hardware interfaces"
+members = ["service_uart"]
+
+[groups.adc]
+label = "ADC"
+category = "Hardware interfaces"
+members = ["service_adc"]
+
+[groups.pwm]
+label = "PWM"
+category = "Hardware interfaces"
+members = ["service_pwm"]
+
+[groups.board_buttons]
+label = "Board buttons"
+category = "Hardware interfaces"
+members = ["service_buttons"]
+
+[groups.adc_dpad]
+label = "ADC directional pad"
+category = "Hardware interfaces"
+members = ["service_adc_dpad"]
+
+[groups.ota]
+label = "OTA updates"
+category = "Maintenance"
+hidden = true
+members = ["service_ota"]
+
+[groups.documentation_sync]
+label = "Online documentation sync"
+category = "Maintenance"
+members = ["service_docs"]
+
+[groups.device_flasher]
+label = "Device flasher"
+category = "Maintenance"
+members = ["app_flash"]
+
+[groups.logging]
+label = "Background logging"
+category = "Maintenance"
+members = ["job_log"]
+
+[groups.battery_monitor]
+label = "Battery monitor"
+category = "Maintenance"
+members = ["job_batmon"]
+
+[groups.embedded_docs]
+label = "Embedded manual"
+category = "Terminal tools"
+members = ["app_docs"]
+
+[groups.serial_terminal]
+label = "Serial terminal"
+category = "Terminal tools"
+members = ["app_com"]
+
+[groups.editor]
+label = "Text editor"
+category = "Terminal tools"
+members = ["app_edit"]
+
+[groups.pager]
+label = "Text pager"
+category = "Terminal tools"
+members = ["app_less"]
+
+[groups.files]
+label = "File manager"
+category = "Terminal tools"
+members = ["app_files"]
+
+[groups.io]
+label = "GPIO control app"
+category = "Terminal tools"
+members = ["app_io"]
+
+[groups.clock]
+label = "Clock"
+category = "Utilities"
+members = ["app_clock"]
+
+[groups.calculator]
+label = "Calculator"
+category = "Utilities"
+members = ["app_calc"]
+
+[groups.plot]
+label = "Plot"
+category = "Utilities"
+members = ["app_plot"]
+
+[groups.sheet]
+label = "Sheet"
+category = "Utilities"
+members = ["app_sheet"]
+
+[groups.logic_analyzer]
+label = "Logic analyzer"
+category = "Hardware tools"
+members = ["app_logic"]
+
+[groups.sump]
+label = "SUMP logic capture"
+category = "Hardware tools"
+members = ["job_sump"]
+
+[groups.bridge]
+label = "Stream bridge"
+category = "Hardware tools"
+members = ["job_bridge"]
+
+[groups.daq]
+label = "Data acquisition"
+category = "Hardware tools"
+members = ["job_daq"]
+
+[groups.gpio_keys]
+label = "GPIO keyboard"
+category = "Hardware tools"
+members = ["job_gpio_keys"]
+
+[groups.ps2_keyboard]
+label = "PS/2 keyboard"
+category = "Hardware tools"
+members = ["job_ps2_keyboard"]
+
+[groups.midi]
+label = "MIDI"
+category = "Hardware tools"
+members = ["job_midi"]
+
+[groups.ssh]
+label = "SSH and SCP clients"
+category = "Networking"
+members = ["app_ssh", "app_scp"]
+
+[groups.http_client]
+label = "HTTP client and Curl"
+category = "Networking"
+members = ["app_curl"]
+
+[groups.web_browser]
+label = "Web browser"
+category = "Networking"
+members = ["app_web"]
+
+[groups.ftp]
+label = "FTP client and server"
+category = "Networking"
+members = ["app_ftp", "job_ftpd"]
+
+[groups.telnet]
+label = "Telnet client and server"
+category = "Networking"
+members = ["app_telnet", "job_telnetd"]
+
+[groups.http_server]
+label = "HTTP server"
+category = "Networking"
+members = ["job_httpd"]
+
+[groups.display_server]
+label = "Remote display server"
+category = "Networking"
+members = ["job_displayd"]
+
+[groups.wireguard]
+label = "WireGuard"
+category = "Networking"
+members = ["service_wireguard"]
+
+[groups.mqtt]
+label = "MQTT"
+category = "Networking"
+members = ["service_mqtt"]
+
+[groups.ntp]
+label = "Network time sync"
+category = "Networking"
+members = ["job_ntp_sync"]
+
+[groups.slip]
+label = "SLIP networking"
+category = "Networking"
+members = ["job_slip"]
+
+[groups.osc]
+label = "Open Sound Control"
+category = "Networking"
+members = ["job_osc"]
+
+[groups.inbox]
+label = "Inbox"
+category = "Messaging"
+members = ["app_inbox"]
+
+[groups.contacts]
+label = "Contacts"
+category = "Messaging"
+members = ["app_contacts"]
+
+[groups.chat]
+label = "Chat"
+category = "Messaging"
+members = ["app_chat"]
+
+[groups.chat_gateway]
+label = "Chat gateway configuration"
+category = "Messaging"
+members = ["service_gateway"]
+
+[groups.gateway_sync]
+label = "Chat gateway sync"
+category = "Messaging"
+members = ["job_gateway_sync"]
+
+[groups.chat_server]
+label = "Chat gateway server"
+category = "Messaging"
+members = ["job_chatd"]
+
+[groups.email]
+label = "Email client and sync"
+category = "Messaging"
+members = ["app_email", "job_email_sync"]
 
 [groups.agent]
+label = "AI agent"
+category = "Messaging"
 members = ["app_agent"]
-triggers = ["app_agent"]
-capabilities = ["psram", "wifi"]
 
-[groups.media]
-members = ["app_view", "app_sketch"]
-triggers = ["app_view", "app_sketch"]
-capabilities = ["gfx"]
+[groups.espnow]
+label = "ESP-NOW link"
+category = "Radio"
+members = ["job_espnow_link"]
 
-[groups.games]
-members = ["app_invaders", "app_gameboy"]
-triggers = ["app_invaders", "app_gameboy"]
-capabilities = ["gfx"]
+[groups.pocsag]
+label = "POCSAG pager"
+category = "Radio"
+members = ["job_pocsag"]
+
+[groups.radio_link]
+label = "Packet radio link"
+category = "Radio"
+members = ["job_radio_link"]
+
+[groups.meshcore]
+label = "MeshCore"
+category = "Radio"
+members = ["job_meshcore"]
+
+[groups.audio_commands]
+label = "Audio playback and recording commands"
+category = "Audio"
+members = ["app_aplay", "app_arecord"]
+
+[groups.player]
+label = "Music player"
+category = "Audio"
+members = ["app_player"]
+
+[groups.recorder]
+label = "Audio recorder"
+category = "Audio"
+members = ["app_recorder"]
+
+[groups.synth]
+label = "Synthesizer"
+category = "Audio"
+members = ["app_synth"]
+
+[groups.function_generator]
+label = "Function generator"
+category = "Audio"
+members = ["app_funcgen"]
+
+[groups.webradio]
+label = "WebRadio"
+category = "Audio"
+members = ["app_webradio"]
+
+[groups.reader]
+label = "Document reader"
+category = "Writing"
+members = ["app_reader"]
+
+[groups.writer]
+label = "Writer"
+category = "Writing"
+members = ["app_writer"]
+
+[groups.notes]
+label = "Notes"
+category = "Writing"
+members = ["app_notes"]
+
+[groups.image_viewer]
+label = "Image viewer"
+category = "Media"
+members = ["app_view"]
+
+[groups.sketch]
+label = "Sketch"
+category = "Media"
+members = ["app_sketch"]
+
+[groups.invaders]
+label = "Invaders"
+category = "Games"
+members = ["app_invaders"]
+
+[groups.gameboy]
+label = "Game Boy"
+category = "Games"
+members = ["app_gameboy"]
 
 [groups.python]
-members = ["app_python", "app_playground"]
-triggers = ["app_python"]
+label = "Python"
+category = "Scripting"
+members = ["app_python"]
 
 [groups.lua]
-members = ["app_lua", "app_playground"]
-triggers = ["app_lua"]
+label = "Lua"
+category = "Scripting"
+members = ["app_lua"]
 
-[groups.writing]
-members = [
-  "app_reader",
-  "app_writer",
-  "app_files",
-  "app_notes",
-]
-triggers = [
-  "app_reader",
-  "app_writer",
-  "app_files",
-  "app_notes",
-]
+[groups.playground]
+label = "Playground package manager"
+category = "Scripting"
+members = ["app_playground"]
 
-[groups.utils]
-members = [
-  "app_clock",
-  "app_calc",
-  "app_plot",
-  "app_logic",
-  "app_sheet",
-]
-triggers = [
-  "app_clock",
-  "app_calc",
-  "app_plot",
-  "app_logic",
-  "app_sheet",
-]
+[groups.rfm69]
+label = "RFM69 radio"
+category = "Expansion hardware"
+members = ["expansion_rfm69"]
+
+[groups.rfm95]
+label = "RFM95 LoRa radio"
+category = "Expansion hardware"
+members = ["expansion_rfm95"]
+
+[groups.pcd8544]
+label = "PCD8544 display"
+category = "Expansion hardware"
+members = ["expansion_pcd8544"]
+
+[groups.ssd1683]
+label = "SSD1683 e-paper display"
+category = "Expansion hardware"
+members = ["expansion_ssd1683"]
+
+[groups.ssd1306]
+label = "SSD1306 OLED display"
+category = "Expansion hardware"
+members = ["expansion_ssd1306"]
+
+[groups.cardkb]
+label = "CardKB keyboard"
+category = "Expansion hardware"
+members = ["expansion_cardkb"]
+
+[groups.analog_joystick]
+label = "Analog joystick"
+category = "Expansion hardware"
+members = ["expansion_analog_joystick"]
+
+[groups.ps2_mouse]
+label = "PS/2 mouse"
+category = "Expansion hardware"
+members = ["expansion_ps2_mouse"]
+
+[groups.sdspi]
+label = "SPI SD card"
+category = "Expansion hardware"
+members = ["expansion_sdspi"]
+
+[groups.sdmmc]
+label = "SDMMC card"
+category = "Expansion hardware"
+members = ["expansion_sdmmc"]
+
+[groups.neopixel]
+label = "NeoPixel output"
+category = "Expansion hardware"
+members = ["expansion_neopixel"]
+
+[groups.audio_pwm]
+label = "PWM audio output"
+category = "Expansion hardware"
+members = ["expansion_audio_pwm"]
+
+[groups.pcm5102]
+label = "PCM5102 audio output"
+category = "Expansion hardware"
+members = ["expansion_pcm5102"]
+
+[groups.pcm1808]
+label = "PCM1808 audio input"
+category = "Expansion hardware"
+members = ["expansion_pcm1808"]
+
+[groups.es8311]
+label = "ES8311/ES7210 audio codecs"
+category = "Expansion hardware"
+members = ["driver_audio_es8311_codecs"]
+
+[groups.esp32_dac]
+label = "ESP32 DAC audio output"
+category = "Expansion hardware"
+members = ["driver_audio_esp32_dac"]
+
+[groups.st7305]
+label = "ST7305 display"
+category = "Expansion hardware"
+members = ["driver_display_st7305"]
+
+[groups.ili9341]
+label = "ILI9341 display"
+category = "Expansion hardware"
+members = ["driver_display_ili9341"]
+
+[groups.st7796]
+label = "ST7796 display"
+category = "Expansion hardware"
+members = ["driver_display_st7796"]
+
+[groups.cvbs]
+label = "PAL composite display"
+category = "Expansion hardware"
+members = ["driver_display_cvbs_pal"]
+
+[groups.vga]
+label = "VGA display"
+category = "Expansion hardware"
+members = ["driver_display_vga32"]
+
+[groups.ft6336]
+label = "FT6336 touch controller"
+category = "Expansion hardware"
+members = ["driver_ft6336"]
+
+[groups.pcf85063]
+label = "PCF85063 real-time clock"
+category = "Expansion hardware"
+members = ["driver_pcf85063"]
+
+[groups.shtc3]
+label = "SHTC3 environmental sensor"
+category = "Expansion hardware"
+members = ["driver_shtc3"]
+
+[groups.battery_adc]
+label = "ADC battery monitor"
+category = "Expansion hardware"
+members = ["driver_battery_adc"]
+
+[groups.usb_hid]
+label = "USB HID"
+category = "Internal"
+hidden = true
+members = ["service_hid"]
 
 [packages.core_runtime]
 label = "bootstrap.runtime"
@@ -600,11 +899,6 @@ sources = [
   "services/solar_os_audio_player.c",
   "services/solar_os_audio_pcm.c",
 ]
-
-[packages.service_audio_board]
-label = "service.audio-board"
-depends = ["service_audio"]
-capabilities = ["audio"]
 
 [packages.service_audio_codecs]
 label = "service.audio-codecs"
@@ -983,6 +1277,19 @@ sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
   "services/solar_os_pcm5102_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
+
+[packages.expansion_pcm1808]
+label = "expansion.pcm1808"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_pcm1808_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/pcm1808.c",
+  "services/solar_os_pcm1808.c",
+  "services/solar_os_pcm1808_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]

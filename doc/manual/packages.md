@@ -10,33 +10,37 @@ packages_any = []
 # Firmware Packages and Flavors
 
 SolarOS package selection is declared in `packages/solar_os_packages.toml`.
-Flavor files select groups or individual packages; the generator resolves
-package dependencies and then removes packages unsupported by the target board.
+Flavor files normally select granular groups. The generator translates those
+groups into internal packages, resolves package dependencies, and removes
+packages unsupported by the target board. A maintainer can use individual
+package overrides for unusual build work, but packages are not part of the
+normal flavor-configurator workflow.
 
 `service.streams` owns the dynamic typed endpoint registry. Sensor, port, and
 audio providers register their endpoints there at runtime. `service.audio`
 also owns audio-device discovery; devices refer to their capture and playback
 stream IDs instead of exposing a board-specific global data path. It has no
-board-audio capability requirement. `service.audio-board` publishes built-in
-board endpoints and retains the hardware capability gate. The independent
-`service.audio-codecs` package owns incremental compressed-audio decoding, so
-file players and network sources can share the same decoder without owning an
-audio device.
+board-audio capability requirement. Concrete audio driver packages publish
+devices and endpoints when attached, including immutable board-default
+attachments for built-in hardware. The independent `service.audio-codecs`
+package owns incremental compressed-audio decoding, so file players and
+network sources can share the same decoder without owning an audio device.
 
-`expansion.audio-pwm` depends on the generic audio and expansion services, not
-on `service.audio-board`. On a board with expansion PWM it can therefore add a
-runtime playback device even when no built-in codec or DAC exists.
+`expansion.audio-pwm` depends on the generic audio and expansion services. On a
+board with expansion PWM it can therefore add a runtime playback device even
+when no built-in codec or DAC exists.
 `expansion.pcm5102` follows the same ownership model on boards with the
 `expansion_i2s` capability and adds an I2S playback device without requiring
-built-in audio. That capability guarantees a spare I2S controller and at least
-three runtime-safe output GPIOs, so the package is pruned from boards such as
-ODROID-GO that cannot expose all required signals.
+built-in audio. `expansion.pcm1808` uses that model for a four-GPIO I2S capture
+device. The capability guarantees a spare I2S controller and runtime-safe
+GPIOs; individual driver binding validation enforces the required signal
+count. Both packages are pruned from boards such as ODROID-GO that cannot
+expose an I2S controller for expansion use.
 `driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
 only for ESP32-S3 targets with I2C and expansion I2S resources.
 `driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.
-Both use the generic audio backend and remain available without
-`service.audio-board`; a board with built-in audio declares a fixed default
-attachment instead of compiling a separate board adapter.
+Both use the generic audio backend; a board with built-in audio declares a
+fixed default attachment instead of compiling a separate board adapter.
 The `driver.display-st7305`, `driver.display-st7796`,
 `driver.display-ili9341`, `driver.display-cvbs-pal`, `driver.display-vga32`, and
 `expansion.ssd1683` packages use the same model. Each package registers an
@@ -92,57 +96,47 @@ matrix.
   its default `keyboard0` attachment. Built-in defaults are fixed attachment
   instances, not a separate copy of the controller driver.
 
-The standard selectors are `system`, `expansions`, `maintenance_apps`,
-`maintenance_jobs`, `hardware_jobs`, `audio`, `net`, `agent`, `media`, `games`,
-`python`, `lua`, `writing`, and `utils`. Maintenance jobs contain
-background logging and battery monitoring. Hardware jobs contain Bridge, DAQ,
-GPIO Keys, and SUMP for hardware diagnostics and hacking. The `writing` group contains
-Reader, Writer, Files, and Notes; general utilities contain Clock, Calculator,
-Plot, Logic, and Sheet.
+Groups are the user-facing feature units shared by flavor TOML files and the
+configurator. They are deliberately granular: examples include `http_client`,
+`ftp`, `logging`, `gameboy`, `pcm1808`, and `st7305`. Categories such as
+Networking, Maintenance, Games, and Expansion hardware only organize the
+configurator; categories cannot be selected and do not appear in a flavor.
+Dormant engineering packages such as USB HID are not exposed as groups.
 
-The `media` group contains View and Sketch. View requires graphics and PSRAM
-for large decoded images. Sketch requires graphics but has no pointer or PSRAM
-capability gate: it uses a compact two-bit canvas and discovers absolute or
-relative pointers at runtime. Its PNG decoder and shared storage browser are
-package dependencies, while mutable app and canvas state remain cold until the
-app starts. The four-shade canvas is converted into a cold-allocated monochrome
-XBM buffer for one opaque graphics blit per redraw.
+Groups can contain more than one package when users reasonably perceive one
+feature. For example, `ssh` includes the SSH and SCP clients, while `ftp`
+includes the client and its server job. Package dependencies can add services
+and other internal support automatically. Those packages remain implementation
+details rather than becoming additional choices.
 
-The `games` group contains Invaders and Game Boy. Game Boy additionally
-requires PSRAM, SD storage, and the `streaming_display` board capability. Its
+The `image_viewer` and `sketch` groups select the two media applications. View
+requires graphics and PSRAM for large decoded images. Sketch requires graphics
+but has no pointer or PSRAM capability gate: it uses a compact two-bit canvas
+and discovers absolute or relative pointers at runtime. Its PNG decoder and
+shared storage browser are package dependencies, while mutable app and canvas
+state remain cold until the app starts. The four-shade canvas is converted into
+a cold-allocated monochrome XBM buffer for one opaque graphics blit per redraw.
+
+The separate `invaders` and `gameboy` groups select those games independently.
+Game Boy additionally requires PSRAM, SD storage, and the `streaming_display`
+board capability. Its
 fixed-frequency emulator submits compact INDEX2 frames to the shared bounded-
 cadence presenter. When `service.synth` is present, Game Boy also uses the
 MiniGB APU through the shared synth and audio services.
 
-The `writerdeck` flavor targets the Elecrow e-paper board with the `writing`
-group plus system, maintenance, and network tools. It excludes general
-utilities and hardware-diagnostics jobs to stay focused and fit the board's
-smaller OTA slot.
+The `writerdeck` flavor targets the Elecrow e-paper board with the `reader`,
+`writer`, and `notes` groups plus selected system, maintenance, and network
+tools. It excludes general utilities and hardware-diagnostics jobs to stay
+focused and fit the board's smaller OTA slot.
 
-The `rover`, `rover-python`, and `rover-lua` flavors target the Freenove
-ESP32-WROVER v3.0 composite-video terminal. All three include the expansion
-framework and drivers, networking, media viewing, general utilities, Files,
-the log job, Bridge, and the GPIO Keys job. The base `rover` flavor also
-includes the remaining writing applications. They omit the battery monitor
-because the board has no battery hardware, and omit the DAQ and SUMP jobs by
-default. The Logic app is also omitted because its timing-sensitive capture
-buffer requires more internal-memory margin than this configuration provides.
-`rover` has no embedded interpreter; `rover-python` and `rover-lua` omit
-Reader, Writer, and Notes, and add only their selected scripting stack. These
-three general-purpose images omit games. `rover-gameboy` is the focused PAL
-game image: it enables the `games` group and Game Boy but explicitly leaves
-Invaders out to fit the 4 MB board while retaining basic files, Wi-Fi, and
-SSH/SCP tools. Agent remains excluded because its runtime memory requirements
-exceed the practical internal-memory margin. The board's 4 MB flash uses one
-large factory application slot, so these flavors omit OTA and remote manual
-synchronization. The embedded `docs` application remains available.
-
-`rover-synth` is a focused classic-ESP32 synthesizer build. It retains BLE and
-PS/2 keyboard input, SD and basic file tools, controls, MIDI, and the LEDC PWM
-audio expansion while omitting Wi-Fi/networking, packet radio, media, games,
-scripting, and unrelated application groups. Composite video owns I2S0, so the
-on-board audio package remains disabled and Synth uses a runtime-attached PWM
-output. This smaller profile preserves Bluetooth controller memory headroom.
+The `rover` flavor targets the 4 MiB classic-ESP32 boards. It includes the
+expansion framework and drivers, networking, media viewing, writing and general
+utilities, Files, logging, Bridge, and GPIO Keys. It omits the battery monitor,
+DAQ, SUMP, Logic, games, scripting, Agent, and remote manual synchronization to
+fit the factory application slot and preserve internal-memory margin. The
+embedded `docs` application remains available. Specialized Rover images are
+created from this portable baseline with `os_builder` instead of being kept as
+separate checked-in `rover-*` flavors.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
@@ -213,7 +207,8 @@ oscillator state and Synth worker remain internal for deterministic rendering.
 Every displayed control has a corresponding native parameter for physical and
 MIDI control bindings.
 
-The `agent` group selects `app.agent` and its `service.agent` dependency.
+The `agent` group selects `app.agent`; its `service.agent` dependency is added
+automatically.
 `service.agent` owns provider-neutral events, NVS-backed provider
 configuration, bounded tool-loop policy, a declarative typed-tool registry,
 and the OpenAI Responses/Chat-Completions adapter. The registry owns provider
@@ -260,25 +255,93 @@ output-serialization ownership; the synth service owns a bounded render block,
 dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.
 
+## SolarOS Builder
+
+Use the host-side `os_builder` to create or modify a selection, build it, and
+flash it without editing TOML by hand:
+
+```sh
+python3 scripts/os_builder.py
+```
+
+The builder starts with board selection and then asks for the update layout.
+The board establishes the MCU target, capabilities, flash and PSRAM limits, and
+the drivers that must be included. The layout establishes the application-image
+limit: 8 MiB and 16 MiB targets can keep two images for OTA updates or use one
+larger image for serial updates. A 4 MiB target has one fixed serial-update
+layout. Internal filesystem size follows the layout and is not a user setting.
+Flavors remain portable because neither the board nor the layout is stored in
+the flavor TOML.
+
+The main screen contains selectable groups under collapsible category headings.
+The same group names are used in the TOML file. Categories are headings only,
+and services and internal packages are never listed as choices. The resolver
+adds dependencies automatically. `[!]` marks a group required by the selected
+board, `[+]` marks a group whose feature is already present through another
+selection, and `[-]` marks a group that the board cannot support.
+
+Each group shows its marginal estimated contribution to the current image.
+The detail line separates the group's own contribution from additional
+automatic support. Shared objects and components are counted once, so the
+number can change with the surrounding selections. Before the first build, the
+top bar compares the estimated image with the selected layout's image limit.
+
+When available, estimates use text and initialized-data sizes from cached
+PlatformIO objects and the ESP-IDF component archives declared by package
+requirements. Otherwise, the builder identifies that it is using a source-size
+fallback. A specific board, layout, and cached build can be selected from the
+command line:
+
+```sh
+python3 scripts/os_builder.py \
+  --input flavors/core.toml \
+  --output flavors/my-flavor.toml \
+  --board waveshare_esp32_s3_rlcd_4_2 \
+  --layout ota
+```
+
+Press `b` to build the current selection. The builder writes a private working
+flavor under `.pio/os_builder/`; it does not overwrite the selected input or
+the output flavor. During the build it shows a progress bar and the current
+compiler stage. A successful build replaces the total estimate with the exact
+`firmware.bin` size and recalibrates marginal group estimates from that board's
+artifacts. Change groups and press `b` again to iterate.
+
+Press `f` to flash. Flashing is enabled only after a successful build whose
+board, layout, and groups still match the current screen. Any selection change
+makes the build stale until it is rebuilt. The upload has its own progress bar
+and confirmation; `--upload-port` can select a serial device explicitly.
+Build and flash failures open a concise error view, with `a` toggling the full
+output. Complete logs are replaced on each operation at
+`.pio/os_builder/build.log` and `.pio/os_builder/flash.log`. Press `s` whenever
+you want to save the portable group selection as TOML; saving does not end the
+build/flash loop.
+
 ## Custom Flavor Example
 
-This flavor adds only `curl` and the dependency closure needed by that app to
-the immutable bootstrap:
+This flavor selects only the user-facing HTTP client group. The generator adds
+the internal HTTP transport and other dependencies automatically:
 
 ```toml
 [flavor]
 name = "curl-only"
 description = "Bootstrap plus the HTTP client app."
 
-[packages]
-app_curl = true
+[groups]
+http_client = true
 ```
+
+For maintainer experiments, an optional `[packages]` table can override
+individual internal packages. The builder does not expose that table as
+another selection layer.
 
 Use `pkg` on the device to inspect the resolved package list.
 
 ## Quick reference
 
-Packages are the actual build units, groups are convenience bundles, and a
-flavor selects packages for a board. Board capabilities remove packages that
-cannot run. Use `pkg` on-device to inspect the resolved firmware and edit a
-flavor TOML file when producing a custom build.
+Select a board, an update layout, and then granular groups. Build to replace the
+total estimate with a measured image size; adjust, rebuild, and flash when it
+fits. A flavor stores only portable groups. The board supplies required hardware
+drivers and removes unsupported groups, while the layout defines the image
+limit. Internal packages and services are resolved automatically. Use `pkg`
+on-device to inspect the resolved firmware.

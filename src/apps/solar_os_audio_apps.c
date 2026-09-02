@@ -58,6 +58,7 @@ typedef struct {
     bool running;
     bool done;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
+    char capture_stream[SOLAR_OS_STREAM_ID_MAX];
     uint32_t duration_ms;
     uint8_t volume;
 } audio_app_state_t;
@@ -136,7 +137,8 @@ static void audio_app_render_usage(solar_os_context_t *ctx, audio_app_mode_t mod
     solar_os_shell_io_t *io = audio_app_io(ctx);
 
     if (mode == AUDIO_APP_MODE_RECORD) {
-        solar_os_shell_io_writeln(io, "usage: arecord [-d seconds] file.wav");
+        solar_os_shell_io_writeln(
+            io, "usage: arecord [-d seconds] [-i capture-stream] file.wav");
     } else {
         solar_os_shell_io_writeln(io, "usage: aplay [-v volume] file.wav|file.mp3");
     }
@@ -161,6 +163,17 @@ static bool audio_app_parse_record_args(solar_os_context_t *ctx)
                 return false;
             }
             audio_app.duration_ms = seconds * 1000U;
+            i++;
+            continue;
+        }
+        if (strcmp(arg, "-i") == 0) {
+            if (i + 1 >= argc || audio_app.capture_stream[0] != '\0' ||
+                strlcpy(audio_app.capture_stream,
+                        solar_os_context_argv(ctx, i + 1),
+                        sizeof(audio_app.capture_stream)) >=
+                    sizeof(audio_app.capture_stream)) {
+                return false;
+            }
             i++;
             continue;
         }
@@ -275,6 +288,8 @@ static void audio_app_task(void *arg)
 
     solar_os_audio_wav_info_t info = {0};
     solar_os_audio_wav_options_t options = {
+        .capture_stream = audio_app.capture_stream[0] != '\0' ?
+            audio_app.capture_stream : NULL,
         .should_cancel = audio_app_should_cancel,
         .progress = audio_app.mode == AUDIO_APP_MODE_RECORD ?
             audio_app_progress : NULL,
@@ -356,7 +371,7 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
             ctx,
             2,
             mode == AUDIO_APP_MODE_RECORD ?
-                "usage: arecord [-d seconds] <file.wav>" :
+                "usage: arecord [-d seconds] [-i capture-stream] <file.wav>" :
                 "usage: aplay [-v volume] <file.wav|file.mp3>");
         return ESP_OK;
     }
@@ -369,14 +384,17 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
     }
 
     if (mode == AUDIO_APP_MODE_RECORD) {
+        const char *capture = audio_app.capture_stream[0] != '\0' ?
+            audio_app.capture_stream : "default input";
         if (audio_app.duration_ms == 0U) {
             solar_os_shell_io_printf(io,
-                                     "recording %s until stopped\n",
-                                     audio_app.path);
+                                     "recording %s from %s until stopped\n",
+                                     audio_app.path, capture);
         } else {
             solar_os_shell_io_printf(io,
-                                     "recording %s for %" PRIu32 " s\n",
+                                     "recording %s from %s for %" PRIu32 " s\n",
                                      audio_app.path,
+                                     capture,
                                      audio_app.duration_ms / 1000U);
         }
     } else {

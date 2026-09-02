@@ -135,8 +135,9 @@ Controls:
 
 ## arecord
 
-Record the default registered capture endpoint to a WAV file. This requires a
-registered input device; it does not require built-in board audio. With `-d`,
+Record a registered capture endpoint to a WAV file. The default is the first
+compatible input; `-i` selects a specific stream such as `adc0.capture`. This
+requires a registered input device, but not built-in board audio. With `-d`,
 recording stops after the specified number of seconds. Without `-d`, recording
 continues until app-exit, the storage fills, or the WAV size limit is reached.
 It can be launched from display, UART, USB CDC, Telnet, and other port shells.
@@ -144,7 +145,7 @@ It can be launched from display, UART, USB CDC, Telnet, and other port shells.
 Usage:
 
 ```text
-arecord [-d seconds] file.wav
+arecord [-d seconds] [-i capture-stream] file.wav
 ```
 
 Controls:
@@ -923,7 +924,7 @@ Controls:
 
 ## gameboy
 
-Original Game Boy (DMG) emulator included in the `games` group on boards with
+Original Game Boy (DMG) emulator selected by the `gameboy` group on boards with
 PSRAM, SD storage, graphics, and a streaming display. Current integrated
 targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO
 VGA32. The application loads a user-supplied ROM into PSRAM and writes

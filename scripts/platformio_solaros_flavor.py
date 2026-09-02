@@ -16,6 +16,7 @@ if str(script_dir) not in sys.path:
     sys.path.insert(0, str(script_dir))
 
 from solaros_build_lock import acquire_project_build_lock
+from solaros_update_layout import select_layout
 
 
 def _selected_flavor() -> str:
@@ -23,6 +24,17 @@ def _selected_flavor() -> str:
         os.environ.get("SOLAR_OS_FLAVOR")
         or env.GetProjectOption("custom_solaros_default_flavor", "full")
     )
+
+
+def _selected_flavor_file(project_dir: Path, flavor: str) -> Path:
+    configured = os.environ.get("SOLAR_OS_FLAVOR_FILE")
+    path = Path(configured) if configured else Path("flavors") / f"{flavor}.toml"
+    if not path.is_absolute():
+        path = project_dir / path
+    path = path.resolve()
+    if not path.is_file():
+        raise SystemExit(f"SolarOS flavor not found: {path}")
+    return path
 
 
 def _selected_board() -> str:
@@ -68,6 +80,18 @@ def _remove_path(path: Path) -> None:
 build_dir = Path(env.subst("$BUILD_DIR"))
 flavor = _selected_flavor()
 board = _selected_board()
+board_config = env.BoardConfig()
+configured_partition = str(board_config.get("build.partitions", "partitions.csv"))
+try:
+    update_layout = select_layout(
+        configured_partition,
+        os.environ.get("SOLAR_OS_LAYOUT"),
+    )
+except ValueError as exc:
+    raise SystemExit(str(exc)) from exc
+layout = update_layout.key
+partition_file = update_layout.partition_file
+maximum_size = update_layout.app_bytes
 cvbs_mode = _selected_cvbs_mode()
 vga_mode = _selected_vga_mode()
 
@@ -76,16 +100,20 @@ vga_mode = _selected_vga_mode()
 # those processes cannot fall back to another board or flavor.
 os.environ["SOLAR_OS_BOARD"] = board
 os.environ["SOLAR_OS_FLAVOR"] = flavor
+os.environ["SOLAR_OS_LAYOUT"] = layout
 os.environ["SOLAR_OS_CVBS_MODE"] = cvbs_mode
 os.environ["SOLAR_OS_VGA_MODE"] = vga_mode
 
 acquire_project_build_lock(project_dir, env["PIOENV"])
 
-flavor_file = project_dir / "flavors" / f"{flavor}.toml"
-if not flavor_file.exists():
-    raise SystemExit(f"SolarOS flavor not found: {flavor_file}")
+flavor_file = _selected_flavor_file(project_dir, flavor)
+os.environ["SOLAR_OS_FLAVOR_FILE"] = str(flavor_file)
+board_config.update("build.partitions", partition_file)
+board_config.update("upload.maximum_size", maximum_size)
 
 _append_cmake_arg(f"-DSOLAR_OS_FLAVOR={flavor}")
+_append_cmake_arg(f"-DSOLAR_OS_FLAVOR_FILE={flavor_file}")
+_append_cmake_arg(f"-DSOLAR_OS_LAYOUT={layout}")
 _append_cmake_arg(f"-DSOLAR_OS_CVBS_MODE={cvbs_mode}")
 _append_cmake_arg(f"-DSOLAR_OS_VGA_MODE={vga_mode}")
 if os.environ.get("SOLAR_OS_BOARD"):
@@ -97,11 +125,13 @@ board_files = tuple(sorted((project_dir / "boards").rglob("*.cmake")))
 board_manifest_files = tuple(sorted((project_dir / "boards").rglob("*.toml")))
 board_headers = tuple(sorted((project_dir / "include" / "boards").glob("*.h")))
 sdkconfig_default_files = tuple(sorted(project_dir.glob("sdkconfig.defaults*")))
+partition_files = tuple(sorted(project_dir.glob("partitions*.csv")))
 tracked_files = (
     flavor_file,
     project_dir / "packages" / "solar_os_packages.toml",
     project_dir / "scripts" / "generate_flavor_config.py",
     project_dir / "scripts" / "platformio_solaros_flavor.py",
+    project_dir / "scripts" / "solaros_update_layout.py",
     project_dir / "scripts" / "solaros_build_lock.py",
     project_dir / "scripts" / "validate_board_metadata.py",
     project_dir / "scripts" / "generate_board_profile.py",
@@ -112,17 +142,24 @@ tracked_files = (
     project_dir / "include" / "solar_os_board.h",
     project_dir / "doc" / "manual" / "boards.md",
     project_dir / "doc" / "manual" / "expansion.reference.md",
-) + board_files + board_manifest_files + board_headers + sdkconfig_default_files
+) + board_files + board_manifest_files + board_headers + sdkconfig_default_files + partition_files
 stamp = (
     f"board={board}\n"
     f"flavor={flavor}\n"
+    f"flavor_file={flavor_file}\n"
+    f"layout={layout}\n"
+    f"partition={partition_file}\n"
     f"cvbs={cvbs_mode}\n"
     f"vga={vga_mode}\n"
 )
 for tracked_file in tracked_files:
     stat = tracked_file.stat()
+    try:
+        display_path = tracked_file.relative_to(project_dir)
+    except ValueError:
+        display_path = tracked_file
     stamp += (
-        f"{tracked_file.relative_to(project_dir)}:"
+        f"{display_path}:"
         f"{stat.st_mtime_ns}:"
         f"{stat.st_size}\n"
     )
@@ -130,7 +167,7 @@ for tracked_file in tracked_files:
 previous = stamp_path.read_text(encoding="utf-8") if stamp_path.exists() else ""
 if previous != stamp and (previous or (build_dir / "CMakeCache.txt").exists()):
     print(
-        f"SolarOS build selection changed to {board}/{flavor} "
+        f"SolarOS build selection changed to {board}/{flavor}/{layout} "
         f"(CVBS {cvbs_mode}, VGA {vga_mode}); reconfiguring CMake"
     )
     for entry in (

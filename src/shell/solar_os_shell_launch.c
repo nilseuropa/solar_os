@@ -43,9 +43,11 @@ static int option_path_arg(int argc,
 
 static int audio_path_arg(const char *app_name, int argc, char *const argv[])
 {
-    const char *value_option = strcmp(app_name, "aplay") == 0 ? "-v" : "-d";
+    const bool playback = strcmp(app_name, "aplay") == 0;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], value_option) == 0) {
+        if ((playback && strcmp(argv[i], "-v") == 0) ||
+            (!playback && (strcmp(argv[i], "-d") == 0 ||
+                           strcmp(argv[i], "-i") == 0))) {
             i++;
             continue;
         }

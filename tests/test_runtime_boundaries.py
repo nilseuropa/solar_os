@@ -49,6 +49,28 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("SOLAR_OS_BOARD_RUNTIME_SPI_HOST_MASK", buses)
         self.assertIn("SOLAR_OS_BOARD_RUNTIME_UART_PORT_MASK", buses)
 
+    def test_telnet_client_owns_a_scoped_wifi_latency_lease(self):
+        telnetd = (ROOT / "src/jobs/solar_os_telnetd_job.c").read_text(
+            encoding="utf-8"
+        )
+        wifi = (ROOT / "src/services/solar_os_wifi.c").read_text(
+            encoding="utf-8"
+        )
+
+        accept_start = telnetd.index("static bool telnetd_accept_one(")
+        accept_end = telnetd.index("static void telnetd_job_task(", accept_start)
+        accept = telnetd[accept_start:accept_end]
+        cleanup_start = telnetd.index("static bool telnetd_cleanup_client(")
+        cleanup_end = telnetd.index("static void telnetd_reject_busy(", cleanup_start)
+        cleanup = telnetd[cleanup_start:cleanup_end]
+
+        self.assertIn("solar_os_wifi_latency_acquire", accept)
+        self.assertIn("solar_os_wifi_latency_release", cleanup)
+        self.assertIn(
+            "wifi_connectionless_active || wifi_latency_owner[0] != '\\0'",
+            wifi,
+        )
+
     def test_boot_coordinator_is_packaged(self):
         packages = (ROOT / "packages/solar_os_packages.toml").read_text(
             encoding="utf-8"

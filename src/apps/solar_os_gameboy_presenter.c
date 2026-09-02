@@ -1,11 +1,13 @@
 #include "solar_os_gameboy_presenter.h"
 
+#include "solar_os.h"
 #include "solar_os_frame_presenter.h"
 #include "solar_os_gameboy_video.h"
 #include "solar_os_display.h"
 
 static solar_os_frame_presenter_t *presenter;
 
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("theme palette retained by asynchronous frame presenter")
 static uint16_t gameboy_palette_rgb565[4] = {
     0xffffU,
     0xad55U,

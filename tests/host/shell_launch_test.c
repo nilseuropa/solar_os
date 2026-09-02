@@ -61,9 +61,13 @@ int main(void)
     char *aplay_before[] = {"aplay", "-v", "80", "audio/song.mp3"};
     char *aplay_after[] = {"aplay", "audio/song.mp3", "-v", "80"};
     char *arecord[] = {"arecord", "-d", "10", "audio/note.wav"};
+    char *arecord_input[] = {
+        "arecord", "-i", "adc0.capture", "audio/note.wav",
+    };
     assert(path_arg(4, aplay_before) == 3);
     assert(path_arg(4, aplay_after) == 1);
     assert(path_arg(4, arecord) == 3);
+    assert(path_arg(4, arecord_input) == 3);
 
     char *view[] = {"view", "--actual", "images/photo.png"};
     assert(path_arg(3, view) == 2);
