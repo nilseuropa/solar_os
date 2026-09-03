@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.10.14** — 2026-09-03 — Added optional one-hop SolarOS Link repeating to
+  the packet-radio `radio-link` job. A headless device with one compatible
+  radio can retransmit text, binary, acknowledgement, broadcast, and virtual
+  stream frames while preserving the original Link identities. Relayed-frame
+  marking, randomized forwarding delay, duplicate suppression, and a bounded
+  queue prevent forwarding loops and reduce collisions. Job status reports
+  forwarded, suppressed, queued, dropped, and invalid-frame counters.
 - **4.10.13** — 2026-09-03 — Added an IPv4 layer-2 Wi-Fi repeater. The
   `wifi repeater` command and matching Python/Lua APIs bridge DHCP and IPv4/ARP
   traffic between an upstream station and downstream SoftAP without NAT, so
