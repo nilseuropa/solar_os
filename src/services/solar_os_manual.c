@@ -17,7 +17,6 @@
 
 #define MANUAL_SEARCH_MAX 12U
 #define MANUAL_TOKEN_MAX 31U
-#define MANUAL_EXTERNAL_MAX (64U * 1024U)
 
 #include "solar_os_manual_data.h"
 
@@ -44,7 +43,8 @@ static esp_err_t manual_read_external(const char *id, char **source, size_t *sou
     if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
         return ESP_ERR_NOT_FOUND;
     }
-    if (st.st_size <= 0 || (uint64_t)st.st_size > MANUAL_EXTERNAL_MAX) {
+    if (st.st_size <= 0 ||
+        (uint64_t)st.st_size > SOLAR_OS_DOCS_PAGE_MAX) {
         return ESP_ERR_INVALID_SIZE;
     }
 

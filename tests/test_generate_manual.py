@@ -14,12 +14,12 @@ SPEC.loader.exec_module(generate_manual)
 
 class ManualReleaseLimitTest(unittest.TestCase):
     def test_release_limit_matches_firmware(self):
-        docs_source = (
-            REPOSITORY / "src/services/solar_os_docs.c"
+        docs_header = (
+            REPOSITORY / "src/services/solar_os_docs.h"
         ).read_text(encoding="utf-8")
         match = re.search(
-            r"^#define DOCS_PAGE_MAX \((\d+)U \* 1024U\)$",
-            docs_source,
+            r"^#define SOLAR_OS_DOCS_PAGE_MAX \((\d+)U \* 1024U\)$",
+            docs_header,
             re.MULTILINE,
         )
         self.assertIsNotNone(match)
@@ -28,6 +28,12 @@ class ManualReleaseLimitTest(unittest.TestCase):
             generate_manual.RELEASE_PAGE_MAX,
             int(match.group(1)) * 1024,
         )
+
+        manual_source = (
+            REPOSITORY / "src/services/solar_os_manual.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SOLAR_OS_DOCS_PAGE_MAX", manual_source)
+        self.assertNotIn("MANUAL_EXTERNAL_MAX", manual_source)
 
     def test_current_manual_pages_fit_release_limit(self):
         pages = generate_manual.load_pages(

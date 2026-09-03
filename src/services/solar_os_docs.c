@@ -29,7 +29,6 @@
 #define DOCS_CATALOG_MAX (512U * 1024U)
 #define DOCS_PAGE_COUNT_MAX 256U
 #define DOCS_SIGNATURE_MAX 512U
-#define DOCS_PAGE_MAX (128U * 1024U)
 #define DOCS_ARCHIVE_MAX (2U * 1024U * 1024U)
 #define DOCS_URL_MAX 256U
 #define DOCS_HTTP_TIMEOUT_MS 15000U
@@ -484,7 +483,7 @@ static esp_err_t docs_page_metadata(const solar_os_json_value_t *page,
         expected_len < 0 || (size_t)expected_len >= sizeof(expected) ||
         strcmp(path, expected) != 0 ||
         !solar_os_crypto_sha256_hex_is_valid(sha) ||
-        *size == 0U || *size > DOCS_PAGE_MAX) {
+        *size == 0U || *size > SOLAR_OS_DOCS_PAGE_MAX) {
         return ESP_ERR_INVALID_RESPONSE;
     }
     return ESP_OK;
@@ -592,7 +591,7 @@ static esp_err_t docs_verify_catalog_files(
             err = docs_join(base, relative, path, sizeof(path));
         }
         if (err == ESP_OK) {
-            err = docs_read_file(path, DOCS_PAGE_MAX, &data, &data_len);
+            err = docs_read_file(path, SOLAR_OS_DOCS_PAGE_MAX, &data, &data_len);
         }
         if (err == ESP_OK) {
             err = docs_verify_data(data, data_len, expected_size, sha);
