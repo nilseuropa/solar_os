@@ -1049,6 +1049,7 @@ any_capabilities = [
 label = "service.link"
 sources = [
   "services/solar_os_link.c",
+  "services/solar_os_link_repeater.c",
   "services/solar_os_link_stream.c",
   "services/solar_os_link_messaging.c",
   "shell/solar_os_shell_link.c",
