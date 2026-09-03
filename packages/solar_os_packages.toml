@@ -537,6 +537,12 @@ category = "Internal"
 hidden = true
 members = ["service_hid"]
 
+[groups.cl32_core]
+label = "CL-32 board controller"
+category = "Internal"
+hidden = true
+members = ["board_cl32_core"]
+
 [packages.core_runtime]
 label = "bootstrap.runtime"
 depends = ["service_schedule", "service_streams"]
@@ -1177,6 +1183,19 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
+
+[packages.board_cl32_core]
+label = "board.cl32-core"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_cl32_core_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_cl32_core.c",
+  "services/solar_os_cl32_core_driver.c",
+  "services/solar_os_cl32_keyboard.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"

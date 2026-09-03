@@ -396,9 +396,9 @@ setterm startup [flash|sd]
 setterm otaurl [url]
 ```
 
-`setterm keyrate` configures the shared repeat policy for BLE, PS/2, and CardKB
-keyboards, fixed board buttons, `gpio-keys`, and ADC D-pads. Analog joysticks
-publish axes and do not generate key events.
+`setterm keyrate` configures the shared repeat policy for BLE, PS/2, CardKB,
+and the CL-32 keyboard, fixed board buttons, `gpio-keys`, and ADC D-pads.
+Analog joysticks publish axes and do not generate key events.
 The value is stored in NVS and is available on builds without BLE.
 
 `setterm ble` selects the next-boot BLE preference. `default` clears the saved

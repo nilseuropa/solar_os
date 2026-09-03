@@ -20,6 +20,26 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
+[drivers.cl32-core]
+summary = "CL-32 board controller"
+package = "board_cl32_core"
+targets = ["esp32s3"]
+capabilities = ["i2c"]
+default_name = "core0"
+
+[[drivers.cl32-core.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.cl32-core.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x08"
+required = true
+allowed = [0x08]
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"
