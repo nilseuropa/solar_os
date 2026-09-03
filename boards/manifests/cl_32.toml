@@ -34,8 +34,6 @@ required_packages = []
 psram_bytes = 8388608
 
 [defines]
-# Prefer USB CDC as the fallback console if display initialization fails.
-SOLAR_OS_BOARD_HEADLESS_PREFER_CDC = "1"
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "384"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "168"

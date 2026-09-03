@@ -120,7 +120,7 @@ class BoardManifestTest(unittest.TestCase):
             self.manifest_dir,
         )
         header = generate_header(board, self.drivers)
-        self.assertIn("#define SOLAR_OS_BOARD_HEADLESS_PREFER_CDC 1", header)
+        self.assertNotIn("SOLAR_OS_BOARD_HEADLESS_PREFER_CDC", header)
         self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ST7305"', header)
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
