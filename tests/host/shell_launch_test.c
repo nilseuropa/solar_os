@@ -64,10 +64,14 @@ int main(void)
     char *arecord_input[] = {
         "arecord", "-i", "adc0.capture", "audio/note.wav",
     };
+    char *arecord_duration_input[] = {
+        "arecord", "-d", "10", "-i", "adc0.capture", "audio/note.wav",
+    };
     assert(path_arg(4, aplay_before) == 3);
     assert(path_arg(4, aplay_after) == 1);
     assert(path_arg(4, arecord) == 3);
     assert(path_arg(4, arecord_input) == 3);
+    assert(path_arg(6, arecord_duration_input) == 5);
 
     char *view[] = {"view", "--actual", "images/photo.png"};
     assert(path_arg(3, view) == 2);

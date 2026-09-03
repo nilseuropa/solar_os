@@ -124,6 +124,14 @@ class RuntimeBoundaryTest(unittest.TestCase):
             self.assertIn("SOLAR_OS_APP_CAP_DISPLAY", entry)
             self.assertIn("SOLAR_OS_APP_CAP_PORT", entry)
 
+        arecord = next(
+            line
+            for line in registry.splitlines()
+            if 'APP_ENTRY("arecord"' in line
+        )
+        self.assertIn("[-d seconds] [-i capture-stream] <file.wav>", arecord)
+        self.assertTrue(arecord.endswith(", 2, 6),"))
+
     def test_sessions_restore_apps_without_resume_renderers(self):
         sessions = (ROOT / "src/services/solar_os_sessions.c").read_text(
             encoding="utf-8"
