@@ -224,7 +224,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("plot", "plot DAQ CSV files or scalar streams", &solar_os_plot_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "plot <stream...> [--rate ms] | plot -f <file.csv> [column...]", 2, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
-    APP_ENTRY("playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "playground [source|storage|reload|install|delete] ...", 1, 4),
+    APP_ENTRY("playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "playground [search|install|run|delete|refresh|reload|source|storage] ...", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     APP_ENTRY("logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "logic <pin[,pin...]> [rate] [samples] [trigger=pin]", 2, 5),

@@ -132,6 +132,27 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("[-d seconds] [-i capture-stream] <file.wav>", arecord)
         self.assertTrue(arecord.endswith(", 2, 6),"))
 
+    def test_playground_registry_usage_lists_every_subcommand(self):
+        registry = (ROOT / "src/apps/solar_os_app_registry.c").read_text(
+            encoding="utf-8"
+        )
+        entry = next(
+            line
+            for line in registry.splitlines()
+            if 'APP_ENTRY("playground"' in line
+        )
+        for command in (
+            "search",
+            "install",
+            "run",
+            "delete",
+            "refresh",
+            "reload",
+            "source",
+            "storage",
+        ):
+            self.assertIn(command, entry)
+
     def test_sessions_restore_apps_without_resume_renderers(self):
         sessions = (ROOT / "src/services/solar_os_sessions.c").read_text(
             encoding="utf-8"
