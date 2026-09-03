@@ -83,6 +83,15 @@ class ManualReleaseLimitTest(unittest.TestCase):
         self.assertEqual(by_id["app.hexedit"]["packages_any"], ["app_edit"])
         self.assertEqual(by_id["app.help"]["packages_any"], ["app_docs"])
 
+    def test_help_status_topic_has_an_explicit_escape(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+        self.assertIn("status", by_id["command.status"]["aliases"])
+        self.assertIn("help command.status", by_id["help"]["markdown"])
+
     def test_release_page_at_limit_is_accepted(self):
         page = {
             "id": "at-limit",

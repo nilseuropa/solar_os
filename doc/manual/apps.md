@@ -608,6 +608,7 @@ Controls:
 The maintenance forms `help status`, `help update`, and `help reset` remain
 shell operations. SD-capable builds show terminal-width-aware progress while
 downloading and extracting one exact-version signed manual archive.
+Use `help command.status` to open the shell `status` command page.
 
 ## edit
 

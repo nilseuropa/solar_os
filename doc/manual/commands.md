@@ -87,7 +87,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `commands` | `commands` | List built-in shell commands. |
-| `help` | `help [TOPIC]`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. |
+| `help` | `help [TOPIC]`; `help command.status`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. `command.status` escapes the maintenance keyword. |
 | `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
 | `clear` | `clear` | Clear the active shell terminal. |
 | `echo` | `echo [text...]` | Print the arguments separated by spaces, followed by a newline. Quotes preserve spaces and are not printed. |
