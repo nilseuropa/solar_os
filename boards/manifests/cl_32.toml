@@ -18,13 +18,14 @@ drivers = [
   "i2c_esp_idf",
   "spi_esp_idf",
   "rtc_pcf85063",
+  "audio_expansion",
   "gpio_esp_idf",
   "adc_esp_idf",
   "pwm_esp_idf",
 ]
 capabilities = [
   "psram", "simd", "gfx", "cdc", "uart", "sd", "i2c", "spi", "rtc",
-  "wifi", "ble", "gpio", "adc", "pwm", "expansion_gpio",
+  "wifi", "ble", "audio", "gpio", "adc", "pwm", "expansion_gpio",
   "expansion_i2c", "expansion_spi", "expansion_uart", "expansion_adc",
   "expansion_pwm", "expansion_i2s",
 ]
@@ -90,6 +91,11 @@ bindings = { i2c = "i2c0", addr = 0x51 }
 driver = "sdspi"
 name = "storage0"
 bindings = { spi = "spi0", cs = 7 }
+
+[[devices]]
+driver = "audio-pwm"
+name = "audio0"
+bindings = { pwm = 5 }
 
 [connector]
 title = "EX1 M.2 add-on and I2C expansion connectors"

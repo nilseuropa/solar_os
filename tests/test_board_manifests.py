@@ -137,7 +137,17 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(buses["spi0"]["cs"], [6, 7])
         self.assertEqual(
             {device["name"] for device in board["devices"]},
-            {"rtc0", "storage0"},
+            {"rtc0", "storage0", "audio0"},
+        )
+        audio = next(
+            device for device in board["devices"] if device["name"] == "audio0"
+        )
+        self.assertEqual(audio["driver"], "audio-pwm")
+        self.assertEqual(audio["bindings"], {"pwm": 5})
+        self.assertIn("expansion_audio_pwm", required_packages(board, self.drivers))
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PWM, .role = "pwm", .value = 5',
+            header,
         )
 
         connectors = {
