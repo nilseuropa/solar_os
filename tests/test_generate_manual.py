@@ -59,6 +59,30 @@ class ManualReleaseLimitTest(unittest.TestCase):
         for command in ("battery", "rtc", "schedule", "time"):
             self.assertEqual(aliases[command], f"command.{command}")
 
+    def test_derived_pages_use_runtime_registry_gates(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+
+        self.assertEqual(
+            by_id["command.mqtt"]["packages_any"], ["service_mqtt"]
+        )
+        self.assertEqual(
+            by_id["command.spi"]["condition"],
+            "(SOLAR_OS_PACKAGE_SERVICE_RESOURCES && "
+            "SOLAR_OS_PACKAGE_SERVICE_SPI)",
+        )
+        self.assertEqual(
+            by_id["command.led"]["condition"],
+            "(SOLAR_OS_PACKAGE_SERVICE_GPIO && "
+            "SOLAR_OS_BOARD_HAS_STATUS_LED)",
+        )
+        self.assertEqual(by_id["command.help"]["condition"], "")
+        self.assertEqual(by_id["app.hexedit"]["packages_any"], ["app_edit"])
+        self.assertEqual(by_id["app.help"]["packages_any"], ["app_docs"])
+
     def test_release_page_at_limit_is_accepted(self):
         page = {
             "id": "at-limit",

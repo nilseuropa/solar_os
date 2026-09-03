@@ -51,6 +51,55 @@ def package_macro(package: str) -> str:
     return "SOLAR_OS_PACKAGE_" + re.sub(r"[^A-Za-z0-9]", "_", package).upper()
 
 
+def registry_conditions(
+    path: Path, array_declaration: str, entry_pattern: str
+) -> dict[str, str]:
+    """Read the actual preprocessor gate for each registry entry."""
+    conditions: dict[str, str] = {}
+    stack: list[str] = []
+    inside = False
+    closed = False
+    pattern = re.compile(entry_pattern)
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not inside:
+            inside = array_declaration in line
+            continue
+        if line == "};":
+            closed = True
+            break
+        if line.startswith("#if "):
+            stack.append(line[4:].strip())
+            continue
+        if line == "#endif":
+            if not stack:
+                raise ValueError(f"{path}: unmatched #endif in {array_declaration}")
+            stack.pop()
+            continue
+        if line == "#else" or line.startswith(("#ifdef ", "#ifndef ", "#elif ")):
+            raise ValueError(
+                f"{path}: unsupported conditional {line!r} in {array_declaration}"
+            )
+        match = pattern.search(line)
+        if match is not None:
+            name = match.group(1)
+            if name in conditions:
+                raise ValueError(f"{path}: duplicate registry entry {name}")
+            conditions[name] = " && ".join(f"({item})" for item in stack)
+    if not inside or not closed or stack:
+        raise ValueError(f"{path}: malformed registry {array_declaration}")
+    return conditions
+
+
+def condition_packages(condition: str, known_packages: set[str]) -> list[str]:
+    packages: list[str] = []
+    for suffix in re.findall(r"SOLAR_OS_PACKAGE_([A-Z0-9_]+)", condition):
+        package = suffix.casefold()
+        if package in known_packages and package not in packages:
+            packages.append(package)
+    return packages
+
+
 def c_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=True)
 
@@ -188,6 +237,7 @@ def derived_page(
     contract: str,
     source_path: Path,
     source_href: str,
+    condition: str = "",
 ) -> dict[str, object]:
     return {
         "id": page_id,
@@ -204,6 +254,7 @@ def derived_page(
         "body": markdown_to_terminal_text(markdown),
         "contract": contract.strip(),
         "derived": True,
+        "condition": condition,
     }
 
 
@@ -211,20 +262,23 @@ def derive_application_pages(
     source: Path,
     pages: list[dict[str, object]],
     known_packages: set[str],
+    conditions: dict[str, str],
 ) -> list[dict[str, object]]:
     path = source / "apps.md"
     page = next(item for item in pages if item["id"] == "apps")
     markdown = str(page["markdown"])
     derived: list[dict[str, object]] = []
+    documented: set[str] = set()
     for match in re.finditer(r"^## ([a-z0-9-]+)\s*$", markdown, re.MULTILINE):
         name = match.group(1)
         content = markdown_section(markdown, name)
         if content is None:
             continue
-        package = "app_" + name.replace("-", "_")
-        if name == "help":
-            package = "app_docs"
-        packages_any = [package] if package in known_packages else []
+        if name not in conditions:
+            raise ValueError(f"apps.md documents unregistered application {name}")
+        documented.add(name)
+        condition = conditions[name]
+        packages_any = condition_packages(condition, known_packages)
         summary = first_paragraph(content) or f"Use the {name} application"
         body = f"# {name}\n\n{content}\n"
         derived.append(
@@ -240,8 +294,12 @@ def derive_application_pages(
                 contract=content,
                 source_path=path,
                 source_href=f"apps.md#{topic_slug(name)}",
+                condition=condition,
             )
         )
+    missing = sorted(set(conditions) - documented)
+    if missing:
+        raise ValueError(f"apps.md omits registered applications: {', '.join(missing)}")
     return derived
 
 
@@ -316,6 +374,8 @@ def split_table_row(line: str) -> list[str]:
 def derive_command_pages(
     source: Path,
     pages: list[dict[str, object]],
+    known_packages: set[str],
+    conditions: dict[str, str],
 ) -> list[dict[str, object]]:
     path = source / "commands.md"
     page = next(item for item in pages if item["id"] == "commands")
@@ -339,6 +399,9 @@ def derive_command_pages(
 
     derived: list[dict[str, object]] = []
     for name, rows in commands.items():
+        if name not in conditions:
+            raise ValueError(f"commands.md documents unregistered command {name}")
+        condition = conditions[name]
         summary = strip_inline_markdown(rows[0][1])
         table = [
             "| Usage | Description |",
@@ -357,13 +420,17 @@ def derive_command_pages(
                 summary=summary,
                 alias=name,
                 keywords=f"{name} command shell syntax usage examples",
-                packages_any=[],
+                packages_any=condition_packages(condition, known_packages),
                 markdown=body,
                 contract="\n".join(table),
                 source_path=path,
                 source_href=COMMAND_GITHUB_HREFS.get(name, "commands.md"),
+                condition=condition,
             )
         )
+    missing = sorted(set(conditions) - set(commands))
+    if missing:
+        raise ValueError(f"commands.md omits registered commands: {', '.join(missing)}")
     return derived
 
 
@@ -528,6 +595,17 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
         raise ValueError("manual input must be a directory of Markdown pages")
     package_document = tomllib.loads(packages_path.read_text(encoding="utf-8"))
     known_packages = set(package_document.get("packages", {}))
+    repository = source.resolve().parents[1]
+    command_conditions = registry_conditions(
+        repository / "src/apps/solar_os_shell.c",
+        "shell_builtin_commands[]",
+        r'\{"([a-z0-9-]+)"\s*,',
+    )
+    application_conditions = registry_conditions(
+        repository / "src/apps/solar_os_app_registry.c",
+        "registered_apps[]",
+        r'APP_(?:FILE_)?ENTRY\("([a-z0-9-]+)"\s*,',
+    )
 
     pages: list[dict[str, object]] = []
     seen_ids: set[str] = set()
@@ -602,8 +680,22 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
     if not pages:
         raise ValueError("manual source must contain at least one Markdown page")
 
-    pages.extend(derive_command_pages(source, pages))
-    pages.extend(derive_application_pages(source, pages, known_packages))
+    pages.extend(
+        derive_command_pages(
+            source,
+            pages,
+            known_packages,
+            command_conditions,
+        )
+    )
+    pages.extend(
+        derive_application_pages(
+            source,
+            pages,
+            known_packages,
+            application_conditions,
+        )
+    )
     pages.extend(derive_job_pages(source, pages, known_packages))
 
     seen_names: dict[str, str] = {}
@@ -647,10 +739,11 @@ def render_header(pages: list[dict[str, object]], source: Path) -> str:
     ]
     for page in pages:
         packages = list(page["packages_any"])
-        if packages:
-            lines.append(
-                "#if " + " || ".join(package_macro(package) for package in packages)
-            )
+        condition = str(page.get("condition", ""))
+        if not condition and packages:
+            condition = " || ".join(package_macro(package) for package in packages)
+        if condition:
+            lines.append("#if " + condition)
         aliases = "\n".join(page["aliases"])
         lines.extend(
             [
@@ -672,7 +765,7 @@ def render_header(pages: list[dict[str, object]], source: Path) -> str:
                 "    },",
             ]
         )
-        if packages:
+        if condition:
             lines.append("#endif")
     lines.extend(
         [
