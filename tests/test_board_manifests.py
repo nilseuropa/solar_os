@@ -121,6 +121,11 @@ class BoardManifestTest(unittest.TestCase):
         )
         header = generate_header(board, self.drivers)
         self.assertIn("#define SOLAR_OS_BOARD_HEADLESS_PREFER_CDC 1", header)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ST7305"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
+        self.assertIn("display", board["build"]["capabilities"])
+        self.assertIn("streaming_display", board["build"]["capabilities"])
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
@@ -137,7 +142,22 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(buses["spi0"]["cs"], [6, 7])
         self.assertEqual(
             {device["name"] for device in board["devices"]},
-            {"rtc0", "storage0", "audio0"},
+            {"display0", "rtc0", "storage0", "audio0"},
+        )
+        display = next(
+            device for device in board["devices"] if device["name"] == "display0"
+        )
+        self.assertEqual(display["driver"], "st7305")
+        self.assertEqual(
+            display["bindings"],
+            {
+                "spi": "spi0",
+                "cs": 6,
+                "dc": 13,
+                "reset": 12,
+                "panel": 1,
+                "rotation": 3,
+            },
         )
         audio = next(
             device for device in board["devices"] if device["name"] == "audio0"
@@ -145,8 +165,21 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(audio["driver"], "audio-pwm")
         self.assertEqual(audio["bindings"], {"pwm": 5})
         self.assertIn("expansion_audio_pwm", required_packages(board, self.drivers))
+        self.assertIn("driver_display_st7305", required_packages(board, self.drivers))
         self.assertIn(
             '.kind = SOLAR_OS_EXPANSION_BINDING_PWM, .role = "pwm", .value = 5',
+            header,
+        )
+        self.assertIn(
+            '.driver = "st7305", .name = "display0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .value = 1',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "rotation", .value = 3',
             header,
         )
 

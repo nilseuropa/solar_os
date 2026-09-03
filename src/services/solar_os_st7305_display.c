@@ -24,18 +24,30 @@ static bool role_is(const solar_os_expansion_binding_t *binding, const char *rol
     return binding != NULL && strcmp(binding->role, role) == 0;
 }
 
+static const u8g2_cb_t *rotation_callback(int rotation)
+{
+    static const u8g2_cb_t * const rotations[] = {
+        U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3,
+    };
+    return rotation >= 0 && rotation < 4 ? rotations[rotation] : NULL;
+}
+
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t count,
                                 char *spi_bus,
                                 int *cs,
                                 int *dc,
-                                int *reset)
+                                int *reset,
+                                rlcd_st7305_panel_t *panel,
+                                int *rotation)
 {
     bool have_spi = false;
     bool have_cs = false;
     *cs = -1;
     *dc = -1;
     *reset = -1;
+    *panel = RLCD_ST7305_PANEL_300X400;
+    *rotation = -1;
     spi_bus[0] = '\0';
     for (size_t i = 0; i < count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -58,9 +70,21 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO &&
                    role_is(binding, "reset") && *reset < 0) {
             *reset = binding->value;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "panel") &&
+                   binding->value >= RLCD_ST7305_PANEL_300X400 &&
+                   binding->value <= RLCD_ST7305_PANEL_168X384) {
+            *panel = (rlcd_st7305_panel_t)binding->value;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "rotation") &&
+                   (binding->value == 1 || binding->value == 3)) {
+            *rotation = binding->value;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
+    }
+    if (*rotation < 0) {
+        *rotation = *panel == RLCD_ST7305_PANEL_168X384 ? 3 : 1;
     }
     return have_spi && have_cs && *dc >= 0 && *reset >= 0 ?
         ESP_OK : ESP_ERR_INVALID_ARG;
@@ -212,8 +236,8 @@ static esp_err_t register_auxiliary(st7305_device_t *attached)
     strlcpy(target.driver, "st7305", sizeof(target.driver));
     strlcpy(target.controller, "ST7305", sizeof(target.controller));
     strlcpy(target.role, "aux", sizeof(target.role));
-    target.width = 400;
-    target.height = 300;
+    target.width = rlcd_st7305_width(&attached->driver);
+    target.height = rlcd_st7305_height(&attached->driver);
     target.ready = true;
     target.frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
     target.preferred_stream_fps = 25;
@@ -236,10 +260,13 @@ static esp_err_t attach(const char *name,
     int cs = -1;
     int dc = -1;
     int reset = -1;
+    rlcd_st7305_panel_t panel = RLCD_ST7305_PANEL_300X400;
+    int rotation = -1;
     if (device != NULL || name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_STATE;
     }
-    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, spi_bus, &cs, &dc, &reset),
+    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, spi_bus, &cs, &dc, &reset,
+                                       &panel, &rotation),
                         "st7305",
                         "invalid bindings");
     device = heap_caps_calloc(1, sizeof(*device), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -253,7 +280,8 @@ static esp_err_t attach(const char *name,
         .dc_pin = dc,
         .reset_pin = reset,
         .spi_clock_hz = 24000000U,
-        .rotation = U8G2_R1,
+        .rotation = rotation_callback(rotation),
+        .panel = panel,
     };
     esp_err_t ret = rlcd_st7305_init(&device->driver, &config);
     if (ret != ESP_OK) {
@@ -268,8 +296,8 @@ static esp_err_t attach(const char *name,
         .driver_name = "st7305",
         .u8g2 = rlcd_st7305_get_u8g2(&device->driver),
         .controller = "ST7305",
-        .width = 400,
-        .height = 300,
+        .width = rlcd_st7305_width(&device->driver),
+        .height = rlcd_st7305_height(&device->driver),
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT,
         .preferred_stream_fps = 25,
         .max_stream_pixels_per_second = 2400000U,
@@ -307,16 +335,35 @@ static esp_err_t detach(const char *name)
     return ESP_OK;
 }
 
+static const int rotations[] = {1, 3};
+
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
     {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
     {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
     {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .required = true},
+    {
+        .key = "panel",
+        .value_hint = "0|1",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "panel",
+        .has_value_range = true,
+        .min_value = 0,
+        .max_value = 1,
+    },
+    {
+        .key = "rotation",
+        .value_hint = "1|3",
+        .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "rotation",
+        .allowed_values = rotations,
+        .allowed_value_count = 2,
+    },
 };
 
 const solar_os_expansion_driver_t solar_os_st7305_expansion_driver = {
     .name = "st7305",
-    .summary = "400x300 reflective LCD",
+    .summary = "ST7305 reflective LCD",
     .required_capabilities = SOLAR_OS_BOARD_CAP_GFX |
                              SOLAR_OS_BOARD_CAP_EXPANSION_SPI |
                              SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,

@@ -14,6 +14,7 @@ platformio_board = "esp32-s3-devkitc1-n16r8"
 drivers = [
   "cdc_usb_serial_jtag",
   "uart_esp_idf",
+  "display_st7305",
   "storage_expansion",
   "i2c_esp_idf",
   "spi_esp_idf",
@@ -24,17 +25,25 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "gfx", "cdc", "uart", "sd", "i2c", "spi", "rtc",
+  "psram", "simd", "display", "gfx", "cdc", "uart", "sd", "i2c", "spi", "rtc",
   "wifi", "ble", "audio", "gpio", "adc", "pwm", "expansion_gpio",
   "expansion_i2c", "expansion_spi", "expansion_uart", "expansion_adc",
-  "expansion_pwm", "expansion_i2s",
+  "expansion_pwm", "expansion_i2s", "streaming_display",
 ]
 required_packages = []
 psram_bytes = 8388608
 
 [defines]
-# Temporary bring-up console until the onboard display becomes the primary shell.
+# Prefer USB CDC as the fallback console if display initialization fails.
 SOLAR_OS_BOARD_HEADLESS_PREFER_CDC = "1"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "384"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "168"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_6"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_LCD_DC = "GPIO_NUM_13"
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
 SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
@@ -81,6 +90,11 @@ port = "UART_NUM_0"
 tx = 43
 rx = 44
 baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[devices]]
+driver = "st7305"
+name = "display0"
+bindings = { spi = "spi0", cs = 6, dc = 13, reset = 12, panel = 1, rotation = 3 }
 
 [[devices]]
 driver = "pcf85063"
