@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test time_timezone_test
+TARGETS := writer_buffer_test writer_files_test sketch_canvas_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test time_timezone_test rtc_service_test rtc_pcf85063_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -203,6 +203,12 @@ agent_reference_test: agent_reference_test.c $(MANUAL_GENERATED_HEADER) $(ROOT)/
 		agent_reference_test.c $(ROOT)/src/services/solar_os_agent_reference.c \
 		$(ROOT)/src/services/solar_os_manual.c -Wl,--gc-sections -o $@
 
+manual_external_metadata_test: manual_external_metadata_test.c $(MANUAL_GENERATED_HEADER) $(ROOT)/src/services/solar_os_manual.c $(ROOT)/src/services/solar_os_manual.h $(ROOT)/src/services/solar_os_docs.h
+	$(CC) $(CFLAGS) -Wno-comment -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_DOCS=1 \
+		-ffunction-sections -fdata-sections -I. -I$(MANUAL_GENERATED_DIR) \
+		-I$(ROOT)/src -I$(ROOT)/src/services manual_external_metadata_test.c \
+		$(ROOT)/src/services/solar_os_manual.c -Wl,--gc-sections -o $@
+
 terminal_geometry_test: terminal_geometry_test.c $(ROOT)/src/services/solar_os_terminal_geometry.c $(ROOT)/src/services/solar_os_terminal_geometry.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services terminal_geometry_test.c \
 		$(ROOT)/src/services/solar_os_terminal_geometry.c -o $@
@@ -259,6 +265,27 @@ time_timezone_test: time_timezone_test.c \
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services \
 		time_timezone_test.c $(ROOT)/src/services/solar_os_timezone.c -o $@
 
+rtc_service_test: rtc_service_test.c \
+		$(ROOT)/src/services/solar_os_rtc.c \
+		$(ROOT)/src/services/solar_os_rtc.h \
+		$(ROOT)/src/services/solar_os_time.h esp_err.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src/services \
+		rtc_service_test.c $(ROOT)/src/services/solar_os_rtc.c -o $@
+
+schedule_test: schedule_test.c \
+		$(ROOT)/src/services/solar_os_schedule.c \
+		$(ROOT)/src/services/solar_os_schedule.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Ischedule_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		schedule_test.c $(ROOT)/src/services/solar_os_schedule.c -o $@
+
+rtc_pcf85063_test: rtc_pcf85063_test.c \
+		$(ROOT)/src/drivers/rtc_pcf85063.c \
+		$(ROOT)/src/drivers/rtc_pcf85063.h \
+		rtc_stubs/solar_os_buses.h esp_err.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -Irtc_stubs -I. -I$(ROOT)/src/drivers \
+		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
+
 test: $(TARGETS)
 	./writer_buffer_test
 	./writer_files_test
@@ -271,6 +298,7 @@ test: $(TARGETS)
 	./shell_completion_test
 	./shell_diag_test
 	./scheduler_test
+	./schedule_test
 	./script_lifecycle_test
 	./app_file_types_test
 	./gameboy_support_test
@@ -297,6 +325,7 @@ test: $(TARGETS)
 	./gif_decode_stack_test
 	./nvs_backup_test
 	./agent_reference_test
+	./manual_external_metadata_test
 	./terminal_geometry_test
 	./app_exit_result_test
 	./terminal_preferences_test
@@ -305,6 +334,8 @@ test: $(TARGETS)
 	./meshcore_channel_key_test
 	./meshcore_stream_codec_test
 	./time_timezone_test
+	./rtc_service_test
+	./rtc_pcf85063_test
 
 clean:
 	$(RM) $(TARGETS)

@@ -465,6 +465,10 @@ kind = "i2c_address"
 hint = "0x51"
 required = true
 allowed = [0x51]
+[[drivers.pcf85063.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
 
 [drivers.shtc3]
 summary = "temperature/humidity"

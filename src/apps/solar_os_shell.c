@@ -83,6 +83,7 @@
 #include "solar_os_meshcore_stream.h"
 #endif
 #include "solar_os_ramfs.h"
+#include "solar_os_schedule.h"
 #include "solar_os_sessions.h"
 #include "solar_os_storage.h"
 #include "solar_os_stream.h"
@@ -180,6 +181,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_BUSES,
     SHELL_COMPLETION_SOURCE_SPI_CS,
     SHELL_COMPLETION_SOURCE_STREAMS,
+    SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES,
     SHELL_COMPLETION_SOURCE_CONTROLS,
     SHELL_COMPLETION_SOURCE_PARAMETERS,
     SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
@@ -402,12 +404,14 @@ static const shell_command_t shell_builtin_commands[] = {
     {"sleep", "enter light sleep", solar_os_shell_cmd_sleep},
     {"suspend", "keep services running with the display off", solar_os_shell_cmd_suspend},
     {"power", "power profile and sleep policy", solar_os_shell_cmd_power},
+    {"rtc", "real-time clock hardware", solar_os_shell_cmd_rtc},
+    {"schedule", "alarms and scheduled scripts", solar_os_shell_cmd_schedule},
     {"watch", "repeat a command", cmd_watch},
     {"setterm", "configure terminal settings", solar_os_shell_cmd_setterm},
     {"status", "show system status", solar_os_shell_cmd_status},
     {"uptime", "show time since boot", solar_os_shell_cmd_uptime},
     {"mem", "show free memory", solar_os_shell_cmd_mem},
-    {"nvs", "inspect, back up, restore, or clear persistent settings", solar_os_shell_cmd_nvs},
+    {"nvs", "inspect or erase persistent settings", solar_os_shell_cmd_nvs},
     {"ramfs", "PSRAM-backed volatile filesystem", solar_os_shell_cmd_ramfs},
     {"stream", "list data streams", solar_os_shell_cmd_stream},
 #if SOLAR_OS_PACKAGE_JOB_DAQ
@@ -632,7 +636,7 @@ static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
 static const char * const mem_subcommands[] = {"policy"};
 static const char * const nvs_subcommands[] = {
-    "status", "backup", "restore", "clear",
+    "status", "list", "erase", "backup", "restore", "clear",
 };
 static const char * const identity_subcommands[] = {"status", "user", "hostname"};
 
@@ -679,6 +683,7 @@ static const char * const wifi_subcommands[] = {
     "known",
     "forget",
     "nat",
+    "repeater",
 };
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
@@ -698,6 +703,7 @@ static const char * const wireguard_policy_values[] = {
 
 static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
+static const char * const wifi_repeater_subcommands[] = {"on", "off"};
 static const char * const wifi_ap_auth_values[] = {"open", "wpa", "wpa2", "wpa/wpa2"};
 static const char * const wifi_forget_values[] = {"all"};
 
@@ -1221,6 +1227,15 @@ static const char * const power_subcommands[] = {
     "sleep",
     "suspend",
 };
+static const char * const rtc_subcommands[] = {
+    "status", "alarm", "timer", "pending", "ack",
+};
+static const char * const rtc_alarm_subcommands[] = {"set", "clear"};
+static const char * const rtc_timer_subcommands[] = {"set", "clear"};
+static const char * const schedule_subcommands[] = {
+    "list", "show", "add", "enable", "disable", "remove", "run", "stop",
+};
+static const char * const schedule_kinds[] = {"in", "every", "at", "daily", "weekly"};
 
 static const char * const power_profile_values[] = {
     "performance",
@@ -1889,6 +1904,7 @@ static const char * const path_wifi_ap_on_auth[] = {
 };
 static const char * const path_wifi_connect[] = {"wifi", "connect"};
 static const char * const path_wifi_nat[] = {"wifi", "nat"};
+static const char * const path_wifi_repeater[] = {"wifi", "repeater"};
 static const char * const path_wifi_forget[] = {"wifi", "forget"};
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
 static const char * const path_wireguard[] = {"wireguard"};
@@ -2216,6 +2232,17 @@ static const char * const path_power[] = {"power"};
 static const char * const path_power_profile[] = {"power", "profile"};
 static const char * const path_power_idle[] = {"power", "idle"};
 static const char * const path_power_key[] = {"power", "key"};
+static const char * const path_rtc[] = {"rtc"};
+static const char * const path_rtc_alarm[] = {"rtc", "alarm"};
+static const char * const path_rtc_timer[] = {"rtc", "timer"};
+static const char * const path_schedule[] = {"schedule"};
+static const char * const path_schedule_add_name[] = {"schedule", "add", "*"};
+static const char * const path_schedule_show[] = {"schedule", "show"};
+static const char * const path_schedule_enable[] = {"schedule", "enable"};
+static const char * const path_schedule_disable[] = {"schedule", "disable"};
+static const char * const path_schedule_remove[] = {"schedule", "remove"};
+static const char * const path_schedule_run[] = {"schedule", "run"};
+static const char * const path_schedule_stop[] = {"schedule", "stop"};
 static const char * const path_battery[] = {"battery"};
 static const char * const path_battery_capacity[] = {"battery", "capacity"};
 static const char * const path_battery_min_voltage[] = {"battery", "min_voltage"};
@@ -2528,6 +2555,12 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .source = SHELL_COMPLETION_SOURCE_STREAMS, \
+    }
+#define SHELL_COMPLETION_SCHEDULE_ENTRIES(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES, \
     }
 #define SHELL_COMPLETION_SCALAR_STREAMS(path_array) \
     { \
@@ -2863,6 +2896,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_wifi_ap_on_auth, wifi_ap_auth_values),
     SHELL_COMPLETION_WIFI_SSIDS(path_wifi_connect),
     SHELL_COMPLETION_STATIC(path_wifi_nat, wifi_nat_subcommands),
+    SHELL_COMPLETION_STATIC(path_wifi_repeater, wifi_repeater_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_forget, wifi_forget_values),
     SHELL_COMPLETION_WIFI_SSIDS(path_wifi_forget),
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
@@ -3110,6 +3144,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_power_profile, power_profile_values),
     SHELL_COMPLETION_STATIC(path_power_idle, power_idle_values),
     SHELL_COMPLETION_STATIC(path_power_key, power_key_values),
+    SHELL_COMPLETION_STATIC(path_rtc, rtc_subcommands),
+    SHELL_COMPLETION_STATIC(path_rtc_alarm, rtc_alarm_subcommands),
+    SHELL_COMPLETION_STATIC(path_rtc_timer, rtc_timer_subcommands),
+    SHELL_COMPLETION_STATIC(path_schedule, schedule_subcommands),
+    SHELL_COMPLETION_STATIC(path_schedule_add_name, schedule_kinds),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_show),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_enable),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_disable),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_remove),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_run),
+    SHELL_COMPLETION_SCHEDULE_ENTRIES(path_schedule_stop),
     SHELL_COMPLETION_STATIC(path_battery, battery_subcommands),
     SHELL_COMPLETION_STATIC(path_battery_capacity, battery_capacity_values),
     SHELL_COMPLETION_STATIC(path_battery_min_voltage, battery_min_voltage_values),
@@ -5282,6 +5327,18 @@ static void shell_completion_emit_jobs(shell_completion_match_t *state)
     }
 }
 
+static void shell_completion_emit_schedule_entries(
+    shell_completion_match_t *state)
+{
+    const size_t count = solar_os_schedule_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_schedule_entry_t entry;
+        if (solar_os_schedule_get(i, &entry)) {
+            shell_completion_emit(state, entry.name);
+        }
+    }
+}
+
 static void shell_completion_emit_agent_conversations(shell_completion_match_t *state)
 {
 #if SOLAR_OS_PACKAGE_APP_AGENT
@@ -7400,6 +7457,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
                 state,
                 (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_STREAMS) != 0U);
             break;
+        case SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES:
+            shell_completion_emit_schedule_entries(state);
+            break;
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
         case SHELL_COMPLETION_SOURCE_CONTROLS:
             shell_completion_emit_controls(state);
@@ -7769,6 +7829,39 @@ bool solar_os_shell_run_script(solar_os_context_t *ctx,
     shell_session(ctx)->script_depth--;
     fclose(file);
     return should_prompt;
+}
+
+esp_err_t solar_os_shell_run_background_script(const char *path)
+{
+    if (path == NULL || path[0] != '/') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *probe = fopen(path, "r");
+    if (probe == NULL) {
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+    fclose(probe);
+
+    solar_os_shell_session_t *session = solar_os_shell_session_create();
+    if (session == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    solar_os_context_t ctx;
+    solar_os_context_init(&ctx, NULL, NULL);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
+    solar_os_shell_io_init_terminal(io, NULL);
+    esp_err_t err = solar_os_shell_session_start(&ctx,
+                                                 session,
+                                                 io,
+                                                 false,
+                                                 false);
+    if (err == ESP_OK) {
+        session->watch_executing = true;
+        (void)solar_os_shell_run_script(&ctx, path, path, false);
+        session->watch_executing = false;
+    }
+    solar_os_shell_session_destroy(session);
+    return err;
 }
 
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv)

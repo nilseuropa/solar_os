@@ -3,8 +3,8 @@ id = "network"
 title = "Wi-Fi, WireGuard, MQTT, and network APIs"
 section = "network"
 summary = "Connect, inspect, and communicate over installed network services"
-aliases = ["wifi", "wireguard", "vpn", "mqtt", "net"]
-keywords = "python lua wifi wireless wireguard vpn tunnel kill switch station access point ap nat scan connect mqtt network ping"
+aliases = ["wifi", "repeater", "wireguard", "vpn", "mqtt", "net"]
+keywords = "python lua wifi wireless repeater wireguard vpn tunnel kill switch station access point ap nat scan connect mqtt network ping"
 packages_any = ["service_wifi", "service_wireguard", "service_mqtt", "service_net"]
 +++
 # Wi-Fi, WireGuard, MQTT, and network APIs
@@ -42,6 +42,41 @@ print(solaros.wifi.status())
 
 Connecting or stopping Wi-Fi can interrupt an active agent, SSH, chat, or HTTP
 session. Confirm disruptive changes locally.
+
+`wifi repeater on` enables IPv4 layer-2 forwarding between a station and
+SoftAP. It
+uses the current upstream station or connects the preferred remembered station.
+The downstream SoftAP automatically uses the same SSID and saved password as
+that upstream profile, so repeater mode needs only an on/off control. It does
+not read or overwrite the independent `wifi ap` configuration. For example:
+
+```text
+wifi connect HomeNetwork upstream-password
+wifi repeater on
+wifi repeater
+wifi repeater off
+```
+
+The upstream DHCP server assigns downstream clients addresses on the upstream
+subnet; SolarOS does not run AP DHCP or NAT in this mode. Because ordinary
+three-address Wi-Fi cannot carry downstream client MAC addresses through a
+station association, SolarOS translates link-layer addresses, learns each
+client's IPv4-to-MAC mapping, and proxies ARP upstream. This provides same-subnet
+IPv4 connectivity, but is not a fully transparent WDS bridge. IPv6 and other
+non-IPv4 Ethernet protocols are not repeated.
+
+The repeated SSID matches the upstream SSID; roaming decisions are made by each
+client. The ESP32 station and SoftAP share one 2.4 GHz radio and the
+upstream channel, so repeated traffic consumes airtime in both directions and
+throughput is lower than a dedicated dual-radio extender. `wifi repeater off`
+leaves the station connection running. Repeater and NAT modes are mutually
+exclusive; the lower-level `wifi ap` and `wifi nat` commands remain available
+for AP-only and routed APSTA setups. While repeater mode is active, SolarOS
+automatically retries a lost upstream connection with bounded backoff.
+
+Forwarded client traffic bypasses SolarOS IP services, including a SolarOS
+WireGuard tunnel. Configure VPN service on the clients or upstream router when
+repeated clients must use it.
 
 ## WireGuard
 
@@ -101,7 +136,7 @@ script.
 
 solaros.wifi provides status, status_text, start, stop, connect, connect_saved,
 disconnect, forget, forget_ssid, forget_all, known, scan, ap_start, ap_stop,
-and nat. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
+nat, repeater_start, and repeater_stop. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
 provides status, connect, disconnect, publish, subscribe,
 and read. solaros.net.ping(host, optional count, timeout_ms, interval_ms,
 data_size) returns statistics. These modules are package-gated.

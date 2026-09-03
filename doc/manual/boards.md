@@ -1023,6 +1023,18 @@ shared storage adapter enables that rail before probing or mounting the card.
 RTC, sensor, battery, and audio devices follow the same rule. See the Waveshare
 manifest for PCF85063, SHTC3, battery ADC, and ES8311/ES7210 examples. See the
 ODROID-GO manifest for ESP32 DAC output and amplifier-enable bindings.
+The Waveshare PCF85063 interrupt is a fixed optional device binding on GPIO15;
+other PCF85063 attachments can omit it when the interrupt output is not wired.
+
+RTC chip adapters register with the generic RTC service. That service presents
+their clock/calendar operations to the shared time service and retains generic
+RTC topology such as an optional interrupt GPIO. Providers advertise optional
+alarm, countdown, and interrupt-status operations; an RTC that only keeps time
+remains a valid provider. The PCF85063 adapter implements all three optional
+operations. Countdown periods from 1 to 255 seconds are supported directly;
+longer exact-minute periods are supported through 4 hours 15 minutes. Power,
+alarm, shell, and script features must use the RTC service rather than including
+a concrete RTC driver.
 
 The runtime path follows the same pattern as display:
 

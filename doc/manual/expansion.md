@@ -117,6 +117,13 @@ expansion detach environment0
 expansion detach rtc0
 ```
 
+The PCF85063 `irq=<gpio>` binding is optional. The Waveshare board profile
+reserves its routed RTC interrupt on GPIO15; external modules can omit `irq`
+when only clock and calendar access is required.
+The generic RTC service discovers alarm, countdown, and interrupt-status
+support from the attached chip adapter, so applications do not depend on the
+PCF85063 register interface.
+
 `battery-adc` takes an ADC pin and a divider ratio in thousandths. For a 2:1
 resistive divider, use `divider=2000`:
 

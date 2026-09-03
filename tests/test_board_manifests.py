@@ -150,6 +150,35 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(connectors[("EX1", 62)]["gpio"], 3)
         self.assertEqual(connectors[("EX1", 53)]["gpio"], 35)
 
+    def test_waveshare_rtc_interrupt_binding_is_fixed_but_optional(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "waveshare_esp32_s3_rlcd_4_2.toml",
+            self.manifest_dir,
+        )
+        rtc = next(device for device in board["devices"] if device["name"] == "rtc0")
+        self.assertEqual(rtc["bindings"]["irq"], 15)
+        rtc_pin = next(pin for pin in board["pins"] if pin["gpio"] == 15)
+        self.assertEqual(rtc_pin["policy"], "fixed")
+        self.assertEqual(rtc_pin["role"], "RTC interrupt")
+
+        header = generate_header(board, self.drivers)
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "irq", .value = 15',
+            header,
+        )
+        rtc_adapter = (
+            ROOT / "src" / "services" / "solar_os_pcf85063.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn("solar_os_rtc_register_provider", rtc_adapter)
+        self.assertNotIn("solar_os_time_register_provider", rtc_adapter)
+
+        without_irq = deepcopy(board)
+        rtc_without_irq = next(
+            device for device in without_irq["devices"] if device["name"] == "rtc0"
+        )
+        del rtc_without_irq["bindings"]["irq"]
+        validate_board(without_irq, self.drivers)
+
     def test_pin_conflict_is_rejected(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "devkitc1_epaper_workbench.toml",

@@ -223,7 +223,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["core_runtime"].depends,
-            ("service_streams",),
+            ("service_schedule", "service_streams"),
         )
         self.assertEqual(
             self.catalog.package_defs["service_audio"].depends,

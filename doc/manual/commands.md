@@ -87,7 +87,7 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `commands` | `commands` | List built-in shell commands. |
-| `help` | `help [TOPIC]`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. |
+| `help` | `help [TOPIC]`; `help command.status`; `help status`; `help update`; `help reset` | Browse the package-aware manual or manage its signed exact-version SD copy. `command.status` escapes the maintenance keyword. |
 | `man` | `man TOPIC`; `man -k QUERY...`; `man --list` | Read or search the package-aware SolarOS manual. |
 | `clear` | `clear` | Clear the active shell terminal. |
 | `echo` | `echo [text...]` | Print the arguments separated by spaces, followed by a newline. Quotes preserve spaces and are not printed. |
@@ -97,6 +97,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `exit` | `exit` | Close the current UART, USB CDC, or telnet shell when another interactive shell remains. |
 | `reboot` | `reboot` | Restart the board. |
 | `nvs` | `nvs status` | Show the default NVS partition size, entry usage, and namespace count. |
+| `nvs` | `nvs list [namespace]` | List non-empty namespaces and their entry usage, or list one namespace's keys, types, sizes, and storage cost. Values are never displayed. |
+| `nvs` | `nvs erase <namespace> [key]` | Erase one key or all data in one namespace, then reboot. |
 | `nvs` | `nvs backup [file]` | Back up the complete NVS partition to disk. The default is `/.solar/nvs.bin`. |
 | `nvs` | `nvs restore [file]` | Validate and restore a complete NVS backup, then reboot. The default is `/.solar/nvs.bin`. |
 | `nvs` | `nvs clear` | Erase all NVS-backed settings and reboot immediately. |
@@ -147,6 +149,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 
 `nvs status` distinguishes raw free entries from entries currently available
 for new data; use the available count when diagnosing a failed NVS write.
+`nvs list` does not display values, so credentials and other secrets are not
+printed. Namespace entry totals include the namespace record itself. Clearing a
+namespace removes all of its keys, but ESP-IDF retains its one-entry namespace
+record. `nvs erase` reboots after a successful change because running services
+can cache NVS-backed settings. Use `nvs backup` before erasing unfamiliar
+namespaces or keys.
 `nvs backup` writes a versioned, CRC-protected image of the complete default NVS
 partition. The file contains unencrypted credentials and settings, so protect
 it like a password. `nvs restore` accepts only a complete backup for the current
@@ -237,8 +245,45 @@ job for periodic polling.
 | `top` | `top` | Print FreeRTOS task resource information when available. |
 | `sleep` | `sleep` | Enter explicit light sleep. |
 | `suspend` | `suspend` | Turn off the primary display and temporarily use the `lowpower` profile while services and jobs continue. Press KEY to resume. |
-| `power` | See below | Inspect and configure power policy. |
-| `setterm` | See below | Configure terminal/input preferences. Without arguments, opens the display TUI when available. |
+| `power` | `power [status]` | Show the selected and effective profiles, suspend state, sleep policy, and wake statistics. |
+| `power` | `power profile [performance\|balanced\|battery\|lowpower]` | Show or save the power profile. |
+| `power` | `power idle [off\|seconds]` | Show or configure the display-shell idle light-sleep timeout. |
+| `power` | `power key [off\|sleep\|suspend]` | Show or configure the dedicated KEY short-press action. |
+| `power` | `power sleep` | Enter explicit light sleep from the display shell. Press KEY to wake. |
+| `power` | `power suspend` | Turn off the primary display while services and jobs continue. Press KEY to resume. |
+| `rtc` | `rtc [status]` | Show the RTC provider, capabilities, interrupt wiring, and alarm/timer owners. Reports `unavailable` when no RTC is present. |
+| `rtc` | `rtc alarm set HH:MM[:SS] [day=N] [weekday=N]` | Program the RTC hardware alarm, optionally matching a day or weekday. |
+| `rtc` | `rtc alarm clear` | Clear the RTC hardware alarm owned by this command. |
+| `rtc` | `rtc timer set <duration> [repeat]` | Program the RTC countdown timer. Durations use an `s`, `m`, `h`, or `d` suffix. |
+| `rtc` | `rtc timer clear` | Clear the RTC countdown timer owned by this command. |
+| `rtc` | `rtc pending` | Show pending RTC alarm and timer interrupts. |
+| `rtc` | `rtc ack <alarm\|timer\|all>` | Acknowledge pending RTC interrupts. |
+| `schedule` | `schedule`; `schedule list` | List persistent alarms and scheduled shell scripts. Entries show their enabled state, trigger, and action. |
+| `schedule` | `schedule show <name>` | Show one entry, including its run and skip counters. |
+| `schedule` | `schedule add <name> in <duration> <alarm\|run script>` | Add a one-shot monotonic schedule. Durations use an `s`, `m`, `h`, or `d` suffix. |
+| `schedule` | `schedule add <name> every <duration> <alarm\|run script>` | Add a recurring monotonic interval schedule. |
+| `schedule` | `schedule add <name> at YYYY-MM-DD HH:MM[:SS] <alarm\|run script>` | Add a one-shot schedule in configured local time. It waits for valid wall-clock time. |
+| `schedule` | `schedule add <name> daily HH:MM[:SS] <alarm\|run script>` | Add a daily schedule in configured local time. |
+| `schedule` | `schedule add <name> weekly <sun,mon,...> HH:MM[:SS] <alarm\|run script>` | Add a schedule for the selected local weekdays. |
+| `schedule` | `schedule enable <name>`; `schedule disable <name>` | Enable or disable an entry without removing it. |
+| `schedule` | `schedule remove <name>` | Remove an entry. |
+| `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
+| `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
+| `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
+| `setterm` | `setterm --display <target> [orientation\|font\|textsize\|palette\|statusbar] [value]` | Show or change the volatile terminal profile of a named display target. |
+| `setterm` | `setterm orientation [0\|90\|180\|270]` | Show or set primary-display orientation. |
+| `setterm` | `setterm font [mono\|compact]`; `setterm textsize [10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
+| `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
+| `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
+| `setterm` | `setterm statusbar [show\|hide]` | Show or hide the graphical shell status bar. |
+| `setterm` | `setterm brightness [0..100]`; `setterm backlight [0..100]` | Show or set display brightness or backlight level. |
+| `setterm` | `setterm profile [vt100\|ansi\|dumb]`; `setterm charset [utf8\|ascii]` | Configure escape sequences and TUI glyph output for the current port shell. |
+| `setterm` | `setterm keyboard [us\|de]`; `setterm powerkey [sleep\|suspend]` | Show or set the keyboard layout and dedicated KEY action. |
+| `setterm` | `setterm keyrate [off\|1..60 [delay-ms]]` | Show or set the shared keyboard and button repeat policy. |
+| `setterm` | `setterm ble [default\|on\|off]` | Show or set the BLE preference for the next boot. |
+| `setterm` | `setterm timezone [UTC\|UTC+/-offset\|Europe/Berlin\|POSIX-TZ]` | Show or set the timezone used for local time. |
+| `setterm` | `setterm startup [flash\|sd]` | Show or select the volume containing `.shell/startup` for the next boot. |
+| `setterm` | `setterm otaurl [url]` | Show or set the OTA metadata URL. |
 
 Input completion lists every current source after `input test`, only absolute
 pointer sources after `input calibrate`, `status` after an input class, and
@@ -275,6 +320,56 @@ the selected profile, effective profile, and suspend state.
 sleep path, and `suspend` toggles the runtime suspend state. The default for a
 new or cleared NVS configuration is `suspend`; an existing saved value remains
 unchanged.
+
+`rtc` is the low-level hardware interface. `rtc status` remains useful on
+boards without RTC hardware and reports `unavailable` there.
+
+```text
+rtc status
+rtc alarm set HH:MM[:SS] [day=N] [weekday=N]
+rtc alarm clear
+rtc timer set <duration> [repeat]
+rtc timer clear
+rtc pending
+rtc ack <alarm|timer|all>
+```
+
+Direct alarm and timer controls are leased. If the scheduler or a script owns
+the requested hardware slot, the command reports the owner instead of replacing
+its wake-up configuration.
+
+`schedule` stores named alarms and script jobs in the internal flash filesystem
+at `.solar/schedule.bin`. Updates replace the file atomically. Durations accept
+`s`, `m`, `h`, or `d`; dates and times use configured local time.
+
+```text
+schedule list
+schedule show <name>
+schedule add <name> in <duration> <alarm|run script>
+schedule add <name> every <duration> <alarm|run script>
+schedule add <name> at YYYY-MM-DD HH:MM[:SS] <alarm|run script>
+schedule add <name> daily HH:MM[:SS] <alarm|run script>
+schedule add <name> weekly <sun,mon,...> HH:MM[:SS] <alarm|run script>
+schedule enable <name>
+schedule disable <name>
+schedule remove <name>
+schedule run <name>
+schedule stop [name]
+```
+
+Only one scheduled shell script runs at a time. A due script is skipped and its
+skip counter increases if another scheduled script is still running. Scheduled
+scripts run without a terminal, and attempts to launch foreground applications
+are rejected. Calendar schedules wait for valid wall-clock time. Interval
+schedules continue to work from monotonic uptime without an RTC.
+
+During explicit light sleep, the nearest schedule is armed as an internal timer.
+When a wired interrupt-capable RTC is available, the scheduler also programs its
+calendar alarm when wall-clock time is valid and, for a monotonic schedule, its
+countdown timer. The RTC GPIO is added to the wake sources. This lets countdowns
+use the RTC even while wall-clock time is invalid. An RTC interrupt can wake
+light sleep; it cannot turn on a board whose hardware power has been switched
+off.
 
 `setterm` usage:
 
@@ -520,7 +615,10 @@ unzip -l /books/archive.zip
 | `daq` | `daq help` | Print DAQ usage. |
 | `daq` | `daq status` | Show DAQ job status. |
 | `daq` | `daq streams` | List stream IDs. |
-| `daq` | See below | Start or stop data acquisition. |
+| `daq` | `daq start <file.csv> <stream...> [--rate seconds\|--rate-ms ms]`; `daq start <stream...> <file.csv> [--rate seconds\|--rate-ms ms]` | Start periodic CSV capture from one or more streams. |
+| `daq` | `daq start <file.csv> <stream> --changes [--append\|--replace]` | Capture a scalar or event stream only when its value changes. |
+| `daq` | `daq start <file.bin> <byte-or-audio-stream> --raw [--rate-ms ms]` | Capture one byte or PCM audio stream without CSV framing. |
+| `daq` | `daq stop` | Stop the active data-acquisition job. |
 | `log` | `log status` | Show runtime log ring status. |
 | `log` | `log show [count]` | Print recent SolarOS log entries. |
 | `log` | `log follow [error|warn|info|debug]` | Follow logs in the current shell. |
@@ -529,7 +627,11 @@ unzip -l /books/archive.zip
 | `log` | `log sink cdc [on|off]` | Enable or disable CDC mirroring of SolarOS logs. |
 | `port` | `port list` | List byte-stream ports. |
 | `port` | `port status <name>` | Show port capabilities and owner. |
-| `xfer` | See below | Send or receive files over a byte-stream port. |
+| `xfer` | `xfer protocols` | List supported and reserved transfer protocols. |
+| `xfer` | `xfer send <port> <file> --raw [-d ms]` | Send a file as raw bytes, optionally delaying between chunks. |
+| `xfer` | `xfer recv <port> <file> --raw [--append\|--replace] [--idle-ms ms]` | Receive raw bytes until the idle timeout and append or replace the destination. |
+| `xfer` | `xfer send <port> <file> --zmodem` | Send a file with ZMODEM. |
+| `xfer` | `xfer recv <port> <file> --zmodem [--append\|--replace]` | Receive a file with ZMODEM and append or replace the destination. |
 
 DAQ usage:
 
@@ -593,6 +695,9 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi` | `wifi disconnect` | Disconnect station mode. |
 | `wifi` | `wifi known` | List remembered station profiles. |
 | `wifi` | `wifi forget [ssid|all]` | Remove one or all remembered station profiles. |
+| `wifi repeater` | `wifi repeater` | Show L2 IPv4 repeater state, upstream, downstream, learned clients, and forwarding counters. |
+| `wifi repeater` | `wifi repeater on` | Repeat the current or preferred saved network with the same SSID and password on the same IPv4 subnet. |
+| `wifi repeater` | `wifi repeater off` | Stop L2 forwarding and the downstream AP while retaining the upstream station. |
 | `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
@@ -609,8 +714,19 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ble` | `ble scan` | Scan nearby BLE devices. |
 | `ble` | `ble pair` | Start keyboard pairing. |
 | `ble` | `ble forget` | Erase the remembered keyboard from NVS and remove its BLE bond. |
-| `ble gatt` | See below | Generic BLE GATT client. |
-| `mqtt` | See below | MQTT/MQTTS client. |
+| `ble gatt` | `ble gatt status` | Show the generic GATT connection state and discovered-service count. |
+| `ble gatt` | `ble gatt connect <aa:bb:cc:dd:ee:ff> <public\|random\|rpa_public\|rpa_random>` | Connect to a BLE peripheral by address and address type. |
+| `ble gatt` | `ble gatt disconnect` | Disconnect the generic GATT client. |
+| `ble gatt` | `ble gatt services` | List discovered services and their indexes and handle ranges. |
+| `ble gatt` | `ble gatt chars <service-index>` | List the characteristics discovered for one service. |
+| `ble gatt` | `ble gatt read <handle>` | Read a characteristic or descriptor by handle. |
+| `ble gatt` | `ble gatt write <handle> <hex...>` | Write hexadecimal bytes and request a response. |
+| `ble gatt` | `ble gatt write-nr <handle> <hex...>` | Write hexadecimal bytes without requesting a response. |
+| `mqtt` | `mqtt status` | Show broker, authentication, connection, traffic, queue, and error status without revealing the password. |
+| `mqtt` | `mqtt connect [mqtt[s]://host[:port] [username [password]]]` | Connect to a broker and save supplied connection settings; omit them to reuse saved settings. |
+| `mqtt` | `mqtt disconnect` | Disconnect and stop the MQTT client. |
+| `mqtt` | `mqtt publish <topic> <payload> [qos] [retain]` | Publish a message with optional QoS 0–2 and retain flag. |
+| `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |

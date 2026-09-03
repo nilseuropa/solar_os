@@ -2,6 +2,27 @@
 
 ## 4.x
 
+- **4.10.13** — 2026-09-03 — Added an IPv4 layer-2 Wi-Fi repeater. The
+  `wifi repeater` command and matching Python/Lua APIs bridge DHCP and IPv4/ARP
+  traffic between an upstream station and downstream SoftAP without NAT, so
+  downstream clients remain on the upstream subnet. Status includes learned
+  clients and forwarding counters. The SoftAP automatically repeats the active
+  saved profile's SSID and password; stopping retains the upstream link.
+- **4.10.12** — 2026-09-02 — Added generic RTC alarm and timer support,
+  including PCF85063 hardware alarms, plus a portable persistent scheduler with
+  shell and Python/Lua APIs. Added NVS inventory and selective erase commands.
+  Hardened downloadable help with signed metadata, verified cached pages, a
+  compact catalog, larger page limits, runtime package gating, and corrected
+  focused command pages and aliases.
+- **4.10.11** — 2026-09-02 — Standardized the built-in flavor set around the
+  board-first Applications, Background jobs, and Drivers model. Added the
+  dedicated VGA32 flavor and aligned default board mappings, package
+  resolution, documentation, and flash partition layouts.
+- **4.10.10** — 2026-09-01 — Kept Telnet sessions responsive with a scoped
+  low-latency Wi-Fi lease that restores the normal power-saving policy after
+  disconnect. Added the PCM1808 capture-only I2S expansion driver and matching
+  recording and Python/Lua support. Added interactive flavor configuration and
+  the SolarOS builder for selecting packages and producing board images.
 - **4.10.9** — 2026-08-31 — Added trusted MeshCore virtual serial ports. Two
   SolarOS devices can create matching peer-bound streams that carry reliable
   SolarOS Link framing inside end-to-end encrypted MeshCore direct packets, so
@@ -17,6 +38,11 @@
   `solaros.ftp` Python and Lua bindings. FTP copy and move operations show
   Files-style progress, and same-directory refreshes preserve both pane
   positions.
+- **4.10.7** — 2026-08-31 — Unified foreground application ownership and exit
+  handling across native applications, scripts, remote sessions, and port
+  shells, making terminal and display handoff deterministic. Game Boy now
+  composes a clean frame when its session resumes instead of exposing stale
+  display content.
 - **4.10.6** — 2026-08-30 — Added a shared raster-frame presenter for bounded
   animation: MONO1, INDEX2, and INDEX8 frame contracts now describe source and
   destination geometry, display targets publish their supported formats and
@@ -83,6 +109,10 @@
   pointers attached later at runtime. It saves interoperable grayscale PNG
   files transactionally and imports PNG, JPEG, and GIF images. App state,
   canvas, browser, and decode buffers are cold allocated and released on exit.
+- **4.10.0** — 2026-08-29 — Added Synth hold mode, which toggles notes on key
+  press for sustained chords without requiring keys to remain held. Improved
+  the board configurator handoff by printing exact build and upload commands
+  while preserving the selected `SOLAR_OS_BOARD` profile.
 - **4.9.2** — 2026-08-29 — Unified board-integrated hardware with the expansion
   lifecycle. Battery ADC, PCF85063 RTC, SHTC3 sensing, FT6336 touch, ST7305,
   ILI9341, ST7796, SSD1683, CVBS PAL, VGA32, SDMMC, ES8311/ES7210,

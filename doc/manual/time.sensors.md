@@ -3,14 +3,16 @@ id = "time.sensors"
 title = "Time, battery, and environment APIs"
 section = "hardware"
 summary = "Read clocks, battery state, temperature, and humidity"
-aliases = ["time", "battery", "sensors"]
-keywords = "python lua time clock date timezone ntp uptime battery sensor temperature humidity environment"
+aliases = ["sensors"]
+keywords = "python lua time clock date timezone ntp uptime rtc alarm timer schedule battery sensor temperature humidity environment"
 packages_any = []
 +++
 # Time, battery, and environment APIs
 
 SolarOS distinguishes uptime, UTC, and configured local time. Sensor and
 battery values exist only when the board and firmware provide their services.
+`solaros.rtc` exposes optional alarm/timer hardware; `solaros.schedule` provides
+portable alarms and recurring actions whether or not that hardware exists.
 
 ## Check time integrity
 

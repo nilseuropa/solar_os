@@ -52,6 +52,8 @@
 #include "solar_os_ft6336.h"
 #endif
 #include "solar_os_radio.h"
+#include "solar_os_rtc.h"
+#include "solar_os_schedule.h"
 #include "solar_os_sessions.h"
 #include "solar_os_shell.h"
 #include "solar_os_scheduler.h"
@@ -698,13 +700,57 @@ static void enter_light_sleep(const char *reason)
         return;
     }
 
-    err = esp_sleep_enable_ext1_wakeup_io(KEY_WAKE_MASK, KEY_WAKE_MODE);
+    uint64_t wake_mask = KEY_WAKE_MASK;
+    int rtc_wake_gpio = SOLAR_OS_RTC_INTERRUPT_GPIO_NONE;
+    solar_os_rtc_info_t rtc_info;
+    if (solar_os_rtc_get_info(&rtc_info) == ESP_OK &&
+        rtc_info.interrupt_gpio >= 0 && rtc_info.interrupt_gpio < 64 &&
+        rtc_info.interrupt_active_level == SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL
+#if CONFIG_IDF_TARGET_ESP32
+        /* Classic ESP32 only supports ALL_LOW, which cannot combine two
+         * independent active-low wake inputs. */
+        && rtc_info.interrupt_active_level != 0
+#endif
+        ) {
+        rtc_wake_gpio = rtc_info.interrupt_gpio;
+        const gpio_num_t gpio = (gpio_num_t)rtc_wake_gpio;
+        const esp_err_t rtc_gpio_err = rtc_gpio_init(gpio);
+        if (rtc_gpio_err == ESP_OK) {
+            (void)rtc_gpio_set_direction(gpio, RTC_GPIO_MODE_INPUT_ONLY);
+            if (rtc_info.interrupt_active_level == 0) {
+                (void)rtc_gpio_pullup_en(gpio);
+                (void)rtc_gpio_pulldown_dis(gpio);
+            } else {
+                (void)rtc_gpio_pulldown_en(gpio);
+                (void)rtc_gpio_pullup_dis(gpio);
+            }
+            wake_mask |= 1ULL << rtc_wake_gpio;
+        } else {
+            rtc_wake_gpio = SOLAR_OS_RTC_INTERRUPT_GPIO_NONE;
+            SOLAR_OS_LOGW(TAG, "RTC interrupt wake GPIO setup failed: %s",
+                          esp_err_to_name(rtc_gpio_err));
+        }
+    }
+
+    err = esp_sleep_enable_ext1_wakeup_io(wake_mask, KEY_WAKE_MODE);
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "KEY sleep source setup failed: %s", esp_err_to_name(err));
+        if (rtc_wake_gpio != SOLAR_OS_RTC_INTERRUPT_GPIO_NONE) {
+            (void)rtc_gpio_deinit((gpio_num_t)rtc_wake_gpio);
+        }
         (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
         key_restore_gpio_after_rtc();
         (void)solar_os_power_end_explicit_sleep();
         return;
+    }
+
+    uint64_t schedule_wake_us = 0;
+    if (solar_os_schedule_next_wake_us(&schedule_wake_us)) {
+        const esp_err_t timer_err = esp_sleep_enable_timer_wakeup(schedule_wake_us);
+        if (timer_err != ESP_OK) {
+            SOLAR_OS_LOGW(TAG, "schedule timer wake setup failed: %s",
+                          esp_err_to_name(timer_err));
+        }
     }
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -753,8 +799,11 @@ static void enter_light_sleep(const char *reason)
 
     const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
     const uint64_t wake_ext1 = esp_sleep_get_ext1_wakeup_status();
-    (void)esp_sleep_disable_ext1_wakeup_io(KEY_WAKE_MASK);
+    (void)esp_sleep_disable_ext1_wakeup_io(wake_mask);
     (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
+    if (rtc_wake_gpio != SOLAR_OS_RTC_INTERRUPT_GPIO_NONE) {
+        (void)rtc_gpio_deinit((gpio_num_t)rtc_wake_gpio);
+    }
     key_restore_gpio_after_rtc();
 
     const uint32_t now_ms = millis_u32();
@@ -1586,6 +1635,8 @@ void app_main(void)
 
     ESP_LOGI(TAG, "boot milestone: starting peripherals");
     solar_os_boot_services_init(millis_u32());
+    ESP_ERROR_CHECK(solar_os_schedule_init());
+    solar_os_schedule_set_script_runner(solar_os_shell_run_background_script);
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     if (display_u8g2 != NULL) {
         const esp_err_t display_runtime_err =
@@ -1625,6 +1676,7 @@ void app_main(void)
                   requires_fast_poll ? "polled" : "event-driven");
 
     while (true) {
+        solar_os_schedule_poll();
         solar_os_power_poll();
         poll_key_button();
         dispatch_input_sources();

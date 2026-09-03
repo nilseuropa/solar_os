@@ -63,7 +63,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [messages command](commands.md) — Show bounded-store, persistence, drop, and live provider state.
 - [midi command](commands.md) — Show MIDI worker, traffic, parser, and queue status.
 - [mkdir command](commands.md) — Create directories.
-- [mqtt command](commands.md) — MQTT/MQTTS client.
+- [mqtt command](commands.md) — Show broker, authentication, connection, traffic, queue, and error status without revealing the password.
 - [mv command](commands.md) — Rename or move a file or matched set.
 - [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
@@ -77,20 +77,22 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [pkg command](commands.md) — Print compiled package groups and build units.
 - [pocsag command](commands.md) — Show POCSAG receiver configuration, counters, correction statistics, and RSSI.
 - [port command](commands.md) — List byte-stream ports.
-- [power command](commands.md) — Inspect and configure power policy.
+- [power command](commands.md) — Show the selected and effective profiles, suspend state, sleep policy, and wake statistics.
 - [pwm command](commands.md) — Show PWM state.
 - [radio command](commands.md) — Open the packet-radio TUI with live status and editable common config.
 - [ramfs command](commands.md) — List PSRAM-backed volatile filesystem mounts.
 - [reboot command](commands.md) — Restart the board.
 - [rm command](commands.md) — Remove files. -f allows directories; -rf removes directories recursively.
+- [rtc command](commands.md) — Show the RTC provider, capabilities, interrupt wiring, and alarm/timer owners. Reports unavailable when no RTC is present.
+- [schedule command](commands.md) — List persistent alarms and scheduled shell scripts. Entries show their enabled state, trigger, and action.
 - [session command](commands.md) — List display sessions, port shells, and retained port-owned application sessions with their owner.
 - [sessions command](commands.md) — List display app sessions, display shell sessions, and port shell sessions.
-- [setterm command](commands.md) — Configure terminal/input preferences. Without arguments, opens the display TUI when available.
+- [setterm command](commands.md) — Open the terminal settings TUI from the display shell.
 - [sh command](commands.md) — Run a simple SolarOS shell script from storage.
 - [sleep command](commands.md) — Enter explicit light sleep.
 - [spi command](commands.md) — Show every named SPI bus, or one selected bus.
 - [sshkey command](commands.md) — Show default SSH key status.
-- [status command](commands.md) — Print a compact system status summary.
+- [status command](commands.md) — Print a compact system summary, including the last foreground-app exit code.
 - [stream command](commands.md) — List dynamic typed stream endpoints.
 - [suspend command](commands.md) — Turn off the primary display and temporarily use the lowpower profile while services and jobs continue. Press KEY to resume.
 - [temperature command](commands.md) — Read the board temperature sensor when available.
@@ -104,7 +106,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [watch command](commands.md) — Repeat another shell command until Esc, q, or the app-exit key is pressed.
 - [wifi command](commands.md) — Open the Wi-Fi display TUI when launched from the display shell.
 - [wireguard command](commands.md) — Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material.
-- [xfer command](commands.md) — Send or receive files over a byte-stream port.
+- [xfer command](commands.md) — List supported and reserved transfer protocols.
 - [zip command](commands.md) — Create a ZIP archive. -0 stores without compression.
 
 ## Applications
@@ -113,10 +115,10 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Agent service and tool reference](agent.service.md) — Provider contract, typed tools, policy, resource bounds, and roadmap
 - [aplay application](apps.md#aplay) — Play audio files through the default registered playback endpoint. WAV and MP3 are supported when an output device is present. MP3 decoding is provided by the shared, device-independent audio codec service. aplay prints the source details, plays the file once through the shared background audio player, and then returns to the prompt without clearing existing terminal output. It can be launched from display, UART, USB CDC, Telnet, and other port shells.
 - [Application reference](apps.md) — Usage, controls, and examples for every foreground application
-- [arecord application](apps.md#arecord) — Record the default registered capture endpoint to a WAV file. This requires a registered input device; it does not require built-in board audio. With -d, recording stops after the specified number of seconds. Without -d, recording continues until app-exit, the storage fills, or the WAV size limit is reached. It can be launched from display, UART, USB CDC, Telnet, and other port shells.
+- [arecord application](apps.md#arecord) — Record a registered capture endpoint to a WAV file. The default is the first compatible input; -i selects a specific stream such as adc0.capture. This requires a registered input device, but not built-in board audio. With -d, recording stops after the specified number of seconds. Without -d, recording continues until app-exit, the storage fills, or the WAV size limit is reached. It can be launched from display, UART, USB CDC, Telnet, and other port shells.
 - [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --tui forces that REPL even when graphics are available.
 - [chat application](apps.md#chat) — Tabbed provider-neutral conversation client. The Channels tab lists gateway and radio conversations. Enter selects a conversation and opens its bounded shared history on the Chat tab, which also contains the message/command input. The app opens and remains useful offline; network or radio transport jobs connect independently.
-- [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch.
+- [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch. The countdown is serviced in the background, so it continues when the Clock session is suspended. It works without RTC hardware while SolarOS remains powered. With a wired RTC interrupt, the RTC alarm or countdown is also armed and explicit light sleep can wake for it.
 - [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART or a virtual port such as a peer-bound SolarOS Link stream.
 - [contacts application](apps.md#contacts) — Provider-neutral address book for gateway and MeshCore identities. Contacts can carry multiple provider endpoints while retaining trust independently for each endpoint. A signed MeshCore advert creates a discovered endpoint: the signature proves possession of the advertised key, not the human identity behind it.
 - [curl application](apps.md#curl) — HTTP client for quick text downloads and diagnostics. It can print response data to the terminal or save it to a file.
@@ -125,6 +127,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [files application](apps.md#files) — File manager inspired by Midnight Commander. Its normal mode provides two panes for copy, move, delete, and launch workflows on mounted storage. Launcher mode provides a minimal single-pane application menu suitable for a startup script.
 - [Flash another ESP board](flash.md) — Download verified SolarOS factory images and program another ESP board over UART
 - [flash application](apps.md#flash) — Download verified SolarOS factory artifacts to SD and program another supported ESP board over UART. The browser refreshes the signed catalog on request and shows which board, flavor, and version artifacts are already cached. Its tree starts folded and retains its selection and fold state after operations. Delete removes a selected cached artifact after confirmation. The shell form accepts a named UART plus optional boot and reset GPIO pins.
+- [ftp application](apps.md#ftp) — Two-pane FTP file manager. The left pane is local mounted storage. The right pane is a remote FTP server. The app uses unencrypted IPv4 FTP and passive data connections.
 - [funcgen application](apps.md#funcgen) — Audio-only function generator built on the shared real-time Synth service. It emits signed 16-bit stereo PCM and can use the default playback device or an explicitly selected runtime playback stream, including an attached LEDC PWM audio expansion.
 - [gameboy application](apps.md#gameboy) — Original Game Boy (DMG) emulator selected by the gameboy group on boards with PSRAM, SD storage, graphics, and a streaming display. Current integrated targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO VGA32. The application loads a user-supplied ROM into PSRAM and writes battery-backed cartridge RAM beside it as a .sav file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
 - [help application](apps.md#help) — Foreground browser for the package-aware SolarOS manual. The foldable tree groups the topics compiled for the current firmware and shows whether it is using the embedded copy or a verified downloaded revision. All groups start folded. The selection, scroll position, and fold state remain unchanged after a topic closes.
@@ -167,6 +170,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
 - [email-sync job](jobs.reference.md#email-sync) — Receive-only IMAPS mailbox polling job. It fetches mail into the provider-local email app and publishes each new message to the universal inbox.
 - [espnow-link job](jobs.reference.md#espnow-link) — ESP-NOW adapter for the transport-independent SolarOS Link service.
+- [ftpd job](jobs.reference.md#ftpd) — Unencrypted FTP file server for one exported folder. The job supports one client at a time and passive IPv4 data connections.
 - [gateway-sync job](jobs.reference.md#gateway-sync) — Background synchronizer for the gateway messaging provider. Start and stop it explicitly, using the same lifecycle as email-sync:
 - [gpio-keys job](jobs.reference.md#gpio-keys) — Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures each pin as an input with its internal pull-up enabled, treats a low level as pressed, and applies the same 25 ms debounce used by fixed board buttons. Each debounced transition publishes a generic SolarOS key press or release. Held keys use the system repeat rate configured by setterm keyrate.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.

@@ -139,7 +139,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "aplay [-v volume] <file.wav|file.mp3>", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_ARECORD
-    APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "arecord [-d seconds] <file.wav>", 2, 4),
+    APP_ENTRY("arecord", "record WAV audio", &solar_os_arecord_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "arecord [-d seconds] [-i capture-stream] <file.wav>", 2, 6),
 #endif
 #if SOLAR_OS_PACKAGE_APP_RECORDER
     APP_ENTRY("recorder", "interactive WAV recorder", &solar_os_recorder_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "recorder [--tui] [file.wav]", 1, 3),
@@ -194,7 +194,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("hexedit", "two-pane hex editor", &solar_os_hexedit_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "hexedit <file>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_DOCS
-    APP_ENTRY("help", "browse the SolarOS manual", &solar_os_docs_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "help [topic]", 1, 2),
+    APP_ENTRY("help", "browse the SolarOS manual", &solar_os_docs_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "help [TOPIC|status|update|reset]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     APP_ENTRY("email", "IMAP email client", &solar_os_email_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "email", 1, 1),
@@ -224,7 +224,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("plot", "plot DAQ CSV files or scalar streams", &solar_os_plot_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "plot <stream...> [--rate ms] | plot -f <file.csv> [column...]", 2, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYGROUND
-    APP_ENTRY("playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "playground [source|storage|reload|install|delete] ...", 1, 4),
+    APP_ENTRY("playground", "browse and run community scripts", &solar_os_playground_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "playground [search|install|run|delete|refresh|reload|source|storage] ...", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     APP_ENTRY("logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "logic <pin[,pin...]> [rate] [samples] [trigger=pin]", 2, 5),

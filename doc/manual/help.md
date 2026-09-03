@@ -51,6 +51,10 @@ size 16. An interrupted or invalid download leaves the previous manual active.
 use. `help reset` stops using the downloaded revision; it does not remove the
 immutable cached files from the SD card.
 
+The maintenance word `status` intentionally takes precedence over the bare
+manual alias. Use the exact topic ID `help command.status` to open the shell
+`status` command page.
+
 ## Why versions must match
 
 Documentation can affect scripts produced by the agent. A page for a newer
@@ -66,6 +70,7 @@ group and selects that topic initially. Graphic display shells open topics with
 `help status` reports the active source, firmware version, revision, page count,
 update state, and last error. `help update` downloads one catalog-authenticated
 archive, verifies every extracted page, stores the exact-version manual on SD,
-and activates it only after signature, size, and SHA-256 verification. `help reset` immediately
-returns `man`, `help`, and the agent to the embedded manual. Refreshing requires
-Wi-Fi, PSRAM, and SD.
+and activates it only after signature, size, and SHA-256 verification. Use
+`help command.status` for the command page rather than the maintenance status.
+`help reset` immediately returns `man`, `help`, and the agent to the embedded
+manual. Refreshing requires Wi-Fi, PSRAM, and SD.
