@@ -288,6 +288,31 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertIn("[packages]", content)
         self.assertIn("service_json_scan = true", content)
 
+    def test_generated_configs_list_enabled_package_ids(self):
+        groups = {group: False for group in self.catalog.groups}
+        packages = {package: False for package in self.catalog.packages}
+        packages["service_wifi"] = True
+        packages["app_help"] = True
+        expected = " ".join(
+            package for package in self.catalog.packages if packages[package]
+        )
+        source = Path("test.toml")
+        package_catalog = Path("packages.toml")
+        header = generate_flavor_config.generate_header(
+            "test", "test", groups, packages, self.catalog,
+            source, package_catalog,
+        )
+        cmake = generate_flavor_config.generate_cmake(
+            "test", "test", groups, packages, self.catalog,
+            source, package_catalog,
+        )
+        self.assertIn(
+            f'#define SOLAR_OS_PACKAGE_ID_LIST "{expected}"', header
+        )
+        self.assertIn(
+            f'set(SOLAR_OS_PACKAGE_ID_LIST "{expected}")', cmake
+        )
+
     def test_catalog_rejects_package_unreachable_from_every_group(self):
         content = (
             REPOSITORY / "packages" / "solar_os_packages.toml"
