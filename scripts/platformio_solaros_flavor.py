@@ -107,12 +107,17 @@ os.environ["SOLAR_OS_VGA_MODE"] = vga_mode
 acquire_project_build_lock(project_dir, env["PIOENV"])
 
 flavor_file = _selected_flavor_file(project_dir, flavor)
-os.environ["SOLAR_OS_FLAVOR_FILE"] = str(flavor_file)
+# PlatformIO parses build.cmake_extra_args with Click's POSIX-style argument
+# splitter, including on Windows. Native Windows backslashes would therefore be
+# consumed as escapes before CMake sees the path. CMake accepts forward slashes
+# on every supported host.
+flavor_file_cmake = flavor_file.as_posix()
+os.environ["SOLAR_OS_FLAVOR_FILE"] = flavor_file_cmake
 board_config.update("build.partitions", partition_file)
 board_config.update("upload.maximum_size", maximum_size)
 
 _append_cmake_arg(f"-DSOLAR_OS_FLAVOR={flavor}")
-_append_cmake_arg(f"-DSOLAR_OS_FLAVOR_FILE={flavor_file}")
+_append_cmake_arg(f"-DSOLAR_OS_FLAVOR_FILE={flavor_file_cmake}")
 _append_cmake_arg(f"-DSOLAR_OS_LAYOUT={layout}")
 _append_cmake_arg(f"-DSOLAR_OS_CVBS_MODE={cvbs_mode}")
 _append_cmake_arg(f"-DSOLAR_OS_VGA_MODE={vga_mode}")
