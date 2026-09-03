@@ -695,6 +695,9 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi` | `wifi disconnect` | Disconnect station mode. |
 | `wifi` | `wifi known` | List remembered station profiles. |
 | `wifi` | `wifi forget [ssid|all]` | Remove one or all remembered station profiles. |
+| `wifi repeater` | `wifi repeater` | Show L2 IPv4 repeater state, upstream, downstream, learned clients, and forwarding counters. |
+| `wifi repeater` | `wifi repeater on` | Repeat the current or preferred saved network with the same SSID and password on the same IPv4 subnet. |
+| `wifi repeater` | `wifi repeater off` | Stop L2 forwarding and the downstream AP while retaining the upstream station. |
 | `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |

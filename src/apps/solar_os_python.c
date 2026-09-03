@@ -893,7 +893,7 @@ static mp_obj_t python_storage_block_to_dict(const solar_os_storage_block_t *blo
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
 {
-    mp_obj_t dict = mp_obj_new_dict(24);
+    mp_obj_t dict = mp_obj_new_dict(36);
     python_dict_store_cstr(dict, "state", solar_os_wifi_state_name(status->state));
     python_dict_store_bool(dict, "initialized", status->initialized);
     python_dict_store_bool(dict, "started", status->started);
@@ -903,6 +903,8 @@ static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
     python_dict_store_bool(dict, "has_saved_ap_config", status->has_saved_ap_config);
     python_dict_store_bool(dict, "nat_enabled", status->nat_enabled);
     python_dict_store_bool(dict, "nat_active", status->nat_active);
+    python_dict_store_bool(dict, "repeater_enabled", status->repeater_enabled);
+    python_dict_store_bool(dict, "repeater_active", status->repeater_active);
     python_dict_store_bool(dict, "ap_enabled", status->ap_enabled);
     python_dict_store_bool(dict, "ap_running", status->ap_running);
     python_dict_store_cstr(dict, "ssid", status->ssid);
@@ -922,6 +924,10 @@ static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
     python_dict_store_int(dict, "ap_station_count", status->ap_station_count);
     python_dict_store_int(dict, "ap_max_connections", status->ap_max_connections);
     python_dict_store_int(dict, "saved_profile_count", status->saved_profile_count);
+    python_dict_store_int(dict, "repeater_learned_clients", status->repeater_learned_clients);
+    python_dict_store_u64(dict, "repeater_upstream_frames", status->repeater_upstream_frames);
+    python_dict_store_u64(dict, "repeater_downstream_frames", status->repeater_downstream_frames);
+    python_dict_store_u64(dict, "repeater_dropped_frames", status->repeater_dropped_frames);
     python_dict_store_int(dict, "nat_last_error", status->nat_last_error);
     python_dict_store_cstr(dict, "nat_last_error_name", esp_err_to_name(status->nat_last_error));
     return dict;
@@ -1147,7 +1153,7 @@ static mp_obj_t solaros_wifi(void)
     solar_os_wifi_status_t status;
     solar_os_wifi_get_status(&status);
 
-    mp_obj_t dict = mp_obj_new_dict(12);
+    mp_obj_t dict = mp_obj_new_dict(14);
     python_dict_store_cstr(dict, "state", solar_os_wifi_state_name(status.state));
     python_dict_store_bool(dict, "started", status.started);
     python_dict_store_bool(dict, "connected", status.connected);
@@ -1160,6 +1166,8 @@ static mp_obj_t solaros_wifi(void)
     python_dict_store_cstr(dict, "ap_ip", status.ap_ip);
     python_dict_store_bool(dict, "nat_enabled", status.nat_enabled);
     python_dict_store_bool(dict, "nat_active", status.nat_active);
+    python_dict_store_bool(dict, "repeater_enabled", status.repeater_enabled);
+    python_dict_store_bool(dict, "repeater_active", status.repeater_active);
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_obj, solaros_wifi);
@@ -1942,6 +1950,20 @@ static mp_obj_t solaros_wifi_nat(mp_obj_t enabled_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_wifi_nat_obj, solaros_wifi_nat);
+
+static mp_obj_t solaros_wifi_repeater_start(void)
+{
+    python_check_esp(solar_os_wifi_repeater_start());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_repeater_start_obj, solaros_wifi_repeater_start);
+
+static mp_obj_t solaros_wifi_repeater_stop(void)
+{
+    python_check_esp(solar_os_wifi_repeater_stop());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_repeater_stop_obj, solaros_wifi_repeater_stop);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT

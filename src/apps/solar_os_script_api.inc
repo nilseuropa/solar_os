@@ -136,6 +136,8 @@ SOLAR_OS_SCRIPT_API_FUNCTION(wifi, scan, scan);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, ap_start, ap_start);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, ap_stop, ap_stop);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, nat, nat);
+SOLAR_OS_SCRIPT_API_FUNCTION(wifi, repeater_start, repeater_start);
+SOLAR_OS_SCRIPT_API_FUNCTION(wifi, repeater_stop, repeater_stop);
 SOLAR_OS_SCRIPT_API_MODULE_END(wifi);
 #endif
 
