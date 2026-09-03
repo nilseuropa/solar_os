@@ -1,12 +1,9 @@
 #include "solar_os_manual.h"
 
 #include <ctype.h>
-#include <errno.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/stat.h>
 
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
@@ -33,44 +30,7 @@ static void manual_use_embedded(const char *text,
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 static esp_err_t manual_read_external(const char *id, char **source, size_t *source_len)
 {
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = solar_os_docs_page_path(id, path, sizeof(path));
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    if (st.st_size <= 0 ||
-        (uint64_t)st.st_size > SOLAR_OS_DOCS_PAGE_MAX) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    const size_t len = (size_t)st.st_size;
-    char *buffer = solar_os_memory_alloc(len + 1U,
-                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                         "manual.source");
-    if (buffer == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        solar_os_memory_free(buffer);
-        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
-    }
-    const size_t read_len = fread(buffer, 1U, len, file);
-    const bool failed = ferror(file) || read_len != len;
-    fclose(file);
-    if (failed) {
-        solar_os_memory_free(buffer);
-        return ESP_FAIL;
-    }
-    buffer[len] = '\0';
-    *source = buffer;
-    *source_len = len;
-    return ESP_OK;
+    return solar_os_docs_load_page(id, source, source_len);
 }
 
 static char *manual_markdown_body(char *source)

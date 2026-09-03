@@ -804,11 +804,14 @@ esp_err_t solar_os_docs_get_status(solar_os_docs_status_t *status)
     return ESP_OK;
 }
 
-esp_err_t solar_os_docs_page_path(const char *id, char *path, size_t path_len)
+esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
 {
-    if (!docs_id_valid(id) || path == NULL || path_len == 0U) {
+    if (!docs_id_valid(id) || body == NULL || body_len == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    *body = NULL;
+    *body_len = 0U;
+
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     portENTER_CRITICAL(&docs_lock);
     const bool available = docs_status.available;
@@ -817,17 +820,96 @@ esp_err_t solar_os_docs_page_path(const char *id, char *path, size_t path_len)
     if (!available) {
         return ESP_ERR_NOT_FOUND;
     }
+
     char base[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t err = docs_revision_path(revision, base, sizeof(base));
-    if (err != ESP_OK) {
-        return err;
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    char *catalog = NULL;
+    char *signature = NULL;
+    size_t catalog_len = 0U;
+    size_t signature_len = 0U;
+    solar_os_json_doc_t *document = NULL;
+    docs_catalog_t info = {0};
+    if (err == ESP_OK) {
+        err = docs_join(base, DOCS_CATALOG_FILE, path, sizeof(path));
     }
-    char relative[80];
-    const int written = snprintf(relative, sizeof(relative), "manual/%s.md", id);
-    if (written < 0 || (size_t)written >= sizeof(relative)) {
-        return ESP_ERR_INVALID_SIZE;
+    if (err == ESP_OK) {
+        err = docs_read_file(path, DOCS_CATALOG_MAX, &catalog, &catalog_len);
     }
-    return docs_join(base, relative, path, path_len);
+    if (err == ESP_OK) {
+        err = docs_join(base, DOCS_SIGNATURE_FILE, path, sizeof(path));
+    }
+    if (err == ESP_OK) {
+        err = docs_read_file(path,
+                             DOCS_SIGNATURE_MAX,
+                             &signature,
+                             &signature_len);
+    }
+    if (err == ESP_OK) {
+        err = docs_verify_signature(catalog, catalog_len, signature);
+    }
+    if (err == ESP_OK) {
+        err = docs_parse_catalog(catalog, catalog_len, &document, &info);
+    }
+    if (err == ESP_OK && strcmp(revision, info.revision) != 0) {
+        err = ESP_ERR_INVALID_RESPONSE;
+    }
+
+    char relative[80] = {0};
+    char expected_sha[SOLAR_OS_CRYPTO_SHA256_HEX_LEN] = {0};
+    uint32_t expected_size = 0U;
+    bool found = false;
+    const solar_os_json_value_t *pages =
+        document != NULL ?
+            solar_os_json_object_get(solar_os_json_root(document), "pages") : NULL;
+    for (size_t i = 0U; err == ESP_OK && i < info.page_count; i++) {
+        char page_id[64];
+        err = docs_page_metadata(solar_os_json_array_get(pages, i),
+                                 page_id,
+                                 sizeof(page_id),
+                                 relative,
+                                 sizeof(relative),
+                                 expected_sha,
+                                 &expected_size);
+        if (err == ESP_OK && strcmp(page_id, id) == 0) {
+            found = true;
+            break;
+        }
+    }
+    if (err == ESP_OK && !found) {
+        err = ESP_ERR_NOT_FOUND;
+    }
+    if (err == ESP_OK) {
+        err = docs_join(base, relative, path, sizeof(path));
+    }
+    char *data = NULL;
+    size_t data_len = 0U;
+    if (err == ESP_OK) {
+        err = docs_read_file(path, SOLAR_OS_DOCS_PAGE_MAX, &data, &data_len);
+    }
+    if (err == ESP_OK) {
+        err = docs_verify_data(data, data_len, expected_size, expected_sha);
+    }
+    if (err == ESP_OK) {
+        *body = data;
+        *body_len = data_len;
+        data = NULL;
+    } else if (err != ESP_ERR_NO_MEM) {
+        docs_set_result(false,
+                        false,
+                        "",
+                        0U,
+                        "cached documentation integrity check failed");
+        SOLAR_OS_LOGW(TAG,
+                      "cached page '%s' rejected: %s",
+                      id,
+                      esp_err_to_name(err));
+    }
+    solar_os_memory_free(data);
+    solar_os_json_free(document);
+    solar_os_memory_free(signature);
+    solar_os_memory_free(catalog);
+    return err;
 }
 
 typedef struct {

@@ -48,8 +48,8 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress, void *user);
 esp_err_t solar_os_docs_reset(void);
 
 /*
- * Copies the path of an active, verified Markdown page. The returned path is
- * stable even if the documentation package is reset while a reader is open:
- * activated revision directories are immutable and are not deleted at runtime.
+ * Loads a page from the active signed catalog and verifies its size and SHA-256
+ * before returning it. The caller owns *body and releases it with
+ * solar_os_memory_free().
  */
-esp_err_t solar_os_docs_page_path(const char *id, char *path, size_t path_len);
+esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len);
