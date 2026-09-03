@@ -21,11 +21,44 @@ class EditKeyPolicyTest(unittest.TestCase):
         discard_pattern = re.compile(
             r"case SOLAR_OS_KEY_ESCAPE:\s*"
             r"case 0x11:\s*"
+            r"(?:case SOLAR_OS_KEY_F10:\s*)?"
             r"solar_os_context_finish\(ctx, 0, NULL\);"
+        )
+        save_pattern = re.compile(
+            r"case 0x13:\s*"
+            r"(?:case SOLAR_OS_KEY_F2:\s*)?"
+            r"\(void\)editor_save\(\);"
         )
         for handler in (self.text_handler, self.hex_handler):
             self.assertRegex(handler, discard_pattern)
-            self.assertIn("case 0x13:\n        (void)editor_save();", handler)
+            self.assertRegex(handler, save_pattern)
+
+    def test_text_editor_function_keys_alias_common_actions(self):
+        self.assertRegex(
+            self.text_handler,
+            re.compile(
+                r"case SOLAR_OS_KEY_ESCAPE:\s*"
+                r"case 0x11:\s*"
+                r"case SOLAR_OS_KEY_F10:\s*"
+                r"solar_os_context_finish\(ctx, 0, NULL\);"
+            ),
+        )
+        self.assertRegex(
+            self.text_handler,
+            re.compile(
+                r"case 0x06:\s*"
+                r"case SOLAR_OS_KEY_F3:\s*"
+                r"solar_os_text_search_begin_input\(&editor.search\);"
+            ),
+        )
+        self.assertRegex(
+            self.text_handler,
+            re.compile(
+                r"case 0x13:\s*"
+                r"case SOLAR_OS_KEY_F2:\s*"
+                r"\(void\)editor_save\(\);"
+            ),
+        )
 
     def test_clipboard_shortcuts_remain_assigned(self):
         for handler in (self.text_handler, self.hex_handler):

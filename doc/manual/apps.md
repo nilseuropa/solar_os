@@ -629,10 +629,10 @@ Controls:
 - `Ctrl+Left`/`Ctrl+Right` move by words.
 - `Shift+Arrows` extend selection.
 - `Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V` select all, copy, cut, and paste.
-- `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match,
-  wrapping at the end of the file.
-- `Ctrl+S` saves in place. `Ctrl+Q`, `Esc`, or the app-exit key exits without
-  saving pending changes.
+- `Ctrl+F` or `F3` opens Find. Matches are case-insensitive and wrap at the end
+  of the file.
+- `Ctrl+S` or `F2` saves in place. `Ctrl+Q`, `Esc`, `F10`, or the app-exit key
+  exits without saving pending changes.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## hexedit
