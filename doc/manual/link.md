@@ -170,6 +170,20 @@ job start radio-link link0 radio0 lora-eu868 repeater=on
 job status radio-link
 ```
 
+Repeater mode does not make the device a relay-only endpoint. It can participate
+in Chat at the same time:
+
+```text
+job start radio-link link0 radio0 lora-eu868 chat=on repeater=on
+```
+
+Direct traffic addressed to this device is consumed locally and is not
+repeated. Broadcast traffic is consumed locally and repeated, while traffic
+addressed to other Link IDs is repeated without being delivered locally. The
+same Link instance can also own a peer-bound virtual stream created with `link
+stream create link0 vser0 <peer-id>` while it repeats stream frames between
+other devices.
+
 Repeating doubles the packet-radio airtime used for traffic that crosses the
 repeater and increases acknowledgement latency. All devices must use the same
 frequency, modulation, packet profile, and Link framing. Repeater mode does not

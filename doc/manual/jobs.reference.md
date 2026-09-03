@@ -905,6 +905,14 @@ delay, recent-frame suppression, and a bounded four-frame queue prevent loops
 and reduce collisions. It is off by default. `job status radio-link` reports
 forwarded, suppressed, queued, queue-drop, and invalid-frame counters.
 
+Repeater mode can run together with local Chat and peer-bound Link streams. For
+example, use `job start radio-link link0 radio0 lora-eu868 chat=on repeater=on`
+to join Chat while extending its range. Direct frames for the local Link ID are
+consumed locally, broadcasts are consumed and repeated, and frames for other
+Link IDs are repeated without local delivery. A local stream can be created
+with `link stream create link0 vser0 <peer-id>` while repeating stream traffic
+between other devices.
+
 Stopping restores the radio configuration and state that existed before the
 job started. Mutating direct radio operations are rejected while the radio is
 owned by the job. See [link.md](link.md) for commands, frame layout, IDs,
