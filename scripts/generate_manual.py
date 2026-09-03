@@ -29,6 +29,58 @@ COMMAND_GITHUB_HREFS = {
     "jobs": "jobs.md",
     "link": "link.md",
 }
+# Bare names intentionally owned by a richer topic or an earlier focused page.
+# Any new or changed collision is a review failure rather than a silent alias
+# deletion.
+DERIVED_ALIAS_OWNERS = {
+    ("command.adc", "adc"): "gpio.analog",
+    ("command.agent", "agent"): "agent",
+    ("command.apps", "apps"): "apps",
+    ("command.audio", "audio"): "media.input",
+    ("command.ble", "ble"): "media.input",
+    ("command.board", "board"): "boards",
+    ("command.commands", "commands"): "commands",
+    ("command.control", "control"): "controls",
+    ("command.expansion", "expansion"): "expansion",
+    ("command.gpio", "gpio"): "gpio.analog",
+    ("command.help", "help"): "help",
+    ("command.i2c", "i2c"): "compatibility.io",
+    ("command.identity", "identity"): "identity",
+    ("command.job", "job"): "jobs",
+    ("command.jobs", "jobs"): "jobs",
+    ("command.link", "link"): "link",
+    ("command.meshcore", "meshcore"): "meshcore",
+    ("command.mqtt", "mqtt"): "network",
+    ("command.neopixel", "neopixel"): "expansion",
+    ("command.onewire", "onewire"): "compatibility.io",
+    ("command.osc", "osc"): "osc",
+    ("command.pwm", "pwm"): "gpio.analog",
+    ("command.sessions", "sessions"): "sessions.apps",
+    ("command.spi", "spi"): "compatibility.io",
+    ("command.sshkey", "sshkey"): "ssh_keys",
+    ("command.uart", "uart"): "compatibility.io",
+    ("command.wifi", "wifi"): "network",
+    ("command.wireguard", "wireguard"): "network",
+    ("app.agent", "agent"): "agent",
+    ("app.contacts", "contacts"): "command.contacts",
+    ("app.email", "email"): "command.email",
+    ("app.files", "files"): "storage",
+    ("app.flash", "flash"): "flash",
+    ("app.help", "help"): "help",
+    ("app.inbox", "inbox"): "command.inbox",
+    ("app.lua", "lua"): "lua",
+    ("app.playground", "playground"): "playground",
+    ("app.python", "python"): "python",
+    ("job.controls", "controls"): "controls",
+    ("job.daq", "daq"): "command.daq",
+    ("job.espnow-link", "espnow-link"): "link",
+    ("job.log", "log"): "command.log",
+    ("job.meshcore", "meshcore"): "meshcore",
+    ("job.midi", "midi"): "command.midi",
+    ("job.osc", "osc"): "osc",
+    ("job.pocsag", "pocsag"): "command.pocsag",
+    ("job.radio-link", "radio-link"): "link",
+}
 SECTION_INFO = {
     "concept": (10, "Getting started"),
     "shell": (20, "Shell and storage"),
@@ -699,6 +751,7 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
     pages.extend(derive_job_pages(source, pages, known_packages))
 
     seen_names: dict[str, str] = {}
+    reviewed_collisions: set[tuple[str, str]] = set()
     for page in pages:
         page_id = str(page["id"])
         names = [page_id, *page["aliases"]]
@@ -707,6 +760,14 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
             owner = seen_names.get(folded)
             if owner is not None:
                 if index > 0 and bool(page["derived"]):
+                    collision = (page_id, folded)
+                    expected_owner = DERIVED_ALIAS_OWNERS.get(collision)
+                    if expected_owner != owner:
+                        raise ValueError(
+                            f"unreviewed manual alias collision: {page_id} "
+                            f"alias {name} conflicts with {owner}"
+                        )
+                    reviewed_collisions.add(collision)
                     page["aliases"] = [
                         alias
                         for alias in page["aliases"]
@@ -719,6 +780,10 @@ def load_pages(source: Path, packages_path: Path) -> list[dict[str, object]]:
             seen_names[folded] = page_id
         if bool(page["derived"]):
             page["release_markdown"] = release_markdown(page)
+    stale_collisions = sorted(set(DERIVED_ALIAS_OWNERS) - reviewed_collisions)
+    if stale_collisions:
+        details = ", ".join(f"{page}:{alias}" for page, alias in stale_collisions)
+        raise ValueError(f"stale manual alias ownership rules: {details}")
     return sorted(
         pages,
         key=lambda page: (

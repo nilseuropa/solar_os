@@ -92,6 +92,20 @@ class ManualReleaseLimitTest(unittest.TestCase):
         self.assertIn("status", by_id["command.status"]["aliases"])
         self.assertIn("help command.status", by_id["help"]["markdown"])
 
+    def test_derived_alias_collisions_are_explicit(self):
+        self.assertEqual(
+            generate_manual.DERIVED_ALIAS_OWNERS[("command.mqtt", "mqtt")],
+            "network",
+        )
+        self.assertNotIn(
+            ("command.schedule", "schedule"),
+            generate_manual.DERIVED_ALIAS_OWNERS,
+        )
+        generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+
     def test_release_page_at_limit_is_accepted(self):
         page = {
             "id": "at-limit",
