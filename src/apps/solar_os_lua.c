@@ -822,6 +822,8 @@ static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *s
     solua_set_bool(L, -1, "has_saved_ap_config", status->has_saved_ap_config);
     solua_set_bool(L, -1, "nat_enabled", status->nat_enabled);
     solua_set_bool(L, -1, "nat_active", status->nat_active);
+    solua_set_bool(L, -1, "repeater_enabled", status->repeater_enabled);
+    solua_set_bool(L, -1, "repeater_active", status->repeater_active);
     solua_set_bool(L, -1, "ap_enabled", status->ap_enabled);
     solua_set_bool(L, -1, "ap_running", status->ap_running);
     solua_set_str(L, -1, "ssid", status->ssid);
@@ -841,6 +843,10 @@ static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *s
     solua_set_int(L, -1, "ap_station_count", status->ap_station_count);
     solua_set_int(L, -1, "ap_max_connections", status->ap_max_connections);
     solua_set_int(L, -1, "saved_profile_count", status->saved_profile_count);
+    solua_set_int(L, -1, "repeater_learned_clients", status->repeater_learned_clients);
+    solua_set_int(L, -1, "repeater_upstream_frames", status->repeater_upstream_frames);
+    solua_set_int(L, -1, "repeater_downstream_frames", status->repeater_downstream_frames);
+    solua_set_int(L, -1, "repeater_dropped_frames", status->repeater_dropped_frames);
     solua_set_int(L, -1, "nat_last_error", status->nat_last_error);
     solua_set_str(L, -1, "nat_last_error_name", esp_err_to_name(status->nat_last_error));
 }
@@ -1168,6 +1174,8 @@ static int solua_solaros_wifi_status_short(lua_State *L)
     solua_set_str(L, -1, "ap_ip", status.ap_ip);
     solua_set_bool(L, -1, "nat_enabled", status.nat_enabled);
     solua_set_bool(L, -1, "nat_active", status.nat_active);
+    solua_set_bool(L, -1, "repeater_enabled", status.repeater_enabled);
+    solua_set_bool(L, -1, "repeater_active", status.repeater_active);
     return 1;
 }
 #endif
@@ -1840,6 +1848,16 @@ static int solua_wifi_ap_stop(lua_State *L)
 static int solua_wifi_nat(lua_State *L)
 {
     return solua_check_esp(L, solar_os_wifi_nat_set(lua_toboolean(L, 1)));
+}
+
+static int solua_wifi_repeater_start(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_wifi_repeater_start());
+}
+
+static int solua_wifi_repeater_stop(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_wifi_repeater_stop());
 }
 #endif
 

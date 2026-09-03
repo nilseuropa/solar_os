@@ -45,6 +45,9 @@ void solar_os_manual_release_text(const char *text, bool owned);
 
 size_t solar_os_manual_count(void);
 const solar_os_manual_page_t *solar_os_manual_get(size_t index);
+/* Signed-catalog validation uses the firmware-bundled compatibility set. */
+size_t solar_os_manual_embedded_count(void);
+const solar_os_manual_page_t *solar_os_manual_embedded_get(size_t index);
 const solar_os_manual_page_t *solar_os_manual_find(const char *name);
 size_t solar_os_manual_search(const char *query,
                               const solar_os_manual_page_t **results,

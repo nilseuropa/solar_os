@@ -55,7 +55,7 @@ service packages are not available on that board.
 - `solaros.schedule`: `list`, `add_in`, `add_every`, `add_at`, `add_daily`, `add_weekly`, `enable`, `remove`, `run`, and `stop_alarm`; weekday bit constants `SUN` through `SAT`. Actions are `"alarm"` or `"run"`, with an absolute shell-script path for `"run"`.
 - `solaros.battery`: `status` when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
-- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat` when Wi-Fi support is compiled
+- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled
 - `solaros.http`: bounded requests, retained same-origin sessions, and streaming handles when `network.http-client` is compiled
 - `solaros.ftp`: passive-mode list, download, upload, directory, delete, and rename operations when `network.ftp` is compiled

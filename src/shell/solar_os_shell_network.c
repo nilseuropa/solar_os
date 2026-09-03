@@ -38,10 +38,11 @@
 
 static const char * const wifi_subcommands[] = {
     "status", "enable", "disable", "on", "off", "scan", "connect", "disconnect", "known",
-    "forget", "nat", "ap",
+    "forget", "repeater", "nat", "ap",
 };
 static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
+static const char * const wifi_repeater_subcommands[] = {"on", "off"};
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
@@ -66,6 +67,9 @@ static void wifi_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  wifi disconnect");
     solar_os_shell_io_writeln(term, "  wifi known");
     solar_os_shell_io_writeln(term, "  wifi forget [ssid|all]");
+    solar_os_shell_io_writeln(term, "  wifi repeater");
+    solar_os_shell_io_writeln(term, "  wifi repeater on");
+    solar_os_shell_io_writeln(term, "  wifi repeater off");
     solar_os_shell_io_writeln(term, "  wifi nat [status|on|off]");
     solar_os_shell_io_writeln(term, "  wifi ap [status]");
     solar_os_shell_io_writeln(term, "  wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]");
@@ -315,6 +319,8 @@ static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
             solar_os_wifi_status_t status;
             solar_os_wifi_get_status(&status);
             wifi_print_nat_status(term, &status);
+        } else if (err == ESP_ERR_INVALID_STATE && enabled) {
+            solar_os_shell_io_writeln(term, "wifi nat: stop the L2 repeater first");
         } else if (err == ESP_ERR_NOT_SUPPORTED) {
             solar_os_shell_io_writeln(term, "wifi nat: NAT is not supported in this build");
         } else {
@@ -327,6 +333,113 @@ static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
                                                     sizeof(wifi_nat_subcommands) / sizeof(wifi_nat_subcommands[0]));
     solar_os_shell_diag_unknown(term, "wifi nat", "subcommand", argv[2], suggestion,
                                 "wifi nat [status|on|off]");
+}
+
+static void wifi_print_repeater_status(solar_os_shell_io_t *term)
+{
+    solar_os_wifi_status_t status;
+    solar_os_wifi_get_status(&status);
+
+    if (status.repeater_active) {
+        solar_os_shell_io_writeln(term, "Repeater: active (L2, same IPv4 subnet)");
+    } else if (status.repeater_enabled) {
+        if (!status.connected || !status.has_ip) {
+            solar_os_shell_io_writeln(term, "Repeater: waiting for upstream");
+        } else if (!status.ap_running) {
+            solar_os_shell_io_writeln(term, "Repeater: starting access point");
+        } else {
+            solar_os_shell_io_writeln(term, "Repeater: starting L2 forwarding");
+        }
+    } else {
+        solar_os_shell_io_writeln(term, "Repeater: off");
+    }
+
+    if (status.connected || status.state == SOLAR_OS_WIFI_STATE_CONNECTING) {
+        solar_os_shell_io_printf(term,
+                                 "Upstream: %s%s%s\n",
+                                 status.ssid[0] != '\0' ? status.ssid : status.saved_ssid,
+                                 status.has_ip ? " " : "",
+                                 status.has_ip ? status.ip : " (connecting)");
+    }
+    if (status.ap_enabled || status.ap_running) {
+        solar_os_shell_io_printf(term,
+                                 "Downstream: %s (%s), clients %u/%u\n",
+                                 status.ap_ssid[0] != '\0' ? status.ap_ssid : "starting",
+                                 status.ap_auth[0] != '\0' ? status.ap_auth : "open",
+                                 (unsigned)status.ap_station_count,
+                                 (unsigned)status.ap_max_connections);
+    }
+    if (status.repeater_enabled) {
+        solar_os_shell_io_printf(term,
+                                 "Learned clients: %u, frames up/down/drop: %" PRIu64 "/%" PRIu64 "/%" PRIu64 "\n",
+                                 (unsigned)status.repeater_learned_clients,
+                                 status.repeater_upstream_frames,
+                                 status.repeater_downstream_frames,
+                                 status.repeater_dropped_frames);
+    }
+}
+
+static void wifi_cmd_repeater(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 2) {
+        wifi_print_repeater_status(term);
+        return;
+    }
+
+    if (strcmp(argv[2], "on") == 0) {
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "wifi repeater on",
+                                           argv[3],
+                                           "wifi repeater on");
+            return;
+        }
+
+        const esp_err_t err = solar_os_wifi_repeater_start();
+        if (err == ESP_OK) {
+            wifi_print_repeater_status(term);
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_writeln(
+                term,
+                "wifi repeater: no saved upstream; run 'wifi connect <ssid> [password]' first");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "wifi repeater on failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[2], "off") == 0) {
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term,
+                                           "wifi repeater off",
+                                           argv[3],
+                                           "wifi repeater off");
+            return;
+        }
+
+        const esp_err_t err = solar_os_wifi_repeater_stop();
+        if (err == ESP_OK) {
+            solar_os_shell_io_writeln(term, "WiFi repeater off; upstream station retained");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "wifi repeater off failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    const char *suggestion = solar_os_shell_suggest(
+        argv[2],
+        wifi_repeater_subcommands,
+        sizeof(wifi_repeater_subcommands) / sizeof(wifi_repeater_subcommands[0]));
+    solar_os_shell_diag_unknown(term,
+                                "wifi repeater",
+                                "subcommand",
+                                argv[2],
+                                suggestion,
+                                "wifi repeater [on|off]");
 }
 
 static void wifi_cmd_connect(solar_os_shell_io_t *term, int argc, char **argv)
@@ -508,6 +621,11 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "repeater") == 0) {
+        wifi_cmd_repeater(term, argc, argv);
+        return;
+    }
+
     if (strcmp(argv[1], "nat") == 0) {
         wifi_cmd_nat(term, argc, argv);
         return;
@@ -535,6 +653,8 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t err = solar_os_wifi_disconnect();
         if (err == ESP_OK) {
             solar_os_shell_io_writeln(term, "WiFi disconnected");
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_writeln(term, "wifi disconnect: stop the L2 repeater first");
         } else {
             solar_os_shell_io_printf(term, "wifi disconnect failed: %s\n", solar_os_shell_error_text(err));
         }
@@ -580,7 +700,7 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "wifi", argc, argv,
-                                   "wifi [status|enable|disable|on|off|scan|connect|disconnect|known|forget|nat|ap] ...",
+                                   "wifi [status|enable|disable|on|off|scan|connect|disconnect|known|forget|repeater|nat|ap] ...",
                                    wifi_subcommands,
                                    sizeof(wifi_subcommands) / sizeof(wifi_subcommands[0]));
 }

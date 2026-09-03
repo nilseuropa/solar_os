@@ -302,7 +302,7 @@ print("{:.1f} C {:.1f}%".format(env["temperature_c"], env["humidity_percent"]))
 
 ## `solaros.wifi`
 
-Wi-Fi functions expose station, SoftAP, scan, and NAT controls.
+Wi-Fi functions expose station, SoftAP, scan, NAT, and L2 IPv4 repeater controls.
 
 - `status()`: return detailed Wi-Fi status.
 - `status_text()`: return the same compact status text used by the shell.
@@ -319,6 +319,8 @@ Wi-Fi functions expose station, SoftAP, scan, and NAT controls.
 - `ap_start([ssid[, password[, auth]]])`: start SoftAP, reusing saved AP config when no arguments are supplied.
 - `ap_stop()`: stop SoftAP.
 - `nat(enabled)`: persistently enable or disable APSTA NAT.
+- `repeater_start()`: connect the preferred remembered upstream when needed, repeat its saved SSID and password, and bridge upstream DHCP plus IPv4/ARP traffic without NAT.
+- `repeater_stop()`: stop L2 forwarding and the SoftAP while retaining the upstream station.
 
 Example:
 

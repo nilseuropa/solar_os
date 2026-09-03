@@ -43,6 +43,8 @@ typedef struct {
     bool has_saved_ap_config;
     bool nat_enabled;
     bool nat_active;
+    bool repeater_enabled;
+    bool repeater_active;
     bool ap_enabled;
     bool ap_running;
     bool connectionless_active;
@@ -65,6 +67,10 @@ typedef struct {
     uint8_t ap_max_connections;
     uint8_t connectionless_channel;
     uint8_t saved_profile_count;
+    uint8_t repeater_learned_clients;
+    uint64_t repeater_upstream_frames;
+    uint64_t repeater_downstream_frames;
+    uint64_t repeater_dropped_frames;
     esp_err_t nat_last_error;
     char connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 } solar_os_wifi_status_t;
@@ -94,6 +100,8 @@ bool solar_os_wifi_is_known_ssid(const char *ssid);
 esp_err_t solar_os_wifi_ap_start(const char *ssid, const char *password, const char *auth);
 esp_err_t solar_os_wifi_ap_stop(void);
 esp_err_t solar_os_wifi_nat_set(bool enabled);
+esp_err_t solar_os_wifi_repeater_start(void);
+esp_err_t solar_os_wifi_repeater_stop(void);
 esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *found);
 esp_err_t solar_os_wifi_connectionless_acquire(const char *owner,
                                                uint8_t requested_channel,

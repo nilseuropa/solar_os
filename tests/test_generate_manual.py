@@ -14,12 +14,12 @@ SPEC.loader.exec_module(generate_manual)
 
 class ManualReleaseLimitTest(unittest.TestCase):
     def test_release_limit_matches_firmware(self):
-        docs_source = (
-            REPOSITORY / "src/services/solar_os_docs.c"
+        docs_header = (
+            REPOSITORY / "src/services/solar_os_docs.h"
         ).read_text(encoding="utf-8")
         match = re.search(
-            r"^#define DOCS_PAGE_MAX \((\d+)U \* 1024U\)$",
-            docs_source,
+            r"^#define SOLAR_OS_DOCS_PAGE_MAX \((\d+)U \* 1024U\)$",
+            docs_header,
             re.MULTILINE,
         )
         self.assertIsNotNone(match)
@@ -28,6 +28,14 @@ class ManualReleaseLimitTest(unittest.TestCase):
             generate_manual.RELEASE_PAGE_MAX,
             int(match.group(1)) * 1024,
         )
+
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
+        ).read_text(encoding="utf-8")
+        loader = docs_source[docs_source.index("solar_os_docs_load_page"):]
+        loader = loader[:loader.index("\ntypedef struct {")]
+        self.assertIn("SOLAR_OS_DOCS_PAGE_MAX", loader)
+        self.assertNotIn("MANUAL_EXTERNAL_MAX", docs_source)
 
     def test_current_manual_pages_fit_release_limit(self):
         pages = generate_manual.load_pages(
@@ -50,6 +58,53 @@ class ManualReleaseLimitTest(unittest.TestCase):
 
         for command in ("battery", "rtc", "schedule", "time"):
             self.assertEqual(aliases[command], f"command.{command}")
+
+    def test_derived_pages_use_runtime_registry_gates(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+
+        self.assertEqual(
+            by_id["command.mqtt"]["packages_any"], ["service_mqtt"]
+        )
+        self.assertEqual(
+            by_id["command.spi"]["condition"],
+            "(SOLAR_OS_PACKAGE_SERVICE_RESOURCES && "
+            "SOLAR_OS_PACKAGE_SERVICE_SPI)",
+        )
+        self.assertEqual(
+            by_id["command.led"]["condition"],
+            "(SOLAR_OS_PACKAGE_SERVICE_GPIO && "
+            "SOLAR_OS_BOARD_HAS_STATUS_LED)",
+        )
+        self.assertEqual(by_id["command.help"]["condition"], "")
+        self.assertEqual(by_id["app.hexedit"]["packages_any"], ["app_edit"])
+        self.assertEqual(by_id["app.help"]["packages_any"], ["app_docs"])
+
+    def test_help_status_topic_has_an_explicit_escape(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+        self.assertIn("status", by_id["command.status"]["aliases"])
+        self.assertIn("help command.status", by_id["help"]["markdown"])
+
+    def test_derived_alias_collisions_are_explicit(self):
+        self.assertEqual(
+            generate_manual.DERIVED_ALIAS_OWNERS[("command.mqtt", "mqtt")],
+            "network",
+        )
+        self.assertNotIn(
+            ("command.schedule", "schedule"),
+            generate_manual.DERIVED_ALIAS_OWNERS,
+        )
+        generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
 
     def test_release_page_at_limit_is_accepted(self):
         page = {

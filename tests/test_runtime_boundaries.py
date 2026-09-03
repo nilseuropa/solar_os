@@ -71,6 +71,74 @@ class RuntimeBoundaryTest(unittest.TestCase):
             wifi,
         )
 
+    def test_wifi_repeater_is_l2_forwarding_not_nat_alias(self):
+        wifi = (ROOT / "src/services/solar_os_wifi.c").read_text(
+            encoding="utf-8"
+        )
+        repeater = (ROOT / "src/services/solar_os_wifi_repeater.c").read_text(
+            encoding="utf-8"
+        )
+        routes = (ROOT / "src/services/solar_os_lwip_route.c").read_text(
+            encoding="utf-8"
+        )
+        packages = (ROOT / "packages/solar_os_packages.toml").read_text(
+            encoding="utf-8"
+        )
+        shell = (ROOT / "src/shell/solar_os_shell_network.c").read_text(
+            encoding="utf-8"
+        )
+        completion = (ROOT / "src/apps/solar_os_shell.c").read_text(
+            encoding="utf-8"
+        )
+        descriptor = (ROOT / "src/apps/solar_os_script_api.inc").read_text(
+            encoding="utf-8"
+        )
+
+        start = wifi.index("esp_err_t solar_os_wifi_repeater_start(")
+        end = wifi.index("esp_err_t solar_os_wifi_repeater_stop(", start)
+        start_function = wifi[start:end]
+        self.assertIn("if (solar_os_wifi_repeater_is_enabled())", start_function)
+        self.assertIn("solar_os_wifi_connect_saved()", start_function)
+        self.assertIn("wifi_ap_start_config(repeater_profile.ssid", start_function)
+        self.assertIn("solar_os_wifi_repeater_enable(", start_function)
+        self.assertLess(
+            start_function.index("wifi_ap_start_config(repeater_profile.ssid"),
+            start_function.index("solar_os_wifi_repeater_enable("),
+        )
+        self.assertIn("wifi_repeater_starting", start_function)
+        self.assertNotIn("solar_os_wifi_nat_set(true)", start_function)
+        self.assertIn("wifi_find_profile_index_locked(wifi_ssid)", start_function)
+        self.assertIn('repeater_profile.password[0] == \'\\0\' ? "open" : "wpa2"', start_function)
+        self.assertIn("false);", start_function)
+        self.assertIn("request->ap->input = repeater_ap_input", repeater)
+        self.assertIn("request->sta->input = repeater_sta_input", repeater)
+        self.assertIn("repeater.ap->input == repeater_ap_input", repeater)
+        self.assertIn("repeater.sta->input == repeater_sta_input", repeater)
+        self.assertIn("esp_netif_dhcps_stop", repeater)
+        self.assertIn("repeater_send_proxy_arp", repeater)
+        self.assertIn("SOLAR_OS_WIFI_REPEATER_CLIENT_MAX", repeater)
+        self.assertNotIn("esp_netif_napt_enable", repeater)
+        self.assertIn("solar_os_wifi_repeater_route(dest)", routes)
+        self.assertIn("solar_os_wifi_repeater_upstream_route()", routes)
+        self.assertIn("wifi_repeater_schedule_reconnect()", wifi)
+        self.assertIn('"services/solar_os_wifi_repeater.c"', packages)
+        self.assertIn('strcmp(argv[1], "repeater")', shell)
+        self.assertIn('"repeater",', completion)
+        self.assertIn(
+            "SHELL_COMPLETION_STATIC(path_wifi_repeater, wifi_repeater_subcommands)",
+            completion,
+        )
+        self.assertIn(
+            'static const char * const wifi_repeater_subcommands[] = {"on", "off"};',
+            completion,
+        )
+        self.assertNotIn("path_wifi_repeater_on_auth", completion)
+        for method in ("repeater_start", "repeater_stop"):
+            self.assertIn(
+                f"SOLAR_OS_SCRIPT_API_FUNCTION(wifi, {method}, {method});",
+                descriptor,
+            )
+
     def test_boot_coordinator_is_packaged(self):
         packages = (ROOT / "packages/solar_os_packages.toml").read_text(
             encoding="utf-8"
@@ -123,6 +191,35 @@ class RuntimeBoundaryTest(unittest.TestCase):
             )
             self.assertIn("SOLAR_OS_APP_CAP_DISPLAY", entry)
             self.assertIn("SOLAR_OS_APP_CAP_PORT", entry)
+
+        arecord = next(
+            line
+            for line in registry.splitlines()
+            if 'APP_ENTRY("arecord"' in line
+        )
+        self.assertIn("[-d seconds] [-i capture-stream] <file.wav>", arecord)
+        self.assertTrue(arecord.endswith(", 2, 6),"))
+
+    def test_playground_registry_usage_lists_every_subcommand(self):
+        registry = (ROOT / "src/apps/solar_os_app_registry.c").read_text(
+            encoding="utf-8"
+        )
+        entry = next(
+            line
+            for line in registry.splitlines()
+            if 'APP_ENTRY("playground"' in line
+        )
+        for command in (
+            "search",
+            "install",
+            "run",
+            "delete",
+            "refresh",
+            "reload",
+            "source",
+            "storage",
+        ):
+            self.assertIn(command, entry)
 
     def test_sessions_restore_apps_without_resume_renderers(self):
         sessions = (ROOT / "src/services/solar_os_sessions.c").read_text(

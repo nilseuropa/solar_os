@@ -1,23 +1,18 @@
 #include "solar_os_manual.h"
 
 #include <ctype.h>
-#include <errno.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/stat.h>
 
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 #include "solar_os_docs.h"
 #endif
 #include "solar_os_memory.h"
-#include "solar_os_storage.h"
 
 #define MANUAL_SEARCH_MAX 12U
 #define MANUAL_TOKEN_MAX 31U
-#define MANUAL_EXTERNAL_MAX (64U * 1024U)
 
 #include "solar_os_manual_data.h"
 
@@ -34,43 +29,7 @@ static void manual_use_embedded(const char *text,
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 static esp_err_t manual_read_external(const char *id, char **source, size_t *source_len)
 {
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = solar_os_docs_page_path(id, path, sizeof(path));
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    if (st.st_size <= 0 || (uint64_t)st.st_size > MANUAL_EXTERNAL_MAX) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    const size_t len = (size_t)st.st_size;
-    char *buffer = solar_os_memory_alloc(len + 1U,
-                                         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                         "manual.source");
-    if (buffer == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        solar_os_memory_free(buffer);
-        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
-    }
-    const size_t read_len = fread(buffer, 1U, len, file);
-    const bool failed = ferror(file) || read_len != len;
-    fclose(file);
-    if (failed) {
-        solar_os_memory_free(buffer);
-        return ESP_FAIL;
-    }
-    buffer[len] = '\0';
-    *source = buffer;
-    *source_len = len;
-    return ESP_OK;
+    return solar_os_docs_load_page(id, source, source_len);
 }
 
 static char *manual_markdown_body(char *source)
@@ -375,12 +334,34 @@ void solar_os_manual_release_text(const char *text, bool owned)
 
 size_t solar_os_manual_count(void)
 {
-    return SOLAR_OS_MANUAL_GENERATED_PAGE_COUNT;
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    const size_t external_count = solar_os_docs_manual_count();
+    if (external_count > 0U) {
+        return external_count;
+    }
+#endif
+    return solar_os_manual_embedded_count();
 }
 
 const solar_os_manual_page_t *solar_os_manual_get(size_t index)
 {
-    return index < solar_os_manual_count() ?
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    const solar_os_manual_page_t *external = solar_os_docs_manual_get(index);
+    if (external != NULL) {
+        return external;
+    }
+#endif
+    return solar_os_manual_embedded_get(index);
+}
+
+size_t solar_os_manual_embedded_count(void)
+{
+    return SOLAR_OS_MANUAL_GENERATED_PAGE_COUNT;
+}
+
+const solar_os_manual_page_t *solar_os_manual_embedded_get(size_t index)
+{
+    return index < solar_os_manual_embedded_count() ?
         &SOLAR_OS_MANUAL_GENERATED_PAGES[index] : NULL;
 }
 
@@ -572,6 +553,13 @@ size_t solar_os_manual_search(const char *query,
 
 size_t solar_os_manual_reference_count(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    /* Embedded byte offsets cannot describe downloaded page revisions. The
+     * agent falls back to the signed per-page Quick Reference metadata. */
+    if (solar_os_docs_manual_index_available()) {
+        return 0U;
+    }
+#endif
     return SOLAR_OS_MANUAL_GENERATED_REFERENCE_COUNT;
 }
 

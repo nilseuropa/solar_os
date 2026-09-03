@@ -694,6 +694,7 @@ label = "service.wifi"
 sources = [
   "services/solar_os_lwip_route.c",
   "services/solar_os_wifi.c",
+  "services/solar_os_wifi_repeater.c",
   "shell/solar_os_shell_network.c",
   "shell/solar_os_shell_wifi_tui.c",
 ]
