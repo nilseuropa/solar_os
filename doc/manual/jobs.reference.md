@@ -873,7 +873,7 @@ Packet-radio adapter for the transport-independent SolarOS Link service.
 Usage:
 
 ```text
-job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on]
+job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on] [repeater=off|on]
 job stop radio-link
 job status radio-link
 link status <link>
@@ -896,6 +896,22 @@ universal inbox. `chat=on` instead registers Link as a messaging provider,
 creates a broadcast conversation, discovers source IDs as Contacts, and
 supports direct and broadcast text through Chat. Both options are off by
 default and cannot be enabled together.
+
+`repeater=on` turns the same packet-radio adapter into a one-hop SolarOS Link
+range extender. It retransmits valid frames for other destinations and
+broadcasts, including acknowledgements and virtual-stream packets, while
+preserving the original Link identities. A relayed-frame marker, randomized
+delay, recent-frame suppression, and a bounded four-frame queue prevent loops
+and reduce collisions. It is off by default. `job status radio-link` reports
+forwarded, suppressed, queued, queue-drop, and invalid-frame counters.
+
+Repeater mode can run together with local Chat and peer-bound Link streams. For
+example, use `job start radio-link link0 radio0 lora-eu868 chat=on repeater=on`
+to join Chat while extending its range. Direct frames for the local Link ID are
+consumed locally, broadcasts are consumed and repeated, and frames for other
+Link IDs are repeated without local delivery. A local stream can be created
+with `link stream create link0 vser0 <peer-id>` while repeating stream traffic
+between other devices.
 
 Stopping restores the radio configuration and state that existed before the
 job started. Mutating direct radio operations are rejected while the radio is

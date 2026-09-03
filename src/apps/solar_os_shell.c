@@ -937,6 +937,8 @@ static const char * const radio_link_option_values[] = {
     "inbox=on",
     "chat=off",
     "chat=on",
+    "repeater=off",
+    "repeater=on",
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
@@ -1757,6 +1759,10 @@ static const char * const path_job_start_radio_link_profile[] = {
 static const char * const path_job_start_radio_link_option[] = {
     "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
     SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
+};
+static const char * const path_job_start_radio_link_option_2[] = {
+    "job", "start", "radio-link", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY
 };
 #endif
 #if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK
@@ -2815,6 +2821,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_job_start_radio_link_profile,
                             radio_link_option_values),
     SHELL_COMPLETION_STATIC(path_job_start_radio_link_option,
+                            radio_link_option_values),
+    SHELL_COMPLETION_STATIC(path_job_start_radio_link_option_2,
                             radio_link_option_values),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_ESPNOW_LINK

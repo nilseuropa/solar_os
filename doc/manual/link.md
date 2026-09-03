@@ -4,7 +4,7 @@ title = "SolarOS Link"
 section = "service"
 summary = "Packet messaging and reliable virtual serial ports over packet radio or ESP-NOW"
 aliases = ["radio-link", "espnow-link", "link.protocol"]
-keywords = "link packet radio esp-now espnow wifi text binary stream virtual serial port shell acknowledgement retry broadcast queue protocol crc duplicate"
+keywords = "link packet radio repeater relay range extender esp-now espnow wifi text binary stream virtual serial port shell acknowledgement retry broadcast queue protocol crc duplicate"
 packages_any = ["service_link", "job_radio_link", "job_espnow_link"]
 +++
 # SolarOS Link
@@ -15,9 +15,10 @@ acknowledgements, duplicate suppression, and bounded receive/transmit queues.
 A transport adapter moves complete Link frames over a specific medium.
 
 The base packet layer deliberately does not provide routing, fragmentation,
-encryption, or mesh forwarding. One text or binary message must fit the
-selected transport MTU. The optional Link stream layer segments a byte stream
-into those packets and adds ordered delivery, retransmission, and backpressure.
+encryption, or mesh forwarding. The packet-radio adapter can optionally repeat
+each frame by one hop. One text or binary message must fit the selected
+transport MTU. The optional Link stream layer segments a byte stream into those
+packets and adds ordered delivery, retransmission, and backpressure.
 
 ## Radio Quick Start
 
@@ -134,7 +135,7 @@ transport carries at most 236.
 Usage:
 
 ```text
-job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on]
+job start radio-link <link> <radio> <profile> [inbox=off|on] [chat=off|on] [repeater=off|on]
 job status radio-link
 job stop radio-link
 ```
@@ -148,6 +149,46 @@ radio status remains available and shows the owner.
 Stopping the job destroys its Link queues, restores the radio configuration and
 state that existed at startup, and releases the radio. Only one instance of the
 `radio-link` job can run at a time, matching the normal SolarOS job registry.
+
+`repeater=on` makes the device a one-hop store-and-forward range extender on
+the selected radio and profile. It repeats valid Link frames that are not
+addressed to the local device, including broadcasts, acknowledgements, and
+virtual-stream traffic. The forwarded copy preserves the original source,
+destination, sequence, type, and payload. A Link header flag marks that copy as
+already relayed, so another repeater does not forward it again.
+
+Each repeater waits for a short randomized interval before transmission. If it
+hears another repeater forward the same frame first, it suppresses its pending
+copy. A direct acknowledgement also cancels the corresponding pending text or
+binary frame while the acknowledgement itself remains eligible for repeating
+back toward the sender. Recent-frame caching and a bounded four-frame relay
+queue prevent loops and unbounded memory use. Inspect its counters with `job
+status radio-link`:
+
+```text
+job start radio-link link0 radio0 lora-eu868 repeater=on
+job status radio-link
+```
+
+Repeater mode does not make the device a relay-only endpoint. It can participate
+in Chat at the same time:
+
+```text
+job start radio-link link0 radio0 lora-eu868 chat=on repeater=on
+```
+
+Direct traffic addressed to this device is consumed locally and is not
+repeated. Broadcast traffic is consumed locally and repeated, while traffic
+addressed to other Link IDs is repeated without being delivered locally. The
+same Link instance can also own a peer-bound virtual stream created with `link
+stream create link0 vser0 <peer-id>` while it repeats stream frames between
+other devices.
+
+Repeating doubles the packet-radio airtime used for traffic that crosses the
+repeater and increases acknowledgement latency. All devices must use the same
+frequency, modulation, packet profile, and Link framing. Repeater mode does not
+add encryption or authentication; it forwards any structurally valid Link
+frame received on that profile. It is off by default.
 
 The Link queues have four entries each and use PSRAM when available. They are
 created only when a Link starts, so the compiled service has no idle queue
@@ -323,7 +364,7 @@ reusing stale bytes.
 ## Quick reference
 
 Start a packet-radio link with `job start radio-link link0 radio0
-lora-eu868 [inbox=off|on] [chat=off|on]`. Use `link status link0`, `link send
+lora-eu868 [inbox=off|on] [chat=off|on] [repeater=off|on]`. Use `link status link0`, `link send
 link0 broadcast "text"`, and `link receive link0`. Use `chat=on` for unified
 Link broadcast/direct conversations and discovered Contacts. Use `link stream
 create link0 vser0 PEER_ID` when a reliable virtual serial port is required.
@@ -331,5 +372,6 @@ For ESP-NOW, use `job start espnow-link link0 [channel=auto|1..13] [phy=normal|l
 cold-start unicast peers with `espnow peer add`.
 Unicast packet messages request acknowledgements. The base packet layer has no
 routing, fragmentation, encryption, mesh forwarding, or automatic
-retransmission; the peer-bound stream layer adds segmentation, ordering,
-retransmission, and backpressure for byte-stream consumers.
+retransmission; `radio-link repeater=on` adds one-hop packet repetition, and the
+peer-bound stream layer adds segmentation, ordering, retransmission, and
+backpressure for byte-stream consumers.

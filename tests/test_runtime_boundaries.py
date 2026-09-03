@@ -139,6 +139,42 @@ class RuntimeBoundaryTest(unittest.TestCase):
                 descriptor,
             )
 
+    def test_radio_link_repeater_is_one_hop_and_bounded(self):
+        link_header = (ROOT / "src/services/solar_os_link.h").read_text(
+            encoding="utf-8"
+        )
+        repeater_header = (
+            ROOT / "src/services/solar_os_link_repeater.h"
+        ).read_text(encoding="utf-8")
+        repeater = (
+            ROOT / "src/services/solar_os_link_repeater.c"
+        ).read_text(encoding="utf-8")
+        radio_link = (
+            ROOT / "src/jobs/solar_os_radio_link_job.c"
+        ).read_text(encoding="utf-8")
+        completion = (ROOT / "src/apps/solar_os_shell.c").read_text(
+            encoding="utf-8"
+        )
+        packages = (ROOT / "packages/solar_os_packages.toml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("SOLAR_OS_LINK_FLAG_RELAYED", link_header)
+        self.assertIn("SOLAR_OS_LINK_REPEATER_PENDING_MAX 4U", repeater_header)
+        self.assertIn("SOLAR_OS_LINK_REPEATER_CACHE_MAX 16U", repeater_header)
+        self.assertIn("SOLAR_OS_LINK_REPEATER_DELAY_MIN_MS 80U", repeater_header)
+        self.assertIn("message->flags & SOLAR_OS_LINK_FLAG_RELAYED", repeater)
+        self.assertIn("repeater_cancel_acknowledged", repeater)
+        self.assertIn("message.flags |= SOLAR_OS_LINK_FLAG_RELAYED", radio_link)
+        self.assertIn('static const char repeater_prefix[] = "repeater=";', radio_link)
+        self.assertIn('"repeater=off"', completion)
+        self.assertIn('"repeater=on"', completion)
+        self.assertIn(
+            "SHELL_COMPLETION_STATIC(path_job_start_radio_link_option_2,",
+            completion,
+        )
+        self.assertIn('"services/solar_os_link_repeater.c"', packages)
+
     def test_boot_coordinator_is_packaged(self):
         packages = (ROOT / "packages/solar_os_packages.toml").read_text(
             encoding="utf-8"
