@@ -29,11 +29,13 @@ class ManualReleaseLimitTest(unittest.TestCase):
             int(match.group(1)) * 1024,
         )
 
-        manual_source = (
-            REPOSITORY / "src/services/solar_os_manual.c"
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
         ).read_text(encoding="utf-8")
-        self.assertIn("SOLAR_OS_DOCS_PAGE_MAX", manual_source)
-        self.assertNotIn("MANUAL_EXTERNAL_MAX", manual_source)
+        loader = docs_source[docs_source.index("solar_os_docs_load_page"):]
+        loader = loader[:loader.index("\ntypedef struct {")]
+        self.assertIn("SOLAR_OS_DOCS_PAGE_MAX", loader)
+        self.assertNotIn("MANUAL_EXTERNAL_MAX", docs_source)
 
     def test_current_manual_pages_fit_release_limit(self):
         pages = generate_manual.load_pages(

@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "esp_err.h"
+#include "solar_os_manual.h"
 
 #define SOLAR_OS_DOCS_REVISION_MAX 17U
 #define SOLAR_OS_DOCS_ERROR_MAX 96U
@@ -53,3 +54,8 @@ esp_err_t solar_os_docs_reset(void);
  * solar_os_memory_free().
  */
 esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len);
+
+/* Runtime metadata from the active signed catalog. */
+bool solar_os_docs_manual_index_available(void);
+size_t solar_os_docs_manual_count(void);
+const solar_os_manual_page_t *solar_os_docs_manual_get(size_t index);
