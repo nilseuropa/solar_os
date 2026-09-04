@@ -2969,6 +2969,15 @@ static void remove_deferred_bonds(void)
     }
 
     for (size_t i = 0U; i < count; i++) {
+        /* Bluedroid stores its GATT database separately from bond data. */
+        const esp_err_t cache_ret = esp_ble_gattc_cache_clean(bdas[i]);
+        if (cache_ret != ESP_OK) {
+            SOLAR_OS_LOGW(TAG,
+                          "deferred clean BLE GATT cache %u failed: %s",
+                          (unsigned)i,
+                          esp_err_to_name(cache_ret));
+        }
+
         const esp_err_t remove_ret = esp_ble_remove_bond_device(bdas[i]);
         if (remove_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG,
