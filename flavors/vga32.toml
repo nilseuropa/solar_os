@@ -1,6 +1,6 @@
 [flavor]
 name = "vga32"
-description = "Custom SolarOS flavor for LilyGo VGA32"
+description = "Custom flavor for LilyGo VGA32"
 
 [groups]
 hardware_shell = true
@@ -36,7 +36,6 @@ ssh = true
 http_client = true
 ftp = true
 telnet = true
-http_server = true
 wireguard = true
 ntp = true
 inbox = true
@@ -44,7 +43,6 @@ contacts = true
 chat = true
 chat_gateway = true
 gateway_sync = true
-espnow = true
 audio_commands = true
 player = true
 webradio = true
@@ -54,6 +52,5 @@ notes = true
 image_viewer = true
 python = true
 playground = true
-analog_joystick = true
 ps2_mouse = true
 sdspi = true
