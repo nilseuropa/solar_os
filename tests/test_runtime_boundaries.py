@@ -59,6 +59,13 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn(".worker_stack_external = true,", telnetd)
         self.assertIn("#define PORT_SHELL_TASK_STACK 16384", port_shell)
 
+    def test_audio_tone_worker_has_stack_for_default_device_playback(self):
+        audio = (ROOT / "src/services/solar_os_audio.c").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("#define AUDIO_TONE_WORKER_STACK 8192U", audio)
+
     def test_main_delegates_service_boot(self):
         main = (ROOT / "src/main.c").read_text(encoding="utf-8")
         boot = (ROOT / "src/services/solar_os_boot_services.c").read_text(
