@@ -2,6 +2,9 @@
 
 ## 4.x
 
+- **4.10.16** — 2026-09-04 — `ble forget` now clears the remembered
+  keyboard's cached GATT service database as well as its bond, forcing service
+  rediscovery when keyboard firmware changes move attribute handles.
 - **4.10.15** — 2026-09-04 — Added the CL-32 target with its 384x168 ST7305
   reflective display, ATmega808-backed keyboard and battery monitor, PWM
   buzzer audio, SDSPI storage, PCF85063 RTC, native USB CDC, and expansion
