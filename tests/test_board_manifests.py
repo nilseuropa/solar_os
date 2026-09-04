@@ -125,6 +125,7 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
         self.assertIn("display", board["build"]["capabilities"])
+        self.assertIn("battery", board["build"]["capabilities"])
         self.assertIn("streaming_display", board["build"]["capabilities"])
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
@@ -142,7 +143,7 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(buses["spi0"]["cs"], [6, 7])
         self.assertEqual(
             {device["name"] for device in board["devices"]},
-            {"display0", "rtc0", "storage0", "audio0"},
+            {"display0", "rtc0", "storage0", "audio0", "core0"},
         )
         display = next(
             device for device in board["devices"] if device["name"] == "display0"

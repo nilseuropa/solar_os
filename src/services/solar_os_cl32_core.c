@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "solar_os_battery.h"
 #include "solar_os_buses.h"
 #include "solar_os_cl32_keyboard.h"
 #include "solar_os_input.h"
@@ -18,11 +19,17 @@
 #define CL32_CORE_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
 #define CL32_CORE_EVENT_FIFO_SIZE 10U
 #define CL32_CORE_EVENT_DRAIN_MAX 32U
+#define CL32_CORE_REG_STATUS 0x01U
 #define CL32_CORE_REG_INTERRUPT 0x02U
 #define CL32_CORE_REG_EVENT_COUNT 0x03U
 #define CL32_CORE_REG_EVENT 0x04U
+#define CL32_CORE_REG_BATTERY_VOLTAGE 0x1aU
+#define CL32_CORE_STATUS_USB (1U << 1)
+#define CL32_CORE_STATUS_CHARGING (1U << 2)
 #define CL32_CORE_INTERRUPT_KEYBOARD (1U << 0)
 #define CL32_CORE_KEYBOARD_NAME "keyboard0"
+#define CL32_CORE_BATTERY_NAME "battery0"
+#define CL32_CORE_BATTERY_MV_PER_COUNT 25U
 
 typedef struct {
     bool active;
@@ -98,6 +105,36 @@ static esp_err_t read_register(solar_os_cl32_core_device_t *device,
                                      reg,
                                      value,
                                      sizeof(*value));
+}
+
+static esp_err_t battery_read(void *user, solar_os_battery_sample_t *sample)
+{
+    solar_os_cl32_core_device_t *device = user;
+    if (device == NULL || !device->active || sample == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t status = 0U;
+    esp_err_t err = read_register(device, CL32_CORE_REG_STATUS, &status);
+    if (err != ESP_OK) {
+        return err;
+    }
+    uint8_t raw_voltage = 0U;
+    err = read_register(device,
+                        CL32_CORE_REG_BATTERY_VOLTAGE,
+                        &raw_voltage);
+    if (err != ESP_OK) {
+        return err;
+    }
+    *sample = (solar_os_battery_sample_t) {
+        .battery_mv = (uint16_t)raw_voltage * CL32_CORE_BATTERY_MV_PER_COUNT,
+        .calibrated = true,
+        .external_power_valid = true,
+        .external_power = (status & CL32_CORE_STATUS_USB) != 0U,
+        .charging_valid = true,
+        .charging = (status & CL32_CORE_STATUS_CHARGING) != 0U,
+    };
+    return ESP_OK;
 }
 
 static esp_err_t clear_keyboard_interrupt(
@@ -291,6 +328,16 @@ esp_err_t solar_os_cl32_core_attach(
         clear_device(&cl32_core);
         return err;
     }
+    const solar_os_battery_provider_t battery_provider = {
+        .read = battery_read,
+        .user = &cl32_core,
+    };
+    err = solar_os_battery_register_provider(CL32_CORE_BATTERY_NAME,
+                                              &battery_provider);
+    if (err != ESP_OK) {
+        clear_device(&cl32_core);
+        return err;
+    }
     if (solar_os_task_create_pinned_internal(cl32_core_worker,
                                              cl32_core.name,
                                              CL32_CORE_TASK_STACK,
@@ -299,16 +346,18 @@ esp_err_t solar_os_cl32_core_attach(
                                              &cl32_core.worker_task,
                                              tskNO_AFFINITY,
                                              SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+        (void)solar_os_battery_unregister_provider(CL32_CORE_BATTERY_NAME);
         clear_device(&cl32_core);
         return ESP_ERR_NO_MEM;
     }
 
     ESP_LOGI(TAG,
-             "%s attached on %s address 0x%02x as %s",
+             "%s attached on %s address 0x%02x as %s and %s",
              name,
              i2c_bus,
              address,
-             CL32_CORE_KEYBOARD_NAME);
+             CL32_CORE_KEYBOARD_NAME,
+             CL32_CORE_BATTERY_NAME);
     return ESP_OK;
 }
 
@@ -328,6 +377,10 @@ esp_err_t solar_os_cl32_core_detach(const char *name)
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
         return ESP_ERR_TIMEOUT;
     }
+    ESP_RETURN_ON_ERROR(
+        solar_os_battery_unregister_provider(CL32_CORE_BATTERY_NAME),
+        TAG,
+        "battery provider unregister failed");
 
     ESP_LOGI(TAG,
              "%s detached: %lu transitions, %lu state, %lu unsupported, "

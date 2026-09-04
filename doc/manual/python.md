@@ -274,7 +274,10 @@ script path. Combine `SUN` through `SAT` with bitwise OR for weekly schedules.
 
 Available when the firmware includes the battery service.
 
-- `status()`: return battery status with `voltage_mv`, `percent`, `percent_estimated`, `adc_calibrated`, and `external_power`.
+- `status()`: return battery status with `voltage_mv`, `percent`,
+  `percent_estimated`, `adc_calibrated`, `external_power`, `charging`, and
+  `charging_known`. When `charging_known` is false, `charging` is only a trend
+  estimate.
 
 Example:
 

@@ -604,6 +604,16 @@ static void battery_print_status(solar_os_shell_io_t *term)
     solar_os_shell_io_printf(term,
                              "Power: %s\n",
                              status.external_power ? "external" : "battery");
+    if (status.charging_known) {
+        solar_os_shell_io_printf(term,
+                                 "Charging: %s\n",
+                                 status.charging ? "yes" : "no");
+    } else {
+        solar_os_shell_io_writeln(term,
+                                  status.charging ?
+                                      "Charging: yes (estimated)" :
+                                      "Charging: unknown");
+    }
     battery_print_config(term);
     battery_print_monitor_status(term);
 }

@@ -22,9 +22,10 @@ an `ft6336` attachment; Waveshare `rtc0` and `environment0` use `pcf85063` and
 audio also appears as `audio0`: Waveshare uses `es8311-es7210`, Freenove uses
 `es8311-duplex`, and classic ESP32 audio boards use `esp32-dac`. CL-32 declares
 its integrated AVR as fixed `core0`; its polled event FIFO supplies the
-`keyboard0` input source. Generic input, time, sensor, battery, and audio
-services consume the same runtime providers whether the attachment came from
-the board profile or the shell.
+`keyboard0` input source and its voltage and power-status registers supply
+`battery0`. Generic input, time, sensor, battery, and audio services consume the
+same runtime providers whether the attachment came from the board profile or
+the shell.
 
 Built-in displays follow the same rule and appear as fixed `display0`
 attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses

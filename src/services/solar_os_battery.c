@@ -431,7 +431,7 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
         memset(status, 0, sizeof(*status));
         return ESP_ERR_NOT_SUPPORTED;
     }
-    solar_os_battery_sample_t sample;
+    solar_os_battery_sample_t sample = {0};
     const esp_err_t ret = provider.read(provider.user, &sample);
     if (ret != ESP_OK) {
         return ret;
@@ -442,8 +442,14 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     status->percent = battery_percent_from_voltage(averaged_mv);
     status->percent_estimated = true;
     status->adc_calibrated = sample.calibrated;
-    status->external_power = battery_voltage_external_power(sample.battery_mv) ||
-        battery_monitor_indicates_external_power();
+    const bool inferred_charging = battery_monitor_indicates_external_power();
+    status->external_power = sample.external_power_valid
+        ? sample.external_power
+        : battery_voltage_external_power(sample.battery_mv) || inferred_charging;
+    status->charging = sample.charging_valid
+        ? sample.charging
+        : inferred_charging;
+    status->charging_known = sample.charging_valid;
     return ESP_OK;
 }
 

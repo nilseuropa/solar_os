@@ -1188,7 +1188,7 @@ capabilities = ["expansion_i2c"]
 label = "board.cl32-core"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_cl32_core_expansion_driver"]
-depends = ["service_expansion", "service_i2c"]
+depends = ["service_battery", "service_expansion", "service_i2c"]
 sources = [
   "services/solar_os_cl32_core.c",
   "services/solar_os_cl32_core_driver.c",

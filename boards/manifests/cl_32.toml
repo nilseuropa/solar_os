@@ -20,13 +20,14 @@ drivers = [
   "spi_esp_idf",
   "rtc_pcf85063",
   "audio_expansion",
+  "battery_expansion",
   "gpio_esp_idf",
   "adc_esp_idf",
   "pwm_esp_idf",
 ]
 capabilities = [
   "psram", "simd", "display", "gfx", "cdc", "uart", "sd", "i2c", "spi", "rtc",
-  "wifi", "ble", "audio", "gpio", "adc", "pwm", "expansion_gpio",
+  "battery", "wifi", "ble", "audio", "gpio", "adc", "pwm", "expansion_gpio",
   "expansion_i2c", "expansion_spi", "expansion_uart", "expansion_adc",
   "expansion_pwm", "expansion_i2s", "streaming_display",
 ]

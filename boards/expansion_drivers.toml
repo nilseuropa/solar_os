@@ -25,6 +25,7 @@ summary = "CL-32 board controller"
 package = "board_cl32_core"
 targets = ["esp32s3"]
 capabilities = ["i2c"]
+board_capabilities = ["battery"]
 default_name = "core0"
 
 [[drivers.cl32-core.bindings]]
