@@ -812,23 +812,11 @@ static esp_err_t docs_build_manual_index(
                                           &page->contract);
         }
     }
-    for (size_t embedded_index = 0U;
-         err == ESP_OK && embedded_index < solar_os_manual_embedded_count();
-         embedded_index++) {
-        const solar_os_manual_page_t *embedded =
-            solar_os_manual_embedded_get(embedded_index);
-        bool found = false;
-        for (size_t page_index = 0U;
-             embedded != NULL && page_index < index->count;
-             page_index++) {
-            if (strcmp(index->pages[page_index].id, embedded->id) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            err = ESP_ERR_INVALID_RESPONSE;
-        }
+    /* Catalog validation already requires metadata for every embedded page.
+     * The runtime index intentionally contains only pages enabled by this
+     * flavor, so board-specific embedded pages may be absent here. */
+    if (err == ESP_OK && topic != count) {
+        err = ESP_ERR_INVALID_RESPONSE;
     }
     if (err != ESP_OK) {
         docs_manual_index_free(index);

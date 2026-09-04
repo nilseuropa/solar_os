@@ -83,6 +83,24 @@ class ManualReleaseLimitTest(unittest.TestCase):
         self.assertEqual(by_id["app.hexedit"]["packages_any"], ["app_edit"])
         self.assertEqual(by_id["app.help"]["packages_any"], ["app_docs"])
 
+    def test_runtime_index_allows_package_gated_embedded_pages(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+        self.assertEqual(
+            by_id["command.dpad"]["packages_any"], ["service_adc_dpad"]
+        )
+
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
+        ).read_text(encoding="utf-8")
+        builder = docs_source[docs_source.index("static esp_err_t docs_build_manual_index("):]
+        builder = builder[:builder.index("\nstatic esp_err_t docs_verify_data(")]
+        self.assertEqual(builder.count("solar_os_manual_embedded_count()"), 1)
+        self.assertIn("topic != count", builder)
+
     def test_help_status_topic_has_an_explicit_escape(self):
         pages = generate_manual.load_pages(
             REPOSITORY / "doc/manual",
