@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import re
 import unittest
 from pathlib import Path
@@ -100,6 +101,33 @@ class ManualReleaseLimitTest(unittest.TestCase):
         builder = builder[:builder.index("\nstatic esp_err_t docs_verify_data(")]
         self.assertEqual(builder.count("solar_os_manual_embedded_count()"), 1)
         self.assertIn("topic != count", builder)
+
+    def test_runtime_index_matches_catalog_keyword_type(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        archive = generate_manual.build_archive(pages)
+        catalog = json.loads(
+            generate_manual.render_catalog(pages, "4.10.18", archive)
+        )
+        self.assertTrue(
+            all(isinstance(page["keywords"], str) for page in catalog["pages"])
+        )
+
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
+        ).read_text(encoding="utf-8")
+        builder = docs_source[docs_source.index("static esp_err_t docs_build_manual_index("):]
+        builder = builder[:builder.index("\nstatic esp_err_t docs_verify_data(")]
+        self.assertRegex(
+            builder,
+            r'docs_manual_copy_string\(index,\s*catalog_page,\s*"keywords",',
+        )
+        self.assertNotRegex(
+            builder,
+            r'docs_manual_copy_string_array\(index,\s*catalog_page,\s*"keywords",',
+        )
 
     def test_cached_manual_survives_firmware_version_change(self):
         docs_header = (

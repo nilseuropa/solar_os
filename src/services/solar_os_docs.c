@@ -814,10 +814,10 @@ static esp_err_t docs_build_manual_index(
                                                 &page->aliases);
         }
         if (err == ESP_OK) {
-            err = docs_manual_copy_string_array(index,
-                                                catalog_page,
-                                                "keywords",
-                                                &page->keywords);
+            err = docs_manual_copy_string(index,
+                                          catalog_page,
+                                          "keywords",
+                                          &page->keywords);
         }
         if (err == ESP_OK) {
             err = docs_manual_copy_string(index,

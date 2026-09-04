@@ -2,8 +2,9 @@
 
 ## 4.x
 
-- **4.10.18** — 2026-09-04 — `help update` now accepts signed manuals that
-  omit package-gated topics from the active runtime index, fixing verification
+- **4.10.18** — 2026-09-04 — `help update` now reads catalog keyword metadata
+  in its published string form and accepts signed manuals that omit
+  package-gated topics from the active runtime index, fixing verification
   failures on boards without the ADC D-pad service. Valid downloaded manuals
   now remain available after an OS upgrade and are clearly marked as possibly
   outdated until refreshed or reset.
