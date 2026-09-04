@@ -131,10 +131,16 @@ static esp_err_t gameboy_write_save(void) {
     return ESP_OK;
   }
 
-  char temporary[SOLAR_OS_STORAGE_PATH_MAX + 5U];
-  if (snprintf(temporary, sizeof(temporary), "%s.tmp", gameboy.save_path) >=
-      (int)sizeof(temporary)) {
-    return ESP_ERR_INVALID_SIZE;
+  char temporary[SOLAR_OS_STORAGE_PATH_MAX];
+  char backup[SOLAR_OS_STORAGE_PATH_MAX];
+  esp_err_t err = solar_os_storage_sibling_path(
+      gameboy.save_path, ".tmp", temporary, sizeof(temporary));
+  if (err == ESP_OK) {
+    err = solar_os_storage_sibling_path(
+        gameboy.save_path, ".bak", backup, sizeof(backup));
+  }
+  if (err != ESP_OK) {
+    return err;
   }
   FILE *file = fopen(temporary, "wb");
   if (file == NULL) {
@@ -144,12 +150,13 @@ static esp_err_t gameboy_write_save(void) {
                              file) != gameboy.cart_ram_size ||
                       fflush(file) != 0 || fsync(fileno(file)) != 0;
   if (fclose(file) != 0 || failed) {
-    (void)remove(temporary);
+    (void)solar_os_storage_remove(temporary);
     return ESP_FAIL;
   }
-  if (rename(temporary, gameboy.save_path) != 0) {
-    (void)remove(temporary);
-    return ESP_FAIL;
+  err = solar_os_storage_replace_file(temporary, gameboy.save_path, backup);
+  if (err != ESP_OK) {
+    (void)solar_os_storage_remove(temporary);
+    return err;
   }
   gameboy.cart_ram_dirty = false;
   return ESP_OK;
