@@ -4989,44 +4989,20 @@ typedef struct {
 static bool shell_completion_parse_input(solar_os_context_t *ctx, shell_completion_parse_t *parse)
 {
     solar_os_shell_session_t *session = shell_session(ctx);
-    size_t pos = 0;
 
     if (parse == NULL) {
         return false;
     }
 
     memset(parse, 0, sizeof(*parse));
-    parse->trailing_space = session->input_len > 0 &&
-        isspace((unsigned char)session->input[session->input_len - 1]);
-
-    while (pos < session->input_len) {
-        while (pos < session->input_len &&
-               isspace((unsigned char)session->input[pos])) {
-            pos++;
-        }
-        if (pos >= session->input_len) {
-            break;
-        }
-        if (parse->count >= SHELL_ARG_MAX) {
-            return false;
-        }
-
-        const size_t start = pos;
-        while (pos < session->input_len &&
-               !isspace((unsigned char)session->input[pos])) {
-            pos++;
-        }
-        const size_t len = pos - start;
-        if (len >= sizeof(parse->tokens[0])) {
-            return false;
-        }
-        parse->starts[parse->count] = start;
-        memcpy(parse->tokens[parse->count], &session->input[start], len);
-        parse->tokens[parse->count][len] = '\0';
-        parse->count++;
-    }
-
-    return true;
+    return solar_os_shell_completion_parse(session->input,
+                                           session->input_len,
+                                           &parse->tokens[0][0],
+                                           sizeof(parse->tokens[0]),
+                                           SHELL_ARG_MAX,
+                                           parse->starts,
+                                           &parse->count,
+                                           &parse->trailing_space);
 }
 
 typedef struct {
@@ -5038,6 +5014,7 @@ typedef struct {
     char match_name[SHELL_PATH_MAX];
     char common_prefix[SHELL_PATH_MAX];
     char completed_arg[SHELL_PATH_MAX];
+    char encoded_arg[SHELL_INPUT_MAX];
     char completed_line[SHELL_INPUT_MAX];
 } shell_path_completion_work_t;
 
@@ -5106,9 +5083,14 @@ static void shell_print_path_matches(solar_os_context_t *ctx,
 
 static void shell_complete_path(solar_os_context_t *ctx,
                                 size_t token_start,
+                                const char *token,
                                 bool dirs_only,
                                 bool show_matches)
 {
+    if (token == NULL) {
+        return;
+    }
+
     shell_path_completion_work_t *work = shell_alloc_path_completion_work();
     bool match_is_dir = false;
     size_t match_count = 0;
@@ -5118,14 +5100,10 @@ static void shell_complete_path(solar_os_context_t *ctx,
     }
 
     strlcpy(work->original, shell_session(ctx)->input, sizeof(work->original));
-
-    const size_t token_len = shell_session(ctx)->input_len - token_start;
-    if (token_len >= sizeof(work->token)) {
+    if (strlcpy(work->token, token, sizeof(work->token)) >= sizeof(work->token)) {
         solar_os_memory_free(work);
         return;
     }
-    memcpy(work->token, &shell_session(ctx)->input[token_start], token_len);
-    work->token[token_len] = '\0';
 
     const char *prefix = work->token;
     const char *dir_to_resolve = NULL;
@@ -5195,35 +5173,68 @@ static void shell_complete_path(solar_os_context_t *ctx,
     shell_session(ctx)->history_index = -1;
 
     if (match_count == 1) {
-        snprintf(work->completed_arg,
-                 sizeof(work->completed_arg),
-                 "%s%s%s",
-                 work->base_arg,
-                 work->match_name,
-                 match_is_dir ? "/" : " ");
-        snprintf(work->completed_line,
-                 sizeof(work->completed_line),
-                 "%.*s%s",
-                 (int)token_start,
-                 shell_session(ctx)->input,
-                 work->completed_arg);
+        const int completed_arg_len = snprintf(work->completed_arg,
+                                               sizeof(work->completed_arg),
+                                               "%s%s%s",
+                                               work->base_arg,
+                                               work->match_name,
+                                               match_is_dir ? "/" : "");
+        if (completed_arg_len < 0 ||
+            (size_t)completed_arg_len >= sizeof(work->completed_arg)) {
+            solar_os_memory_free(work);
+            return;
+        }
+        if (!solar_os_shell_completion_encode_token(work->completed_arg,
+                                                     work->encoded_arg,
+                                                     sizeof(work->encoded_arg))) {
+            solar_os_memory_free(work);
+            return;
+        }
+        const int completed_line_len = snprintf(work->completed_line,
+                                                sizeof(work->completed_line),
+                                                "%.*s%s%s",
+                                                (int)token_start,
+                                                shell_session(ctx)->input,
+                                                work->encoded_arg,
+                                                match_is_dir ? "" : " ");
+        if (completed_line_len < 0 ||
+            (size_t)completed_line_len >= sizeof(work->completed_line)) {
+            solar_os_memory_free(work);
+            return;
+        }
         shell_replace_input(ctx, work->completed_line);
         solar_os_memory_free(work);
         return;
     }
 
     if (!prefix_has_wildcards && strlen(work->common_prefix) > prefix_len) {
-        snprintf(work->completed_arg,
-                 sizeof(work->completed_arg),
-                 "%s%s",
-                 work->base_arg,
-                 work->common_prefix);
-        snprintf(work->completed_line,
-                 sizeof(work->completed_line),
-                 "%.*s%s",
-                 (int)token_start,
-                 shell_session(ctx)->input,
-                 work->completed_arg);
+        const int completed_arg_len = snprintf(work->completed_arg,
+                                               sizeof(work->completed_arg),
+                                               "%s%s",
+                                               work->base_arg,
+                                               work->common_prefix);
+        if (completed_arg_len < 0 ||
+            (size_t)completed_arg_len >= sizeof(work->completed_arg)) {
+            solar_os_memory_free(work);
+            return;
+        }
+        if (!solar_os_shell_completion_encode_token(work->completed_arg,
+                                                     work->encoded_arg,
+                                                     sizeof(work->encoded_arg))) {
+            solar_os_memory_free(work);
+            return;
+        }
+        const int completed_line_len = snprintf(work->completed_line,
+                                                sizeof(work->completed_line),
+                                                "%.*s%s",
+                                                (int)token_start,
+                                                shell_session(ctx)->input,
+                                                work->encoded_arg);
+        if (completed_line_len < 0 ||
+            (size_t)completed_line_len >= sizeof(work->completed_line)) {
+            solar_os_memory_free(work);
+            return;
+        }
         shell_replace_input(ctx, work->completed_line);
         solar_os_memory_free(work);
         return;
@@ -6926,7 +6937,7 @@ static bool shell_complete_daq_start(solar_os_context_t *ctx,
 
     if (completed.positional_count == 0) {
         if (shell_token_looks_like_path(prefix)) {
-            shell_complete_path(ctx, token_start, false, show_matches);
+            shell_complete_path(ctx, token_start, prefix, false, show_matches);
             return true;
         }
         return shell_complete_daq_kind(ctx,
@@ -6951,7 +6962,7 @@ static bool shell_complete_daq_start(solar_os_context_t *ctx,
     if (completed.raw || completed.first_pos_type == SOLAR_OS_STREAM_TYPE_BYTES ||
         completed.first_pos_type == SOLAR_OS_STREAM_TYPE_AUDIO) {
         if (completed.positional_count == 1) {
-            shell_complete_path(ctx, token_start, false, show_matches);
+            shell_complete_path(ctx, token_start, prefix, false, show_matches);
             return true;
         }
         return shell_complete_daq_kind(ctx,
@@ -6979,7 +6990,7 @@ static bool shell_complete_daq_start(solar_os_context_t *ctx,
                                        show_matches);
     }
 
-    shell_complete_path(ctx, token_start, false, show_matches);
+    shell_complete_path(ctx, token_start, prefix, false, show_matches);
     return true;
 }
 
@@ -7643,6 +7654,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
             shell_complete_path(
                 ctx,
                 token_start,
+                prefix,
                 (path_rule->flags & SHELL_COMPLETION_FLAG_DIRS_ONLY) != 0U,
                 show_matches);
             return true;
@@ -7654,6 +7666,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
             shell_complete_path(
                 ctx,
                 token_start,
+                prefix,
                 (path_rule->flags & SHELL_COMPLETION_FLAG_DIRS_ONLY) != 0U,
                 show_matches);
             return true;
@@ -7757,6 +7770,7 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
 
     shell_complete_path(ctx,
                         token_start,
+                        parse->trailing_space ? "" : parse->tokens[current_index],
                         shell_path_completion_dirs_only(effective_command),
                         show_matches);
     solar_os_memory_free(parse);
