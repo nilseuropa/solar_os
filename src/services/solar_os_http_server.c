@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,7 +28,7 @@ typedef struct {
     void *user;
 } http_route_slot_t;
 
-static http_route_slot_t route_slots[HTTP_SERVER_ROUTE_MAX];
+static EXT_RAM_BSS_ATTR http_route_slot_t route_slots[HTTP_SERVER_ROUTE_MAX];
 static httpd_handle_t http_server;
 static uint16_t http_server_listen_port = 80;
 static char bearer_token[SOLAR_OS_HTTP_BEARER_TOKEN_MAX];

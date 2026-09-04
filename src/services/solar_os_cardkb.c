@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -34,7 +35,7 @@ typedef struct {
 } solar_os_cardkb_device_t;
 
 static const char *TAG = "cardkb";
-static solar_os_cardkb_device_t cardkb_devices[CARDKB_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR solar_os_cardkb_device_t cardkb_devices[CARDKB_DEVICE_MAX];
 
 static solar_os_cardkb_device_t *find_device(const char *name)
 {

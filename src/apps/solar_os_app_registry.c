@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "solar_os_config.h"
@@ -265,7 +266,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #define REGISTERED_APP_STORAGE_COUNT (sizeof(registered_apps) / sizeof(registered_apps[0]))
 
 static const size_t registered_app_count = REGISTERED_APP_STORAGE_COUNT - 1U;
-static char app_owners[sizeof(registered_apps) / sizeof(registered_apps[0])][SOLAR_OS_APP_OWNER_MAX];
+static EXT_RAM_BSS_ATTR char
+    app_owners[sizeof(registered_apps) / sizeof(registered_apps[0])]
+              [SOLAR_OS_APP_OWNER_MAX];
 static portMUX_TYPE app_owner_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static int app_registry_index_by_app(const solar_os_app_t *app)

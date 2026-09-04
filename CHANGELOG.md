@@ -10,7 +10,10 @@
   including runtime-attached outputs. Edit gained `F2` Save, `F3` Find, and
   `F10` Quit aliases while retaining its portable Ctrl and Esc controls. The
   Waveshare ESP32-S3-RLCD-4.2 target is now named SolarTerm, with the
-  `solar_term` board and PlatformIO environment identifiers.
+  `solar_term` board and PlatformIO environment identifiers. Cold service and
+  job registries now use PSRAM, the Telnet listener stack runs in PSRAM, and
+  port-shell stacks are right-sized, restoring internal RAM for interactive
+  applications while Wi-Fi, WireGuard, BLE, and Telnet are active.
 - **4.10.14** — 2026-09-03 — Added optional one-hop SolarOS Link repeating to
   the packet-radio `radio-link` job. A headless device with one compatible
   radio can retransmit text, binary, acknowledgement, broadcast, and virtual

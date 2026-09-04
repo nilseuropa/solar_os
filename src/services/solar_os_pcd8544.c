@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "pcd8544.h"
@@ -20,7 +21,7 @@ typedef struct {
 } solar_os_pcd8544_device_t;
 
 static const char *TAG = "pcd8544";
-static solar_os_pcd8544_device_t devices[SOLAR_OS_PCD8544_MAX];
+static EXT_RAM_BSS_ATTR solar_os_pcd8544_device_t devices[SOLAR_OS_PCD8544_MAX];
 
 static bool binding_role_is(const solar_os_expansion_binding_t *binding, const char *role)
 {

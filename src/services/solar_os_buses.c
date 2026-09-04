@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "routed_spi_bus.h"
@@ -47,8 +48,8 @@ typedef struct {
 #endif
 } solar_os_bus_ref_t;
 
-static solar_os_bus_info_t buses[SOLAR_OS_BUS_MAX];
-static solar_os_bus_lease_t leases[SOLAR_OS_BUS_LEASE_MAX];
+static EXT_RAM_BSS_ATTR solar_os_bus_info_t buses[SOLAR_OS_BUS_MAX];
+static EXT_RAM_BSS_ATTR solar_os_bus_lease_t leases[SOLAR_OS_BUS_LEASE_MAX];
 static bool buses_initialized_here[SOLAR_OS_BUS_MAX];
 static SemaphoreHandle_t bus_mutexes[SOLAR_OS_BUS_MAX];
 static StaticSemaphore_t bus_mutex_buffers[SOLAR_OS_BUS_MAX];

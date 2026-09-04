@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_stream.h"
@@ -27,7 +28,7 @@ typedef struct {
 } solar_os_port_entry_t;
 
 static SemaphoreHandle_t port_mutex;
-static solar_os_port_entry_t ports[SOLAR_OS_PORT_MAX];
+static EXT_RAM_BSS_ATTR solar_os_port_entry_t ports[SOLAR_OS_PORT_MAX];
 static uint32_t next_token = 1;
 
 static esp_err_t port_ensure_init(void)

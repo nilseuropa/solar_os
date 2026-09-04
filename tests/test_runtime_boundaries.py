@@ -7,6 +7,67 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeBoundaryTest(unittest.TestCase):
+    def test_cold_service_registries_use_external_bss(self):
+        declarations = {
+            "src/solar_os_jobs.c":
+                "static EXT_RAM_BSS_ATTR solar_os_job_runtime_t job_runtimes",
+            "src/services/solar_os_expansion.c":
+                "static EXT_RAM_BSS_ATTR solar_os_expansion_device_t",
+            "src/services/solar_os_buses.c":
+                "static EXT_RAM_BSS_ATTR solar_os_bus_info_t buses",
+            "src/services/solar_os_buses.c#leases":
+                "static EXT_RAM_BSS_ATTR solar_os_bus_lease_t leases",
+            "src/services/solar_os_sessions.c":
+                "static EXT_RAM_BSS_ATTR solar_os_session_state_t session_state",
+            "src/services/solar_os_chat.c":
+                "static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t chat",
+            "src/services/solar_os_http_server.c":
+                "static EXT_RAM_BSS_ATTR http_route_slot_t route_slots",
+            "src/services/solar_os_ramfs.c":
+                "static EXT_RAM_BSS_ATTR ramfs_mount_t mounts",
+            "src/services/solar_os_port.c":
+                "static EXT_RAM_BSS_ATTR solar_os_port_entry_t ports",
+            "src/services/solar_os_messaging.c":
+                "static EXT_RAM_BSS_ATTR messaging_state_t messaging",
+            "src/services/solar_os_wifi.c":
+                "static EXT_RAM_BSS_ATTR wifi_profile_t wifi_profiles",
+            "src/services/solar_os_ssd1306.c":
+                "static EXT_RAM_BSS_ATTR solar_os_ssd1306_device_t devices",
+            "src/services/solar_os_pcd8544.c":
+                "static EXT_RAM_BSS_ATTR solar_os_pcd8544_device_t devices",
+            "src/services/solar_os_analog_joystick.c":
+                "static EXT_RAM_BSS_ATTR solar_os_analog_joystick_device_t",
+            "src/services/solar_os_cardkb.c":
+                "static EXT_RAM_BSS_ATTR solar_os_cardkb_device_t cardkb_devices",
+            "src/services/solar_os_gpio_keys.c":
+                "static EXT_RAM_BSS_ATTR solar_os_gpio_keys_device_t devices",
+            "src/apps/solar_os_app_registry.c":
+                "static EXT_RAM_BSS_ATTR char\n    app_owners",
+            "src/apps/solar_os_shell.c":
+                "static EXT_RAM_BSS_ATTR shell_completion_index_t shell_completion_index",
+            "src/jobs/solar_os_chatd_job.c":
+                "static EXT_RAM_BSS_ATTR chatd_job_state_t chatd_job",
+            "src/jobs/solar_os_telnetd_job.c":
+                "static EXT_RAM_BSS_ATTR telnetd_job_state_t telnetd_job",
+        }
+        for key, declaration in declarations.items():
+            relative_path = key.split("#", 1)[0]
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, key)
+
+    def test_telnet_uses_an_external_listener_and_bounded_internal_shell_stack(self):
+        telnetd = (ROOT / "src/jobs/solar_os_telnetd_job.c").read_text(
+            encoding="utf-8"
+        )
+        port_shell = (ROOT / "src/services/solar_os_port_shell.c").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("solar_os_task_create_pinned_external(telnetd_job_task", telnetd)
+        self.assertIn("solar_os_task_delete_external(NULL);", telnetd)
+        self.assertIn(".worker_stack_external = true,", telnetd)
+        self.assertIn("#define PORT_SHELL_TASK_STACK 10240", port_shell)
+
     def test_main_delegates_service_boot(self):
         main = (ROOT / "src/main.c").read_text(encoding="utf-8")
         boot = (ROOT / "src/services/solar_os_boot_services.c").read_text(

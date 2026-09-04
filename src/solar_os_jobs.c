@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jobs/solar_os_job_registry.h"
@@ -34,7 +35,9 @@ typedef struct {
     solar_os_job_resource_t resources[SOLAR_OS_JOB_RESOURCE_MAX];
 } solar_os_job_runtime_t;
 
-static solar_os_job_runtime_t job_runtimes[SOLAR_OS_JOBS_MAX];
+/* Job metadata is ordinary task-context state. Keep the fixed registry out of
+ * internal SRAM on PSRAM boards; only the spinlock itself must stay internal. */
+static EXT_RAM_BSS_ATTR solar_os_job_runtime_t job_runtimes[SOLAR_OS_JOBS_MAX];
 static size_t job_runtime_count;
 static bool jobs_initialized;
 static portMUX_TYPE jobs_lock = portMUX_INITIALIZER_UNLOCKED;
