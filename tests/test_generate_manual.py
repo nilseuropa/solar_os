@@ -83,6 +83,82 @@ class ManualReleaseLimitTest(unittest.TestCase):
         self.assertEqual(by_id["app.hexedit"]["packages_any"], ["app_edit"])
         self.assertEqual(by_id["app.help"]["packages_any"], ["app_docs"])
 
+    def test_runtime_index_allows_package_gated_embedded_pages(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        by_id = {str(page["id"]): page for page in pages}
+        self.assertEqual(
+            by_id["command.dpad"]["packages_any"], ["service_adc_dpad"]
+        )
+
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
+        ).read_text(encoding="utf-8")
+        builder = docs_source[docs_source.index("static esp_err_t docs_build_manual_index("):]
+        builder = builder[:builder.index("\nstatic esp_err_t docs_verify_data(")]
+        self.assertEqual(builder.count("solar_os_manual_embedded_count()"), 1)
+        self.assertIn("topic != count", builder)
+
+    def test_cached_manual_survives_firmware_version_change(self):
+        docs_header = (
+            REPOSITORY / "src/services/solar_os_docs.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn("char manual_version[32];", docs_header)
+        self.assertNotIn("char version[32];", docs_header)
+
+        docs_source = (
+            REPOSITORY / "src/services/solar_os_docs.c"
+        ).read_text(encoding="utf-8")
+        parser = docs_source[docs_source.index("static esp_err_t docs_parse_catalog("):]
+        parser = parser[:parser.index("\nstatic esp_err_t docs_page_metadata(")]
+        self.assertIn("bool require_current_version", parser)
+        self.assertIn(
+            "require_current_version &&\n"
+            "         strcmp(info->firmware_version, SOLAR_OS_VERSION) != 0",
+            parser,
+        )
+        self.assertIn(
+            "require_current_version &&\n"
+            "         info->page_count < solar_os_manual_embedded_count()",
+            parser,
+        )
+
+        initializer = docs_source[docs_source.index("solar_os_docs_init"):]
+        initializer = initializer[:initializer.index("\nesp_err_t solar_os_docs_get_status")]
+        self.assertRegex(
+            initializer,
+            r"docs_verify_revision\(revision,\s*&info,\s*false,\s*false,\s*"
+            r"&manual_index\)",
+        )
+
+        loader = docs_source[docs_source.index("solar_os_docs_load_page"):]
+        loader = loader[:loader.index("\ntypedef struct {")]
+        self.assertRegex(
+            loader,
+            r"docs_parse_catalog\(catalog,\s*catalog_len,\s*&document,\s*"
+            r"&info,\s*false\)",
+        )
+
+        updater = docs_source[docs_source.index("solar_os_docs_update"):]
+        updater = updater[:updater.index("\nesp_err_t solar_os_docs_reset")]
+        self.assertRegex(
+            updater,
+            r"docs_parse_catalog\(catalog,\s*catalog_len,\s*&document,\s*"
+            r"&info,\s*true\)",
+        )
+
+        shell_source = (
+            REPOSITORY / "src/shell/solar_os_shell_manual.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn("It may be outdated. Run 'help update'.", shell_source)
+
+        app_source = (
+            REPOSITORY / "src/apps/solar_os_docs_app.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"SolarOS manual  %u topics  outdated %s"', app_source)
+
     def test_help_status_topic_has_an_explicit_escape(self):
         pages = generate_manual.load_pages(
             REPOSITORY / "doc/manual",

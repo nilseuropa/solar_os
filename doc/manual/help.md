@@ -48,8 +48,11 @@ download and extraction progress, including on the narrow display shell at text
 size 16. An interrupted or invalid download leaves the previous manual active.
 
 `help status` shows whether the external revision or embedded fallback is in
-use. `help reset` stops using the downloaded revision; it does not remove the
-immutable cached files from the SD card.
+use. After a firmware upgrade, SolarOS keeps using a valid signed manual that
+was downloaded for the previous version until `help update` installs the exact
+current-version manual. `help`, `man`, and `help status` warn that this retained
+manual may be outdated. `help reset` stops using the downloaded revision; it
+does not remove the immutable cached files from the SD card.
 
 The maintenance word `status` intentionally takes precedence over the bare
 manual alias. Use the exact topic ID `help command.status` to open the shell
@@ -57,20 +60,22 @@ manual alias. Use the exact topic ID `help command.status` to open the shell
 
 ## Why versions must match
 
-Documentation can affect scripts produced by the agent. A page for a newer
-firmware might describe APIs that do not exist on the running device. SolarOS
-therefore rejects catalogs whose firmware version differs, even if their
-signature is valid.
+Documentation can affect scripts produced by the agent. A newly downloaded
+manual is therefore activated only when its catalog names the exact running
+firmware version. A previously verified manual remains available after an OS
+upgrade instead of silently falling back to embedded content, but SolarOS marks
+it as potentially outdated until it is refreshed or reset.
 
 ## Quick reference
 
 `help` opens the foldable topic tree; `help TOPIC` expands the corresponding
 group and selects that topic initially. Graphic display shells open topics with
 `reader`; CDC, UART, Telnet, SSH, and other text shells use `less`.
-`help status` reports the active source, firmware version, revision, page count,
-update state, and last error. `help update` downloads one catalog-authenticated
-archive, verifies every extracted page, stores the exact-version manual on SD,
-and activates it only after signature, size, and SHA-256 verification. Use
+`help status` reports the active source, firmware and manual versions, revision,
+page count, update state, and last error. `help update` downloads one
+catalog-authenticated archive, verifies every extracted page, stores the
+exact-version manual on SD, and activates it only after signature, size, and
+SHA-256 verification. Use
 `help command.status` for the command page rather than the maintenance status.
 `help reset` immediately returns `man`, `help`, and the agent to the embedded
 manual. Refreshing requires Wi-Fi, PSRAM, and SD.

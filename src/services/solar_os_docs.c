@@ -56,6 +56,7 @@ typedef struct {
 } docs_http_buffer_t;
 
 typedef struct {
+    char firmware_version[32];
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     size_t page_count;
     char archive_path[32];
@@ -72,7 +73,8 @@ typedef struct {
 
 static esp_err_t docs_validate_catalog_pages(
     const solar_os_json_value_t *pages,
-    size_t page_count);
+    size_t page_count,
+    bool require_embedded_pages);
 
 static bool docs_package_enabled(const char *package_id)
 {
@@ -173,6 +175,7 @@ static void docs_set_error(const char *message)
 
 static void docs_set_result(bool available,
                             bool updating,
+                            const char *manual_version,
                             const char *revision,
                             size_t page_count,
                             const char *error)
@@ -180,7 +183,9 @@ static void docs_set_result(bool available,
     portENTER_CRITICAL(&docs_lock);
     docs_status.available = available;
     docs_status.updating = updating;
-    strlcpy(docs_status.version, SOLAR_OS_VERSION, sizeof(docs_status.version));
+    strlcpy(docs_status.manual_version,
+            manual_version != NULL ? manual_version : "",
+            sizeof(docs_status.manual_version));
     strlcpy(docs_status.revision,
             revision != NULL ? revision : "",
             sizeof(docs_status.revision));
@@ -460,7 +465,8 @@ static esp_err_t docs_verify_signature(const char *catalog,
 static esp_err_t docs_parse_catalog(const char *catalog,
                                     size_t catalog_len,
                                     solar_os_json_doc_t **document,
-                                    docs_catalog_t *info)
+                                    docs_catalog_t *info,
+                                    bool require_current_version)
 {
     if (catalog == NULL || document == NULL || info == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -473,7 +479,6 @@ static esp_err_t docs_parse_catalog(const char *catalog,
     }
     const solar_os_json_value_t *root = solar_os_json_root(*document);
     char schema[32];
-    char version[32];
     uint32_t schema_version = 0U;
     err = solar_os_json_get_path_string(root, "schema", schema, sizeof(schema));
     if (err == ESP_OK) {
@@ -482,8 +487,8 @@ static esp_err_t docs_parse_catalog(const char *catalog,
     if (err == ESP_OK) {
         err = solar_os_json_get_path_string(root,
                                             "firmware_version",
-                                            version,
-                                            sizeof(version));
+                                            info->firmware_version,
+                                            sizeof(info->firmware_version));
     }
     if (err == ESP_OK) {
         err = solar_os_json_get_path_string(root,
@@ -513,7 +518,9 @@ static esp_err_t docs_parse_catalog(const char *catalog,
         err == ESP_OK ? solar_os_json_object_get(root, "pages") : NULL;
     if (err != ESP_OK || strcmp(schema, DOCS_SCHEMA) != 0 ||
         schema_version != DOCS_SCHEMA_VERSION ||
-        strcmp(version, SOLAR_OS_VERSION) != 0 ||
+        info->firmware_version[0] == '\0' ||
+        (require_current_version &&
+         strcmp(info->firmware_version, SOLAR_OS_VERSION) != 0) ||
         !docs_revision_valid(info->revision) ||
         strcmp(info->archive_path, DOCS_ARCHIVE_FILE) != 0 ||
         !solar_os_crypto_sha256_hex_is_valid(info->archive_sha) ||
@@ -525,13 +532,17 @@ static esp_err_t docs_parse_catalog(const char *catalog,
         return ESP_ERR_INVALID_RESPONSE;
     }
     info->page_count = solar_os_json_array_size(pages);
-    if (info->page_count < solar_os_manual_embedded_count() ||
+    if (info->page_count == 0U ||
+        (require_current_version &&
+         info->page_count < solar_os_manual_embedded_count()) ||
         info->page_count > DOCS_PAGE_COUNT_MAX) {
         solar_os_json_free(*document);
         *document = NULL;
         return ESP_ERR_INVALID_RESPONSE;
     }
-    err = docs_validate_catalog_pages(pages, info->page_count);
+    err = docs_validate_catalog_pages(pages,
+                                      info->page_count,
+                                      require_current_version);
     if (err != ESP_OK) {
         solar_os_json_free(*document);
         *document = NULL;
@@ -575,7 +586,8 @@ static esp_err_t docs_page_metadata(const solar_os_json_value_t *page,
 
 static esp_err_t docs_validate_catalog_pages(
     const solar_os_json_value_t *pages,
-    size_t page_count)
+    size_t page_count,
+    bool require_embedded_pages)
 {
     for (size_t i = 0U; i < page_count; i++) {
         const solar_os_json_value_t *page = solar_os_json_array_get(pages, i);
@@ -611,7 +623,9 @@ static esp_err_t docs_validate_catalog_pages(
         }
     }
 
-    for (size_t topic = 0U; topic < solar_os_manual_embedded_count(); topic++) {
+    for (size_t topic = 0U;
+         require_embedded_pages && topic < solar_os_manual_embedded_count();
+         topic++) {
         const solar_os_manual_page_t *manual =
             solar_os_manual_embedded_get(topic);
         bool found = false;
@@ -812,23 +826,11 @@ static esp_err_t docs_build_manual_index(
                                           &page->contract);
         }
     }
-    for (size_t embedded_index = 0U;
-         err == ESP_OK && embedded_index < solar_os_manual_embedded_count();
-         embedded_index++) {
-        const solar_os_manual_page_t *embedded =
-            solar_os_manual_embedded_get(embedded_index);
-        bool found = false;
-        for (size_t page_index = 0U;
-             embedded != NULL && page_index < index->count;
-             page_index++) {
-            if (strcmp(index->pages[page_index].id, embedded->id) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            err = ESP_ERR_INVALID_RESPONSE;
-        }
+    /* The runtime index intentionally contains only pages enabled by this
+     * flavor. A retained older catalog may also predate current embedded
+     * topics, so its signed page set is accepted as-is and marked outdated. */
+    if (err == ESP_OK && topic != count) {
+        err = ESP_ERR_INVALID_RESPONSE;
     }
     if (err != ESP_OK) {
         docs_manual_index_free(index);
@@ -895,6 +897,7 @@ static esp_err_t docs_verify_catalog_files(
 
 static esp_err_t docs_verify_revision(const char *revision,
                                       docs_catalog_t *verified,
+                                      bool require_current_version,
                                       bool verify_files,
                                       docs_manual_index_t **manual_index)
 {
@@ -929,7 +932,11 @@ static esp_err_t docs_verify_revision(const char *revision,
         err = docs_verify_signature(catalog, catalog_len, signature);
     }
     if (err == ESP_OK) {
-        err = docs_parse_catalog(catalog, catalog_len, &document, &info);
+        err = docs_parse_catalog(catalog,
+                                 catalog_len,
+                                 &document,
+                                 &info,
+                                 require_current_version);
     }
     if (err == ESP_OK && strcmp(revision, info.revision) != 0) {
         err = ESP_ERR_INVALID_RESPONSE;
@@ -1071,7 +1078,7 @@ static esp_err_t docs_url(const char *base,
 esp_err_t solar_os_docs_init(void)
 {
     docs_manual_index_replace(NULL);
-    docs_set_result(false, false, "", 0U, "");
+    docs_set_result(false, false, "", "", 0U, "");
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     esp_err_t err = docs_read_active_revision(revision);
     docs_catalog_t info;
@@ -1079,13 +1086,21 @@ esp_err_t solar_os_docs_init(void)
     /* Updates verify every page before activation. At boot, revalidate only
      * the signed catalog so slow removable storage does not delay the shell. */
     if (err == ESP_OK) {
-        err = docs_verify_revision(revision, &info, false, &manual_index);
+        err = docs_verify_revision(revision,
+                                   &info,
+                                   false,
+                                   false,
+                                   &manual_index);
     }
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         const esp_err_t backup_err =
             docs_read_revision_pointer(DOCS_ACTIVE_BACKUP, revision);
         if (backup_err == ESP_OK) {
-            err = docs_verify_revision(revision, &info, false, &manual_index);
+            err = docs_verify_revision(revision,
+                                       &info,
+                                       false,
+                                       false,
+                                       &manual_index);
         }
     }
     if (err == ESP_OK) {
@@ -1094,6 +1109,7 @@ esp_err_t solar_os_docs_init(void)
         manual_index = NULL;
         docs_set_result(true,
                         false,
+                        info.firmware_version,
                         info.revision,
                         runtime_page_count,
                         "");
@@ -1189,7 +1205,11 @@ esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
         err = docs_verify_signature(catalog, catalog_len, signature);
     }
     if (err == ESP_OK) {
-        err = docs_parse_catalog(catalog, catalog_len, &document, &info);
+        err = docs_parse_catalog(catalog,
+                                 catalog_len,
+                                 &document,
+                                 &info,
+                                 false);
     }
     if (err == ESP_OK && strcmp(revision, info.revision) != 0) {
         err = ESP_ERR_INVALID_RESPONSE;
@@ -1237,6 +1257,7 @@ esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
     } else if (err != ESP_ERR_NO_MEM) {
         docs_set_result(false,
                         false,
+                        "",
                         "",
                         0U,
                         "cached documentation integrity check failed");
@@ -1337,7 +1358,11 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
         err = docs_verify_signature(catalog, catalog_len, signature);
     }
     if (err == ESP_OK) {
-        err = docs_parse_catalog(catalog, catalog_len, &document, &info);
+        err = docs_parse_catalog(catalog,
+                                 catalog_len,
+                                 &document,
+                                 &info,
+                                 true);
     }
 
     char root[SOLAR_OS_STORAGE_PATH_MAX];
@@ -1445,7 +1470,11 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
     struct stat final_stat;
     if (err == ESP_OK && stat(final_path, &final_stat) == 0) {
         if (S_ISDIR(final_stat.st_mode)) {
-            err = docs_verify_revision(info.revision, NULL, true, NULL);
+            err = docs_verify_revision(info.revision,
+                                       NULL,
+                                       true,
+                                       true,
+                                       NULL);
         } else {
             err = ESP_ERR_INVALID_STATE;
         }
@@ -1475,6 +1504,7 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
     if (err == ESP_OK) {
         docs_set_result(true,
                         false,
+                        info.firmware_version,
                         info.revision,
                         runtime_page_count,
                         "");
@@ -1488,6 +1518,7 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
         snprintf(message, sizeof(message), "update failed: %s", esp_err_to_name(err));
         docs_set_result(before.available,
                         false,
+                        before.manual_version,
                         before.revision,
                         before.page_count,
                         message);
@@ -1531,11 +1562,12 @@ esp_err_t solar_os_docs_reset(void)
     }
     if (err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
         docs_manual_index_replace(NULL);
-        docs_set_result(false, false, "", 0U, "");
+        docs_set_result(false, false, "", "", 0U, "");
         return ESP_OK;
     }
     docs_set_result(before.available,
                     false,
+                    before.manual_version,
                     before.revision,
                     before.page_count,
                     "reset failed");
