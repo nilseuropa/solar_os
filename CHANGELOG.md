@@ -2,6 +2,8 @@
 
 ## 4.x
 
+- **4.10.17** — 2026-09-04 — Shell path completion now understands quoted and
+  backslash-escaped input and quotes completed filenames that contain spaces.
 - **4.10.16** — 2026-09-04 — `ble forget` now clears the remembered
   keyboard's cached GATT service database as well as its bond, forcing service
   rediscovery when keyboard firmware changes move attribute handles.

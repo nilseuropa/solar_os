@@ -47,9 +47,10 @@ shell_line_test: shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c $(ROO
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_line_test.c $(ROOT)/src/shell/solar_os_shell_line.c -o $@
 
-shell_completion_test: shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c $(ROOT)/src/shell/solar_os_shell_completion.h
+shell_completion_test: shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c $(ROOT)/src/shell/solar_os_shell_completion.h $(ROOT)/src/shell/solar_os_shell_parse.c $(ROOT)/src/shell/solar_os_shell_parse.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
-		shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c -o $@
+		shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c \
+		$(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
 shell_diag_test: shell_diag_test.c $(ROOT)/src/shell/solar_os_shell_common.c $(ROOT)/src/shell/solar_os_shell_common.h $(ROOT)/src/shell/solar_os_shell_io.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
