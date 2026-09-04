@@ -96,9 +96,9 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("#define SOLAR_OS_BOARD_BUTTONS", header)
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
-    def test_waveshare_battery_binding_matches_runtime_driver(self) -> None:
+    def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
-            self.manifest_dir / "waveshare_esp32_s3_rlcd_4_2.toml",
+            self.manifest_dir / "solar_term.toml",
             self.manifest_dir,
         )
         header = generate_header(board, self.drivers)
@@ -194,9 +194,9 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(connectors[("EX1", 62)]["gpio"], 3)
         self.assertEqual(connectors[("EX1", 53)]["gpio"], 35)
 
-    def test_waveshare_rtc_interrupt_binding_is_fixed_but_optional(self) -> None:
+    def test_solar_term_rtc_interrupt_binding_is_fixed_but_optional(self) -> None:
         board = load_board_manifest(
-            self.manifest_dir / "waveshare_esp32_s3_rlcd_4_2.toml",
+            self.manifest_dir / "solar_term.toml",
             self.manifest_dir,
         )
         rtc = next(device for device in board["devices"] if device["name"] == "rtc0")

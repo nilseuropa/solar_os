@@ -27,7 +27,7 @@ if(NOT DEFINED SOLAR_OS_BOARD OR SOLAR_OS_BOARD STREQUAL "")
     elseif(DEFINED ENV{PIOENV} AND NOT "$ENV{PIOENV}" STREQUAL "")
         set(SOLAR_OS_BOARD "$ENV{PIOENV}")
     else()
-        set(SOLAR_OS_BOARD "waveshare_esp32_s3_rlcd_4_2")
+        set(SOLAR_OS_BOARD "solar_term")
     endif()
 endif()
 

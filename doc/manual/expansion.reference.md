@@ -49,7 +49,7 @@ while remaining blocked from runtime use.
 
 | Board | Physical expansion signals | Runtime GPIO and PWM | Runtime ADC | Connector restrictions |
 | --- | --- | --- | --- | --- |
-| Waveshare ESP32-S3-RLCD-4.2 | GPIO0-GPIO3, GPIO13, GPIO14, GPIO17-GPIO20, GPIO43, GPIO44 | GPIO1-GPIO3, GPIO17 | GPIO1-GPIO3, GPIO17 | GPIO0 is BOOT; GPIO13/GPIO14 are I2C; GPIO18 is KEY; GPIO19/GPIO20 are native USB; GPIO43/GPIO44 belong to `uart0` by default. |
+| SolarTerm (Waveshare ESP32-S3-RLCD-4.2) | GPIO0-GPIO3, GPIO13, GPIO14, GPIO17-GPIO20, GPIO43, GPIO44 | GPIO1-GPIO3, GPIO17 | GPIO1-GPIO3, GPIO17 | GPIO0 is BOOT; GPIO13/GPIO14 are I2C; GPIO18 is KEY; GPIO19/GPIO20 are native USB; GPIO43/GPIO44 belong to `uart0` by default. |
 | ESP32-S3 Display 4.0-inch (FNK0104S) | GPIO2, GPIO3, GPIO14-GPIO16, GPIO21, GPIO43, GPIO44 | GPIO2, GPIO3, GPIO14, GPIO21 | GPIO2, GPIO3, GPIO14 | GPIO15/GPIO16 are shared I2C; GPIO43/GPIO44 belong to `uart0`; GPIO4 is fixed audio MCLK, not a connector GPIO. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
 | CL-32 | GPIO1-GPIO4, GPIO8, GPIO15-GPIO21, GPIO35-GPIO44, GPIO46-GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18, GPIO21, GPIO38-GPIO42, GPIO47, GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18 | GPIO1/GPIO2 are shared I2C; GPIO3 is the shared peripheral interrupt; GPIO19/GPIO20 are USB; GPIO35-GPIO37 are Octal PSRAM; GPIO43/GPIO44 belong to `uart0`; GPIO46 is an input-only strapping signal. EX1 uses a proprietary M.2 pinout. |
@@ -67,7 +67,7 @@ voltage and current requirements before connecting it.
 
 | Board | Board-defined buses | Runtime-routable buses | Notes |
 | --- | --- | --- | --- |
-| Waveshare ESP32-S3-RLCD-4.2 | `i2c0`: SDA GPIO13, SCL GPIO14; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO40; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | `spi0` is the fixed internal display bus; its pins are not expansion pins. |
+| SolarTerm (Waveshare ESP32-S3-RLCD-4.2) | `i2c0`: SDA GPIO13, SCL GPIO14; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO40; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or 1-Wire, using approved free pins | `spi0` is the fixed internal display bus; its pins are not expansion pins. |
 | ESP32-S3 Display 4.0-inch (FNK0104S) | `i2c0`: SDA GPIO16, SCL GPIO15; `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with touch and audio control. `spi0` is the fixed internal LCD bus. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
 | CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, ST7305 display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
@@ -532,7 +532,7 @@ FSK/OOK unlimited FIFO-stream mode used by services such as POCSAG.
 The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
 binding can still be reserved for future interrupt-driven operation.
 
-### SSD1306 or SH1106 on Waveshare ESP32-S3-RLCD-4.2
+### SSD1306 or SH1106 on SolarTerm
 
 ```text
 VCC -> 3V3        GND -> GND

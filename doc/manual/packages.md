@@ -301,7 +301,7 @@ command line:
 python3 scripts/os_builder.py \
   --input flavors/core.toml \
   --output flavors/my-flavor.toml \
-  --board waveshare_esp32_s3_rlcd_4_2 \
+  --board solar_term \
   --layout ota
 ```
 

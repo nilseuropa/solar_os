@@ -135,7 +135,7 @@
   ESP32-DAC playback. `aplay` and `arecord` can now run from display, UART, USB
   CDC, Telnet, and other port shells. PlatformIO build locking now degrades to
   an explicit warning-only no-op on Windows, where POSIX `flock` is unavailable.
-  Physical acceptance passed on Waveshare ESP32-S3-RLCD-4.2, Freenove FNK0104S,
+  Physical acceptance passed on SolarTerm (Waveshare ESP32-S3-RLCD-4.2), Freenove FNK0104S,
   Elecrow CrowPanel, ODROID-GO, and ESP32-S3 DevKitC-1; Freenove ESP32-WROVER
   v3.0 CVBS output and SDMMC storage also passed.
 - **4.9.1** — 2026-08-27 — Added mirrored `solaros.input` Python and Lua
@@ -506,7 +506,7 @@
   starts from the requested path, while manual references and remote SCP paths
   remain unchanged.
 - **4.6.0** — 2026-08-04 — Added an experimental original Game Boy (DMG)
-  emulator to the `retro` flavor for the Waveshare ESP32-S3-RLCD-4.2. It loads
+  emulator to the `retro` flavor for SolarTerm (Waveshare ESP32-S3-RLCD-4.2). It loads
   ROMs into PSRAM, persists cartridge RAM in adjacent `.sav` files, supports
   held and simultaneous controls from the BLE HID key state, and renders the
   MiniGB APU through the shared synth and audio services. Emulation, audio, and

@@ -86,12 +86,12 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertNotIn("app_ssh", model.selected)
 
     def test_board_context_uses_partition_and_required_drivers(self):
-        waveshare = self.boards["waveshare_esp32_s3_rlcd_4_2"]
-        self.assertEqual(waveshare.flash_bytes, 16 * 1024 * 1024)
-        self.assertEqual(waveshare.app_bytes, 0x700000)
-        self.assertEqual(waveshare.psram_bytes, 8 * 1024 * 1024)
-        self.assertIn("driver_display_st7305", waveshare.required_packages)
-        self.assertIn("driver_audio_es8311_codecs", waveshare.required_packages)
+        solar_term = self.boards["solar_term"]
+        self.assertEqual(solar_term.flash_bytes, 16 * 1024 * 1024)
+        self.assertEqual(solar_term.app_bytes, 0x700000)
+        self.assertEqual(solar_term.psram_bytes, 8 * 1024 * 1024)
+        self.assertIn("driver_display_st7305", solar_term.required_packages)
+        self.assertIn("driver_audio_es8311_codecs", solar_term.required_packages)
 
         elecrow = self.boards["elecrow_crowpanel_esp32_s3_4_2_epaper"]
         self.assertEqual(elecrow.flash_bytes, 8 * 1024 * 1024)
@@ -102,9 +102,9 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(rover.app_bytes, 0x3D0000)
 
     def test_update_layouts_follow_board_flash_capacity(self):
-        waveshare = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        solar_term = self.boards["solar_term"]
         self.assertEqual(
-            [(layout.key, layout.app_bytes) for layout in waveshare.layouts],
+            [(layout.key, layout.app_bytes) for layout in solar_term.layouts],
             [("ota", 0x700000), ("single", 0xE00000)],
         )
         elecrow = self.boards["elecrow_crowpanel_esp32_s3_4_2_epaper"]
@@ -147,7 +147,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertNotIn("service_ota", content)
 
     def test_build_identity_includes_board_layout_and_flavor(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         ota, single = board.layouts
         first = flavor_config.build_fingerprint(board, ota, "one")
         self.assertEqual(first, flavor_config.build_fingerprint(board, ota, "one"))
@@ -155,7 +155,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertNotEqual(first, flavor_config.build_fingerprint(board, ota, "two"))
 
     def test_selection_change_marks_successful_build_stale(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         layout = board.layouts[0]
         model = flavor_config.SelectionModel(
             self.catalog,
@@ -177,7 +177,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertFalse(screen.build_is_current)
 
     def test_builder_command_and_environment_are_explicit(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         layout = board.layouts[1]
         command = flavor_config.builder_command(board, True, "/dev/ttyUSB7")
         self.assertEqual(command[-4:], ["-t", "upload", "--upload-port", "/dev/ttyUSB7"])
@@ -201,7 +201,7 @@ class FlavorConfigTest(unittest.TestCase):
         )
 
     def test_board_required_group_is_locked_and_services_are_automatic(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         model = flavor_config.SelectionModel(
             self.catalog, (), board.required_packages, board.target, board.capabilities
         )
@@ -254,7 +254,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(resolved, model.selected)
 
     def test_board_requirements_do_not_leak_into_portable_flavor(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         model = flavor_config.SelectionModel(
             self.catalog, (), board.required_packages, board.target, board.capabilities
         )
@@ -266,7 +266,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertNotIn("sdmmc = true", content)
 
     def test_explicit_board_driver_remains_portable_when_saved(self):
-        board = self.boards["waveshare_esp32_s3_rlcd_4_2"]
+        board = self.boards["solar_term"]
         st7305 = self.catalog.group_defs["st7305"]
         model = flavor_config.SelectionModel(
             self.catalog,

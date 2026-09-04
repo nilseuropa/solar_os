@@ -169,7 +169,7 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
-| `waveshare_esp32_s3_rlcd_4_2` | `waveshare_esp32_s3_rlcd_4_2` | Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. |
+| `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `cl_32` | `cl_32` | CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
@@ -491,7 +491,7 @@ with an ordinary OTA update.
 For a direct PlatformIO build outside `os_builder`, set `SOLAR_OS_LAYOUT`:
 
 ```sh
-SOLAR_OS_LAYOUT=single pio run -e waveshare_esp32_s3_rlcd_4_2
+SOLAR_OS_LAYOUT=single pio run -e solar_term
 ```
 
 If it is omitted, 8 MiB and 16 MiB environments use the OTA layout and 4 MiB
@@ -1062,7 +1062,7 @@ Before committing a new board target:
 2. Rebuild the Waveshare environment to catch shared regressions:
 
    ```sh
-   pio run -e waveshare_esp32_s3_rlcd_4_2
+   pio run -e solar_term
    ```
 
    For changes touching ESP32 classic support, ILI9341 display, SD-SPI,
