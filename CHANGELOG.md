@@ -2,6 +2,15 @@
 
 ## 4.x
 
+- **4.10.15** — 2026-09-04 — Added the CL-32 target with its 384x168 ST7305
+  reflective display, ATmega808-backed keyboard and battery monitor, PWM
+  buzzer audio, SDSPI storage, PCF85063 RTC, native USB CDC, and expansion
+  buses. Extended the ST7305 driver for the smaller panel geometry and board
+  rotation. Diagnostic tones now follow the selected default playback device,
+  including runtime-attached outputs. Edit gained `F2` Save, `F3` Find, and
+  `F10` Quit aliases while retaining its portable Ctrl and Esc controls. The
+  Waveshare ESP32-S3-RLCD-4.2 target is now named SolarTerm, with the
+  `solar_term` board and PlatformIO environment identifiers.
 - **4.10.14** — 2026-09-03 — Added optional one-hop SolarOS Link repeating to
   the packet-radio `radio-link` job. A headless device with one compatible
   radio can retransmit text, binary, acknowledgement, broadcast, and virtual
