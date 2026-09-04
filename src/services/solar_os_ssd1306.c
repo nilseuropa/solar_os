@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "solar_os_display.h"
@@ -19,7 +20,7 @@ typedef struct {
 } solar_os_ssd1306_device_t;
 
 static const char *TAG = "ssd1306";
-static solar_os_ssd1306_device_t devices[SOLAR_OS_SSD1306_MAX];
+static EXT_RAM_BSS_ATTR solar_os_ssd1306_device_t devices[SOLAR_OS_SSD1306_MAX];
 
 static solar_os_ssd1306_device_t *find_device(const char *name)
 {

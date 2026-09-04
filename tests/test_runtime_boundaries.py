@@ -7,6 +7,58 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeBoundaryTest(unittest.TestCase):
+    def test_inactive_expansion_driver_registries_use_external_bss(self):
+        declarations = {
+            "src/services/solar_os_ssd1306.c":
+                "static EXT_RAM_BSS_ATTR solar_os_ssd1306_device_t devices",
+            "src/services/solar_os_pcd8544.c":
+                "static EXT_RAM_BSS_ATTR solar_os_pcd8544_device_t devices",
+            "src/services/solar_os_analog_joystick.c":
+                "static EXT_RAM_BSS_ATTR solar_os_analog_joystick_device_t",
+            "src/services/solar_os_cardkb.c":
+                "static EXT_RAM_BSS_ATTR solar_os_cardkb_device_t cardkb_devices",
+            "src/services/solar_os_gpio_keys.c":
+                "static EXT_RAM_BSS_ATTR solar_os_gpio_keys_device_t devices",
+        }
+        for key, declaration in declarations.items():
+            relative_path = key.split("#", 1)[0]
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, key)
+
+    def test_hot_core_registries_stay_internal(self):
+        declarations = {
+            "src/solar_os_jobs.c":
+                "static solar_os_job_runtime_t job_runtimes",
+            "src/services/solar_os_sessions.c":
+                "static solar_os_session_state_t session_state",
+            "src/services/solar_os_expansion.c":
+                "static solar_os_expansion_device_t devices",
+            "src/services/solar_os_buses.c":
+                "static solar_os_bus_info_t buses",
+            "src/services/solar_os_port.c":
+                "static solar_os_port_entry_t ports",
+            "src/apps/solar_os_app_registry.c":
+                "static char app_owners",
+            "src/jobs/solar_os_telnetd_job.c":
+                "static telnetd_job_state_t telnetd_job",
+        }
+        for relative_path, declaration in declarations.items():
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, relative_path)
+
+    def test_telnet_uses_an_external_listener_and_internal_shell_stack(self):
+        telnetd = (ROOT / "src/jobs/solar_os_telnetd_job.c").read_text(
+            encoding="utf-8"
+        )
+        port_shell = (ROOT / "src/services/solar_os_port_shell.c").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("solar_os_task_create_pinned_external(telnetd_job_task", telnetd)
+        self.assertIn("solar_os_task_delete_external(NULL);", telnetd)
+        self.assertIn(".worker_stack_external = true,", telnetd)
+        self.assertIn("#define PORT_SHELL_TASK_STACK 16384", port_shell)
+
     def test_main_delegates_service_boot(self):
         main = (ROOT / "src/main.c").read_text(encoding="utf-8")
         boot = (ROOT / "src/services/solar_os_boot_services.c").read_text(

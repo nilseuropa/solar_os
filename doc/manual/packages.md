@@ -56,6 +56,11 @@ uses changed-frame partial windows.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.
+`board.cl32-core` is required only by the CL-32 profile. Its fixed `core0`
+attachment polls the integrated ATmega808 keyboard FIFO and publishes
+press/release transitions through `keyboard0`. It also publishes the AVR's
+battery-voltage, USB-power, and charging measurements through `battery0`; it is
+not a selectable expansion hardware group.
 `expansion.gpio-keys`, `expansion.ps2-keyboard`, and `expansion.ps2-mouse`
 compose physical buttons, keyboards, and relative mice through the same device
 lifecycle. `expansion.analog-joystick` consumes two scalar streams and publishes
@@ -296,7 +301,7 @@ command line:
 python3 scripts/os_builder.py \
   --input flavors/core.toml \
   --output flavors/my-flavor.toml \
-  --board waveshare_esp32_s3_rlcd_4_2 \
+  --board solar_term \
   --layout ota
 ```
 

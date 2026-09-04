@@ -797,6 +797,8 @@ static void solua_push_battery_status(lua_State *L, const solar_os_battery_statu
     solua_set_bool(L, -1, "percent_estimated", status->percent_estimated);
     solua_set_bool(L, -1, "adc_calibrated", status->adc_calibrated);
     solua_set_bool(L, -1, "external_power", status->external_power);
+    solua_set_bool(L, -1, "charging", status->charging);
+    solua_set_bool(L, -1, "charging_known", status->charging_known);
 }
 #endif
 

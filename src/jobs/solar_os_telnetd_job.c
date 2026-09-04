@@ -940,7 +940,7 @@ static void telnetd_job_task(void *arg)
     (void)solar_os_jobs_mark_stopped(solar_os_telnetd_job.name,
                                      generation,
                                      last_error);
-    solar_os_task_delete_internal(NULL);
+    solar_os_task_delete_external(NULL);
 }
 
 static bool telnetd_parse_port(const char *text, uint16_t *port)
@@ -1105,7 +1105,10 @@ static esp_err_t telnetd_job_start(solar_os_context_t *ctx, int argc, char **arg
     portEXIT_CRITICAL(&telnetd_lock);
 
     TaskHandle_t task = NULL;
-    if (solar_os_task_create_pinned_internal(telnetd_job_task,
+    /* The daemon worker only accepts sockets and coordinates the separately
+     * allocated internal port-shell worker. It does not perform flash, NVS,
+     * filesystem, DMA, or cache-disabled work, so its stack is PSRAM-safe. */
+    if (solar_os_task_create_pinned_external(telnetd_job_task,
                                              "telnetd_job",
                                              TELNETD_TASK_STACK,
                                              &telnetd_job,
@@ -1177,4 +1180,5 @@ const solar_os_job_t solar_os_telnetd_job = {
     .stop = telnetd_job_stop,
     .event = NULL,
     .worker_stack_bytes = TELNETD_TASK_STACK,
+    .worker_stack_external = true,
 };

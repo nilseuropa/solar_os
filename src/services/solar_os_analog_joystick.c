@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -40,7 +41,8 @@ typedef struct {
 } solar_os_analog_joystick_device_t;
 
 static const char *TAG = "analog-joystick";
-static solar_os_analog_joystick_device_t devices[ANALOG_JOYSTICK_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR solar_os_analog_joystick_device_t
+    devices[ANALOG_JOYSTICK_DEVICE_MAX];
 
 static solar_os_analog_joystick_device_t *find_device(const char *name)
 {

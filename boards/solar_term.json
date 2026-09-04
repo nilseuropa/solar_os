@@ -42,7 +42,7 @@
     "arduino",
     "espidf"
   ],
-  "name": "Waveshare ESP32-S3-RLCD-4.2 (ESP32-S3-WROOM-1-N16R8)",
+  "name": "SolarTerm (Waveshare ESP32-S3-RLCD-4.2)",
   "upload": {
     "flash_size": "16MB",
     "maximum_ram_size": 327680,
@@ -50,6 +50,6 @@
     "require_upload_port": true,
     "speed": 460800
   },
-  "url": "https://docs.waveshare.com/ESP32-S3-RLCD-4.2",
-  "vendor": "Waveshare"
+  "url": "https://github.com/nilseuropa/solar_term",
+  "vendor": "nilseuropa"
 }

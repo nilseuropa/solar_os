@@ -29,7 +29,7 @@ solaros/
   latest/
     index.json
     index.sig
-    waveshare_esp32_s3_rlcd_4_2/
+    solar_term/
       full/
         manifest.json
         version.txt
@@ -125,6 +125,13 @@ Each artifact entry includes:
 - `version_file`
 - `size`
 - `sha256`
+
+For a board-ID migration, the signed index may temporarily contain a second
+entry with the legacy `board_id` and the canonical entry's artifact paths,
+size, and SHA-256. This lets firmware compiled with the legacy ID install the
+canonical firmware once. The canonical firmware then uses its new board ID on
+subsequent checks. Such aliases are OTA compatibility records, not separate
+builds or offline flash-catalog targets.
 
 Optional but recommended fields:
 

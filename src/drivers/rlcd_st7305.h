@@ -14,6 +14,11 @@
 extern "C" {
 #endif
 
+typedef enum {
+    RLCD_ST7305_PANEL_300X400 = 0,
+    RLCD_ST7305_PANEL_168X384 = 1,
+} rlcd_st7305_panel_t;
+
 typedef struct {
     const char *spi_bus;
     int cs_pin;
@@ -21,6 +26,7 @@ typedef struct {
     int reset_pin;
     uint32_t spi_clock_hz;
     const u8g2_cb_t *rotation;
+    rlcd_st7305_panel_t panel;
 } rlcd_st7305_config_t;
 
 typedef struct {
@@ -44,6 +50,16 @@ typedef struct {
     uint16_t direct_y;
     uint16_t direct_width;
     uint16_t direct_height;
+    uint16_t native_width;
+    uint16_t native_height;
+    uint16_t logical_width;
+    uint16_t logical_height;
+    uint16_t buffer_row_bytes;
+    uint16_t controller_row_bytes;
+    uint8_t tile_width;
+    uint8_t tile_height;
+    uint8_t address_start;
+    uint8_t address_mirror_base;
     esp_err_t last_error;
     bool frame_content_changed;
     bool direct_frame_valid;
@@ -59,6 +75,8 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
 esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display);
 void rlcd_st7305_deinit(rlcd_st7305_t *display);
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display);
+uint16_t rlcd_st7305_width(const rlcd_st7305_t *display);
+uint16_t rlcd_st7305_height(const rlcd_st7305_t *display);
 const char *rlcd_st7305_controller_mode(const rlcd_st7305_t *display);
 const char *rlcd_st7305_controller_mode_values(const rlcd_st7305_t *display);
 esp_err_t rlcd_st7305_set_controller_mode(rlcd_st7305_t *display, const char *mode);

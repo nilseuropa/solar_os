@@ -32,8 +32,10 @@ static esp_err_t battery_read(void *user, solar_os_battery_sample_t *sample)
     const uint32_t battery_mv =
         ((uint32_t)adc_sample.voltage_mv * (uint32_t)device->divider_milli + 500U) /
         1000U;
-    sample->battery_mv = (uint16_t)(battery_mv > UINT16_MAX ? UINT16_MAX : battery_mv);
-    sample->calibrated = true;
+    *sample = (solar_os_battery_sample_t) {
+        .battery_mv = (uint16_t)(battery_mv > UINT16_MAX ? UINT16_MAX : battery_mv),
+        .calibrated = true,
+    };
     return ESP_OK;
 }
 

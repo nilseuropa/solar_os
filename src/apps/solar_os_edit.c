@@ -1621,6 +1621,7 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     switch ((uint8_t)ch) {
     case SOLAR_OS_KEY_ESCAPE:
     case 0x11:
+    case SOLAR_OS_KEY_F10:
         solar_os_context_finish(ctx, 0, NULL);
         break;
     case 0x01:
@@ -1630,10 +1631,12 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         editor_copy_selection();
         break;
     case 0x06:
+    case SOLAR_OS_KEY_F3:
         solar_os_text_search_begin_input(&editor.search);
         editor_set_message("");
         break;
     case 0x13:
+    case SOLAR_OS_KEY_F2:
         (void)editor_save();
         break;
     case 0x16:
@@ -1647,9 +1650,6 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case SOLAR_OS_KEY_CTRL_MINUS:
         editor_adjust_text_size(-1);
-        break;
-    case SOLAR_OS_KEY_F3:
-        (void)editor_find_next();
         break;
     case SOLAR_OS_KEY_LEFT:
         editor_apply_move(false, editor_move_left);

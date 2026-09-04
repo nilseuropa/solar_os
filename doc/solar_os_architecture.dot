@@ -13,7 +13,7 @@ digraph solar_os_architecture {
         label=<
             <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
                 <TR><TD><FONT POINT-SIZE="24"><B>SolarOS Architecture</B></FONT></TD></TR>
-                <TR><TD><FONT POINT-SIZE="11">Waveshare ESP32-S3-RLCD-4.2 firmware</FONT></TD></TR>
+                <TR><TD><FONT POINT-SIZE="11">SolarTerm firmware for Waveshare ESP32-S3-RLCD-4.2</FONT></TD></TR>
             </TABLE>
         >
     ];
@@ -318,7 +318,8 @@ digraph solar_os_architecture {
         board [
             label=<
                 <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2">
-                    <TR><TD><B>Waveshare ESP32-S3-RLCD-4.2</B></TD></TR>
+                    <TR><TD><B>SolarTerm</B></TD></TR>
+                    <TR><TD>Waveshare ESP32-S3-RLCD-4.2 hardware</TD></TR>
                     <TR><TD>ESP32-S3-WROOM-1-N16R8</TD></TR>
                     <TR><TD>240 MHz dual core, 16 MB flash, 8 MB PSRAM</TD></TR>
                 </TABLE>

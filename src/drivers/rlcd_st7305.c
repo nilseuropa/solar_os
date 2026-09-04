@@ -15,16 +15,7 @@
 #include "nvs.h"
 #include "solar_os_buses.h"
 #define RLCD_SPI_CLOCK_HZ 24000000
-#define RLCD_TILE_WIDTH 38
-#define RLCD_TILE_HEIGHT 50
-#define RLCD_BUFFER_ROW_BYTES (RLCD_TILE_WIDTH * 8)
-#define RLCD_NATIVE_WIDTH 300
-#define RLCD_NATIVE_HEIGHT 400
-#define RLCD_ADDR_START 0x12
-#define RLCD_COLUMN_GROUPS ((RLCD_NATIVE_WIDTH + 11) / 12)
-#define RLCD_CONTROLLER_ROW_BYTES (RLCD_COLUMN_GROUPS * 3)
 #define RLCD_CONTROLLER_ROWS_PER_TILE 4
-#define RLCD_SHADOW_BYTES (RLCD_CONTROLLER_ROW_BYTES * RLCD_CONTROLLER_ROWS_PER_TILE * RLCD_TILE_HEIGHT)
 #define RLCD_MAX_TRANSFER_BYTES 4092
 #define RLCD_IDLE_LPM_DELAY_DEFAULT_MS 1000U
 #define RLCD_IDLE_LPM_DELAY_MAX_MS 60000U
@@ -54,7 +45,7 @@
 static const char *TAG = "rlcd_st7305";
 static rlcd_st7305_t *active_display;
 
-static const u8x8_display_info_t st7305_display_info = {
+static const u8x8_display_info_t st7305_300x400_display_info = {
     .chip_enable_level = 0,
     .chip_disable_level = 1,
     .post_chip_enable_wait_ns = 0,
@@ -68,12 +59,34 @@ static const u8x8_display_info_t st7305_display_info = {
     .i2c_bus_clock_100kHz = 4,
     .data_setup_time_ns = 0,
     .write_pulse_width_ns = 0,
-    .tile_width = RLCD_TILE_WIDTH,
-    .tile_height = RLCD_TILE_HEIGHT,
+    .tile_width = 38,
+    .tile_height = 50,
     .default_x_offset = 0,
     .flipmode_x_offset = 0,
-    .pixel_width = RLCD_NATIVE_WIDTH,
-    .pixel_height = RLCD_NATIVE_HEIGHT,
+    .pixel_width = 300,
+    .pixel_height = 400,
+};
+
+static const u8x8_display_info_t st7305_168x384_display_info = {
+    .chip_enable_level = 0,
+    .chip_disable_level = 1,
+    .post_chip_enable_wait_ns = 0,
+    .pre_chip_disable_wait_ns = 0,
+    .reset_pulse_width_ms = 20,
+    .post_reset_wait_ms = 50,
+    .sda_setup_time_ns = 0,
+    .sck_pulse_width_ns = 0,
+    .sck_clock_hz = RLCD_SPI_CLOCK_HZ,
+    .spi_mode = 0,
+    .i2c_bus_clock_100kHz = 4,
+    .data_setup_time_ns = 0,
+    .write_pulse_width_ns = 0,
+    .tile_width = 21,
+    .tile_height = 48,
+    .default_x_offset = 0,
+    .flipmode_x_offset = 0,
+    .pixel_width = 168,
+    .pixel_height = 384,
 };
 
 typedef struct {
@@ -103,7 +116,6 @@ typedef struct {
 
 typedef struct {
     const char *name;
-    const rlcd_controller_settings_t *settings;
     uint8_t power_mode_cmd;
 } rlcd_controller_profile_t;
 
@@ -138,18 +150,97 @@ static const rlcd_controller_settings_t rlcd_waveshare_settings = {
     .bb = {0x4F},
 };
 
+static const rlcd_controller_settings_t rlcd_168x384_settings = {
+    .d6 = {0x17, 0x02},
+    .d1 = {0x01},
+    .c0 = {0x11, 0x04},
+    .c1 = {0x69, 0x69, 0x69, 0x69},
+    .c2 = {0x19, 0x19, 0x19, 0x19},
+    .c4 = {0x4B, 0x4B, 0x4B, 0x4B},
+    .c5 = {0x19, 0x19, 0x19, 0x19},
+    .d8 = {0x80, 0xE9},
+    .b2 = {0x02},
+    .b3 = {0xE5, 0xF6, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45},
+    .b4 = {0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45},
+    .gate_timing = {0x32, 0x03, 0x1F},
+    .b7 = {0x13},
+    .b0 = {0x60},
+    .c9 = {0x00},
+    .m36 = {0x48},
+    .m3a = {0x11},
+    .b9 = {0x20},
+    .b8 = {0x29},
+    .m35 = {0x00},
+    .d0 = {0xFF},
+    .bb = {0x4F},
+};
+
 static const rlcd_controller_profile_t rlcd_controller_profiles[] = {
     {
         .name = "hpm",
-        .settings = &rlcd_waveshare_settings,
         .power_mode_cmd = 0x38,
     },
     {
         .name = "lpm",
-        .settings = &rlcd_waveshare_settings,
         .power_mode_cmd = 0x39,
     },
 };
+
+static const rlcd_controller_settings_t *rlcd_panel_settings(
+    const rlcd_st7305_t *display)
+{
+    return display != NULL &&
+        display->config.panel == RLCD_ST7305_PANEL_168X384 ?
+        &rlcd_168x384_settings : &rlcd_waveshare_settings;
+}
+
+static const u8x8_display_info_t *rlcd_display_info(const rlcd_st7305_t *display)
+{
+    return display != NULL &&
+        display->config.panel == RLCD_ST7305_PANEL_168X384 ?
+        &st7305_168x384_display_info : &st7305_300x400_display_info;
+}
+
+static void rlcd_configure_geometry(rlcd_st7305_t *display)
+{
+    if (display->config.panel == RLCD_ST7305_PANEL_168X384) {
+        display->native_width = 168;
+        display->native_height = 384;
+        display->tile_width = 21;
+        display->tile_height = 48;
+        display->address_start = 0x17;
+    } else {
+        display->native_width = 300;
+        display->native_height = 400;
+        display->tile_width = 38;
+        display->tile_height = 50;
+        display->address_start = 0x12;
+    }
+
+    display->buffer_row_bytes = (uint16_t)display->tile_width * 8U;
+    display->controller_row_bytes =
+        (uint16_t)(((display->native_width + 11U) / 12U) * 3U);
+    const uint8_t address_end = (uint8_t)(
+        display->address_start + display->controller_row_bytes / 3U - 1U);
+    display->address_mirror_base = (uint8_t)(display->address_start + address_end);
+
+    if (display->config.rotation == U8G2_R1 ||
+        display->config.rotation == U8G2_R3) {
+        display->logical_width = display->native_height;
+        display->logical_height = display->native_width;
+    } else {
+        display->logical_width = display->native_width;
+        display->logical_height = display->native_height;
+    }
+}
+
+static size_t rlcd_expected_shadow_size(const rlcd_st7305_t *display)
+{
+    return display != NULL ?
+        (size_t)display->controller_row_bytes *
+            RLCD_CONTROLLER_ROWS_PER_TILE * display->tile_height :
+        0U;
+}
 
 typedef struct {
     const char *label;
@@ -649,15 +740,15 @@ static bool rlcd_shadow_row_valid(const rlcd_st7305_t *display, uint8_t y_pos)
 {
     return display != NULL &&
         display->shadow != NULL &&
-        display->shadow_size == RLCD_SHADOW_BYTES &&
-        y_pos < RLCD_TILE_HEIGHT &&
+        display->shadow_size == rlcd_expected_shadow_size(display) &&
+        y_pos < display->tile_height &&
         (display->shadow_valid_rows & (1ULL << y_pos)) != 0;
 }
 
 static uint8_t *rlcd_shadow_tile_row(rlcd_st7305_t *display, uint8_t y_pos)
 {
     return display->shadow +
-        ((size_t)y_pos * RLCD_CONTROLLER_ROWS_PER_TILE * RLCD_CONTROLLER_ROW_BYTES);
+        ((size_t)y_pos * RLCD_CONTROLLER_ROWS_PER_TILE * display->controller_row_bytes);
 }
 
 static bool rlcd_shadow_window_matches(rlcd_st7305_t *display,
@@ -669,7 +760,7 @@ static bool rlcd_shadow_window_matches(rlcd_st7305_t *display,
     if (rows == NULL ||
         send_start < 0 ||
         send_count <= 0 ||
-        send_start + send_count > RLCD_CONTROLLER_ROW_BYTES ||
+        send_start + send_count > display->controller_row_bytes ||
         !rlcd_shadow_row_valid(display, y_pos)) {
         return false;
     }
@@ -678,7 +769,7 @@ static bool rlcd_shadow_window_matches(rlcd_st7305_t *display,
     for (int source_row = 0; source_row < RLCD_CONTROLLER_ROWS_PER_TILE; source_row++) {
         const uint8_t *source = rows + ((size_t)source_row * (size_t)send_count);
         const uint8_t *previous =
-            shadow + ((size_t)source_row * RLCD_CONTROLLER_ROW_BYTES) + send_start;
+            shadow + ((size_t)source_row * display->controller_row_bytes) + send_start;
         if (memcmp(previous, source, (size_t)send_count) != 0) {
             return false;
         }
@@ -695,23 +786,24 @@ static void rlcd_shadow_update_window(rlcd_st7305_t *display,
 {
     if (display == NULL ||
         display->shadow == NULL ||
-        display->shadow_size != RLCD_SHADOW_BYTES ||
+        display->shadow_size != rlcd_expected_shadow_size(display) ||
         rows == NULL ||
-        y_pos >= RLCD_TILE_HEIGHT ||
+        y_pos >= display->tile_height ||
         send_start < 0 ||
         send_count <= 0 ||
-        send_start + send_count > RLCD_CONTROLLER_ROW_BYTES) {
+        send_start + send_count > display->controller_row_bytes) {
         return;
     }
 
     uint8_t *shadow = rlcd_shadow_tile_row(display, y_pos);
     for (int source_row = 0; source_row < RLCD_CONTROLLER_ROWS_PER_TILE; source_row++) {
         const uint8_t *source = rows + ((size_t)source_row * (size_t)send_count);
-        uint8_t *dest = shadow + ((size_t)source_row * RLCD_CONTROLLER_ROW_BYTES) + send_start;
+        uint8_t *dest = shadow +
+            ((size_t)source_row * display->controller_row_bytes) + send_start;
         memcpy(dest, source, (size_t)send_count);
     }
 
-    if (send_start == 0 && send_count == RLCD_CONTROLLER_ROW_BYTES) {
+    if (send_start == 0 && send_count == display->controller_row_bytes) {
         display->shadow_valid_rows |= (1ULL << y_pos);
     }
 }
@@ -862,14 +954,6 @@ static uint8_t rlcd_effective_b2(const rlcd_st7305_t *display,
                      (lpm_frame_rate & RLCD_FRCTRL_LFRA_MASK));
 }
 
-static bool rlcd_profiles_differ_only_by_power(const rlcd_controller_profile_t *current,
-                                               const rlcd_controller_profile_t *next)
-{
-    return current != NULL &&
-        next != NULL &&
-        current->settings == next->settings;
-}
-
 static esp_err_t rlcd_apply_controller_power_mode(rlcd_st7305_t *display,
                                                   const rlcd_controller_profile_t *profile)
 {
@@ -911,8 +995,7 @@ static const rlcd_controller_profile_t *rlcd_frame_power_profile(
 
     for (size_t i = 0; i < sizeof(rlcd_controller_profiles) / sizeof(rlcd_controller_profiles[0]); i++) {
         const rlcd_controller_profile_t *candidate = &rlcd_controller_profiles[i];
-        if (candidate->power_mode_cmd == target_power_cmd &&
-            rlcd_profiles_differ_only_by_power(current, candidate)) {
+        if (candidate->power_mode_cmd == target_power_cmd) {
             return candidate;
         }
     }
@@ -935,10 +1018,7 @@ static esp_err_t rlcd_apply_frame_power_mode(rlcd_st7305_t *display, bool frame_
         return ESP_OK;
     }
 
-    if (rlcd_profiles_differ_only_by_power(current, profile)) {
-        return rlcd_apply_controller_power_mode(display, profile);
-    }
-    return rlcd_apply_controller_profile(display, profile, false);
+    return rlcd_apply_controller_power_mode(display, profile);
 }
 
 static void rlcd_idle_lpm_timer_cb(void *arg)
@@ -961,17 +1041,31 @@ static esp_err_t rlcd_apply_controller_profile(rlcd_st7305_t *display,
                                                const rlcd_controller_profile_t *profile,
                                                bool display_was_reset)
 {
-    if (display == NULL || profile == NULL || profile->settings == NULL) {
+    if (display == NULL || profile == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    const rlcd_controller_settings_t *settings = profile->settings;
-    const uint8_t win_a[] = {0x12, 0x2A};
-    const uint8_t win_b[] = {0x00, 0xC7};
+    const rlcd_controller_settings_t *settings = rlcd_panel_settings(display);
+    const uint8_t win_a[] = {
+        display->address_start,
+        (uint8_t)(display->address_mirror_base - display->address_start),
+    };
+    const uint8_t win_b[] = {
+        0x00,
+        (uint8_t)(display->native_height / 2U - 1U),
+    };
     uint8_t d8[sizeof(settings->d8)];
     rlcd_effective_d8(display, settings, d8);
     const uint8_t b2[] = {rlcd_effective_b2(display, settings)};
     const uint8_t inversion_cmd = display->inverted ? 0x21 : 0x20;
+
+    if (display_was_reset &&
+        display->config.panel == RLCD_ST7305_PANEL_168X384) {
+        if (!rlcd_checked_cmd(display, 0x01)) {
+            return display->last_error;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     if (!rlcd_checked_cmd_data(display, 0xD6, settings->d6, sizeof(settings->d6)) ||
         !rlcd_checked_cmd_data(display, 0xD1, settings->d1, sizeof(settings->d1)) ||
@@ -1017,6 +1111,11 @@ static esp_err_t rlcd_apply_controller_profile(rlcd_st7305_t *display,
         !rlcd_checked_cmd(display, 0x29)) {
         return display->last_error;
     }
+    if (display->config.panel == RLCD_ST7305_PANEL_168X384 &&
+        (!rlcd_checked_cmd(display, inversion_cmd) ||
+         !rlcd_checked_cmd_data(display, 0xBB, settings->bb, sizeof(settings->bb)))) {
+        return display->last_error;
+    }
 
     rlcd_invalidate_shadow(display);
     display->controller_mode = profile->name;
@@ -1033,11 +1132,11 @@ static esp_err_t rlcd_apply_controller_tuning(rlcd_st7305_t *display,
     }
 
     const rlcd_controller_profile_t *profile = rlcd_current_controller_profile(display);
-    if (profile == NULL || profile->settings == NULL) {
+    if (profile == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    const rlcd_controller_settings_t *settings = profile->settings;
+    const rlcd_controller_settings_t *settings = rlcd_panel_settings(display);
     uint8_t d8[sizeof(settings->d8)];
     rlcd_effective_d8(display, settings, d8);
     const uint8_t b2[] = {rlcd_effective_b2(display, settings)};
@@ -1166,24 +1265,24 @@ static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
 
         const int first_col = x_pos * 8;
         int last_col = (x_pos + count) * 8 - 1;
-        if (last_col >= RLCD_NATIVE_WIDTH) {
-            last_col = RLCD_NATIVE_WIDTH - 1;
+        if (last_col >= display->native_width) {
+            last_col = display->native_width - 1;
         }
 
-        const int addr_start = RLCD_ADDR_START + first_col / 12;
-        const int addr_end = RLCD_ADDR_START + last_col / 12;
-        const int send_start = (addr_start - RLCD_ADDR_START) * 3;
+        const int addr_start = display->address_start + first_col / 12;
+        const int addr_end = display->address_start + last_col / 12;
+        const int send_start = (addr_start - display->address_start) * 3;
         const int send_count = (addr_end - addr_start + 1) * 3;
 
-        const int addr_first_col = (addr_start - RLCD_ADDR_START) * 12;
-        int addr_last_col = (addr_end - RLCD_ADDR_START) * 12 + 11;
-        if (addr_last_col >= RLCD_NATIVE_WIDTH) {
-            addr_last_col = RLCD_NATIVE_WIDTH - 1;
+        const int addr_first_col = (addr_start - display->address_start) * 12;
+        int addr_last_col = (addr_end - display->address_start) * 12 + 11;
+        if (addr_last_col >= display->native_width) {
+            addr_last_col = display->native_width - 1;
         }
 
         const uint8_t *row_base = tile->tile_ptr - ((uint16_t)x_pos * 8U);
 
-        uint8_t rows[RLCD_CONTROLLER_ROW_BYTES * RLCD_CONTROLLER_ROWS_PER_TILE];
+        uint8_t rows[display->controller_row_bytes * RLCD_CONTROLLER_ROWS_PER_TILE];
         rlcd_pack_tile_window(row_base,
                               addr_first_col,
                               addr_last_col,
@@ -1203,8 +1302,8 @@ static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
         }
 
         const uint8_t col_bounds[] = {
-            (uint8_t)(0x3C - addr_end),
-            (uint8_t)(0x3C - addr_start),
+            (uint8_t)(display->address_mirror_base - addr_end),
+            (uint8_t)(display->address_mirror_base - addr_start),
         };
         if (!rlcd_checked_cmd_data(display, 0x2A, col_bounds, sizeof(col_bounds))) {
             return 0;
@@ -1237,7 +1336,7 @@ static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
 static uint8_t rlcd_u8x8_display_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg_int, void *arg_ptr)
 {
     if (message == U8X8_MSG_DISPLAY_SETUP_MEMORY) {
-        u8x8_d_helper_display_setup_memory(u8x8, &st7305_display_info);
+        u8x8_d_helper_display_setup_memory(u8x8, rlcd_display_info(active_display));
         return 1;
     }
 
@@ -1274,9 +1373,9 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         return ESP_ERR_INVALID_ARG;
     }
     if ((x & 7U) != 0 ||
-        (uint32_t)x + width > RLCD_NATIVE_HEIGHT ||
-        (uint32_t)y + height > RLCD_NATIVE_WIDTH ||
-        display->u8g2.cb != U8G2_R1) {
+        (uint32_t)x + width > display->logical_width ||
+        (uint32_t)y + height > display->logical_height ||
+        (display->u8g2.cb != U8G2_R1 && display->u8g2.cb != U8G2_R3)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     if (!rlcd_take_lock(display, portMAX_DELAY)) {
@@ -1284,24 +1383,48 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     }
 
     memset(display->buffer, palette_inverted ? 0x00 : 0xFF, display->buffer_size);
-    const size_t source_bytes = width / 8U;
-    const uint8_t source_tail_bits = (uint8_t)(width & 7U);
-    const size_t destination_byte = x / 8U;
-    for (size_t source_y = 0; source_y < height; source_y++) {
-        const size_t native_x = RLCD_NATIVE_WIDTH - 1U - ((size_t)y + source_y);
-        const uint8_t *source = bitmap + source_y * stride;
-        uint8_t *destination =
-            display->buffer + destination_byte * RLCD_BUFFER_ROW_BYTES + native_x;
-        for (size_t source_byte = 0; source_byte < source_bytes; source_byte++) {
-            destination[source_byte * RLCD_BUFFER_ROW_BYTES] =
-                palette_inverted ? source[source_byte] : (uint8_t)~source[source_byte];
+    if (display->u8g2.cb == U8G2_R1) {
+        const size_t source_bytes = width / 8U;
+        const uint8_t source_tail_bits = (uint8_t)(width & 7U);
+        const size_t destination_byte = x / 8U;
+        for (size_t source_y = 0; source_y < height; source_y++) {
+            const size_t native_x =
+                display->native_width - 1U - ((size_t)y + source_y);
+            const uint8_t *source = bitmap + source_y * stride;
+            uint8_t *destination = display->buffer +
+                destination_byte * display->buffer_row_bytes + native_x;
+            for (size_t source_byte = 0; source_byte < source_bytes; source_byte++) {
+                destination[source_byte * display->buffer_row_bytes] =
+                    palette_inverted ? source[source_byte] : (uint8_t)~source[source_byte];
+            }
+            if (source_tail_bits != 0U) {
+                const uint8_t mask = (uint8_t)((1U << source_tail_bits) - 1U);
+                uint8_t *tail =
+                    destination + source_bytes * display->buffer_row_bytes;
+                const uint8_t pixels = palette_inverted ?
+                    source[source_bytes] : (uint8_t)~source[source_bytes];
+                *tail = (uint8_t)((*tail & (uint8_t)~mask) | (pixels & mask));
+            }
         }
-        if (source_tail_bits != 0U) {
-            const uint8_t mask = (uint8_t)((1U << source_tail_bits) - 1U);
-            uint8_t *tail = destination + source_bytes * RLCD_BUFFER_ROW_BYTES;
-            const uint8_t pixels = palette_inverted ?
-                source[source_bytes] : (uint8_t)~source[source_bytes];
-            *tail = (uint8_t)((*tail & (uint8_t)~mask) | (pixels & mask));
+    } else {
+        for (size_t source_y = 0; source_y < height; source_y++) {
+            const uint8_t *source = bitmap + source_y * stride;
+            const size_t native_x = (size_t)y + source_y;
+            for (size_t source_x = 0; source_x < width; source_x++) {
+                const size_t native_y =
+                    display->native_height - 1U - ((size_t)x + source_x);
+                uint8_t *destination = display->buffer +
+                    (native_y / 8U) * display->buffer_row_bytes + native_x;
+                const uint8_t mask = (uint8_t)(1U << (native_y & 7U));
+                const bool source_set =
+                    (source[source_x / 8U] & (1U << (source_x & 7U))) != 0;
+                const bool destination_set = palette_inverted ? source_set : !source_set;
+                if (destination_set) {
+                    *destination |= mask;
+                } else {
+                    *destination &= (uint8_t)~mask;
+                }
+            }
         }
     }
 
@@ -1316,25 +1439,33 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         display->direct_x == x && display->direct_y == y &&
         display->direct_width == width && display->direct_height == height &&
         display->direct_palette_inverted == palette_inverted;
-    const uint8_t first_tile = partial ? (uint8_t)(x / 8U) : 0U;
-    const uint8_t last_tile = partial ?
-        (uint8_t)((x + width - 1U) / 8U) : RLCD_TILE_HEIGHT - 1U;
-    const int first_col = partial ?
-        (int)(RLCD_NATIVE_WIDTH - ((uint32_t)y + height)) : 0;
-    const int last_col = partial ?
-        (int)(RLCD_NATIVE_WIDTH - 1U - y) : RLCD_NATIVE_WIDTH - 1;
-    const int addr_start = RLCD_ADDR_START + first_col / 12;
-    const int addr_end = RLCD_ADDR_START + last_col / 12;
-    const int send_start = (addr_start - RLCD_ADDR_START) * 3;
+    uint8_t first_tile = 0U;
+    uint8_t last_tile = display->tile_height - 1U;
+    int first_col = 0;
+    int last_col = display->native_width - 1;
+    if (partial && display->u8g2.cb == U8G2_R1) {
+        first_tile = (uint8_t)(x / 8U);
+        last_tile = (uint8_t)((x + width - 1U) / 8U);
+        first_col = (int)(display->native_width - ((uint32_t)y + height));
+        last_col = (int)(display->native_width - 1U - y);
+    } else if (partial) {
+        first_tile = (uint8_t)((display->native_height - (x + width)) / 8U);
+        last_tile = (uint8_t)((display->native_height - 1U - x) / 8U);
+        first_col = y;
+        last_col = (int)(y + height - 1U);
+    }
+    const int addr_start = display->address_start + first_col / 12;
+    const int addr_end = display->address_start + last_col / 12;
+    const int send_start = (addr_start - display->address_start) * 3;
     const int send_count = (addr_end - addr_start + 1) * 3;
-    const int addr_first_col = (addr_start - RLCD_ADDR_START) * 12;
-    int addr_last_col = (addr_end - RLCD_ADDR_START) * 12 + 11;
-    if (addr_last_col >= RLCD_NATIVE_WIDTH) {
-        addr_last_col = RLCD_NATIVE_WIDTH - 1;
+    const int addr_first_col = (addr_start - display->address_start) * 12;
+    int addr_last_col = (addr_end - display->address_start) * 12 + 11;
+    if (addr_last_col >= display->native_width) {
+        addr_last_col = display->native_width - 1;
     }
     const uint8_t col_bounds[] = {
-        (uint8_t)(0x3C - addr_end),
-        (uint8_t)(0x3C - addr_start),
+        (uint8_t)(display->address_mirror_base - addr_end),
+        (uint8_t)(display->address_mirror_base - addr_start),
     };
     const uint8_t row_bounds[] = {
         (uint8_t)(first_tile * RLCD_CONTROLLER_ROWS_PER_TILE),
@@ -1352,12 +1483,12 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
         ret = rlcd_begin_ram_write(display);
     }
 
-    uint8_t rows[RLCD_CONTROLLER_ROW_BYTES * RLCD_CONTROLLER_ROWS_PER_TILE];
+    uint8_t rows[display->controller_row_bytes * RLCD_CONTROLLER_ROWS_PER_TILE];
     for (uint8_t y_pos = first_tile;
          ret == ESP_OK && y_pos <= last_tile;
          y_pos++) {
         const uint8_t *row_base =
-            display->buffer + (size_t)y_pos * RLCD_BUFFER_ROW_BYTES;
+            display->buffer + (size_t)y_pos * display->buffer_row_bytes;
         rlcd_pack_tile_window(row_base,
                               addr_first_col,
                               addr_last_col,
@@ -1411,7 +1542,9 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
 {
     if (display == NULL || config == NULL || config->spi_bus == NULL ||
         config->spi_bus[0] == '\0' || config->cs_pin < 0 ||
-        config->dc_pin < 0 || config->reset_pin < 0) {
+        config->dc_pin < 0 || config->reset_pin < 0 ||
+        (config->panel != RLCD_ST7305_PANEL_300X400 &&
+         config->panel != RLCD_ST7305_PANEL_168X384)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1421,8 +1554,10 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
         display->config.spi_clock_hz = RLCD_SPI_CLOCK_HZ;
     }
     if (display->config.rotation == NULL) {
-        display->config.rotation = U8G2_R1;
+        display->config.rotation =
+            display->config.panel == RLCD_ST7305_PANEL_168X384 ? U8G2_R3 : U8G2_R1;
     }
+    rlcd_configure_geometry(display);
     display->last_error = ESP_OK;
     display->controller_mode = "hpm";
     display->idle_lpm_delay_ms = RLCD_IDLE_LPM_DELAY_DEFAULT_MS;
@@ -1458,7 +1593,8 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
                                                     &display->spi), TAG,
                         "spi add device failed");
 
-    display->buffer_size = RLCD_BUFFER_ROW_BYTES * RLCD_TILE_HEIGHT;
+    display->buffer_size =
+        (size_t)display->buffer_row_bytes * display->tile_height;
     /* Driver staging buffer only requires byte-addressable memory. */
     display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
     if (display->buffer == NULL) {
@@ -1467,7 +1603,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
     }
     memset(display->buffer, 0, display->buffer_size);
 
-    display->shadow_size = RLCD_SHADOW_BYTES;
+    display->shadow_size = rlcd_expected_shadow_size(display);
     /* Full-frame shadow prefers PSRAM but remains optional without it. */
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1499,11 +1635,11 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
         return err;
     }
 
+    active_display = display;
     u8g2_SetupDisplay(&display->u8g2, rlcd_u8x8_display_cb, u8x8_dummy_cb,
                       rlcd_u8x8_byte_cb, u8x8_dummy_cb);
-    u8g2_SetupBuffer(&display->u8g2, display->buffer, RLCD_TILE_HEIGHT,
+    u8g2_SetupBuffer(&display->u8g2, display->buffer, display->tile_height,
                      u8g2_ll_hvline_vertical_top_lsb, display->config.rotation);
-    active_display = display;
     u8g2_InitDisplay(&display->u8g2);
     u8g2_SetPowerSave(&display->u8g2, 0);
 
@@ -1575,6 +1711,16 @@ void rlcd_st7305_deinit(rlcd_st7305_t *display)
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display)
 {
     return display == NULL ? NULL : &display->u8g2;
+}
+
+uint16_t rlcd_st7305_width(const rlcd_st7305_t *display)
+{
+    return display != NULL ? display->logical_width : 0U;
+}
+
+uint16_t rlcd_st7305_height(const rlcd_st7305_t *display)
+{
+    return display != NULL ? display->logical_height : 0U;
 }
 
 const char *rlcd_st7305_controller_mode(const rlcd_st7305_t *display)

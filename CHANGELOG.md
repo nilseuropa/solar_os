@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.10.15** — 2026-09-04 — Added the CL-32 target with its 384x168 ST7305
+  reflective display, ATmega808-backed keyboard and battery monitor, PWM
+  buzzer audio, SDSPI storage, PCF85063 RTC, native USB CDC, and expansion
+  buses. Extended the ST7305 driver for the smaller panel geometry and board
+  rotation. Diagnostic tones now follow the selected default playback device,
+  including runtime-attached outputs. Edit gained `F2` Save, `F3` Find, and
+  `F10` Quit aliases while retaining its portable Ctrl and Esc controls. The
+  Waveshare ESP32-S3-RLCD-4.2 target is now named SolarTerm, with the
+  `solar_term` board and PlatformIO environment identifiers. Inactive optional
+  expansion-driver registries and the Telnet listener stack now use PSRAM,
+  restoring internal RAM without moving scheduler, session, transport, or
+  active hardware state out of internal memory.
 - **4.10.14** — 2026-09-03 — Added optional one-hop SolarOS Link repeating to
   the packet-radio `radio-link` job. A headless device with one compatible
   radio can retransmit text, binary, acknowledgement, broadcast, and virtual
@@ -135,7 +147,7 @@
   ESP32-DAC playback. `aplay` and `arecord` can now run from display, UART, USB
   CDC, Telnet, and other port shells. PlatformIO build locking now degrades to
   an explicit warning-only no-op on Windows, where POSIX `flock` is unavailable.
-  Physical acceptance passed on Waveshare ESP32-S3-RLCD-4.2, Freenove FNK0104S,
+  Physical acceptance passed on SolarTerm (Waveshare ESP32-S3-RLCD-4.2), Freenove FNK0104S,
   Elecrow CrowPanel, ODROID-GO, and ESP32-S3 DevKitC-1; Freenove ESP32-WROVER
   v3.0 CVBS output and SDMMC storage also passed.
 - **4.9.1** — 2026-08-27 — Added mirrored `solaros.input` Python and Lua
@@ -506,7 +518,7 @@
   starts from the requested path, while manual references and remote SCP paths
   remain unchanged.
 - **4.6.0** — 2026-08-04 — Added an experimental original Game Boy (DMG)
-  emulator to the `retro` flavor for the Waveshare ESP32-S3-RLCD-4.2. It loads
+  emulator to the `retro` flavor for SolarTerm (Waveshare ESP32-S3-RLCD-4.2). It loads
   ROMs into PSRAM, persists cartridge RAM in adjacent `.sav` files, supports
   held and simultaneous controls from the BLE HID key state, and renders the
   MiniGB APU through the shared synth and audio services. Emulation, audio, and

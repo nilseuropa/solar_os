@@ -53,7 +53,8 @@ service packages are not available on that board.
 - `solaros.time`: `uptime_ms`, `sleep_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`. `sleep_ms` is cancellation-aware and accepts delays up to one hour.
 - `solaros.rtc`: `status`, `set_alarm`, `clear_alarm`, `set_timer`, `clear_timer`, `pending`, and `ack`; constants `INTERRUPT_ALARM` and `INTERRUPT_TIMER`. Direct slots are leased to Lua and released when the runtime exits.
 - `solaros.schedule`: `list`, `add_in`, `add_every`, `add_at`, `add_daily`, `add_weekly`, `enable`, `remove`, `run`, and `stop_alarm`; weekday bit constants `SUN` through `SAT`. Actions are `"alarm"` or `"run"`, with an absolute shell-script path for `"run"`.
-- `solaros.battery`: `status` when battery support is compiled
+- `solaros.battery`: `status` with voltage, percentage, external-power,
+  `charging`, and `charging_known` fields when battery support is compiled
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 - `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
 - `solaros.mqtt`: `status`, `connect`, `disconnect`, `publish`, `subscribe`, `read` when `network.mqtt` is compiled

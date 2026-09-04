@@ -49,6 +49,27 @@ class ScriptAudioBindingsTest(unittest.TestCase):
         self.assertIn("const size_t read_bytes = block_frames * frame_bytes", capture)
         self.assertGreaterEqual(capture.count("solar_os_stream_close(&stream);"), 3)
 
+    def test_tone_uses_the_selected_default_output_stream(self):
+        tone = AUDIO_SOURCE.split(
+            "static esp_err_t audio_play_tone_locked(", 1
+        )[1].split("esp_err_t solar_os_audio_play_tone(", 1)[0]
+        self.assertIn("solar_os_audio_open_default(", tone)
+        self.assertIn("SOLAR_OS_STREAM_DIRECTION_SINK", tone)
+        self.assertIn("SOLAR_OS_STREAM_AUDIO_S16_LE", tone)
+        self.assertIn("solar_os_audio_set_device_volume(device.id, volume)", tone)
+        self.assertIn("solar_os_stream_write(&stream", tone)
+        self.assertIn("format.sample_rate", tone)
+        self.assertIn("format.channels", tone)
+        self.assertIn("solar_os_stream_close(&stream);", tone)
+        self.assertNotIn("solar_os_board_audio_get_status", tone)
+        self.assertNotIn("solar_os_board_audio_write", tone)
+
+        enqueue = AUDIO_SOURCE.split(
+            "esp_err_t solar_os_audio_tone_enqueue(", 1
+        )[1].split("esp_err_t solar_os_audio_tone_cancel(", 1)[0]
+        self.assertIn("solar_os_audio_output_available()", enqueue)
+        self.assertNotIn("SOLAR_OS_AUDIO_BACKEND_PACKAGE", enqueue)
+
     def test_python_and_lua_return_the_same_format_fields(self):
         fields = (
             "sample_format",
