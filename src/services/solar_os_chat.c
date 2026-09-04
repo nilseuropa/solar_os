@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -53,7 +52,7 @@ typedef struct {
     SemaphoreHandle_t lock;
 } solar_os_chat_store_state_t;
 
-static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t chat;
+static solar_os_chat_store_state_t chat;
 
 static void chat_lock(void)
 {

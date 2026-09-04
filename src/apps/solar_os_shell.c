@@ -3198,7 +3198,7 @@ typedef struct {
 } shell_completion_index_t;
 
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell completion command index")
-static EXT_RAM_BSS_ATTR shell_completion_index_t shell_completion_index;
+static shell_completion_index_t shell_completion_index;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shell completion index initialization lock")
 static portMUX_TYPE shell_completion_index_lock = portMUX_INITIALIZER_UNLOCKED;
 

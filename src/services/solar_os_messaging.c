@@ -8,7 +8,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -100,7 +99,7 @@ typedef struct {
     SemaphoreHandle_t io_lock;
 } messaging_state_t;
 
-static EXT_RAM_BSS_ATTR messaging_state_t messaging;
+static messaging_state_t messaging;
 static const char *TAG = "messaging";
 
 static void messaging_lock(void)

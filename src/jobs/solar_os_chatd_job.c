@@ -13,7 +13,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "esp_attr.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -99,10 +98,10 @@ typedef struct {
     bool ok;
 } chatd_json_builder_t;
 
-/* The listener initializes file descriptors before the worker can observe
- * them. Keeping this optional job state zero-initialized also lets it live in
- * PSRAM instead of consuming internal data RAM while stopped. */
-static EXT_RAM_BSS_ATTR chatd_job_state_t chatd_job;
+static chatd_job_state_t chatd_job = {
+    .listen_fd = -1,
+    .last_error = ESP_OK,
+};
 
 static uint64_t chatd_now_ms(void)
 {

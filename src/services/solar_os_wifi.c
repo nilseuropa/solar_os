@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_attr.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
@@ -76,7 +75,7 @@ static bool wifi_sleep_reconnect_sta;
 static solar_os_wifi_state_t wifi_state = SOLAR_OS_WIFI_STATE_OFF;
 static char wifi_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
 static char wifi_saved_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
-static EXT_RAM_BSS_ATTR wifi_profile_t wifi_profiles[SOLAR_OS_WIFI_PROFILE_MAX];
+static wifi_profile_t wifi_profiles[SOLAR_OS_WIFI_PROFILE_MAX];
 static size_t wifi_profile_count;
 static char wifi_saved_ap_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
 static char wifi_saved_ap_password[SOLAR_OS_WIFI_PASSWORD_MAX];

@@ -4,7 +4,6 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "esp_attr.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx_internal.h"
@@ -116,7 +115,7 @@ typedef struct {
     char busy_owner[SOLAR_OS_APP_OWNER_MAX];
 } solar_os_session_operation_request_t;
 
-static EXT_RAM_BSS_ATTR solar_os_session_state_t session_state;
+static solar_os_session_state_t session_state;
 static portMUX_TYPE input_focus_lock = portMUX_INITIALIZER_UNLOCKED;
 static QueueHandle_t session_operation_queue;
 static TaskHandle_t session_scheduler_task;

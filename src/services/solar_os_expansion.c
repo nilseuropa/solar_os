@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -34,8 +33,7 @@ static const solar_os_expansion_driver_t *const expansion_drivers[] = {
 };
 #undef SOLAR_OS_EXPANSION_DRIVER_POINTER
 
-static EXT_RAM_BSS_ATTR solar_os_expansion_device_t
-    devices[SOLAR_OS_EXPANSION_DEVICE_MAX];
+static solar_os_expansion_device_t devices[SOLAR_OS_EXPANSION_DEVICE_MAX];
 typedef enum {
     EXPANSION_SLOT_FREE,
     EXPANSION_SLOT_ATTACHING,

@@ -11,7 +11,6 @@
 #include <sys/select.h>
 #include <unistd.h>
 
-#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
@@ -110,7 +109,11 @@ typedef struct {
     esp_err_t last_error;
 } telnetd_job_state_t;
 
-static EXT_RAM_BSS_ATTR telnetd_job_state_t telnetd_job;
+static telnetd_job_state_t telnetd_job = {
+    .listen_fd = -1,
+    .client_fd = -1,
+    .last_error = ESP_OK,
+};
 static portMUX_TYPE telnetd_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static bool telnetd_should_stop(void)
