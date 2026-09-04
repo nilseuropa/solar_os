@@ -4,7 +4,9 @@
 
 - **4.10.18** — 2026-09-04 — `help update` now accepts signed manuals that
   omit package-gated topics from the active runtime index, fixing verification
-  failures on boards without the ADC D-pad service.
+  failures on boards without the ADC D-pad service. Valid downloaded manuals
+  now remain available after an OS upgrade and are clearly marked as possibly
+  outdated until refreshed or reset.
 - **4.10.17** — 2026-09-04 — Shell path completion now understands quoted and
   backslash-escaped input and quotes completed filenames that contain spaces.
 - **4.10.16** — 2026-09-04 — `ble forget` now clears the remembered

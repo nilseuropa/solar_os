@@ -234,6 +234,14 @@ static void docs_app_header(char *line, size_t line_len)
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
     solar_os_docs_status_t status;
     if (solar_os_docs_get_status(&status) == ESP_OK && status.available) {
+        if (strcmp(status.manual_version, SOLAR_OS_VERSION) != 0) {
+            snprintf(line,
+                     line_len,
+                     "SolarOS manual  %u topics  outdated %s",
+                     (unsigned)count,
+                     status.manual_version);
+            return;
+        }
         snprintf(line,
                  line_len,
                  "SolarOS manual  %u topics  downloaded %s",

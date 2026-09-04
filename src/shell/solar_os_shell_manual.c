@@ -30,6 +30,21 @@
 
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(DOCS_UPDATE_TASK_STACK);
+
+static void docs_warn_if_outdated(solar_os_shell_io_t *io)
+{
+    solar_os_docs_status_t status;
+    if (solar_os_docs_get_status(&status) == ESP_OK &&
+        status.available &&
+        strcmp(status.manual_version, SOLAR_OS_VERSION) != 0) {
+        solar_os_shell_io_printf(
+            io,
+            "Warning: downloaded Help is for SolarOS %s; running %s. "
+            "It may be outdated. Run 'help update'.\n",
+            status.manual_version,
+            SOLAR_OS_VERSION);
+    }
+}
 #endif
 
 static void man_usage(solar_os_shell_io_t *io)
@@ -152,6 +167,9 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (argc == 2 && strcmp(argv[1], "--list") == 0) {
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+        docs_warn_if_outdated(io);
+#endif
         man_list(io);
         return;
     }
@@ -167,6 +185,9 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
                                         "man -k QUERY", NULL);
             return;
         }
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+        docs_warn_if_outdated(io);
+#endif
         (void)man_search(io, query);
         return;
     }
@@ -180,6 +201,9 @@ void solar_os_shell_cmd_man(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    docs_warn_if_outdated(io);
+#endif
     const solar_os_manual_page_t *page = solar_os_manual_find(argv[1]);
     if (page == NULL) {
         (void)man_search(io, argv[1]);
@@ -399,11 +423,17 @@ static void docs_print_status(solar_os_shell_io_t *io)
         solar_os_shell_io_printf(io, "help: status failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
-    solar_os_shell_io_printf(io, "Firmware: %s\n", status.version);
+    solar_os_shell_io_printf(io, "Firmware: %s\n", SOLAR_OS_VERSION);
     solar_os_shell_io_printf(io,
                              "External manual: %s\n",
                              status.available ? "active" : "embedded fallback");
     if (status.available) {
+        solar_os_shell_io_printf(io,
+                                 "Manual version: %s%s\n",
+                                 status.manual_version,
+                                 strcmp(status.manual_version,
+                                        SOLAR_OS_VERSION) != 0 ?
+                                     " (may be outdated)" : "");
         solar_os_shell_io_printf(io, "Revision: %s\n", status.revision);
         solar_os_shell_io_printf(io, "Pages: %u\n", (unsigned)status.page_count);
     }
@@ -488,6 +518,9 @@ void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv)
 #if SOLAR_OS_PACKAGE_APP_DOCS
     if (argc == 1 ||
         (argc == 2 && solar_os_manual_find(argv[1]) != NULL)) {
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+        docs_warn_if_outdated(io);
+#endif
         (void)docs_launch_browser(ctx, io, argc, argv);
         return;
     }

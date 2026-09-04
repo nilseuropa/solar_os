@@ -37,7 +37,7 @@ typedef void (*solar_os_docs_progress_fn)(
 typedef struct {
     bool available;
     bool updating;
-    char version[32];
+    char manual_version[32];
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     size_t page_count;
     char last_error[SOLAR_OS_DOCS_ERROR_MAX];
