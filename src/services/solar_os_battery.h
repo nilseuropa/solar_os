@@ -19,6 +19,8 @@ typedef struct {
     bool percent_estimated;
     bool adc_calibrated;
     bool external_power;
+    bool charging;
+    bool charging_known;
 } solar_os_battery_status_t;
 
 typedef struct {
@@ -46,6 +48,10 @@ typedef struct {
 typedef struct {
     uint16_t battery_mv;
     bool calibrated;
+    bool external_power_valid;
+    bool external_power;
+    bool charging_valid;
+    bool charging;
 } solar_os_battery_sample_t;
 
 typedef esp_err_t (*solar_os_battery_provider_read_fn_t)(

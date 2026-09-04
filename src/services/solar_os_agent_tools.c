@@ -3188,12 +3188,15 @@ static esp_err_t agent_tool_sensors_read(const char *arguments,
             &output,
             "{\"ok\":true,\"voltage_mv\":%u,\"percent\":%u,"
             "\"percent_estimated\":%s,\"adc_calibrated\":%s,"
-            "\"external_power\":%s}",
+            "\"external_power\":%s,\"charging\":%s,"
+            "\"charging_known\":%s}",
             (unsigned)battery.voltage_mv,
             (unsigned)battery.percent,
             battery.percent_estimated ? "true" : "false",
             battery.adc_calibrated ? "true" : "false",
-            battery.external_power ? "true" : "false");
+            battery.external_power ? "true" : "false",
+            battery.charging ? "true" : "false",
+            battery.charging_known ? "true" : "false");
     } else if (err == ESP_OK) {
         err = agent_tool_output_append(
             &output,

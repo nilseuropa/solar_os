@@ -1496,8 +1496,13 @@ static void start_headless_shell_if_needed(void)
         solar_os_board_capability_t capability;
         const char *port_name;
     } fallback_ports[] = {
+#if SOLAR_OS_BOARD_HEADLESS_PREFER_CDC
+        {SOLAR_OS_BOARD_CAP_CDC, SOLAR_OS_CDC_PORT_NAME},
+        {SOLAR_OS_BOARD_CAP_UART, SOLAR_OS_UART_PORT_NAME},
+#else
         {SOLAR_OS_BOARD_CAP_UART, SOLAR_OS_UART_PORT_NAME},
         {SOLAR_OS_BOARD_CAP_CDC, SOLAR_OS_CDC_PORT_NAME},
+#endif
     };
 
     bool had_candidate = false;

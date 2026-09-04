@@ -30,7 +30,9 @@ is valid. Use uptime for monotonic intervals.
 ## Read installed sensors
 
 Inspect `solaros.battery.status()` and `solaros.sensors.environment()` rather
-than assuming a fixed voltage, temperature, or humidity source.
+than assuming a fixed voltage, temperature, or humidity source. On CL-32,
+`battery0` reads the voltage measured by the integrated AVR in 25 mV steps and
+reports its USB-power and charging states directly.
 
 ## Quick reference
 
