@@ -131,8 +131,8 @@ static esp_err_t gameboy_write_save(void) {
     return ESP_OK;
   }
 
-  char temporary[SOLAR_OS_STORAGE_PATH_MAX];
-  char backup[SOLAR_OS_STORAGE_PATH_MAX];
+  char temporary[SOLAR_OS_STORAGE_PATH_MAX + 5U];
+  char backup[SOLAR_OS_STORAGE_PATH_MAX + 5U];
   esp_err_t err = solar_os_storage_sibling_path(
       gameboy.save_path, ".tmp", temporary, sizeof(temporary));
   if (err == ESP_OK) {
