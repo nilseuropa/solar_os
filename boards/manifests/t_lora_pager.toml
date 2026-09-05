@@ -4,7 +4,7 @@ schema = 1
 id = "t_lora_pager"
 name = "LilyGO T-LoRa-Pager (SX1262)"
 vendor = "LilyGO"
-module = "ESP32-S3-WROOM-1-N16R8"
+module = "ESP32-S3 (16 MB QSPI flash, 8 MB quad PSRAM)"
 
 [target]
 mcu = "esp32s3"
@@ -27,12 +27,15 @@ capabilities = [
   "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness",
   "cdc", "uart", "sd", "i2c", "spi", "rtc",
-  "wifi", "ble", "gpio", "adc", "pwm", "key",
+  "wifi", "ble", "gpio", "adc", "pwm", "key", "buttons",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_adc", "expansion_pwm",
 ]
 required_packages = []
 psram_bytes = 8388608
+
+[header]
+includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 
 [defines]
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7796"'
@@ -43,8 +46,8 @@ SOLAR_OS_BOARD_DISPLAY_HEIGHT = "222"
 SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "222"
 SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "480"
 SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "40000000"
-SOLAR_OS_BOARD_DISPLAY_MADCTL = "0xE8"
-SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R1"
+SOLAR_OS_BOARD_DISPLAY_MADCTL = "0x48"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R3"
 # Best-effort from LilyGO's own per-rotation offset table; this narrow
 # 2.33" panel is a cropped window into a wider ST7796 GRAM. Unverified on
 # hardware - if the image looks shifted or wrapped, try swapping this with
@@ -72,6 +75,7 @@ SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_0"
 SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
 SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_7, .name = "WHEEL-OK", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
 SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
@@ -137,6 +141,11 @@ bindings = { spi = "spi0", cs = 21 }
 driver = "tca8418"
 name = "keyboard0"
 bindings = { i2c = "i2c0", addr = 0x34, irq = 6 }
+
+[[devices]]
+driver = "rotary-encoder"
+name = "wheel0"
+bindings = { a = 40, b = 41 }
 
 [[devices]]
 driver = "sx1262"
@@ -276,7 +285,7 @@ role = "keyboard interrupt"
 [[pins]]
 gpio = 7
 policy = "fixed"
-role = "rotary center button (unused in this port)"
+role = "rotary encoder push (Enter)"
 [[pins]]
 gpio = 8
 policy = "fixed"
@@ -355,11 +364,11 @@ role = "NFC SPI CS (unused in this port)"
 [[pins]]
 gpio = 40
 policy = "fixed"
-role = "rotary encoder A (unused in this port)"
+role = "rotary encoder A"
 [[pins]]
 gpio = 41
 policy = "fixed"
-role = "rotary encoder B (unused in this port)"
+role = "rotary encoder B"
 [[pins]]
 gpio = 42
 policy = "fixed"

@@ -561,6 +561,12 @@ category = "Internal"
 hidden = true
 members = ["sx1262"]
 
+[groups.rotary_encoder]
+label = "Quadrature rotary encoder"
+category = "Internal"
+hidden = true
+members = ["rotary_encoder"]
+
 [packages.core_runtime]
 label = "bootstrap.runtime"
 depends = ["service_schedule", "service_streams"]
@@ -1251,6 +1257,17 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi"]
 capabilities = ["spi"]
+
+[packages.rotary_encoder]
+label = "board.rotary-encoder"
+expansion_drivers = ["solar_os_rotary_encoder_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "services/solar_os_rotary_encoder.c",
+  "services/solar_os_rotary_encoder_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["gpio"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"

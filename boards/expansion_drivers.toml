@@ -975,3 +975,22 @@ hint = "gpio"
 key = "irq"
 kind = "gpio"
 hint = "gpio"
+
+[drivers.rotary-encoder]
+summary = "Quadrature rotary encoder (Up/Down per detent)"
+package = "rotary_encoder"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gpio"]
+default_name = "wheel0"
+
+[[drivers.rotary-encoder.bindings]]
+key = "a"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rotary-encoder.bindings]]
+key = "b"
+kind = "gpio"
+hint = "gpio"
+required = true

@@ -2,7 +2,7 @@
   "build": {
     "arduino": {
       "ldscript": "esp32s3_out.ld",
-      "memory_type": "qio_opi",
+      "memory_type": "qio_qspi",
       "partitions": "default_16MB.csv"
     },
     "core": "esp32",
@@ -16,7 +16,7 @@
     "f_flash": "80000000L",
     "flash_mode": "qio",
     "mcu": "esp32s3",
-    "psram_type": "opi",
+    "psram_type": "qspi",
     "variant": "esp32s3"
   },
   "connectivity": ["bluetooth", "wifi"],

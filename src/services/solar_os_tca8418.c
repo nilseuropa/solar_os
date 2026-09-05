@@ -216,8 +216,15 @@ static bool handle_special_key(solar_os_tca8418_device_t *device,
                                bool pressed)
 {
     if (k == TCA8418_SYMBOL_KEY) {
+        /* On the T-LoRa-Pager the Symbol modifier and the space bar are the
+         * same physical key (raw 0x1E == matrix cell [3][0] == ' '). Upstream
+         * handles this by toggling the modifier and then FALLING THROUGH to
+         * normal character lookup (has_symbol_key == false), so that hold+key
+         * gives the symbol layer while a plain tap yields a space on release
+         * via the blank-cell quirk in apply_space_quirk(). Returning "handled"
+         * here would swallow the space bar entirely. */
         device->symbol_pressed = !device->symbol_pressed;
-        return true;
+        return false;
     }
     if (k == TCA8418_CAPS_KEY) {
         device->caps_pressed = !device->caps_pressed;
