@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "esp_check.h"
+#include "esp_log.h"
 #include "rtc_pcf85063.h"
 #include "solar_os_rtc.h"
 
@@ -23,9 +24,11 @@ static esp_err_t rtc_get(void *user, solar_os_datetime_t *datetime)
         return ESP_ERR_INVALID_STATE;
     }
     rtc_datetime_t value;
-    ESP_RETURN_ON_ERROR(rtc_pcf85063_get_datetime_device(&device->rtc, &value),
-                        "pcf85063",
-                        "read failed");
+    const esp_err_t read_err = rtc_pcf85063_get_datetime_device(&device->rtc, &value);
+    if (read_err != ESP_OK) {
+        ESP_LOGE("pcf85063", "rtc_get: read failed: %s", esp_err_to_name(read_err));
+        return read_err;
+    }
     *datetime = (solar_os_datetime_t) {
         .year = value.year,
         .month = value.month,

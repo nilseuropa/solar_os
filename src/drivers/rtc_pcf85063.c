@@ -2,6 +2,9 @@
 
 #include <string.h>
 
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_buses.h"
 
 #define PCF85063_CTRL1_REG 0x00
@@ -11,6 +14,9 @@
 #define PCF85063_ALARM_REG 0x0b
 #define PCF85063_TIMER_VALUE_REG 0x10
 #define PCF85063_TIMER_MODE_REG 0x11
+#define PCF85063_CTRL1_EXT_TEST_BIT 0x80
+#define PCF85063_CTRL1_RESERVED_BITS 0x48
+#define PCF85063_CTRL1_SOFTWARE_RESET 0x58
 #define PCF85063_CTRL1_STOP_BIT 0x20
 #define PCF85063_CTRL1_12H_BIT 0x02
 #define PCF85063_SECONDS_OS_BIT 0x80
@@ -156,6 +162,28 @@ esp_err_t rtc_pcf85063_init_device(rtc_pcf85063_t *device,
                                     1);
     if (ret != ESP_OK) {
         return ret;
+    }
+
+    /* A PCF85063 can power up in an undefined state with EXT_TEST (bit 7,
+     * external-clock test mode) or reserved bits set in Control_1. In that
+     * state the oscillator is bypassed, the time registers never advance,
+     * and their contents are junk - and merely clearing STOP below would
+     * preserve the bad bits. The datasheet's remedy is a software reset,
+     * which restores every register to its documented default. Only do it
+     * when the register is provably invalid so a sane, running clock is
+     * never disturbed. Seen in the wild on the LilyGO T-LoRa-Pager. */
+    if ((ctrl1 & (PCF85063_CTRL1_EXT_TEST_BIT | PCF85063_CTRL1_RESERVED_BITS)) != 0U) {
+        const uint8_t reset = PCF85063_CTRL1_SOFTWARE_RESET;
+        ESP_LOGW("pcf85063", "Control_1 0x%02x is invalid (EXT_TEST/reserved); issuing software reset", ctrl1);
+        ret = solar_os_bus_i2c_write_reg(device->bus, device->address, PCF85063_CTRL1_REG, &reset, 1);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+        ret = solar_os_bus_i2c_read_reg(device->bus, device->address, PCF85063_CTRL1_REG, &ctrl1, 1);
+        if (ret != ESP_OK) {
+            return ret;
+        }
     }
 
     const uint8_t updated = (uint8_t)(ctrl1 & ~(PCF85063_CTRL1_STOP_BIT | PCF85063_CTRL1_12H_BIT));
