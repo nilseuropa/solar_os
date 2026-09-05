@@ -29,6 +29,9 @@ typedef struct {
     bool st7796;
     bool backlight_active_high;
     bool backlight_pwm;
+    /* >0 selects a single-wire pulse dimmer (AW9364 class) with this many
+     * brightness steps instead of plain on/off or PWM on backlight_pin. */
+    uint8_t backlight_pulse_steps;
     const u8g2_cb_t *rotation;
 } tft_ili9341_config_t;
 
@@ -52,6 +55,7 @@ typedef struct {
     uint8_t backlight_percent;
     bool indexed_surface_valid;
     bool backlight_power;
+    uint8_t backlight_level; /* pulse dimmer: current step, 0 = off */
     tft_ili9341_config_t config;
     u8x8_display_info_t display_info;
     uint16_t tile_width;

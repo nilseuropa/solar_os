@@ -63,6 +63,26 @@ static const solar_os_radio_profile_t radio_builtin_profiles[] = {
         },
     },
     {
+        /* MeshCore "USA/Canada (Recommended)" preset: 910.525 MHz, SF7,
+         * BW 62.5 kHz, CR 4/5 (docs/faq.md, October 2025 "narrow" settings). */
+        .name = "meshcore-us915",
+        .builtin = true,
+        .config = {
+            .frequency_hz = 910525000,
+            .modulation = SOLAR_OS_RADIO_MODULATION_LORA,
+            .rx_bandwidth_hz = 62500,
+            .spreading_factor = 7,
+            .coding_rate_denominator = 5,
+            .preamble_len = 32,
+            .sync_word_len = 1,
+            .sync_word = {0x12},
+            .tx_power_dbm = 14,
+            .crc_enabled = true,
+            .variable_length = true,
+            .payload_length = 255,
+        },
+    },
+    {
         .name = "lora-eu868",
         .builtin = true,
         .config = {

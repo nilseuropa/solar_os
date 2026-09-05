@@ -50,7 +50,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     return parsed->i2c_bus != NULL && parsed->i2s_port >= 0 &&
         parsed->mclk_pin >= 0 && parsed->bclk_pin >= 0 &&
         parsed->ws_pin >= 0 && parsed->din_pin >= 0 &&
-        parsed->dout_pin >= 0 && parsed->pa_pin >= 0 ?
+        parsed->dout_pin >= 0 ?
         ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
@@ -107,7 +107,7 @@ static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "ws", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "ws", .required = true},
     {.key = "din", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "din", .required = true},
     {.key = "dout", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dout", .required = true},
-    {.key = "pa", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .required = true},
+    {.key = "pa", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pa", .required = false},
 };
 
 const solar_os_expansion_driver_t solar_os_es8311_es7210_expansion_driver = {

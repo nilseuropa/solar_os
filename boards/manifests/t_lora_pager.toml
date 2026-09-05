@@ -17,6 +17,7 @@ drivers = [
   "display_st7796",
   "rtc_pcf85063",
   "storage_expansion",
+  "audio_es8311_duplex",
   "i2c_esp_idf",
   "spi_esp_idf",
   "gpio_esp_idf",
@@ -26,10 +27,10 @@ drivers = [
 capabilities = [
   "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness",
-  "cdc", "uart", "sd", "i2c", "spi", "rtc",
+  "cdc", "uart", "sd", "i2c", "spi", "rtc", "audio", "audio_input",
   "wifi", "ble", "gpio", "adc", "pwm", "key", "buttons",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
-  "expansion_adc", "expansion_pwm",
+  "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
 required_packages = []
 psram_bytes = 8388608
@@ -62,6 +63,8 @@ SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_34"
 SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_NC"
 SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL = "1"
 SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM = "0"
+# AW9364 single-wire dimmer on the backlight pin: 16 brightness steps.
+SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS = "16"
 SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_SPI_NAME = '"FSPI"'
 SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_35"
@@ -76,6 +79,16 @@ SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
 SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_7, .name = "WHEEL-OK", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
+SOLAR_OS_BOARD_I2S_PORT = "I2S_NUM_0"
+SOLAR_OS_BOARD_PIN_I2S_MCLK = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_I2S_BCLK = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_I2S_WS = "GPIO_NUM_18"
+SOLAR_OS_BOARD_PIN_I2S_DIN = "GPIO_NUM_17"
+SOLAR_OS_BOARD_PIN_I2S_DOUT = "GPIO_NUM_45"
+# The NS4150B amplifier enable is XL9555 P0.1, driven high by tlora-pager-core.
+SOLAR_OS_BOARD_PIN_AUDIO_PA = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES8311"'
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
 SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
@@ -83,6 +96,7 @@ SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 [runtime]
 spi_hosts = ["SPI3_HOST"]
 uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
 
 [[buses]]
 name = "spi0"
@@ -131,6 +145,11 @@ bindings = { spi = "spi0", cs = 38, dc = 37, bl = 42, active = 1, pwm = 0 }
 driver = "pcf85063"
 name = "rtc0"
 bindings = { i2c = "i2c0", addr = 0x51, irq = 1 }
+
+[[devices]]
+driver = "es8311-duplex"
+name = "audio0"
+bindings = { i2c = "i2c0", i2s = 0, mclk = 10, bck = 11, ws = 18, din = 17, dout = 45 }
 
 [[devices]]
 driver = "sdspi"
@@ -301,11 +320,11 @@ pwm = true
 [[pins]]
 gpio = 10
 policy = "fixed"
-role = "audio codec MCLK (unused in this port)"
+role = "audio codec MCLK"
 [[pins]]
 gpio = 11
 policy = "fixed"
-role = "audio codec SCK (unused in this port)"
+role = "audio codec BCLK"
 [[pins]]
 gpio = 12
 policy = "fixed"
@@ -321,11 +340,11 @@ role = "LoRa DIO1/IRQ"
 [[pins]]
 gpio = 17
 policy = "fixed"
-role = "audio codec data in (unused in this port)"
+role = "audio codec data in"
 [[pins]]
 gpio = 18
 policy = "fixed"
-role = "audio codec WS (unused in this port)"
+role = "audio codec WS"
 [[pins]]
 gpio = 21
 policy = "fixed"
@@ -386,7 +405,7 @@ expansion = true
 [[pins]]
 gpio = 45
 policy = "fixed"
-role = "audio codec data out (unused in this port)"
+role = "audio codec data out"
 [[pins]]
 gpio = 46
 policy = "fixed"

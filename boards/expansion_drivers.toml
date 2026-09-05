@@ -773,7 +773,7 @@ required = true
 key = "pa"
 kind = "gpio"
 hint = "gpio"
-required = true
+required = false
 
 [drivers.esp32-dac]
 summary = "ESP32 internal DAC audio"
