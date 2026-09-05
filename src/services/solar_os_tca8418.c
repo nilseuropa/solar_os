@@ -7,6 +7,7 @@
 
 #include "driver/gpio.h"
 #include "esp_check.h"
+#include "pwm_port.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -48,6 +49,9 @@
 #define TCA8418_ALT_BRIGHTNESS_KEY 0x19U
 
 #define TCA8418_POLL_MS 15U
+
+#define TCA8418_BACKLIGHT_PWM_HZ 5000U
+#define TCA8418_BACKLIGHT_DEFAULT_PERCENT 50U
 #define TCA8418_TASK_STACK 3072U
 #define TCA8418_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
 
@@ -72,6 +76,7 @@ typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address;
+    int backlight_pin;
     solar_os_input_source_t input_source;
     TaskHandle_t worker_task;
     bool symbol_pressed;
@@ -96,7 +101,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 char *i2c_bus,
                                 size_t i2c_bus_len,
                                 uint8_t *address,
-                                int *irq_pin)
+                                int *irq_pin,
+                                int *backlight_pin)
 {
     bool have_i2c = false;
     bool have_address = false;
@@ -107,6 +113,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     i2c_bus[0] = '\0';
     *address = 0U;
     *irq_pin = -1;
+    *backlight_pin = -1;
 
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -126,10 +133,19 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             have_address = true;
             break;
         case SOLAR_OS_EXPANSION_BINDING_GPIO:
-            if (!binding_role_is(binding, "irq") || *irq_pin >= 0) {
+            if (binding_role_is(binding, "irq")) {
+                if (*irq_pin >= 0) {
+                    return ESP_ERR_INVALID_ARG;
+                }
+                *irq_pin = binding->value;
+            } else if (binding_role_is(binding, "backlight")) {
+                if (*backlight_pin >= 0) {
+                    return ESP_ERR_INVALID_ARG;
+                }
+                *backlight_pin = binding->value;
+            } else {
                 return ESP_ERR_INVALID_ARG;
             }
-            *irq_pin = binding->value;
             break;
         default:
             return ESP_ERR_INVALID_ARG;
@@ -342,6 +358,7 @@ static void clear_device(solar_os_tca8418_device_t *device)
     }
     memset(device, 0, sizeof(*device));
     device->last_key_val = '\0';
+    device->backlight_pin = -1;
 }
 
 esp_err_t solar_os_tca8418_attach(const char *name,
@@ -351,6 +368,7 @@ esp_err_t solar_os_tca8418_attach(const char *name,
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
     uint8_t address = 0U;
     int irq_pin = -1;
+    int backlight_pin = -1;
 
     if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
@@ -358,7 +376,7 @@ esp_err_t solar_os_tca8418_attach(const char *name,
     if (tca_device.active) {
         return ESP_ERR_INVALID_STATE;
     }
-    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, i2c_bus, sizeof(i2c_bus), &address, &irq_pin),
+    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, i2c_bus, sizeof(i2c_bus), &address, &irq_pin, &backlight_pin),
                         TAG, "invalid bindings");
     ESP_RETURN_ON_ERROR(solar_os_bus_i2c_probe(i2c_bus, address), TAG, "TCA8418 not found");
 
@@ -377,10 +395,20 @@ esp_err_t solar_os_tca8418_attach(const char *name,
     tca_device.active = true;
     tca_device.address = address;
     tca_device.last_key_val = '\0';
+    tca_device.backlight_pin = backlight_pin;
     strlcpy(tca_device.name, name, sizeof(tca_device.name));
     strlcpy(tca_device.i2c_bus, i2c_bus, sizeof(tca_device.i2c_bus));
 
     ESP_RETURN_ON_ERROR(configure_matrix(&tca_device), TAG, "matrix configuration failed");
+
+    if (backlight_pin >= 0) {
+        const esp_err_t bl_err = pwm_port_set((gpio_num_t)backlight_pin,
+                                              TCA8418_BACKLIGHT_PWM_HZ,
+                                              TCA8418_BACKLIGHT_DEFAULT_PERCENT);
+        if (bl_err != ESP_OK) {
+            ESP_LOGW(TAG, "keyboard backlight init failed: %s", esp_err_to_name(bl_err));
+        }
+    }
 
     esp_err_t err = solar_os_input_keyboard_source_open(tca_device.name, true, &tca_device.input_source);
     if (err != ESP_OK) {

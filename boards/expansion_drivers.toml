@@ -45,6 +45,11 @@ key = "irq"
 kind = "gpio"
 hint = "gpio"
 
+[[drivers.tca8418.bindings]]
+key = "backlight"
+kind = "gpio"
+hint = "gpio"
+
 [drivers.cl32-core]
 summary = "CL-32 board controller"
 package = "board_cl32_core"

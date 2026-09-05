@@ -163,7 +163,7 @@ bindings = { spi = "spi0", cs = 21 }
 [[devices]]
 driver = "tca8418"
 name = "keyboard0"
-bindings = { i2c = "i2c0", addr = 0x34, irq = 6 }
+bindings = { i2c = "i2c0", addr = 0x34, irq = 6, backlight = 46 }
 
 [[devices]]
 driver = "rotary-encoder"
@@ -413,7 +413,7 @@ role = "audio codec data out"
 [[pins]]
 gpio = 46
 policy = "fixed"
-role = "keyboard backlight (unused in this port)"
+role = "keyboard backlight"
 [[pins]]
 gpio = 47
 policy = "fixed"
