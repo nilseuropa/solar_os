@@ -23,6 +23,8 @@ typedef struct {
     uint32_t backlight_pwm_hz;
     uint16_t width;
     uint16_t height;
+    uint16_t col_offset;
+    uint16_t row_offset;
     uint8_t madctl;
     bool st7796;
     bool backlight_active_high;

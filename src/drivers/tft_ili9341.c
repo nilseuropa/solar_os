@@ -212,6 +212,14 @@ static void ili9341_hardware_reset(tft_ili9341_t *display) {
 
 static esp_err_t ili9341_set_window(tft_ili9341_t *display, uint16_t x0,
                                     uint16_t y0, uint16_t x1, uint16_t y1) {
+  /* Some glass modules expose a smaller visible area than the controller's
+   * addressable GRAM and are wired with a fixed offset into it (e.g. the
+   * T-LoRa-Pager's 222x480 ST7796 panel). col_offset/row_offset default to
+   * 0 and are a no-op for every other board. */
+  x0 = (uint16_t)(x0 + display->config.col_offset);
+  x1 = (uint16_t)(x1 + display->config.col_offset);
+  y0 = (uint16_t)(y0 + display->config.row_offset);
+  y1 = (uint16_t)(y1 + display->config.row_offset);
   const uint8_t col[] = {
       (uint8_t)(x0 >> 8),
       (uint8_t)(x0 & 0xff),

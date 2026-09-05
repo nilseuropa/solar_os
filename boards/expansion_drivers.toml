@@ -20,6 +20,31 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
+[drivers.tca8418]
+summary = "4x10 matrix keyboard (T-LoRa-Pager)"
+package = "tca8418"
+targets = ["esp32s3"]
+capabilities = ["i2c"]
+default_name = "keyboard0"
+
+[[drivers.tca8418.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.tca8418.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x34"
+required = true
+allowed = [0x34]
+
+[[drivers.tca8418.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
 [drivers.cl32-core]
 summary = "CL-32 board controller"
 package = "board_cl32_core"
@@ -40,6 +65,27 @@ kind = "i2c_address"
 hint = "0x08"
 required = true
 allowed = [0x08]
+
+[drivers.tlora-pager-core]
+summary = "T-LoRa-Pager XL9555 power sequencer"
+package = "tlora_pager_core"
+targets = ["esp32s3"]
+capabilities = ["i2c"]
+early = true
+default_name = "core0"
+
+[[drivers.tlora-pager-core.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.tlora-pager-core.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x20"
+required = true
+allowed = [0x20]
 
 [drivers.ssd1683]
 summary = "400x300 e-paper"
@@ -892,5 +938,40 @@ kind = "gpio"
 hint = "gpio"
 [[drivers.rfm95.bindings]]
 key = "reset"
+kind = "gpio"
+hint = "gpio"
+
+[drivers.sx1262]
+summary = "SX1262 LoRa/(G)FSK radio (T-LoRa-Pager)"
+package = "sx1262"
+targets = ["esp32s3"]
+capabilities = ["spi"]
+default_name = "radio0"
+
+[[drivers.sx1262.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.sx1262.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.sx1262.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.sx1262.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.sx1262.bindings]]
+key = "irq"
 kind = "gpio"
 hint = "gpio"

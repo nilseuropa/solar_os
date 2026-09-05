@@ -12,6 +12,19 @@
 #define SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ 40000000U
 #endif
 
+/* Per-controller defaults preserve exact current behavior for boards that
+ * do not (yet) declare these in their manifest [defines]; freenove and
+ * odroid_go both already declare values that match these defaults. A board
+ * whose panel needs different native dimensions, MADCTL, rotation, or a
+ * GRAM window offset (e.g. a glass module smaller than the controller's
+ * addressable RAM) can override any of them from its manifest. */
+#ifndef SOLAR_OS_BOARD_DISPLAY_COL_OFFSET
+#define SOLAR_OS_BOARD_DISPLAY_COL_OFFSET 0U
+#endif
+#ifndef SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET
+#define SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET 0U
+#endif
+
 typedef struct {
     bool active;
     bool primary;
@@ -240,13 +253,28 @@ static esp_err_t attach_tft(const char *name,
         .backlight_pin = backlight,
         .spi_clock_hz = SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ,
         .backlight_pwm_hz = 20000U,
+#if defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH) && defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT)
+        .width = SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH,
+        .height = SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT,
+#else
         .width = st7796 ? 320 : 240,
         .height = st7796 ? 480 : 320,
+#endif
+#ifdef SOLAR_OS_BOARD_DISPLAY_MADCTL
+        .madctl = SOLAR_OS_BOARD_DISPLAY_MADCTL,
+#else
         .madctl = st7796 ? 0x48 : 0x88,
+#endif
+        .col_offset = SOLAR_OS_BOARD_DISPLAY_COL_OFFSET,
+        .row_offset = SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET,
         .st7796 = st7796,
         .backlight_active_high = active_high,
         .backlight_pwm = pwm,
+#ifdef SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION
+        .rotation = SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION,
+#else
         .rotation = U8G2_R1,
+#endif
     };
     esp_err_t ret = tft_ili9341_init(&device->driver, &config);
     if (ret != ESP_OK) {
