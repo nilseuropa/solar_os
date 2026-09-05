@@ -560,7 +560,10 @@ static bool audio_codec_config_valid(const audio_codec_board_config_t *config)
         GPIO_IS_VALID_OUTPUT_GPIO(config->ws_pin) &&
         GPIO_IS_VALID_GPIO(config->din_pin) &&
         GPIO_IS_VALID_OUTPUT_GPIO(config->dout_pin) &&
-        GPIO_IS_VALID_OUTPUT_GPIO(config->pa_pin);
+        /* pa is optional: boards whose amplifier enable sits behind an I/O
+         * expander (e.g. LilyGO T-LoRa-Pager) pass -1 and manage it themselves;
+         * esp_codec_dev treats a negative pa_pin as "none". */
+        (config->pa_pin < 0 || GPIO_IS_VALID_OUTPUT_GPIO(config->pa_pin));
 }
 
 esp_err_t audio_codec_board_attach(const char *name, const audio_codec_board_config_t *config)

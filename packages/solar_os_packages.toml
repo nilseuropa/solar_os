@@ -543,6 +543,36 @@ category = "Internal"
 hidden = true
 members = ["board_cl32_core"]
 
+[groups.tlora_pager_core]
+label = "T-LoRa-Pager board controller"
+category = "Internal"
+hidden = true
+members = ["tlora_pager_core"]
+
+[groups.tca8418]
+label = "TCA8418 keyboard"
+category = "Internal"
+hidden = true
+members = ["tca8418"]
+
+[groups.sx1262]
+label = "SX1262 LoRa radio"
+category = "Internal"
+hidden = true
+members = ["sx1262"]
+
+[groups.rotary_encoder]
+label = "Quadrature rotary encoder"
+category = "Internal"
+hidden = true
+members = ["rotary_encoder"]
+
+[groups.bq27220]
+label = "BQ27220 fuel gauge"
+category = "Internal"
+hidden = true
+members = ["bq27220"]
+
 [packages.core_runtime]
 label = "bootstrap.runtime"
 depends = ["service_schedule", "service_streams"]
@@ -1193,6 +1223,66 @@ sources = [
   "services/solar_os_cl32_core.c",
   "services/solar_os_cl32_core_driver.c",
   "services/solar_os_cl32_keyboard.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.tlora_pager_core]
+label = "board.tlora-pager-core"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_tlora_pager_core_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_tlora_pager_core.c",
+  "services/solar_os_tlora_pager_core_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.tca8418]
+label = "board.tca8418"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_tca8418_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_tca8418.c",
+  "services/solar_os_tca8418_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["i2c"]
+
+[packages.sx1262]
+label = "board.sx1262"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_sx1262_expansion_driver"]
+depends = ["service_radio", "service_spi"]
+sources = [
+  "drivers/sx1262.c",
+  "services/solar_os_sx1262.c",
+  "services/solar_os_sx1262_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["spi"]
+
+[packages.rotary_encoder]
+label = "board.rotary-encoder"
+expansion_drivers = ["solar_os_rotary_encoder_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "services/solar_os_rotary_encoder.c",
+  "services/solar_os_rotary_encoder_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["gpio"]
+
+[packages.bq27220]
+label = "board.bq27220"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_bq27220_expansion_driver"]
+depends = ["service_battery", "service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_bq27220.c",
+  "services/solar_os_bq27220_driver.c",
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]

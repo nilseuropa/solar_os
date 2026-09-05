@@ -6,6 +6,7 @@
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pwm_port.h"
@@ -140,12 +141,68 @@ static uint8_t ili9341_backlight_duty(const tft_ili9341_t *display,
                                                : (uint8_t)(100U - percent);
 }
 
+/* Single-wire pulse dimmers (AW9364 and friends): EN held low = off; a
+ * rising edge out of "off" lights at full brightness; each subsequent
+ * low/high pulse steps the level down by one, wrapping from 1 back to full.
+ * The chip has no readback, so the current step is tracked here. EN is
+ * active-high by chip design; backlight_active_high is ignored in this mode.
+ * Timing: pulses must be well under the chip's ~2.5 ms shutdown threshold;
+ * turning off must hold EN low past it so the level counter really resets. */
+static esp_err_t ili9341_apply_backlight_pulse(tft_ili9341_t *display,
+                                               uint8_t percent) {
+  const uint8_t steps = display->config.backlight_pulse_steps;
+  const gpio_num_t pin = display->config.backlight_pin;
+  const uint8_t quantum = display->config.backlight_step_percent;
+  if (quantum > 0 && percent > 0) {
+    /* Snap to the nearest multiple of the board's step size, never below
+     * one step so a nonzero request cannot round down to "off". */
+    unsigned snapped = ((unsigned)percent + quantum / 2U) / quantum * quantum;
+    if (snapped == 0) snapped = quantum;
+    if (snapped > 100) snapped = 100;
+    percent = (uint8_t)snapped;
+  }
+  uint8_t target = 0;
+  if (percent > 0) {
+    target = (uint8_t)(((unsigned)percent * steps + 50U) / 100U);
+    if (target == 0) target = 1;
+    if (target > steps) target = steps;
+  }
+  if (target == display->backlight_level) {
+    return ESP_OK;
+  }
+  if (target == 0) {
+    ESP_RETURN_ON_ERROR(gpio_set_level(pin, 0), TAG, "backlight off failed");
+    vTaskDelay(pdMS_TO_TICKS(5));
+    display->backlight_level = 0;
+    return ESP_OK;
+  }
+  if (display->backlight_level == 0) {
+    ESP_RETURN_ON_ERROR(gpio_set_level(pin, 1), TAG, "backlight on failed");
+    esp_rom_delay_us(50);
+    display->backlight_level = steps;
+  }
+  const unsigned from = steps - display->backlight_level;
+  const unsigned to = steps - target;
+  const unsigned pulses = (steps + to - from) % steps;
+  for (unsigned i = 0; i < pulses; i++) {
+    gpio_set_level(pin, 0);
+    esp_rom_delay_us(2);
+    gpio_set_level(pin, 1);
+    esp_rom_delay_us(2);
+  }
+  display->backlight_level = target;
+  return ESP_OK;
+}
+
 static esp_err_t ili9341_apply_backlight(tft_ili9341_t *display,
                                          uint8_t percent) {
   if (!ili9341_backlight_supported(display)) {
     return ESP_ERR_NOT_SUPPORTED;
   }
 
+  if (display->config.backlight_pulse_steps > 0) {
+    return ili9341_apply_backlight_pulse(display, percent);
+  }
   if (display->config.backlight_pwm) {
     return pwm_port_set(display->config.backlight_pin,
                         display->config.backlight_pwm_hz,
@@ -212,6 +269,14 @@ static void ili9341_hardware_reset(tft_ili9341_t *display) {
 
 static esp_err_t ili9341_set_window(tft_ili9341_t *display, uint16_t x0,
                                     uint16_t y0, uint16_t x1, uint16_t y1) {
+  /* Some glass modules expose a smaller visible area than the controller's
+   * addressable GRAM and are wired with a fixed offset into it (e.g. the
+   * T-LoRa-Pager's 222x480 ST7796 panel). col_offset/row_offset default to
+   * 0 and are a no-op for every other board. */
+  x0 = (uint16_t)(x0 + display->config.col_offset);
+  x1 = (uint16_t)(x1 + display->config.col_offset);
+  y0 = (uint16_t)(y0 + display->config.row_offset);
+  y1 = (uint16_t)(y1 + display->config.row_offset);
   const uint8_t col[] = {
       (uint8_t)(x0 >> 8),
       (uint8_t)(x0 & 0xff),

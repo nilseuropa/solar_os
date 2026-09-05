@@ -12,6 +12,25 @@
 #define SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ 40000000U
 #endif
 
+/* Per-controller defaults preserve exact current behavior for boards that
+ * do not (yet) declare these in their manifest [defines]; freenove and
+ * odroid_go both already declare values that match these defaults. A board
+ * whose panel needs different native dimensions, MADCTL, rotation, or a
+ * GRAM window offset (e.g. a glass module smaller than the controller's
+ * addressable RAM) can override any of them from its manifest. */
+#ifndef SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS
+#define SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS 0U
+#endif
+#ifndef SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT
+#define SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT 0U
+#endif
+#ifndef SOLAR_OS_BOARD_DISPLAY_COL_OFFSET
+#define SOLAR_OS_BOARD_DISPLAY_COL_OFFSET 0U
+#endif
+#ifndef SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET
+#define SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET 0U
+#endif
+
 typedef struct {
     bool active;
     bool primary;
@@ -240,13 +259,30 @@ static esp_err_t attach_tft(const char *name,
         .backlight_pin = backlight,
         .spi_clock_hz = SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ,
         .backlight_pwm_hz = 20000U,
+#if defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH) && defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT)
+        .width = SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH,
+        .height = SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT,
+#else
         .width = st7796 ? 320 : 240,
         .height = st7796 ? 480 : 320,
+#endif
+#ifdef SOLAR_OS_BOARD_DISPLAY_MADCTL
+        .madctl = SOLAR_OS_BOARD_DISPLAY_MADCTL,
+#else
         .madctl = st7796 ? 0x48 : 0x88,
+#endif
+        .col_offset = SOLAR_OS_BOARD_DISPLAY_COL_OFFSET,
+        .row_offset = SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET,
         .st7796 = st7796,
         .backlight_active_high = active_high,
         .backlight_pwm = pwm,
+        .backlight_pulse_steps = SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS,
+        .backlight_step_percent = SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT,
+#ifdef SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION
+        .rotation = SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION,
+#else
         .rotation = U8G2_R1,
+#endif
     };
     esp_err_t ret = tft_ili9341_init(&device->driver, &config);
     if (ret != ESP_OK) {
@@ -261,8 +297,15 @@ static esp_err_t attach_tft(const char *name,
         .driver_name = st7796 ? "st7796" : "ili9341",
         .u8g2 = tft_ili9341_get_u8g2(&device->driver),
         .controller = st7796 ? "ST7796" : "ILI9341",
+#if defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH) && defined(SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT)
+        /* Registered target dims are post-rotation (landscape); native config
+         * above is pre-rotation, so swap here to match. */
+        .width = SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT,
+        .height = SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH,
+#else
         .width = st7796 ? 480 : 320,
         .height = st7796 ? 320 : 240,
+#endif
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT,
         .preferred_stream_fps = st7796 ? 25 : 30,
