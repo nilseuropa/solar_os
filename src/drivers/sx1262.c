@@ -27,6 +27,7 @@
 #define SX1262_OP_SET_RF_FREQUENCY 0x86U
 #define SX1262_OP_SET_PACKET_TYPE 0x8AU
 #define SX1262_OP_SET_TX_PARAMS 0x8EU
+#define SX1262_OP_SET_PA_CONFIG 0x95U
 #define SX1262_OP_SET_MODULATION_PARAMS 0x8BU
 #define SX1262_OP_SET_PACKET_PARAMS 0x8CU
 #define SX1262_OP_SET_BUFFER_BASE_ADDRESS 0x8FU
@@ -488,10 +489,23 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
         const uint8_t params[2] = {0x00U, 0x00U};
         err = sx1262_transact(dev, SX1262_OP_SET_BUFFER_BASE_ADDRESS, params, sizeof(params), NULL, 0);
     }
+    int8_t power = (int8_t)config->tx_power_dbm;
+    if (power > 22) power = 22;
+    if (power < -17) power = -17;
     if (err == ESP_OK) {
-        int8_t power = (int8_t)config->tx_power_dbm;
-        if (power > 22) power = 22;
-        if (power < -17) power = -17;
+        /* Datasheet Table "PA operating modes with optimal settings for SX1262":
+         * paDutyCycle/hpMax must be picked per target power, not left at the
+         * POR default, or output power (and PA operating margin) is wrong.
+         * deviceSel=0x00 selects the SX1262 PA; paLut=0x01 is the only
+         * defined value. */
+        uint8_t pa_duty_cycle = 0x02U, hp_max = 0x02U;
+        if (power >= 22) { pa_duty_cycle = 0x04U; hp_max = 0x07U; }
+        else if (power >= 20) { pa_duty_cycle = 0x03U; hp_max = 0x05U; }
+        else if (power >= 17) { pa_duty_cycle = 0x02U; hp_max = 0x03U; }
+        const uint8_t pa_params[4] = {pa_duty_cycle, hp_max, 0x00U, 0x01U};
+        err = sx1262_transact(dev, SX1262_OP_SET_PA_CONFIG, pa_params, sizeof(pa_params), NULL, 0);
+    }
+    if (err == ESP_OK) {
         const uint8_t params[2] = {(uint8_t)power, 0x04U /* 200 us ramp */};
         err = sx1262_transact(dev, SX1262_OP_SET_TX_PARAMS, params, sizeof(params), NULL, 0);
     }
@@ -685,17 +699,31 @@ esp_err_t sx1262_receive(sx1262_t *dev, solar_os_radio_packet_t *packet, uint32_
     }
     memset(packet, 0, sizeof(*packet));
 
-    err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
-    if (err == ESP_OK) {
-        const uint8_t params[3] = {0xFFU, 0xFFU, 0xFFU}; /* continuous; SW owns the timeout */
-        err = sx1262_transact(dev, SX1262_OP_SET_RX, params, sizeof(params), NULL, 0);
-    }
-    if (err != ESP_OK) {
-        sx1262_unlock(dev);
-        return err;
+    /* This is a poll, not a session: the meshcore job (and any other caller
+     * doing continuous listening) calls receive() repeatedly, typically with
+     * timeout_ms == 0 meaning "check right now, don't block". Only the first
+     * such call after attach/send/etc should arm the radio - re-issuing
+     * SetRx on every poll, or dropping to standby whenever nothing arrived,
+     * would make the chip spend nearly all of its time NOT listening and it
+     * would rarely if ever get far enough into a preamble to decode a
+     * packet. SX126x Rx Continuous mode automatically re-arms after each
+     * received packet in hardware, so once armed here we only touch the
+     * operating mode again if the caller (via set_state) asks us to. This
+     * mirrors rfm95_receive_lora_locked's "only enter RX if not already
+     * there, never fall back to standby" contract. */
+    if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
+        err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+        if (err == ESP_OK) {
+            const uint8_t params[3] = {0xFFU, 0xFFU, 0xFFU}; /* continuous */
+            err = sx1262_transact(dev, SX1262_OP_SET_RX, params, sizeof(params), NULL, 0);
+        }
+        if (err != ESP_OK) {
+            sx1262_unlock(dev);
+            return err;
+        }
+        dev->state = SOLAR_OS_RADIO_STATE_RX;
     }
 
-    dev->state = SOLAR_OS_RADIO_STATE_RX;
     const int64_t start = esp_timer_get_time();
     bool rx_done = false;
     while (true) {
@@ -716,8 +744,9 @@ esp_err_t sx1262_receive(sx1262_t *dev, solar_os_radio_packet_t *packet, uint32_
         }
         vTaskDelay(pdMS_TO_TICKS(SX1262_POLL_INTERVAL_MS));
     }
-    (void)sx1262_set_standby(dev);
-    dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+    /* Deliberately no SetStandby here on any path, success or timeout: the
+     * radio stays in Rx Continuous, ready for the next poll or the next
+     * packet, exactly as it was before this call. */
 
     if (rx_done && err == ESP_OK) {
         /* Both "Get" responses below carry a leading status byte before the
