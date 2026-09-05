@@ -10,7 +10,14 @@
 #define TERM_NVS_PALETTE_KEY "palette"
 #define TERM_NVS_STATUS_BAR_KEY "statusbar"
 #define TERM_DEFAULT_FONT SOLAR_OS_TERMINAL_FONT_COMPACT
+/* A board may pick a different factory default text size for its panel via
+ * SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE (a solar_os_terminal_text_size_t
+ * value); it only applies until the user saves their own preference. */
+#ifdef SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE
+#define TERM_DEFAULT_TEXT_SIZE SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE
+#else
 #define TERM_DEFAULT_TEXT_SIZE SOLAR_OS_TERMINAL_TEXT_SIZE_16
+#endif
 
 #ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION
 #define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 0
