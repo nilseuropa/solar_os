@@ -999,3 +999,24 @@ key = "b"
 kind = "gpio"
 hint = "gpio"
 required = true
+
+[drivers.bq27220]
+summary = "BQ27220 fuel gauge (T-LoRa-Pager)"
+package = "bq27220"
+targets = ["esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["battery"]
+default_name = "battery0"
+
+[[drivers.bq27220.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bq27220.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x55"
+required = true
+allowed = [0x55]

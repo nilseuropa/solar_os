@@ -17,6 +17,7 @@ drivers = [
   "display_st7796",
   "rtc_pcf85063",
   "storage_expansion",
+  "battery_expansion",
   "audio_es8311_duplex",
   "i2c_esp_idf",
   "spi_esp_idf",
@@ -27,7 +28,7 @@ drivers = [
 capabilities = [
   "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness",
-  "cdc", "uart", "sd", "i2c", "spi", "rtc", "audio", "audio_input",
+  "cdc", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
   "wifi", "ble", "gpio", "adc", "pwm", "key", "buttons",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_adc", "expansion_pwm", "expansion_i2s",
@@ -169,6 +170,11 @@ bindings = { i2c = "i2c0", addr = 0x34, irq = 6, backlight = 46 }
 driver = "rotary-encoder"
 name = "wheel0"
 bindings = { a = 40, b = 41 }
+
+[[devices]]
+driver = "bq27220"
+name = "battery0"
+bindings = { i2c = "i2c0", addr = 0x55 }
 
 [[devices]]
 driver = "sx1262"

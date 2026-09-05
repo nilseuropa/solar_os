@@ -567,6 +567,12 @@ category = "Internal"
 hidden = true
 members = ["rotary_encoder"]
 
+[groups.bq27220]
+label = "BQ27220 fuel gauge"
+category = "Internal"
+hidden = true
+members = ["bq27220"]
+
 [packages.core_runtime]
 label = "bootstrap.runtime"
 depends = ["service_schedule", "service_streams"]
@@ -1268,6 +1274,18 @@ sources = [
 ]
 requires = ["esp_driver_gpio"]
 capabilities = ["gpio"]
+
+[packages.bq27220]
+label = "board.bq27220"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_bq27220_expansion_driver"]
+depends = ["service_battery", "service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_bq27220.c",
+  "services/solar_os_bq27220_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"
