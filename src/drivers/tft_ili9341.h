@@ -32,6 +32,9 @@ typedef struct {
     /* >0 selects a single-wire pulse dimmer (AW9364 class) with this many
      * brightness steps instead of plain on/off or PWM on backlight_pin. */
     uint8_t backlight_pulse_steps;
+    /* >0 snaps requested brightness to multiples of this percentage before
+     * it is applied (e.g. 20 gives five user-facing levels). 0 = no snapping. */
+    uint8_t backlight_step_percent;
     const u8g2_cb_t *rotation;
 } tft_ili9341_config_t;
 

@@ -21,6 +21,9 @@
 #ifndef SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS
 #define SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS 0U
 #endif
+#ifndef SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT
+#define SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT 0U
+#endif
 #ifndef SOLAR_OS_BOARD_DISPLAY_COL_OFFSET
 #define SOLAR_OS_BOARD_DISPLAY_COL_OFFSET 0U
 #endif
@@ -274,6 +277,7 @@ static esp_err_t attach_tft(const char *name,
         .backlight_active_high = active_high,
         .backlight_pwm = pwm,
         .backlight_pulse_steps = SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS,
+        .backlight_step_percent = SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT,
 #ifdef SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION
         .rotation = SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION,
 #else

@@ -152,6 +152,15 @@ static esp_err_t ili9341_apply_backlight_pulse(tft_ili9341_t *display,
                                                uint8_t percent) {
   const uint8_t steps = display->config.backlight_pulse_steps;
   const gpio_num_t pin = display->config.backlight_pin;
+  const uint8_t quantum = display->config.backlight_step_percent;
+  if (quantum > 0 && percent > 0) {
+    /* Snap to the nearest multiple of the board's step size, never below
+     * one step so a nonzero request cannot round down to "off". */
+    unsigned snapped = ((unsigned)percent + quantum / 2U) / quantum * quantum;
+    if (snapped == 0) snapped = quantum;
+    if (snapped > 100) snapped = 100;
+    percent = (uint8_t)snapped;
+  }
   uint8_t target = 0;
   if (percent > 0) {
     target = (uint8_t)(((unsigned)percent * steps + 50U) / 100U);

@@ -65,6 +65,8 @@ SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL = "1"
 SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM = "0"
 # AW9364 single-wire dimmer on the backlight pin: 16 brightness steps.
 SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS = "16"
+# User-facing brightness moves in 20 % steps (five levels) on this panel.
+SOLAR_OS_BOARD_LCD_BACKLIGHT_STEP_PERCENT = "20"
 SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_SPI_NAME = '"FSPI"'
 SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_35"
