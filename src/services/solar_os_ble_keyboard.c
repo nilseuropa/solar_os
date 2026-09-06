@@ -55,6 +55,7 @@
 #define BLE_GATT_APP_ID 1U
 #define BLE_GATT_CONNECT_TIMEOUT_MS 12000U
 #define BLE_GATT_OPERATION_TIMEOUT_MS 5000U
+#define BLE_KEYBOARD_BOND_REMOVE_TIMEOUT_MS BLE_GATT_OPERATION_TIMEOUT_MS
 #define BLE_GATT_INVALID_CONN_ID UINT16_MAX
 
 typedef enum {
@@ -118,6 +119,7 @@ static const char *TAG = "ble_keyboard";
 
 static SemaphoreHandle_t scan_done_sem;
 static SemaphoreHandle_t close_done_sem;
+static SemaphoreHandle_t bond_remove_sem;
 static SemaphoreHandle_t status_mutex;
 static SemaphoreHandle_t gatt_mutex;
 static SemaphoreHandle_t gatt_op_sem;
@@ -126,10 +128,14 @@ static TaskHandle_t reconnect_task_handle;
 static TickType_t reconnect_fast_until_tick;
 static portMUX_TYPE key_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE reconnect_task_lock = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE bond_remove_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool reconnect_stop_requested;
 static bool reconnect_open_in_progress;
 static esp_bd_addr_t deferred_forget_bdas[BLE_KEYBOARD_MAX_REMEMBERED];
 static size_t deferred_forget_count;
+static bool bond_remove_pending;
+static esp_bd_addr_t bond_remove_bda;
+static esp_bt_status_t bond_remove_status = ESP_BT_STATUS_FAIL;
 static bool initialized;
 static bool hidh_initialized;
 static bool classic_bt_memory_released;
@@ -144,6 +150,7 @@ static esp_err_t disabled_boot_memory_release_result = ESP_OK;
 static bool connected;
 static bool reconnect_suppressed_for_sleep;
 static bool reconnect_suppressed_for_pairing;
+static bool reconnect_suppressed_for_forget;
 static bool pairing_retry_pending;
 static bool pairing_scan_stop_requested;
 static ble_keyboard_scan_mode_t active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
@@ -416,7 +423,8 @@ static esp_err_t run_keyboard_scan(ble_keyboard_scan_mode_t mode);
 static esp_err_t start_pairing_scan_now(void);
 static void request_pairing_after_pending_connect(const char *reason);
 static bool deferred_bond_forget_pending(void);
-static void remove_deferred_bonds(void);
+static esp_err_t remove_deferred_bonds(void);
+static esp_err_t complete_deferred_bond_forget(void);
 static void ble_gattc_callback(esp_gattc_cb_event_t event,
                                esp_gatt_if_t gattc_if,
                                esp_ble_gattc_cb_param_t *param);
@@ -471,6 +479,7 @@ static bool reconnect_is_suppressed(void)
 {
     return reconnect_suppressed_for_sleep ||
         reconnect_suppressed_for_pairing ||
+        reconnect_suppressed_for_forget ||
         pairing_retry_pending;
 }
 
@@ -645,6 +654,9 @@ static esp_err_t ensure_runtime_objects(void)
     if (close_done_sem == NULL) {
         close_done_sem = xSemaphoreCreateBinary();
     }
+    if (bond_remove_sem == NULL) {
+        bond_remove_sem = xSemaphoreCreateBinary();
+    }
     if (status_mutex == NULL) {
         status_mutex = xSemaphoreCreateMutex();
     }
@@ -657,6 +669,7 @@ static esp_err_t ensure_runtime_objects(void)
     if (status_mutex == NULL ||
         scan_done_sem == NULL ||
         close_done_sem == NULL ||
+        bond_remove_sem == NULL ||
         gatt_mutex == NULL ||
         gatt_op_sem == NULL) {
         set_status(BLE_KEYBOARD_FAILED, "ble no memory");
@@ -898,8 +911,12 @@ static esp_err_t save_keyboard_layout(solar_os_ble_keyboard_layout_t layout)
     return ret;
 }
 
-static esp_err_t save_remembered_peers_to_nvs(void)
+static esp_err_t save_remembered_peers_blob_to_nvs(const ble_keyboard_peer_t *peers)
 {
+    if (peers == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     nvs_handle_t nvs;
     esp_err_t ret = nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (ret != ESP_OK) {
@@ -909,7 +926,7 @@ static esp_err_t save_remembered_peers_to_nvs(void)
 
     ret = nvs_set_blob(nvs,
                        BLE_KEYBOARD_NVS_PEERS_KEY,
-                       remembered_peers,
+                       peers,
                        sizeof(remembered_peers));
     if (ret == ESP_OK) {
         ret = nvs_erase_key(nvs, BLE_KEYBOARD_NVS_LEGACY_PEER_KEY);
@@ -927,6 +944,11 @@ static esp_err_t save_remembered_peers_to_nvs(void)
     }
 
     return ret;
+}
+
+static esp_err_t save_remembered_peers_to_nvs(void)
+{
+    return save_remembered_peers_blob_to_nvs(remembered_peers);
 }
 
 static void log_remembered_peers(void)
@@ -1034,34 +1056,32 @@ static esp_err_t save_remembered_peer(const uint8_t *bda, esp_ble_addr_type_t ad
     return ret;
 }
 
-static esp_err_t clear_remembered_peers(void)
+static esp_err_t remove_remembered_peer(const uint8_t *bda)
 {
-    memset(remembered_peers, 0, sizeof(remembered_peers));
-
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
+    const int index = remembered_peer_index_by_bda(bda);
+    if (index < 0) {
+        return ESP_ERR_NOT_FOUND;
     }
+
+    ble_keyboard_peer_t remaining[BLE_KEYBOARD_MAX_REMEMBERED];
+    memcpy(remaining, remembered_peers, sizeof(remaining));
+    memset(&remaining[index], 0, sizeof(remaining[index]));
+
+    /* Persist only after the corresponding bond removal completed. */
+    const esp_err_t ret = save_remembered_peers_blob_to_nvs(remaining);
     if (ret != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "remembered keyboard removal from NVS failed for " ESP_BD_ADDR_STR ": %s",
+                      ESP_BD_ADDR_HEX(bda),
+                      esp_err_to_name(ret));
         return ret;
     }
 
-    ret = nvs_erase_key(nvs, BLE_KEYBOARD_NVS_PEERS_KEY);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        ret = ESP_OK;
-    }
-    if (ret == ESP_OK) {
-        ret = nvs_erase_key(nvs, BLE_KEYBOARD_NVS_LEGACY_PEER_KEY);
-        if (ret == ESP_ERR_NVS_NOT_FOUND) {
-            ret = ESP_OK;
-        }
-    }
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs);
-    }
-    nvs_close(nvs);
-    return ret;
+    memcpy(remembered_peers, remaining, sizeof(remembered_peers));
+    SOLAR_OS_LOGI(TAG,
+                  "removed remembered keyboard " ESP_BD_ADDR_STR,
+                  ESP_BD_ADDR_HEX(bda));
+    return ESP_OK;
 }
 
 static bool hidh_conn_params_ready(esp_hidh_dev_t *dev, esp_gap_conn_params_t *params)
@@ -1821,6 +1841,31 @@ static void gap_callback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *p
         }
         break;
 
+    case ESP_GAP_BLE_REMOVE_BOND_DEV_COMPLETE_EVT: {
+        const uint8_t *bda = param->remove_bond_dev_cmpl.bd_addr;
+        bool matches_pending = false;
+
+        portENTER_CRITICAL(&bond_remove_lock);
+        if (bond_remove_pending &&
+            memcmp(bda, bond_remove_bda, sizeof(esp_bd_addr_t)) == 0) {
+            bond_remove_status = param->remove_bond_dev_cmpl.status;
+            bond_remove_pending = false;
+            matches_pending = true;
+        }
+        portEXIT_CRITICAL(&bond_remove_lock);
+
+        SOLAR_OS_LOGI(TAG,
+                      "BLE bond removal complete " ESP_BD_ADDR_STR
+                      " status=0x%x%s",
+                      ESP_BD_ADDR_HEX(bda),
+                      (unsigned)param->remove_bond_dev_cmpl.status,
+                      matches_pending ? " (pending operation)" : " (ignored)");
+        if (matches_pending && bond_remove_sem != NULL) {
+            xSemaphoreGive(bond_remove_sem);
+        }
+        break;
+    }
+
     case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
         SOLAR_OS_LOGI(TAG,
                  "conn params update status=%d interval=%u ms latency=%u timeout=%u ms",
@@ -2172,7 +2217,6 @@ static void hidh_callback(void *handler_args, esp_event_base_t base, int32_t id,
                  param->close.reason,
                  esp_err_to_name(param->close.status));
         esp_hidh_dev_free(param->close.dev);
-        remove_deferred_bonds();
         set_status(BLE_KEYBOARD_IDLE, "disconnected");
         if (close_done_sem != NULL) {
             xSemaphoreGive(close_done_sem);
@@ -2922,6 +2966,14 @@ static bool pending_open_timed_out(void)
                   (pending_open_started_tick + pdMS_TO_TICKS(BLE_KEYBOARD_OPEN_TIMEOUT_MS))) >= 0;
 }
 
+static void clear_deferred_bond_forget(void)
+{
+    portENTER_CRITICAL(&reconnect_task_lock);
+    deferred_forget_count = 0U;
+    memset(deferred_forget_bdas, 0, sizeof(deferred_forget_bdas));
+    portEXIT_CRITICAL(&reconnect_task_lock);
+}
+
 static void defer_bond_forget(const ble_keyboard_peer_t *peers)
 {
     size_t count = 0U;
@@ -2933,6 +2985,7 @@ static void defer_bond_forget(const ble_keyboard_peer_t *peers)
         }
     }
 
+    clear_deferred_bond_forget();
     if (count > 0U) {
         portENTER_CRITICAL(&reconnect_task_lock);
         memcpy(deferred_forget_bdas, bdas, sizeof(deferred_forget_bdas));
@@ -2953,7 +3006,97 @@ static bool deferred_bond_forget_pending(void)
     return pending;
 }
 
-static void remove_deferred_bonds(void)
+static void cancel_bond_remove_wait(void)
+{
+    portENTER_CRITICAL(&bond_remove_lock);
+    bond_remove_pending = false;
+    memset(bond_remove_bda, 0, sizeof(bond_remove_bda));
+    bond_remove_status = ESP_BT_STATUS_FAIL;
+    portEXIT_CRITICAL(&bond_remove_lock);
+}
+
+static esp_err_t begin_bond_remove_wait(const uint8_t *bda)
+{
+    if (bda == NULL || bond_remove_sem == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    while (xSemaphoreTake(bond_remove_sem, 0) == pdTRUE) {
+    }
+
+    portENTER_CRITICAL(&bond_remove_lock);
+    if (bond_remove_pending) {
+        portEXIT_CRITICAL(&bond_remove_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    memcpy(bond_remove_bda, bda, sizeof(bond_remove_bda));
+    bond_remove_status = ESP_BT_STATUS_FAIL;
+    /* Set this before esp_ble_remove_bond_device() can dispatch its event. */
+    bond_remove_pending = true;
+    portEXIT_CRITICAL(&bond_remove_lock);
+    return ESP_OK;
+}
+
+static esp_err_t wait_for_bond_remove_completion(const uint8_t *bda)
+{
+    if (xSemaphoreTake(bond_remove_sem,
+                       pdMS_TO_TICKS(BLE_KEYBOARD_BOND_REMOVE_TIMEOUT_MS)) != pdTRUE) {
+        SOLAR_OS_LOGW(TAG,
+                      "BLE bond removal timeout for " ESP_BD_ADDR_STR,
+                      ESP_BD_ADDR_HEX(bda));
+        cancel_bond_remove_wait();
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_bt_status_t status;
+    portENTER_CRITICAL(&bond_remove_lock);
+    status = bond_remove_status;
+    portEXIT_CRITICAL(&bond_remove_lock);
+    if (status != ESP_BT_STATUS_SUCCESS) {
+        SOLAR_OS_LOGW(TAG,
+                      "BLE bond removal failed for " ESP_BD_ADDR_STR " status=0x%x",
+                      ESP_BD_ADDR_HEX(bda),
+                      (unsigned)status);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t remove_one_deferred_bond(const uint8_t *bda, size_t index)
+{
+    /* The cache-clean API only reports whether its asynchronous request was queued. */
+    const esp_err_t cache_ret = esp_ble_gattc_cache_clean((uint8_t *)bda);
+    SOLAR_OS_LOGI(TAG,
+                  "forget bond %u " ESP_BD_ADDR_STR ": cache clean queued=%s",
+                  (unsigned)index,
+                  ESP_BD_ADDR_HEX(bda),
+                  esp_err_to_name(cache_ret));
+    if (cache_ret != ESP_OK) {
+        return cache_ret;
+    }
+
+    esp_err_t ret = begin_bond_remove_wait(bda);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const esp_err_t remove_ret = esp_ble_remove_bond_device((uint8_t *)bda);
+    SOLAR_OS_LOGI(TAG,
+                  "forget bond %u " ESP_BD_ADDR_STR ": remove request=%s",
+                  (unsigned)index,
+                  ESP_BD_ADDR_HEX(bda),
+                  esp_err_to_name(remove_ret));
+    if (remove_ret != ESP_OK) {
+        cancel_bond_remove_wait();
+        return remove_ret;
+    }
+
+    return wait_for_bond_remove_completion(bda);
+}
+
+static esp_err_t remove_deferred_bonds(void)
 {
     esp_bd_addr_t bdas[BLE_KEYBOARD_MAX_REMEMBERED] = {0};
     size_t count = 0U;
@@ -2961,64 +3104,77 @@ static void remove_deferred_bonds(void)
     portENTER_CRITICAL(&reconnect_task_lock);
     count = deferred_forget_count;
     memcpy(bdas, deferred_forget_bdas, sizeof(bdas));
-    deferred_forget_count = 0U;
-    memset(deferred_forget_bdas, 0, sizeof(deferred_forget_bdas));
     portEXIT_CRITICAL(&reconnect_task_lock);
     if (count == 0U) {
-        return;
+        return ESP_OK;
     }
 
+    esp_err_t result = ESP_OK;
     for (size_t i = 0U; i < count; i++) {
-        /* Bluedroid stores its GATT database separately from bond data. */
-        const esp_err_t cache_ret = esp_ble_gattc_cache_clean(bdas[i]);
-        if (cache_ret != ESP_OK) {
-            SOLAR_OS_LOGW(TAG,
-                          "deferred clean BLE GATT cache %u failed: %s",
-                          (unsigned)i,
-                          esp_err_to_name(cache_ret));
-        }
-
-        const esp_err_t remove_ret = esp_ble_remove_bond_device(bdas[i]);
+        const esp_err_t remove_ret = remove_one_deferred_bond(bdas[i], i);
         if (remove_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG,
-                          "deferred remove BLE bond %u failed: %s",
+                          "forget bond %u failed for " ESP_BD_ADDR_STR ": %s",
                           (unsigned)i,
+                          ESP_BD_ADDR_HEX(bdas[i]),
                           esp_err_to_name(remove_ret));
+            result = remove_ret;
+            break;
+        }
+
+        /* A successful GAP completion is the commit point for this peer. */
+        const esp_err_t remembered_ret = remove_remembered_peer(bdas[i]);
+        if (remembered_ret == ESP_ERR_NOT_FOUND) {
+            SOLAR_OS_LOGI(TAG,
+                          "forget bond %u already absent from remembered peers",
+                          (unsigned)i);
+            continue;
+        }
+        if (remembered_ret != ESP_OK) {
+            result = remembered_ret;
+            break;
         }
     }
+
+    clear_deferred_bond_forget();
+    return result;
 }
 
-static void complete_deferred_bond_forget(void)
+static esp_err_t complete_deferred_bond_forget(void)
 {
     if (!deferred_bond_forget_pending()) {
-        return;
+        return ESP_OK;
     }
 
-    reconnect_suppressed_for_pairing = true;
-    if (connected_dev != NULL) {
+    if (!close_pending_open_attempt("forget", BLE_KEYBOARD_STALE_CLOSE_TIMEOUT_MS)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (connected && connected_dev != NULL) {
         while (close_done_sem != NULL &&
                xSemaphoreTake(close_done_sem, 0) == pdTRUE) {
         }
-        const esp_err_t close_ret = esp_hidh_dev_close(connected_dev);
+        esp_hidh_dev_t *dev = connected_dev;
+        const esp_err_t close_ret = esp_hidh_dev_close(dev);
         if (close_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG,
                           "deferred forget keyboard close failed: %s",
                           esp_err_to_name(close_ret));
-            reconnect_suppressed_for_pairing = false;
-            return;
-        } else if (close_done_sem != NULL &&
-                   xSemaphoreTake(
-                       close_done_sem,
-                       pdMS_TO_TICKS(BLE_KEYBOARD_STALE_CLOSE_TIMEOUT_MS)) !=
-                       pdTRUE) {
+            return close_ret;
+        }
+        if (close_done_sem == NULL ||
+            xSemaphoreTake(close_done_sem,
+                           pdMS_TO_TICKS(BLE_KEYBOARD_STALE_CLOSE_TIMEOUT_MS)) != pdTRUE) {
             SOLAR_OS_LOGW(TAG, "deferred forget keyboard close timeout");
-            reconnect_suppressed_for_pairing = false;
-            return;
+            if (esp_hidh_dev_exists(dev)) {
+                (void)esp_hidh_dev_free_inner(dev);
+            }
+            clear_runtime_connection_state("forget disconnect timeout");
+            return ESP_ERR_TIMEOUT;
         }
     }
 
-    remove_deferred_bonds();
-    reconnect_suppressed_for_pairing = false;
+    return remove_deferred_bonds();
 }
 
 static void reconnect_task(void *arg)
@@ -3098,7 +3254,6 @@ static void reconnect_task(void *arg)
     reconnect_open_in_progress = false;
     portEXIT_CRITICAL(&reconnect_task_lock);
 
-    complete_deferred_bond_forget();
     if (pairing_retry_pending) {
         const esp_err_t pair_ret = start_pairing_scan_now();
         if (pair_ret != ESP_OK) {
@@ -3329,18 +3484,28 @@ static esp_err_t forget_remembered_keyboard(void)
     memcpy(forgotten_peers, remembered_peers, sizeof(forgotten_peers));
 
     defer_bond_forget(forgotten_peers);
-    const bool reconnect_stopped = stop_reconnect_task("forget", 50U);
-
-    esp_err_t ret = clear_remembered_peers();
-    if (ret != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "clear remembered keyboard failed: %s", esp_err_to_name(ret));
+    if (!deferred_bond_forget_pending()) {
+        set_status(BLE_KEYBOARD_IDLE, "no remembered keyboard");
+        return ESP_OK;
     }
 
-    if (reconnect_stopped) {
-        complete_deferred_bond_forget();
+    reconnect_suppressed_for_forget = true;
+    const bool reconnect_stopped =
+        stop_reconnect_task("forget", BLE_KEYBOARD_BOND_REMOVE_TIMEOUT_MS);
+    if (!reconnect_stopped) {
+        clear_deferred_bond_forget();
+        reconnect_suppressed_for_forget = false;
+        set_status(BLE_KEYBOARD_FAILED, "forget timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const esp_err_t ret = complete_deferred_bond_forget();
+    clear_deferred_bond_forget();
+    reconnect_suppressed_for_forget = false;
+    if (ret == ESP_OK) {
         set_status(BLE_KEYBOARD_IDLE, "forgot keyboard");
     } else {
-        set_status(BLE_KEYBOARD_PAIRING_PENDING, "forget pending");
+        set_status(BLE_KEYBOARD_FAILED, "forget failed");
     }
 
     return ret;
