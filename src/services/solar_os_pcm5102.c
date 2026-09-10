@@ -5,7 +5,6 @@
 
 #include "pcm5102.h"
 #include "solar_os_audio.h"
-#include "solar_os_resources.h"
 #include "solar_os_stream.h"
 
 #define PCM5102_DEVICE_NAME_MAX 16U
@@ -62,7 +61,8 @@ pcm5102_stream_open(void *user, const char *owner,
     format.channels = options->requested_audio.channels;
   }
   const esp_err_t err =
-      pcm5102_open((gpio_num_t)device->bck_pin, (gpio_num_t)device->din_pin,
+      pcm5102_open(device->i2s_port, (gpio_num_t)device->bck_pin,
+                   (gpio_num_t)device->din_pin,
                    (gpio_num_t)device->rck_pin);
   if (err == ESP_OK) {
     handle->context = device;
@@ -122,11 +122,11 @@ static esp_err_t pcm5102_register_stream(solar_os_pcm5102_device_t *device) {
       .user = device,
   };
   strlcpy(driver.info.id, device->stream_id, sizeof(driver.info.id));
-  strlcpy(driver.info.provider, "pcm5102", sizeof(driver.info.provider));
+  strlcpy(driver.info.provider, "i2s-output", sizeof(driver.info.provider));
   strlcpy(driver.info.device, device->id, sizeof(driver.info.device));
   strlcpy(driver.info.unit, "frames", sizeof(driver.info.unit));
   strlcpy(driver.info.format, "pcm-s16le", sizeof(driver.info.format));
-  strlcpy(driver.info.summary, "PCM5102A I2S audio playback",
+  strlcpy(driver.info.summary, "I2S audio playback",
           sizeof(driver.info.summary));
   return solar_os_stream_register(&driver);
 }
@@ -140,10 +140,15 @@ esp_err_t solar_os_pcm5102_attach(const char *name,
     return pcm5102_audio.attached ? ESP_ERR_NOT_ALLOWED : ESP_ERR_INVALID_ARG;
   }
 
+  int i2s_port = -1;
   int bck_pin = -1;
   int din_pin = -1;
   int rck_pin = -1;
   for (size_t i = 0; i < binding_count; i++) {
+    if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_I2S_PORT) {
+      i2s_port = bindings[i].value;
+      continue;
+    }
     if (bindings[i].kind != SOLAR_OS_EXPANSION_BINDING_GPIO) {
       continue;
     }
@@ -155,19 +160,10 @@ esp_err_t solar_os_pcm5102_attach(const char *name,
       rck_pin = bindings[i].value;
     }
   }
-  if (bck_pin < 0 || din_pin < 0 || rck_pin < 0 || bck_pin == din_pin ||
+  if (i2s_port < 0 || bck_pin < 0 || din_pin < 0 || rck_pin < 0 ||
+      bck_pin == din_pin ||
       bck_pin == rck_pin || din_pin == rck_pin) {
     return ESP_ERR_INVALID_ARG;
-  }
-
-  const int i2s_port = pcm5102_i2s_port();
-  if (i2s_port < 0) {
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-  esp_err_t err = solar_os_resource_claim(SOLAR_OS_RESOURCE_I2S_PORT, i2s_port,
-                                          -1, name, "pcm5102");
-  if (err != ESP_OK) {
-    return err;
   }
 
   memset(&pcm5102_audio, 0, sizeof(pcm5102_audio));
@@ -181,17 +177,13 @@ esp_err_t solar_os_pcm5102_attach(const char *name,
       snprintf(pcm5102_audio.stream_id, sizeof(pcm5102_audio.stream_id),
                "%s.playback", name);
   if (stream_len < 0 || (size_t)stream_len >= sizeof(pcm5102_audio.stream_id)) {
-    (void)solar_os_resource_release(SOLAR_OS_RESOURCE_I2S_PORT, i2s_port, -1,
-                                    name);
     memset(&pcm5102_audio, 0, sizeof(pcm5102_audio));
     return ESP_ERR_INVALID_ARG;
   }
   pcm5102_audio.attached = true;
 
-  err = pcm5102_register_stream(&pcm5102_audio);
+  esp_err_t err = pcm5102_register_stream(&pcm5102_audio);
   if (err != ESP_OK) {
-    (void)solar_os_resource_release(SOLAR_OS_RESOURCE_I2S_PORT, i2s_port, -1,
-                                    name);
     memset(&pcm5102_audio, 0, sizeof(pcm5102_audio));
     return err;
   }
@@ -202,7 +194,7 @@ esp_err_t solar_os_pcm5102_attach(const char *name,
       .native_format = pcm5102_native_format,
   };
   strlcpy(info.id, pcm5102_audio.id, sizeof(info.id));
-  snprintf(info.name, sizeof(info.name), "PCM5102A I2S%d BCK%d DIN%d RCK%d",
+  snprintf(info.name, sizeof(info.name), "I2S output I2S%d BCK%d DIN%d RCK%d",
            i2s_port, bck_pin, din_pin, rck_pin);
   strlcpy(info.provider, "expansion", sizeof(info.provider));
   strlcpy(info.playback_stream, pcm5102_audio.stream_id,
@@ -213,8 +205,6 @@ esp_err_t solar_os_pcm5102_attach(const char *name,
   err = solar_os_audio_register_device_ex(&info, &ops, &pcm5102_audio);
   if (err != ESP_OK) {
     (void)solar_os_stream_unregister(pcm5102_audio.stream_id);
-    (void)solar_os_resource_release(SOLAR_OS_RESOURCE_I2S_PORT, i2s_port, -1,
-                                    name);
     memset(&pcm5102_audio, 0, sizeof(pcm5102_audio));
   }
   return err;
@@ -230,12 +220,6 @@ esp_err_t solar_os_pcm5102_detach(const char *name) {
     return err;
   }
   err = solar_os_audio_unregister_device(pcm5102_audio.id);
-  if (err != ESP_OK) {
-    return err;
-  }
-  err = solar_os_resource_release(SOLAR_OS_RESOURCE_I2S_PORT,
-                                  pcm5102_audio.i2s_port, -1,
-                                  pcm5102_audio.id);
   if (err != ESP_OK) {
     return err;
   }

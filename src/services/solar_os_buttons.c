@@ -3,6 +3,7 @@
 #include "esp_timer.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_input.h"
+#include "solar_os_input_composition.h"
 #include "solar_os_log.h"
 
 #if SOLAR_OS_BOARD_HAS_BUTTONS
@@ -19,6 +20,9 @@ typedef struct {
     bool last_raw_pressed;
     bool stable_pressed;
     uint32_t raw_changed_ms;
+    uint32_t raw_transitions;
+    uint32_t stable_transitions;
+    uint32_t suppressed_releases;
 } button_state_t;
 
 static const char *TAG = "solar_os_buttons";
@@ -26,6 +30,7 @@ static const solar_os_button_def_t button_defs[] = SOLAR_OS_BOARD_BUTTONS;
 static button_state_t button_states[sizeof(button_defs) / sizeof(button_defs[0])];
 static bool buttons_initialized;
 static solar_os_input_source_t buttons_input_source;
+static uint32_t buttons_last_vertical_release_ms;
 
 static uint32_t buttons_millis(void)
 {
@@ -46,6 +51,18 @@ static bool button_raw_pressed(const solar_os_button_def_t *def)
 {
     const int level = gpio_get_level(def->pin);
     return def->active_low ? level == 0 : level != 0;
+}
+
+static bool button_is_vertical(const solar_os_button_def_t *def)
+{
+    return def != NULL && (def->key == SOLAR_OS_KEY_UP ||
+                           def->key == SOLAR_OS_KEY_DOWN);
+}
+
+static bool button_is_horizontal(const solar_os_button_def_t *def)
+{
+    return def != NULL && (def->key == SOLAR_OS_KEY_LEFT ||
+                           def->key == SOLAR_OS_KEY_RIGHT);
 }
 #endif
 
@@ -128,6 +145,7 @@ void solar_os_buttons_poll(void)
         if (pressed != state->last_raw_pressed) {
             state->last_raw_pressed = pressed;
             state->raw_changed_ms = now_ms;
+            state->raw_transitions++;
             continue;
         }
 
@@ -137,13 +155,23 @@ void solar_os_buttons_poll(void)
         }
 
         state->stable_pressed = pressed;
+        state->stable_transitions++;
         if (def->key == 0) {
             continue;
         }
         if (def->emit_on_release) {
             if (!pressed) {
+                if (button_is_vertical(def)) {
+                    buttons_last_vertical_release_ms = now_ms;
+                } else if (button_is_horizontal(def) &&
+                           def->horizontal_guard_after_vertical_ms != 0U &&
+                           (uint32_t)(now_ms - buttons_last_vertical_release_ms) <
+                               def->horizontal_guard_after_vertical_ms) {
+                    state->suppressed_releases++;
+                    continue;
+                }
                 (void)solar_os_input_write_char(buttons_input_source,
-                                                (char)def->key);
+                    (char)solar_os_input_composition_apply(def->key));
             }
             continue;
         }
@@ -155,6 +183,41 @@ void solar_os_buttons_poll(void)
                                        pressed ? SOLAR_OS_INPUT_KEY_PRESS :
                                            SOLAR_OS_INPUT_KEY_RELEASE);
     }
+#endif
+}
+
+size_t solar_os_buttons_count(void)
+{
+#if !SOLAR_OS_BOARD_HAS_BUTTONS
+    return 0U;
+#else
+    return sizeof(button_defs) / sizeof(button_defs[0]);
+#endif
+}
+
+bool solar_os_buttons_debug_get(size_t index, solar_os_button_debug_info_t *info)
+{
+#if !SOLAR_OS_BOARD_HAS_BUTTONS
+    (void)index;
+    (void)info;
+    return false;
+#else
+    if (info == NULL || index >= solar_os_buttons_count()) {
+        return false;
+    }
+    const solar_os_button_def_t *def = &button_defs[index];
+    const button_state_t *state = &button_states[index];
+    *info = (solar_os_button_debug_info_t) {
+        .pin = def->pin,
+        .name = def->name,
+        .key = def->key,
+        .raw_pressed = state->last_raw_pressed,
+        .stable_pressed = state->stable_pressed,
+        .raw_transitions = state->raw_transitions,
+        .stable_transitions = state->stable_transitions,
+        .suppressed_releases = state->suppressed_releases,
+    };
+    return true;
 #endif
 }
 

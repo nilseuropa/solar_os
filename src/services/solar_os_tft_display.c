@@ -54,6 +54,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 int *dc,
                                 int *reset,
                                 int *backlight,
+                                int *power,
                                 bool *backlight_active_high,
                                 bool *backlight_pwm)
 {
@@ -64,6 +65,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     *dc = -1;
     *reset = -1;
     *backlight = -1;
+    *power = -1;
     *backlight_active_high = true;
     *backlight_pwm = false;
     for (size_t i = 0; i < count; i++) {
@@ -90,6 +92,9 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO &&
                    role_is(binding, "bl") && *backlight < 0) {
             *backlight = binding->value;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO &&
+                   role_is(binding, "power") && *power < 0) {
+            *power = binding->value;
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
                    role_is(binding, "active")) {
             *backlight_active_high = binding->value != 0;
@@ -223,13 +228,15 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
 static esp_err_t attach_tft(const char *name,
                             const solar_os_expansion_binding_t *bindings,
                             size_t binding_count,
-                            bool st7796)
+                            bool st7796,
+                            bool st7789)
 {
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int cs = -1;
     int dc = -1;
     int reset = -1;
     int backlight = -1;
+    int power = -1;
     bool active_high = true;
     bool pwm = false;
     if (device != NULL || name == NULL || name[0] == '\0') {
@@ -242,6 +249,7 @@ static esp_err_t attach_tft(const char *name,
                                        &dc,
                                        &reset,
                                        &backlight,
+                                       &power,
                                        &active_high,
                                        &pwm),
                         "tft",
@@ -263,17 +271,20 @@ static esp_err_t attach_tft(const char *name,
         .width = SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH,
         .height = SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT,
 #else
-        .width = st7796 ? 320 : 240,
-        .height = st7796 ? 480 : 320,
+        .width = (st7796 || st7789) ? 320 : 240,
+        .height = (st7796 || st7789) ? 480 : 320,
 #endif
 #ifdef SOLAR_OS_BOARD_DISPLAY_MADCTL
         .madctl = SOLAR_OS_BOARD_DISPLAY_MADCTL,
 #else
-        .madctl = st7796 ? 0x48 : 0x88,
+        .madctl = (st7796 || st7789) ? 0x60 : 0x88,
 #endif
         .col_offset = SOLAR_OS_BOARD_DISPLAY_COL_OFFSET,
         .row_offset = SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET,
         .st7796 = st7796,
+        .st7789 = st7789,
+        .power_pin = power,
+        .power_active_high = true,
         .backlight_active_high = active_high,
         .backlight_pwm = pwm,
         .backlight_pulse_steps = SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS,
@@ -295,9 +306,9 @@ static esp_err_t attach_tft(const char *name,
     device->display = (solar_os_board_display_t) {
         .ops = &display_ops,
         .driver = &device->driver,
-        .driver_name = st7796 ? "st7796" : "ili9341",
+        .driver_name = st7796 ? "st7796" : (st7789 ? "st7789" : "ili9341"),
         .u8g2 = u8g2,
-        .controller = st7796 ? "ST7796" : "ILI9341",
+        .controller = st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341"),
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
@@ -324,14 +335,21 @@ static esp_err_t attach_ili9341(const char *name,
                                 const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false);
+    return attach_tft(name, bindings, binding_count, false, false);
 }
 
 static esp_err_t attach_st7796(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, true);
+    return attach_tft(name, bindings, binding_count, true, false);
+}
+
+static esp_err_t attach_st7789(const char *name,
+                               const solar_os_expansion_binding_t *bindings,
+                               size_t binding_count)
+{
+    return attach_tft(name, bindings, binding_count, false, true);
 }
 
 static esp_err_t detach(const char *name)
@@ -359,6 +377,7 @@ static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
     {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
     {.key = "bl", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bl"},
+    {.key = "power", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "power"},
     {.key = "active", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .allowed_values = bool_values, .allowed_value_count = 2},
     {.key = "pwm", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "pwm", .allowed_values = bool_values, .allowed_value_count = 2},
 };
@@ -388,5 +407,17 @@ const solar_os_expansion_driver_t solar_os_st7796_expansion_driver = {
     .binding_specs = binding_specs,
     .binding_spec_count = sizeof(binding_specs) / sizeof(binding_specs[0]),
     .attach = attach_st7796,
+    .detach = detach,
+};
+
+const solar_os_expansion_driver_t solar_os_st7789_expansion_driver = {
+    .name = "st7789",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_DISPLAY,
+    .summary = "320x240 color TFT",
+    .required_capabilities = TFT_CAPABILITIES,
+    .early = true,
+    .binding_specs = binding_specs,
+    .binding_spec_count = sizeof(binding_specs) / sizeof(binding_specs[0]),
+    .attach = attach_st7789,
     .detach = detach,
 };

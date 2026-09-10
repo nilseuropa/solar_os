@@ -9,8 +9,7 @@
 #define PCM5102_SAMPLE_RATE 16000U
 #define PCM5102_FRAMES_PER_BLOCK 256U
 
-int pcm5102_i2s_port(void);
-esp_err_t pcm5102_open(gpio_num_t bck_pin, gpio_num_t din_pin,
+esp_err_t pcm5102_open(int i2s_port, gpio_num_t bck_pin, gpio_num_t din_pin,
                        gpio_num_t rck_pin);
 esp_err_t pcm5102_write_s16(const int16_t *samples, size_t frames,
                             uint8_t channels, uint8_t volume,
