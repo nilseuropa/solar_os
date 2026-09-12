@@ -20,6 +20,26 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
+[drivers.tdeck-keyboard]
+summary = "LilyGO T-Deck raw-matrix keyboard"
+package = "expansion_tdeck_keyboard"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "keyboard0"
+
+[[drivers.tdeck-keyboard.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.tdeck-keyboard.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x55"
+required = true
+allowed = [0x55]
+
 [drivers.tca8418]
 summary = "4x10 matrix keyboard"
 package = "tca8418"
@@ -420,6 +440,54 @@ kind = "parameter"
 hint = "0|1"
 allowed = [0, 1]
 
+[drivers.st7789]
+summary = "320x240 color TFT"
+package = "driver_display_st7789"
+targets = ["esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_st7789"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7789"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "320", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "240" }
+early = true
+default_name = "display0"
+[[drivers.st7789.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+[[drivers.st7789.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+[[drivers.st7789.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.st7789.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+[[drivers.st7789.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+[[drivers.st7789.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.st7789.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.st7789.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+
 [drivers.cvbs-pal]
 summary = "PAL composite video"
 package = "driver_display_cvbs_pal"
@@ -524,6 +592,38 @@ kind = "gpio"
 hint = "gpio"
 required = true
 [[drivers.ft6336.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+required = true
+min = 0
+max = 3
+
+[drivers.gt911]
+summary = "capacitive touch"
+package = "driver_gt911"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c", "expansion_gpio", "gfx"]
+board_capabilities = ["pointer"]
+board_driver = "pointer_gt911"
+default_name = "touch0"
+[[drivers.gt911.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.gt911.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x5d"
+required = true
+allowed = [0x5d, 0x14]
+[[drivers.gt911.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.gt911.bindings]]
 key = "rotation"
 kind = "parameter"
 hint = "0..3"
@@ -638,6 +738,11 @@ board_capabilities = ["audio"]
 board_driver = "audio_expansion"
 default_name = "audio0"
 [[drivers.pcm5102.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+[[drivers.pcm5102.bindings]]
 key = "bck"
 kind = "gpio"
 hint = "gpio"
@@ -648,6 +753,35 @@ kind = "gpio"
 hint = "gpio"
 required = true
 [[drivers.pcm5102.bindings]]
+key = "rck"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[drivers.i2s-output]
+summary = "Generic I2S speaker or DAC output"
+package = "expansion_pcm5102"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio"]
+board_driver = "audio_expansion"
+default_name = "audio0"
+[[drivers.i2s-output.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+[[drivers.i2s-output.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.i2s-output.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.i2s-output.bindings]]
 key = "rck"
 kind = "gpio"
 hint = "gpio"
@@ -678,6 +812,45 @@ hint = "gpio"
 required = true
 [[drivers.pcm1808.bindings]]
 key = "dout"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[drivers.es7210]
+summary = "ES7210 I2S microphone array"
+package = "expansion_es7210"
+targets = ["esp32s3"]
+capabilities = ["i2c", "expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "mic0"
+[[drivers.es7210.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.es7210.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+[[drivers.es7210.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.es7210.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.es7210.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.es7210.bindings]]
+key = "din"
 kind = "gpio"
 hint = "gpio"
 required = true

@@ -232,6 +232,7 @@ static esp_err_t ili9341_configure_control_pins(tft_ili9341_t *display) {
   pin_mask |= gpio_pin_mask(display->config.dc_pin);
   pin_mask |= gpio_pin_mask(display->config.reset_pin);
   pin_mask |= gpio_pin_mask(display->config.backlight_pin);
+  pin_mask |= gpio_pin_mask(display->config.power_pin);
 
   if (pin_mask == 0) {
     return ESP_ERR_INVALID_ARG;
@@ -250,6 +251,13 @@ static esp_err_t ili9341_configure_control_pins(tft_ili9341_t *display) {
   if (gpio_valid(display->config.reset_pin)) {
     ESP_RETURN_ON_ERROR(gpio_set_level(display->config.reset_pin, 1), TAG,
                         "rst high failed");
+  }
+  if (gpio_valid(display->config.power_pin)) {
+    ESP_RETURN_ON_ERROR(
+        gpio_set_level(display->config.power_pin,
+                       display->config.power_active_high ? 1 : 0),
+        TAG, "panel power enable failed");
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
   return ESP_OK;
 }
@@ -1028,7 +1036,50 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   }
   vTaskDelay(pdMS_TO_TICKS(120));
 
-  if (display->config.st7796) {
+  if (display->config.st7789) {
+    const uint8_t colmod[] = {0x55};
+    const uint8_t madctl[] = {display->config.madctl};
+    const uint8_t porch[] = {0x0c, 0x0c, 0x00, 0x33, 0x33};
+    const uint8_t gate[] = {0x75};
+    const uint8_t vcom[] = {0x1a};
+    const uint8_t lcm[] = {0x2c};
+    const uint8_t vdv_enable[] = {0x01};
+    const uint8_t vrh[] = {0x13};
+    const uint8_t vdv[] = {0x20};
+    const uint8_t frame_rate[] = {0x0f};
+    const uint8_t power[] = {0xa4, 0xa1};
+    const uint8_t gate_control[] = {0xa1};
+    const uint8_t gamma_pos[] = {
+        0xd0, 0x0d, 0x14, 0x0d, 0x0d, 0x09, 0x38,
+        0x44, 0x4e, 0x3a, 0x17, 0x18, 0x2f, 0x30,
+    };
+    const uint8_t gamma_neg[] = {
+        0xd0, 0x09, 0x0f, 0x08, 0x07, 0x14, 0x37,
+        0x44, 0x4d, 0x38, 0x15, 0x16, 0x2c, 0x3e,
+    };
+
+    if (!ili9341_checked_cmd(display, 0x11)) {
+      return display->last_error;
+    }
+    vTaskDelay(pdMS_TO_TICKS(120));
+    if (!ili9341_checked_cmd_data(display, 0x3a, colmod, sizeof(colmod)) ||
+        !ili9341_checked_cmd_data(display, 0x36, madctl, sizeof(madctl)) ||
+        !ili9341_checked_cmd_data(display, 0xb2, porch, sizeof(porch)) ||
+        !ili9341_checked_cmd_data(display, 0xb7, gate, sizeof(gate)) ||
+        !ili9341_checked_cmd_data(display, 0xbb, vcom, sizeof(vcom)) ||
+        !ili9341_checked_cmd_data(display, 0xc0, lcm, sizeof(lcm)) ||
+        !ili9341_checked_cmd_data(display, 0xc2, vdv_enable, sizeof(vdv_enable)) ||
+        !ili9341_checked_cmd_data(display, 0xc3, vrh, sizeof(vrh)) ||
+        !ili9341_checked_cmd_data(display, 0xc4, vdv, sizeof(vdv)) ||
+        !ili9341_checked_cmd_data(display, 0xc6, frame_rate, sizeof(frame_rate)) ||
+        !ili9341_checked_cmd_data(display, 0xd0, power, sizeof(power)) ||
+        !ili9341_checked_cmd_data(display, 0xd6, gate_control, sizeof(gate_control)) ||
+        !ili9341_checked_cmd_data(display, 0xe0, gamma_pos, sizeof(gamma_pos)) ||
+        !ili9341_checked_cmd_data(display, 0xe1, gamma_neg, sizeof(gamma_neg)) ||
+        !ili9341_checked_cmd(display, 0x21)) {
+      return display->last_error;
+    }
+  } else if (display->config.st7796) {
     const uint8_t f0_enable_1[] = {0xc3};
     const uint8_t f0_enable_2[] = {0x96};
     const uint8_t madctl[] = {display->config.madctl};

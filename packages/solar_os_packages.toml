@@ -441,6 +441,11 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
+[groups.tdeck_keyboard]
+label = "T-Deck keyboard"
+category = "Expansion hardware"
+members = ["expansion_tdeck_keyboard"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -481,6 +486,11 @@ label = "PCM1808 audio input"
 category = "Expansion hardware"
 members = ["expansion_pcm1808"]
 
+[groups.es7210]
+label = "ES7210 audio input"
+category = "Expansion hardware"
+members = ["expansion_es7210"]
+
 [groups.es8311]
 label = "ES8311/ES7210 audio codecs"
 category = "Expansion hardware"
@@ -506,6 +516,11 @@ label = "ST7796 display"
 category = "Expansion hardware"
 members = ["driver_display_st7796"]
 
+[groups.st7789]
+label = "ST7789 display"
+category = "Expansion hardware"
+members = ["driver_display_st7789"]
+
 [groups.cvbs]
 label = "PAL composite display"
 category = "Expansion hardware"
@@ -520,6 +535,11 @@ members = ["driver_display_vga32"]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
 members = ["driver_ft6336"]
+
+[groups.gt911]
+label = "GT911 touch controller"
+category = "Expansion hardware"
+members = ["driver_gt911"]
 
 [groups.pcf85063]
 label = "PCF85063 real-time clock"
@@ -599,6 +619,7 @@ sources = [
   "services/solar_os_gfx_icons.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
+  "services/solar_os_input_composition.c",
   "services/solar_os_keys.c",
   "services/solar_os_log.c",
   "services/solar_os_manual.c",
@@ -1221,6 +1242,18 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_tdeck_keyboard]
+label = "expansion.tdeck-keyboard"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_tdeck_keyboard_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_tdeck_keyboard.c",
+  "services/solar_os_tdeck_keyboard_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["expansion_i2c"]
+
 [packages.board_cl32_core]
 label = "board.cl32-core"
 targets = ["esp32s3"]
@@ -1390,7 +1423,10 @@ capabilities = ["expansion_pwm"]
 [packages.expansion_pcm5102]
 label = "expansion.pcm5102"
 targets = ["esp32", "esp32s3"]
-expansion_drivers = ["solar_os_pcm5102_expansion_driver"]
+expansion_drivers = [
+  "solar_os_pcm5102_expansion_driver",
+  "solar_os_i2s_output_expansion_driver",
+]
 depends = ["service_audio", "service_expansion"]
 sources = [
   "drivers/pcm5102.c",
@@ -1412,6 +1448,18 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
+
+[packages.expansion_es7210]
+label = "expansion.es7210"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_es7210_expansion_driver"]
+depends = ["service_audio", "service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_es7210.c",
+  "services/solar_os_es7210_driver.c",
+]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
+capabilities = ["i2c", "expansion_i2s"]
 
 [packages.driver_audio_es8311_codecs]
 label = "driver.audio-es8311"
@@ -1481,6 +1529,19 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.driver_display_st7789]
+label = "driver.display-st7789"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_st7789_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_pwm"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
 [packages.driver_display_cvbs_pal]
 label = "driver.display-cvbs-pal"
 targets = ["esp32"]
@@ -1516,6 +1577,19 @@ sources = [
   "drivers/ft6336.c",
   "services/solar_os_ft6336.c",
   "services/solar_os_ft6336_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["i2c", "gpio"]
+
+[packages.driver_gt911]
+label = "driver.gt911"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_gt911_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "drivers/gt911.c",
+  "services/solar_os_gt911.c",
+  "services/solar_os_gt911_driver.c",
 ]
 requires = ["esp_driver_gpio"]
 capabilities = ["i2c", "gpio"]

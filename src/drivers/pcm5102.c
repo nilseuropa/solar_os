@@ -18,15 +18,6 @@ typedef struct {
 
 static pcm5102_state_t pcm5102;
 
-int pcm5102_i2s_port(void) {
-  for (int port = 0; port < SOC_I2S_NUM; port++) {
-    if ((SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK & (1U << port)) != 0U) {
-      return port;
-    }
-  }
-  return -1;
-}
-
 static void pcm5102_delete_channel(void) {
   if (pcm5102.tx_handle == NULL) {
     return;
@@ -39,9 +30,11 @@ static void pcm5102_delete_channel(void) {
   pcm5102.active = false;
 }
 
-esp_err_t pcm5102_open(gpio_num_t bck_pin, gpio_num_t din_pin,
+esp_err_t pcm5102_open(int i2s_port, gpio_num_t bck_pin, gpio_num_t din_pin,
                        gpio_num_t rck_pin) {
-  if (!GPIO_IS_VALID_OUTPUT_GPIO(bck_pin) ||
+  if (i2s_port < 0 || i2s_port >= SOC_I2S_NUM ||
+      (SOLAR_OS_BOARD_RUNTIME_I2S_PORT_MASK & (1U << i2s_port)) == 0U ||
+      !GPIO_IS_VALID_OUTPUT_GPIO(bck_pin) ||
       !GPIO_IS_VALID_OUTPUT_GPIO(din_pin) ||
       !GPIO_IS_VALID_OUTPUT_GPIO(rck_pin) || bck_pin == din_pin ||
       bck_pin == rck_pin || din_pin == rck_pin) {
@@ -50,13 +43,8 @@ esp_err_t pcm5102_open(gpio_num_t bck_pin, gpio_num_t din_pin,
   if (pcm5102.tx_handle != NULL || pcm5102.active) {
     return ESP_ERR_INVALID_STATE;
   }
-  const int port = pcm5102_i2s_port();
-  if (port < 0) {
-    return ESP_ERR_NOT_SUPPORTED;
-  }
-
   i2s_chan_config_t channel_config =
-      I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)port, I2S_ROLE_MASTER);
+      I2S_CHANNEL_DEFAULT_CONFIG((i2s_port_t)i2s_port, I2S_ROLE_MASTER);
   channel_config.auto_clear_after_cb = true;
   channel_config.dma_desc_num = PCM5102_DMA_DESC_NUM;
   channel_config.dma_frame_num = PCM5102_DMA_FRAME_NUM;
