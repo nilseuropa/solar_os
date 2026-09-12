@@ -36,18 +36,23 @@
 #define XL9555_REG_CONFIG_PORT1 0x07U
 
 /* Port0 bit0..7: DRV_EN, AMP_EN, KB_RST, LORA_EN, GPS_EN, NFC_EN, (NC), GPS_RST */
-#define XL9555_PORT0_OUTPUT_VALUE 0xBFU
+/* GPS_EN (bit4) and NFC_EN (bit5) are left LOW at boot — power them on explicitly. */
+#define XL9555_PORT0_OUTPUT_VALUE 0x8FU
 #define XL9555_PORT0_CONFIG_VALUE 0x40U /* bit6 (NC) left as input; the rest are outputs */
+#define XL9555_PORT0_GPS_EN_BIT   0x10U /* bit4: GPS power enable, active HIGH */
+#define XL9555_PORT0_NFC_EN_BIT   0x20U /* bit5: NFC power enable, active HIGH */
 
 /* Port1 bit0..7 (global bit8..15): KB_EN, GPIO_EN, SD_DET, SD_PULLEN, SD_EN, (NC x3) */
-#define XL9555_PORT1_OUTPUT_VALUE 0x13U
-#define XL9555_PORT1_CONFIG_VALUE 0xECU /* SD_DET/SD_PULLEN stay inputs; bits 5-7 unused stay inputs */
+/* SD_PULLEN (bit3) enables hardware pullups on SD data lines — must be driven HIGH */
+#define XL9555_PORT1_OUTPUT_VALUE 0x1BU
+#define XL9555_PORT1_CONFIG_VALUE 0xE4U /* SD_DET (bit2) stays input; bits 5-7 NC stay inputs */
 
 typedef struct {
     bool active;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address;
+    uint8_t port0_output; /* shadow of XL9555 Port0 output latch */
 } solar_os_tlora_pager_core_device_t;
 
 static const char *TAG = "tlora-pager-core";
@@ -154,6 +159,7 @@ esp_err_t solar_os_tlora_pager_core_attach(const char *name,
     clear_device(&core_device);
     core_device.active = true;
     core_device.address = address;
+    core_device.port0_output = XL9555_PORT0_OUTPUT_VALUE;
     strlcpy(core_device.name, name, sizeof(core_device.name));
     strlcpy(core_device.i2c_bus, i2c_bus, sizeof(core_device.i2c_bus));
 
@@ -176,4 +182,46 @@ esp_err_t solar_os_tlora_pager_core_detach(const char *name)
      * and depending on this device having run once at boot. */
     clear_device(&core_device);
     return ESP_OK;
+}
+
+esp_err_t solar_os_tlora_pager_core_set_gnss_power(bool on)
+{
+    if (!core_device.active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (on) {
+        core_device.port0_output |= XL9555_PORT0_GPS_EN_BIT;
+    } else {
+        core_device.port0_output &= (uint8_t)~XL9555_PORT0_GPS_EN_BIT;
+    }
+    return solar_os_bus_i2c_write_reg(core_device.i2c_bus, core_device.address,
+                                      XL9555_REG_OUTPUT_PORT0,
+                                      &core_device.port0_output, 1);
+}
+
+bool solar_os_tlora_pager_core_get_gnss_power(void)
+{
+    return core_device.active &&
+           (core_device.port0_output & XL9555_PORT0_GPS_EN_BIT) != 0U;
+}
+
+esp_err_t solar_os_tlora_pager_core_set_nfc_power(bool on)
+{
+    if (!core_device.active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (on) {
+        core_device.port0_output |= XL9555_PORT0_NFC_EN_BIT;
+    } else {
+        core_device.port0_output &= (uint8_t)~XL9555_PORT0_NFC_EN_BIT;
+    }
+    return solar_os_bus_i2c_write_reg(core_device.i2c_bus, core_device.address,
+                                      XL9555_REG_OUTPUT_PORT0,
+                                      &core_device.port0_output, 1);
+}
+
+bool solar_os_tlora_pager_core_get_nfc_power(void)
+{
+    return core_device.active &&
+           (core_device.port0_output & XL9555_PORT0_NFC_EN_BIT) != 0U;
 }

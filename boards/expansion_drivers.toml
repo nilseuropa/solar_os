@@ -1020,3 +1020,60 @@ kind = "i2c_address"
 hint = "0x55"
 required = true
 allowed = [0x55]
+
+[drivers.drv2605]
+summary = "DRV2605 haptic driver"
+package = "drv2605"
+targets = ["esp32s3"]
+capabilities = ["i2c"]
+default_name = "haptic0"
+
+[[drivers.drv2605.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.drv2605.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x5A"
+required = true
+allowed = [0x5A]
+
+[drivers.st25r3916]
+summary = "ST25R3916 NFC reader/writer (ISO 14443A)"
+package = "st25r3916"
+targets = ["esp32s3"]
+capabilities = ["spi"]
+default_name = "nfc0"
+
+[[drivers.st25r3916.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
+[drivers."uart-gnss"]
+summary = "UART GNSS module"
+package = "gnss_uart"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_uart"]
+default_name = "gnss0"
+
+[[drivers."uart-gnss".bindings]]
+key = "uart"
+kind = "uart_port"
+hint = "bus"
+required = true

@@ -612,13 +612,18 @@ def _bus_initializer(bus: dict[str, Any]) -> str:
     return common + config + "}"
 
 
-def _binding_initializer(spec: DriverBinding, value: Any, bindings: dict[str, Any]) -> str:
+def _binding_initializer(spec: DriverBinding, value: Any, bindings: dict[str, Any],
+                         buses_by_name: dict[str, Any] | None = None) -> str:
     kind = f"SOLAR_OS_EXPANSION_BINDING_{spec.kind.upper()}"
     fields = [f".kind = {kind}"]
     if spec.role:
         fields.append(f".role = {_c_string(spec.role)}")
     if spec.kind in TARGET_BINDING_KINDS:
         fields.append(f".target = {_c_string(value)}")
+        if spec.kind == "uart_port" and buses_by_name:
+            bus = buses_by_name.get(str(value))
+            if bus and "port" in bus:
+                fields.append(f".value = {bus['port']}")
     elif spec.kind == "spi_cs":
         fields.append(f".target = {_c_string(str(bindings['spi']))}")
         fields.append(f".value = {value}")
@@ -627,11 +632,12 @@ def _binding_initializer(spec: DriverBinding, value: Any, bindings: dict[str, An
     return "{" + ", ".join(fields) + "}"
 
 
-def _device_initializer(device: dict[str, Any], drivers: dict[str, DriverDef]) -> str:
+def _device_initializer(device: dict[str, Any], drivers: dict[str, DriverDef],
+                        buses_by_name: dict[str, Any] | None = None) -> str:
     driver = drivers[device["driver"]]
     bindings = device["bindings"]
     entries = [
-        _binding_initializer(spec, bindings[spec.key], bindings)
+        _binding_initializer(spec, bindings[spec.key], bindings, buses_by_name)
         for spec in driver.bindings
         if spec.key in bindings
     ]
@@ -693,10 +699,11 @@ def generate_header(board: dict[str, Any], drivers: dict[str, DriverDef]) -> str
     ))
 
     devices = board.get("devices", [])
+    buses_by_name = {bus["name"]: bus for bus in buses if "name" in bus}
     lines.append(f"#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT {len(devices)}")
     lines.extend(_macro_lines(
         "SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES",
-        [_device_initializer(device, drivers) + "," for device in devices],
+        [_device_initializer(device, drivers, buses_by_name) + "," for device in devices],
     ))
 
     connector = board.get("connector", {})

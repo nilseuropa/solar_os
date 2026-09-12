@@ -461,6 +461,11 @@ label = "SDMMC card"
 category = "Expansion hardware"
 members = ["expansion_sdmmc"]
 
+[groups.gnss]
+label = "UART GNSS"
+category = "Expansion hardware"
+members = ["gnss_uart"]
+
 [groups.neopixel]
 label = "NeoPixel output"
 category = "Expansion hardware"
@@ -573,6 +578,16 @@ members = ["rotary_encoder"]
 label = "BQ27220 fuel gauge"
 category = "Expansion hardware"
 members = ["bq27220"]
+
+[groups.drv2605]
+label = "DRV2605 haptic driver"
+category = "Expansion hardware"
+members = ["drv2605"]
+
+[groups.st25r3916]
+label = "ST25R3916 NFC reader/writer"
+category = "Expansion hardware"
+members = ["st25r3916"]
 
 [packages.core_runtime]
 label = "bootstrap.runtime"
@@ -1293,6 +1308,30 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.drv2605]
+label = "expansion.drv2605"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_drv2605_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = [
+  "services/solar_os_drv2605.c",
+  "services/solar_os_drv2605_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.st25r3916]
+label = "expansion.st25r3916"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_st25r3916_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "services/solar_os_st25r3916.c",
+  "services/solar_os_st25r3916_driver.c",
+]
+requires = ["esp_driver_spi"]
+capabilities = ["spi"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"
@@ -2067,3 +2106,14 @@ sources = [
 ]
 capabilities = ["psram"]
 any_capabilities = ["expansion_spi", "expansion_gpio", "expansion_uart"]
+
+[packages.gnss_uart]
+label = "expansion.gnss"
+expansion_drivers = ["solar_os_gnss_expansion_driver"]
+depends = ["service_expansion", "service_uart"]
+sources = [
+  "services/solar_os_gnss.c",
+  "services/solar_os_gnss_driver.c",
+]
+requires = []
+capabilities = ["expansion_uart"]

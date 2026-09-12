@@ -39,6 +39,15 @@
 #include "solar_os_terminal.h"
 #include "solar_os_time.h"
 #include "solar_os_uart.h"
+#if SOLAR_OS_PACKAGE_GNSS_UART
+#include "solar_os_gnss.h"
+#endif
+#if SOLAR_OS_PACKAGE_TLORA_PAGER_CORE
+#include "solar_os_tlora_pager_core.h"
+#endif
+#if SOLAR_OS_PACKAGE_ST25R3916
+#include "solar_os_st25r3916.h"
+#endif
 
 #define SOLAR_OS_SHELL_ARG_MAX 20
 #define I2C_READ_MAX_LEN 32
@@ -720,6 +729,410 @@ static void battery_cmd_max_voltage(solar_os_shell_io_t *term, int argc, char **
     const esp_err_t err = solar_os_battery_set_max_voltage_mv(voltage_mv);
     battery_print_config_result(term, "max_voltage", err);
 }
+
+#if SOLAR_OS_PACKAGE_GNSS_UART
+static int gnss_field(const char *sentence, int field, char *out, size_t out_len)
+{
+    int f = 0;
+    const char *p = sentence;
+    while (*p && *p != '*') {
+        if (f == field) {
+            size_t n = 0;
+            while (*p && *p != ',' && *p != '*' && n + 1 < out_len) {
+                out[n++] = *p++;
+            }
+            out[n] = '\0';
+            return (int)n;
+        }
+        if (*p == ',') {
+            f++;
+        }
+        p++;
+    }
+    if (out_len > 0) out[0] = '\0';
+    return 0;
+}
+
+static void gnss_print_status(solar_os_shell_io_t *term, uint32_t timeout_ms)
+{
+    uint8_t buf[512];
+    size_t n = 0;
+    const esp_err_t err = solar_os_gnss_read_raw(buf, sizeof(buf) - 1, timeout_ms, &n);
+    if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_writeln(term, "gnss: no GNSS device attached");
+        return;
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term, "gnss status failed: %s\n", solar_os_shell_error_text(err));
+        return;
+    }
+    if (n == 0) {
+        solar_os_shell_io_writeln(term, "gnss: no data (module silent or not powered)");
+        return;
+    }
+    buf[n] = '\0';
+
+    /* parse one GNGGA sentence for fix quality and sats used */
+    int fix_quality = -1;
+    int sats_used = -1;
+    /* parse GSV sentences: sum sats-in-view per talker (one entry per GPGSV/GAGSV/etc.) */
+    int gsv_sats_view = 0;
+    bool gsv_seen = false;
+    /* track which talkers already contributed their in-view count */
+    char seen_talkers[8][3];
+    int seen_count = 0;
+
+    const char *line = (const char *)buf;
+    while (line && *line) {
+        const char *end = strchr(line, '\n');
+        char sentence[128];
+        size_t line_len = end ? (size_t)(end - line) : strlen(line);
+        if (line_len >= sizeof(sentence)) {
+            line_len = sizeof(sentence) - 1;
+        }
+        memcpy(sentence, line, line_len);
+        sentence[line_len] = '\0';
+        /* strip trailing \r */
+        if (line_len > 0 && sentence[line_len - 1] == '\r') {
+            sentence[--line_len] = '\0';
+        }
+
+        if (sentence[0] == '$') {
+            char talker[3] = {sentence[1], sentence[2], '\0'};
+            char type[4] = {sentence[3], sentence[4], sentence[5], '\0'};
+
+            if (strcmp(type, "GGA") == 0 && fix_quality < 0) {
+                char fq[4], sv[4];
+                gnss_field(sentence, 6, fq, sizeof(fq));
+                gnss_field(sentence, 7, sv, sizeof(sv));
+                if (fq[0] >= '0' && fq[0] <= '9') fix_quality = fq[0] - '0';
+                if (sv[0] >= '0' && sv[0] <= '9') sats_used = atoi(sv);
+            }
+
+            if (strcmp(type, "GSV") == 0) {
+                /* field 1 = total messages, field 2 = message number, field 3 = sats in view */
+                char msg_num[4], total_sv[4];
+                gnss_field(sentence, 2, msg_num, sizeof(msg_num));
+                gnss_field(sentence, 3, total_sv, sizeof(total_sv));
+                /* only count on first message of each talker to avoid double-counting */
+                if (strcmp(msg_num, "1") == 0 && total_sv[0] >= '0') {
+                    bool already = false;
+                    for (int i = 0; i < seen_count; i++) {
+                        if (strcmp(seen_talkers[i], talker) == 0) { already = true; break; }
+                    }
+                    if (!already && seen_count < 8) {
+                        memcpy(seen_talkers[seen_count++], talker, 3);
+                        gsv_sats_view += atoi(total_sv);
+                        gsv_seen = true;
+                    }
+                }
+            }
+        }
+
+        line = end ? end + 1 : NULL;
+    }
+
+    static const char * const fix_names[] = {
+        "none", "GPS", "DGPS", "PPS", "RTK fixed", "RTK float",
+        "estimated", "manual", "simulation",
+    };
+    const char *fix_name = (fix_quality >= 0 && fix_quality <= 8) ?
+        fix_names[fix_quality] : "unknown";
+
+    solar_os_shell_io_printf(term, "Fix: %s\n", fix_name);
+    if (sats_used >= 0) {
+        solar_os_shell_io_printf(term, "Satellites used: %d\n", sats_used);
+    } else {
+        solar_os_shell_io_writeln(term, "Satellites used: unknown");
+    }
+    if (gsv_seen) {
+        solar_os_shell_io_printf(term, "Satellites in view: %d\n", gsv_sats_view);
+    } else {
+        solar_os_shell_io_writeln(term, "Satellites in view: unknown");
+    }
+}
+
+static void gnss_print_nmea(solar_os_shell_io_t *term, const uint8_t *data, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        const char c = (char)data[i];
+        if (c == '\r') {
+            continue;
+        } else if (c == '\n') {
+            solar_os_shell_io_put_char(term, '\n');
+        } else {
+            solar_os_shell_io_put_char(term, isprint((unsigned char)c) ? c : '.');
+        }
+    }
+    if (len > 0 && data[len - 1] != '\n') {
+        solar_os_shell_io_put_char(term, '\n');
+    }
+}
+
+void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc == 1 || strcmp(argv[1], "status") == 0) {
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(term, "gnss status", argv[3],
+                                           "gnss status [ms]");
+            return;
+        }
+        size_t timeout_ms = 2000;
+        if (argc == 3) {
+            if (!parse_size_arg(argv[2], 100, 10000, &timeout_ms)) {
+                solar_os_shell_diag_invalid(term, "gnss status", "ms", argv[2],
+                                            "an integer from 100 to 10000",
+                                            "gnss status [ms]", false);
+                return;
+            }
+        }
+        gnss_print_status(term, (uint32_t)timeout_ms);
+        return;
+    }
+
+#if SOLAR_OS_PACKAGE_TLORA_PAGER_CORE
+    if (argc >= 2 && strcmp(argv[1], "power") == 0) {
+        if (argc == 2) {
+            solar_os_shell_io_printf(term, "GNSS power: %s\n",
+                                     solar_os_tlora_pager_core_get_gnss_power() ? "on" : "off");
+            return;
+        }
+        if (argc != 3) {
+            solar_os_shell_diag_unexpected(term, "gnss power", argv[3], "gnss power [on|off]");
+            return;
+        }
+        bool on;
+        if (strcmp(argv[2], "on") == 0) {
+            on = true;
+        } else if (strcmp(argv[2], "off") == 0) {
+            on = false;
+        } else {
+            solar_os_shell_diag_invalid(term, "gnss power", "state", argv[2],
+                                        "on or off", "gnss power [on|off]", false);
+            return;
+        }
+        const esp_err_t perr = solar_os_tlora_pager_core_set_gnss_power(on);
+        if (perr != ESP_OK) {
+            solar_os_shell_io_printf(term, "gnss power failed: %s\n",
+                                     solar_os_shell_error_text(perr));
+        } else {
+            solar_os_shell_io_printf(term, "GNSS power: %s\n", on ? "on" : "off");
+        }
+        return;
+    }
+#endif
+
+    if (argc >= 2 && strcmp(argv[1], "write") == 0) {
+        if (argc < 3) {
+            solar_os_shell_io_writeln(term, "usage: gnss write <text>");
+            return;
+        }
+        char buf[128];
+        size_t pos = 0;
+        for (int i = 2; i < argc && pos < sizeof(buf) - 3; i++) {
+            if (i > 2) buf[pos++] = ' ';
+            const size_t l = strlen(argv[i]);
+            const size_t copy = (pos + l >= sizeof(buf) - 3) ? sizeof(buf) - 3 - pos : l;
+            memcpy(buf + pos, argv[i], copy);
+            pos += copy;
+        }
+        buf[pos++] = '\r';
+        buf[pos++] = '\n';
+        size_t written = 0;
+        const esp_err_t werr = solar_os_gnss_write_raw((uint8_t *)buf, pos, &written);
+        if (werr != ESP_OK) {
+            solar_os_shell_io_printf(term, "gnss write failed: %s\n",
+                                     solar_os_shell_error_text(werr));
+        } else {
+            solar_os_shell_io_printf(term, "gnss write: %u bytes sent\n", (unsigned)written);
+        }
+        return;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "reset") == 0) {
+        static const char pmtk[] =
+            "$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n";
+        size_t written = 0;
+        const esp_err_t werr = solar_os_gnss_write_raw(
+            (const uint8_t *)pmtk, strlen(pmtk), &written);
+        if (werr != ESP_OK) {
+            solar_os_shell_io_printf(term, "gnss reset failed: %s\n",
+                                     solar_os_shell_error_text(werr));
+        } else {
+            solar_os_shell_io_writeln(term,
+                "gnss reset: PMTK314 sent — run 'gnss nmea' in 1s to verify");
+        }
+        return;
+    }
+
+    if (argc < 2 || strcmp(argv[1], "nmea") != 0) {
+        solar_os_shell_io_writeln(term,
+            "usage: gnss [status [ms]] | gnss power [on|off] | gnss nmea [ms] [hex] | gnss write <text> | gnss reset");
+        return;
+    }
+
+    size_t timeout_ms = 500;
+    if (argc == 3 && strcmp(argv[2], "hex") != 0) {
+        if (!parse_size_arg(argv[2], 100, 10000, &timeout_ms)) {
+            solar_os_shell_diag_invalid(term, "gnss nmea", "ms", argv[2],
+                                        "an integer from 100 to 10000",
+                                        "gnss nmea [ms] [hex]", false);
+            return;
+        }
+    } else if (argc == 4 && strcmp(argv[3], "hex") != 0) {
+        solar_os_shell_diag_unexpected(term, "gnss nmea", argv[3],
+                                        "gnss nmea [ms] [hex]");
+        return;
+    } else if (argc > 4) {
+        solar_os_shell_diag_unexpected(term, "gnss nmea", argv[4],
+                                        "gnss nmea [ms] [hex]");
+        return;
+    }
+
+    bool as_hex = (argc == 4 && strcmp(argv[3], "hex") == 0) ||
+                  (argc == 3 && strcmp(argv[2], "hex") == 0);
+
+    uint8_t buf[256];
+    size_t n = 0;
+    const esp_err_t err = solar_os_gnss_read_raw(buf, sizeof(buf) - 1,
+                                                  (uint32_t)timeout_ms, &n);
+    if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_writeln(term, "gnss: no GNSS device attached");
+        return;
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term, "gnss nmea failed: %s\n",
+                                 solar_os_shell_error_text(err));
+        return;
+    }
+    if (n == 0) {
+        solar_os_shell_io_writeln(term, "gnss nmea: no data (module silent or not powered)");
+        return;
+    }
+    if (as_hex) {
+        solar_os_shell_io_printf(term, "gnss nmea: %u bytes\n", (unsigned)n);
+        for (size_t offset = 0; offset < n; offset += 16) {
+            const size_t line_len = n - offset > 16 ? 16 : n - offset;
+            solar_os_shell_io_printf(term, "%04x:", (unsigned)offset);
+            for (size_t i = 0; i < 16; i++) {
+                if (i < line_len) {
+                    solar_os_shell_io_printf(term, " %02x", buf[offset + i]);
+                } else {
+                    solar_os_shell_io_write(term, "   ");
+                }
+            }
+            solar_os_shell_io_write(term, "  ");
+            for (size_t i = 0; i < line_len; i++) {
+                const unsigned char ch = buf[offset + i];
+                solar_os_shell_io_put_char(term, isprint(ch) ? (char)ch : '.');
+            }
+            solar_os_shell_io_put_char(term, '\n');
+        }
+    } else {
+        gnss_print_nmea(term, buf, n);
+    }
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_ST25R3916
+void solar_os_shell_cmd_nfc(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *term = terminal(ctx);
+
+    /* Default subcommand: status */
+    const char *subcmd = (argc >= 2) ? argv[1] : "status";
+
+    if (strcmp(subcmd, "status") == 0) {
+        const bool attached = solar_os_st25r3916_is_ready();
+#if SOLAR_OS_PACKAGE_TLORA_PAGER_CORE
+        const bool powered = solar_os_tlora_pager_core_get_nfc_power();
+        solar_os_shell_io_printf(term, "nfc power:  %s\n", powered ? "on" : "off");
+#endif
+        solar_os_shell_io_printf(term, "nfc chip:   %s\n",
+                                 attached ? "ready" : "not initialised");
+        return;
+    }
+
+    if (strcmp(subcmd, "scan") == 0 || strcmp(subcmd, "read") == 0) {
+        uint32_t timeout_ms = 5000;
+        if (argc >= 3) {
+            char *end = NULL;
+            long v = strtol(argv[2], &end, 10);
+            if (end == argv[2] || *end != '\0' || v <= 0 || v > 60000) {
+                solar_os_shell_diag_invalid(term, "nfc scan", "ms", argv[2],
+                                            "1–60000", "nfc scan [ms]", false);
+                return;
+            }
+            timeout_ms = (uint32_t)v;
+        }
+        solar_os_st25r3916_tag_t tag;
+        solar_os_shell_io_printf(term, "nfc scan: waiting up to %u ms...\n", (unsigned)timeout_ms);
+        const esp_err_t err = solar_os_st25r3916_scan(timeout_ms, &tag);
+        if (err == ESP_ERR_INVALID_STATE) {
+            solar_os_shell_io_writeln(term, "nfc: no NFC device attached");
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            solar_os_shell_io_writeln(term, "nfc scan: no tag found");
+        } else if (err != ESP_OK) {
+            solar_os_shell_io_printf(term, "nfc scan failed: %s\n", esp_err_to_name(err));
+        } else {
+            solar_os_shell_io_printf(term, "UID (%u bytes):", (unsigned)tag.uid_len);
+            for (size_t i = 0; i < tag.uid_len; i++) {
+                solar_os_shell_io_printf(term, " %02X", tag.uid[i]);
+            }
+            solar_os_shell_io_writeln(term, "");
+            solar_os_shell_io_printf(term, "ATQA: %02X %02X\n", tag.atqa[0], tag.atqa[1]);
+            solar_os_shell_io_printf(term, "SAK:  %02X", tag.sak);
+            if (tag.sak == 0x20U) {
+                solar_os_shell_io_writeln(term, "  (ISO 14443-4 / MIFARE DESFire)");
+            } else if ((tag.sak & 0x20U) == 0U && (tag.sak & 0x40U) == 0U) {
+                solar_os_shell_io_writeln(term, "  (MIFARE Classic / Ultralight)");
+            } else {
+                solar_os_shell_io_writeln(term, "");
+            }
+        }
+        return;
+    }
+
+#if SOLAR_OS_PACKAGE_TLORA_PAGER_CORE
+    if (strcmp(subcmd, "power") == 0) {
+        if (argc == 2) {
+            solar_os_shell_io_printf(term, "nfc power: %s\n",
+                                     solar_os_tlora_pager_core_get_nfc_power() ? "on" : "off");
+            return;
+        }
+        if (argc >= 4) {
+            solar_os_shell_diag_unexpected(term, "nfc power", argv[3], "nfc power [on|off]");
+            return;
+        }
+        bool on;
+        if (strcmp(argv[2], "on") == 0) {
+            on = true;
+        } else if (strcmp(argv[2], "off") == 0) {
+            on = false;
+        } else {
+            solar_os_shell_diag_invalid(term, "nfc power", "state", argv[2],
+                                        "on or off", "nfc power [on|off]", false);
+            return;
+        }
+        const esp_err_t perr = solar_os_tlora_pager_core_set_nfc_power(on);
+        if (perr != ESP_OK) {
+            solar_os_shell_io_printf(term, "nfc power failed: %s\n", esp_err_to_name(perr));
+        } else {
+            if (!on) {
+                solar_os_st25r3916_reset_chip();
+            }
+            solar_os_shell_io_printf(term, "nfc power: %s\n", on ? "on" : "off");
+        }
+        return;
+    }
+#endif /* SOLAR_OS_PACKAGE_TLORA_PAGER_CORE */
+
+    solar_os_shell_io_writeln(term,
+        "usage: nfc [status] | nfc scan [ms] | nfc read [ms] | nfc power [on|off]");
+}
+#endif /* SOLAR_OS_PACKAGE_ST25R3916 */
 
 void solar_os_shell_cmd_battery(solar_os_context_t *ctx, int argc, char **argv)
 {

@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_buses.h"
+#include "solar_os_display.h"
 #include "solar_os_input.h"
 #include "solar_os_task.h"
 
@@ -46,7 +47,12 @@
 #define TCA8418_CAPS_KEY 0x1CU
 #define TCA8418_ALT_KEY 0x14U
 #define TCA8418_BACKSPACE_KEY 0x1DU
-#define TCA8418_ALT_BRIGHTNESS_KEY 0x19U
+#define TCA8418_ALT_BRIGHTNESS_KEY 0x19U  /* Alt+B: cycle display brightness */
+#define TCA8418_ALT_KBD_BACKLIGHT_KEY 0x11U  /* Alt+K: toggle keyboard backlight */
+
+/* Display brightness steps cycled by Alt+B (percent). */
+static const uint8_t brightness_steps[] = {20, 40, 60, 80, 100};
+#define BRIGHTNESS_STEP_COUNT (sizeof(brightness_steps) / sizeof(brightness_steps[0]))
 
 #define TCA8418_POLL_MS 15U
 
@@ -268,8 +274,34 @@ static bool handle_special_key(solar_os_tca8418_device_t *device,
         return true;
     }
     if (device->alt_pressed && k == TCA8418_ALT_BRIGHTNESS_KEY) {
-        /* Alt+B toggles the backlight on stock firmware. The control is not
-         * implemented yet in this port, so just swallow the key. */
+        if (pressed) {
+            uint8_t current = 0;
+            if (solar_os_display_get_brightness(&current) == ESP_OK) {
+                uint8_t next = brightness_steps[0];
+                for (size_t i = 0; i < BRIGHTNESS_STEP_COUNT; i++) {
+                    if (current <= brightness_steps[i]) {
+                        next = brightness_steps[(i + 1) % BRIGHTNESS_STEP_COUNT];
+                        break;
+                    }
+                }
+                solar_os_display_set_brightness(next);
+            }
+        }
+        return true;
+    }
+    if (device->alt_pressed && k == TCA8418_ALT_KBD_BACKLIGHT_KEY) {
+        if (pressed && device->backlight_pin >= 0) {
+            if (device->backlight_active) {
+                pwm_port_stop((gpio_num_t)device->backlight_pin);
+                device->backlight_active = false;
+            } else {
+                if (pwm_port_set((gpio_num_t)device->backlight_pin,
+                                 TCA8418_BACKLIGHT_PWM_HZ,
+                                 TCA8418_BACKLIGHT_DEFAULT_PERCENT) == ESP_OK) {
+                    device->backlight_active = true;
+                }
+            }
+        }
         return true;
     }
     return false;

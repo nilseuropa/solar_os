@@ -100,7 +100,7 @@ SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 
 [runtime]
 spi_hosts = ["SPI3_HOST"]
-uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+uart_ports = ["UART_NUM_2"]
 i2s_ports = ["I2S_NUM_1"]
 
 [[buses]]
@@ -111,7 +111,7 @@ host = "SPI2_HOST"
 sclk = 35
 miso = 33
 mosi = 34
-cs = [38, 21, 36, 9]
+cs = [38, 21, 36, 9, 39]
 max_transfer_size = 4096
 
 [[buses]]
@@ -131,6 +131,17 @@ port = "UART_NUM_0"
 tx = 43
 rx = 44
 baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+# U-blox MIA-M10Q GNSS module: module TX→GPIO4 (ESP32 RX), module RX→GPIO12 (ESP32 TX), PPS→GPIO13 (power via XL9555 GPS_EN)
+# ESP32 TX=12 (sends to L76K RX), ESP32 RX=4 (receives from L76K TX)
+[[buses]]
+name = "uart1"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 12
+rx = 4
+baud_rate = 38400
 
 # core0 (XL9555) must attach before anything it power-gates: keyboard0,
 # radio0 and storage0 all sit behind its power/reset rails. It is marked
@@ -177,9 +188,24 @@ name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x55 }
 
 [[devices]]
+driver = "drv2605"
+name = "haptic0"
+bindings = { i2c = "i2c0", addr = 0x5A }
+
+[[devices]]
+driver = "st25r3916"
+name = "nfc0"
+bindings = { spi = "spi0", cs = 39, irq = 5 }
+
+[[devices]]
 driver = "sx1262"
 name = "radio0"
 bindings = { spi = "spi0", cs = 36, busy = 48, reset = 47, irq = 14 }
+
+[[devices]]
+driver = "uart-gnss"
+name = "gnss0"
+bindings = { uart = "uart1" }
 
 [connector]
 title = "6-pin extension header"
@@ -301,7 +327,7 @@ expansion = true
 [[pins]]
 gpio = 4
 policy = "fixed"
-role = "GNSS RX (unused in this port)"
+role = "GNSS UART RX (uart1)"
 [[pins]]
 gpio = 5
 policy = "fixed"
@@ -337,11 +363,11 @@ role = "audio codec BCLK"
 [[pins]]
 gpio = 12
 policy = "fixed"
-role = "GNSS TX (unused in this port)"
+role = "GNSS UART TX (uart1)"
 [[pins]]
 gpio = 13
 policy = "fixed"
-role = "GNSS PPS (unused in this port)"
+role = "GNSS PPS (gpio, not yet used)"
 [[pins]]
 gpio = 14
 policy = "fixed"
