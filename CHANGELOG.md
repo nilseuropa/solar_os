@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.11.1** — 2026-09-15 — Added T-LoRa-Pager support for the u-blox
+  MIA-M10Q GNSS receiver, ST25R3916 NFC-A reader, BHI260AP six-axis IMU,
+  XL9555 GPIO expander, DRV2605 haptic controller, and BQ25896 battery
+  charger. GNSS, NFC, IMU, haptic, charger, temperature, and humidity access
+  now use driver-agnostic services with matching shell and Python/Lua APIs.
+  Pager power rails are modeled as XL9555 GPIO lines: GNSS and NFC remain off
+  until requested, while SD power and its pull-up are enabled for reliable
+  mounting. Hardware-provider registry state now uses PSRAM where available,
+  preserving internal memory on targets that do not use these peripherals.
+  The Python and Lua manuals were split into focused topic pages for easier
+  navigation and agent lookup.
 - **4.11.0** — 2026-09-12 — Replaced the Bluedroid BLE backend with
   NimBLE, reducing internal RAM use while retaining BLE keyboard pairing,
   reconnect, and sleep/wake support. Python and Lua applications can now
