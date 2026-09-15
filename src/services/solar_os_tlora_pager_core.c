@@ -40,8 +40,8 @@
 #define XL9555_PORT0_CONFIG_VALUE 0x40U /* bit6 (NC) left as input; the rest are outputs */
 
 /* Port1 bit0..7 (global bit8..15): KB_EN, GPIO_EN, SD_DET, SD_PULLEN, SD_EN, (NC x3) */
-#define XL9555_PORT1_OUTPUT_VALUE 0x13U
-#define XL9555_PORT1_CONFIG_VALUE 0xECU /* SD_DET/SD_PULLEN stay inputs; bits 5-7 unused stay inputs */
+#define XL9555_PORT1_OUTPUT_VALUE 0x1BU
+#define XL9555_PORT1_CONFIG_VALUE 0xE4U /* SD_DET stays input; SD_PULLEN is driven high */
 
 typedef struct {
     bool active;
