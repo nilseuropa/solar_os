@@ -380,6 +380,17 @@ SOLAR_OS_SCRIPT_API_FUNCTION(haptic, stop, stop);
 SOLAR_OS_SCRIPT_API_MODULE_END(haptic);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(charger);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, enable, enable);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, set_input_limit, set_input_limit);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, set_current, set_current);
+SOLAR_OS_SCRIPT_API_FUNCTION(charger, set_voltage, set_voltage);
+SOLAR_OS_SCRIPT_API_MODULE_END(charger);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(imu);
 SOLAR_OS_SCRIPT_API_FUNCTION(imu, list, list);

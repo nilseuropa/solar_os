@@ -70,6 +70,11 @@ label = "Haptic feedback"
 category = "Hardware interfaces"
 members = ["service_haptic"]
 
+[groups.charger]
+label = "Battery charger"
+category = "Hardware interfaces"
+members = ["service_charger"]
+
 [groups.imu]
 label = "Motion sensors"
 category = "Hardware interfaces"
@@ -1130,6 +1135,13 @@ label = "service.haptic"
 sources = [
   "services/solar_os_haptic.c",
   "shell/solar_os_shell_haptic.c",
+]
+
+[packages.service_charger]
+label = "service.charger"
+sources = [
+  "services/solar_os_charger.c",
+  "shell/solar_os_shell_charger.c",
 ]
 
 [packages.service_imu]

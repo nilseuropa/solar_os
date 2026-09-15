@@ -92,6 +92,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 #include "solar_os_haptic.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+#include "solar_os_charger.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
 #include "solar_os_imu.h"
 #endif
@@ -4557,6 +4560,128 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_haptic_stop_obj,
                                     0,
                                     1,
                                     solaros_haptic_stop);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+static const char *python_charger_name(size_t n_args,
+                                       const mp_obj_t *args,
+                                       size_t index,
+                                       solar_os_charger_info_t *info)
+{
+    if (n_args > index && args[index] != mp_const_none) {
+        return mp_obj_str_get_str(args[index]);
+    }
+    return solar_os_charger_get(0U, info) ? info->name : NULL;
+}
+
+static mp_obj_t python_charger_range(const solar_os_charger_range_t *range)
+{
+    mp_obj_t result = mp_obj_new_dict(3);
+    python_dict_store_uint(result, "minimum", range->minimum);
+    python_dict_store_uint(result, "maximum", range->maximum);
+    python_dict_store_uint(result, "step", range->step);
+    return result;
+}
+
+static mp_obj_t solaros_charger_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_charger_info_t info;
+    for (size_t i = 0; solar_os_charger_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(5);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        mp_obj_dict_store(item, python_key("input_current_limit_ma"),
+                          python_charger_range(&info.input_current_limit_ma));
+        mp_obj_dict_store(item, python_key("charge_current_ma"),
+                          python_charger_range(&info.charge_current_ma));
+        mp_obj_dict_store(item, python_key("charge_voltage_mv"),
+                          python_charger_range(&info.charge_voltage_mv));
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_charger_list_obj, solaros_charger_list);
+
+static mp_obj_t solaros_charger_status(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_charger_info_t info;
+    const char *name = python_charger_name(n_args, args, 0U, &info);
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    solar_os_charger_status_t status;
+    python_check_esp(solar_os_charger_read_status(name, &status));
+    mp_obj_t result = mp_obj_new_dict(9);
+    python_dict_store_cstr(result, "name", name);
+    python_dict_store_bool(result, "enabled", status.enabled);
+    python_dict_store_bool(result, "input_present", status.input_present);
+    python_dict_store_bool(result, "power_good", status.power_good);
+    python_dict_store_cstr(result, "state",
+                           solar_os_charger_state_name(status.state));
+    python_dict_store_uint(result, "input_current_limit_ma",
+                           status.input_current_limit_ma);
+    python_dict_store_uint(result, "charge_current_ma", status.charge_current_ma);
+    python_dict_store_uint(result, "charge_voltage_mv", status.charge_voltage_mv);
+    python_dict_store_uint(result, "fault", status.fault);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_charger_status_obj, 0, 1,
+                                    solaros_charger_status);
+
+static mp_obj_t solaros_charger_enable(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_charger_info_t info;
+    const char *name = python_charger_name(n_args, args, 1U, &info);
+    python_check_esp(name != NULL ? solar_os_charger_set_enabled(
+        name, mp_obj_is_true(args[0])) : ESP_ERR_NOT_FOUND);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_charger_enable_obj, 1, 2,
+                                    solaros_charger_enable);
+
+static esp_err_t python_charger_set_value(size_t n_args,
+                                          const mp_obj_t *args,
+                                          esp_err_t (*setter)(const char *,
+                                                              uint16_t))
+{
+    solar_os_charger_info_t info;
+    const uint32_t value = python_u32_from_obj(args[0]);
+    const char *name = python_charger_name(n_args, args, 1U, &info);
+    return name == NULL ? ESP_ERR_NOT_FOUND :
+        value > UINT16_MAX ? ESP_ERR_INVALID_ARG :
+        setter(name, (uint16_t)value);
+}
+
+static mp_obj_t solaros_charger_set_input_limit(size_t n_args,
+                                                 const mp_obj_t *args)
+{
+    python_check_esp(python_charger_set_value(
+        n_args, args, solar_os_charger_set_input_current_limit));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_charger_set_input_limit_obj, 1, 2,
+                                    solaros_charger_set_input_limit);
+
+static mp_obj_t solaros_charger_set_current(size_t n_args,
+                                            const mp_obj_t *args)
+{
+    python_check_esp(python_charger_set_value(
+        n_args, args, solar_os_charger_set_charge_current));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_charger_set_current_obj, 1, 2,
+                                    solaros_charger_set_current);
+
+static mp_obj_t solaros_charger_set_voltage(size_t n_args,
+                                            const mp_obj_t *args)
+{
+    python_check_esp(python_charger_set_value(
+        n_args, args, solar_os_charger_set_charge_voltage));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_charger_set_voltage_obj, 1, 2,
+                                    solaros_charger_set_voltage);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMU

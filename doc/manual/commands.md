@@ -917,6 +917,12 @@ available for the compiled board.
 | `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
 | `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
 | `haptic` | `haptic stop [name]` | Stop the active haptic effect. |
+| `charger` | `charger [list]` | List registered battery chargers, concrete drivers, and valid configuration ranges. |
+| `charger` | `charger status [name]` | Show charger state, input status, configured limits, and the raw fault byte. |
+| `charger` | `charger enable <on\|off> [name]` | Enable or disable charging. |
+| `charger` | `charger input-limit <mA> [name]` | Set the input current limit to an advertised, exact step value. |
+| `charger` | `charger current <mA> [name]` | Set fast-charge current to an advertised, exact step value. |
+| `charger` | `charger voltage <mV> [name]` | Set charge voltage to an advertised, exact step value. |
 | `imu` | `imu [list]` | List registered motion sensors, their concrete drivers, and available measurements. |
 | `imu` | `imu sample [name] [timeout-ms]` | Read acceleration, angular velocity, and optional orientation from one motion sensor. |
 | `nfc` | `nfc [list]` | List registered NFC readers and their concrete drivers. |

@@ -2,8 +2,8 @@
 id = "lua.hardware"
 title = "Lua gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, haptic, IMU, NFC"
-keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss haptic imu nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC"
+keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery charger sensors gnss haptic imu nfc"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
@@ -64,6 +64,22 @@ end
 
 ```lua
 solaros.haptic.play(15)
+```
+
+## `solaros.charger`
+
+- `list()`: return registered chargers, concrete drivers, and supported ranges.
+- `status([name])`: return charger state, input flags, configured values, and
+  the raw fault byte.
+- `enable(enabled[, name])`: enable or disable charging.
+- `set_input_limit(mA[, name])`, `set_current(mA[, name])`, and
+  `set_voltage(mV[, name])`: set an exact value in the advertised range.
+
+OTG/boost mode and battery-chemistry policy are not exposed.
+
+```lua
+local status = solaros.charger.status()
+print(status.state)
 ```
 
 ## `solaros.nfc`
@@ -150,5 +166,5 @@ count is not sampled.
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man lua` for runtime conventions and service availability.

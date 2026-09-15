@@ -81,6 +81,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 #include "solar_os_haptic.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+#include "solar_os_charger.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
 #include "solar_os_imu.h"
 #endif
@@ -4268,6 +4271,105 @@ static int solua_haptic_stop(lua_State *L)
     const char *name = solua_haptic_name(L, 1, &info);
     return solua_check_esp(
         L, name != NULL ? solar_os_haptic_stop(name) : ESP_ERR_NOT_FOUND);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+static const char *solua_charger_name(lua_State *L,
+                                      int index,
+                                      solar_os_charger_info_t *info)
+{
+    if (!lua_isnoneornil(L, index)) {
+        return luaL_checkstring(L, index);
+    }
+    return solar_os_charger_get(0U, info) ? info->name : NULL;
+}
+
+static void solua_charger_range(lua_State *L,
+                                const solar_os_charger_range_t *range)
+{
+    lua_newtable(L);
+    solua_set_int(L, -1, "minimum", range->minimum);
+    solua_set_int(L, -1, "maximum", range->maximum);
+    solua_set_int(L, -1, "step", range->step);
+}
+
+static int solua_charger_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_charger_info_t info;
+    for (size_t i = 0; solar_os_charger_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_charger_range(L, &info.input_current_limit_ma);
+        lua_setfield(L, -2, "input_current_limit_ma");
+        solua_charger_range(L, &info.charge_current_ma);
+        lua_setfield(L, -2, "charge_current_ma");
+        solua_charger_range(L, &info.charge_voltage_mv);
+        lua_setfield(L, -2, "charge_voltage_mv");
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_charger_status(lua_State *L)
+{
+    solar_os_charger_info_t info;
+    const char *name = solua_charger_name(L, 1, &info);
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_charger_status_t status;
+    (void)solua_check_esp(L, solar_os_charger_read_status(name, &status));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_bool(L, -1, "enabled", status.enabled);
+    solua_set_bool(L, -1, "input_present", status.input_present);
+    solua_set_bool(L, -1, "power_good", status.power_good);
+    solua_set_str(L, -1, "state", solar_os_charger_state_name(status.state));
+    solua_set_int(L, -1, "input_current_limit_ma", status.input_current_limit_ma);
+    solua_set_int(L, -1, "charge_current_ma", status.charge_current_ma);
+    solua_set_int(L, -1, "charge_voltage_mv", status.charge_voltage_mv);
+    solua_set_int(L, -1, "fault", status.fault);
+    return 1;
+}
+
+static int solua_charger_enable(lua_State *L)
+{
+    solar_os_charger_info_t info;
+    const char *name = solua_charger_name(L, 2, &info);
+    return solua_check_esp(L, name != NULL ? solar_os_charger_set_enabled(
+        name, lua_toboolean(L, 1)) : ESP_ERR_NOT_FOUND);
+}
+
+static int solua_charger_set_value(lua_State *L,
+                                   esp_err_t (*setter)(const char *, uint16_t))
+{
+    solar_os_charger_info_t info;
+    const lua_Integer value = luaL_checkinteger(L, 1);
+    const char *name = solua_charger_name(L, 2, &info);
+    if (value < 0 || value > UINT16_MAX) {
+        return luaL_error(L, "invalid charger value");
+    }
+    return solua_check_esp(L, name != NULL ?
+        setter(name, (uint16_t)value) : ESP_ERR_NOT_FOUND);
+}
+
+static int solua_charger_set_input_limit(lua_State *L)
+{
+    return solua_charger_set_value(
+        L, solar_os_charger_set_input_current_limit);
+}
+
+static int solua_charger_set_current(lua_State *L)
+{
+    return solua_charger_set_value(L, solar_os_charger_set_charge_current);
+}
+
+static int solua_charger_set_voltage(lua_State *L)
+{
+    return solua_charger_set_value(L, solar_os_charger_set_charge_voltage);
 }
 #endif
 

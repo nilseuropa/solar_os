@@ -15,6 +15,7 @@ vector_math = true
 gpio = true
 onewire = true
 i2c = true
+charger = true
 spi = true
 uart = true
 adc = true

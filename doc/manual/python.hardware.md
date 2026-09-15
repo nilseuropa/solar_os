@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, haptic, IMU, NFC"
-keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss haptic imu nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery charger sensors gnss haptic imu nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -91,6 +91,27 @@ Available when the firmware includes the driver-agnostic haptic service.
 import solaros
 
 solaros.haptic.play(15)
+```
+
+## `solaros.charger`
+
+Available when the firmware includes the driver-agnostic charger service.
+
+- `list()`: return registered chargers, concrete drivers, and the supported
+  `minimum`, `maximum`, and `step` for each configurable value.
+- `status([name])`: return charging state, input and power-good flags, enabled
+  state, configured limits, and the driver's raw fault byte.
+- `enable(enabled[, name])`: enable or disable charging.
+- `set_input_limit(mA[, name])`, `set_current(mA[, name])`, and
+  `set_voltage(mV[, name])`: set an exact value in the range reported by
+  `list()`. Values are rejected instead of silently rounded.
+
+OTG/boost mode and battery-chemistry policy are intentionally not exposed.
+
+```python
+import solaros
+
+print(solaros.charger.status())
 ```
 
 ## `solaros.nfc`
@@ -346,5 +367,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

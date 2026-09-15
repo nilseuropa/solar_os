@@ -519,6 +519,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+    {"charger", "battery charger tools", solar_os_shell_cmd_charger},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
     {"imu", "motion sensor tools", solar_os_shell_cmd_imu},
 #endif
