@@ -34,7 +34,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Time and scheduling](lua.time.md) | `solaros.time`, `solaros.rtc`, `solaros.schedule` |
 | [Networking](lua.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.ssh_keys` |
 | [Bluetooth](lua.ble.md) | `solaros.ble` |
-| [GPIO and peripherals](lua.hardware.md) | `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss` |
+| [GPIO and peripherals](lua.hardware.md) | `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.nfc` |
 | [Buses and expansion](lua.buses.md) | `solaros.buses`, `solaros.expansion` |
 | [Audio and control](lua.audio.md) | `solaros.audio`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` |
 | [Input and clipboard](lua.input.md) | `solaros.input`, `solaros.hid`, `solaros.clipboard` |

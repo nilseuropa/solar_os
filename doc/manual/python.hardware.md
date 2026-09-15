@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors"
-keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -61,6 +61,23 @@ import solaros
 fix = solaros.gnss.fix()
 if fix["valid"]:
     print(fix["latitude_deg_e7"], fix["longitude_deg_e7"])
+```
+
+## `solaros.nfc`
+
+Available when the firmware includes an NFC reader service.
+
+- `list()`: return registered readers with `name` and `driver`.
+- `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag,
+  defaulting to the first reader and a 1000 ms timeout. The result contains
+  binary `uid` and `atqa` values, numeric `sak`, and technology `"nfca"`.
+
+```python
+import binascii
+import solaros
+
+tag = solaros.nfc.scan()
+print(binascii.hexlify(tag["uid"]))
 ```
 
 ## `solaros.gpio`
@@ -275,5 +292,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

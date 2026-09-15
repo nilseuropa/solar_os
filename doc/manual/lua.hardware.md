@@ -2,8 +2,8 @@
 id = "lua.hardware"
 title = "Lua gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors"
-keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC"
+keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss nfc"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
@@ -33,6 +33,13 @@ if fix.valid then
     print(fix.latitude_deg_e7, fix.longitude_deg_e7)
 end
 ```
+
+## `solaros.nfc`
+
+- `list()`: return registered readers with `name` and `driver`.
+- `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag. The
+  returned `uid` and `atqa` strings are binary-safe; `sak` is numeric and
+  `technology` is `"nfca"`.
 
 ## `solaros.gpio`
 
@@ -89,5 +96,5 @@ count is not sampled.
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, and `solaros.gnss` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, and `solaros.nfc` for gpio and peripherals.
 See `man lua` for runtime conventions and service availability.

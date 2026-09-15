@@ -78,6 +78,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+#include "solar_os_nfc.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -4137,6 +4140,46 @@ static int solua_gnss_fix(lua_State *L)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static int solua_nfc_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_nfc_info_t info;
+    for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_nfc_scan(lua_State *L)
+{
+    solar_os_nfc_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_nfc_tag_t tag;
+    (void)solua_check_esp(L, solar_os_nfc_scan(
+        name, solua_optional_u32(L, 2, 1000U), &tag));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_str(L, -1, "technology", "nfca");
+    lua_pushlstring(L, (const char *)tag.uid, tag.uid_len);
+    lua_setfield(L, -2, "uid");
+    lua_pushlstring(L, (const char *)tag.atqa, sizeof(tag.atqa));
+    lua_setfield(L, -2, "atqa");
+    solua_set_int(L, -1, "sak", tag.sak);
+    return 1;
+}
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 static void solua_push_expansion_binding(lua_State *L,

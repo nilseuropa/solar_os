@@ -89,6 +89,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+#include "solar_os_nfc.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -4413,6 +4416,51 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gnss_fix_obj, 0, 2, solaros_gnss_fix);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static mp_obj_t solaros_nfc_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_nfc_info_t info;
+    for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(2);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_nfc_list_obj, solaros_nfc_list);
+
+static mp_obj_t solaros_nfc_scan(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_nfc_info_t info;
+    const char *name = NULL;
+    if (n_args >= 1U && args[0] != mp_const_none) {
+        name = mp_obj_str_get_str(args[0]);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    const uint32_t timeout_ms = n_args >= 2U
+        ? python_u32_from_obj(args[1]) : 1000U;
+    solar_os_nfc_tag_t tag;
+    python_check_esp(solar_os_nfc_scan(name, timeout_ms, &tag));
+    mp_obj_t result = mp_obj_new_dict(5);
+    python_dict_store_cstr(result, "name", name);
+    python_dict_store_cstr(result, "technology", "nfca");
+    mp_obj_dict_store(result,
+                      python_key("uid"),
+                      mp_obj_new_bytes(tag.uid, tag.uid_len));
+    mp_obj_dict_store(result,
+                      python_key("atqa"),
+                      mp_obj_new_bytes(tag.atqa, sizeof(tag.atqa)));
+    python_dict_store_int(result, "sak", tag.sak);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_nfc_scan_obj, 0, 2, solaros_nfc_scan);
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 static mp_obj_t python_expansion_binding_to_dict(const solar_os_expansion_binding_t *binding)

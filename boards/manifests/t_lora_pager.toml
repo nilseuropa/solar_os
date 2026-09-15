@@ -111,7 +111,7 @@ host = "SPI2_HOST"
 sclk = 35
 miso = 33
 mosi = 34
-cs = [38, 21, 36, 9]
+cs = [38, 21, 36, 39, 9]
 max_transfer_size = 4096
 
 [[buses]]
@@ -189,6 +189,11 @@ bindings = { i2c = "i2c0", addr = 0x55 }
 driver = "ublox-mia-m10q"
 name = "gnss0"
 bindings = { uart = "gnss-uart" }
+
+[[devices]]
+driver = "st25r3916"
+name = "nfc0"
+bindings = { spi = "spi0", cs = 39, irq = 5 }
 
 [[devices]]
 driver = "sx1262"
@@ -319,7 +324,7 @@ role = "GNSS UART RX"
 [[pins]]
 gpio = 5
 policy = "fixed"
-role = "NFC interrupt (unused in this port)"
+role = "NFC interrupt"
 [[pins]]
 gpio = 6
 policy = "fixed"
@@ -402,7 +407,7 @@ role = "display SPI CS"
 [[pins]]
 gpio = 39
 policy = "fixed"
-role = "NFC SPI CS (unused in this port)"
+role = "NFC SPI CS"
 [[pins]]
 gpio = 40
 policy = "fixed"

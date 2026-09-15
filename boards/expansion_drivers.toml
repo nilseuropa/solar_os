@@ -105,6 +105,32 @@ kind = "uart_port"
 hint = "bus"
 required = true
 
+[drivers.st25r3916]
+summary = "ST25R3916 NFC-A reader"
+package = "st25r3916"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_spi", "expansion_gpio"]
+default_name = "nfc0"
+
+[[drivers.st25r3916.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+required = true
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"

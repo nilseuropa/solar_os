@@ -913,6 +913,8 @@ available for the compiled board.
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
+| `nfc` | `nfc [list]` | List registered NFC readers and their concrete drivers. |
+| `nfc` | `nfc scan [name] [timeout-ms]` | Discover one collision-free NFC-A tag and print its UID, ATQA, and SAK. |
 | `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error. |
 | `espnow` | `espnow peers\|list` | List persistent configured and volatile learned Link-ID-to-MAC mappings. |
 | `espnow` | `espnow peer add <link-id> <mac>` | Save a persistent unicast peer mapping. |

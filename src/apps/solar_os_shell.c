@@ -516,6 +516,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     {"gnss", "GNSS receiver status", solar_os_shell_cmd_gnss},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+    {"nfc", "NFC reader tools", solar_os_shell_cmd_nfc},
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     {"neopixel", "control attached NeoPixel strips", solar_os_shell_cmd_neopixel},
 #endif

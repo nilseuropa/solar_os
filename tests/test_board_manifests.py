@@ -138,7 +138,7 @@ class BoardManifestTest(unittest.TestCase):
             self.manifest_dir,
         )
         buses = {bus["name"]: bus for bus in board["buses"]}
-        self.assertEqual(buses["spi0"]["cs"], [38, 21, 36, 9])
+        self.assertEqual(buses["spi0"]["cs"], [38, 21, 36, 39, 9])
 
         connectors = {pin["position"]: pin for pin in board["connectors"]}
         self.assertEqual(connectors[8]["gpio"], 9)
@@ -158,9 +158,14 @@ class BoardManifestTest(unittest.TestCase):
             '.target = "gnss-uart", .value = UART_NUM_1',
             header,
         )
+        self.assertIn(
+            '.driver = "st25r3916", .name = "nfc0"',
+            header,
+        )
         packages = required_packages(board, self.drivers)
         self.assertIn("tca8418", packages)
         self.assertIn("ublox_mia_m10q", packages)
+        self.assertIn("st25r3916", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
