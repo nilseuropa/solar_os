@@ -88,7 +88,7 @@ SOLAR_OS_BOARD_PIN_I2S_BCLK = "GPIO_NUM_11"
 SOLAR_OS_BOARD_PIN_I2S_WS = "GPIO_NUM_18"
 SOLAR_OS_BOARD_PIN_I2S_DIN = "GPIO_NUM_17"
 SOLAR_OS_BOARD_PIN_I2S_DOUT = "GPIO_NUM_45"
-# The NS4150B amplifier enable is XL9555 P0.1, driven high by tlora-pager-core.
+# The NS4150B amplifier enable is XL9555 line 1, initialized high by gpiox0.
 SOLAR_OS_BOARD_PIN_AUDIO_PA = "GPIO_NUM_NC"
 SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
 SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES8311"'
@@ -141,14 +141,13 @@ tx = 12
 rx = 4
 baud_rate = "38400"
 
-# core0 (XL9555) must attach before anything it power-gates: keyboard0,
-# radio0 and storage0 all sit behind its power/reset rails. It is marked
-# `early` in its driver descriptor and listed first here for the same
-# reason display0 (also `early`) is listed right after it.
+# gpiox0 must attach before devices that use its lines. Output latches are
+# preloaded before the lines become outputs. GNSS_EN (line 4) and NFC_EN
+# (line 5) start low; SD_PULLEN (line 11) and SD_EN (line 12) start high.
 [[devices]]
-driver = "tlora-pager-core"
-name = "core0"
-bindings = { i2c = "i2c0", addr = 0x20 }
+driver = "xl9555"
+name = "gpiox0"
+bindings = { i2c = "i2c0", addr = 0x20, output = 0x1B8F, direction = 0xE440 }
 
 [[devices]]
 driver = "st7796"
@@ -168,7 +167,7 @@ bindings = { i2c = "i2c0", i2s = 0, mclk = 10, bck = 11, ws = 18, din = 17, dout
 [[devices]]
 driver = "sdspi"
 name = "storage0"
-bindings = { spi = "spi0", cs = 21 }
+bindings = { spi = "spi0", cs = 21, power = "gpiox0:12" }
 
 [[devices]]
 driver = "tca8418"
@@ -188,12 +187,12 @@ bindings = { i2c = "i2c0", addr = 0x55 }
 [[devices]]
 driver = "ublox-mia-m10q"
 name = "gnss0"
-bindings = { uart = "gnss-uart" }
+bindings = { uart = "gnss-uart", power = "gpiox0:4" }
 
 [[devices]]
 driver = "st25r3916"
 name = "nfc0"
-bindings = { spi = "spi0", cs = 39, irq = 5 }
+bindings = { spi = "spi0", cs = 39, irq = 5, power = "gpiox0:5" }
 
 [[devices]]
 driver = "bhi260ap"

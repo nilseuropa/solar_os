@@ -154,15 +154,45 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
         self.assertIn(
+            '.driver = "xl9555", .name = "gpiox0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "output", '
+            '.value = 7055',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "direction", '
+            '.value = 58432',
+            header,
+        )
+        self.assertIn(
             '.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, '
             '.target = "gnss-uart", .value = UART_NUM_1',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 4',
             header,
         )
         self.assertIn(
             '.driver = "st25r3916", .name = "nfc0"',
             header,
         )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 5',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 12',
+            header,
+        )
         packages = required_packages(board, self.drivers)
+        self.assertIn("xl9555", packages)
         self.assertIn("tca8418", packages)
         self.assertIn("ublox_mia_m10q", packages)
         self.assertIn("st25r3916", packages)
