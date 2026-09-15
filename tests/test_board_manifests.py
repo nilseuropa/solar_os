@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from board_config import available_base_profiles, profile_commands, render_overlay
 from solaros_board_manifest import (
+    DriverBinding,
+    DriverDef,
     ManifestError,
     generate_cmake,
     generate_header,
@@ -292,6 +294,48 @@ class BoardManifestTest(unittest.TestCase):
             packages = tomllib.load(file)["packages"]
         missing = sorted({driver.package for driver in self.drivers.values()} - set(packages))
         self.assertEqual(missing, [])
+
+    def test_uart_device_binding_contains_declared_controller(self) -> None:
+        drivers = dict(self.drivers)
+        drivers["test-uart"] = DriverDef(
+            name="test-uart",
+            summary="test",
+            package="test_uart",
+            targets=("esp32s3",),
+            capabilities=("expansion_uart",),
+            board_capabilities=(),
+            board_driver=None,
+            board_defines={},
+            early=False,
+            default_name="uart-device0",
+            bindings=(DriverBinding(
+                key="uart",
+                kind="uart_port",
+                hint="bus",
+                role=None,
+                required=True,
+                allowed=(),
+                minimum=None,
+                maximum=None,
+            ),),
+        )
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        board["devices"].append({
+            "driver": "test-uart",
+            "name": "uart-device0",
+            "bindings": {"uart": "uart0"},
+        })
+
+        header = generate_header(board, drivers)
+
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, .target = "uart0", '
+            '.value = UART_NUM_0',
+            header,
+        )
 
     def test_overlay_renderer_round_trip_shape(self) -> None:
         overlay = {
