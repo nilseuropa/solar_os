@@ -18,7 +18,24 @@ agent_reference_sections = true
 
 ## `solaros.sensors`
 
-- `solaros.sensors`: `environment` when environmental sensor support is compiled
+- `list()`: return registered providers with `name`, `driver`, `temperature`,
+  and `humidity` fields.
+- `environment([name])`: return temperature and humidity from one named
+  provider. Without a name, use a combined provider when possible, then the
+  default provider for each value.
+- `temperature([name])`: return degrees Celsius from the default or named
+  provider, or `nil` when unavailable.
+- `humidity([name])`: return relative humidity as a percentage from the default
+  or named provider, or `nil` when unavailable.
+
+```lua
+for _, sensor in ipairs(solaros.sensors.list()) do
+    print(sensor.name, sensor.driver)
+end
+
+print(solaros.sensors.temperature())
+print(solaros.sensors.humidity())
+```
 
 ## `solaros.gnss`
 

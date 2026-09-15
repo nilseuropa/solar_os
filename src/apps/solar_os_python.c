@@ -1198,10 +1198,42 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_obj, solaros_wifi);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
-static mp_obj_t solaros_environment(void)
+static mp_obj_t solaros_sensors_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_sensor_info_t info;
+    for (size_t i = 0; solar_os_sensors_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(4);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        python_dict_store_bool(
+            item,
+            "temperature",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_TEMPERATURE) != 0U);
+        python_dict_store_bool(
+            item,
+            "humidity",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_HUMIDITY) != 0U);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_sensors_list_obj, solaros_sensors_list);
+
+static const char *python_optional_sensor_name(size_t n_args, const mp_obj_t *args)
+{
+    return n_args > 0U && args[0] != mp_const_none ?
+        mp_obj_str_get_str(args[0]) : NULL;
+}
+
+static mp_obj_t solaros_environment(size_t n_args, const mp_obj_t *args)
 {
     solar_os_environment_t environment;
-    if (solar_os_sensors_read_environment(&environment) != ESP_OK) {
+    const char *name = python_optional_sensor_name(n_args, args);
+    const esp_err_t ret = name != NULL ?
+        solar_os_sensors_read_environment_from(name, &environment) :
+        solar_os_sensors_read_environment(&environment);
+    if (ret != ESP_OK) {
         return mp_const_none;
     }
 
@@ -1210,7 +1242,32 @@ static mp_obj_t solaros_environment(void)
     python_dict_store_float(dict, "humidity_percent", environment.humidity_percent);
     return dict;
 }
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_environment_obj, solaros_environment);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_environment_obj, 0, 1, solaros_environment);
+
+static mp_obj_t solaros_sensors_temperature(size_t n_args, const mp_obj_t *args)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_temperature(
+            python_optional_sensor_name(n_args, args), &value) != ESP_OK) {
+        return mp_const_none;
+    }
+    return mp_obj_new_float(value);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_sensors_temperature_obj, 0, 1, solaros_sensors_temperature);
+
+static mp_obj_t solaros_sensors_humidity(size_t n_args, const mp_obj_t *args)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_humidity(
+            python_optional_sensor_name(n_args, args), &value) != ESP_OK) {
+        return mp_const_none;
+    }
+    return mp_obj_new_float(value);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_sensors_humidity_obj, 0, 1, solaros_sensors_humidity);
 #endif
 
 static mp_obj_t solaros_storage_status(void)
@@ -1829,11 +1886,12 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_battery_status_obj, solaros_battery_status);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
-static mp_obj_t solaros_sensors_environment(void)
+static mp_obj_t solaros_sensors_environment(size_t n_args, const mp_obj_t *args)
 {
-    return solaros_environment();
+    return solaros_environment(n_args, args);
 }
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_sensors_environment_obj, solaros_sensors_environment);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_sensors_environment_obj, 0, 1, solaros_sensors_environment);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI

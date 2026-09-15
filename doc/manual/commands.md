@@ -964,8 +964,8 @@ available for the compiled board.
 | `spi` | `spi write <bus> <cs> <mode> <hz> <byte...>` | Write bytes over a named SPI bus. |
 | `date` | `date [YYYY-MM-DD]` | Show or set the local date. |
 | `time` | `time [HH:MM[:SS]]` | Show or set the local time. |
-| `temperature` | `temperature` | Read the board temperature sensor when available. |
-| `humidity` | `humidity` | Read the board humidity sensor when available. |
+| `temperature` | `temperature [list\|sensor]` | List temperature providers or read the default or named sensor. |
+| `humidity` | `humidity [list\|sensor]` | List humidity providers or read the default or named sensor. |
 
 Board-specific connector resources, runtime GPIO policy, named buses, leases,
 and attachment examples are documented in [Expansion Ports](expansion.md).

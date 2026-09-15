@@ -115,7 +115,10 @@ SOLAR_OS_SCRIPT_API_MODULE_END(battery);
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(sensors);
+SOLAR_OS_SCRIPT_API_FUNCTION(sensors, list, list);
 SOLAR_OS_SCRIPT_API_FUNCTION(sensors, environment, environment);
+SOLAR_OS_SCRIPT_API_FUNCTION(sensors, temperature, temperature);
+SOLAR_OS_SCRIPT_API_FUNCTION(sensors, humidity, humidity);
 SOLAR_OS_SCRIPT_API_MODULE_END(sensors);
 #endif
 

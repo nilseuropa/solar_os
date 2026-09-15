@@ -1207,14 +1207,70 @@ static int solua_solaros_wifi_status_short(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+static int solua_sensors_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_sensor_info_t info;
+    for (size_t i = 0; solar_os_sensors_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(
+            L,
+            -1,
+            "temperature",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_TEMPERATURE) != 0U);
+        solua_set_bool(
+            L,
+            -1,
+            "humidity",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_HUMIDITY) != 0U);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static const char *solua_optional_sensor_name(lua_State *L)
+{
+    return lua_isnoneornil(L, 1) ? NULL : luaL_checkstring(L, 1);
+}
+
 static int solua_solaros_environment(lua_State *L)
 {
     solar_os_environment_t environment;
-    if (solar_os_sensors_read_environment(&environment) != ESP_OK) {
+    const char *name = solua_optional_sensor_name(L);
+    const esp_err_t ret = name != NULL ?
+        solar_os_sensors_read_environment_from(name, &environment) :
+        solar_os_sensors_read_environment(&environment);
+    if (ret != ESP_OK) {
         lua_pushnil(L);
         return 1;
     }
     solua_push_environment(L, &environment);
+    return 1;
+}
+
+static int solua_sensors_temperature(lua_State *L)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_temperature(
+            solua_optional_sensor_name(L), &value) != ESP_OK) {
+        lua_pushnil(L);
+    } else {
+        lua_pushnumber(L, value);
+    }
+    return 1;
+}
+
+static int solua_sensors_humidity(lua_State *L)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_humidity(
+            solua_optional_sensor_name(L), &value) != ESP_OK) {
+        lua_pushnil(L);
+    } else {
+        lua_pushnumber(L, value);
+    }
     return 1;
 }
 #endif

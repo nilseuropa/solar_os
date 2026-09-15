@@ -47,7 +47,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
 - [help command](help.md) — Browse the package-aware manual or manage its signed exact-version SD copy. command.status escapes the maintenance keyword.
-- [humidity command](commands.md) — Read the board humidity sensor when available.
+- [humidity command](commands.md) — List humidity providers or read the default or named sensor.
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
 - [identity command](identity.md) — Show the configured user and hostname.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
@@ -97,7 +97,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [status command](commands.md) — Print a compact system summary, including the last foreground-app exit code.
 - [stream command](commands.md) — List dynamic typed stream endpoints.
 - [suspend command](commands.md) — Turn off the primary display and temporarily use the lowpower profile while services and jobs continue. Press KEY to resume.
-- [temperature command](commands.md) — Read the board temperature sensor when available.
+- [temperature command](commands.md) — List temperature providers or read the default or named sensor.
 - [time command](commands.md) — Show or set the local time.
 - [top command](commands.md) — Print FreeRTOS task resource information when available.
 - [uart command](commands.md) — Show the default uart0 or a selected named UART bus.

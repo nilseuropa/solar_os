@@ -33,15 +33,26 @@ print("{} mV, {}%".format(battery["voltage_mv"], battery["percent"]))
 
 Available when the firmware includes the environmental sensor service.
 
-- `environment()`: return `temperature_c` and `humidity_percent`.
+- `list()`: return registered providers with `name`, `driver`, `temperature`,
+  and `humidity` fields.
+- `environment([name])`: return `temperature_c` and `humidity_percent` from a
+  named provider. Without a name, prefer one provider that supplies both
+  values, then fall back to the default provider for each value.
+- `temperature([name])`: return a temperature in degrees Celsius from the
+  default or named provider, or `None` when unavailable.
+- `humidity([name])`: return relative humidity as a percentage from the
+  default or named provider, or `None` when unavailable.
 
 Example:
 
 ```python
 import solaros
 
-env = solaros.sensors.environment()
-print("{:.1f} C {:.1f}%".format(env["temperature_c"], env["humidity_percent"]))
+for sensor in solaros.sensors.list():
+    print(sensor["name"], sensor["driver"])
+
+print(solaros.sensors.temperature())
+print(solaros.sensors.humidity())
 ```
 
 ## `solaros.gnss`

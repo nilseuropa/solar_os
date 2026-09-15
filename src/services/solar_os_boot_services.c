@@ -282,11 +282,9 @@ void solar_os_boot_services_init(uint32_t now_ms)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
-    if (solar_os_sensors_has_provider()) {
-        const esp_err_t sensors_err = solar_os_sensors_init();
-        if (sensors_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG, "Sensors unavailable: %s", esp_err_to_name(sensors_err));
-        }
+    const esp_err_t sensors_err = solar_os_sensors_init();
+    if (sensors_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Sensors unavailable: %s", esp_err_to_name(sensors_err));
     }
 #endif
 
