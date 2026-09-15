@@ -25,10 +25,10 @@ typedef struct {
     void *ctx;
 } haptic_ref_t;
 
-static SemaphoreHandle_t haptic_mutex;
+static EXT_RAM_BSS_ATTR SemaphoreHandle_t haptic_mutex;
 static EXT_RAM_BSS_ATTR StaticSemaphore_t haptic_mutex_storage;
 static EXT_RAM_BSS_ATTR haptic_device_t haptic_devices[HAPTIC_DEVICE_MAX];
-static uint32_t haptic_next_generation = 1U;
+static EXT_RAM_BSS_ATTR uint32_t haptic_next_generation;
 
 static esp_err_t ensure_mutex(void)
 {
@@ -128,9 +128,9 @@ esp_err_t solar_os_haptic_register(
     free_device->info.effect_count = registration->effect_count;
     free_device->ops = *registration->ops;
     free_device->ctx = registration->ctx;
-    free_device->generation = haptic_next_generation++;
+    free_device->generation = ++haptic_next_generation;
     if (free_device->generation == 0U) {
-        free_device->generation = haptic_next_generation++;
+        free_device->generation = ++haptic_next_generation;
     }
     xSemaphoreGive(haptic_mutex);
     return ESP_OK;
