@@ -490,6 +490,21 @@ def validate_board(board: dict[str, Any], drivers: dict[str, DriverDef]) -> None
                     raise ManifestError(f"device {name}.{key} is below {spec.minimum}")
                 if spec.maximum is not None and line > spec.maximum:
                     raise ManifestError(f"device {name}.{key} is above {spec.maximum}")
+                if not controller:
+                    if line not in pins:
+                        raise ManifestError(
+                            f"device {name}.{key} GPIO{line} is absent from pins"
+                        )
+                    if pins[line].get("policy") == "free":
+                        raise ManifestError(
+                            f"device {name}.{key} GPIO{line} must not be free"
+                        )
+                    previous = direct_pin_owners.get(line) or bus_signal_owners.get(line)
+                    if previous is not None:
+                        raise ManifestError(
+                            f"GPIO{line} is shared by {previous} and {name}.{key}"
+                        )
+                    direct_pin_owners[line] = f"{name}.{key}"
                 continue
             if spec.kind in TARGET_BINDING_KINDS:
                 if not isinstance(value, str) or not value:
@@ -554,12 +569,16 @@ def _c_string(value: str) -> str:
 
 
 def _parse_gpio_line(value: Any, path: str) -> tuple[str, int]:
+    if isinstance(value, int):
+        if value < 0 or value > 255:
+            raise ManifestError(f"{path} GPIO must be between 0 and 255")
+        return "", value
     if not isinstance(value, str) or ":" not in value:
-        raise ManifestError(f"{path} must be controller:line")
+        raise ManifestError(f"{path} must be a GPIO number or controller:line")
     controller, separator, line_text = value.rpartition(":")
     if (not separator or not DEVICE_NAME_RE.fullmatch(controller) or
             not line_text.isdigit()):
-        raise ManifestError(f"{path} must be controller:line")
+        raise ManifestError(f"{path} must be a GPIO number or controller:line")
     line = int(line_text)
     if line < 0 or line > 255:
         raise ManifestError(f"{path} line must be between 0 and 255")
@@ -652,7 +671,8 @@ def _binding_initializer(spec: DriverBinding,
         fields.append(f".value = {value}")
     elif spec.kind == "gpio_line":
         controller, line = _parse_gpio_line(value, f"binding {spec.key}")
-        fields.append(f".target = {_c_string(controller)}")
+        if controller:
+            fields.append(f".target = {_c_string(controller)}")
         fields.append(f".value = {line}")
     else:
         fields.append(f".value = {value}")

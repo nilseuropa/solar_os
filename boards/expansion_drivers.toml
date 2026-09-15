@@ -122,7 +122,7 @@ required = true
 [[drivers.ublox-mia-m10q.bindings]]
 key = "power"
 kind = "gpio_line"
-hint = "controller:line"
+hint = "gpio|controller:line"
 
 [drivers.st25r3916]
 summary = "ST25R3916 NFC-A reader"
@@ -153,7 +153,7 @@ required = true
 [[drivers.st25r3916.bindings]]
 key = "power"
 kind = "gpio_line"
-hint = "controller:line"
+hint = "gpio|controller:line"
 
 [drivers.bhi260ap]
 summary = "Bosch BHI260AP six-axis IMU"
@@ -280,7 +280,7 @@ required = true
 [[drivers.sdspi.bindings]]
 key = "power"
 kind = "gpio_line"
-hint = "controller:line"
+hint = "gpio|controller:line"
 
 [drivers.sdmmc]
 summary = "SDMMC card"

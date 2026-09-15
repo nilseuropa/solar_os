@@ -13,6 +13,11 @@ Expansion drivers turn named buses and safe GPIO slots into active displays,
 radios, sensors, or manual resource profiles. Drivers are package-gated, so the
 available list depends on the firmware and board.
 
+Control-line bindings such as device power may use either a native ESP GPIO
+number or a named GPIO-controller line such as `gpiox0:12`. Expanded GPIO lines
+are digital control resources only. They cannot replace native ESP pins in SPI,
+I2C, UART, I2S, PWM, interrupt, or other bus/peripheral-signal bindings.
+
 Integrated hardware uses the same composition model. A board profile declares
 its fixed buses and default attachments, which are created at boot, shown by
 `expansion devices`, and cannot be detached. For example, Freenove `touch0` is
@@ -187,6 +192,11 @@ disk lsblk
 disk umount
 expansion detach card0
 ```
+
+If the adapter has a switched supply, add `power=<gpio>` or
+`power=<controller:line>`. The SD driver enables that line before probing and
+disables it after unmount and detach. The SPI bus and CS remain native ESP
+peripheral resources.
 
 The `sdspi` attach command prints the card probe result to the invoking shell.
 The report includes the card identity, type, negotiated speed, capacity, CSD/SSR

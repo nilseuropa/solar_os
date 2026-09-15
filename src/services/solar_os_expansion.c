@@ -298,6 +298,14 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             -1,
                             binding->role);
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        if (binding->target[0] == '\0') {
+            return append_claim(requests,
+                                request_count,
+                                SOLAR_OS_RESOURCE_GPIO_PIN,
+                                binding->value,
+                                -1,
+                                binding->role);
+        }
         solar_os_gpio_controller_info_t controller;
         if (!solar_os_gpio_controller_find(binding->target, &controller) ||
             binding->value < 0 || binding->value >= controller.line_count) {
@@ -405,9 +413,13 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
             (allow_board_pins &&
              solar_os_pin_get_info_by_pin(binding->value, NULL));
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        if (binding->target[0] == '\0') {
+            return pin_is_expansion_gpio(binding->value) ||
+                (allow_board_pins &&
+                 solar_os_pin_get_info_by_pin(binding->value, NULL));
+        }
         solar_os_gpio_controller_info_t controller;
-        return binding->target[0] != '\0' &&
-            solar_os_gpio_controller_find(binding->target, &controller) &&
+        return solar_os_gpio_controller_find(binding->target, &controller) &&
             binding->value >= 0 && binding->value < controller.line_count;
     }
     case SOLAR_OS_EXPANSION_BINDING_ADC:

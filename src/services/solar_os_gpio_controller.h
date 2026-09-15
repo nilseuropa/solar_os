@@ -20,6 +20,7 @@ typedef enum {
 } solar_os_gpio_line_pull_t;
 
 typedef struct {
+    /* An empty controller selects a native ESP GPIO. */
     char controller[SOLAR_OS_GPIO_CONTROLLER_NAME_MAX];
     uint8_t line;
 } solar_os_gpio_line_ref_t;
@@ -53,7 +54,9 @@ size_t solar_os_gpio_controller_count(void);
 bool solar_os_gpio_controller_get(size_t index, solar_os_gpio_controller_info_t *info);
 bool solar_os_gpio_controller_find(const char *name, solar_os_gpio_controller_info_t *info);
 
+/* Accepts either a native GPIO number or controller:line. */
 bool solar_os_gpio_line_parse(const char *text, solar_os_gpio_line_ref_t *line);
+bool solar_os_gpio_line_is_native(const solar_os_gpio_line_ref_t *line);
 esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
                                        solar_os_gpio_line_mode_t mode,
                                        solar_os_gpio_line_pull_t pull);

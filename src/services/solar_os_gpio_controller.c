@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "gpio_port.h"
 #include "solar_os_resources.h"
 
 #define SOLAR_OS_GPIO_CONTROLLER_MAX 4U
@@ -191,6 +192,15 @@ bool solar_os_gpio_line_parse(const char *text, solar_os_gpio_line_ref_t *line)
     if (text == NULL || line == NULL) {
         return false;
     }
+    const char *native_text = strncmp(text, "gpio", 4U) == 0 ? text + 4U : text;
+    char *native_end = NULL;
+    const long native = strtol(native_text, &native_end, 0);
+    if (native_end != native_text && *native_end == '\0' &&
+        native >= 0 && native <= UINT8_MAX) {
+        memset(line, 0, sizeof(*line));
+        line->line = (uint8_t)native;
+        return true;
+    }
     const char *separator = strrchr(text, ':');
     if (separator == NULL || separator == text || separator[1] == '\0') {
         return false;
@@ -208,6 +218,11 @@ bool solar_os_gpio_line_parse(const char *text, solar_os_gpio_line_ref_t *line)
     memcpy(line->controller, text, name_len);
     line->line = (uint8_t)parsed;
     return true;
+}
+
+bool solar_os_gpio_line_is_native(const solar_os_gpio_line_ref_t *line)
+{
+    return line != NULL && line->controller[0] == '\0';
 }
 
 static esp_err_t begin_call(const solar_os_gpio_line_ref_t *line,
@@ -257,6 +272,17 @@ esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
          pull != SOLAR_OS_GPIO_LINE_PULL_DOWN)) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (solar_os_gpio_line_is_native(line)) {
+        const gpio_port_mode_t native_mode = mode == SOLAR_OS_GPIO_LINE_MODE_OUTPUT
+            ? GPIO_PORT_MODE_OUTPUT : GPIO_PORT_MODE_INPUT;
+        gpio_port_pull_t native_pull = GPIO_PORT_PULL_NONE;
+        if (pull == SOLAR_OS_GPIO_LINE_PULL_UP) {
+            native_pull = GPIO_PORT_PULL_UP;
+        } else if (pull == SOLAR_OS_GPIO_LINE_PULL_DOWN) {
+            native_pull = GPIO_PORT_PULL_DOWN;
+        }
+        return gpio_port_configure((gpio_num_t)line->line, native_mode, native_pull);
+    }
     gpio_controller_call_t call;
     ESP_RETURN_ON_ERROR(begin_call(line, &call), "gpio-controller", "line unavailable");
     const esp_err_t ret = call.ops->configure(call.ctx, line->line, mode, pull);
@@ -269,6 +295,9 @@ esp_err_t solar_os_gpio_line_read(const solar_os_gpio_line_ref_t *line, bool *le
     if (level == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (solar_os_gpio_line_is_native(line)) {
+        return gpio_port_read((gpio_num_t)line->line, level);
+    }
     gpio_controller_call_t call;
     ESP_RETURN_ON_ERROR(begin_call(line, &call), "gpio-controller", "line unavailable");
     const esp_err_t ret = call.ops->read(call.ctx, line->line, level);
@@ -278,6 +307,15 @@ esp_err_t solar_os_gpio_line_read(const solar_os_gpio_line_ref_t *line, bool *le
 
 esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level)
 {
+    if (solar_os_gpio_line_is_native(line)) {
+        /* Preload the output latch before enabling the output driver. */
+        ESP_RETURN_ON_ERROR(gpio_port_write((gpio_num_t)line->line, level),
+                            "gpio-controller",
+                            "native line preload failed");
+        return gpio_port_configure((gpio_num_t)line->line,
+                                   GPIO_PORT_MODE_OUTPUT,
+                                   GPIO_PORT_PULL_NONE);
+    }
     gpio_controller_call_t call;
     ESP_RETURN_ON_ERROR(begin_call(line, &call), "gpio-controller", "line unavailable");
     const esp_err_t ret = call.ops->write(call.ctx, line->line, level);

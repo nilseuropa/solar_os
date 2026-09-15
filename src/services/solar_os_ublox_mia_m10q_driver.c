@@ -2,7 +2,7 @@
 
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "uart", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, .required = true},
-    {.key = "power", .value_hint = "controller:line", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE},
+    {.key = "power", .value_hint = "gpio|controller:line", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE},
 };
 const solar_os_expansion_driver_t solar_os_ublox_mia_m10q_expansion_driver = {
     .name = "ublox-mia-m10q",

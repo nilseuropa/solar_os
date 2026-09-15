@@ -267,11 +267,14 @@ resources_test: resources_test.c $(ROOT)/src/services/solar_os_resources.c $(ROO
 		resources_test.c $(ROOT)/src/services/solar_os_resources.c -o $@
 
 gpio_controller_test: gpio_controller_test.c \
+		$(ROOT)/src/drivers/gpio_port.c $(ROOT)/src/drivers/gpio_port.h \
 		$(ROOT)/src/services/solar_os_gpio_controller.c \
 		$(ROOT)/src/services/solar_os_gpio_controller.h \
 		$(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/services/solar_os_resources.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Igpio_controller_stubs \
+		-I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
 		gpio_controller_test.c $(ROOT)/src/services/solar_os_gpio_controller.c \
+		$(ROOT)/src/drivers/gpio_port.c \
 		$(ROOT)/src/services/solar_os_resources.c -o $@
 
 expansion_registry_test: expansion_registry_test.c \

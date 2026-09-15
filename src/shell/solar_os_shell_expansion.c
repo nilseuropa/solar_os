@@ -511,11 +511,18 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
                                  binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
-        solar_os_shell_io_printf(term,
-                                 " gpio_line:%s=%s:%d",
-                                 binding->role,
-                                 binding->target,
-                                 binding->value);
+        if (binding->target[0] == '\0') {
+            solar_os_shell_io_printf(term,
+                                     " gpio_line:%s=GPIO%d",
+                                     binding->role,
+                                     binding->value);
+        } else {
+            solar_os_shell_io_printf(term,
+                                     " gpio_line:%s=%s:%d",
+                                     binding->role,
+                                     binding->target,
+                                     binding->value);
+        }
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
         solar_os_shell_io_printf(term, " i2s=i2s%d", binding->value);
@@ -931,7 +938,9 @@ bool solar_os_shell_expansion_parse_binding_token(
     }
     solar_os_gpio_line_ref_t line;
     if (solar_os_gpio_line_parse(value, &line) &&
-        solar_os_gpio_controller_find(line.controller, NULL)) {
+        ((solar_os_gpio_line_is_native(&line) && strcmp(key, "power") == 0) ||
+         (!solar_os_gpio_line_is_native(&line) &&
+          solar_os_gpio_controller_find(line.controller, NULL)))) {
         return binding_store(bindings,
                              binding_count,
                              SOLAR_OS_EXPANSION_BINDING_GPIO_LINE,

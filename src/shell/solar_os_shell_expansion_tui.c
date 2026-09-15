@@ -263,12 +263,20 @@ static void expansion_tui_format_binding(
                  binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
-        snprintf(line,
-                 line_len,
-                 "gpio_line:%s = %s:%d",
-                 binding->role,
-                 binding->target,
-                 binding->value);
+        if (binding->target[0] == '\0') {
+            snprintf(line,
+                     line_len,
+                     "gpio_line:%s = GPIO%d",
+                     binding->role,
+                     binding->value);
+        } else {
+            snprintf(line,
+                     line_len,
+                     "gpio_line:%s = %s:%d",
+                     binding->role,
+                     binding->target,
+                     binding->value);
+        }
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
         snprintf(line, line_len, "i2s = i2s%d", binding->value);
@@ -904,7 +912,8 @@ static bool expansion_tui_binding_from_spec(
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
         solar_os_gpio_line_ref_t line;
         if (!solar_os_gpio_line_parse(text, &line) ||
-            !solar_os_gpio_controller_find(line.controller, NULL)) {
+            (!solar_os_gpio_line_is_native(&line) &&
+             !solar_os_gpio_controller_find(line.controller, NULL))) {
             return false;
         }
         strlcpy(binding->target, line.controller, sizeof(binding->target));

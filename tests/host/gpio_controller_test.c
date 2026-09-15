@@ -3,8 +3,30 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_resources.h"
+
+static gpio_config_t native_config;
+static bool native_level[64];
+
+esp_err_t gpio_config(const gpio_config_t *config)
+{
+    assert(config != NULL);
+    native_config = *config;
+    return ESP_OK;
+}
+
+int gpio_get_level(gpio_num_t pin)
+{
+    return native_level[pin] ? 1 : 0;
+}
+
+esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
+{
+    native_level[pin] = level != 0U;
+    return ESP_OK;
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -87,6 +109,20 @@ int main(void)
     bool level = false;
     assert(solar_os_gpio_line_read(&line, &level) == ESP_OK);
     assert(level);
+
+    assert(solar_os_gpio_line_parse("gpio12", &line));
+    assert(solar_os_gpio_line_is_native(&line));
+    assert(line.controller[0] == '\0');
+    assert(line.line == 12U);
+    assert(solar_os_gpio_line_write(&line, true) == ESP_OK);
+    assert(native_level[12]);
+    assert(native_config.pin_bit_mask == (1ULL << 12U));
+    assert(native_config.mode == GPIO_MODE_OUTPUT);
+    level = false;
+    assert(solar_os_gpio_line_read(&line, &level) == ESP_OK);
+    assert(level);
+
+    assert(solar_os_gpio_line_parse("gpiox0:3", &line));
 
     assert(solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_LINE,
                                    info.id,

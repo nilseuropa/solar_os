@@ -425,9 +425,29 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
 
+        board["devices"][-1]["bindings"]["power"] = 13
+        header = generate_header(board, drivers)
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.value = 13',
+            header,
+        )
+
         board["devices"][-1]["bindings"]["power"] = "gpiox0:16"
         with self.assertRaisesRegex(ManifestError, "above 15"):
             validate_board(board, drivers)
+
+    def test_gpio_controller_line_cannot_replace_spi_cs(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        storage = next(
+            device for device in board["devices"] if device["name"] == "storage0"
+        )
+        storage["bindings"]["cs"] = "gpiox0:12"
+        with self.assertRaisesRegex(ManifestError, "must be an integer"):
+            validate_board(board, self.drivers)
 
     def test_overlay_renderer_round_trip_shape(self) -> None:
         overlay = {
