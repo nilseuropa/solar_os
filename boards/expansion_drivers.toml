@@ -288,6 +288,11 @@ kind = "spi_cs"
 hint = "gpio"
 required = true
 
+[[drivers.sdspi.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "controller:line"
+
 [drivers.sdmmc]
 summary = "SDMMC card"
 package = "expansion_sdmmc"
