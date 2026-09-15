@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from board_config import available_base_profiles, profile_commands, render_overlay
 from solaros_board_manifest import (
+    DriverBinding,
+    DriverDef,
     ManifestError,
     generate_cmake,
     generate_header,
@@ -136,7 +138,7 @@ class BoardManifestTest(unittest.TestCase):
             self.manifest_dir,
         )
         buses = {bus["name"]: bus for bus in board["buses"]}
-        self.assertEqual(buses["spi0"]["cs"], [38, 21, 36, 9])
+        self.assertEqual(buses["spi0"]["cs"], [38, 21, 36, 39, 9])
 
         connectors = {pin["position"]: pin for pin in board["connectors"]}
         self.assertEqual(connectors[8]["gpio"], 9)
@@ -147,7 +149,73 @@ class BoardManifestTest(unittest.TestCase):
             '.kind = SOLAR_OS_EXPANSION_BINDING_PWM, .role = "backlight", .value = 46',
             header,
         )
-        self.assertIn("tca8418", required_packages(board, self.drivers))
+        self.assertIn(
+            '.driver = "ublox-mia-m10q", .name = "gnss0"',
+            header,
+        )
+        self.assertIn(
+            '.driver = "xl9555", .name = "gpiox0"',
+            header,
+        )
+        self.assertIn(
+            '.driver = "drv2605", .name = "haptic0"',
+            header,
+        )
+        self.assertIn(
+            '.driver = "bq25896", .name = "charger0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, '
+            '.role = "charge_current", .value = 704',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "output", '
+            '.value = 7055',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "direction", '
+            '.value = 58432',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, '
+            '.target = "gnss-uart", .value = UART_NUM_1',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 4',
+            header,
+        )
+        self.assertIn(
+            '.driver = "st25r3916", .name = "nfc0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 5',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 12',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 0',
+            header,
+        )
+        packages = required_packages(board, self.drivers)
+        self.assertIn("xl9555", packages)
+        self.assertIn("tca8418", packages)
+        self.assertIn("ublox_mia_m10q", packages)
+        self.assertIn("st25r3916", packages)
+        self.assertIn("drv2605", packages)
+        self.assertIn("bq25896", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
@@ -292,6 +360,114 @@ class BoardManifestTest(unittest.TestCase):
             packages = tomllib.load(file)["packages"]
         missing = sorted({driver.package for driver in self.drivers.values()} - set(packages))
         self.assertEqual(missing, [])
+
+    def test_uart_device_binding_contains_declared_controller(self) -> None:
+        drivers = dict(self.drivers)
+        drivers["test-uart"] = DriverDef(
+            name="test-uart",
+            summary="test",
+            package="test_uart",
+            targets=("esp32s3",),
+            capabilities=("expansion_uart",),
+            board_capabilities=(),
+            board_driver=None,
+            board_defines={},
+            early=False,
+            default_name="uart-device0",
+            bindings=(DriverBinding(
+                key="uart",
+                kind="uart_port",
+                hint="bus",
+                role=None,
+                required=True,
+                allowed=(),
+                minimum=None,
+                maximum=None,
+            ),),
+        )
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        board["devices"].append({
+            "driver": "test-uart",
+            "name": "uart-device0",
+            "bindings": {"uart": "uart0"},
+        })
+
+        header = generate_header(board, drivers)
+
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, .target = "uart0", '
+            '.value = UART_NUM_0',
+            header,
+        )
+
+    def test_gpio_line_binding_contains_controller_and_line(self) -> None:
+        drivers = dict(self.drivers)
+        drivers["test-line"] = DriverDef(
+            name="test-line",
+            summary="test",
+            package="test_line",
+            targets=("esp32s3",),
+            capabilities=(),
+            board_capabilities=(),
+            board_driver=None,
+            board_defines={},
+            early=False,
+            default_name="line-device0",
+            bindings=(DriverBinding(
+                key="power",
+                kind="gpio_line",
+                hint="controller:line",
+                role="power",
+                required=True,
+                allowed=(),
+                minimum=0,
+                maximum=15,
+            ),),
+        )
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        board["devices"].append({
+            "driver": "test-line",
+            "name": "line-device0",
+            "bindings": {"power": "gpiox0:4"},
+        })
+
+        header = generate_header(board, drivers)
+
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 4',
+            header,
+        )
+
+        board["devices"][-1]["bindings"]["power"] = 13
+        header = generate_header(board, drivers)
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.value = 13',
+            header,
+        )
+
+        board["devices"][-1]["bindings"]["power"] = "gpiox0:16"
+        with self.assertRaisesRegex(ManifestError, "above 15"):
+            validate_board(board, drivers)
+
+    def test_gpio_controller_line_cannot_replace_spi_cs(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        storage = next(
+            device for device in board["devices"] if device["name"] == "storage0"
+        )
+        storage["bindings"]["cs"] = "gpiox0:12"
+        with self.assertRaisesRegex(ManifestError, "must be an integer"):
+            validate_board(board, self.drivers)
 
     def test_overlay_renderer_round_trip_shape(self) -> None:
         overlay = {

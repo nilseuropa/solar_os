@@ -446,6 +446,10 @@ if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
     )
 endif()
 
+if(SOLAR_OS_PACKAGE_BHI260AP)
+    list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS "vendor/bhy2")
+endif()
+
 # The version is a component-wide compile definition. Make it an explicit
 # object dependency so incremental builds cannot link stale version strings
 # after version.txt changes.
@@ -460,6 +464,10 @@ idf_component_register(
                  ${SOLAR_OS_EXTRA_INCLUDE_DIRS}
     REQUIRES ${SOLAR_OS_REQUIRES}
 )
+
+if(SOLAR_OS_PACKAGE_BHI260AP)
+    target_add_binary_data(${COMPONENT_LIB} "vendor/bhy2/BHI260AP.fw" BINARY)
+endif()
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${SOLAR_OS_BOARD_DEFINE}=1

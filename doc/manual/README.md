@@ -24,6 +24,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [board command](commands.md) — Print board ID, name, and capabilities.
 - [cat command](commands.md) — Print a small text file.
 - [cd command](commands.md) — Change current shell directory.
+- [charger command](commands.md) — List registered battery chargers, concrete drivers, and valid configuration ranges.
 - [clear command](commands.md) — Clear the active shell terminal.
 - [close command](commands.md) — Close a display app, display shell, or retained port app, or stop a port shell session. The final interactive shell cannot be closed.
 - [commands command](commands.md) — List built-in shell commands.
@@ -44,11 +45,14 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [expansion command](expansion.md) — Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, and detach runtime devices. Bus lifecycle remains in the io app.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
+- [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
+- [haptic command](commands.md) — List registered haptic devices, their concrete drivers, and supported effect range.
 - [help command](help.md) — Browse the package-aware manual or manage its signed exact-version SD copy. command.status escapes the maintenance keyword.
-- [humidity command](commands.md) — Read the board humidity sensor when available.
+- [humidity command](commands.md) — List humidity providers or read the default or named sensor.
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
 - [identity command](identity.md) — Show the configured user and hostname.
+- [imu command](commands.md) — List registered motion sensors, their concrete drivers, and available measurements.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
 - [input command](commands.md) — List all input sources or filter them by semantic class.
 - [job command](jobs.md) — Show one job or all jobs.
@@ -67,6 +71,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [mv command](commands.md) — Rename or move a file or matched set.
 - [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
+- [nfc command](commands.md) — List registered NFC readers and their concrete drivers.
 - [ntp command](commands.md) — Sync the wall clock from NTP.
 - [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
 - [onewire command](commands.md) — Show every registered named 1-Wire bus, or one selected bus.
@@ -95,7 +100,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [status command](commands.md) — Print a compact system summary, including the last foreground-app exit code.
 - [stream command](commands.md) — List dynamic typed stream endpoints.
 - [suspend command](commands.md) — Turn off the primary display and temporarily use the lowpower profile while services and jobs continue. Press KEY to resume.
-- [temperature command](commands.md) — Read the board temperature sensor when available.
+- [temperature command](commands.md) — List temperature providers or read the default or named sensor.
 - [time command](commands.md) — Show or set the local time.
 - [top command](commands.md) — Print FreeRTOS task resource information when available.
 - [uart command](commands.md) — Show the default uart0 or a selected named UART bus.
@@ -212,7 +217,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua bluetooth API](lua.ble.md) — Bluetooth: ble
 - [Lua buses and expansion API](lua.buses.md) — Buses and expansion: buses, expansion
 - [Lua contacts and messages API](lua.messaging.md) — Contacts and messages: contacts, messages
-- [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors
+- [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua input and clipboard API](lua.input.md) — Input and clipboard: input, hid, clipboard
 - [Lua networking API](lua.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys
@@ -226,7 +231,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Python bluetooth API](python.ble.md) — Bluetooth: ble
 - [Python buses and expansion API](python.buses.md) — Buses and expansion: buses, expansion
 - [Python contacts and messages API](python.messaging.md) — Contacts and messages: contacts, messages
-- [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors
+- [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python input and clipboard API](python.input.md) — Input and clipboard: input, hid, clipboard
 - [Python networking API](python.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys

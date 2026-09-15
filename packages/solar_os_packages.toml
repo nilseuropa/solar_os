@@ -65,6 +65,21 @@ label = "I2C"
 category = "Hardware interfaces"
 members = ["service_i2c"]
 
+[groups.haptic]
+label = "Haptic feedback"
+category = "Hardware interfaces"
+members = ["service_haptic"]
+
+[groups.charger]
+label = "Battery charger"
+category = "Hardware interfaces"
+members = ["service_charger"]
+
+[groups.imu]
+label = "Motion sensors"
+category = "Hardware interfaces"
+members = ["service_imu"]
+
 [groups.spi]
 label = "SPI"
 category = "Hardware interfaces"
@@ -441,6 +456,36 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
+[groups.ublox_mia_m10q]
+label = "u-blox MIA-M10Q GNSS receiver"
+category = "Expansion hardware"
+members = ["ublox_mia_m10q"]
+
+[groups.st25r3916]
+label = "ST25R3916 NFC-A reader"
+category = "Expansion hardware"
+members = ["st25r3916"]
+
+[groups.bhi260ap]
+label = "BHI260AP IMU"
+category = "Expansion hardware"
+members = ["bhi260ap"]
+
+[groups.drv2605]
+label = "DRV2605 haptic controller"
+category = "Expansion hardware"
+members = ["drv2605"]
+
+[groups.bq25896]
+label = "BQ25896 battery charger"
+category = "Expansion hardware"
+members = ["bq25896"]
+
+[groups.xl9555]
+label = "XL9555 GPIO controller"
+category = "Expansion hardware"
+members = ["xl9555"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -547,12 +592,6 @@ label = "CL-32 board controller"
 category = "Internal"
 hidden = true
 members = ["board_cl32_core"]
-
-[groups.tlora_pager_core]
-label = "T-LoRa-Pager board controller"
-category = "Internal"
-hidden = true
-members = ["tlora_pager_core"]
 
 [groups.tca8418]
 label = "TCA8418 keyboard"
@@ -1071,6 +1110,7 @@ label = "service.expansion"
 depends = ["service_resources"]
 sources = [
   "services/solar_os_expansion.c",
+  "services/solar_os_gpio_controller.c",
   "shell/solar_os_shell_expansion.c",
   "shell/solar_os_shell_expansion_tui.c",
 ]
@@ -1086,6 +1126,41 @@ any_capabilities = [
   "expansion_gpio",
   "expansion_spi",
   "expansion_uart",
+]
+
+[packages.service_gnss]
+label = "service.gnss"
+sources = [
+  "services/solar_os_gnss.c",
+  "shell/solar_os_shell_gnss.c",
+]
+
+[packages.service_haptic]
+label = "service.haptic"
+sources = [
+  "services/solar_os_haptic.c",
+  "shell/solar_os_shell_haptic.c",
+]
+
+[packages.service_charger]
+label = "service.charger"
+sources = [
+  "services/solar_os_charger.c",
+  "shell/solar_os_shell_charger.c",
+]
+
+[packages.service_imu]
+label = "service.imu"
+sources = [
+  "services/solar_os_imu.c",
+  "shell/solar_os_shell_imu.c",
+]
+
+[packages.service_nfc]
+label = "service.nfc"
+sources = [
+  "services/solar_os_nfc.c",
+  "shell/solar_os_shell_nfc.c",
 ]
 
 [packages.service_link]
@@ -1221,6 +1296,73 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.ublox_mia_m10q]
+label = "expansion.ublox-mia-m10q"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ublox_mia_m10q_expansion_driver"]
+depends = ["service_expansion", "service_gnss", "service_uart"]
+sources = [
+  "drivers/ubx.c",
+  "services/solar_os_ublox_mia_m10q.c",
+  "services/solar_os_ublox_mia_m10q_driver.c",
+]
+requires = ["esp_timer"]
+capabilities = ["expansion_uart"]
+
+[packages.st25r3916]
+label = "expansion.st25r3916"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_st25r3916_expansion_driver"]
+depends = ["service_expansion", "service_nfc", "service_spi"]
+sources = [
+  "drivers/st25r3916.c",
+  "services/solar_os_st25r3916.c",
+  "services/solar_os_st25r3916_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_timer"]
+capabilities = ["expansion_gpio", "expansion_spi"]
+
+[packages.bhi260ap]
+label = "expansion.bhi260ap"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_bhi260ap_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = [
+  "drivers/bhi260ap_codec.c",
+  "services/solar_os_bhi260ap.c",
+  "services/solar_os_bhi260ap_driver.c",
+  "vendor/bhy2/bhy2.c",
+  "vendor/bhy2/bhy2_hif.c",
+]
+requires = ["esp_driver_gpio", "esp_timer"]
+capabilities = ["expansion_gpio", "expansion_i2c"]
+
+[packages.drv2605]
+label = "expansion.drv2605"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_drv2605_expansion_driver"]
+depends = ["service_expansion", "service_haptic", "service_i2c"]
+sources = [
+  "drivers/drv2605.c",
+  "services/solar_os_drv2605.c",
+  "services/solar_os_drv2605_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["expansion_i2c"]
+
+[packages.bq25896]
+label = "expansion.bq25896"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_bq25896_expansion_driver"]
+depends = ["service_charger", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/bq25896.c",
+  "services/solar_os_bq25896.c",
+  "services/solar_os_bq25896_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["expansion_i2c"]
+
 [packages.board_cl32_core]
 label = "board.cl32-core"
 targets = ["esp32s3"]
@@ -1234,14 +1376,14 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 
-[packages.tlora_pager_core]
-label = "board.tlora-pager-core"
-targets = ["esp32s3"]
-expansion_drivers = ["solar_os_tlora_pager_core_expansion_driver"]
+[packages.xl9555]
+label = "expansion.xl9555"
 depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_xl9555_expansion_driver"]
 sources = [
-  "services/solar_os_tlora_pager_core.c",
-  "services/solar_os_tlora_pager_core_driver.c",
+  "drivers/xl9555.c",
+  "services/solar_os_xl9555.c",
+  "services/solar_os_xl9555_driver.c",
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]

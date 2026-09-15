@@ -75,6 +75,21 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+#include "solar_os_haptic.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+#include "solar_os_charger.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+#include "solar_os_nfc.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -1201,14 +1216,70 @@ static int solua_solaros_wifi_status_short(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+static int solua_sensors_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_sensor_info_t info;
+    for (size_t i = 0; solar_os_sensors_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(
+            L,
+            -1,
+            "temperature",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_TEMPERATURE) != 0U);
+        solua_set_bool(
+            L,
+            -1,
+            "humidity",
+            (info.capabilities & SOLAR_OS_SENSOR_CAP_HUMIDITY) != 0U);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static const char *solua_optional_sensor_name(lua_State *L)
+{
+    return lua_isnoneornil(L, 1) ? NULL : luaL_checkstring(L, 1);
+}
+
 static int solua_solaros_environment(lua_State *L)
 {
     solar_os_environment_t environment;
-    if (solar_os_sensors_read_environment(&environment) != ESP_OK) {
+    const char *name = solua_optional_sensor_name(L);
+    const esp_err_t ret = name != NULL ?
+        solar_os_sensors_read_environment_from(name, &environment) :
+        solar_os_sensors_read_environment(&environment);
+    if (ret != ESP_OK) {
         lua_pushnil(L);
         return 1;
     }
     solua_push_environment(L, &environment);
+    return 1;
+}
+
+static int solua_sensors_temperature(lua_State *L)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_temperature(
+            solua_optional_sensor_name(L), &value) != ESP_OK) {
+        lua_pushnil(L);
+    } else {
+        lua_pushnumber(L, value);
+    }
+    return 1;
+}
+
+static int solua_sensors_humidity(lua_State *L)
+{
+    float value = 0.0f;
+    if (solar_os_sensors_read_humidity(
+            solua_optional_sensor_name(L), &value) != ESP_OK) {
+        lua_pushnil(L);
+    } else {
+        lua_pushnumber(L, value);
+    }
     return 1;
 }
 #endif
@@ -4079,6 +4150,363 @@ static int solua_buses_spi_write(lua_State *L)
     return 1;
 }
 #endif
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static int solua_gnss_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_gnss_info_t info;
+    for (size_t i = 0; solar_os_gnss_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(L, -1, "power_control", info.power_control);
+        solua_set_bool(L, -1, "powered", info.powered);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_gnss_power(lua_State *L)
+{
+    solar_os_gnss_info_t info;
+    const bool enabled = lua_toboolean(L, 1);
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 2)) {
+        name = luaL_checkstring(L, 2);
+    } else if (solar_os_gnss_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    (void)solua_check_esp(L, solar_os_gnss_set_power(name, enabled));
+    lua_pushboolean(L, enabled);
+    return 1;
+}
+
+static int solua_gnss_fix(lua_State *L)
+{
+    solar_os_gnss_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_gnss_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_gnss_fix_t fix;
+    (void)solua_check_esp(L, solar_os_gnss_read_fix(
+        name, solua_optional_u32(L, 2, 1000U), &fix));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_bool(L, -1, "valid", fix.valid);
+    solua_set_bool(L, -1, "time_valid", fix.time_valid);
+    solua_set_int(L, -1, "year", fix.year);
+    solua_set_int(L, -1, "month", fix.month);
+    solua_set_int(L, -1, "day", fix.day);
+    solua_set_int(L, -1, "hour", fix.hour);
+    solua_set_int(L, -1, "minute", fix.minute);
+    solua_set_int(L, -1, "second", fix.second);
+    solua_set_int(L, -1, "fix_type", fix.fix_type);
+    solua_set_int(L, -1, "satellites", fix.satellites);
+    solua_set_int(L, -1, "longitude_deg_e7", fix.longitude_deg_e7);
+    solua_set_int(L, -1, "latitude_deg_e7", fix.latitude_deg_e7);
+    solua_set_int(L, -1, "height_msl_mm", fix.height_msl_mm);
+    solua_set_int(L, -1, "horizontal_accuracy_mm", fix.horizontal_accuracy_mm);
+    solua_set_int(L, -1, "vertical_accuracy_mm", fix.vertical_accuracy_mm);
+    solua_set_int(L, -1, "ground_speed_mm_s", fix.ground_speed_mm_s);
+    solua_set_int(L, -1, "heading_deg_e5", fix.heading_deg_e5);
+    solua_set_int(L, -1, "position_dop_e2", fix.position_dop_e2);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+static const char *solua_haptic_name(lua_State *L,
+                                     int index,
+                                     solar_os_haptic_info_t *info)
+{
+    if (!lua_isnoneornil(L, index)) {
+        return luaL_checkstring(L, index);
+    }
+    return solar_os_haptic_get(0U, info) ? info->name : NULL;
+}
+
+static int solua_haptic_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_haptic_info_t info;
+    for (size_t i = 0; solar_os_haptic_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_int(L, -1, "effects", info.effect_count);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_haptic_play(lua_State *L)
+{
+    solar_os_haptic_info_t info;
+    const lua_Integer effect = luaL_checkinteger(L, 1);
+    const char *name = solua_haptic_name(L, 2, &info);
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    if (effect < 0 || effect > UINT16_MAX) {
+        return luaL_error(L, "invalid haptic effect");
+    }
+    return solua_check_esp(
+        L, solar_os_haptic_play_effect(name, (uint16_t)effect));
+}
+
+static int solua_haptic_stop(lua_State *L)
+{
+    solar_os_haptic_info_t info;
+    const char *name = solua_haptic_name(L, 1, &info);
+    return solua_check_esp(
+        L, name != NULL ? solar_os_haptic_stop(name) : ESP_ERR_NOT_FOUND);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+static const char *solua_charger_name(lua_State *L,
+                                      int index,
+                                      solar_os_charger_info_t *info)
+{
+    if (!lua_isnoneornil(L, index)) {
+        return luaL_checkstring(L, index);
+    }
+    return solar_os_charger_get(0U, info) ? info->name : NULL;
+}
+
+static void solua_charger_range(lua_State *L,
+                                const solar_os_charger_range_t *range)
+{
+    lua_newtable(L);
+    solua_set_int(L, -1, "minimum", range->minimum);
+    solua_set_int(L, -1, "maximum", range->maximum);
+    solua_set_int(L, -1, "step", range->step);
+}
+
+static int solua_charger_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_charger_info_t info;
+    for (size_t i = 0; solar_os_charger_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_charger_range(L, &info.input_current_limit_ma);
+        lua_setfield(L, -2, "input_current_limit_ma");
+        solua_charger_range(L, &info.charge_current_ma);
+        lua_setfield(L, -2, "charge_current_ma");
+        solua_charger_range(L, &info.charge_voltage_mv);
+        lua_setfield(L, -2, "charge_voltage_mv");
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_charger_status(lua_State *L)
+{
+    solar_os_charger_info_t info;
+    const char *name = solua_charger_name(L, 1, &info);
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_charger_status_t status;
+    (void)solua_check_esp(L, solar_os_charger_read_status(name, &status));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_bool(L, -1, "enabled", status.enabled);
+    solua_set_bool(L, -1, "input_present", status.input_present);
+    solua_set_bool(L, -1, "power_good", status.power_good);
+    solua_set_str(L, -1, "state", solar_os_charger_state_name(status.state));
+    solua_set_int(L, -1, "input_current_limit_ma", status.input_current_limit_ma);
+    solua_set_int(L, -1, "charge_current_ma", status.charge_current_ma);
+    solua_set_int(L, -1, "charge_voltage_mv", status.charge_voltage_mv);
+    solua_set_int(L, -1, "fault", status.fault);
+    return 1;
+}
+
+static int solua_charger_enable(lua_State *L)
+{
+    solar_os_charger_info_t info;
+    const char *name = solua_charger_name(L, 2, &info);
+    return solua_check_esp(L, name != NULL ? solar_os_charger_set_enabled(
+        name, lua_toboolean(L, 1)) : ESP_ERR_NOT_FOUND);
+}
+
+static int solua_charger_set_value(lua_State *L,
+                                   esp_err_t (*setter)(const char *, uint16_t))
+{
+    solar_os_charger_info_t info;
+    const lua_Integer value = luaL_checkinteger(L, 1);
+    const char *name = solua_charger_name(L, 2, &info);
+    if (value < 0 || value > UINT16_MAX) {
+        return luaL_error(L, "invalid charger value");
+    }
+    return solua_check_esp(L, name != NULL ?
+        setter(name, (uint16_t)value) : ESP_ERR_NOT_FOUND);
+}
+
+static int solua_charger_set_input_limit(lua_State *L)
+{
+    return solua_charger_set_value(
+        L, solar_os_charger_set_input_current_limit);
+}
+
+static int solua_charger_set_current(lua_State *L)
+{
+    return solua_charger_set_value(L, solar_os_charger_set_charge_current);
+}
+
+static int solua_charger_set_voltage(lua_State *L)
+{
+    return solua_charger_set_value(L, solar_os_charger_set_charge_voltage);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static void solua_imu_vector3(lua_State *L, const float vector[3])
+{
+    lua_newtable(L);
+    solua_set_num(L, -1, "x", vector[0]);
+    solua_set_num(L, -1, "y", vector[1]);
+    solua_set_num(L, -1, "z", vector[2]);
+}
+
+static void solua_imu_quaternion(lua_State *L, const float quaternion[4])
+{
+    lua_newtable(L);
+    solua_set_num(L, -1, "w", quaternion[0]);
+    solua_set_num(L, -1, "x", quaternion[1]);
+    solua_set_num(L, -1, "y", quaternion[2]);
+    solua_set_num(L, -1, "z", quaternion[3]);
+}
+
+static int solua_imu_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_imu_info_t info;
+    for (size_t i = 0; solar_os_imu_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(
+            L, -1, "acceleration",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U);
+        solua_set_bool(
+            L, -1, "angular_velocity",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U);
+        solua_set_bool(
+            L, -1, "orientation",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_imu_sample(lua_State *L)
+{
+    solar_os_imu_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_imu_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_imu_sample_t sample;
+    (void)solua_check_esp(L, solar_os_imu_read_sample(
+        name, solua_optional_u32(L, 2, 1000U), &sample));
+
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_int(L, -1, "timestamp_us", (lua_Integer)sample.timestamp_us);
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U) {
+        solua_imu_vector3(L, sample.acceleration_m_s2);
+        lua_setfield(L, -2, "acceleration_m_s2");
+    }
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U) {
+        solua_imu_vector3(L, sample.angular_velocity_rad_s);
+        lua_setfield(L, -2, "angular_velocity_rad_s");
+    }
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U) {
+        solua_imu_quaternion(L, sample.orientation);
+        lua_setfield(L, -2, "orientation");
+    }
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static int solua_nfc_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_nfc_info_t info;
+    for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(L, -1, "power_control", info.power_control);
+        solua_set_bool(L, -1, "powered", info.powered);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_nfc_power(lua_State *L)
+{
+    solar_os_nfc_info_t info;
+    const bool enabled = lua_toboolean(L, 1);
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 2)) {
+        name = luaL_checkstring(L, 2);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    (void)solua_check_esp(L, solar_os_nfc_set_power(name, enabled));
+    lua_pushboolean(L, enabled);
+    return 1;
+}
+
+static int solua_nfc_scan(lua_State *L)
+{
+    solar_os_nfc_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_nfc_tag_t tag;
+    (void)solua_check_esp(L, solar_os_nfc_scan(
+        name, solua_optional_u32(L, 2, 1000U), &tag));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_str(L, -1, "technology", "nfca");
+    lua_pushlstring(L, (const char *)tag.uid, tag.uid_len);
+    lua_setfield(L, -2, "uid");
+    lua_pushlstring(L, (const char *)tag.atqa, sizeof(tag.atqa));
+    lua_setfield(L, -2, "atqa");
+    solua_set_int(L, -1, "sak", tag.sak);
+    return 1;
+}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION

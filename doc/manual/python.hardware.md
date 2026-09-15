@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors"
-keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery charger sensors gnss haptic imu nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -33,15 +33,126 @@ print("{} mV, {}%".format(battery["voltage_mv"], battery["percent"]))
 
 Available when the firmware includes the environmental sensor service.
 
-- `environment()`: return `temperature_c` and `humidity_percent`.
+- `list()`: return registered providers with `name`, `driver`, `temperature`,
+  and `humidity` fields.
+- `environment([name])`: return `temperature_c` and `humidity_percent` from a
+  named provider. Without a name, prefer one provider that supplies both
+  values, then fall back to the default provider for each value.
+- `temperature([name])`: return a temperature in degrees Celsius from the
+  default or named provider, or `None` when unavailable.
+- `humidity([name])`: return relative humidity as a percentage from the
+  default or named provider, or `None` when unavailable.
 
 Example:
 
 ```python
 import solaros
 
-env = solaros.sensors.environment()
-print("{:.1f} C {:.1f}%".format(env["temperature_c"], env["humidity_percent"]))
+for sensor in solaros.sensors.list():
+    print(sensor["name"], sensor["driver"])
+
+print(solaros.sensors.temperature())
+print(solaros.sensors.humidity())
+```
+
+## `solaros.gnss`
+
+Available when the firmware includes a GNSS receiver service.
+
+- `list()`: return registered receivers with `name`, `driver`, `power_control`,
+  and `powered`.
+- `power(enabled[, name])`: change a driver-managed receiver power rail,
+  defaulting to the first receiver, and return the requested state.
+- `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
+  a 1000 ms timeout. The result contains fix and UTC validity, date and time,
+  fix type, satellite count, longitude and latitude in degrees times 10^7,
+  MSL height and accuracy in millimeters, ground speed in millimeters per
+  second, heading in degrees times 10^5, and position DOP times 100.
+
+```python
+import solaros
+
+fix = solaros.gnss.fix()
+if fix["valid"]:
+    print(fix["latitude_deg_e7"], fix["longitude_deg_e7"])
+```
+
+## `solaros.haptic`
+
+Available when the firmware includes the driver-agnostic haptic service.
+
+- `list()`: return registered haptic devices with `name`, `driver`, and the
+  number of supported numbered `effects`.
+- `play(effect[, name])`: play an effect from `1` through the device's
+  reported effect count, defaulting to the first haptic device.
+- `stop([name])`: stop the active effect, defaulting to the first device.
+
+```python
+import solaros
+
+solaros.haptic.play(15)
+```
+
+## `solaros.charger`
+
+Available when the firmware includes the driver-agnostic charger service.
+
+- `list()`: return registered chargers, concrete drivers, and the supported
+  `minimum`, `maximum`, and `step` for each configurable value.
+- `status([name])`: return charging state, input and power-good flags, enabled
+  state, configured limits, and the driver's raw fault byte.
+- `enable(enabled[, name])`: enable or disable charging.
+- `set_input_limit(mA[, name])`, `set_current(mA[, name])`, and
+  `set_voltage(mV[, name])`: set an exact value in the range reported by
+  `list()`. Values are rejected instead of silently rounded.
+
+OTG/boost mode and battery-chemistry policy are intentionally not exposed.
+
+```python
+import solaros
+
+print(solaros.charger.status())
+```
+
+## `solaros.nfc`
+
+Available when the firmware includes an NFC reader service.
+
+- `list()`: return registered readers with `name`, `driver`, `power_control`,
+  and `powered`.
+- `power(enabled[, name])`: change a driver-managed reader power rail,
+  defaulting to the first reader, and return the requested state.
+- `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag,
+  defaulting to the first reader and a 1000 ms timeout. The result contains
+  binary `uid` and `atqa` values, numeric `sak`, and technology `"nfca"`.
+
+```python
+import binascii
+import solaros
+
+tag = solaros.nfc.scan()
+print(binascii.hexlify(tag["uid"]))
+```
+
+## `solaros.imu`
+
+Available when the firmware includes the motion-sensor service.
+
+- `list()`: return registered motion sensors with `name`, `driver`, and boolean
+  `acceleration`, `angular_velocity`, and `orientation` capabilities.
+- `sample([name[, timeout_ms]])`: read one sample, defaulting to the first
+  sensor and a 1000 ms timeout. The result contains `timestamp_us`,
+  `acceleration_m_s2`, `angular_velocity_rad_s`, and `orientation`.
+  Unavailable measurements are `None`. Vectors use `x`, `y`, and `z` fields;
+  orientation is a unit quaternion with `w`, `x`, `y`, and `z` fields.
+
+```python
+import solaros
+
+sample = solaros.imu.sample()
+accel = sample["acceleration_m_s2"]
+if accel is not None:
+    print(accel["x"], accel["y"], accel["z"])
 ```
 
 ## `solaros.gpio`
@@ -256,5 +367,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

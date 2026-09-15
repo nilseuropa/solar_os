@@ -16,6 +16,7 @@
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
@@ -200,6 +201,16 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
     }
     solar_os_shell_io_put_char(term, '\n');
     solar_os_shell_io_put_char(term, '\n');
+
+    for (size_t i = 0; i < solar_os_gpio_controller_count(); i++) {
+        solar_os_gpio_controller_info_t controller;
+        if (solar_os_gpio_controller_get(i, &controller)) {
+            solar_os_shell_io_printf(term,
+                                     "GPIO %-5s lines 0..%u\n",
+                                     controller.name,
+                                     (unsigned)controller.line_count - 1U);
+        }
+    }
 
     for (size_t i = 0; i < solar_os_expansion_i2c_bus_count(); i++) {
         solar_os_expansion_i2c_bus_t bus;
@@ -394,6 +405,7 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
     for (size_t i = 0; i < driver->binding_spec_count; i++) {
         switch (driver->binding_specs[i].kind) {
         case SOLAR_OS_EXPANSION_BINDING_GPIO:
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
             return "GPIO";
         case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
             return "I2S";
@@ -497,6 +509,20 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
                                  solar_os_expansion_binding_kind_name(binding->kind),
                                  binding->role,
                                  binding->value);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        if (binding->target[0] == '\0') {
+            solar_os_shell_io_printf(term,
+                                     " gpio_line:%s=GPIO%d",
+                                     binding->role,
+                                     binding->value);
+        } else {
+            solar_os_shell_io_printf(term,
+                                     " gpio_line:%s=%s:%d",
+                                     binding->role,
+                                     binding->target,
+                                     binding->value);
+        }
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
         solar_os_shell_io_printf(term, " i2s=i2s%d", binding->value);
@@ -910,6 +936,19 @@ bool solar_os_shell_expansion_parse_binding_token(
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
     }
+    solar_os_gpio_line_ref_t line;
+    if (solar_os_gpio_line_parse(value, &line) &&
+        ((solar_os_gpio_line_is_native(&line) && strcmp(key, "power") == 0) ||
+         (!solar_os_gpio_line_is_native(&line) &&
+          solar_os_gpio_controller_find(line.controller, NULL)))) {
+        return binding_store(bindings,
+                             binding_count,
+                             SOLAR_OS_EXPANSION_BINDING_GPIO_LINE,
+                             key,
+                             line.controller,
+                             line.line,
+                             -1);
+    }
     if ((strcmp(key, "x") == 0 || strcmp(key, "y") == 0)) {
         solar_os_stream_info_t info;
         return solar_os_stream_get_info(value, &info) == ESP_OK &&
@@ -931,6 +970,17 @@ bool solar_os_shell_expansion_parse_binding_token(
                           "count",
                           "",
                           count,
+                          -1);
+    }
+    if (strcmp(key, "output") == 0 || strcmp(key, "direction") == 0) {
+        int parameter = 0;
+        return parse_int_arg(value, 0, UINT16_MAX, &parameter) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          key,
+                          "",
+                          parameter,
                           -1);
     }
     if (strcmp(key, "active") == 0) {

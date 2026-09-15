@@ -289,6 +289,8 @@ const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind)
     switch (kind) {
     case SOLAR_OS_RESOURCE_GPIO_PIN:
         return "gpio";
+    case SOLAR_OS_RESOURCE_GPIO_LINE:
+        return "gpio_line";
     case SOLAR_OS_RESOURCE_ADC_PIN:
         return "adc";
     case SOLAR_OS_RESOURCE_PWM_PIN:

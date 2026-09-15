@@ -140,10 +140,12 @@ class FlavorPackagesTest(unittest.TestCase):
     def test_full_exposes_reusable_t_lora_expansion_drivers(self):
         _, _, groups, packages = self.resolve("full")
         reusable = {
+            "xl9555": "xl9555",
             "tca8418": "tca8418",
             "sx1262": "sx1262",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
+            "bq25896": "bq25896",
         }
         for group, package in reusable.items():
             with self.subTest(group=group):
@@ -155,10 +157,6 @@ class FlavorPackagesTest(unittest.TestCase):
                 self.assertTrue(groups[group])
                 self.assertTrue(packages[package])
 
-        self.assertTrue(self.catalog.group_defs["tlora_pager_core"].hidden)
-        self.assertFalse(groups["tlora_pager_core"])
-        self.assertFalse(packages["tlora_pager_core"])
-
         s3 = generate_flavor_config.apply_target_pruning(
             self.catalog,
             packages,
@@ -169,10 +167,12 @@ class FlavorPackagesTest(unittest.TestCase):
             s3,
         )
         for symbol in (
+            "solar_os_xl9555_expansion_driver",
             "solar_os_tca8418_expansion_driver",
             "solar_os_sx1262_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
+            "solar_os_bq25896_expansion_driver",
         ):
             self.assertIn(symbol, drivers)
 

@@ -88,7 +88,7 @@ SOLAR_OS_BOARD_PIN_I2S_BCLK = "GPIO_NUM_11"
 SOLAR_OS_BOARD_PIN_I2S_WS = "GPIO_NUM_18"
 SOLAR_OS_BOARD_PIN_I2S_DIN = "GPIO_NUM_17"
 SOLAR_OS_BOARD_PIN_I2S_DOUT = "GPIO_NUM_45"
-# The NS4150B amplifier enable is XL9555 P0.1, driven high by tlora-pager-core.
+# The NS4150B amplifier enable is XL9555 line 1, initialized high by gpiox0.
 SOLAR_OS_BOARD_PIN_AUDIO_PA = "GPIO_NUM_NC"
 SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
 SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES8311"'
@@ -100,7 +100,7 @@ SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 
 [runtime]
 spi_hosts = ["SPI3_HOST"]
-uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+uart_ports = ["UART_NUM_2"]
 i2s_ports = ["I2S_NUM_1"]
 
 [[buses]]
@@ -111,7 +111,7 @@ host = "SPI2_HOST"
 sclk = 35
 miso = 33
 mosi = 34
-cs = [38, 21, 36, 9]
+cs = [38, 21, 36, 39, 9]
 max_transfer_size = 4096
 
 [[buses]]
@@ -132,14 +132,28 @@ tx = 43
 rx = 44
 baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
 
-# core0 (XL9555) must attach before anything it power-gates: keyboard0,
-# radio0 and storage0 all sit behind its power/reset rails. It is marked
-# `early` in its driver descriptor and listed first here for the same
-# reason display0 (also `early`) is listed right after it.
+[[buses]]
+name = "gnss-uart"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 12
+rx = 4
+baud_rate = "38400"
+
+# gpiox0 must attach before devices that use its lines. Output latches are
+# preloaded before the lines become outputs. GNSS_EN (line 4) and NFC_EN
+# (line 5) start low; HAPTIC_EN (line 0), SD_PULLEN (line 11), and SD_EN
+# (line 12) start high.
 [[devices]]
-driver = "tlora-pager-core"
-name = "core0"
-bindings = { i2c = "i2c0", addr = 0x20 }
+driver = "xl9555"
+name = "gpiox0"
+bindings = { i2c = "i2c0", addr = 0x20, output = 0x1B8F, direction = 0xE440 }
+
+[[devices]]
+driver = "drv2605"
+name = "haptic0"
+bindings = { i2c = "i2c0", addr = 0x5A, power = "gpiox0:0" }
 
 [[devices]]
 driver = "st7796"
@@ -159,7 +173,7 @@ bindings = { i2c = "i2c0", i2s = 0, mclk = 10, bck = 11, ws = 18, din = 17, dout
 [[devices]]
 driver = "sdspi"
 name = "storage0"
-bindings = { spi = "spi0", cs = 21 }
+bindings = { spi = "spi0", cs = 21, power = "gpiox0:12" }
 
 [[devices]]
 driver = "tca8418"
@@ -175,6 +189,26 @@ bindings = { a = 40, b = 41 }
 driver = "bq27220"
 name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x55 }
+
+[[devices]]
+driver = "bq25896"
+name = "charger0"
+bindings = { i2c = "i2c0", addr = 0x6B, charge_current = 704 }
+
+[[devices]]
+driver = "ublox-mia-m10q"
+name = "gnss0"
+bindings = { uart = "gnss-uart", power = "gpiox0:4" }
+
+[[devices]]
+driver = "st25r3916"
+name = "nfc0"
+bindings = { spi = "spi0", cs = 39, irq = 5, power = "gpiox0:5" }
+
+[[devices]]
+driver = "bhi260ap"
+name = "imu0"
+bindings = { i2c = "i2c0", addr = 0x28, irq = 8 }
 
 [[devices]]
 driver = "sx1262"
@@ -301,11 +335,11 @@ expansion = true
 [[pins]]
 gpio = 4
 policy = "fixed"
-role = "GNSS RX (unused in this port)"
+role = "GNSS UART RX"
 [[pins]]
 gpio = 5
 policy = "fixed"
-role = "NFC interrupt (unused in this port)"
+role = "NFC interrupt"
 [[pins]]
 gpio = 6
 policy = "fixed"
@@ -337,7 +371,7 @@ role = "audio codec BCLK"
 [[pins]]
 gpio = 12
 policy = "fixed"
-role = "GNSS TX (unused in this port)"
+role = "GNSS UART TX"
 [[pins]]
 gpio = 13
 policy = "fixed"
@@ -388,7 +422,7 @@ role = "display SPI CS"
 [[pins]]
 gpio = 39
 policy = "fixed"
-role = "NFC SPI CS (unused in this port)"
+role = "NFC SPI CS"
 [[pins]]
 gpio = 40
 policy = "fixed"

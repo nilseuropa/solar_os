@@ -61,13 +61,16 @@ esp_err_t solar_os_shtc3_attach(const char *name,
                         "controller init failed");
     strlcpy(sensor_device.name, name, sizeof(sensor_device.name));
     sensor_device.active = true;
-    const solar_os_sensors_provider_t provider = {
+    const solar_os_sensors_ops_t ops = {
         .read_environment = sensor_read,
-        .user = &sensor_device,
-        .has_temperature = true,
-        .has_humidity = true,
     };
-    const esp_err_t ret = solar_os_sensors_register_provider(name, &provider);
+    const solar_os_sensors_registration_t registration = {
+        .name = name,
+        .driver = "shtc3",
+        .ops = &ops,
+        .ctx = &sensor_device,
+    };
+    const esp_err_t ret = solar_os_sensors_register(&registration);
     if (ret != ESP_OK) {
         memset(&sensor_device, 0, sizeof(sensor_device));
     }
@@ -80,7 +83,7 @@ esp_err_t solar_os_shtc3_detach(const char *name)
         strcmp(sensor_device.name, name) != 0) {
         return ESP_ERR_NOT_FOUND;
     }
-    ESP_RETURN_ON_ERROR(solar_os_sensors_unregister_provider(name),
+    ESP_RETURN_ON_ERROR(solar_os_sensors_unregister(name),
                         "shtc3",
                         "provider unregister failed");
     memset(&sensor_device, 0, sizeof(sensor_device));

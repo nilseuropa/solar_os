@@ -7,6 +7,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
@@ -17,6 +18,21 @@ static size_t allocation_requests;
 static solar_os_memory_class_t last_memory_class;
 static bool fail_allocation;
 static esp_err_t claim_result = ESP_OK;
+static solar_os_resource_request_t last_claim_requests[SOLAR_OS_RESOURCE_BUNDLE_MAX];
+static size_t last_claim_request_count;
+
+size_t solar_os_gpio_controller_count(void)
+{
+    return 0U;
+}
+
+bool solar_os_gpio_controller_find(const char *name,
+                                   solar_os_gpio_controller_info_t *info)
+{
+    (void)name;
+    (void)info;
+    return false;
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -93,10 +109,11 @@ esp_err_t solar_os_resource_claim_bundle(const solar_os_resource_request_t *requ
                                          const char *owner,
                                          solar_os_resource_conflict_t *conflict)
 {
-    (void)requests;
-    (void)request_count;
     (void)owner;
     (void)conflict;
+    assert(request_count <= SOLAR_OS_RESOURCE_BUNDLE_MAX);
+    memcpy(last_claim_requests, requests, request_count * sizeof(requests[0]));
+    last_claim_request_count = request_count;
     return claim_result;
 }
 
@@ -219,6 +236,19 @@ int main(void)
                       false);
     }
     assert(solar_os_expansion_detach("board8") == ESP_ERR_NOT_SUPPORTED);
+
+    solar_os_expansion_binding_t native_line = {
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE,
+        .role = "power",
+        .value = 23,
+    };
+    last_claim_request_count = 0U;
+    assert(solar_os_expansion_attach("manual", "native-line", &native_line, 1) == ESP_OK);
+    assert(last_claim_request_count == 1U);
+    assert(last_claim_requests[0].kind == SOLAR_OS_RESOURCE_GPIO_PIN);
+    assert(last_claim_requests[0].primary == 23);
+    assert(last_claim_requests[0].secondary == -1);
+    assert(solar_os_expansion_detach("native-line") == ESP_OK);
 
     for (int i = 0; i < 3; i++) {
         char name[16];

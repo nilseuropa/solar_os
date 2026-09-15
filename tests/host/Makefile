@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test sketch_canvas_test launcher_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test cl32_keyboard_test battery_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test expansion_registry_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test
+TARGETS := writer_buffer_test writer_files_test sketch_canvas_test launcher_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test keys_test input_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test cl32_keyboard_test battery_service_test charger_service_test sensors_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test gpio_controller_test expansion_registry_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test ubx_test gnss_service_test haptic_service_test imu_service_test bhi260ap_codec_test drv2605_test bq25896_test xl9555_test st25r3916_test nfc_service_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -187,6 +187,53 @@ cardkb_codec_test: cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_code
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_codec.c -o $@
 
+ubx_test: ubx_test.c $(ROOT)/src/drivers/ubx.c $(ROOT)/src/drivers/ubx.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
+		ubx_test.c $(ROOT)/src/drivers/ubx.c -o $@
+
+gnss_service_test: gnss_service_test.c $(ROOT)/src/services/solar_os_gnss.c $(ROOT)/src/services/solar_os_gnss.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		gnss_service_test.c $(ROOT)/src/services/solar_os_gnss.c -o $@
+
+haptic_service_test: haptic_service_test.c $(ROOT)/src/services/solar_os_haptic.c $(ROOT)/src/services/solar_os_haptic.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		haptic_service_test.c $(ROOT)/src/services/solar_os_haptic.c -o $@
+
+charger_service_test: charger_service_test.c $(ROOT)/src/services/solar_os_charger.c $(ROOT)/src/services/solar_os_charger.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		charger_service_test.c $(ROOT)/src/services/solar_os_charger.c -o $@
+
+drv2605_test: drv2605_test.c $(ROOT)/src/drivers/drv2605.c $(ROOT)/src/drivers/drv2605.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		drv2605_test.c $(ROOT)/src/drivers/drv2605.c -o $@
+
+bq25896_test: bq25896_test.c $(ROOT)/src/drivers/bq25896.c $(ROOT)/src/drivers/bq25896.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		bq25896_test.c $(ROOT)/src/drivers/bq25896.c -o $@
+
+imu_service_test: imu_service_test.c $(ROOT)/src/services/solar_os_imu.c $(ROOT)/src/services/solar_os_imu.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		imu_service_test.c $(ROOT)/src/services/solar_os_imu.c -lm -o $@
+
+bhi260ap_codec_test: bhi260ap_codec_test.c $(ROOT)/src/drivers/bhi260ap_codec.c \
+		$(ROOT)/src/drivers/bhi260ap_codec.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
+		bhi260ap_codec_test.c $(ROOT)/src/drivers/bhi260ap_codec.c -lm -o $@
+
+xl9555_test: xl9555_test.c $(ROOT)/src/drivers/xl9555.c \
+		$(ROOT)/src/drivers/xl9555.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		xl9555_test.c $(ROOT)/src/drivers/xl9555.c -o $@
+
+st25r3916_test: st25r3916_test.c $(ROOT)/src/drivers/st25r3916.c \
+		$(ROOT)/src/drivers/st25r3916.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		st25r3916_test.c $(ROOT)/src/drivers/st25r3916.c -o $@
+
+nfc_service_test: nfc_service_test.c $(ROOT)/src/services/solar_os_nfc.c $(ROOT)/src/services/solar_os_nfc.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		nfc_service_test.c $(ROOT)/src/services/solar_os_nfc.c -o $@
+
 cl32_keyboard_test: cl32_keyboard_test.c $(ROOT)/src/services/solar_os_cl32_keyboard.c $(ROOT)/src/services/solar_os_cl32_keyboard.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
 		cl32_keyboard_test.c $(ROOT)/src/services/solar_os_cl32_keyboard.c -o $@
@@ -194,6 +241,10 @@ cl32_keyboard_test: cl32_keyboard_test.c $(ROOT)/src/services/solar_os_cl32_keyb
 battery_service_test: battery_service_test.c $(ROOT)/src/services/solar_os_battery.c $(ROOT)/src/services/solar_os_battery.h nvs.h freertos/FreeRTOS.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		battery_service_test.c $(ROOT)/src/services/solar_os_battery.c -o $@
+
+sensors_service_test: sensors_service_test.c $(ROOT)/src/services/solar_os_sensors.c $(ROOT)/src/services/solar_os_sensors.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
+		sensors_service_test.c $(ROOT)/src/services/solar_os_sensors.c -o $@
 
 midi_codec_test: midi_codec_test.c $(ROOT)/src/services/solar_os_midi_codec.c $(ROOT)/src/services/solar_os_midi_codec.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -230,6 +281,17 @@ stream_test: stream_test.c $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/se
 resources_test: resources_test.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/services/solar_os_resources.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		resources_test.c $(ROOT)/src/services/solar_os_resources.c -o $@
+
+gpio_controller_test: gpio_controller_test.c \
+		$(ROOT)/src/drivers/gpio_port.c $(ROOT)/src/drivers/gpio_port.h \
+		$(ROOT)/src/services/solar_os_gpio_controller.c \
+		$(ROOT)/src/services/solar_os_gpio_controller.h \
+		$(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/services/solar_os_resources.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Igpio_controller_stubs \
+		-I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		gpio_controller_test.c $(ROOT)/src/services/solar_os_gpio_controller.c \
+		$(ROOT)/src/drivers/gpio_port.c \
+		$(ROOT)/src/services/solar_os_resources.c -o $@
 
 expansion_registry_test: expansion_registry_test.c \
 		$(ROOT)/src/services/solar_os_expansion.c \
@@ -398,6 +460,7 @@ test: $(TARGETS)
 	./cardkb_codec_test
 	./cl32_keyboard_test
 	./battery_service_test
+	./sensors_service_test
 	./midi_codec_test
 	./midi_service_test
 	./parameters_test
@@ -424,6 +487,14 @@ test: $(TARGETS)
 	./time_timezone_test
 	./rtc_service_test
 	./rtc_pcf85063_test
+	./ubx_test
+	./gnss_service_test
+	./haptic_service_test
+	./charger_service_test
+	./drv2605_test
+	./bq25896_test
+	./st25r3916_test
+	./nfc_service_test
 
 clean:
 	$(RM) $(TARGETS)

@@ -701,6 +701,16 @@ static esp_err_t register_board_bus_locked(const solar_os_bus_definition_t *defi
     }
     const int index = find_bus_index_locked(definition->name);
     ret = index >= 0 ? claim_bus_resources_locked((size_t)index) : ESP_ERR_NOT_FOUND;
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK && protocol_uart_backed(definition->protocol)) {
+        ret = solar_os_uart_register_bus(definition->name,
+                                         &definition->config.uart,
+                                         true);
+        if (ret != ESP_OK) {
+            release_bus_resources_locked((size_t)index);
+        }
+    }
+#endif
     if (ret == ESP_OK) {
         buses[index].attached = true;
     } else if (index >= 0) {

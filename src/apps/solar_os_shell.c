@@ -513,6 +513,21 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     {"expansion", "manage expansion hardware", solar_os_shell_cmd_expansion},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    {"gnss", "GNSS receiver status", solar_os_shell_cmd_gnss},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+    {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+    {"charger", "battery charger tools", solar_os_shell_cmd_charger},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    {"imu", "motion sensor tools", solar_os_shell_cmd_imu},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+    {"nfc", "NFC reader tools", solar_os_shell_cmd_nfc},
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     {"neopixel", "control attached NeoPixel strips", solar_os_shell_cmd_neopixel},
 #endif

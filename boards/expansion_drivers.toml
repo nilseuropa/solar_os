@@ -71,26 +71,178 @@ hint = "0x08"
 required = true
 allowed = [0x08]
 
-[drivers.tlora-pager-core]
-summary = "T-LoRa-Pager XL9555 power sequencer"
-package = "tlora_pager_core"
-targets = ["esp32s3"]
-capabilities = ["i2c"]
+[drivers.xl9555]
+summary = "XL9555 16-line I2C GPIO controller"
+package = "xl9555"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
 early = true
-default_name = "core0"
+default_name = "gpiox0"
 
-[[drivers.tlora-pager-core.bindings]]
+[[drivers.xl9555.bindings]]
 key = "i2c"
 kind = "i2c_bus"
 hint = "bus"
 required = true
 
-[[drivers.tlora-pager-core.bindings]]
+[[drivers.xl9555.bindings]]
 key = "addr"
 kind = "i2c_address"
-hint = "0x20"
+hint = "0x20..0x27"
 required = true
-allowed = [0x20]
+allowed = [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27]
+
+[[drivers.xl9555.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
+[[drivers.xl9555.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
+[drivers.ublox-mia-m10q]
+summary = "u-blox MIA-M10Q GNSS receiver"
+package = "ublox_mia_m10q"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_uart"]
+default_name = "gnss0"
+
+[[drivers.ublox-mia-m10q.bindings]]
+key = "uart"
+kind = "uart_port"
+hint = "bus"
+required = true
+
+[[drivers.ublox-mia-m10q.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[drivers.st25r3916]
+summary = "ST25R3916 NFC-A reader"
+package = "st25r3916"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_spi", "expansion_gpio"]
+default_name = "nfc0"
+
+[[drivers.st25r3916.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+required = true
+
+[[drivers.st25r3916.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[drivers.bhi260ap]
+summary = "Bosch BHI260AP six-axis IMU"
+package = "bhi260ap"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c", "expansion_gpio"]
+default_name = "imu0"
+
+[[drivers.bhi260ap.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bhi260ap.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x28"
+required = true
+allowed = [0x28, 0x29]
+
+[[drivers.bhi260ap.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+required = true
+
+[drivers.drv2605]
+summary = "TI DRV2605 haptic controller"
+package = "drv2605"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "haptic0"
+
+[[drivers.drv2605.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.drv2605.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x5a"
+required = true
+allowed = [0x5a]
+
+[[drivers.drv2605.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+role = "power"
+
+[drivers.bq25896]
+summary = "TI BQ25896 battery charger"
+package = "bq25896"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "charger0"
+
+[[drivers.bq25896.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bq25896.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6b"
+required = true
+allowed = [0x6b]
+
+[[drivers.bq25896.bindings]]
+key = "charge_current"
+kind = "parameter"
+hint = "0..3008mA/64"
+role = "charge_current"
+min = 0
+max = 3008
+
+[[drivers.bq25896.bindings]]
+key = "charge_voltage"
+kind = "parameter"
+hint = "3840..4608mV/16"
+role = "charge_voltage"
+min = 3840
+max = 4608
 
 [drivers.ssd1683]
 summary = "400x300 e-paper"
@@ -186,6 +338,11 @@ key = "cs"
 kind = "spi_cs"
 hint = "gpio"
 required = true
+
+[[drivers.sdspi.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 
 [drivers.sdmmc]
 summary = "SDMMC card"

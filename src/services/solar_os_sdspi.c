@@ -6,23 +6,31 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "ff.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sd_card.h"
+#include "solar_os_gpio_controller.h"
 
 typedef struct {
     bool active;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int cs_pin;
+    bool power_control;
+    solar_os_gpio_line_ref_t power_line;
 } solar_os_sdspi_device_t;
 
-static solar_os_sdspi_device_t sdspi;
+static EXT_RAM_BSS_ATTR solar_os_sdspi_device_t sdspi;
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *spi_bus,
                                 size_t spi_bus_len,
-                                int *cs_pin)
+                                int *cs_pin,
+                                bool *power_control,
+                                solar_os_gpio_line_ref_t *power_line)
 {
     bool have_spi = false;
     bool have_cs = false;
@@ -32,6 +40,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     }
     spi_bus[0] = '\0';
     *cs_pin = -1;
+    *power_control = false;
 
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -54,6 +63,13 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                 strlcpy(spi_bus, binding->target, spi_bus_len);
                 have_spi = true;
             }
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                   strcmp(binding->role, "power") == 0 && !*power_control) {
+            strlcpy(power_line->controller,
+                    binding->target,
+                    sizeof(power_line->controller));
+            power_line->line = (uint8_t)binding->value;
+            *power_control = true;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
@@ -72,6 +88,8 @@ esp_err_t solar_os_sdspi_attach(const char *name,
 {
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int cs_pin = -1;
+    bool power_control = false;
+    solar_os_gpio_line_ref_t power_line = {0};
     solar_os_expansion_spi_bus_t bus;
 
     if (name == NULL || name[0] == '\0' || sdspi.active) {
@@ -81,25 +99,43 @@ esp_err_t solar_os_sdspi_attach(const char *name,
                                    binding_count,
                                    spi_bus,
                                    sizeof(spi_bus),
-                                   &cs_pin);
+                                   &cs_pin,
+                                   &power_control,
+                                   &power_line);
     if (ret != ESP_OK || !solar_os_expansion_find_spi_bus(spi_bus, &bus, NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (power_control) {
+        ret = solar_os_gpio_line_write(&power_line, true);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10U));
+    }
+
     ret = sd_card_configure_sdspi(bus.host, cs_pin);
     if (ret != ESP_OK) {
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&power_line, false);
+        }
         return ret;
     }
     ret = sd_card_init();
     if (ret != ESP_OK) {
         (void)sd_card_unmount();
         (void)sd_card_clear_sdspi_config();
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&power_line, false);
+        }
         return ret;
     }
 
     memset(&sdspi, 0, sizeof(sdspi));
     sdspi.active = true;
     sdspi.cs_pin = cs_pin;
+    sdspi.power_control = power_control;
+    sdspi.power_line = power_line;
     strlcpy(sdspi.name, name, sizeof(sdspi.name));
     strlcpy(sdspi.spi_bus, spi_bus, sizeof(sdspi.spi_bus));
     return ESP_OK;
@@ -115,7 +151,10 @@ esp_err_t solar_os_sdspi_detach(const char *name)
     }
 
     (void)sd_card_unmount();
-    const esp_err_t ret = sd_card_clear_sdspi_config();
+    esp_err_t ret = sd_card_clear_sdspi_config();
+    if (ret == ESP_OK && sdspi.power_control) {
+        ret = solar_os_gpio_line_write(&sdspi.power_line, false);
+    }
     if (ret == ESP_OK) {
         memset(&sdspi, 0, sizeof(sdspi));
     }

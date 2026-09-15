@@ -44,6 +44,21 @@ void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+void solar_os_shell_cmd_haptic(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+void solar_os_shell_cmd_charger(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+void solar_os_shell_cmd_imu(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+void solar_os_shell_cmd_nfc(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_gpio(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
 void solar_os_shell_cmd_gateway(solar_os_context_t *ctx, int argc, char **argv);

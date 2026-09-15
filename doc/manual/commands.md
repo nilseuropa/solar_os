@@ -911,6 +911,23 @@ available for the compiled board.
 | `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
+| `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
+| `gnss` | `gnss power <on\|off> [name]` | Enable or disable a receiver that has a driver-managed power rail. |
+| `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
+| `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
+| `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
+| `haptic` | `haptic stop [name]` | Stop the active haptic effect. |
+| `charger` | `charger [list]` | List registered battery chargers, concrete drivers, and valid configuration ranges. |
+| `charger` | `charger status [name]` | Show charger state, input status, configured limits, and the raw fault byte. |
+| `charger` | `charger enable <on\|off> [name]` | Enable or disable charging. |
+| `charger` | `charger input-limit <mA> [name]` | Set the input current limit to an advertised, exact step value. |
+| `charger` | `charger current <mA> [name]` | Set fast-charge current to an advertised, exact step value. |
+| `charger` | `charger voltage <mV> [name]` | Set charge voltage to an advertised, exact step value. |
+| `imu` | `imu [list]` | List registered motion sensors, their concrete drivers, and available measurements. |
+| `imu` | `imu sample [name] [timeout-ms]` | Read acceleration, angular velocity, and optional orientation from one motion sensor. |
+| `nfc` | `nfc [list]` | List registered NFC readers and their concrete drivers. |
+| `nfc` | `nfc power <on\|off> [name]` | Enable or disable a reader that has a driver-managed power rail. |
+| `nfc` | `nfc scan [name] [timeout-ms]` | Discover one collision-free NFC-A tag and print its UID, ATQA, and SAK. |
 | `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error. |
 | `espnow` | `espnow peers\|list` | List persistent configured and volatile learned Link-ID-to-MAC mappings. |
 | `espnow` | `espnow peer add <link-id> <mac>` | Save a persistent unicast peer mapping. |
@@ -960,8 +977,8 @@ available for the compiled board.
 | `spi` | `spi write <bus> <cs> <mode> <hz> <byte...>` | Write bytes over a named SPI bus. |
 | `date` | `date [YYYY-MM-DD]` | Show or set the local date. |
 | `time` | `time [HH:MM[:SS]]` | Show or set the local time. |
-| `temperature` | `temperature` | Read the board temperature sensor when available. |
-| `humidity` | `humidity` | Read the board humidity sensor when available. |
+| `temperature` | `temperature [list\|sensor]` | List temperature providers or read the default or named sensor. |
+| `humidity` | `humidity [list\|sensor]` | List humidity providers or read the default or named sensor. |
 
 Board-specific connector resources, runtime GPIO policy, named buses, leases,
 and attachment examples are documented in [Expansion Ports](expansion.md).

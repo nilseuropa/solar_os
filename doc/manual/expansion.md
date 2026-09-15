@@ -13,6 +13,11 @@ Expansion drivers turn named buses and safe GPIO slots into active displays,
 radios, sensors, or manual resource profiles. Drivers are package-gated, so the
 available list depends on the firmware and board.
 
+Control-line bindings such as device power may use either a native ESP GPIO
+number or a named GPIO-controller line such as `gpiox0:12`. Expanded GPIO lines
+are digital control resources only. They cannot replace native ESP pins in SPI,
+I2C, UART, I2S, PWM, interrupt, or other bus/peripheral-signal bindings.
+
 Integrated hardware uses the same composition model. A board profile declares
 its fixed buses and default attachments, which are created at boot, shown by
 `expansion devices`, and cannot be detached. For example, Freenove `touch0` is
@@ -119,8 +124,10 @@ The CardKB firmware produces characters after key release. SolarOS maps its
 four navigation values to the same logical arrow keys used by PS/2 and BLE
 keyboards. The module's Fn combinations are device-specific and are ignored.
 
-RTC and environmental sensor modules use the same named-I2C lifecycle. Only one
-provider of each service type can be active at a time:
+RTC and environmental sensor modules use the same named-I2C lifecycle.
+Environmental adapters register named providers with the generic sensor
+service. A provider can supply temperature, humidity, or both, and multiple
+providers can be active at the same time:
 
 ```text
 expansion attach pcf85063 rtc0 i2c=i2c0 addr=0x51
@@ -128,6 +135,8 @@ expansion attach shtc3 environment0 i2c=i2c0 addr=0x70
 date
 temperature
 humidity
+temperature list
+humidity list
 expansion detach environment0
 expansion detach rtc0
 ```
@@ -138,6 +147,8 @@ when only clock and calendar access is required.
 The generic RTC service discovers alarm, countdown, and interrupt-status
 support from the attached chip adapter, so applications do not depend on the
 PCF85063 register interface.
+The generic sensor service similarly exposes provider names, driver names, and
+temperature/humidity capabilities without exposing a chip register interface.
 
 `battery-adc` takes an ADC pin and a divider ratio in thousandths. For a 2:1
 resistive divider, use `divider=2000`:
@@ -181,6 +192,11 @@ disk lsblk
 disk umount
 expansion detach card0
 ```
+
+If the adapter has a switched supply, add `power=<gpio>` or
+`power=<controller:line>`. The SD driver enables that line before probing and
+disables it after unmount and detach. The SPI bus and CS remain native ESP
+peripheral resources.
 
 The `sdspi` attach command prints the card probe result to the invoking shell.
 The report includes the card identity, type, negotiated speed, capacity, CSD/SSR

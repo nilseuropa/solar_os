@@ -4215,51 +4215,74 @@ void solar_os_shell_cmd_time(solar_os_context_t *ctx, int argc, char **argv)
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
-static bool read_environment_for_shell(solar_os_shell_io_t *term, solar_os_environment_t *environment)
+static void list_environment_sensors(solar_os_shell_io_t *term,
+                                     solar_os_sensor_capability_t capability)
 {
-    const esp_err_t err = solar_os_sensors_read_environment(environment);
-    if (err != ESP_OK) {
-        if (shell_print_not_supported(term, "sensor", "environment sensors", err)) {
-            return false;
+    bool any = false;
+    solar_os_sensor_info_t info;
+    for (size_t i = 0; solar_os_sensors_get(i, &info); i++) {
+        if ((info.capabilities & capability) == 0U) {
+            continue;
         }
-        solar_os_shell_io_printf(term, "sensor read failed: %s\n", solar_os_shell_error_text(err));
-        return false;
+        solar_os_shell_io_printf(term, "%s\t%s\n", info.name, info.driver);
+        any = true;
     }
-
-    return true;
+    if (!any) {
+        solar_os_shell_io_writeln(term, "No matching sensors registered");
+    }
 }
 
 void solar_os_shell_cmd_temperature(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc != 1) {
-        solar_os_shell_diag_unexpected(term, "temperature", argv[1], "temperature");
+    if (argc == 2 && strcmp(argv[1], "list") == 0) {
+        list_environment_sensors(term, SOLAR_OS_SENSOR_CAP_TEMPERATURE);
+        return;
+    }
+    if (argc > 2) {
+        solar_os_shell_diag_unexpected(
+            term, "temperature", argv[2], "temperature [list|sensor]");
         return;
     }
 
-    solar_os_environment_t environment;
-    if (!read_environment_for_shell(term, &environment)) {
+    float temperature_c = 0.0f;
+    const esp_err_t err = solar_os_sensors_read_temperature(
+        argc == 2 ? argv[1] : NULL, &temperature_c);
+    if (err != ESP_OK) {
+        if (!shell_print_not_supported(term, "temperature", "temperature sensor", err)) {
+            solar_os_shell_io_printf(
+                term, "temperature read failed: %s\n", solar_os_shell_error_text(err));
+        }
         return;
     }
-
-    terminal_printf_fixed_1(term, "Temperature", environment.temperature_c, "C");
+    terminal_printf_fixed_1(term, "Temperature", temperature_c, "C");
 }
 
 void solar_os_shell_cmd_humidity(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc != 1) {
-        solar_os_shell_diag_unexpected(term, "humidity", argv[1], "humidity");
+    if (argc == 2 && strcmp(argv[1], "list") == 0) {
+        list_environment_sensors(term, SOLAR_OS_SENSOR_CAP_HUMIDITY);
+        return;
+    }
+    if (argc > 2) {
+        solar_os_shell_diag_unexpected(
+            term, "humidity", argv[2], "humidity [list|sensor]");
         return;
     }
 
-    solar_os_environment_t environment;
-    if (!read_environment_for_shell(term, &environment)) {
+    float humidity_percent = 0.0f;
+    const esp_err_t err = solar_os_sensors_read_humidity(
+        argc == 2 ? argv[1] : NULL, &humidity_percent);
+    if (err != ESP_OK) {
+        if (!shell_print_not_supported(term, "humidity", "humidity sensor", err)) {
+            solar_os_shell_io_printf(
+                term, "humidity read failed: %s\n", solar_os_shell_error_text(err));
+        }
         return;
     }
-
-    terminal_printf_fixed_1(term, "Humidity", environment.humidity_percent, "%RH");
+    terminal_printf_fixed_1(term, "Humidity", humidity_percent, "%RH");
 }
 #endif
