@@ -40,12 +40,40 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
         solar_os_gnss_info_t info;
         for (size_t i = 0; solar_os_gnss_get(i, &info); i++) {
-            solar_os_shell_io_printf(term, "%s  %s\r\n", info.name, info.driver);
+            solar_os_shell_io_printf(term,
+                                     "%s  %s  power=%s\r\n",
+                                     info.name,
+                                     info.driver,
+                                     info.power_control
+                                         ? (info.powered ? "on" : "off")
+                                         : "always-on");
         }
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "power") == 0) {
+        if (argc < 3 || argc > 4 ||
+            (strcmp(argv[2], "on") != 0 && strcmp(argv[2], "off") != 0)) {
+            solar_os_shell_io_writeln(term, "usage: gnss power <on|off> [name]");
+            return;
+        }
+        const char *name = argc == 4 ? argv[3] : default_name();
+        if (name == NULL) {
+            solar_os_shell_io_writeln(term, "gnss: no receiver");
+            return;
+        }
+        const bool enabled = strcmp(argv[2], "on") == 0;
+        const esp_err_t ret = solar_os_gnss_set_power(name, enabled);
+        if (ret != ESP_OK) {
+            solar_os_shell_io_printf(term, "gnss: %s\r\n", esp_err_to_name(ret));
+            return;
+        }
+        solar_os_shell_io_printf(term, "%s power=%s\r\n", name, enabled ? "on" : "off");
+        return;
+    }
     if (argc < 2 || argc > 4 || strcmp(argv[1], "fix") != 0) {
-        solar_os_shell_io_writeln(term, "usage: gnss [list] | gnss fix [name] [timeout-ms]");
+        solar_os_shell_io_writeln(term,
+                                  "usage: gnss [list] | gnss power <on|off> [name] | "
+                                  "gnss fix [name] [timeout-ms]");
         return;
     }
     const char *name = argc >= 3 ? argv[2] : default_name();

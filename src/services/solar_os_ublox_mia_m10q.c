@@ -7,8 +7,12 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "solar_os_buses.h"
 #include "solar_os_gnss.h"
+#include "solar_os_gpio_controller.h"
 #include "ubx.h"
 
 #define UBLOX_DEVICE_MAX 2U
@@ -22,6 +26,11 @@ typedef struct {
     bool active;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    bool power_control;
+    bool powered;
+    solar_os_gpio_line_ref_t power_line;
+    SemaphoreHandle_t mutex;
+    StaticSemaphore_t mutex_storage;
 } ublox_device_t;
 
 static const char *TAG = "ublox-mia-m10q";
@@ -98,15 +107,24 @@ static esp_err_t read_fix(void *ctx,
     if (device == NULL || !device->active || fix == NULL || timeout_ms == 0U) {
         return ESP_ERR_INVALID_ARG;
     }
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    if (!device->powered) {
+        xSemaphoreGive(device->mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
     ubx_parser_t response;
-    ESP_RETURN_ON_ERROR(poll_message(device,
-                                     UBX_CLASS_NAV,
-                                     UBX_ID_NAV_PVT,
-                                     timeout_ms,
-                                     &response),
-                        TAG,
-                        "NAV-PVT poll failed");
+    esp_err_t ret = poll_message(device,
+                                 UBX_CLASS_NAV,
+                                 UBX_ID_NAV_PVT,
+                                 timeout_ms,
+                                 &response);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(device->mutex);
+        ESP_LOGE(TAG, "NAV-PVT poll failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
     if (response.payload_len != UBX_NAV_PVT_LENGTH) {
+        xSemaphoreGive(device->mutex);
         return ESP_ERR_INVALID_RESPONSE;
     }
     const uint8_t *p = response.payload;
@@ -130,26 +148,73 @@ static esp_err_t read_fix(void *ctx,
         .heading_deg_e5 = read_i32(&p[64]),
         .position_dop_e2 = read_u16(&p[76]),
     };
+    xSemaphoreGive(device->mutex);
     return ESP_OK;
+}
+
+static esp_err_t set_power(void *ctx, bool enabled)
+{
+    ublox_device_t *device = ctx;
+    if (device == NULL || !device->active || !device->power_control) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    if (device->powered == enabled) {
+        xSemaphoreGive(device->mutex);
+        return ESP_OK;
+    }
+    esp_err_t ret = solar_os_gpio_line_write(&device->power_line, enabled);
+    if (ret == ESP_OK && enabled) {
+        vTaskDelay(pdMS_TO_TICKS(100U));
+        ubx_parser_t version;
+        ret = poll_message(device, UBX_CLASS_MON, UBX_ID_MON_VER, 500U, &version);
+        if (ret != ESP_OK) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
+    }
+    if (ret == ESP_OK) {
+        device->powered = enabled;
+    }
+    xSemaphoreGive(device->mutex);
+    return ret;
 }
 
 static const solar_os_gnss_ops_t gnss_ops = {
     .read_fix = read_fix,
 };
 
+static const solar_os_gnss_ops_t powered_gnss_ops = {
+    .read_fix = read_fix,
+    .set_power = set_power,
+};
+
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *uart_bus,
-                                size_t uart_bus_len)
+                                size_t uart_bus_len,
+                                bool *power_control,
+                                solar_os_gpio_line_ref_t *power_line)
 {
-    if (bindings == NULL || uart_bus == NULL || binding_count != 1U ||
-        bindings[0].kind != SOLAR_OS_EXPANSION_BINDING_UART_PORT ||
-        bindings[0].target[0] == '\0' ||
-        !solar_os_expansion_find_uart_port(bindings[0].target, NULL, NULL)) {
-        return ESP_ERR_INVALID_ARG;
+    bool have_uart = false;
+    *power_control = false;
+    for (size_t i = 0; bindings != NULL && i < binding_count; i++) {
+        const solar_os_expansion_binding_t *binding = &bindings[i];
+        if (binding->kind == SOLAR_OS_EXPANSION_BINDING_UART_PORT && !have_uart) {
+            strlcpy(uart_bus, binding->target, uart_bus_len);
+            have_uart = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                   strcmp(binding->role, "power") == 0 && !*power_control) {
+            strlcpy(power_line->controller,
+                    binding->target,
+                    sizeof(power_line->controller));
+            power_line->line = (uint8_t)binding->value;
+            *power_control = true;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
     }
-    strlcpy(uart_bus, bindings[0].target, uart_bus_len);
-    return ESP_OK;
+    return have_uart && solar_os_expansion_find_uart_port(uart_bus, NULL, NULL)
+        ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t solar_os_ublox_mia_m10q_attach(
@@ -173,19 +238,36 @@ esp_err_t solar_os_ublox_mia_m10q_attach(
         return ESP_ERR_NO_MEM;
     }
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    bool power_control = false;
+    solar_os_gpio_line_ref_t power_line = {0};
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
                                        uart_bus,
-                                       sizeof(uart_bus)),
+                                       sizeof(uart_bus),
+                                       &power_control,
+                                       &power_line),
                         TAG,
                         "invalid bindings");
     memset(device, 0, sizeof(*device));
     device->active = true;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->uart_bus, uart_bus, sizeof(device->uart_bus));
+    device->power_control = power_control;
+    device->power_line = power_line;
+    device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);
+    if (device->mutex == NULL) {
+        memset(device, 0, sizeof(*device));
+        return ESP_ERR_NO_MEM;
+    }
 
-    ubx_parser_t version;
-    esp_err_t ret = poll_message(device, UBX_CLASS_MON, UBX_ID_MON_VER, 500U, &version);
+    esp_err_t ret = ESP_OK;
+    if (power_control) {
+        ret = solar_os_gpio_line_write(&device->power_line, false);
+    } else {
+        ubx_parser_t version;
+        ret = poll_message(device, UBX_CLASS_MON, UBX_ID_MON_VER, 500U, &version);
+        device->powered = ret == ESP_OK;
+    }
     if (ret != ESP_OK) {
         memset(device, 0, sizeof(*device));
         return ret;
@@ -193,15 +275,20 @@ esp_err_t solar_os_ublox_mia_m10q_attach(
     const solar_os_gnss_registration_t registration = {
         .name = name,
         .driver = "ublox-mia-m10q",
-        .ops = &gnss_ops,
+        .ops = power_control ? &powered_gnss_ops : &gnss_ops,
         .ctx = device,
+        .powered = device->powered,
     };
     ret = solar_os_gnss_register(&registration);
     if (ret != ESP_OK) {
         memset(device, 0, sizeof(*device));
         return ret;
     }
-    ESP_LOGI(TAG, "%s attached on %s", name, uart_bus);
+    ESP_LOGI(TAG,
+             "%s attached on %s power=%s",
+             name,
+             uart_bus,
+             power_control ? "off" : "always-on");
     return ESP_OK;
 }
 
@@ -213,6 +300,9 @@ esp_err_t solar_os_ublox_mia_m10q_detach(const char *name)
     for (size_t i = 0; i < UBLOX_DEVICE_MAX; i++) {
         if (devices[i].active && strcmp(devices[i].name, name) == 0) {
             ESP_RETURN_ON_ERROR(solar_os_gnss_unregister(name), TAG, "unregister failed");
+            if (devices[i].power_control) {
+                (void)solar_os_gpio_line_write(&devices[i].power_line, false);
+            }
             memset(&devices[i], 0, sizeof(devices[i]));
             return ESP_OK;
         }

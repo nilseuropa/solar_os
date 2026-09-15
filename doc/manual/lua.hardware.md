@@ -39,7 +39,10 @@ print(solaros.sensors.humidity())
 
 ## `solaros.gnss`
 
-- `list()`: return registered receivers with `name` and `driver`.
+- `list()`: return registered receivers with `name`, `driver`, `power_control`,
+  and `powered`.
+- `power(enabled[, name])`: change a driver-managed receiver power rail,
+  defaulting to the first receiver, and return the requested state.
 - `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
   a 1000 ms timeout. The result includes scaled-integer position, accuracy,
   motion, fix, satellite, and UTC fields.
