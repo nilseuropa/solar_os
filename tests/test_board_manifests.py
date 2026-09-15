@@ -162,6 +162,15 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
         self.assertIn(
+            '.driver = "bq25896", .name = "charger0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, '
+            '.role = "charge_current", .value = 704',
+            header,
+        )
+        self.assertIn(
             '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "output", '
             '.value = 7055',
             header,
@@ -206,6 +215,7 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("ublox_mia_m10q", packages)
         self.assertIn("st25r3916", packages)
         self.assertIn("drv2605", packages)
+        self.assertIn("bq25896", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
