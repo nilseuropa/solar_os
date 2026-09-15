@@ -44,6 +44,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [expansion command](expansion.md) — Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, and detach runtime devices. Bus lifecycle remains in the io app.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
+- [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
 - [help command](help.md) — Browse the package-aware manual or manage its signed exact-version SD copy. command.status escapes the maintenance keyword.
 - [humidity command](commands.md) — Read the board humidity sensor when available.

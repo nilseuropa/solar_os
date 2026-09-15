@@ -20,6 +20,20 @@ agent_reference_sections = true
 
 - `solaros.sensors`: `environment` when environmental sensor support is compiled
 
+## `solaros.gnss`
+
+- `list()`: return registered receivers with `name` and `driver`.
+- `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
+  a 1000 ms timeout. The result includes scaled-integer position, accuracy,
+  motion, fix, satellite, and UTC fields.
+
+```lua
+local fix = solaros.gnss.fix()
+if fix.valid then
+    print(fix.latitude_deg_e7, fix.longitude_deg_e7)
+end
+```
+
 ## `solaros.gpio`
 
 - `solaros.gpio`: constants `INPUT`, `OUTPUT`, `PULL_NONE`, `PULL_UP`, `PULL_DOWN`; functions `pins`, `allowed`, `mode`, `configure`, `read`, `write`, `release` when GPIO support is compiled. Pin tables include `expansion`, `allowed`, `available`, `claimed`, `owner`, and `policy` (`free`, `releasable`, or `fixed`).
@@ -75,5 +89,5 @@ count is not sampled.
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, and `solaros.gnss` for gpio and peripherals.
 See `man lua` for runtime conventions and service availability.

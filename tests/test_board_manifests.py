@@ -149,7 +149,18 @@ class BoardManifestTest(unittest.TestCase):
             '.kind = SOLAR_OS_EXPANSION_BINDING_PWM, .role = "backlight", .value = 46',
             header,
         )
-        self.assertIn("tca8418", required_packages(board, self.drivers))
+        self.assertIn(
+            '.driver = "ublox-mia-m10q", .name = "gnss0"',
+            header,
+        )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, '
+            '.target = "gnss-uart", .value = UART_NUM_1',
+            header,
+        )
+        packages = required_packages(board, self.drivers)
+        self.assertIn("tca8418", packages)
+        self.assertIn("ublox_mia_m10q", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(

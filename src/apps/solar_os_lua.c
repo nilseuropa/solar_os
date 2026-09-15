@@ -75,6 +75,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -4080,6 +4083,60 @@ static int solua_buses_spi_write(lua_State *L)
 }
 #endif
 #endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static int solua_gnss_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_gnss_info_t info;
+    for (size_t i = 0; solar_os_gnss_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_gnss_fix(lua_State *L)
+{
+    solar_os_gnss_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_gnss_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_gnss_fix_t fix;
+    (void)solua_check_esp(L, solar_os_gnss_read_fix(
+        name, solua_optional_u32(L, 2, 1000U), &fix));
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_bool(L, -1, "valid", fix.valid);
+    solua_set_bool(L, -1, "time_valid", fix.time_valid);
+    solua_set_int(L, -1, "year", fix.year);
+    solua_set_int(L, -1, "month", fix.month);
+    solua_set_int(L, -1, "day", fix.day);
+    solua_set_int(L, -1, "hour", fix.hour);
+    solua_set_int(L, -1, "minute", fix.minute);
+    solua_set_int(L, -1, "second", fix.second);
+    solua_set_int(L, -1, "fix_type", fix.fix_type);
+    solua_set_int(L, -1, "satellites", fix.satellites);
+    solua_set_int(L, -1, "longitude_deg_e7", fix.longitude_deg_e7);
+    solua_set_int(L, -1, "latitude_deg_e7", fix.latitude_deg_e7);
+    solua_set_int(L, -1, "height_msl_mm", fix.height_msl_mm);
+    solua_set_int(L, -1, "horizontal_accuracy_mm", fix.horizontal_accuracy_mm);
+    solua_set_int(L, -1, "vertical_accuracy_mm", fix.vertical_accuracy_mm);
+    solua_set_int(L, -1, "ground_speed_mm_s", fix.ground_speed_mm_s);
+    solua_set_int(L, -1, "heading_deg_e5", fix.heading_deg_e5);
+    solua_set_int(L, -1, "position_dop_e2", fix.position_dop_e2);
+    return 1;
+}
+#endif
+
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 static void solua_push_expansion_binding(lua_State *L,

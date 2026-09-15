@@ -86,6 +86,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 #include "solar_os_neopixel.h"
 #endif
@@ -4353,6 +4356,63 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_buses_spi_write_obj,
                                     solaros_buses_spi_write);
 #endif
 #endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static mp_obj_t solaros_gnss_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_gnss_info_t info;
+    for (size_t i = 0; solar_os_gnss_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(2);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_gnss_list_obj, solaros_gnss_list);
+
+static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_gnss_info_t info;
+    const char *name = NULL;
+    if (n_args >= 1U && args[0] != mp_const_none) {
+        name = mp_obj_str_get_str(args[0]);
+    } else if (solar_os_gnss_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    const uint32_t timeout_ms = n_args >= 2U
+        ? python_u32_from_obj(args[1]) : 1000U;
+    solar_os_gnss_fix_t fix;
+    python_check_esp(solar_os_gnss_read_fix(name, timeout_ms, &fix));
+    mp_obj_t result = mp_obj_new_dict(19);
+    python_dict_store_cstr(result, "name", name);
+    python_dict_store_bool(result, "valid", fix.valid);
+    python_dict_store_bool(result, "time_valid", fix.time_valid);
+    python_dict_store_int(result, "year", fix.year);
+    python_dict_store_int(result, "month", fix.month);
+    python_dict_store_int(result, "day", fix.day);
+    python_dict_store_int(result, "hour", fix.hour);
+    python_dict_store_int(result, "minute", fix.minute);
+    python_dict_store_int(result, "second", fix.second);
+    python_dict_store_int(result, "fix_type", fix.fix_type);
+    python_dict_store_int(result, "satellites", fix.satellites);
+    python_dict_store_int(result, "longitude_deg_e7", fix.longitude_deg_e7);
+    python_dict_store_int(result, "latitude_deg_e7", fix.latitude_deg_e7);
+    python_dict_store_int(result, "height_msl_mm", fix.height_msl_mm);
+    python_dict_store_uint(result, "horizontal_accuracy_mm", fix.horizontal_accuracy_mm);
+    python_dict_store_uint(result, "vertical_accuracy_mm", fix.vertical_accuracy_mm);
+    python_dict_store_int(result, "ground_speed_mm_s", fix.ground_speed_mm_s);
+    python_dict_store_int(result, "heading_deg_e5", fix.heading_deg_e5);
+    python_dict_store_int(result, "position_dop_e2", fix.position_dop_e2);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gnss_fix_obj, 0, 2, solaros_gnss_fix);
+#endif
+
 
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 static mp_obj_t python_expansion_binding_to_dict(const solar_os_expansion_binding_t *binding)

@@ -44,6 +44,25 @@ env = solaros.sensors.environment()
 print("{:.1f} C {:.1f}%".format(env["temperature_c"], env["humidity_percent"]))
 ```
 
+## `solaros.gnss`
+
+Available when the firmware includes a GNSS receiver service.
+
+- `list()`: return registered receivers with `name` and `driver`.
+- `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
+  a 1000 ms timeout. The result contains fix and UTC validity, date and time,
+  fix type, satellite count, longitude and latitude in degrees times 10^7,
+  MSL height and accuracy in millimeters, ground speed in millimeters per
+  second, heading in degrees times 10^5, and position DOP times 100.
+
+```python
+import solaros
+
+fix = solaros.gnss.fix()
+if fix["valid"]:
+    print(fix["latitude_deg_e7"], fix["longitude_deg_e7"])
+```
+
 ## `solaros.gpio`
 
 GPIO functions expose only runtime-safe expansion pins. Use `solaros.gpio.pins()`
@@ -256,5 +275,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

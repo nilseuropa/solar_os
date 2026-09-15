@@ -441,6 +441,11 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
+[groups.ublox_mia_m10q]
+label = "u-blox MIA-M10Q GNSS receiver"
+category = "Expansion hardware"
+members = ["ublox_mia_m10q"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -1088,6 +1093,13 @@ any_capabilities = [
   "expansion_uart",
 ]
 
+[packages.service_gnss]
+label = "service.gnss"
+sources = [
+  "services/solar_os_gnss.c",
+  "shell/solar_os_shell_gnss.c",
+]
+
 [packages.service_link]
 label = "service.link"
 sources = [
@@ -1220,6 +1232,19 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
+
+[packages.ublox_mia_m10q]
+label = "expansion.ublox-mia-m10q"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ublox_mia_m10q_expansion_driver"]
+depends = ["service_expansion", "service_gnss", "service_uart"]
+sources = [
+  "drivers/ubx.c",
+  "services/solar_os_ublox_mia_m10q.c",
+  "services/solar_os_ublox_mia_m10q_driver.c",
+]
+requires = ["esp_timer"]
+capabilities = ["expansion_uart"]
 
 [packages.board_cl32_core]
 label = "board.cl32-core"

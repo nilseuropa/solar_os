@@ -92,6 +92,19 @@ hint = "0x20"
 required = true
 allowed = [0x20]
 
+[drivers.ublox-mia-m10q]
+summary = "u-blox MIA-M10Q GNSS receiver"
+package = "ublox_mia_m10q"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_uart"]
+default_name = "gnss0"
+
+[[drivers.ublox-mia-m10q.bindings]]
+key = "uart"
+kind = "uart_port"
+hint = "bus"
+required = true
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"

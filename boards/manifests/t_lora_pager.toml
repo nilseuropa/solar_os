@@ -100,7 +100,7 @@ SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 
 [runtime]
 spi_hosts = ["SPI3_HOST"]
-uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+uart_ports = ["UART_NUM_2"]
 i2s_ports = ["I2S_NUM_1"]
 
 [[buses]]
@@ -131,6 +131,15 @@ port = "UART_NUM_0"
 tx = 43
 rx = 44
 baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "gnss-uart"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 12
+rx = 4
+baud_rate = "38400"
 
 # core0 (XL9555) must attach before anything it power-gates: keyboard0,
 # radio0 and storage0 all sit behind its power/reset rails. It is marked
@@ -175,6 +184,11 @@ bindings = { a = 40, b = 41 }
 driver = "bq27220"
 name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x55 }
+
+[[devices]]
+driver = "ublox-mia-m10q"
+name = "gnss0"
+bindings = { uart = "gnss-uart" }
 
 [[devices]]
 driver = "sx1262"
@@ -301,7 +315,7 @@ expansion = true
 [[pins]]
 gpio = 4
 policy = "fixed"
-role = "GNSS RX (unused in this port)"
+role = "GNSS UART RX"
 [[pins]]
 gpio = 5
 policy = "fixed"
@@ -337,7 +351,7 @@ role = "audio codec BCLK"
 [[pins]]
 gpio = 12
 policy = "fixed"
-role = "GNSS TX (unused in this port)"
+role = "GNSS UART TX"
 [[pins]]
 gpio = 13
 policy = "fixed"
