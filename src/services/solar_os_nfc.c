@@ -12,11 +12,14 @@ typedef struct {
     solar_os_nfc_info_t info;
     const solar_os_nfc_ops_t *ops;
     void *ctx;
+    size_t refs;
+    uint32_t generation;
 } nfc_device_t;
 
 static SemaphoreHandle_t nfc_mutex;
 static StaticSemaphore_t nfc_mutex_storage;
 static nfc_device_t nfc_devices[NFC_DEVICE_MAX];
+static uint32_t nfc_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
 {
@@ -25,6 +28,7 @@ static esp_err_t ensure_mutex(void)
     }
     return nfc_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
+
 static bool name_valid(const char *name)
 {
     return name != NULL && name[0] != '\0' &&
@@ -65,6 +69,10 @@ esp_err_t solar_os_nfc_register(const solar_os_nfc_registration_t *registration)
     strlcpy(free_device->info.driver, registration->driver, sizeof(free_device->info.driver));
     free_device->ops = registration->ops;
     free_device->ctx = registration->ctx;
+    free_device->generation = nfc_next_generation++;
+    if (free_device->generation == 0U) {
+        free_device->generation = nfc_next_generation++;
+    }
     xSemaphoreGive(nfc_mutex);
     return ESP_OK;
 }
@@ -77,6 +85,10 @@ esp_err_t solar_os_nfc_unregister(const char *name)
     xSemaphoreTake(nfc_mutex, portMAX_DELAY);
     for (size_t i = 0; i < NFC_DEVICE_MAX; i++) {
         if (nfc_devices[i].active && strcmp(nfc_devices[i].info.name, name) == 0) {
+            if (nfc_devices[i].refs > 0U) {
+                xSemaphoreGive(nfc_mutex);
+                return ESP_ERR_INVALID_STATE;
+            }
             memset(&nfc_devices[i], 0, sizeof(nfc_devices[i]));
             xSemaphoreGive(nfc_mutex);
             return ESP_OK;
@@ -128,15 +140,35 @@ esp_err_t solar_os_nfc_scan(const char *name,
     if (!name_valid(name) || timeout_ms == 0U || tag == NULL || ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    const solar_os_nfc_ops_t *ops = NULL;
+    void *ctx = NULL;
+    size_t index = 0U;
+    uint32_t generation = 0U;
     xSemaphoreTake(nfc_mutex, portMAX_DELAY);
     for (size_t i = 0; i < NFC_DEVICE_MAX; i++) {
         if (nfc_devices[i].active && strcmp(nfc_devices[i].info.name, name) == 0) {
-            const esp_err_t ret = nfc_devices[i].ops->scan(
-                nfc_devices[i].ctx, timeout_ms, tag);
-            xSemaphoreGive(nfc_mutex);
-            return ret;
+            nfc_devices[i].refs++;
+            ops = nfc_devices[i].ops;
+            ctx = nfc_devices[i].ctx;
+            index = i;
+            generation = nfc_devices[i].generation;
+            break;
         }
     }
     xSemaphoreGive(nfc_mutex);
-    return ESP_ERR_NOT_FOUND;
+    if (ops == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const esp_err_t ret = ops->scan(ctx, timeout_ms, tag);
+
+    xSemaphoreTake(nfc_mutex, portMAX_DELAY);
+    if (nfc_devices[index].active &&
+        nfc_devices[index].generation == generation &&
+        nfc_devices[index].refs > 0U) {
+        nfc_devices[index].refs--;
+    }
+    xSemaphoreGive(nfc_mutex);
+    return ret;
 }
