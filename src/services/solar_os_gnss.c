@@ -12,11 +12,14 @@ typedef struct {
     solar_os_gnss_info_t info;
     const solar_os_gnss_ops_t *ops;
     void *ctx;
+    size_t refs;
+    uint32_t generation;
 } gnss_device_t;
 
 static SemaphoreHandle_t gnss_mutex;
 static StaticSemaphore_t gnss_mutex_storage;
 static gnss_device_t gnss_devices[GNSS_DEVICE_MAX];
+static uint32_t gnss_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
 {
@@ -25,6 +28,7 @@ static esp_err_t ensure_mutex(void)
     }
     return gnss_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
+
 static bool name_valid(const char *name)
 {
     return name != NULL && name[0] != '\0' &&
@@ -67,6 +71,10 @@ esp_err_t solar_os_gnss_register(const solar_os_gnss_registration_t *registratio
     strlcpy(free_device->info.driver, registration->driver, sizeof(free_device->info.driver));
     free_device->ops = registration->ops;
     free_device->ctx = registration->ctx;
+    free_device->generation = gnss_next_generation++;
+    if (free_device->generation == 0U) {
+        free_device->generation = gnss_next_generation++;
+    }
     xSemaphoreGive(gnss_mutex);
     return ESP_OK;
 }
@@ -79,6 +87,10 @@ esp_err_t solar_os_gnss_unregister(const char *name)
     xSemaphoreTake(gnss_mutex, portMAX_DELAY);
     for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
         if (gnss_devices[i].active && strcmp(gnss_devices[i].info.name, name) == 0) {
+            if (gnss_devices[i].refs > 0U) {
+                xSemaphoreGive(gnss_mutex);
+                return ESP_ERR_INVALID_STATE;
+            }
             memset(&gnss_devices[i], 0, sizeof(gnss_devices[i]));
             xSemaphoreGive(gnss_mutex);
             return ESP_OK;
@@ -130,15 +142,35 @@ esp_err_t solar_os_gnss_read_fix(const char *name,
     if (!name_valid(name) || fix == NULL || ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    const solar_os_gnss_ops_t *ops = NULL;
+    void *ctx = NULL;
+    size_t index = 0U;
+    uint32_t generation = 0U;
     xSemaphoreTake(gnss_mutex, portMAX_DELAY);
     for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
         if (gnss_devices[i].active && strcmp(gnss_devices[i].info.name, name) == 0) {
-            const esp_err_t ret = gnss_devices[i].ops->read_fix(
-                gnss_devices[i].ctx, timeout_ms, fix);
-            xSemaphoreGive(gnss_mutex);
-            return ret;
+            gnss_devices[i].refs++;
+            ops = gnss_devices[i].ops;
+            ctx = gnss_devices[i].ctx;
+            index = i;
+            generation = gnss_devices[i].generation;
+            break;
         }
     }
     xSemaphoreGive(gnss_mutex);
-    return ESP_ERR_NOT_FOUND;
+    if (ops == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const esp_err_t ret = ops->read_fix(ctx, timeout_ms, fix);
+
+    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
+    if (gnss_devices[index].active &&
+        gnss_devices[index].generation == generation &&
+        gnss_devices[index].refs > 0U) {
+        gnss_devices[index].refs--;
+    }
+    xSemaphoreGive(gnss_mutex);
+    return ret;
 }
