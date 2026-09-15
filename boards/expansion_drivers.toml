@@ -131,6 +131,33 @@ hint = "gpio"
 role = "irq"
 required = true
 
+[drivers.bhi260ap]
+summary = "Bosch BHI260AP six-axis IMU"
+package = "bhi260ap"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c", "expansion_gpio"]
+default_name = "imu0"
+
+[[drivers.bhi260ap.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bhi260ap.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x28"
+required = true
+allowed = [0x28, 0x29]
+
+[[drivers.bhi260ap.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+required = true
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"

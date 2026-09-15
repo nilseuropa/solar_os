@@ -196,6 +196,11 @@ name = "nfc0"
 bindings = { spi = "spi0", cs = 39, irq = 5 }
 
 [[devices]]
+driver = "bhi260ap"
+name = "imu0"
+bindings = { i2c = "i2c0", addr = 0x28, irq = 8 }
+
+[[devices]]
 driver = "sx1262"
 name = "radio0"
 bindings = { spi = "spi0", cs = 36, busy = 48, reset = 47, irq = 14 }

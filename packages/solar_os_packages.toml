@@ -456,6 +456,11 @@ label = "ST25R3916 NFC-A reader"
 category = "Expansion hardware"
 members = ["st25r3916"]
 
+[groups.bhi260ap]
+label = "BHI260AP IMU"
+category = "Expansion hardware"
+members = ["bhi260ap"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -1282,6 +1287,21 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["expansion_gpio", "expansion_spi"]
+
+[packages.bhi260ap]
+label = "expansion.bhi260ap"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_bhi260ap_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = [
+  "drivers/bhi260ap_codec.c",
+  "services/solar_os_bhi260ap.c",
+  "services/solar_os_bhi260ap_driver.c",
+  "vendor/bhy2/bhy2.c",
+  "vendor/bhy2/bhy2_hif.c",
+]
+requires = ["esp_driver_gpio", "esp_timer"]
+capabilities = ["expansion_gpio", "expansion_i2c"]
 
 [packages.board_cl32_core]
 label = "board.cl32-core"
