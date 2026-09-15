@@ -14,11 +14,18 @@ static bool valid_device(const xl9555_t *device)
 
 static esp_err_t write_u16(xl9555_t *device, uint8_t reg, uint16_t value)
 {
-    const uint8_t data[2] = {
-        (uint8_t)(value & 0xFFU),
-        (uint8_t)(value >> 8U),
-    };
-    return device->io.write(device->io.ctx, reg, data, sizeof(data));
+    /* Keep the two ports as distinct register transactions. This preserves
+     * the known-good XL9555 rail sequencing used during board bring-up. */
+    const uint8_t low = (uint8_t)(value & 0xFFU);
+    esp_err_t ret = device->io.write(device->io.ctx, reg, &low, sizeof(low));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint8_t high = (uint8_t)(value >> 8U);
+    return device->io.write(device->io.ctx,
+                            (uint8_t)(reg + 1U),
+                            &high,
+                            sizeof(high));
 }
 
 esp_err_t xl9555_init(xl9555_t *device,
