@@ -39,6 +39,10 @@ void solar_os_shell_cmd_imu(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
+        if (solar_os_imu_count() == 0U) {
+            solar_os_shell_io_writeln(term, "no motion sensors registered");
+            return;
+        }
         solar_os_imu_info_t info;
         for (size_t i = 0; solar_os_imu_get(i, &info); i++) {
             solar_os_shell_io_printf(term, "%s  %s", info.name, info.driver);

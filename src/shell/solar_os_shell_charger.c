@@ -31,6 +31,10 @@ static void print_range(solar_os_shell_io_t *term,
 
 static void list(solar_os_shell_io_t *term)
 {
+    if (solar_os_charger_count() == 0U) {
+        solar_os_shell_io_writeln(term, "no battery chargers registered");
+        return;
+    }
     solar_os_charger_info_t info;
     for (size_t i = 0; solar_os_charger_get(i, &info); i++) {
         solar_os_shell_io_printf(term, "%s  %s  ", info.name, info.driver);

@@ -896,6 +896,23 @@ static const char * const expansion_bus_protocols[] = {
     "uart",
 #endif
 };
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static const char * const gnss_subcommands[] = {"list", "power", "fix"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+static const char * const haptic_subcommands[] = {"list", "play", "stop"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+static const char * const charger_subcommands[] = {
+    "list", "status", "enable", "input-limit", "current", "voltage",
+};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static const char * const imu_subcommands[] = {"list", "sample"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static const char * const nfc_subcommands[] = {"list", "power", "scan"};
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const neopixel_subcommands[] = {
     "status",
@@ -2164,6 +2181,24 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static const char * const path_gnss[] = {"gnss"};
+static const char * const path_gnss_power[] = {"gnss", "power"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+static const char * const path_haptic[] = {"haptic"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+static const char * const path_charger[] = {"charger"};
+static const char * const path_charger_enable[] = {"charger", "enable"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static const char * const path_imu[] = {"imu"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static const char * const path_nfc[] = {"nfc"};
+static const char * const path_nfc_power[] = {"nfc", "power"};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 static const char * const path_midi[] = {"midi"};
 static const char * const path_midi_stream[] = {"midi", "stream"};
@@ -3095,6 +3130,24 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_EXPANSION_DRIVERS(path_expansion_attach),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),
+    SHELL_COMPLETION_STATIC(path_gnss_power, on_off_values),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+    SHELL_COMPLETION_STATIC(path_haptic, haptic_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+    SHELL_COMPLETION_STATIC(path_charger, charger_subcommands),
+    SHELL_COMPLETION_STATIC(path_charger_enable, on_off_values),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    SHELL_COMPLETION_STATIC(path_imu, imu_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+    SHELL_COMPLETION_STATIC(path_nfc, nfc_subcommands),
+    SHELL_COMPLETION_STATIC(path_nfc_power, on_off_values),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_MIDI
     SHELL_COMPLETION_STATIC(path_midi, midi_subcommands),
