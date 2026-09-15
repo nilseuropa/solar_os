@@ -461,6 +461,11 @@ label = "BHI260AP IMU"
 category = "Expansion hardware"
 members = ["bhi260ap"]
 
+[groups.xl9555]
+label = "XL9555 GPIO controller"
+category = "Expansion hardware"
+members = ["xl9555"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -1325,6 +1330,16 @@ depends = ["service_expansion", "service_i2c"]
 sources = [
   "services/solar_os_tlora_pager_core.c",
   "services/solar_os_tlora_pager_core_driver.c",
+]
+
+[packages.xl9555]
+label = "expansion.xl9555"
+depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_xl9555_expansion_driver"]
+sources = [
+  "drivers/xl9555.c",
+  "services/solar_os_xl9555.c",
+  "services/solar_os_xl9555_driver.c",
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]

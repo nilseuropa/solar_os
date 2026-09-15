@@ -963,6 +963,17 @@ bool solar_os_shell_expansion_parse_binding_token(
                           count,
                           -1);
     }
+    if (strcmp(key, "output") == 0 || strcmp(key, "direction") == 0) {
+        int parameter = 0;
+        return parse_int_arg(value, 0, UINT16_MAX, &parameter) &&
+            binding_store(bindings,
+                          binding_count,
+                          SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                          key,
+                          "",
+                          parameter,
+                          -1);
+    }
     if (strcmp(key, "active") == 0) {
         int active = 0;
         return parse_int_arg(value, 0, 1, &active) &&
