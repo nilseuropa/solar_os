@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "ff.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,7 +22,7 @@ typedef struct {
     solar_os_gpio_line_ref_t power_line;
 } solar_os_sdspi_device_t;
 
-static solar_os_sdspi_device_t sdspi;
+static EXT_RAM_BSS_ATTR solar_os_sdspi_device_t sdspi;
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,

@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_stream.h"
@@ -28,9 +29,9 @@ typedef struct {
     void *ctx;
 } sensor_ref_t;
 
-static sensor_device_t sensor_devices[SENSOR_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR sensor_device_t sensor_devices[SENSOR_DEVICE_MAX];
 static SemaphoreHandle_t sensors_mutex;
-static StaticSemaphore_t sensors_mutex_storage;
+static EXT_RAM_BSS_ATTR StaticSemaphore_t sensors_mutex_storage;
 static uint32_t sensors_next_generation = 1U;
 static bool sensors_initialized;
 static bool temperature_stream_registered;

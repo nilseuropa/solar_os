@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -20,8 +21,8 @@ typedef struct {
 } imu_device_t;
 
 static SemaphoreHandle_t imu_mutex;
-static StaticSemaphore_t imu_mutex_storage;
-static imu_device_t imu_devices[IMU_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR StaticSemaphore_t imu_mutex_storage;
+static EXT_RAM_BSS_ATTR imu_device_t imu_devices[IMU_DEVICE_MAX];
 static uint32_t imu_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)

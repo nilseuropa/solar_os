@@ -30,7 +30,7 @@ typedef struct {
 
 static EXT_RAM_BSS_ATTR gpio_controller_slot_t controllers[SOLAR_OS_GPIO_CONTROLLER_MAX];
 static SemaphoreHandle_t controllers_mutex;
-static StaticSemaphore_t controllers_mutex_storage;
+static EXT_RAM_BSS_ATTR StaticSemaphore_t controllers_mutex_storage;
 
 static esp_err_t ensure_init(void)
 {

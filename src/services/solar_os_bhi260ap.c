@@ -8,6 +8,7 @@
 #include "bhi260ap_codec.h"
 #include "bhy2.h"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -48,7 +49,7 @@ typedef struct {
 } bhi260ap_device_t;
 
 static const char *TAG = "bhi260ap";
-static bhi260ap_device_t devices[BHI260AP_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR bhi260ap_device_t devices[BHI260AP_DEVICE_MAX];
 
 static esp_err_t bhy2_error(bhi260ap_device_t *device, int8_t result)
 {

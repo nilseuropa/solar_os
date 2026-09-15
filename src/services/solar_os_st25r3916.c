@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -36,7 +37,7 @@ typedef struct {
 } st25r3916_device_t;
 
 static const char *TAG = "st25r3916";
-static st25r3916_device_t devices[ST25R3916_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR st25r3916_device_t devices[ST25R3916_DEVICE_MAX];
 
 static esp_err_t chip_transfer(void *ctx,
                                const uint8_t *tx,

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "solar_os_nfc.h"
 #include "solar_os_shell.h"
 
@@ -15,7 +16,7 @@ static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 
 static const char *default_name(void)
 {
-    static solar_os_nfc_info_t info;
+    static EXT_RAM_BSS_ATTR solar_os_nfc_info_t info;
     return solar_os_nfc_get(0U, &info) ? info.name : NULL;
 }
 

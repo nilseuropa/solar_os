@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -25,7 +26,7 @@ typedef struct {
 } solar_os_xl9555_device_t;
 
 static const char *TAG = "xl9555";
-static solar_os_xl9555_device_t devices[XL9555_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR solar_os_xl9555_device_t devices[XL9555_DEVICE_MAX];
 
 static esp_err_t chip_read(void *ctx, uint8_t reg, uint8_t *data, size_t len)
 {
