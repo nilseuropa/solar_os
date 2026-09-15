@@ -12,6 +12,7 @@
 #include "esp_err.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_expansion_internal.h"
@@ -259,6 +260,14 @@ static void expansion_tui_format_binding(
                  "%s:%s = GPIO%d",
                  solar_os_expansion_binding_kind_name(binding->kind),
                  binding->role,
+                 binding->value);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        snprintf(line,
+                 line_len,
+                 "gpio_line:%s = %s:%d",
+                 binding->role,
+                 binding->target,
                  binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
@@ -892,6 +901,16 @@ static bool expansion_tui_binding_from_spec(
         return expansion_tui_parse_int(text, 0, 1, &binding->value);
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
         return expansion_tui_parse_int(text, 0x03, 0x77, &binding->value);
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        solar_os_gpio_line_ref_t line;
+        if (!solar_os_gpio_line_parse(text, &line) ||
+            !solar_os_gpio_controller_find(line.controller, NULL)) {
+            return false;
+        }
+        strlcpy(binding->target, line.controller, sizeof(binding->target));
+        binding->value = line.line;
+        return true;
+    }
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
     case SOLAR_OS_EXPANSION_BINDING_ADC:
     case SOLAR_OS_EXPANSION_BINDING_PWM:

@@ -353,6 +353,52 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
 
+    def test_gpio_line_binding_contains_controller_and_line(self) -> None:
+        drivers = dict(self.drivers)
+        drivers["test-line"] = DriverDef(
+            name="test-line",
+            summary="test",
+            package="test_line",
+            targets=("esp32s3",),
+            capabilities=(),
+            board_capabilities=(),
+            board_driver=None,
+            board_defines={},
+            early=False,
+            default_name="line-device0",
+            bindings=(DriverBinding(
+                key="power",
+                kind="gpio_line",
+                hint="controller:line",
+                role="power",
+                required=True,
+                allowed=(),
+                minimum=0,
+                maximum=15,
+            ),),
+        )
+        board = load_board_manifest(
+            self.manifest_dir / "t_lora_pager.toml",
+            self.manifest_dir,
+        )
+        board["devices"].append({
+            "driver": "test-line",
+            "name": "line-device0",
+            "bindings": {"power": "gpiox0:4"},
+        })
+
+        header = generate_header(board, drivers)
+
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 4',
+            header,
+        )
+
+        board["devices"][-1]["bindings"]["power"] = "gpiox0:16"
+        with self.assertRaisesRegex(ManifestError, "above 15"):
+            validate_board(board, drivers)
+
     def test_overlay_renderer_round_trip_shape(self) -> None:
         overlay = {
             "schema": 1,

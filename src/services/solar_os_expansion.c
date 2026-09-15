@@ -9,6 +9,7 @@
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
@@ -178,6 +179,7 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
     }
     switch (binding->kind) {
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
     case SOLAR_OS_EXPANSION_BINDING_ADC:
     case SOLAR_OS_EXPANSION_BINDING_PWM:
         return binding->role[0] != '\0' ? binding->role :
@@ -295,6 +297,19 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
                             binding->value,
                             -1,
                             binding->role);
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        solar_os_gpio_controller_info_t controller;
+        if (!solar_os_gpio_controller_find(binding->target, &controller) ||
+            binding->value < 0 || binding->value >= controller.line_count) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        return append_claim(requests,
+                            request_count,
+                            SOLAR_OS_RESOURCE_GPIO_LINE,
+                            controller.id,
+                            binding->value,
+                            binding->role);
+    }
     case SOLAR_OS_EXPANSION_BINDING_ADC:
         ESP_RETURN_ON_ERROR(append_claim(requests,
                                          request_count,
@@ -389,6 +404,12 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
         return pin_is_expansion_gpio(binding->value) ||
             (allow_board_pins &&
              solar_os_pin_get_info_by_pin(binding->value, NULL));
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        solar_os_gpio_controller_info_t controller;
+        return binding->target[0] != '\0' &&
+            solar_os_gpio_controller_find(binding->target, &controller) &&
+            binding->value >= 0 && binding->value < controller.line_count;
+    }
     case SOLAR_OS_EXPANSION_BINDING_ADC:
         return pin_is_expansion_adc(binding->value) ||
             (allow_board_pins &&
@@ -585,6 +606,7 @@ esp_err_t solar_os_expansion_init(void)
 bool solar_os_expansion_available(void)
 {
     return solar_os_board_has(SOLAR_OS_BOARD_CAP_EXPANSION_GPIO) ||
+        solar_os_gpio_controller_count() > 0U ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_I2C) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_SPI) > 0 ||
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART) > 0 ||
@@ -1238,6 +1260,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
     switch (kind) {
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
         return "gpio";
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        return "gpio_line";
     case SOLAR_OS_EXPANSION_BINDING_ADC:
         return "adc";
     case SOLAR_OS_EXPANSION_BINDING_PWM:

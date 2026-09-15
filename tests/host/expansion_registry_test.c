@@ -7,6 +7,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
@@ -17,6 +18,19 @@ static size_t allocation_requests;
 static solar_os_memory_class_t last_memory_class;
 static bool fail_allocation;
 static esp_err_t claim_result = ESP_OK;
+
+size_t solar_os_gpio_controller_count(void)
+{
+    return 0U;
+}
+
+bool solar_os_gpio_controller_find(const char *name,
+                                   solar_os_gpio_controller_info_t *info)
+{
+    (void)name;
+    (void)info;
+    return false;
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
