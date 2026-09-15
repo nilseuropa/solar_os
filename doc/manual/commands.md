@@ -917,6 +917,7 @@ available for the compiled board.
 | `imu` | `imu [list]` | List registered motion sensors, their concrete drivers, and available measurements. |
 | `imu` | `imu sample [name] [timeout-ms]` | Read acceleration, angular velocity, and optional orientation from one motion sensor. |
 | `nfc` | `nfc [list]` | List registered NFC readers and their concrete drivers. |
+| `nfc` | `nfc power <on\|off> [name]` | Enable or disable a reader that has a driver-managed power rail. |
 | `nfc` | `nfc scan [name] [timeout-ms]` | Discover one collision-free NFC-A tag and print its UID, ATQA, and SAK. |
 | `espnow` | `espnow [status]` | Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error. |
 | `espnow` | `espnow peers\|list` | List persistent configured and volatile learned Link-ID-to-MAC mappings. |

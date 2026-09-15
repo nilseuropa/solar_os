@@ -56,7 +56,10 @@ end
 
 ## `solaros.nfc`
 
-- `list()`: return registered readers with `name` and `driver`.
+- `list()`: return registered readers with `name`, `driver`, `power_control`,
+  and `powered`.
+- `power(enabled[, name])`: change a driver-managed reader power rail,
+  defaulting to the first reader, and return the requested state.
 - `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag. The
   returned `uid` and `atqa` strings are binary-safe; `sak` is numeric and
   `technology` is `"nfca"`.

@@ -4589,14 +4589,34 @@ static mp_obj_t solaros_nfc_list(void)
     mp_obj_t list = mp_obj_new_list(0, NULL);
     solar_os_nfc_info_t info;
     for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
-        mp_obj_t item = mp_obj_new_dict(2);
+        mp_obj_t item = mp_obj_new_dict(4);
         python_dict_store_cstr(item, "name", info.name);
         python_dict_store_cstr(item, "driver", info.driver);
+        python_dict_store_bool(item, "power_control", info.power_control);
+        python_dict_store_bool(item, "powered", info.powered);
         mp_obj_list_append(list, item);
     }
     return list;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_nfc_list_obj, solaros_nfc_list);
+
+static mp_obj_t solaros_nfc_power(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_nfc_info_t info;
+    const bool enabled = mp_obj_is_true(args[0]);
+    const char *name = NULL;
+    if (n_args >= 2U && args[1] != mp_const_none) {
+        name = mp_obj_str_get_str(args[1]);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    python_check_esp(solar_os_nfc_set_power(name, enabled));
+    return mp_obj_new_bool(enabled);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_nfc_power_obj, 1, 2, solaros_nfc_power);
 
 static mp_obj_t solaros_nfc_scan(size_t n_args, const mp_obj_t *args)
 {

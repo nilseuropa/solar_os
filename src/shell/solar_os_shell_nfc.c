@@ -25,12 +25,40 @@ void solar_os_shell_cmd_nfc(solar_os_context_t *ctx, int argc, char **argv)
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
         solar_os_nfc_info_t info;
         for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
-            solar_os_shell_io_printf(term, "%s  %s\r\n", info.name, info.driver);
+            solar_os_shell_io_printf(term,
+                                     "%s  %s  power=%s\r\n",
+                                     info.name,
+                                     info.driver,
+                                     info.power_control
+                                         ? (info.powered ? "on" : "off")
+                                         : "always-on");
         }
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "power") == 0) {
+        if (argc < 3 || argc > 4 ||
+            (strcmp(argv[2], "on") != 0 && strcmp(argv[2], "off") != 0)) {
+            solar_os_shell_io_writeln(term, "usage: nfc power <on|off> [name]");
+            return;
+        }
+        const char *name = argc == 4 ? argv[3] : default_name();
+        if (name == NULL) {
+            solar_os_shell_io_writeln(term, "nfc: no reader");
+            return;
+        }
+        const bool enabled = strcmp(argv[2], "on") == 0;
+        const esp_err_t ret = solar_os_nfc_set_power(name, enabled);
+        if (ret != ESP_OK) {
+            solar_os_shell_io_printf(term, "nfc: %s\r\n", esp_err_to_name(ret));
+            return;
+        }
+        solar_os_shell_io_printf(term, "%s power=%s\r\n", name, enabled ? "on" : "off");
+        return;
+    }
     if (argc < 2 || argc > 4 || strcmp(argv[1], "scan") != 0) {
-        solar_os_shell_io_writeln(term, "usage: nfc [list] | nfc scan [name] [timeout-ms]");
+        solar_os_shell_io_writeln(term,
+                                  "usage: nfc [list] | nfc power <on|off> [name] | "
+                                  "nfc scan [name] [timeout-ms]");
         return;
     }
     const char *name = argc >= 3 ? argv[2] : default_name();

@@ -4303,8 +4303,28 @@ static int solua_nfc_list(lua_State *L)
         lua_newtable(L);
         solua_set_str(L, -1, "name", info.name);
         solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(L, -1, "power_control", info.power_control);
+        solua_set_bool(L, -1, "powered", info.powered);
         lua_rawseti(L, -2, (lua_Integer)i + 1);
     }
+    return 1;
+}
+
+static int solua_nfc_power(lua_State *L)
+{
+    solar_os_nfc_info_t info;
+    const bool enabled = lua_toboolean(L, 1);
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 2)) {
+        name = luaL_checkstring(L, 2);
+    } else if (solar_os_nfc_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    (void)solua_check_esp(L, solar_os_nfc_set_power(name, enabled));
+    lua_pushboolean(L, enabled);
     return 1;
 }
 

@@ -81,7 +81,10 @@ if fix["valid"]:
 
 Available when the firmware includes an NFC reader service.
 
-- `list()`: return registered readers with `name` and `driver`.
+- `list()`: return registered readers with `name`, `driver`, `power_control`,
+  and `powered`.
+- `power(enabled[, name])`: change a driver-managed reader power rail,
+  defaulting to the first reader, and return the requested state.
 - `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag,
   defaulting to the first reader and a 1000 ms timeout. The result contains
   binary `uid` and `atqa` values, numeric `sak`, and technology `"nfca"`.
