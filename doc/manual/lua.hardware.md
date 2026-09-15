@@ -2,8 +2,8 @@
 id = "lua.hardware"
 title = "Lua gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC"
-keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss imu nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, haptic, IMU, NFC"
+keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss haptic imu nfc"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
@@ -52,6 +52,18 @@ local fix = solaros.gnss.fix()
 if fix.valid then
     print(fix.latitude_deg_e7, fix.longitude_deg_e7)
 end
+```
+
+## `solaros.haptic`
+
+- `list()`: return registered haptic devices with `name`, `driver`, and the
+  number of supported numbered `effects`.
+- `play(effect[, name])`: play an effect from `1` through the device's
+  reported effect count, defaulting to the first haptic device.
+- `stop([name])`: stop the active effect, defaulting to the first device.
+
+```lua
+solaros.haptic.play(15)
 ```
 
 ## `solaros.nfc`
@@ -138,5 +150,5 @@ count is not sampled.
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man lua` for runtime conventions and service availability.

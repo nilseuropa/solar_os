@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC"
-keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss imu nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, haptic, IMU, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss haptic imu nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -75,6 +75,22 @@ import solaros
 fix = solaros.gnss.fix()
 if fix["valid"]:
     print(fix["latitude_deg_e7"], fix["longitude_deg_e7"])
+```
+
+## `solaros.haptic`
+
+Available when the firmware includes the driver-agnostic haptic service.
+
+- `list()`: return registered haptic devices with `name`, `driver`, and the
+  number of supported numbered `effects`.
+- `play(effect[, name])`: play an effect from `1` through the device's
+  reported effect count, defaulting to the first haptic device.
+- `stop([name])`: stop the active effect, defaulting to the first device.
+
+```python
+import solaros
+
+solaros.haptic.play(15)
 ```
 
 ## `solaros.nfc`
@@ -330,5 +346,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

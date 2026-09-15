@@ -78,6 +78,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+#include "solar_os_haptic.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
 #include "solar_os_imu.h"
 #endif
@@ -4216,6 +4219,55 @@ static int solua_gnss_fix(lua_State *L)
     solua_set_int(L, -1, "heading_deg_e5", fix.heading_deg_e5);
     solua_set_int(L, -1, "position_dop_e2", fix.position_dop_e2);
     return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+static const char *solua_haptic_name(lua_State *L,
+                                     int index,
+                                     solar_os_haptic_info_t *info)
+{
+    if (!lua_isnoneornil(L, index)) {
+        return luaL_checkstring(L, index);
+    }
+    return solar_os_haptic_get(0U, info) ? info->name : NULL;
+}
+
+static int solua_haptic_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_haptic_info_t info;
+    for (size_t i = 0; solar_os_haptic_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_int(L, -1, "effects", info.effect_count);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_haptic_play(lua_State *L)
+{
+    solar_os_haptic_info_t info;
+    const lua_Integer effect = luaL_checkinteger(L, 1);
+    const char *name = solua_haptic_name(L, 2, &info);
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    if (effect < 0 || effect > UINT16_MAX) {
+        return luaL_error(L, "invalid haptic effect");
+    }
+    return solua_check_esp(
+        L, solar_os_haptic_play_effect(name, (uint16_t)effect));
+}
+
+static int solua_haptic_stop(lua_State *L)
+{
+    solar_os_haptic_info_t info;
+    const char *name = solua_haptic_name(L, 1, &info);
+    return solua_check_esp(
+        L, name != NULL ? solar_os_haptic_stop(name) : ESP_ERR_NOT_FOUND);
 }
 #endif
 

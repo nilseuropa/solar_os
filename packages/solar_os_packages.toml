@@ -65,6 +65,11 @@ label = "I2C"
 category = "Hardware interfaces"
 members = ["service_i2c"]
 
+[groups.haptic]
+label = "Haptic feedback"
+category = "Hardware interfaces"
+members = ["service_haptic"]
+
 [groups.imu]
 label = "Motion sensors"
 category = "Hardware interfaces"
@@ -1113,6 +1118,13 @@ label = "service.gnss"
 sources = [
   "services/solar_os_gnss.c",
   "shell/solar_os_shell_gnss.c",
+]
+
+[packages.service_haptic]
+label = "service.haptic"
+sources = [
+  "services/solar_os_haptic.c",
+  "shell/solar_os_shell_haptic.c",
 ]
 
 [packages.service_imu]

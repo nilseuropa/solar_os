@@ -914,6 +914,9 @@ available for the compiled board.
 | `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable a receiver that has a driver-managed power rail. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
+| `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
+| `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
+| `haptic` | `haptic stop [name]` | Stop the active haptic effect. |
 | `imu` | `imu [list]` | List registered motion sensors, their concrete drivers, and available measurements. |
 | `imu` | `imu sample [name] [timeout-ms]` | Read acceleration, angular velocity, and optional orientation from one motion sensor. |
 | `nfc` | `nfc [list]` | List registered NFC readers and their concrete drivers. |

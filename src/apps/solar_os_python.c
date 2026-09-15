@@ -89,6 +89,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+#include "solar_os_haptic.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
 #include "solar_os_imu.h"
 #endif
@@ -4495,6 +4498,65 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gnss_fix_obj, 0, 2, solaros_gnss_fix);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+static const char *python_haptic_name(size_t n_args,
+                                      const mp_obj_t *args,
+                                      size_t index,
+                                      solar_os_haptic_info_t *info)
+{
+    if (n_args > index && args[index] != mp_const_none) {
+        return mp_obj_str_get_str(args[index]);
+    }
+    return solar_os_haptic_get(0U, info) ? info->name : NULL;
+}
+
+static mp_obj_t solaros_haptic_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_haptic_info_t info;
+    for (size_t i = 0; solar_os_haptic_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(3);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        python_dict_store_uint(item, "effects", info.effect_count);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_haptic_list_obj, solaros_haptic_list);
+
+static mp_obj_t solaros_haptic_play(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_haptic_info_t info;
+    const uint32_t effect = python_u32_from_obj(args[0]);
+    const char *name = python_haptic_name(n_args, args, 1U, &info);
+    if (name == NULL || effect > UINT16_MAX) {
+        python_check_esp(name == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG);
+    }
+    python_check_esp(solar_os_haptic_play_effect(name, (uint16_t)effect));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_haptic_play_obj,
+                                    1,
+                                    2,
+                                    solaros_haptic_play);
+
+static mp_obj_t solaros_haptic_stop(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_haptic_info_t info;
+    const char *name = python_haptic_name(n_args, args, 0U, &info);
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    python_check_esp(solar_os_haptic_stop(name));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_haptic_stop_obj,
+                                    0,
+                                    1,
+                                    solaros_haptic_stop);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
