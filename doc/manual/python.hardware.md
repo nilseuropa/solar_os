@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC"
-keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss imu nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -89,6 +89,27 @@ import solaros
 
 tag = solaros.nfc.scan()
 print(binascii.hexlify(tag["uid"]))
+```
+
+## `solaros.imu`
+
+Available when the firmware includes the motion-sensor service.
+
+- `list()`: return registered motion sensors with `name`, `driver`, and boolean
+  `acceleration`, `angular_velocity`, and `orientation` capabilities.
+- `sample([name[, timeout_ms]])`: read one sample, defaulting to the first
+  sensor and a 1000 ms timeout. The result contains `timestamp_us`,
+  `acceleration_m_s2`, `angular_velocity_rad_s`, and `orientation`.
+  Unavailable measurements are `None`. Vectors use `x`, `y`, and `z` fields;
+  orientation is a unit quaternion with `w`, `x`, `y`, and `z` fields.
+
+```python
+import solaros
+
+sample = solaros.imu.sample()
+accel = sample["acceleration_m_s2"]
+if accel is not None:
+    print(accel["x"], accel["y"], accel["z"])
 ```
 
 ## `solaros.gpio`
@@ -303,5 +324,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

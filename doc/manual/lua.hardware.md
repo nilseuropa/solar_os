@@ -2,8 +2,8 @@
 id = "lua.hardware"
 title = "Lua gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC"
-keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC"
+keywords = "lua solaros api hardware gpio onewire led adc pwm i2c spi uart neopixel battery sensors gnss imu nfc"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
@@ -57,6 +57,25 @@ end
 - `scan([name[, timeout_ms]])`: discover one collision-free NFC-A tag. The
   returned `uid` and `atqa` strings are binary-safe; `sak` is numeric and
   `technology` is `"nfca"`.
+
+## `solaros.imu`
+
+- `list()`: return registered motion sensors with `name`, `driver`, and boolean
+  `acceleration`, `angular_velocity`, and `orientation` capabilities.
+- `sample([name[, timeout_ms]])`: read one sample, defaulting to the first
+  sensor and a 1000 ms timeout. The result contains `timestamp_us` and any
+  available `acceleration_m_s2`, `angular_velocity_rad_s`, and `orientation`
+  tables. Vectors use `x`, `y`, and `z`; orientation is a unit quaternion with
+  `w`, `x`, `y`, and `z`.
+
+```lua
+local sample = solaros.imu.sample()
+if sample.acceleration_m_s2 then
+    print(sample.acceleration_m_s2.x,
+          sample.acceleration_m_s2.y,
+          sample.acceleration_m_s2.z)
+end
+```
 
 ## `solaros.gpio`
 
@@ -113,5 +132,5 @@ count is not sampled.
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man lua` for runtime conventions and service availability.

@@ -50,6 +50,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [humidity command](commands.md) — List humidity providers or read the default or named sensor.
 - [i2c command](commands.md) — Show every named I2C bus, or one selected bus.
 - [identity command](identity.md) — Show the configured user and hostname.
+- [imu command](commands.md) — List registered motion sensors, their concrete drivers, and available measurements.
 - [inbox command](commands.md) — Open the universal incoming-message browser.
 - [input command](commands.md) — List all input sources or filter them by semantic class.
 - [job command](jobs.md) — Show one job or all jobs.
@@ -214,7 +215,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua bluetooth API](lua.ble.md) — Bluetooth: ble
 - [Lua buses and expansion API](lua.buses.md) — Buses and expansion: buses, expansion
 - [Lua contacts and messages API](lua.messaging.md) — Contacts and messages: contacts, messages
-- [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC
+- [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua input and clipboard API](lua.input.md) — Input and clipboard: input, hid, clipboard
 - [Lua networking API](lua.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys
@@ -228,7 +229,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Python bluetooth API](python.ble.md) — Bluetooth: ble
 - [Python buses and expansion API](python.buses.md) — Buses and expansion: buses, expansion
 - [Python contacts and messages API](python.messaging.md) — Contacts and messages: contacts, messages
-- [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, NFC
+- [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, sensors, GNSS, IMU, NFC
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python input and clipboard API](python.input.md) — Input and clipboard: input, hid, clipboard
 - [Python networking API](python.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys

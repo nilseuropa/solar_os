@@ -89,6 +89,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NFC
 #include "solar_os_nfc.h"
 #endif
@@ -4472,6 +4475,92 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gnss_fix_obj, 0, 2, solaros_gnss_fix);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static mp_obj_t python_imu_vector3(const float vector[3])
+{
+    mp_obj_t result = mp_obj_new_dict(3);
+    python_dict_store_float(result, "x", vector[0]);
+    python_dict_store_float(result, "y", vector[1]);
+    python_dict_store_float(result, "z", vector[2]);
+    return result;
+}
+
+static mp_obj_t python_imu_quaternion(const float quaternion[4])
+{
+    mp_obj_t result = mp_obj_new_dict(4);
+    python_dict_store_float(result, "w", quaternion[0]);
+    python_dict_store_float(result, "x", quaternion[1]);
+    python_dict_store_float(result, "y", quaternion[2]);
+    python_dict_store_float(result, "z", quaternion[3]);
+    return result;
+}
+
+static mp_obj_t solaros_imu_list(void)
+{
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    solar_os_imu_info_t info;
+    for (size_t i = 0; solar_os_imu_get(i, &info); i++) {
+        mp_obj_t item = mp_obj_new_dict(5);
+        python_dict_store_cstr(item, "name", info.name);
+        python_dict_store_cstr(item, "driver", info.driver);
+        python_dict_store_bool(
+            item, "acceleration",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U);
+        python_dict_store_bool(
+            item, "angular_velocity",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U);
+        python_dict_store_bool(
+            item, "orientation",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U);
+        mp_obj_list_append(list, item);
+    }
+    return list;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_imu_list_obj, solaros_imu_list);
+
+static mp_obj_t solaros_imu_sample(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_imu_info_t info;
+    const char *name = NULL;
+    if (n_args >= 1U && args[0] != mp_const_none) {
+        name = mp_obj_str_get_str(args[0]);
+    } else if (solar_os_imu_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        python_check_esp(ESP_ERR_NOT_FOUND);
+    }
+    const uint32_t timeout_ms = n_args >= 2U ?
+        python_u32_from_obj(args[1]) : 1000U;
+    solar_os_imu_sample_t sample;
+    python_check_esp(solar_os_imu_read_sample(name, timeout_ms, &sample));
+
+    mp_obj_t result = mp_obj_new_dict(5);
+    python_dict_store_cstr(result, "name", name);
+    python_dict_store_u64(result, "timestamp_us", sample.timestamp_us);
+    mp_obj_dict_store(
+        result,
+        python_key("acceleration_m_s2"),
+        (sample.valid & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U ?
+            python_imu_vector3(sample.acceleration_m_s2) : mp_const_none);
+    mp_obj_dict_store(
+        result,
+        python_key("angular_velocity_rad_s"),
+        (sample.valid & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U ?
+            python_imu_vector3(sample.angular_velocity_rad_s) : mp_const_none);
+    mp_obj_dict_store(
+        result,
+        python_key("orientation"),
+        (sample.valid & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U ?
+            python_imu_quaternion(sample.orientation) : mp_const_none);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_imu_sample_obj,
+                                    0,
+                                    2,
+                                    solaros_imu_sample);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_NFC

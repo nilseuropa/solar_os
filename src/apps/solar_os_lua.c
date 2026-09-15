@@ -78,6 +78,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NFC
 #include "solar_os_nfc.h"
 #endif
@@ -4192,6 +4195,81 @@ static int solua_gnss_fix(lua_State *L)
     solua_set_int(L, -1, "ground_speed_mm_s", fix.ground_speed_mm_s);
     solua_set_int(L, -1, "heading_deg_e5", fix.heading_deg_e5);
     solua_set_int(L, -1, "position_dop_e2", fix.position_dop_e2);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static void solua_imu_vector3(lua_State *L, const float vector[3])
+{
+    lua_newtable(L);
+    solua_set_num(L, -1, "x", vector[0]);
+    solua_set_num(L, -1, "y", vector[1]);
+    solua_set_num(L, -1, "z", vector[2]);
+}
+
+static void solua_imu_quaternion(lua_State *L, const float quaternion[4])
+{
+    lua_newtable(L);
+    solua_set_num(L, -1, "w", quaternion[0]);
+    solua_set_num(L, -1, "x", quaternion[1]);
+    solua_set_num(L, -1, "y", quaternion[2]);
+    solua_set_num(L, -1, "z", quaternion[3]);
+}
+
+static int solua_imu_list(lua_State *L)
+{
+    lua_newtable(L);
+    solar_os_imu_info_t info;
+    for (size_t i = 0; solar_os_imu_get(i, &info); i++) {
+        lua_newtable(L);
+        solua_set_str(L, -1, "name", info.name);
+        solua_set_str(L, -1, "driver", info.driver);
+        solua_set_bool(
+            L, -1, "acceleration",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U);
+        solua_set_bool(
+            L, -1, "angular_velocity",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U);
+        solua_set_bool(
+            L, -1, "orientation",
+            (info.capabilities & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U);
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int solua_imu_sample(lua_State *L)
+{
+    solar_os_imu_info_t info;
+    const char *name = NULL;
+    if (!lua_isnoneornil(L, 1)) {
+        name = luaL_checkstring(L, 1);
+    } else if (solar_os_imu_get(0U, &info)) {
+        name = info.name;
+    }
+    if (name == NULL) {
+        return solua_check_esp(L, ESP_ERR_NOT_FOUND);
+    }
+    solar_os_imu_sample_t sample;
+    (void)solua_check_esp(L, solar_os_imu_read_sample(
+        name, solua_optional_u32(L, 2, 1000U), &sample));
+
+    lua_newtable(L);
+    solua_set_str(L, -1, "name", name);
+    solua_set_int(L, -1, "timestamp_us", (lua_Integer)sample.timestamp_us);
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U) {
+        solua_imu_vector3(L, sample.acceleration_m_s2);
+        lua_setfield(L, -2, "acceleration_m_s2");
+    }
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U) {
+        solua_imu_vector3(L, sample.angular_velocity_rad_s);
+        lua_setfield(L, -2, "angular_velocity_rad_s");
+    }
+    if ((sample.valid & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U) {
+        solua_imu_quaternion(L, sample.orientation);
+        lua_setfield(L, -2, "orientation");
+    }
     return 1;
 }
 #endif
