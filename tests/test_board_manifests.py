@@ -158,6 +158,10 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
         self.assertIn(
+            '.driver = "drv2605", .name = "haptic0"',
+            header,
+        )
+        self.assertIn(
             '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "output", '
             '.value = 7055',
             header,
@@ -191,11 +195,17 @@ class BoardManifestTest(unittest.TestCase):
             '.target = "gpiox0", .value = 12',
             header,
         )
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", '
+            '.target = "gpiox0", .value = 0',
+            header,
+        )
         packages = required_packages(board, self.drivers)
         self.assertIn("xl9555", packages)
         self.assertIn("tca8418", packages)
         self.assertIn("ublox_mia_m10q", packages)
         self.assertIn("st25r3916", packages)
+        self.assertIn("drv2605", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(

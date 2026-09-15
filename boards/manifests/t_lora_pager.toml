@@ -143,11 +143,17 @@ baud_rate = "38400"
 
 # gpiox0 must attach before devices that use its lines. Output latches are
 # preloaded before the lines become outputs. GNSS_EN (line 4) and NFC_EN
-# (line 5) start low; SD_PULLEN (line 11) and SD_EN (line 12) start high.
+# (line 5) start low; HAPTIC_EN (line 0), SD_PULLEN (line 11), and SD_EN
+# (line 12) start high.
 [[devices]]
 driver = "xl9555"
 name = "gpiox0"
 bindings = { i2c = "i2c0", addr = 0x20, output = 0x1B8F, direction = 0xE440 }
+
+[[devices]]
+driver = "drv2605"
+name = "haptic0"
+bindings = { i2c = "i2c0", addr = 0x5A, power = "gpiox0:0" }
 
 [[devices]]
 driver = "st7796"
