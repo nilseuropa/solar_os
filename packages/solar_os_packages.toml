@@ -476,6 +476,11 @@ label = "DRV2605 haptic controller"
 category = "Expansion hardware"
 members = ["drv2605"]
 
+[groups.bq25896]
+label = "BQ25896 battery charger"
+category = "Expansion hardware"
+members = ["bq25896"]
+
 [groups.xl9555]
 label = "XL9555 GPIO controller"
 category = "Expansion hardware"
@@ -1341,6 +1346,19 @@ sources = [
   "drivers/drv2605.c",
   "services/solar_os_drv2605.c",
   "services/solar_os_drv2605_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["expansion_i2c"]
+
+[packages.bq25896]
+label = "expansion.bq25896"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_bq25896_expansion_driver"]
+depends = ["service_charger", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/bq25896.c",
+  "services/solar_os_bq25896.c",
+  "services/solar_os_bq25896_driver.c",
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]

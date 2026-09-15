@@ -145,6 +145,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "sx1262": "sx1262",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
+            "bq25896": "bq25896",
         }
         for group, package in reusable.items():
             with self.subTest(group=group):
@@ -171,6 +172,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_sx1262_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
+            "solar_os_bq25896_expansion_driver",
         ):
             self.assertIn(symbol, drivers)
 

@@ -208,6 +208,42 @@ kind = "gpio_line"
 hint = "gpio|controller:line"
 role = "power"
 
+[drivers.bq25896]
+summary = "TI BQ25896 battery charger"
+package = "bq25896"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "charger0"
+
+[[drivers.bq25896.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bq25896.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6b"
+required = true
+allowed = [0x6b]
+
+[[drivers.bq25896.bindings]]
+key = "charge_current"
+kind = "parameter"
+hint = "0..3008mA/64"
+role = "charge_current"
+min = 0
+max = 3008
+
+[[drivers.bq25896.bindings]]
+key = "charge_voltage"
+kind = "parameter"
+hint = "3840..4608mV/16"
+role = "charge_voltage"
+min = 3840
+max = 4608
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"
