@@ -182,6 +182,32 @@ hint = "gpio"
 role = "irq"
 required = true
 
+[drivers.drv2605]
+summary = "TI DRV2605 haptic controller"
+package = "drv2605"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "haptic0"
+
+[[drivers.drv2605.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.drv2605.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x5a"
+required = true
+allowed = [0x5a]
+
+[[drivers.drv2605.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+role = "power"
+
 [drivers.ssd1683]
 summary = "400x300 e-paper"
 package = "expansion_ssd1683"

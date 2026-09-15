@@ -92,6 +92,7 @@ cardkb = true
 ublox_mia_m10q = true
 st25r3916 = true
 bhi260ap = true
+drv2605 = true
 analog_joystick = true
 ps2_mouse = true
 sdspi = true
