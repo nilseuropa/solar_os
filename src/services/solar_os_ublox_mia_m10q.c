@@ -21,6 +21,9 @@
 #define UBX_CLASS_MON 0x0AU
 #define UBX_ID_MON_VER 0x04U
 #define UBX_NAV_PVT_LENGTH 92U
+#define UBX_POLL_RETRY_MS 500U
+#define UBLOX_POWER_ON_SETTLE_MS 100U
+#define UBLOX_POWER_ON_TIMEOUT_MS 5000U
 
 typedef struct {
     bool active;
@@ -59,40 +62,47 @@ static esp_err_t poll_message(ublox_device_t *device,
 {
     uint8_t poll[8];
     const size_t poll_len = ubx_encode_poll(message_class, message_id, poll);
-    size_t written = 0U;
-    ESP_RETURN_ON_ERROR(solar_os_bus_uart_write(device->uart_bus,
-                                                 poll,
-                                                 poll_len,
-                                                 &written),
-                        TAG,
-                        "UBX poll write failed");
-    if (written != poll_len) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
     ubx_parser_t parser;
     ubx_parser_reset(&parser);
     const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000LL;
     while (esp_timer_get_time() < deadline) {
-        uint8_t data[64];
-        size_t read_len = 0U;
-        const int64_t remaining_us = deadline - esp_timer_get_time();
-        const uint32_t wait_ms = remaining_us > 20000LL
-            ? 20U
-            : (uint32_t)((remaining_us + 999LL) / 1000LL);
-        ESP_RETURN_ON_ERROR(solar_os_bus_uart_read(device->uart_bus,
-                                                    data,
-                                                    sizeof(data),
-                                                    wait_ms,
-                                                    &read_len),
+        size_t written = 0U;
+        ESP_RETURN_ON_ERROR(solar_os_bus_uart_write(device->uart_bus,
+                                                     poll,
+                                                     poll_len,
+                                                     &written),
                             TAG,
-                            "UBX read failed");
-        for (size_t i = 0; i < read_len; i++) {
-            if (ubx_parser_feed(&parser, data[i]) &&
-                parser.message_class == message_class &&
-                parser.message_id == message_id) {
-                *response = parser;
-                return ESP_OK;
+                            "UBX poll write failed");
+        if (written != poll_len) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        int64_t retry_deadline =
+            esp_timer_get_time() + (int64_t)UBX_POLL_RETRY_MS * 1000LL;
+        if (retry_deadline > deadline) {
+            retry_deadline = deadline;
+        }
+        while (esp_timer_get_time() < retry_deadline) {
+            uint8_t data[64];
+            size_t read_len = 0U;
+            const int64_t remaining_us = retry_deadline - esp_timer_get_time();
+            const uint32_t wait_ms = remaining_us > 20000LL
+                ? 20U
+                : (uint32_t)((remaining_us + 999LL) / 1000LL);
+            ESP_RETURN_ON_ERROR(solar_os_bus_uart_read(device->uart_bus,
+                                                        data,
+                                                        sizeof(data),
+                                                        wait_ms,
+                                                        &read_len),
+                                TAG,
+                                "UBX read failed");
+            for (size_t i = 0; i < read_len; i++) {
+                if (ubx_parser_feed(&parser, data[i]) &&
+                    parser.message_class == message_class &&
+                    parser.message_id == message_id) {
+                    *response = parser;
+                    return ESP_OK;
+                }
             }
         }
     }
@@ -165,9 +175,13 @@ static esp_err_t set_power(void *ctx, bool enabled)
     }
     esp_err_t ret = solar_os_gpio_line_write(&device->power_line, enabled);
     if (ret == ESP_OK && enabled) {
-        vTaskDelay(pdMS_TO_TICKS(100U));
+        vTaskDelay(pdMS_TO_TICKS(UBLOX_POWER_ON_SETTLE_MS));
         ubx_parser_t version;
-        ret = poll_message(device, UBX_CLASS_MON, UBX_ID_MON_VER, 500U, &version);
+        ret = poll_message(device,
+                           UBX_CLASS_MON,
+                           UBX_ID_MON_VER,
+                           UBLOX_POWER_ON_TIMEOUT_MS,
+                           &version);
         if (ret != ESP_OK) {
             (void)solar_os_gpio_line_write(&device->power_line, false);
         }
