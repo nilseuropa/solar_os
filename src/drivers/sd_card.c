@@ -813,12 +813,20 @@ static esp_err_t ensure_card_ready(void)
         sdspi_device_config_t device_config;
         sd_card_make_spi_config(&device_config);
 
-        ret = host.init();
-        if (ret != ESP_OK) {
-            diagnostics_init_error = ret;
-            sd_card_deinit_host();
-            set_mount_error_status(ret);
-            return ret;
+        /* Runtime SDSPI devices arrive through an acquired routed SPI bus,
+         * which has already initialized the host. Board-native SDSPI remains
+         * responsible for initializing its legacy spi_bus wrapper here. */
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+        if (transport != SD_CARD_TRANSPORT_SDSPI_RUNTIME)
+#endif
+        {
+            ret = host.init();
+            if (ret != ESP_OK) {
+                diagnostics_init_error = ret;
+                sd_card_deinit_host();
+                set_mount_error_status(ret);
+                return ret;
+            }
         }
 
         sdspi_dev_handle_t sdspi_handle = -1;

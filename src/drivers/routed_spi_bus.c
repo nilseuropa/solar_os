@@ -20,6 +20,27 @@ esp_err_t solar_os_routed_spi_start(const solar_os_bus_spi_config_t *config,
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* Shared buses must start with every peripheral deselected. Some boards
+     * (including T-Deck) otherwise let an unpowered/floating device drive
+     * MISO while another device is being initialized. */
+    for (size_t i = 0; i < config->cs_count; i++) {
+        const gpio_config_t cs_config = {
+            .pin_bit_mask = 1ULL << config->cs[i].pin,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        esp_err_t cs_ret = gpio_config(&cs_config);
+        if (cs_ret != ESP_OK) {
+            return cs_ret;
+        }
+        cs_ret = gpio_set_level((gpio_num_t)config->cs[i].pin, 1);
+        if (cs_ret != ESP_OK) {
+            return cs_ret;
+        }
+    }
+
     const spi_bus_config_t bus_config = {
         .mosi_io_num = config->mosi_pin,
         .miso_io_num = config->miso_pin,
