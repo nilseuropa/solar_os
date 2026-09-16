@@ -20,7 +20,7 @@ and resource-ownership validation. A driver must not hard-code T-Deck pins.
 | Driver | Configuration | Contract |
 | --- | --- | --- |
 | `cdc_usb_serial_jtag` | Native ESP32-S3 USB | USB Serial/JTAG console; separate from UART and input peripherals. |
-| `uart_esp_idf` | UART1, TX GPIO43, RX GPIO44, 9600 baud | External serial port via exclusive `uart1`; runtime retains UART0 and UART2. |
+| `uart_esp_idf` | UART1, TX GPIO43, RX GPIO44, 9600 baud | SolarOS exposes the fixed GPS transport as `uart0`; ESP-IDF controllers UART0 and UART2 remain available for runtime routing. |
 | `i2c_esp_idf` | I2C0, SDA GPIO18, SCL GPIO8 | Owns shared `i2c0`; keyboard, touch, and microphone bind by name rather than initializing I2C themselves. |
 | `spi_esp_idf` | SPI2/FSPI: SCLK 40, MISO 38, MOSI 41, 4 KiB transfers | Owns shared `spi0`; LCD, SD, and radio declare independent CS resources. |
 | `gpio_esp_idf` | Board GPIO | Common GPIO implementation for fixed board pins and expansion bindings. |
@@ -92,11 +92,12 @@ consistent semantics from local, USB/BLE, and future input sources.
 ### `solar_os_buttons` (trackball)
 
 The trackball uses fixed, active-low GPIO buttons: up GPIO3, down GPIO15,
-left GPIO1, right GPIO2, center GPIO0. Events emit on stable release. The
-common service adds 25 ms debounce and the manifest adds a 90 ms horizontal
-guard after vertical release, suppressing accidental left/right impulses while
-scrolling. Center remains Enter; GPIO0 is also a boot-strapping pin and is not
-repurposed as reset.
+left GPIO1, right GPIO2, center GPIO0. The four direction buttons emit on
+stable release through the common button service. It adds 25 ms debounce, and
+the manifest adds a 90 ms horizontal guard after vertical release to suppress
+accidental left/right impulses while scrolling. The center button is the
+system KEY's sole owner: a short press emits Enter, while the existing long
+press keeps the BLE pairing action. GPIO0 remains a boot-strapping pin.
 
 ### `pointer_gt911` / `gt911`
 

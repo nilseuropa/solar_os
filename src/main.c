@@ -129,6 +129,9 @@ static bool key_interrupt_ready;
 static bool key_pressed;
 static bool key_long_press_fired;
 static bool key_ignore_until_released;
+#ifdef SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY
+static solar_os_input_source_t key_input_source;
+#endif
 static bool deferred_sleep_pending;
 static char deferred_sleep_reason[SLEEP_REASON_MAX];
 static uint32_t key_pressed_ms;
@@ -909,6 +912,21 @@ static void maybe_enter_deferred_sleep(void)
 
 static void handle_key_short_press(void)
 {
+#ifdef SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY
+    if (key_input_source == SOLAR_OS_INPUT_SOURCE_INVALID) {
+        SOLAR_OS_LOGW(TAG, "KEY short-press input source unavailable");
+        return;
+    }
+    const esp_err_t input_err = solar_os_input_write_char(
+        key_input_source,
+        (char)SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY);
+    if (input_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "KEY short-press input failed: %s",
+                      esp_err_to_name(input_err));
+    }
+    return;
+#else
     solar_os_power_status_t power_status;
     solar_os_power_get_status(&power_status);
 
@@ -931,6 +949,7 @@ static void handle_key_short_press(void)
         SOLAR_OS_LOGW(TAG, "KEY short press: unknown power action");
         break;
     }
+#endif
 }
 
 static void key_button_init(void)
@@ -938,6 +957,18 @@ static void key_button_init(void)
     if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
         return;
     }
+
+#ifdef SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY
+    const esp_err_t input_err = solar_os_input_key_source_open(
+        "system-key",
+        SOLAR_OS_INPUT_SOURCE_BUTTONS,
+        &key_input_source);
+    if (input_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "KEY input source unavailable: %s",
+                      esp_err_to_name(input_err));
+    }
+#endif
 
     ESP_ERROR_CHECK(key_button_configure_gpio());
 

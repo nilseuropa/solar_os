@@ -78,7 +78,8 @@ SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_0"
 SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
 SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
-SOLAR_OS_BOARD_BUTTONS = '''{{.pin = GPIO_NUM_3, .name = "TRACKBALL-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_15, .name = "TRACKBALL-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_1, .name = "TRACKBALL-LEFT", .key = SOLAR_OS_KEY_LEFT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}, {.pin = GPIO_NUM_2, .name = "TRACKBALL-RIGHT", .key = SOLAR_OS_KEY_RIGHT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}, {.pin = GPIO_NUM_0, .name = "TRACKBALL-OK", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'''
+SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY = "SOLAR_OS_KEY_ENTER"
+SOLAR_OS_BOARD_BUTTONS = '''{{.pin = GPIO_NUM_3, .name = "TRACKBALL-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_15, .name = "TRACKBALL-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_1, .name = "TRACKBALL-LEFT", .key = SOLAR_OS_KEY_LEFT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}, {.pin = GPIO_NUM_2, .name = "TRACKBALL-RIGHT", .key = SOLAR_OS_KEY_RIGHT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}}'''
 SOLAR_OS_BOARD_TDECK_KEYMAP = '''{{{0x71,0x23},{0x77,0x31},{0,0},{0x61,0x2a},{0,0},{0x20,0},{0,0x30}},{{0x65,0x32},{0x73,0x34},{0x64,0x35},{0x70,0x40},{0x78,0x38},{0x7a,0x37},{0,0}},{{0x72,0x33},{0x67,0x2f},{0x74,0x28},{0,0},{0x76,0x3f},{0x63,0x39},{0x66,0x36}},{{0x75,0x5f},{0x68,0x3a},{0x79,0x29},{SOLAR_OS_KEY_ENTER,0},{0x62,0x21},{0x6e,0x2c},{0x6a,0x3b}},{{0x6f,0x2b},{0x6c,0x22},{0x69,0x2d},{0x08,0},{0x24,0},{0x6d,0x2e},{0x6b,0x27}}}'''
 SOLAR_OS_BOARD_INPUT_CHORDS = '''{{.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = SOLAR_OS_KEY_UP, .output_key = SOLAR_OS_KEY_PAGE_UP}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = SOLAR_OS_KEY_DOWN, .output_key = SOLAR_OS_KEY_PAGE_DOWN}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x71, .output_key = SOLAR_OS_KEY_APP_EXIT}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x63, .output_key = SOLAR_OS_KEY_ESCAPE}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x73, .output_key = 0x13}}'''
 SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE = "SOLAR_OS_TERMINAL_TEXT_SIZE_16"
@@ -112,7 +113,7 @@ scl = 8
 speed_hz = "SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ"
 
 [[buses]]
-name = "uart1"
+name = "uart0"
 protocol = "uart"
 sharing = "exclusive"
 port = "UART_NUM_1"
