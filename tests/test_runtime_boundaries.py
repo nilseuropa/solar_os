@@ -77,6 +77,15 @@ class RuntimeBoundaryTest(unittest.TestCase):
             detach_radio.index("clear_device(device)"),
         )
 
+    def test_gt911_uses_only_the_claimed_i2c_address(self):
+        driver = (ROOT / "src/drivers/gt911.c").read_text(encoding="utf-8")
+        init = driver.split("esp_err_t gt911_init", 1)[1].split(
+            "esp_err_t gt911_read", 1
+        )[0]
+
+        self.assertIn("device_address = address;", init)
+        self.assertNotIn("device_address = GT911_ALTERNATE_ADDRESS", init)
+
     def test_system_key_can_emit_a_board_defined_short_press_input(self):
         main = (ROOT / "src/main.c").read_text(encoding="utf-8")
         short_press = main.split("static void handle_key_short_press", 1)[1].split(

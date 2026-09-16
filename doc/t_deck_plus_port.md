@@ -102,8 +102,9 @@ press keeps the BLE pairing action. GPIO0 remains a boot-strapping pin.
 ### `pointer_gt911` / `gt911`
 
 `touch0` binds GT911 to `i2c0`, address `0x5d`, IRQ GPIO16, rotation `1`.
-The reusable driver accepts both common strap addresses (`0x5d` and `0x14`).
-It publishes absolute pointer events to shared input, and rotation matches the
+The reusable driver accepts either common strap address (`0x5d` or `0x14`) as
+an explicit binding and uses only that resource-manager-owned address. It
+publishes absolute pointer events to shared input, and rotation matches the
 landscape display.
 
 ## Audio drivers

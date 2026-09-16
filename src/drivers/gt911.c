@@ -46,10 +46,6 @@ esp_err_t gt911_init(const char *i2c_bus, uint8_t address, int irq_pin)
     device_address = address;
     uint8_t product[4] = {0};
     esp_err_t err = transfer(GT911_REG_PRODUCT_ID, product, sizeof(product));
-    if (err != ESP_OK && address == GT911_ADDRESS) {
-        device_address = GT911_ALTERNATE_ADDRESS;
-        err = transfer(GT911_REG_PRODUCT_ID, product, sizeof(product));
-    }
     if (err != ESP_OK) {
         bus_name[0] = '\0';
         device_address = 0;
