@@ -8,7 +8,7 @@ manifest is the source of truth for its wiring and built-in attachments.
 The LilyGO T-Deck Plus uses an ESP32-S3FN16R8 (16 MiB flash and 8 MiB octal
 PSRAM), a landscape 320x240 ST7789 display, shared SPI/I2C buses, raw-matrix
 keyboard, GT911 touch, GPIO trackball, SPI microSD, I2S playback/capture,
-battery ADC, and SX1262 radio.
+battery ADC, SX1262 radio, and MIA-M10Q GNSS.
 
 The port declares built-in peripherals through the expansion subsystem where
 a reusable driver exists. That is deliberate: manifests provide concrete
@@ -26,6 +26,10 @@ and resource-ownership validation. A driver must not hard-code T-Deck pins.
 | `gpio_esp_idf` | Board GPIO | Common GPIO implementation for fixed board pins and expansion bindings. |
 | `adc_esp_idf` | GPIO4 | ADC implementation for battery and future ADC expansion. |
 | `pwm_esp_idf` | Board PWM capability | Optional PWM service. LCD backlight is currently fixed active-high GPIO, not PWM. |
+
+The fixed GPS UART is consumed by built-in `gnss0`, using the reusable
+`ublox-mia-m10q` driver. GPIO43 and GPIO44 are therefore internal peripheral
+wiring on T-Deck Plus, not a general-purpose Grove UART.
 
 ## Display, storage, power, and radio
 
@@ -97,7 +101,9 @@ stable release through the common button service. It adds 25 ms debounce, and
 the manifest adds a 90 ms horizontal guard after vertical release to suppress
 accidental left/right impulses while scrolling. The center button is the
 system KEY's sole owner: a short press emits Enter, while the existing long
-press keeps the BLE pairing action. GPIO0 remains a boot-strapping pin.
+press keeps the BLE pairing action. GPIO0 remains a boot-strapping pin. LilyGO
+documents the center button as unavailable while the microphone is enabled;
+do not rely on center-button input during active microphone capture.
 
 ### `pointer_gt911` / `gt911`
 
@@ -122,6 +128,8 @@ and prevents undeclared I2S resource claims.
 `mic0` uses ES7210 control on `i2c0` and capture on I2S1: MCLK GPIO48,
 BCK GPIO47, WS GPIO21, data-in GPIO14. I2S1 isolates capture from speaker
 playback. The driver requires I2C, I2S, and every signal binding before attach.
+Opening the capture stream enables the microphone; during capture, GPIO0's
+trackball-center/BOOT input is unavailable according to LilyGO's board notes.
 
 ## Lifecycle, memory, and expansion compliance
 

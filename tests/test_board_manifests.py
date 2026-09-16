@@ -243,6 +243,13 @@ class BoardManifestTest(unittest.TestCase):
             header,
         )
         self.assertIn(".config.uart = {.port = UART_NUM_1", header)
+        self.assertIn(
+            '.driver = "ublox-mia-m10q", .name = "gnss0"',
+            header,
+        )
+
+        packages = required_packages(board, self.drivers)
+        self.assertIn("ublox_mia_m10q", packages)
 
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(

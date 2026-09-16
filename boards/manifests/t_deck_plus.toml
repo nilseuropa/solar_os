@@ -161,6 +161,11 @@ driver = "sx1262"
 name = "radio0"
 bindings = { spi = "spi0", cs = 9, busy = 13, reset = 17, irq = 45 }
 
+[[devices]]
+driver = "ublox-mia-m10q"
+name = "gnss0"
+bindings = { uart = "uart0" }
+
 [[pins]]
 gpio = 0
 policy = "fixed"
