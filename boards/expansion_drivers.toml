@@ -776,6 +776,13 @@ hint = "0x5d"
 required = true
 allowed = [0x5d, 0x14]
 [[drivers.gt911.bindings]]
+key = "alt_addr"
+kind = "i2c_address"
+role = "alt_addr"
+hint = "0x14"
+required = false
+allowed = [0x5d, 0x14]
+[[drivers.gt911.bindings]]
 key = "irq"
 kind = "gpio"
 hint = "gpio"

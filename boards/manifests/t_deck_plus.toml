@@ -149,7 +149,7 @@ bindings = { i2c = "i2c0", i2s = 1, mclk = 48, bck = 47, ws = 21, din = 14 }
 [[devices]]
 driver = "gt911"
 name = "touch0"
-bindings = { i2c = "i2c0", addr = 0x5d, irq = 16, rotation = 1 }
+bindings = { i2c = "i2c0", addr = 0x5d, alt_addr = 0x14, irq = 16, rotation = 1 }
 
 [[devices]]
 driver = "battery-adc"

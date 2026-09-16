@@ -169,13 +169,13 @@ service is compiled.
 - `attach(driver, name, bindings)`: attach a driver using a binding dictionary.
 - `detach(name)`: detach a device and release its resource claims and bus leases.
 
-Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `uart`,
+Binding dictionaries accept `spi`, `cs` (or `ce`), `i2c`, `addr`, `alt_addr`, `uart`,
 `ps2`, `gpio`, `irq`, `reset` (or `rst`), `data`, `bck`, `din`, `rck`, `dc`,
 `mclk`, `ws`, `dout`, `busy`, `adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`,
 `center`, `max`, and `deadzone`. `ps2` names an existing PS/2 bus; `x` and `y`
 name scalar streams;
-`keys` maps logical key names to GPIO numbers. `cs` requires `spi`, and `addr`
-requires `i2c`. Unknown keys are rejected.
+`keys` maps logical key names to GPIO numbers. `cs` requires `spi`; `addr` and
+`alt_addr` require `i2c`. Unknown keys are rejected.
 
 ```python
 import solaros

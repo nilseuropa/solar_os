@@ -107,11 +107,13 @@ do not rely on center-button input during active microphone capture.
 
 ### `pointer_gt911` / `gt911`
 
-`touch0` binds GT911 to `i2c0`, address `0x5d`, IRQ GPIO16, rotation `1`.
-The reusable driver accepts either common strap address (`0x5d` or `0x14`) as
-an explicit binding and uses only that resource-manager-owned address. It
-publishes absolute pointer events to shared input, and rotation matches the
-landscape display.
+`touch0` binds GT911 to `i2c0`, claims both common strap addresses (`0x5d` and
+`0x14`), uses IRQ GPIO16, and applies rotation `1`. The panel reset is not
+software-controlled, and shipped units have been observed at both addresses,
+so the fixed board attachment probes only those two resource-manager-owned
+addresses. Runtime attachments use only `addr` unless `alt_addr` is supplied.
+The driver publishes absolute pointer events to shared input, and rotation
+matches the landscape display.
 
 ## Audio drivers
 

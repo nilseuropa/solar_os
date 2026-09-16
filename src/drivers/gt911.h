@@ -14,6 +14,9 @@ typedef struct {
     uint8_t id;
 } gt911_sample_t;
 
-esp_err_t gt911_init(const char *i2c_bus, uint8_t address, int irq_pin);
+esp_err_t gt911_init(const char *i2c_bus,
+                     uint8_t address,
+                     uint8_t alternate_address,
+                     int irq_pin);
 esp_err_t gt911_read(gt911_sample_t *sample);
 void gt911_deinit(void);

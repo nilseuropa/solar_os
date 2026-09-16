@@ -322,8 +322,14 @@ static bool expansion_binding_matches_spec(
     const solar_os_expansion_binding_t *binding,
     const solar_os_expansion_binding_spec_t *spec)
 {
-    return binding != NULL && spec != NULL && binding->kind == spec->kind &&
-        (spec->role == NULL || strcmp(binding->role, spec->role) == 0);
+    if (binding == NULL || spec == NULL || binding->kind != spec->kind) {
+        return false;
+    }
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS &&
+        spec->role == NULL) {
+        return binding->role[0] == '\0';
+    }
+    return spec->role == NULL || strcmp(binding->role, spec->role) == 0;
 }
 
 static bool expansion_has_binding(const solar_os_expansion_binding_t *bindings,
@@ -935,6 +941,12 @@ bool solar_os_shell_expansion_parse_binding_token(
         int address = 0;
         return parse_int_arg(value, 0x03, 0x77, &address) &&
             binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, "", "", address, -1);
+    }
+    if (strcmp(key, "alt_addr") == 0) {
+        int address = 0;
+        return parse_int_arg(value, 0x03, 0x77, &address) &&
+            binding_store(bindings, binding_count, SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+                          "alt_addr", "", address, -1);
     }
     solar_os_gpio_line_ref_t line;
     if (solar_os_gpio_line_parse(value, &line) &&

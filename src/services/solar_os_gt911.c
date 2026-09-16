@@ -21,7 +21,7 @@ typedef struct {
     volatile bool worker_done;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char bus[SOLAR_OS_EXPANSION_TARGET_MAX];
-    uint8_t address, rotation, pointer_id;
+    uint8_t address, alternate_address, rotation, pointer_id;
     int irq_pin;
     uint16_t width, height;
     int16_t x, y;
@@ -37,7 +37,7 @@ static void worker(void *arg);
 static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t count,
                        gt911_device_t *device)
 {
-    bool bus=false, addr=false, irq=false, rotation=false;
+    bool bus=false, addr=false, alternate_addr=false, irq=false, rotation=false;
     if (!bindings || !device) return ESP_ERR_INVALID_ARG;
     device->irq_pin = -1;
     for (size_t i=0; i<count; ++i) {
@@ -45,9 +45,15 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
         if (b->kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS && !bus) {
             strlcpy(device->bus, b->target, sizeof(device->bus)); bus=true;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS && !addr &&
+                   b->role[0] == '\0' &&
                    (b->value == GT911_ADDRESS ||
                     b->value == GT911_ALTERNATE_ADDRESS)) {
             device->address=(uint8_t)b->value; addr=true;
+        } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS &&
+                   !alternate_addr && strcmp(b->role, "alt_addr") == 0 &&
+                   (b->value == GT911_ADDRESS ||
+                    b->value == GT911_ALTERNATE_ADDRESS)) {
+            device->alternate_address=(uint8_t)b->value; alternate_addr=true;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !irq &&
                    strcmp(b->role, "irq") == 0) {
             device->irq_pin=b->value; irq=true;
@@ -56,7 +62,9 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
             device->rotation=(uint8_t)b->value; rotation=true;
         } else return ESP_ERR_INVALID_ARG;
     }
-    return bus && addr && irq && rotation ? ESP_OK : ESP_ERR_INVALID_ARG;
+    return bus && addr && irq && rotation &&
+        (!alternate_addr || device->alternate_address != device->address)
+        ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
 static void clear(void)
@@ -78,7 +86,10 @@ esp_err_t solar_os_gt911_attach(const char *name,
     if (!solar_os_display_find_target(SOLAR_OS_DISPLAY_PRIMARY_TARGET, &target) ||
         !target.width || !target.height) return ESP_ERR_NOT_FOUND;
     candidate.width=target.width; candidate.height=target.height;
-    ESP_RETURN_ON_ERROR(gt911_init(candidate.bus, candidate.address, candidate.irq_pin),
+    ESP_RETURN_ON_ERROR(gt911_init(candidate.bus,
+                                   candidate.address,
+                                   candidate.alternate_address,
+                                   candidate.irq_pin),
                         TAG, "controller init failed");
     strlcpy(candidate.name, name, sizeof(candidate.name));
     esp_err_t err=solar_os_input_touch_source_open(candidate.name, &candidate.source);

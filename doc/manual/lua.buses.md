@@ -144,13 +144,13 @@ local reply = solaros.buses.onewire_xfer("onewire0", 9, "\xcc\x44")
 `autostart`, `detachable`, and normalized `bindings`. Each binding contains
 `kind`, `role`, `target`, `value`, and `aux`. `attach(driver, name, bindings)`
 and `detach(name)` mirror the shell lifecycle. Binding tables accept `spi`,
-`cs` (or `ce`), `i2c`, `addr`, `uart`, `ps2`, `gpio`, `irq`, `reset` (or
+`cs` (or `ce`), `i2c`, `addr`, `alt_addr`, `uart`, `ps2`, `gpio`, `irq`, `reset` (or
 `rst`), `dc`, `busy`, `data`, `bck`, `din`, `rck`, `mclk`, `ws`, `dout`,
 `adc`, `pwm`, `count`, `keys`, `x`, `y`, `min`, `center`, `max`, and
 `deadzone`. `ps2` names an
 existing PS/2 bus; `x` and `y` name scalar streams; `keys` maps logical key
-names to GPIO numbers. `cs` requires `spi`, `addr` requires `i2c`, and unknown
-fields are rejected.
+names to GPIO numbers. `cs` requires `spi`; `addr` and `alt_addr` require
+`i2c`; unknown fields are rejected.
 
 ```lua
 solaros.expansion.attach("pcd8544", "lcd0", {

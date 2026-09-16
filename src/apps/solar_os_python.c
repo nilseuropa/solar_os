@@ -4909,7 +4909,7 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_expansion_devices_obj, solaros_expansion_devic
 static bool python_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
-        "spi", "cs", "ce", "i2c", "addr", "uart", "ps2", "gpio", "irq", "reset",
+        "spi", "cs", "ce", "i2c", "addr", "alt_addr", "uart", "ps2", "gpio", "irq", "reset",
         "rst", "data", "bck", "din", "rck", "mclk", "ws", "dout", "dc",
         "busy", "adc", "pwm", "backlight", "a", "b",
         "count", "keys", "x", "y", "min", "center", "max", "deadzone",
@@ -5029,6 +5029,19 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
                                      "",
                                      i2c,
                                      mp_obj_get_int(addr_obj),
+                                     -1);
+    }
+    const mp_obj_t alt_addr_obj = python_get_dict_obj(config_obj, "alt_addr", false);
+    if (alt_addr_obj != MP_OBJ_NULL) {
+        if (i2c == NULL) {
+            mp_raise_ValueError(MP_ERROR_TEXT("alt_addr requires i2c"));
+        }
+        python_expansion_add_binding(bindings,
+                                     &binding_count,
+                                     SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+                                     "alt_addr",
+                                     i2c,
+                                     mp_obj_get_int(alt_addr_obj),
                                      -1);
     }
     if (uart != NULL) {

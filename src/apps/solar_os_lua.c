@@ -4587,7 +4587,7 @@ static int solua_expansion_devices(lua_State *L)
 static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
-        "spi", "cs", "ce", "i2c", "addr", "uart", "ps2", "gpio", "irq", "reset",
+        "spi", "cs", "ce", "i2c", "addr", "alt_addr", "uart", "ps2", "gpio", "irq", "reset",
         "rst", "data", "bck", "din", "rck", "mclk", "ws", "dout", "dc",
         "busy", "adc", "pwm", "backlight", "a", "b",
         "count", "keys", "x", "y", "min", "center", "max", "deadzone",
@@ -4728,6 +4728,19 @@ static int solua_expansion_attach(lua_State *L)
                                     &binding_count,
                                     SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
                                     "",
+                                    i2c,
+                                    value,
+                                    -1);
+    }
+    if (solua_table_optional_int(L, 3, "alt_addr", &value)) {
+        if (i2c == NULL) {
+            return luaL_error(L, "alt_addr requires i2c");
+        }
+        solua_expansion_add_binding(L,
+                                    bindings,
+                                    &binding_count,
+                                    SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+                                    "alt_addr",
                                     i2c,
                                     value,
                                     -1);
