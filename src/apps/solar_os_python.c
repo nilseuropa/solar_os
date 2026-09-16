@@ -164,7 +164,7 @@
 
 #define PYTHON_HEAP_SIZE (512U * 1024U)
 #define PYTHON_SCRIPT_MAX_BYTES (512U * 1024U)
-#define PYTHON_TASK_STACK 16384
+#define PYTHON_TASK_STACK (12U * 1024U)
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define PYTHON_EVENT_QUEUE_LEN 32
@@ -8565,6 +8565,7 @@ static void python_task(void *arg)
 
     uint8_t *heap = python_alloc_psram_first(PYTHON_HEAP_SIZE);
     bool success = false;
+    uint32_t stack_min_free = 0;
     if (heap == NULL) {
         python_send_message(PYTHON_EVENT_ERROR, "heap allocation failed");
         goto done;
@@ -8615,12 +8616,16 @@ static void python_task(void *arg)
     solar_os_memory_free(heap);
 
 done:
+    stack_min_free =
+        (uint32_t)uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
     SOLAR_OS_LOGI(TAG,
-             "task done: success=%d stop_requested=%d interrupted=%d vm_active=%d",
+             "task done: success=%d stop_requested=%d interrupted=%d vm_active=%d "
+             "stack_min_free=%u",
              success,
              python_app.stop_requested,
              python_app.interrupted,
-             python_app.vm_active);
+             python_app.vm_active,
+             (unsigned)stack_min_free);
 
     python_event_t event = {
         .type = PYTHON_EVENT_DONE,

@@ -134,6 +134,26 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn(".worker_stack_external = true,", telnetd)
         self.assertIn("#define PORT_SHELL_TASK_STACK 16384", port_shell)
 
+    def test_python_stack_budget_and_task_failure_diagnostics(self):
+        python = (ROOT / "src/apps/solar_os_python.c").read_text(
+            encoding="utf-8"
+        )
+        task_header = (ROOT / "src/solar_os_task.h").read_text(
+            encoding="utf-8"
+        )
+        task_source = (ROOT / "src/solar_os_task.c").read_text(
+            encoding="utf-8"
+        )
+        shell = (ROOT / "src/shell/solar_os_shell_system.c").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("#define PYTHON_TASK_STACK (12U * 1024U)", python)
+        self.assertIn("stack_min_free=%u", python)
+        self.assertIn("last_failure_internal_largest_block_bytes", task_header)
+        self.assertIn("heap_caps_get_largest_free_block(internal_caps)", task_source)
+        self.assertIn('"  at failure: internal free %s max %s; "', shell)
+
     def test_audio_tone_worker_has_stack_for_default_device_playback(self):
         audio = (ROOT / "src/services/solar_os_audio.c").read_text(
             encoding="utf-8"

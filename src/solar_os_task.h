@@ -34,13 +34,19 @@ typedef struct {
     uint32_t wait_cancellations;
     bool last_failure_valid;
     bool last_failure_denied;
+    bool last_failure_external_stack;
     solar_os_task_role_t last_failure_role;
     uint32_t last_failure_stack_bytes;
+    uint32_t last_failure_internal_free_bytes;
+    uint32_t last_failure_internal_largest_block_bytes;
+    uint32_t last_failure_external_free_bytes;
+    uint32_t last_failure_external_largest_block_bytes;
     char last_failure_name[SOLAR_OS_TASK_NAME_MAX];
 } solar_os_task_status_t;
 
 typedef struct {
     bool launch_locked;
+    bool external_stack;
 } solar_os_task_managed_admission_t;
 
 typedef struct {
