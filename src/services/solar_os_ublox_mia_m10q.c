@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -35,7 +34,7 @@ typedef struct {
 } ublox_device_t;
 
 static const char *TAG = "ublox-mia-m10q";
-static EXT_RAM_BSS_ATTR ublox_device_t devices[UBLOX_DEVICE_MAX];
+static ublox_device_t devices[UBLOX_DEVICE_MAX];
 
 static uint16_t read_u16(const uint8_t *data)
 {
