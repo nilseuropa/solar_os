@@ -48,9 +48,6 @@
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
 #include "solar_os_power.h"
-#if SOLAR_OS_BOARD_HAS_POINTER
-#include "solar_os_ft6336.h"
-#endif
 #include "solar_os_radio.h"
 #include "solar_os_rtc.h"
 #include "solar_os_schedule.h"
@@ -1290,11 +1287,6 @@ static void dispatch_input_axis(const solar_os_input_axis_event_t *axis)
 
 static void poll_local_input_sources(void)
 {
-#if SOLAR_OS_BOARD_HAS_POINTER
-    if (board_has(SOLAR_OS_BOARD_CAP_POINTER)) {
-        solar_os_ft6336_poll();
-    }
-#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
     if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
         solar_os_buttons_poll();
