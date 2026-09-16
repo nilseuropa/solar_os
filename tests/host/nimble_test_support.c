@@ -55,9 +55,10 @@ int ble_gap_connect(uint8_t own, const ble_addr_t *addr, int ms, const void *par
   fake.gap = fn; fake.gap_arg = arg; return fake.submit_error; }
 int ble_gap_conn_cancel(void) { fake.cancel_calls++; return 0; }
 int ble_gap_terminate(uint16_t c, uint8_t r) { (void)c; (void)r; fake.terminate_calls++; return 0; }
-int ble_gap_security_initiate(uint16_t c) { (void)c; return fake.submit_error; }
+int ble_gap_security_initiate(uint16_t c) { (void)c; fake.security_calls++; return fake.submit_error; }
 int ble_gap_conn_find(uint16_t c, struct ble_gap_conn_desc *desc)
-{ (void)c; desc->peer_id_addr=fake.address; return 0; }
+{ (void)c; desc->peer_id_addr=fake.address; desc->sec_state.encrypted=fake.encrypted;
+  desc->sec_state.bonded=fake.bonded; return 0; }
 int ble_gattc_exchange_mtu(uint16_t c, ble_gatt_mtu_fn *fn, void *arg)
 { (void)c; fake.mtu_fn = fn; fake.arg = arg; return fake.submit_error; }
 uint16_t ble_att_mtu(uint16_t c) { (void)c; return fake.mtu; }
@@ -118,7 +119,8 @@ int ble_uuid_cmp(const ble_uuid_t *a, const ble_uuid_t *b)
     return memcmp(((const ble_uuid128_t *)a)->value, ((const ble_uuid128_t *)b)->value, 16);
 }
 int ble_gap_adv_stop(void) { fake.advertising = false; return 0; }
-int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields) { (void)fields; return fake.submit_error; }
+int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields)
+{ fake.appearance = fields->appearance_is_present ? fields->appearance : 0; return fake.submit_error; }
 int ble_gap_adv_rsp_set_fields(const struct ble_hs_adv_fields *fields) { assert(fields->name_len <= 26); return fake.submit_error; }
 int ble_gap_adv_start(uint8_t own, const ble_addr_t *addr, int32_t ms,
     const struct ble_gap_adv_params *params, ble_gap_event_fn *cb, void *arg)

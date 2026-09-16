@@ -11,8 +11,9 @@
 
 #define TEST_SESSION_COUNT 16
 size_t solar_os_ble_backend_capacity(void) { return 1; }
-static uint32_t fake_server_owner, fake_server_id;
+static uint32_t fake_server_owner, fake_server_id, fake_hid_owner;
 static solar_os_ble_server_request_t fake_server_request;
+static solar_os_ble_hid_request_t fake_hid_request;
 esp_err_t solar_os_ble_backend_server_request(solar_os_ble_session_t owner, solar_os_ble_server_request_t *r)
 {
     if (r->op == SOLAR_OS_BLE_SERVER_CREATE) fake_server_owner = owner;
@@ -24,8 +25,22 @@ esp_err_t solar_os_ble_backend_server_request(solar_os_ble_session_t owner, sola
     if (r->op == SOLAR_OS_BLE_SERVER_CLOSE) fake_server_owner = 0;
     return ESP_OK;
 }
+esp_err_t solar_os_ble_backend_hid_request(solar_os_ble_session_t owner,
+                                           solar_os_ble_hid_request_t *r)
+{
+    if (r->op == SOLAR_OS_BLE_HID_OP_START) fake_hid_owner = owner;
+    if (owner != fake_hid_owner) return ESP_ERR_INVALID_STATE;
+    fake_hid_request = *r;
+    if (r->op == SOLAR_OS_BLE_HID_OP_STATUS) r->info.event_capacity = 16;
+    if (r->op == SOLAR_OS_BLE_HID_OP_POLL) return ESP_ERR_NOT_FOUND;
+    if (r->op == SOLAR_OS_BLE_HID_OP_STOP) fake_hid_owner = 0;
+    return ESP_OK;
+}
 void solar_os_ble_backend_server_cancel(solar_os_ble_session_t owner)
-{ if (!owner || owner == fake_server_owner) fake_server_owner = 0; }
+{
+    if (!owner || owner == fake_server_owner) fake_server_owner = 0;
+    if (!owner || owner == fake_hid_owner) fake_hid_owner = 0;
+}
 
 static pthread_mutex_t fake_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t fake_changed = PTHREAD_COND_INITIALIZER;

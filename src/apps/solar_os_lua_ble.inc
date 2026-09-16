@@ -387,3 +387,166 @@ static int solua_ble_server_disconnect(lua_State *L)
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_DISCONNECT, .peer=solua_ble_server_id(L, 1)};
     return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
 }
+
+static int solua_ble_hid_start(lua_State *L)
+{
+    size_t len;
+    luaL_checktype(L, 1, LUA_TSTRING);
+    const char *name = luaL_checklstring(L, 1, &len);
+    if (!len || len > 26 || memchr(name, 0, len)) {
+        return luaL_error(L, "HID name must be 1..26 bytes");
+    }
+    char copied[27];
+    memcpy(copied, name, len);
+    copied[len] = '\0';
+    return solua_ble_check(L, solar_os_ble_hid_device_start(solua_ble_get(L), copied));
+}
+
+static int solua_ble_hid_stop(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_device_stop(solua_ble_get(L)));
+}
+
+static int solua_ble_hid_status(lua_State *L)
+{
+    solar_os_ble_hid_info_t info;
+    solua_ble_check(L, solar_os_ble_hid_device_status(solua_ble_get(L), &info));
+    lua_createtable(L, 0, 13);
+    solua_set_bool(L, -1, "registered", info.registered);
+    solua_set_bool(L, -1, "advertising", info.advertising);
+    solua_set_bool(L, -1, "closing", info.closing);
+    solua_set_bool(L, -1, "connected", info.connected);
+    solua_set_bool(L, -1, "encrypted", info.encrypted);
+    solua_set_bool(L, -1, "bonded", info.bonded);
+    solua_set_bool(L, -1, "keyboard_subscribed", info.keyboard_subscribed);
+    solua_set_bool(L, -1, "mouse_subscribed", info.mouse_subscribed);
+    solua_set_bool(L, -1, "gamepad_subscribed", info.gamepad_subscribed);
+    solua_set_int(L, -1, "keyboard_leds", info.keyboard_leds);
+    solua_set_int(L, -1, "event_capacity", info.event_capacity);
+    solua_set_int(L, -1, "event_count", info.event_count);
+    solua_set_int(L, -1, "events_dropped", info.events_dropped);
+    return 1;
+}
+
+static int solua_ble_hid_poll(lua_State *L)
+{
+    static const char *types[] = {
+        "connected", "disconnected", "secured", "keyboard-leds",
+    };
+    solar_os_ble_hid_device_event_t event;
+    const esp_err_t err = solar_os_ble_hid_device_poll(solua_ble_get(L), &event);
+    if (err == ESP_ERR_NOT_FOUND) {
+        lua_pushnil(L);
+        return 1;
+    }
+    solua_ble_check(L, err);
+    lua_createtable(L, 0, 6);
+    solua_set_str(L, -1, "type", types[event.type]);
+    solua_set_int(L, -1, "peer", event.peer);
+    solua_set_int(L, -1, "status", event.status);
+    solua_set_bool(L, -1, "encrypted", event.encrypted);
+    solua_set_bool(L, -1, "bonded", event.bonded);
+    solua_set_int(L, -1, "keyboard_leds", event.keyboard_leds);
+    return 1;
+}
+
+static size_t solua_ble_hid_keys(lua_State *L, uint16_t keys[8])
+{
+    const int count = lua_gettop(L);
+    if (count < 1 || count > 8) {
+        luaL_error(L, "expected 1..8 keys");
+    }
+    for (int i = 0; i < count; i++) {
+        const lua_Integer key = luaL_checkinteger(L, i + 1);
+        if (key < 0 || (uint64_t)key > UINT16_MAX) {
+            luaL_error(L, "invalid HID key");
+        }
+        keys[i] = (uint16_t)key;
+    }
+    return (size_t)count;
+}
+
+static int solua_ble_hid_keyboard_press(lua_State *L)
+{
+    uint16_t keys[8];
+    return solua_ble_check(L, solar_os_ble_hid_keyboard_press(
+        solua_ble_get(L), keys, solua_ble_hid_keys(L, keys)));
+}
+
+static int solua_ble_hid_keyboard_release(lua_State *L)
+{
+    uint16_t keys[8];
+    return solua_ble_check(L, solar_os_ble_hid_keyboard_release(
+        solua_ble_get(L), keys, solua_ble_hid_keys(L, keys)));
+}
+
+static int solua_ble_hid_keyboard_release_all(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_keyboard_release_all(solua_ble_get(L)));
+}
+
+static int32_t solua_ble_hid_i32(lua_State *L, int index)
+{
+    const lua_Integer value = luaL_checkinteger(L, index);
+    if (value < INT32_MIN || value > INT32_MAX) {
+        luaL_error(L, "expected 32-bit signed integer");
+    }
+    return (int32_t)value;
+}
+
+static uint8_t solua_ble_hid_u8(lua_State *L, int index)
+{
+    const lua_Integer value = luaL_checkinteger(L, index);
+    if (value < 0 || value > UINT8_MAX) {
+        luaL_error(L, "expected value 0..255");
+    }
+    return (uint8_t)value;
+}
+
+static bool solua_ble_hid_bool(lua_State *L, int index)
+{
+    return lua_toboolean(L, index);
+}
+
+static int solua_ble_hid_mouse_move(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_mouse_move(
+        solua_ble_get(L), solua_ble_hid_i32(L, 1), solua_ble_hid_i32(L, 2)));
+}
+
+static int solua_ble_hid_mouse_button(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_mouse_button(
+        solua_ble_get(L), solua_ble_hid_u8(L, 1), solua_ble_hid_bool(L, 2)));
+}
+
+static int solua_ble_hid_gamepad_axis(lua_State *L)
+{
+    const lua_Integer axis = luaL_checkinteger(L, 1);
+    const lua_Integer value = luaL_checkinteger(L, 2);
+    if (axis < INT_MIN || axis > INT_MAX) {
+        return luaL_error(L, "invalid gamepad axis");
+    }
+    if (value < INT16_MIN || value > INT16_MAX) {
+        return luaL_error(L, "expected axis value -32768..32767");
+    }
+    return solua_ble_check(L, solar_os_ble_hid_gamepad_axis(
+        solua_ble_get(L), (int)axis, (int16_t)value));
+}
+
+static int solua_ble_hid_gamepad_button(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_gamepad_button(
+        solua_ble_get(L), solua_ble_hid_u8(L, 1), solua_ble_hid_bool(L, 2)));
+}
+
+static int solua_ble_hid_gamepad_hat(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_gamepad_hat(
+        solua_ble_get(L), solua_ble_hid_u8(L, 1)));
+}
+
+static int solua_ble_hid_gamepad_send(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_gamepad_send(solua_ble_get(L)));
+}

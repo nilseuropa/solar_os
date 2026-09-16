@@ -180,6 +180,11 @@ enable NimBLE, peripheral support, and the GATT server, and disable Bluedroid.
   `solaros.ble.read()` still reads decoded keyboard input.
   Peripheral operations use `solaros.ble.server`. Notifications and indications
   use the per-peer polling interface described below.
+- `solaros.ble.hid` uses that same runtime-owned peripheral lease but publishes
+  a native, fixed HID-over-GATT service. The OS owns encrypted characteristics,
+  Report Reference descriptors, pairing/bonding, typed keyboard/mouse/gamepad
+  report state, and neutral-report teardown. It accepts one remote host and
+  exposes only copied status and events to Python or Lua.
 - `service.ble` selects the service, adapter, and keyboard profile under the
   existing package and board capability gates.
 

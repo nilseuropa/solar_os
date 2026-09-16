@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nimble/nimble_port.h"
+#include "solar_os_hid.h"
 
 typedef enum { OP_NONE, OP_CONNECT, OP_READ, OP_WRITE, OP_SUBSCRIBE } operation_t;
 typedef struct {

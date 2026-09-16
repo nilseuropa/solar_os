@@ -68,6 +68,31 @@ static lua_State *new_vm(void)
         {"send", solua_ble_server_send}, {"disconnect", solua_ble_server_disconnect}, {NULL, NULL},
     };
     lua_newtable(L); luaL_setfuncs(L, server_methods, 0); lua_setglobal(L, "server");
+    const luaL_Reg hid_methods[] = {
+        {"start", solua_ble_hid_start}, {"stop", solua_ble_hid_stop},
+        {"status", solua_ble_hid_status}, {"poll", solua_ble_hid_poll}, {NULL, NULL},
+    };
+    const luaL_Reg hid_keyboard_methods[] = {
+        {"press", solua_ble_hid_keyboard_press},
+        {"release", solua_ble_hid_keyboard_release},
+        {"release_all", solua_ble_hid_keyboard_release_all}, {NULL, NULL},
+    };
+    const luaL_Reg hid_mouse_methods[] = {
+        {"move", solua_ble_hid_mouse_move},
+        {"button", solua_ble_hid_mouse_button}, {NULL, NULL},
+    };
+    const luaL_Reg hid_gamepad_methods[] = {
+        {"axis", solua_ble_hid_gamepad_axis},
+        {"button", solua_ble_hid_gamepad_button},
+        {"hat", solua_ble_hid_gamepad_hat},
+        {"send", solua_ble_hid_gamepad_send}, {NULL, NULL},
+    };
+    lua_newtable(L);
+    luaL_setfuncs(L, hid_methods, 0);
+    lua_newtable(L); luaL_setfuncs(L, hid_keyboard_methods, 0); lua_setfield(L, -2, "keyboard");
+    lua_newtable(L); luaL_setfuncs(L, hid_mouse_methods, 0); lua_setfield(L, -2, "mouse");
+    lua_newtable(L); luaL_setfuncs(L, hid_gamepad_methods, 0); lua_setfield(L, -2, "gamepad");
+    lua_setglobal(L, "hid");
     return L;
 }
 
@@ -231,6 +256,20 @@ int main(void)
     assert(solar_os_ble_server_request(solua_ble_session,&request)==ESP_ERR_INVALID_ARG);
     request.value_len=0; memset(request.text,'x',sizeof(request.text));
     assert(solar_os_ble_server_request(solua_ble_session,&request)==ESP_ERR_INVALID_ARG);
+    run(L, "assert(not pcall(hid.start,'')); assert(not pcall(hid.start,string.rep('x',27))); "
+           "assert(not pcall(hid.start,'x'..string.char(0))); hid.start('Lua HID'); "
+           "assert(hid.status().event_capacity==16 and hid.poll()==nil)");
+    assert(fake_hid_owner == solua_ble_session);
+    run(L, "assert(not pcall(hid.keyboard.press)); assert(not pcall(hid.keyboard.press,-1)); "
+           "hid.keyboard.press(260,4); hid.keyboard.release(4); hid.keyboard.release_all()");
+    assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL);
+    run(L, "hid.mouse.move(-400,500); hid.mouse.button(1,true)");
+    assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON &&
+           fake_hid_request.button == 1 && fake_hid_request.pressed);
+    run(L, "assert(not pcall(hid.mouse.button,256,true)); "
+           "hid.gamepad.axis(0,-32768); hid.gamepad.button(16,false); "
+           "hid.gamepad.hat(8); hid.gamepad.send(); hid.stop()");
+    assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_STOP && !fake_hid_owner);
     solar_os_ble_session_t server_owner=solua_ble_session;
     solua_ble_destroy(); assert(!fake_server_owner); lua_close(L);
     request=(solar_os_ble_server_request_t){.op=SOLAR_OS_BLE_SERVER_STATUS};

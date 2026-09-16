@@ -406,6 +406,175 @@ esp_err_t solar_os_ble_server_request(solar_os_ble_session_t session,
     return result;
 }
 
+static esp_err_t ble_hid_request(solar_os_ble_session_t session,
+                                 solar_os_ble_hid_request_t *request)
+{
+    if (!request || request->op < SOLAR_OS_BLE_HID_OP_START ||
+        request->op > SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND ||
+        !memchr(request->name, 0, sizeof(request->name))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    lock_dispatch();
+    lock_state();
+    ble_session_t *s = live_locked(session);
+    const bool valid = s && !s->parent && !sleeping;
+    solar_os_ble_cancel_check_t check = valid ? s->cancel_check : NULL;
+    void *user = valid ? s->cancel_user : NULL;
+    unlock_state();
+    esp_err_t result = valid ? ESP_OK : ESP_ERR_INVALID_STATE;
+    if (result == ESP_OK && check && check(user)) {
+        result = SOLAR_OS_BLE_ERR_CANCELLED;
+    }
+    if (result == ESP_OK && request->op == SOLAR_OS_BLE_HID_OP_START) {
+        result = solar_os_ble_backend_init();
+    }
+    if (result == ESP_OK) {
+        result = solar_os_ble_backend_hid_request(session, request);
+    }
+    unlock_dispatch();
+    return result;
+}
+
+esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
+                                        const char *name)
+{
+    if (!name) return ESP_ERR_INVALID_ARG;
+    const size_t length = strlen(name);
+    if (!length || length > 26) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_START};
+    memcpy(request.name, name, length + 1);
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session)
+{
+    solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_STOP};
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_device_status(solar_os_ble_session_t session,
+                                         solar_os_ble_hid_info_t *info)
+{
+    if (!info) return ESP_ERR_INVALID_ARG;
+    solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_STATUS};
+    esp_err_t result = ble_hid_request(session, &request);
+    if (result == ESP_OK) *info = request.info;
+    return result;
+}
+
+esp_err_t solar_os_ble_hid_device_poll(solar_os_ble_session_t session,
+                                       solar_os_ble_hid_device_event_t *event)
+{
+    if (!event) return ESP_ERR_INVALID_ARG;
+    solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_POLL};
+    esp_err_t result = ble_hid_request(session, &request);
+    if (result == ESP_OK) *event = request.event;
+    return result;
+}
+
+static esp_err_t ble_hid_keyboard(solar_os_ble_session_t session,
+                                  solar_os_ble_hid_operation_t op,
+                                  const uint16_t *keys,
+                                  size_t key_count)
+{
+    if (!keys || !key_count || key_count > 8) return ESP_ERR_INVALID_ARG;
+    solar_os_ble_hid_request_t request = {.op = op, .key_count = key_count};
+    memcpy(request.keys, keys, key_count * sizeof(*keys));
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_keyboard_press(solar_os_ble_session_t session,
+                                          const uint16_t *keys,
+                                          size_t key_count)
+{
+    return ble_hid_keyboard(session, SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS,
+                            keys, key_count);
+}
+
+esp_err_t solar_os_ble_hid_keyboard_release(solar_os_ble_session_t session,
+                                            const uint16_t *keys,
+                                            size_t key_count)
+{
+    return ble_hid_keyboard(session, SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE,
+                            keys, key_count);
+}
+
+esp_err_t solar_os_ble_hid_keyboard_release_all(solar_os_ble_session_t session)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_mouse_move(solar_os_ble_session_t session,
+                                      int32_t x,
+                                      int32_t y)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_MOUSE_MOVE,
+        .x = x,
+        .y = y,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_mouse_button(solar_os_ble_session_t session,
+                                        uint8_t button,
+                                        bool pressed)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON,
+        .button = button,
+        .pressed = pressed,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_gamepad_axis(solar_os_ble_session_t session,
+                                        int axis,
+                                        int16_t value)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+        .axis = axis,
+        .value = value,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_gamepad_button(solar_os_ble_session_t session,
+                                          uint8_t button,
+                                          bool pressed)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
+        .button = button,
+        .pressed = pressed,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_gamepad_hat(solar_os_ble_session_t session,
+                                       uint8_t hat)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
+        .hat = hat,
+    };
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_gamepad_send(solar_os_ble_session_t session)
+{
+    solar_os_ble_hid_request_t request = {
+        .op = SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND,
+    };
+    return ble_hid_request(session, &request);
+}
+
 esp_err_t solar_os_ble_session_get_info(solar_os_ble_session_t session,
                                       solar_os_ble_session_info_t *info)
 {

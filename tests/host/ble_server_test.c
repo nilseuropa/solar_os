@@ -4,6 +4,7 @@
 #include <string.h>
 #include <pthread.h>
 #include "nimble_test_support.h"
+#include "solar_os_ble_hid_report_map.h"
 static int allocation, fail_at;
 static uint32_t local_service, local_char;
 static void *server_test_calloc(size_t n, size_t size)
@@ -17,6 +18,17 @@ int solar_os_ble_nimble_security(struct ble_gap_event *event) { (void)event; ret
 static esp_err_t execute(uint32_t owner, solar_os_ble_server_request_t *r)
 {
     lock(); esp_err_t result = server_execute(owner, r); unlock(); return result;
+}
+static esp_err_t execute_hid(uint32_t owner, solar_os_ble_hid_request_t *r)
+{
+    lock(); esp_err_t result = server_hid_execute(owner, r); unlock(); return result;
+}
+static server_char_t *hid_characteristic(uint8_t kind)
+{
+    for (server_service_t *s=peripheral->services;s;s=s->next)
+        for (server_char_t *c=s->chars;c;c=c->next)
+            if (c->hid_kind==kind) return c;
+    return NULL;
 }
 static void connect_peer(uint16_t conn)
 {
@@ -32,6 +44,12 @@ static void subscribe_peer(uint16_t conn, bool notify, bool indicate)
 {
     struct ble_gap_event e = {.type=BLE_GAP_EVENT_SUBSCRIBE,
         .subscribe={.conn_handle=conn,.attr_handle=100,.cur_notify=notify,.cur_indicate=indicate}};
+    fake.server_gap(&e,fake.server_gap_arg); nimble_test_drain();
+}
+static void subscribe_handle(uint16_t conn, uint16_t handle)
+{
+    struct ble_gap_event e = {.type=BLE_GAP_EVENT_SUBSCRIBE,
+        .subscribe={.conn_handle=conn,.attr_handle=handle,.cur_notify=true}};
     fake.server_gap(&e,fake.server_gap_arg); nimble_test_drain();
 }
 static void create_server(void)
@@ -181,6 +199,86 @@ int main(void)
     assert(!pthread_create(&thread,NULL,request_worker,&work)); nimble_test_wait_event();
     solar_os_ble_backend_reset(); nimble_test_drain(); assert(!pthread_join(thread,NULL));
     assert(work.result==SOLAR_OS_BLE_ERR_CANCELLED && server_idle_locked());
-    puts("BLE server: ownership, allocation failures, binary access, capacity, subscriptions, MTU, timeout and teardown OK");
+
+    /* Native composite HOGP owns the same peripheral lease and exposes only
+     * typed reports. Descriptors and encryption stay below the script API. */
+    solar_os_ble_hid_request_t hid={.op=SOLAR_OS_BLE_HID_OP_START,.name="SolarOS HID"};
+    assert(execute_hid(77,&hid)==ESP_OK && peripheral->kind==SERVER_KIND_HID);
+    assert(peripheral->registered && peripheral->advertising && fake.appearance==0x03c0);
+    assert(ble_uuid_u16(&peripheral->services->uuid.u)==0x1812);
+    server_char_t *map=hid_characteristic(SERVER_HID_REPORT_MAP);
+    server_char_t *keyboard=hid_characteristic(SERVER_HID_KEYBOARD_INPUT);
+    server_char_t *output=hid_characteristic(SERVER_HID_KEYBOARD_OUTPUT);
+    server_char_t *mouse=hid_characteristic(SERVER_HID_MOUSE_INPUT);
+    server_char_t *gamepad=hid_characteristic(SERVER_HID_GAMEPAD_INPUT);
+    assert(map && map->static_value==server_hid_report_map && map->len>128);
+    bool keyboard_ids[256]={0};
+    assert(solar_os_ble_hid_report_map(map->static_value,map->len,keyboard_ids));
+    assert(keyboard_ids[1] && !keyboard_ids[2] && !keyboard_ids[3]);
+    assert(keyboard && mouse && gamepad && output && keyboard->descriptor_definitions);
+    assert(ble_uuid_u16(keyboard->descriptor_definitions[0].uuid)==0x2908);
+    assert(keyboard->flags & BLE_GATT_CHR_F_READ_ENC);
+    assert(keyboard->flags & BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC);
+    solar_os_ble_server_request_t generic={.op=SOLAR_OS_BLE_SERVER_STATUS};
+    assert(execute(77,&generic)==ESP_ERR_INVALID_STATE);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+        .axis=0,.value=INT16_MAX};
+    assert(execute_hid(77,&hid)==ESP_ERR_INVALID_STATE);
+    connect_peer(31); assert(fake.security_calls==1 && peripheral->peer_count==1);
+    assert(!peripheral->advertising); /* HID accepts one active host. */
+    fake.encrypted=true; fake.bonded=true;
+    struct ble_gap_event secured={.type=BLE_GAP_EVENT_ENC_CHANGE,
+        .enc_change={.conn_handle=31}};
+    fake.server_gap(&secured,fake.server_gap_arg); nimble_test_drain();
+    subscribe_handle(31,keyboard->handle);
+    subscribe_handle(31,mouse->handle);
+    subscribe_handle(31,gamepad->handle);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_STATUS};
+    assert(execute_hid(77,&hid)==ESP_OK && hid.info.connected && hid.info.encrypted);
+    assert(hid.info.bonded && hid.info.keyboard_subscribed &&
+        hid.info.mouse_subscribed && hid.info.gamepad_subscribed);
+    while (true) {
+        hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_POLL};
+        if (execute_hid(77,&hid)==ESP_ERR_NOT_FOUND) break;
+    }
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS,
+        .key_count=2,.keys={SOLAR_OS_HID_KEY_LEFT_CTRL,0x04}};
+    assert(execute_hid(77,&hid)==ESP_OK && fake.written_len==8);
+    assert(fake.written[0]==1 && fake.written[2]==4);
+    hid.op=SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE;
+    assert(execute_hid(77,&hid)==ESP_OK && fake.written[0]==0 && fake.written[2]==0);
+    const int before_mouse=fake.notify_calls;
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_MOUSE_MOVE,.x=200,.y=-200};
+    assert(execute_hid(77,&hid)==ESP_OK && fake.notify_calls==before_mouse+2);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+        .axis=0,.value=INT16_MAX};
+    assert(execute_hid(77,&hid)==ESP_OK);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
+        .button=1,.pressed=true};
+    assert(execute_hid(77,&hid)==ESP_OK);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,.hat=2};
+    assert(execute_hid(77,&hid)==ESP_OK);
+    hid.op=SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND;
+    assert(execute_hid(77,&hid)==ESP_OK && fake.written_len==11);
+    assert(fake.written[0]==127 && fake.written[6]==2 && fake.written[7]==1);
+    uint8_t leds=SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK;
+    struct os_mbuf led_value={.data=&leds,.len=1};
+    ctx=(struct ble_gatt_access_ctxt){.op=BLE_GATT_ACCESS_OP_WRITE_CHR,.om=&led_value};
+    assert(server_access(31,output->handle,&ctx,output)==0);
+    hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_POLL};
+    assert(execute_hid(77,&hid)==ESP_OK &&
+        hid.event.type==SOLAR_OS_BLE_HID_KEYBOARD_LEDS &&
+        hid.event.keyboard_leds==SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK);
+    peripheral->count=peripheral->capacity;
+    leds=SOLAR_OS_BLE_HID_KEYBOARD_LED_NUM_LOCK;
+    assert(server_access(31,output->handle,&ctx,output)==BLE_ATT_ERR_INSUFFICIENT_RES);
+    assert(peripheral->keyboard_leds==SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK &&
+        output->value[0]==SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK);
+    peripheral->head=0; peripheral->count=0;
+    const int before_close=fake.notify_calls;
+    solar_os_ble_backend_server_cancel(77); nimble_test_drain();
+    assert(peripheral && peripheral->closing && fake.notify_calls==before_close+3);
+    disconnect_peer(31); assert(server_idle_locked());
+    puts("BLE server: generic ownership plus encrypted keyboard, mouse and gamepad HOGP lifecycle OK");
     return 0;
 }

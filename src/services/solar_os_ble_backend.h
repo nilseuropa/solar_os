@@ -36,6 +36,38 @@ typedef struct {
     size_t value_len;
 } solar_os_ble_backend_event_t;
 
+typedef enum {
+    SOLAR_OS_BLE_HID_OP_START,
+    SOLAR_OS_BLE_HID_OP_STOP,
+    SOLAR_OS_BLE_HID_OP_STATUS,
+    SOLAR_OS_BLE_HID_OP_POLL,
+    SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS,
+    SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE,
+    SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL,
+    SOLAR_OS_BLE_HID_OP_MOUSE_MOVE,
+    SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON,
+    SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+    SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
+    SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
+    SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND,
+} solar_os_ble_hid_operation_t;
+
+typedef struct {
+    solar_os_ble_hid_operation_t op;
+    char name[27];
+    uint16_t keys[8];
+    size_t key_count;
+    int32_t x;
+    int32_t y;
+    int16_t value;
+    int axis;
+    uint8_t button;
+    uint8_t hat;
+    bool pressed;
+    solar_os_ble_hid_info_t info;
+    solar_os_ble_hid_device_event_t event;
+} solar_os_ble_hid_request_t;
+
 /* Synchronous internal sink: consumes/copies borrowed value bytes before
  * returning. Never calls application or interpreter code. */
 void solar_os_ble_service_event(const solar_os_ble_backend_event_t *event);
@@ -56,6 +88,8 @@ void solar_os_ble_backend_resume(void);
 esp_err_t solar_os_ble_backend_register(void);
 esp_err_t solar_os_ble_backend_server_request(solar_os_ble_session_t owner,
                                              solar_os_ble_server_request_t *request);
+esp_err_t solar_os_ble_backend_hid_request(solar_os_ble_session_t owner,
+                                           solar_os_ble_hid_request_t *request);
 void solar_os_ble_backend_server_cancel(solar_os_ble_session_t owner); /* 0: all */
 size_t solar_os_ble_backend_capacity(void);
 void solar_os_ble_backend_reset(void);

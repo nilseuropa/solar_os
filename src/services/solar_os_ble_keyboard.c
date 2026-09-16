@@ -1452,8 +1452,9 @@ int solar_os_ble_nimble_security(struct ble_gap_event *event)
         struct ble_sm_io io = {.action = event->passkey.params.action};
         if (io.action == BLE_SM_IOACT_DISP) {
             io.passkey = esp_random() % 1000000U;
-            SOLAR_OS_LOGI(TAG, "type passkey %06lu on the keyboard, then Enter", (unsigned long)io.passkey);
-            set_status(BLE_KEYBOARD_PASSKEY, "type %06lu Enter", (unsigned long)io.passkey);
+            SOLAR_OS_LOGI(TAG, "type passkey %06lu on the peer device, then Enter",
+                          (unsigned long)io.passkey);
+            set_status(BLE_KEYBOARD_PASSKEY, "peer passkey %06lu", (unsigned long)io.passkey);
             return ble_sm_inject_io(event->passkey.conn_handle, &io);
         }
         (void)ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);

@@ -60,6 +60,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_hid.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
@@ -8156,11 +8157,40 @@ static void python_register_solaros_module(void)
         SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
         MP_OBJ_FROM_PTR( \
             &solaros_##module_name##_##submodule_name##_##native_name##_obj))
+#define SOLAR_OS_SCRIPT_API_SUBMODULE_INT( \
+    module_name, submodule_name, public_name, value) \
+    python_module_store(script_submodule, \
+                        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                        mp_obj_new_int(value))
+#define SOLAR_OS_SCRIPT_API_SUBMODULE_UINT( \
+    module_name, submodule_name, public_name, value) \
+    python_module_store(script_submodule, \
+                        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+                        mp_obj_new_int_from_uint(value))
+#define SOLAR_OS_SCRIPT_API_SUBSUBMODULE_BEGIN( \
+    module_name, submodule_name, child_name) \
+    { \
+        mp_obj_t script_subsubmodule = python_new_submodule( \
+            script_submodule, SOLAR_OS_SCRIPT_API_STRINGIFY(child_name))
+#define SOLAR_OS_SCRIPT_API_SUBSUBMODULE_FUNCTION( \
+    module_name, submodule_name, child_name, public_name, native_name) \
+    python_module_store( \
+        script_subsubmodule, \
+        SOLAR_OS_SCRIPT_API_STRINGIFY(public_name), \
+        MP_OBJ_FROM_PTR( \
+            &solaros_##module_name##_##submodule_name##_##child_name##_##native_name##_obj))
+#define SOLAR_OS_SCRIPT_API_SUBSUBMODULE_END( \
+    module_name, submodule_name, child_name) }
 #define SOLAR_OS_SCRIPT_API_SUBMODULE_END(module_name, submodule_name) }
 #define SOLAR_OS_SCRIPT_API_MODULE_END(module_name) }
 #include "solar_os_script_api.inc"
 #undef SOLAR_OS_SCRIPT_API_MODULE_END
+#undef SOLAR_OS_SCRIPT_API_SUBSUBMODULE_END
+#undef SOLAR_OS_SCRIPT_API_SUBSUBMODULE_FUNCTION
+#undef SOLAR_OS_SCRIPT_API_SUBSUBMODULE_BEGIN
 #undef SOLAR_OS_SCRIPT_API_SUBMODULE_END
+#undef SOLAR_OS_SCRIPT_API_SUBMODULE_UINT
+#undef SOLAR_OS_SCRIPT_API_SUBMODULE_INT
 #undef SOLAR_OS_SCRIPT_API_SUBMODULE_FUNCTION
 #undef SOLAR_OS_SCRIPT_API_SUBMODULE_BEGIN
 #undef SOLAR_OS_SCRIPT_API_FUNCTION_NAMED
