@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "routed_spi_bus.h"
@@ -701,6 +702,22 @@ static esp_err_t register_board_bus_locked(const solar_os_bus_definition_t *defi
     }
     const int index = find_bus_index_locked(definition->name);
     ret = index >= 0 ? claim_bus_resources_locked((size_t)index) : ESP_ERR_NOT_FOUND;
+    if (ret == ESP_OK && definition->protocol == SOLAR_OS_BUS_PROTOCOL_SPI) {
+        const solar_os_bus_spi_config_t *config = &definition->config.spi;
+        /* Keep every shared-bus peripheral deselected before an early board
+         * device can release its power rail. Preload the output latches first
+         * so enabling the GPIO outputs cannot pulse a chip select low. */
+        for (size_t i = 0; ret == ESP_OK && i < config->cs_count; i++) {
+            ret = gpio_set_level((gpio_num_t)config->cs[i].pin, 1);
+        }
+        for (size_t i = 0; ret == ESP_OK && i < config->cs_count; i++) {
+            ret = gpio_set_direction((gpio_num_t)config->cs[i].pin,
+                                     GPIO_MODE_OUTPUT);
+        }
+        if (ret != ESP_OK) {
+            release_bus_resources_locked((size_t)index);
+        }
+    }
 #if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
     if (ret == ESP_OK && protocol_uart_backed(definition->protocol)) {
         ret = solar_os_uart_register_bus(definition->name,

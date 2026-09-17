@@ -484,7 +484,7 @@ esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
                                    size_t len)
 {
     if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
-        data == NULL || len == 0 || len > 31) {
+        data == NULL || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = i2c_bus_ensure_mutex();
@@ -492,18 +492,26 @@ esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
         return ret;
     }
 
-    uint8_t buffer[32];
-    buffer[0] = reg;
-    for (size_t i = 0; i < len; i++) {
-        buffer[i + 1] = data[i];
-    }
+    i2c_master_transmit_multi_buffer_info_t buffers[] = {
+        {
+            .write_buffer = &reg,
+            .buffer_size = sizeof(reg),
+        },
+        {
+            .write_buffer = data,
+            .buffer_size = len,
+        },
+    };
 
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
 
     i2c_master_dev_handle_t dev_handle;
     ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
     if (ret == ESP_OK) {
-        ret = i2c_master_transmit(dev_handle, buffer, len + 1, I2C_XFER_TIMEOUT_MS);
+        ret = i2c_master_multi_buffer_transmit(dev_handle,
+                                               buffers,
+                                               sizeof(buffers) / sizeof(buffers[0]),
+                                               I2C_XFER_TIMEOUT_MS);
         esp_err_t rm_ret = i2c_master_bus_rm_device(dev_handle);
         if (ret == ESP_OK) {
             ret = rm_ret;

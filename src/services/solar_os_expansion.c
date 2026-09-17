@@ -169,6 +169,10 @@ static bool binding_matches_spec(const solar_os_expansion_binding_t *binding,
     if (binding == NULL || spec == NULL || binding->kind != spec->kind) {
         return false;
     }
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS &&
+        spec->role == NULL) {
+        return binding->role[0] == '\0';
+    }
     return spec->role == NULL || strcmp(binding->role, spec->role) == 0;
 }
 
@@ -189,7 +193,7 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
         return "i2c";
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
-        return "addr";
+        return binding->role[0] != '\0' ? binding->role : "addr";
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
         return "spi";
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:

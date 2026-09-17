@@ -8,6 +8,7 @@
 typedef struct {
     uint8_t registers[8];
     uint8_t write_regs[8];
+    size_t write_lengths[8];
     size_t write_count;
 } fake_io_t;
 
@@ -25,7 +26,8 @@ static esp_err_t fake_write(void *ctx,
 {
     fake_io_t *fake = ctx;
     assert(fake->write_count < sizeof(fake->write_regs));
-    fake->write_regs[fake->write_count++] = reg;
+    fake->write_regs[fake->write_count] = reg;
+    fake->write_lengths[fake->write_count++] = len;
     memcpy(&fake->registers[reg], data, len);
     return ESP_OK;
 }
@@ -41,17 +43,27 @@ int main(void)
     xl9555_t device;
 
     assert(xl9555_init(&device, &io, 0x1234U, 0xFFF0U) == ESP_OK);
-    assert(fake.write_count == 2U);
+    assert(fake.write_count == 4U);
     assert(fake.write_regs[0] == 0x02U);
-    assert(fake.write_regs[1] == 0x06U);
+    assert(fake.write_regs[1] == 0x03U);
+    assert(fake.write_regs[2] == 0x06U);
+    assert(fake.write_regs[3] == 0x07U);
+    for (size_t i = 0; i < fake.write_count; i++) {
+        assert(fake.write_lengths[i] == 1U);
+    }
     assert(fake.registers[2] == 0x34U && fake.registers[3] == 0x12U);
     assert(fake.registers[6] == 0xF0U && fake.registers[7] == 0xFFU);
 
     /* A write preloads the latch, then changes an input line to output. */
     assert(xl9555_write(&device, 6U, true) == ESP_OK);
-    assert(fake.write_count == 4U);
-    assert(fake.write_regs[2] == 0x02U);
-    assert(fake.write_regs[3] == 0x06U);
+    assert(fake.write_count == 8U);
+    assert(fake.write_regs[4] == 0x02U);
+    assert(fake.write_regs[5] == 0x03U);
+    assert(fake.write_regs[6] == 0x06U);
+    assert(fake.write_regs[7] == 0x07U);
+    for (size_t i = 4U; i < fake.write_count; i++) {
+        assert(fake.write_lengths[i] == 1U);
+    }
     assert(device.output == 0x1274U);
     assert(device.direction == 0xFFB0U);
 

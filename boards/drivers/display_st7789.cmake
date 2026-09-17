@@ -1,0 +1,3 @@
+set(SOLAR_OS_BOARD_DISPLAY_DRIVER "st7789")
+include("${CMAKE_CURRENT_LIST_DIR}/spi_esp_idf.cmake")
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES driver_display_st7789)

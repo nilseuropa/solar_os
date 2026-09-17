@@ -130,28 +130,42 @@ esp_err_t solar_os_buses_init(void)
 
 size_t solar_os_bus_count_protocol(solar_os_bus_protocol_t protocol)
 {
-    (void)protocol;
-    return 0;
+    return protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? 1U : 0U;
 }
 
 bool solar_os_bus_get_protocol(solar_os_bus_protocol_t protocol,
                                size_t index,
                                solar_os_bus_info_t *info)
 {
-    (void)protocol;
-    (void)index;
-    (void)info;
-    return false;
+    if (protocol != SOLAR_OS_BUS_PROTOCOL_I2C || index != 0U || info == NULL) {
+        return false;
+    }
+    *info = (solar_os_bus_info_t) {
+        .active = true,
+        .attached = true,
+        .ready = true,
+        .id = 0U,
+        .protocol = SOLAR_OS_BUS_PROTOCOL_I2C,
+        .config.i2c = {
+            .port = 0,
+            .sda_pin = 18,
+            .scl_pin = 8,
+            .speed_hz = 400000U,
+        },
+    };
+    strlcpy(info->name, "i2c0", sizeof(info->name));
+    return true;
 }
 
 bool solar_os_bus_find(const char *name,
                        solar_os_bus_protocol_t protocol,
                        solar_os_bus_info_t *info)
 {
-    (void)name;
-    (void)protocol;
-    (void)info;
-    return false;
+    if (name == NULL || strcmp(name, "i2c0") != 0 ||
+        protocol != SOLAR_OS_BUS_PROTOCOL_I2C) {
+        return false;
+    }
+    return info == NULL || solar_os_bus_get_protocol(protocol, 0U, info);
 }
 
 esp_err_t solar_os_bus_acquire(const char *name,
@@ -186,6 +200,59 @@ static solar_os_expansion_binding_t gpio_binding(int pin)
     strlcpy(binding.role, "pin", sizeof(binding.role));
     return binding;
 }
+
+static esp_err_t test_i2c_attach(const char *name,
+                                 const solar_os_expansion_binding_t *bindings,
+                                 size_t binding_count)
+{
+    (void)name;
+    (void)bindings;
+    (void)binding_count;
+    return ESP_OK;
+}
+
+static esp_err_t test_i2c_detach(const char *name)
+{
+    (void)name;
+    return ESP_OK;
+}
+
+static const int test_i2c_addresses[] = {0x5d, 0x14};
+static const solar_os_expansion_binding_spec_t test_i2c_specs[] = {
+    {
+        .key = "i2c",
+        .value_hint = "bus",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS,
+        .required = true,
+    },
+    {
+        .key = "addr",
+        .value_hint = "address",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .required = true,
+        .allowed_values = test_i2c_addresses,
+        .allowed_value_count = 2,
+    },
+    {
+        .key = "alt_addr",
+        .value_hint = "address",
+        .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+        .role = "alt_addr",
+        .allowed_values = test_i2c_addresses,
+        .allowed_value_count = 2,
+    },
+};
+
+const solar_os_expansion_driver_t test_i2c_expansion_driver = {
+    .name = "test-i2c",
+    .summary = "test I2C device",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_INPUT,
+    .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
+    .binding_specs = test_i2c_specs,
+    .binding_spec_count = sizeof(test_i2c_specs) / sizeof(test_i2c_specs[0]),
+    .attach = test_i2c_attach,
+    .detach = test_i2c_detach,
+};
 
 static void assert_device(size_t index,
                           const char *name,
@@ -249,6 +316,44 @@ int main(void)
     assert(last_claim_requests[0].primary == 23);
     assert(last_claim_requests[0].secondary == -1);
     assert(solar_os_expansion_detach("native-line") == ESP_OK);
+
+    solar_os_expansion_binding_t dual_i2c[] = {
+        {
+            .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS,
+            .target = "i2c0",
+        },
+        {
+            .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+            .value = 0x5d,
+        },
+        {
+            .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS,
+            .role = "alt_addr",
+            .value = 0x14,
+        },
+    };
+    solar_os_expansion_binding_validation_t validation;
+    assert(solar_os_expansion_validate_bindings("test-i2c",
+                                                dual_i2c,
+                                                3,
+                                                &validation) == ESP_OK);
+    last_claim_request_count = 0U;
+    assert(solar_os_expansion_attach("test-i2c", "dual-i2c", dual_i2c, 3) == ESP_OK);
+    assert(last_claim_request_count == 2U);
+    assert(last_claim_requests[0].kind == SOLAR_OS_RESOURCE_I2C_ADDRESS);
+    assert(last_claim_requests[0].primary == 0);
+    assert(last_claim_requests[0].secondary == 0x5d);
+    assert(last_claim_requests[1].kind == SOLAR_OS_RESOURCE_I2C_ADDRESS);
+    assert(last_claim_requests[1].primary == 0);
+    assert(last_claim_requests[1].secondary == 0x14);
+    assert(solar_os_expansion_detach("dual-i2c") == ESP_OK);
+
+    assert(solar_os_expansion_validate_bindings("test-i2c",
+                                                dual_i2c,
+                                                1,
+                                                &validation) == ESP_ERR_INVALID_ARG);
+    assert(validation.reason == SOLAR_OS_EXPANSION_BINDINGS_MISSING);
+    assert(strcmp(validation.key, "addr") == 0);
 
     for (int i = 0; i < 3; i++) {
         char name[16];

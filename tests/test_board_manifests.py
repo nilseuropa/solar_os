@@ -217,6 +217,40 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("drv2605", packages)
         self.assertIn("bq25896", packages)
 
+    def test_t_deck_uses_canonical_uart_and_single_owner_system_key(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "t_deck_plus.toml",
+            self.manifest_dir,
+        )
+        buses = {bus["name"]: bus for bus in board["buses"]}
+        self.assertNotIn("uart1", buses)
+        self.assertEqual(buses["uart0"]["port"], "UART_NUM_1")
+
+        defines = board["defines"]
+        self.assertEqual(
+            defines["SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY"],
+            "SOLAR_OS_KEY_ENTER",
+        )
+        self.assertNotIn("GPIO_NUM_0", defines["SOLAR_OS_BOARD_BUTTONS"])
+
+        header = generate_header(board, self.drivers)
+        self.assertIn(
+            "#define SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY SOLAR_OS_KEY_ENTER",
+            header,
+        )
+        self.assertIn(
+            '.name = "uart0", .protocol = SOLAR_OS_BUS_PROTOCOL_UART',
+            header,
+        )
+        self.assertIn(".config.uart = {.port = UART_NUM_1", header)
+        self.assertIn(
+            '.driver = "ublox-mia-m10q", .name = "gnss0"',
+            header,
+        )
+
+        packages = required_packages(board, self.drivers)
+        self.assertIn("ublox_mia_m10q", packages)
+
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "solar_term.toml",
