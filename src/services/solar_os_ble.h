@@ -70,6 +70,9 @@ typedef struct {
 
 esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
                                         const char *name);
+/* Enter explicit pairing mode. The next connecting peer's stored bond is
+ * removed before security starts; normal start keeps remembered bonds. */
+esp_err_t solar_os_ble_hid_device_pair(solar_os_ble_session_t session);
 esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session);
 esp_err_t solar_os_ble_hid_device_status(solar_os_ble_session_t session,
                                          solar_os_ble_hid_info_t *info);

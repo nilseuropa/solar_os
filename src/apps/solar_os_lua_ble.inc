@@ -407,6 +407,11 @@ static int solua_ble_hid_stop(lua_State *L)
     return solua_ble_check(L, solar_os_ble_hid_device_stop(solua_ble_get(L)));
 }
 
+static int solua_ble_hid_pair(lua_State *L)
+{
+    return solua_ble_check(L, solar_os_ble_hid_device_pair(solua_ble_get(L)));
+}
+
 static int solua_ble_hid_status(lua_State *L)
 {
     solar_os_ble_hid_info_t info;

@@ -425,6 +425,13 @@ static mp_obj_t solaros_ble_hid_start(mp_obj_t name_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_hid_start_obj, solaros_ble_hid_start);
 
+static mp_obj_t solaros_ble_hid_pair(void)
+{
+    python_ble_check(solar_os_ble_hid_device_pair(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_pair_obj, solaros_ble_hid_pair);
+
 static mp_obj_t solaros_ble_hid_stop(void)
 {
     python_ble_check(solar_os_ble_hid_device_stop(python_ble_get()));

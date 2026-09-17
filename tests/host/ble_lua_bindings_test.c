@@ -69,7 +69,8 @@ static lua_State *new_vm(void)
     };
     lua_newtable(L); luaL_setfuncs(L, server_methods, 0); lua_setglobal(L, "server");
     const luaL_Reg hid_methods[] = {
-        {"start", solua_ble_hid_start}, {"stop", solua_ble_hid_stop},
+        {"start", solua_ble_hid_start}, {"pair", solua_ble_hid_pair},
+        {"stop", solua_ble_hid_stop},
         {"status", solua_ble_hid_status}, {"poll", solua_ble_hid_poll}, {NULL, NULL},
     };
     const luaL_Reg hid_keyboard_methods[] = {
@@ -257,8 +258,9 @@ int main(void)
     request.value_len=0; memset(request.text,'x',sizeof(request.text));
     assert(solar_os_ble_server_request(solua_ble_session,&request)==ESP_ERR_INVALID_ARG);
     run(L, "assert(not pcall(hid.start,'')); assert(not pcall(hid.start,string.rep('x',27))); "
-           "assert(not pcall(hid.start,'x'..string.char(0))); hid.start('Lua HID'); "
+           "assert(not pcall(hid.start,'x'..string.char(0))); hid.start('Lua HID'); hid.pair(); "
            "assert(hid.status().event_capacity==16 and hid.poll()==nil)");
+    assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_POLL);
     assert(fake_hid_owner == solua_ble_session);
     fake_hid_event=(solar_os_ble_hid_device_event_t){
         .type=SOLAR_OS_BLE_HID_PASSKEY,.peer=7,.passkey=12345};

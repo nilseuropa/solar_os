@@ -19,6 +19,9 @@
 #define BLE_ERR_AUTH_FAIL 0x05
 #define BLE_GAP_REPEAT_PAIRING_RETRY 1
 #define BLE_GAP_REPEAT_PAIRING_IGNORE 2
+#define BLE_GAP_SUBSCRIBE_REASON_WRITE 1
+#define BLE_GAP_SUBSCRIBE_REASON_TERM 2
+#define BLE_GAP_SUBSCRIBE_REASON_RESTORE 3
 #define BLE_OWN_ADDR_PUBLIC 0
 #define BLE_UUID_TYPE_16 16
 #define BLE_UUID_TYPE_32 32
@@ -59,7 +62,11 @@ struct ble_gap_event {
         struct { struct { uint8_t action; uint32_t numcmp; } params; uint16_t conn_handle; } passkey;
         struct { uint16_t conn_handle; } repeat_pairing;
         struct { uint16_t conn_handle, attr_handle; struct os_mbuf *om; bool indication; } notify_rx;
-        struct { uint16_t conn_handle, attr_handle; bool cur_notify, cur_indicate; } subscribe;
+        struct {
+            uint16_t conn_handle, attr_handle;
+            uint8_t reason;
+            bool cur_notify, cur_indicate;
+        } subscribe;
         struct { uint16_t conn_handle, attr_handle; int status; bool indication; } notify_tx;
     };
 };

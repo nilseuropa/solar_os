@@ -53,7 +53,8 @@ typedef struct server_peer {
 typedef struct {
     uint32_t owner, epoch;
     uint8_t kind;
-    bool registered, closing, advertising, wants_advertising, neutralized;
+    bool registered, closing, dormant, advertising, wants_advertising, neutralized,
+        pairing;
     char name[27];
     server_service_t *services;
     server_peer_t *peers;
@@ -65,6 +66,9 @@ typedef struct {
     size_t capacity, head, count;
     uint32_t dropped;
     uint32_t hid_keyboard, hid_mouse, hid_gamepad;
+    ble_addr_t hid_bond_addr;
+    bool hid_bond_valid;
+    uint8_t hid_subscriptions[3];
     uint8_t keyboard[8], keyboard_leds, mouse_buttons;
     int16_t gamepad_axes[6];
     uint32_t gamepad_buttons;
@@ -126,7 +130,10 @@ static size_t server_used_locked(void)
     return peripheral ? peripheral->peer_count + peripheral->untracked +
         (peripheral->advertising ? 1 : 0) : 0;
 }
-static bool server_idle_locked(void) { return !peripheral && !server_command; }
+static bool server_idle_locked(void)
+{
+    return (!peripheral || peripheral->dormant) && !server_command;
+}
 static size_t server_central_count(void)
 {
     size_t count = 0;
@@ -166,6 +173,77 @@ static bool server_hid_event(solar_os_ble_hid_device_event_t *event)
     size_t index = (peripheral->head + peripheral->count++) % peripheral->capacity;
     peripheral->hid_events[index] = *event;
     return true;
+}
+static int server_hid_subscription_slot(uint8_t kind)
+{
+    switch (kind) {
+    case SERVER_HID_KEYBOARD_INPUT: return 0;
+    case SERVER_HID_MOUSE_INPUT: return 1;
+    case SERVER_HID_GAMEPAD_INPUT: return 2;
+    default: return -1;
+    }
+}
+static bool server_same_address(const ble_addr_t *left, const ble_addr_t *right)
+{
+    return left && right && left->type == right->type &&
+        !memcmp(left->val, right->val, sizeof(left->val));
+}
+static void server_store_hid_subscription(const server_peer_t *peer,
+                                          const server_char_t *characteristic,
+                                          const struct ble_gap_conn_desc *desc)
+{
+    if (!peripheral || peripheral->kind != SERVER_KIND_HID || !peer ||
+        !characteristic || !desc || !desc->sec_state.bonded) return;
+    const int slot = server_hid_subscription_slot(characteristic->hid_kind);
+    if (slot < 0) return;
+    const uint8_t flags = peer->subscriptions[characteristic->index] & 0x03U;
+    peripheral->hid_bond_addr = desc->peer_id_addr;
+    peripheral->hid_bond_valid = true;
+    peripheral->hid_subscriptions[slot] = flags;
+    const struct ble_store_value_cccd value = {
+        .peer_addr = desc->peer_id_addr,
+        .chr_val_handle = characteristic->handle,
+        .flags = flags,
+    };
+    (void)ble_store_write_cccd(&value);
+}
+static void server_restore_hid_subscriptions(server_peer_t *peer,
+                                             const struct ble_gap_conn_desc *desc)
+{
+    if (!peripheral || peripheral->kind != SERVER_KIND_HID || !peer || !desc ||
+        !desc->sec_state.bonded) return;
+    const bool cache_matches = peripheral->hid_bond_valid &&
+        server_same_address(&peripheral->hid_bond_addr, &desc->peer_id_addr);
+    for (server_service_t *service = peripheral->services; service;
+         service = service->next) {
+        for (server_char_t *characteristic = service->chars; characteristic;
+             characteristic = characteristic->next) {
+            if (!characteristic->handle ||
+                (characteristic->hid_kind != SERVER_HID_KEYBOARD_INPUT &&
+                 characteristic->hid_kind != SERVER_HID_MOUSE_INPUT &&
+                 characteristic->hid_kind != SERVER_HID_GAMEPAD_INPUT)) continue;
+            const struct ble_store_key_cccd key = {
+                .peer_addr = desc->peer_id_addr,
+                .chr_val_handle = characteristic->handle,
+            };
+            struct ble_store_value_cccd value = {0};
+            if (!ble_store_read_cccd(&key, &value)) {
+                /* NimBLE stores notify and indicate in the low two bits. Keep
+                 * the server mirror in sync even when the bonded host relies
+                 * on its persisted CCCD instead of writing it again. */
+                peer->subscriptions[characteristic->index] =
+                    (uint8_t)(value.flags & 0x03U);
+            } else if (cache_matches) {
+                const int slot =
+                    server_hid_subscription_slot(characteristic->hid_kind);
+                if (slot >= 0) {
+                    peer->subscriptions[characteristic->index] =
+                        peripheral->hid_subscriptions[slot];
+                }
+            }
+            server_store_hid_subscription(peer, characteristic, desc);
+        }
+    }
 }
 static void server_free(void)
 {
@@ -207,6 +285,17 @@ static void server_reset_locked(void)
         xSemaphoreGive(c->wake); server_command_release(c);
     }
 }
+static int server_unregister_services(void)
+{
+    if (!peripheral || !peripheral->registered) return 0;
+    for (server_service_t *service = peripheral->services; service;
+         service = service->next) {
+        int rc = ble_gatts_delete_svc(&service->uuid.u);
+        if (rc && rc != BLE_HS_ENOENT) return rc;
+    }
+    peripheral->registered = false;
+    return 0;
+}
 static void server_retire(void)
 {
     if (!peripheral || !peripheral->closing) return;
@@ -223,17 +312,25 @@ static void server_retire(void)
         if (!p->retiring && !ble_gap_terminate(p->conn, BLE_ERR_REM_USER_CONN_TERM)) p->retiring = true;
     }
     if (peripheral->peer_count || peripheral->untracked) return;
-    if (peripheral->registered) {
-        for (server_service_t *s = peripheral->services; s; s = s->next) {
-            int rc = ble_gatts_delete_svc(&s->uuid.u);
-            if (rc && rc != BLE_HS_ENOENT) return; /* Retain definitions on teardown failure. */
-        }
+    if (peripheral->kind == SERVER_KIND_HID) {
+        /* Bonded HOGP clients persist CCCDs by ATT handle. Keep the inactive
+         * native service registered so a later script lease reuses those
+         * handles and reconnects without pairing again. */
+        peripheral->owner = SOLAR_OS_BLE_SESSION_INVALID;
+        peripheral->closing = false;
+        peripheral->dormant = true;
+        peripheral->pairing = false;
+        peripheral->head = peripheral->count = 0;
+        peripheral->dropped = 0;
+        return;
     }
+    if (server_unregister_services()) return; /* Retain definitions on teardown failure. */
     server_free();
 }
 static int server_advertise(void)
 {
-    if (!peripheral || peripheral->closing || !peripheral->wants_advertising ||
+    if (!peripheral || peripheral->closing || peripheral->dormant ||
+        !peripheral->wants_advertising ||
         peripheral->advertising ||
         (peripheral->kind == SERVER_KIND_HID && peripheral->peer_count)) return 0;
     if (server_central_count() + peripheral->peer_count + peripheral->untracked >=
@@ -388,7 +485,16 @@ static int server_gap(struct ble_gap_event *event, void *arg)
                     .peer = p->id,
                 };
                 (void)server_hid_event(&hid_event);
-                int rc = ble_gap_security_initiate(p->conn);
+                int rc = 0;
+                if (peripheral->pairing) {
+                    struct ble_gap_conn_desc desc = {0};
+                    rc = ble_gap_conn_find(p->conn, &desc);
+                    if (!rc) {
+                        rc = ble_store_util_delete_peer(&desc.peer_id_addr);
+                        if (rc == BLE_HS_ENOENT) rc = 0;
+                    }
+                }
+                if (!rc) rc = ble_gap_security_initiate(p->conn);
                 if (rc && rc != BLE_HS_EALREADY) {
                     p->retiring = !ble_gap_terminate(p->conn, BLE_ERR_AUTH_FAIL);
                 }
@@ -432,6 +538,8 @@ static int server_gap(struct ble_gap_event *event, void *arg)
                 ble_gap_conn_find(p->conn, &desc);
             p->encrypted = !rc && desc.sec_state.encrypted;
             p->bonded = !rc && desc.sec_state.bonded;
+            if (p->bonded) peripheral->pairing = false;
+            if (!rc) server_restore_hid_subscriptions(p, &desc);
             solar_os_ble_hid_device_event_t hid_event = {
                 .type = SOLAR_OS_BLE_HID_SECURED,
                 .peer = p->id,
@@ -454,9 +562,22 @@ static int server_gap(struct ble_gap_event *event, void *arg)
         p = server_peer(0, event->subscribe.conn_handle);
         server_char_t *c = server_characteristic(0, event->subscribe.attr_handle);
         if (p && c) {
+            /* Connection teardown reports every CCCD as disabled. Those are
+             * transient link cleanup events, not host preference changes;
+             * retaining them would overwrite the bonded HID subscriptions
+             * that the next application lease needs to restore. */
+            if (peripheral->kind == SERVER_KIND_HID &&
+                event->subscribe.reason == BLE_GAP_SUBSCRIBE_REASON_TERM) {
+                break;
+            }
             p->subscriptions[c->index] = (event->subscribe.cur_notify ? 1 : 0) |
                 (event->subscribe.cur_indicate ? 2 : 0);
-            if (peripheral->kind == SERVER_KIND_GENERIC) {
+            if (peripheral->kind == SERVER_KIND_HID) {
+                struct ble_gap_conn_desc desc = {0};
+                if (!ble_gap_conn_find(p->conn, &desc)) {
+                    server_store_hid_subscription(p, c, &desc);
+                }
+            } else {
                 e.type = SOLAR_OS_BLE_SERVER_SUBSCRIBE; e.peer = p->id; e.characteristic = c->id;
                 e.notify = event->subscribe.cur_notify; e.indicate = event->subscribe.cur_indicate;
                 (void)server_event(&e);
@@ -709,6 +830,11 @@ static bool server_build_hid(void)
 static esp_err_t server_execute(uint32_t owner, solar_os_ble_server_request_t *r)
 {
     if (r->op == SOLAR_OS_BLE_SERVER_CREATE) {
+        if (peripheral && peripheral->dormant) {
+            const int rc = server_unregister_services();
+            if (rc) return solar_os_ble_nimble_error(rc);
+            server_free();
+        }
         if (peripheral || server_epoch_ticket == UINT32_MAX) return ESP_ERR_INVALID_STATE;
         size_t length = strlen(r->text), capacity = r->capacity ? r->capacity : 16;
         if (!length || length > 26 || capacity > SIZE_MAX / sizeof(solar_os_ble_server_event_t))
@@ -904,14 +1030,23 @@ static esp_err_t server_hid_execute(uint32_t owner,
                                     solar_os_ble_hid_request_t *r)
 {
     if (r->op == SOLAR_OS_BLE_HID_OP_START) {
+        const size_t length = strlen(r->name);
+        if (!length || length > 26) return ESP_ERR_INVALID_ARG;
         if (peripheral) {
-            if (peripheral->owner != owner || peripheral->kind != SERVER_KIND_HID ||
-                peripheral->closing || strcmp(peripheral->name, r->name))
+            if (peripheral->kind != SERVER_KIND_HID || peripheral->closing ||
+                (!peripheral->dormant &&
+                 (peripheral->owner != owner || strcmp(peripheral->name, r->name))))
                 return ESP_ERR_INVALID_STATE;
+            if (peripheral->dormant) {
+                if (server_epoch_ticket == UINT32_MAX) return ESP_ERR_INVALID_ARG;
+                peripheral->owner = owner;
+                peripheral->epoch = ++server_epoch_ticket;
+                peripheral->dormant = false;
+                peripheral->neutralized = false;
+                memcpy(peripheral->name, r->name, length + 1);
+            }
         } else {
-            const size_t length = strlen(r->name);
-            if (!length || length > 26 || server_epoch_ticket == UINT32_MAX)
-                return ESP_ERR_INVALID_ARG;
+            if (server_epoch_ticket == UINT32_MAX) return ESP_ERR_INVALID_ARG;
             server_state_t *s = calloc(1, sizeof(*s));
             if (!s) return ESP_ERR_NO_MEM;
             s->hid_events = calloc(16, sizeof(*s->hid_events));
@@ -959,6 +1094,18 @@ static esp_err_t server_hid_execute(uint32_t owner,
         return ESP_OK;
     }
     if (peripheral->closing) return ESP_ERR_INVALID_STATE;
+    if (r->op == SOLAR_OS_BLE_HID_OP_PAIR) {
+        peripheral->pairing = true;
+        peripheral->hid_bond_valid = false;
+        memset(peripheral->hid_subscriptions, 0,
+               sizeof(peripheral->hid_subscriptions));
+        peripheral->wants_advertising = true;
+        server_peer_t *p = peripheral->peers;
+        if (!p || p->retiring) return ESP_OK;
+        const int rc = ble_gap_terminate(p->conn, BLE_ERR_REM_USER_CONN_TERM);
+        if (!rc) p->retiring = true;
+        return solar_os_ble_nimble_error(rc);
+    }
     if (r->op == SOLAR_OS_BLE_HID_OP_STOP) {
         peripheral->closing = true;
         return ESP_OK;

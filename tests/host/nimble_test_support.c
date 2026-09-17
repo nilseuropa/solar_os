@@ -1,5 +1,6 @@
 #include "nimble_test_support.h"
 #include "esp_hid_common.h"
+#include "host/ble_store.h"
 #include "freertos/queue.h"
 #include <freertos/semphr.h>
 #include <assert.h>
@@ -61,6 +62,25 @@ int ble_gap_conn_find(uint16_t c, struct ble_gap_conn_desc *desc)
   desc->sec_state.bonded=fake.bonded; return 0; }
 int ble_store_util_delete_peer(const ble_addr_t *peer_id_addr)
 { (void)peer_id_addr; fake.store_delete_calls++; return fake.store_delete_error; }
+int ble_store_read_cccd(const struct ble_store_key_cccd *key,
+                        struct ble_store_value_cccd *value)
+{
+    fake.store_cccd_read_calls++;
+    if (!fake.store_cccd_handle ||
+        key->chr_val_handle != fake.store_cccd_handle) return BLE_HS_ENOENT;
+    *value = (struct ble_store_value_cccd){
+        .peer_addr = key->peer_addr,
+        .chr_val_handle = key->chr_val_handle,
+        .flags = fake.store_cccd_flags,
+    };
+    return 0;
+}
+int ble_store_write_cccd(const struct ble_store_value_cccd *value)
+{
+    fake.store_cccd_write_calls++;
+    fake.store_cccd_written = *value;
+    return 0;
+}
 int ble_gattc_exchange_mtu(uint16_t c, ble_gatt_mtu_fn *fn, void *arg)
 { (void)c; fake.mtu_fn = fn; fake.arg = arg; return fake.submit_error; }
 uint16_t ble_att_mtu(uint16_t c) { (void)c; return fake.mtu; }

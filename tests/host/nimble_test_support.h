@@ -1,5 +1,6 @@
 #pragma once
 #include "host/ble_hs.h"
+#include "host/ble_store.h"
 #include "nimble/nimble_port.h"
 extern struct nimble_test_state {
     int submit_error, connect_calls, cancel_calls, terminate_calls, security_calls, read_calls, write_calls;
@@ -18,6 +19,9 @@ extern struct nimble_test_state {
     size_t written_len;
     int server_add_error, server_delete_error, server_add_calls, server_delete_calls, adv_calls, notify_calls;
     int store_delete_error, store_delete_calls;
+    int store_cccd_read_calls, store_cccd_write_calls;
+    uint16_t store_cccd_handle, store_cccd_flags;
+    struct ble_store_value_cccd store_cccd_written;
     bool advertising, mbuf_fail, encrypted, bonded;
     uint16_t appearance;
     char device_name[27];

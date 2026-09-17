@@ -410,7 +410,7 @@ static esp_err_t ble_hid_request(solar_os_ble_session_t session,
                                  solar_os_ble_hid_request_t *request)
 {
     if (!request || request->op < SOLAR_OS_BLE_HID_OP_START ||
-        request->op > SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND ||
+        request->op > SOLAR_OS_BLE_HID_OP_PAIR ||
         !memchr(request->name, 0, sizeof(request->name))) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -451,6 +451,12 @@ esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
 esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session)
 {
     solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_STOP};
+    return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_device_pair(solar_os_ble_session_t session)
+{
+    solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_PAIR};
     return ble_hid_request(session, &request);
 }
 

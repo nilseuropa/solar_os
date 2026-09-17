@@ -50,6 +50,7 @@ typedef enum {
     SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
     SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
     SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND,
+    SOLAR_OS_BLE_HID_OP_PAIR,
 } solar_os_ble_hid_operation_t;
 
 typedef struct {

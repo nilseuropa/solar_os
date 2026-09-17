@@ -76,7 +76,9 @@ when finished with a peer.
 `solaros.ble.hid` mirrors the
 [Python BLE HID API](python.ble.md#solarosblehid). `start(name)` publishes a
 fixed encrypted and bonded composite keyboard, mouse, and gamepad service for
-one host. `status()` returns connection, security, subscription, keyboard LED,
+one host. `pair()` explicitly forgets the next connecting peer's old HID bond
+before security; call it only for a user-requested new-host pairing flow.
+`status()` returns connection, security, subscription, keyboard LED,
 and queue state. `poll()` returns `nil` or a `connected`, `secured`,
 `disconnected`, `keyboard-leds`, or `passkey` event. Render a passkey as six
 digits and enter it on the remote host.
@@ -84,6 +86,7 @@ digits and enter it on the remote host.
 ```lua
 local hid = solaros.ble.hid
 hid.start("SolarOS Controls")
+hid.pair()
 
 while not solaros.should_exit() do
     local event = hid.poll()

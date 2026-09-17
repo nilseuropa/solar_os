@@ -42,6 +42,8 @@ and teardown; scripts cannot publish arbitrary HID descriptors or report bytes.
 ```python
 hid = solaros.ble.hid
 hid.start("SolarOS Controls")
+# Call only after an explicit user action to pair a new host.
+hid.pair()
 
 while not solaros.should_exit():
     event = hid.poll()
@@ -58,6 +60,9 @@ while not solaros.should_exit():
 - `start(name)`: acquire the application-peripheral lease and start connectable
   advertising. The name is 1..26 bytes without an embedded NUL. One remote host
   can connect at a time.
+- `pair()`: enter explicit new-host pairing mode. SolarOS removes the next
+  connecting peer's stored HID bond before starting security. Omit this on
+  normal startup so a remembered host reconnects without pairing again.
 - `stop()`: send best-effort neutral keyboard, mouse, and gamepad reports, stop
   advertising, disconnect the host, and retire the service.
 - `status()`: return `registered`, `advertising`, `closing`, `connected`,
