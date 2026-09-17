@@ -20,6 +20,8 @@ void solar_os_ble_service_event(const solar_os_ble_backend_event_t *e)
     if (e->value && e->value_len) memcpy(received_value, e->value, e->value_len);
 }
 int solar_os_ble_nimble_security(struct ble_gap_event *e) { (void)e; return 0; }
+int solar_os_ble_nimble_security_passkey(struct ble_gap_event *e, uint32_t *passkey)
+{ (void)e; *passkey = 12345; return 0; }
 static struct ble_gatt_error ok, done = {.status=BLE_HS_EDONE};
 static const uint8_t address[] = {0xa0,2,0xa5,0xcb,0xc6,0xf8};
 

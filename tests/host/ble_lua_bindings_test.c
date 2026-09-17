@@ -260,6 +260,10 @@ int main(void)
            "assert(not pcall(hid.start,'x'..string.char(0))); hid.start('Lua HID'); "
            "assert(hid.status().event_capacity==16 and hid.poll()==nil)");
     assert(fake_hid_owner == solua_ble_session);
+    fake_hid_event=(solar_os_ble_hid_device_event_t){
+        .type=SOLAR_OS_BLE_HID_PASSKEY,.peer=7,.passkey=12345};
+    fake_hid_event_ready=true;
+    run(L, "local e=hid.poll(); assert(e.type=='passkey' and e.peer==7 and e.passkey==12345)");
     run(L, "assert(not pcall(hid.keyboard.press)); assert(not pcall(hid.keyboard.press,-1)); "
            "hid.keyboard.press(260,4); hid.keyboard.release(4); hid.keyboard.release_all()");
     assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL);

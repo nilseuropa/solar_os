@@ -2,6 +2,19 @@
 
 ## 4.x
 
+- **4.11.2** — 2026-09-17 — Added a native composite BLE HID peripheral API
+  for Python and Lua applications. SolarOS devices can now advertise as a
+  bonded and encrypted keyboard, mouse, and gamepad, send typed input reports,
+  receive keyboard LED state, and clean up connections automatically when an
+  application exits. Configured peripheral names now remain consistent after
+  a host resolves the GATT device name. HID pairing passkeys are delivered to
+  applications without interrupting remembered keyboard reconnects, and stale
+  host bonds can be replaced without forgetting the physical keyboard. Python
+  startup failures caused by fragmented internal memory now report the
+  available and largest blocks and expose task-stack admission diagnostics
+  through `mem policy`. Hardware commands now complete their GNSS, NFC, IMU,
+  haptic, and charger subcommands and report explicitly when no matching
+  hardware provider is registered.
 - **4.11.1** — 2026-09-15 — Added T-LoRa-Pager support for the u-blox
   MIA-M10Q GNSS receiver, ST25R3916 NFC-A reader, BHI260AP six-axis IMU,
   XL9555 GPIO expander, DRV2605 haptic controller, and BQ25896 battery

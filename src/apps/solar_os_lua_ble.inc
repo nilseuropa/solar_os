@@ -431,7 +431,7 @@ static int solua_ble_hid_status(lua_State *L)
 static int solua_ble_hid_poll(lua_State *L)
 {
     static const char *types[] = {
-        "connected", "disconnected", "secured", "keyboard-leds",
+        "connected", "disconnected", "secured", "keyboard-leds", "passkey",
     };
     solar_os_ble_hid_device_event_t event;
     const esp_err_t err = solar_os_ble_hid_device_poll(solua_ble_get(L), &event);
@@ -440,9 +440,10 @@ static int solua_ble_hid_poll(lua_State *L)
         return 1;
     }
     solua_ble_check(L, err);
-    lua_createtable(L, 0, 6);
+    lua_createtable(L, 0, 7);
     solua_set_str(L, -1, "type", types[event.type]);
     solua_set_int(L, -1, "peer", event.peer);
+    solua_set_int(L, -1, "passkey", event.passkey);
     solua_set_int(L, -1, "status", event.status);
     solua_set_bool(L, -1, "encrypted", event.encrypted);
     solua_set_bool(L, -1, "bonded", event.bonded);

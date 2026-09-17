@@ -59,6 +59,8 @@ int ble_gap_security_initiate(uint16_t c) { (void)c; fake.security_calls++; retu
 int ble_gap_conn_find(uint16_t c, struct ble_gap_conn_desc *desc)
 { (void)c; desc->peer_id_addr=fake.address; desc->sec_state.encrypted=fake.encrypted;
   desc->sec_state.bonded=fake.bonded; return 0; }
+int ble_store_util_delete_peer(const ble_addr_t *peer_id_addr)
+{ (void)peer_id_addr; fake.store_delete_calls++; return fake.store_delete_error; }
 int ble_gattc_exchange_mtu(uint16_t c, ble_gatt_mtu_fn *fn, void *arg)
 { (void)c; fake.mtu_fn = fn; fake.arg = arg; return fake.submit_error; }
 uint16_t ble_att_mtu(uint16_t c) { (void)c; return fake.mtu; }

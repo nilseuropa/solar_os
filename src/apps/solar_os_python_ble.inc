@@ -456,14 +456,17 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_status_obj, solaros_ble_hid_status);
 
 static mp_obj_t solaros_ble_hid_poll(void)
 {
-    static const char *types[] = {"connected", "disconnected", "secured", "keyboard-leds"};
+    static const char *types[] = {
+        "connected", "disconnected", "secured", "keyboard-leds", "passkey",
+    };
     solar_os_ble_hid_device_event_t event;
     esp_err_t err = solar_os_ble_hid_device_poll(python_ble_get(), &event);
     if (err == ESP_ERR_NOT_FOUND) return mp_const_none;
     python_ble_check(err);
-    mp_obj_t result = mp_obj_new_dict(6);
+    mp_obj_t result = mp_obj_new_dict(7);
     python_dict_store_cstr(result, "type", types[event.type]);
     python_dict_store_uint(result, "peer", event.peer);
+    python_dict_store_uint(result, "passkey", event.passkey);
     python_dict_store_uint(result, "status", event.status);
     python_dict_store_bool(result, "encrypted", event.encrypted);
     python_dict_store_bool(result, "bonded", event.bonded);

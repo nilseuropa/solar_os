@@ -78,7 +78,8 @@ when finished with a peer.
 fixed encrypted and bonded composite keyboard, mouse, and gamepad service for
 one host. `status()` returns connection, security, subscription, keyboard LED,
 and queue state. `poll()` returns `nil` or a `connected`, `secured`,
-`disconnected`, or `keyboard-leds` event.
+`disconnected`, `keyboard-leds`, or `passkey` event. Render a passkey as six
+digits and enter it on the remote host.
 
 ```lua
 local hid = solaros.ble.hid
@@ -86,7 +87,12 @@ hid.start("SolarOS Controls")
 
 while not solaros.should_exit() do
     local event = hid.poll()
-    if event then print(event.type, event.status) end
+    if event then
+        print(event.type, event.status)
+        if event.type == "passkey" then
+            print(string.format("Enter %06d on the remote host", event.passkey))
+        end
+    end
     if hid.status().gamepad_subscribed then
         hid.gamepad.axis(hid.AXIS_X, -12000)
         hid.gamepad.button(1, true)

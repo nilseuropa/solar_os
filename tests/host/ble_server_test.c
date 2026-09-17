@@ -13,7 +13,11 @@ static void *server_test_calloc(size_t n, size_t size)
 #include "../../src/services/solar_os_ble_nimble.c"
 #undef calloc
 void solar_os_ble_service_event(const solar_os_ble_backend_event_t *event) { (void)event; }
-int solar_os_ble_nimble_security(struct ble_gap_event *event) { (void)event; return 0; }
+static int shared_security_calls, passkey_security_calls;
+int solar_os_ble_nimble_security(struct ble_gap_event *event)
+{ (void)event; shared_security_calls++; return 0; }
+int solar_os_ble_nimble_security_passkey(struct ble_gap_event *event, uint32_t *passkey)
+{ (void)event; passkey_security_calls++; *passkey = 12345; return 0; }
 
 static esp_err_t execute(uint32_t owner, solar_os_ble_server_request_t *r)
 {
@@ -228,6 +232,25 @@ int main(void)
     assert(execute_hid(77,&hid)==ESP_ERR_INVALID_STATE);
     connect_peer(31); assert(fake.security_calls==1 && peripheral->peer_count==1);
     assert(!peripheral->advertising); /* HID accepts one active host. */
+    const uint32_t hid_peer = peripheral->peers->id;
+    struct ble_gap_event passkey_event={.type=BLE_GAP_EVENT_PASSKEY_ACTION,
+        .passkey={.conn_handle=31}};
+    fake.server_gap(&passkey_event,fake.server_gap_arg);
+    assert(passkey_security_calls==1 && shared_security_calls==0);
+    struct ble_gap_event repeat_pairing={.type=BLE_GAP_EVENT_REPEAT_PAIRING,
+        .repeat_pairing={.conn_handle=31}};
+    assert(fake.server_gap(&repeat_pairing,fake.server_gap_arg)==BLE_GAP_REPEAT_PAIRING_RETRY);
+    assert(fake.store_delete_calls==1 && shared_security_calls==0);
+    bool saw_passkey=false;
+    while (true) {
+        hid=(solar_os_ble_hid_request_t){.op=SOLAR_OS_BLE_HID_OP_POLL};
+        if (execute_hid(77,&hid)==ESP_ERR_NOT_FOUND) break;
+        if (hid.event.type==SOLAR_OS_BLE_HID_PASSKEY) {
+            assert(hid.event.peer==hid_peer && hid.event.passkey==12345);
+            saw_passkey=true;
+        }
+    }
+    assert(saw_passkey);
     fake.encrypted=true; fake.bonded=true;
     struct ble_gap_event secured={.type=BLE_GAP_EVENT_ENC_CHANGE,
         .enc_change={.conn_handle=31}};

@@ -47,6 +47,8 @@ while not solaros.should_exit():
     event = hid.poll()
     if event is not None:
         print(event)
+        if event["type"] == "passkey":
+            print("Enter %06d on the remote host" % event["passkey"])
     if hid.status()["keyboard_subscribed"]:
         hid.keyboard.press(hid.KEY_LEFT_CTRL, hid.KEY_A)
         hid.keyboard.release_all()
@@ -62,7 +64,8 @@ while not solaros.should_exit():
   `encrypted`, `bonded`, `keyboard_subscribed`, `mouse_subscribed`,
   `gamepad_subscribed`, `keyboard_leds`, and event queue counters.
 - `poll()`: nonblocking; return `None` when empty or an event dictionary. Event
-  types are `connected`, `secured`, `disconnected`, and `keyboard-leds`.
+  types are `connected`, `secured`, `disconnected`, `keyboard-leds`, and
+  `passkey`. Render a passkey as six digits and enter it on the remote host.
 - `keyboard.press(*keys)`, `keyboard.release(*keys)`, and
   `keyboard.release_all()` use the `KEY_*` constants. Up to six ordinary keys
   plus modifiers can be held.

@@ -343,6 +343,17 @@ static int server_descriptor_access(uint16_t conn, uint16_t handle,
     unlock();
     return rc;
 }
+static int server_repeat_pairing(struct ble_gap_event *event)
+{
+    struct ble_gap_conn_desc desc = {0};
+    if (ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc)) {
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    }
+    if (ble_store_util_delete_peer(&desc.peer_id_addr)) {
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    }
+    return BLE_GAP_REPEAT_PAIRING_RETRY;
+}
 static int server_gap(struct ble_gap_event *event, void *arg)
 {
     lock();
@@ -350,6 +361,10 @@ static int server_gap(struct ble_gap_event *event, void *arg)
     solar_os_ble_server_event_t e = {0};
     server_peer_t *p = NULL;
     bool delegate_security = false;
+    bool hid_passkey = false;
+    bool hid_repeat_pairing = false;
+    uint32_t security_epoch = 0;
+    uint32_t security_peer = SOLAR_OS_BLE_PEER_INVALID;
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         peripheral->advertising = false;
@@ -463,14 +478,50 @@ static int server_gap(struct ble_gap_event *event, void *arg)
         break;
     }
     case BLE_GAP_EVENT_PASSKEY_ACTION:
+        if (peripheral->kind == SERVER_KIND_HID) {
+            p = server_peer(0, event->passkey.conn_handle);
+            if (p) {
+                hid_passkey = true;
+                security_epoch = peripheral->epoch;
+                security_peer = p->id;
+            } else {
+                (void)ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
+            }
+        } else delegate_security = true;
+        break;
     case BLE_GAP_EVENT_REPEAT_PAIRING:
-        delegate_security = true;
+        if (peripheral->kind == SERVER_KIND_HID &&
+            server_peer(0, event->repeat_pairing.conn_handle)) {
+            hid_repeat_pairing = true;
+        } else delegate_security = true;
         break;
     default: break;
     }
     /* Defer registration, advertising restart and deletion out of GAP callbacks. */
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &command_event);
     unlock();
+    if (hid_passkey) {
+        uint32_t passkey = UINT32_MAX;
+        const int rc = solar_os_ble_nimble_security_passkey(event, &passkey);
+        if (rc || passkey == UINT32_MAX) return rc;
+        lock();
+        p = peripheral && peripheral->epoch == security_epoch &&
+            security_peer != SOLAR_OS_BLE_PEER_INVALID ?
+            server_peer(security_peer, event->passkey.conn_handle) : NULL;
+        if (p) {
+            solar_os_ble_hid_device_event_t hid_event = {
+                .type = SOLAR_OS_BLE_HID_PASSKEY,
+                .peer = p->id,
+                .passkey = passkey,
+            };
+            if (!server_hid_event(&hid_event)) {
+                p->retiring = !ble_gap_terminate(p->conn, BLE_ERR_AUTH_FAIL);
+            }
+        }
+        unlock();
+        return 0;
+    }
+    if (hid_repeat_pairing) return server_repeat_pairing(event);
     return delegate_security ? solar_os_ble_nimble_security(event) : 0;
 }
 static bool server_uuid(const char *text, ble_uuid_any_t *uuid)

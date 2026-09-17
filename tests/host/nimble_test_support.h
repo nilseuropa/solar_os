@@ -17,6 +17,7 @@ extern struct nimble_test_state {
     uint8_t written[128];
     size_t written_len;
     int server_add_error, server_delete_error, server_add_calls, server_delete_calls, adv_calls, notify_calls;
+    int store_delete_error, store_delete_calls;
     bool advertising, mbuf_fail, encrypted, bonded;
     uint16_t appearance;
     char device_name[27];

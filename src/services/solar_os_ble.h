@@ -39,11 +39,13 @@ typedef enum {
     SOLAR_OS_BLE_HID_DISCONNECTED,
     SOLAR_OS_BLE_HID_SECURED,
     SOLAR_OS_BLE_HID_KEYBOARD_LEDS,
+    SOLAR_OS_BLE_HID_PASSKEY,
 } solar_os_ble_hid_device_event_type_t;
 
 typedef struct {
     solar_os_ble_hid_device_event_type_t type;
     uint32_t peer;
+    uint32_t passkey;
     uint16_t status;
     uint8_t keyboard_leds;
     bool encrypted;
