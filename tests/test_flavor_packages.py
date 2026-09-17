@@ -618,7 +618,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(rover_groups["ota"])
         self.assertTrue(rover_groups["logging"])
         self.assertTrue(rover_groups["bridge"])
-        self.assertFalse(rover_groups["audio_commands"])
+        self.assertTrue(rover_groups["audio_commands"])
         self.assertFalse(rover_groups["agent"])
         self.assertTrue(rover_groups["ssh"])
         self.assertTrue(rover_groups["image_viewer"])
@@ -640,6 +640,11 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(rover_packages["app_gameboy"])
         self.assertFalse(rover_packages["app_python"])
         self.assertFalse(rover_packages["app_lua"])
+
+    def test_vga32_keeps_its_public_flavor_name(self):
+        vga32_name, _, _, _ = self.resolve("vga32")
+
+        self.assertEqual(vga32_name, "vga32")
 
     def test_existing_flavors_preserve_hardware_job_selection(self):
         for flavor in ("core", "full", "netrunner"):

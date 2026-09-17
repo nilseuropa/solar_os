@@ -1348,10 +1348,10 @@ def main() -> int:
     parser.add_argument("--layout", choices=("ota", "single"),
                         help="preselect the update layout")
     parser.add_argument("--upload-port", help="serial port passed to PlatformIO upload")
-    parser.add_argument("--name", help="flavor name (defaults to the output filename)")
+    parser.add_argument("--name", help="override the input flavor name")
     parser.add_argument(
         "--description",
-        default="Custom SolarOS flavor created with os_builder.",
+        help="override the input flavor description",
     )
     parser.add_argument("--list", action="store_true",
                         help="list boards and board-filtered groups without starting curses")
@@ -1359,7 +1359,7 @@ def main() -> int:
 
     try:
         catalog = load_catalog(args.packages)
-        load_flavor(args.input, catalog)
+        input_name, input_description, _, _ = load_flavor(args.input, catalog)
         requested = load_requested_packages(args.input, catalog)
         boards = load_board_contexts()
         if not boards:
@@ -1454,7 +1454,12 @@ def main() -> int:
             print(f"size model: {estimator.provenance}")
             return 0
 
-        flavor_name = args.name or args.output.stem
+        flavor_name = args.name or input_name
+        description = (
+            args.description
+            if args.description is not None
+            else input_description
+        )
         saved, model, selected_board, layout = curses.wrapper(
             _run_tui,
             catalog,
@@ -1466,7 +1471,7 @@ def main() -> int:
             args.input,
             args.output,
             flavor_name,
-            args.description,
+            description,
             args.upload_port,
         )
         if not saved:

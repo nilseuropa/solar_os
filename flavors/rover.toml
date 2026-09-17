@@ -1,6 +1,6 @@
 [flavor]
-name = "custom"
-description = "Custom SolarOS flavor created with os_builder."
+name = "rover"
+description = "Custom SolarOS flavor created for Rover."
 
 [groups]
 hardware_shell = true
