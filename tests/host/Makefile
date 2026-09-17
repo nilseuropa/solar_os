@@ -24,7 +24,8 @@ ble_nimble_test ble_hid_test ble_server_test: %: %.c nimble_test_support.c ble_t
 		$(ROOT)/src/services/solar_os_ble_nimble_server.inc \
 		$(wildcard $(ROOT)/src/services/solar_os_ble*.h) \
 		$(wildcard ble_stubs/freertos/*.h) \
-		$(wildcard nimble_stubs/*/*.h) $(wildcard nimble_stubs/*.h)
+		$(wildcard nimble_stubs/*/*/*.h) $(wildcard nimble_stubs/*/*.h) \
+		$(wildcard nimble_stubs/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -D_POSIX_C_SOURCE=200809L -pthread -include compat.h \
 		-Inimble_stubs -Ible_stubs -I. -I$(ROOT)/src/services \
 		$< nimble_test_support.c ble_test_support.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@

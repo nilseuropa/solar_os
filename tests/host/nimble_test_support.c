@@ -119,6 +119,8 @@ int ble_uuid_cmp(const ble_uuid_t *a, const ble_uuid_t *b)
     return memcmp(((const ble_uuid128_t *)a)->value, ((const ble_uuid128_t *)b)->value, 16);
 }
 int ble_gap_adv_stop(void) { fake.advertising = false; return 0; }
+int ble_svc_gap_device_name_set(const char *name)
+{ assert(strlen(name) <= 26); strcpy(fake.device_name, name); return fake.submit_error; }
 int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields)
 { fake.appearance = fields->appearance_is_present ? fields->appearance : 0; return fake.submit_error; }
 int ble_gap_adv_rsp_set_fields(const struct ble_hs_adv_fields *fields) { assert(fields->name_len <= 26); return fake.submit_error; }

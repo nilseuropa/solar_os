@@ -67,6 +67,7 @@ static void start_server(void)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_START};
     assert(execute(42,&r)==ESP_OK && peripheral->registered && peripheral->advertising);
+    assert(!strcmp(fake.device_name,"SolarOS Test"));
 }
 static void drain_events(void)
 {
@@ -205,6 +206,7 @@ int main(void)
     solar_os_ble_hid_request_t hid={.op=SOLAR_OS_BLE_HID_OP_START,.name="SolarOS HID"};
     assert(execute_hid(77,&hid)==ESP_OK && peripheral->kind==SERVER_KIND_HID);
     assert(peripheral->registered && peripheral->advertising && fake.appearance==0x03c0);
+    assert(!strcmp(fake.device_name,"SolarOS HID"));
     assert(ble_uuid_u16(&peripheral->services->uuid.u)==0x1812);
     server_char_t *map=hid_characteristic(SERVER_HID_REPORT_MAP);
     server_char_t *keyboard=hid_characteristic(SERVER_HID_KEYBOARD_INPUT);

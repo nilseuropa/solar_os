@@ -19,6 +19,7 @@ extern struct nimble_test_state {
     int server_add_error, server_delete_error, server_add_calls, server_delete_calls, adv_calls, notify_calls;
     bool advertising, mbuf_fail, encrypted, bonded;
     uint16_t appearance;
+    char device_name[27];
     ble_gap_event_fn *server_gap;
     void *server_gap_arg;
     const struct ble_gatt_svc_def *server_definitions;

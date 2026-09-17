@@ -243,6 +243,8 @@ static int server_advertise(void)
         peripheral->pending_peer = calloc(1, sizeof(server_peer_t) + peripheral->char_count + 1);
         if (!peripheral->pending_peer) return BLE_HS_ENOMEM;
     }
+    int rc = ble_svc_gap_device_name_set(peripheral->name);
+    if (rc) return rc;
     struct ble_hs_adv_fields fields = {0};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     if (peripheral->kind == SERVER_KIND_HID) {
@@ -258,7 +260,7 @@ static int server_advertise(void)
     } else {
         fields.uuids128 = &uuid->u128; fields.num_uuids128 = 1;
     }
-    int rc = ble_gap_adv_set_fields(&fields);
+    rc = ble_gap_adv_set_fields(&fields);
     if (rc) return rc;
     memset(&fields, 0, sizeof(fields));
     fields.name = (uint8_t *)peripheral->name;
