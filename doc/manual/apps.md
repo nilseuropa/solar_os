@@ -985,10 +985,10 @@ Controls:
 
 Original Game Boy (DMG) emulator selected by the `gameboy` group on boards with
 PSRAM, SD storage, graphics, and a streaming display. Current integrated
-targets are Waveshare RLCD, Freenove IPS, ODROID-GO, Freenove PAL, and TTGO
-VGA32. The application loads a user-supplied ROM into PSRAM and writes
-battery-backed cartridge RAM beside it as a `.sav` file. Game Boy Color-only
-ROMs and ROMs larger than 4 MiB are rejected.
+targets are SolarTerm, Freenove IPS, CL-32, T-LoRa-Pager, T-Deck Plus,
+ODROID-GO, Freenove PAL, and TTGO VGA32. The application loads a user-supplied
+ROM into PSRAM and writes battery-backed cartridge RAM beside it as a `.sav`
+file. Game Boy Color-only ROMs and ROMs larger than 4 MiB are rejected.
 
 The emulator runs Peanut-GB at its fixed native frame frequency in a dedicated
 worker. Peanut-GB renders alternate LCD frames, producing a compact 160x144

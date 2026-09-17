@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "cvbs", "pal", "vga32", "cardkb", "keyboard", "tca8418", "rotary-encoder", "sdmmc", "sdspi", "micro-sd", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "bq27220", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver category attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 cvbs pal composite vga vga32 waveshare cardkb m5stack keyboard tca8418 rotary encoder quadrature mouse joystick pointer input i2c sd sdmmc sdspi microsd storage oled lcd sensor peripheral battery fuel gauge bq27220 audio pwm ledc pcm1808 adc pcm5102 es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "keyboard", "tca8418", "rotary-encoder", "ft6336", "gt911", "sdmmc", "sdspi", "micro-sd", "pcf85063", "shtc3", "battery-adc", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver category attach detach bindings display epaper e-paper ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tdeck keyboard tca8418 rotary encoder quadrature mouse joystick pointer ft6336 gt911 input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 sensor shtc3 peripheral battery battery-adc fuel gauge bq27220 charger bq25896 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -25,23 +25,28 @@ an `ft6336` attachment; Waveshare `rtc0` and `environment0` use `pcf85063` and
 `shtc3`; and the supported battery boards expose `battery0` through
 `battery-adc`. TTGO VGA32 `keyboard0` is a `ps2-keyboard` attachment. Built-in
 audio also appears as `audio0`: Waveshare uses `es8311-es7210`, Freenove uses
-`es8311-duplex`, and classic ESP32 audio boards use `esp32-dac`. CL-32 declares
-its integrated AVR as fixed `core0`; its polled event FIFO supplies the
-`keyboard0` input source and its voltage and power-status registers supply
-`battery0`. Generic input, time, sensor, battery, and audio services consume the
-same runtime providers whether the attachment came from the board profile or
-the shell.
+`es8311-duplex`, T-Deck Plus uses `i2s-output` with a separate `es7210` capture
+device, and classic ESP32 audio boards use `esp32-dac`. CL-32 declares its
+integrated AVR as fixed `core0`; its polled event FIFO supplies the `keyboard0`
+input source and its voltage and power-status registers supply `battery0`.
+Generic input, time, sensor, battery, and audio services consume the same
+runtime providers whether the attachment came from the board profile or the
+shell.
 
 Built-in displays follow the same rule and appear as fixed `display0`
 attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses
 `ili9341`, Elecrow CrowPanel uses `ssd1683`, ESP32-WROVER v3.0 uses `cvbs-pal`,
-and TTGO VGA32 uses `vga32`. They attach before the splash and primary display
-service start.
+T-LoRa-Pager uses `st7796`, T-Deck Plus uses `st7789`, and TTGO VGA32 uses
+`vga32`. They attach before the splash and primary display service start.
 
 Built-in SDMMC slots also appear as fixed `storage0` attachments. Waveshare and
 ESP32-WROVER v3.0 use one-bit bindings; Freenove uses four-bit bindings. The
 attachment claims and configures the pins early, while the normal storage phase
 still probes and mounts the card.
+
+Elecrow CrowPanel, CL-32, T-LoRa-Pager, and T-Deck Plus use fixed `sdspi`
+attachments instead. Their built-in SPI devices share named buses while
+claiming separate chip-select resources.
 
 Named MIDI connections are created as buses rather than attached drivers. Use
 `expansion bus create midi <name> tx=<gpio> rx=<gpio>`; SolarOS chooses the UART

@@ -26,8 +26,13 @@ platform:
 ```sh
 pio run -e solar_term
 pio run -e freenove_esp32_s3_display_4_0
+pio run -e cl_32
+pio run -e t_lora_pager
+pio run -e t_deck_plus
 pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 pio run -e odroid_go
+pio run -e freenove_esp32_wrover_v3
+pio run -e esp32_devkitc_v4_wrover
 pio run -e ttgo_vga32_v14
 pio run -e esp32_s3_devkitc1_n16r8
 pio run -t upload

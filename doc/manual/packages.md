@@ -30,23 +30,25 @@ network sources can share the same decoder without owning an audio device.
 board with expansion PWM it can therefore add a runtime playback device even
 when no built-in codec or DAC exists.
 `expansion.pcm5102` follows the same ownership model on boards with the
-`expansion_i2s` capability and adds an I2S playback device without requiring
-built-in audio. `expansion.pcm1808` uses that model for a four-GPIO I2S capture
-device. The capability guarantees a spare I2S controller and runtime-safe
-GPIOs; individual driver binding validation enforces the required signal
-count. Both packages are pruned from boards such as ODROID-GO that cannot
-expose an I2S controller for expansion use.
+`expansion_i2s` capability and provides both the PCM5102-specific and generic
+`i2s-output` playback drivers. `expansion.pcm1808` uses that model for a
+four-GPIO I2S capture device, while `expansion.es7210` adds I2C-controlled
+ES7210 stereo capture. The capability guarantees a spare I2S controller and
+runtime-safe GPIOs; individual driver binding validation enforces the required
+signal count. These packages are pruned from boards such as ODROID-GO that
+cannot expose an I2S controller for expansion use.
 `driver.audio-es8311` provides the `es8311-es7210` and `es8311-duplex` drivers
 only for ESP32-S3 targets with I2C and expansion I2S resources.
 `driver.audio-esp32-dac` provides `esp32-dac` only for classic ESP32 targets.
 Both use the generic audio backend; a board with built-in audio declares a
 fixed default attachment instead of compiling a separate board adapter.
 The `driver.display-st7305`, `driver.display-st7796`,
-`driver.display-ili9341`, `driver.display-cvbs-pal`, `driver.display-vga32`, and
-`expansion.ssd1683` packages use the same model. Each package registers an
-expansion driver and a board with that integrated panel declares an immutable
-early `display0` attachment. SSD1683, ST7305, ST7796, and ILI9341 are available
-on both ESP32 and ESP32-S3. The I2S-based CVBS PAL and VGA32 implementations
+`driver.display-st7789`, `driver.display-ili9341`, `driver.display-cvbs-pal`,
+`driver.display-vga32`, and `expansion.ssd1683` packages use the same model.
+Each package registers an expansion driver and a board with that integrated
+panel declares an immutable early `display0` attachment. SSD1683, ST7305,
+ST7796, and ILI9341 are available on both ESP32 and ESP32-S3; ST7789 is
+currently ESP32-S3-only. The I2S-based CVBS PAL and VGA32 implementations
 remain specific to classic ESP32. Generic services do not select these
 implementations with driver-specific preprocessor branches.
 `expansion.ssd1683` uses a named SPI bus and claimed CS, D/C, reset, BUSY, and

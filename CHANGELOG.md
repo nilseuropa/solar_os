@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.12.0** — 2026-09-17 — Added the LilyGO T-Deck Plus target with its
+  320x240 ST7789 display, GT911 touch controller, raw-matrix keyboard,
+  five-way trackball, microSD slot, I2S speaker output, ES7210 microphone
+  input, SX1262 radio, MIA-M10Q GNSS receiver, battery monitor, native USB
+  CDC, Wi-Fi, and BLE. The new display, touch, keyboard, audio, and microphone
+  paths use reusable expansion drivers and resource-managed bindings. GT911
+  attachments can declare and probe both common strap addresses while claiming
+  both addresses before startup. T-LoRa-Pager now sequences shared-SPI startup
+  safely, keeps GNSS and NFC registry state in internal memory, uploads
+  BHI260AP firmware without truncating 256-byte I2C transfers, and waits for
+  the MIA-M10Q to become responsive during startup.
 - **4.11.2** — 2026-09-17 — Added a native composite BLE HID peripheral API
   for Python and Lua applications. SolarOS devices can now advertise as a
   bonded and encrypted keyboard, mouse, and gamepad, send typed input reports,

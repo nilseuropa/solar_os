@@ -72,10 +72,18 @@ Built-in targets include:
   with speaker, microphone, SD, and battery monitoring.
 - `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 e-paper HMI with rotary
   controls and microSD.
+- `cl_32`: compact 384x168 reflective terminal with an integrated keyboard,
+  microSD, RTC, battery monitor, and PWM audio.
+- `t_lora_pager`: 480x222 pager with keyboard, rotary input, LoRa, GNSS, NFC,
+  IMU, haptics, microSD, RTC, battery management, and audio.
+- `t_deck_plus`: 320x240 touch terminal with keyboard, trackball, LoRa, GNSS,
+  microSD, speaker output, and microphone input.
 - `odroid_go`: classic ESP32 handheld.
+- `freenove_esp32_wrover_v3`: classic ESP32 headless/PAL-composite target.
 - `ttgo_vga32_v14`: classic ESP32 desktop terminal with VGA, mono DAC audio,
   PS/2 keyboard, and microSD.
 - `esp32_s3_devkitc1_n16r8`: minimal headless ESP32-S3 target.
+- `esp32_devkitc_v4_wrover`: minimal headless classic ESP32 target with PSRAM.
 
 See `man boards` for the complete board table, capability flags, pins, build
 environments, and bring-up checklist. See `man packages` for firmware flavors
