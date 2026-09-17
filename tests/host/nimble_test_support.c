@@ -1,5 +1,6 @@
 #include "nimble_test_support.h"
 #include "esp_hid_common.h"
+#include "host/ble_store.h"
 #include "freertos/queue.h"
 #include <freertos/semphr.h>
 #include <assert.h>
@@ -55,9 +56,31 @@ int ble_gap_connect(uint8_t own, const ble_addr_t *addr, int ms, const void *par
   fake.gap = fn; fake.gap_arg = arg; return fake.submit_error; }
 int ble_gap_conn_cancel(void) { fake.cancel_calls++; return 0; }
 int ble_gap_terminate(uint16_t c, uint8_t r) { (void)c; (void)r; fake.terminate_calls++; return 0; }
-int ble_gap_security_initiate(uint16_t c) { (void)c; return fake.submit_error; }
+int ble_gap_security_initiate(uint16_t c) { (void)c; fake.security_calls++; return fake.submit_error; }
 int ble_gap_conn_find(uint16_t c, struct ble_gap_conn_desc *desc)
-{ (void)c; desc->peer_id_addr=fake.address; return 0; }
+{ (void)c; desc->peer_id_addr=fake.address; desc->sec_state.encrypted=fake.encrypted;
+  desc->sec_state.bonded=fake.bonded; return 0; }
+int ble_store_util_delete_peer(const ble_addr_t *peer_id_addr)
+{ (void)peer_id_addr; fake.store_delete_calls++; return fake.store_delete_error; }
+int ble_store_read_cccd(const struct ble_store_key_cccd *key,
+                        struct ble_store_value_cccd *value)
+{
+    fake.store_cccd_read_calls++;
+    if (!fake.store_cccd_handle ||
+        key->chr_val_handle != fake.store_cccd_handle) return BLE_HS_ENOENT;
+    *value = (struct ble_store_value_cccd){
+        .peer_addr = key->peer_addr,
+        .chr_val_handle = key->chr_val_handle,
+        .flags = fake.store_cccd_flags,
+    };
+    return 0;
+}
+int ble_store_write_cccd(const struct ble_store_value_cccd *value)
+{
+    fake.store_cccd_write_calls++;
+    fake.store_cccd_written = *value;
+    return 0;
+}
 int ble_gattc_exchange_mtu(uint16_t c, ble_gatt_mtu_fn *fn, void *arg)
 { (void)c; fake.mtu_fn = fn; fake.arg = arg; return fake.submit_error; }
 uint16_t ble_att_mtu(uint16_t c) { (void)c; return fake.mtu; }
@@ -118,7 +141,10 @@ int ble_uuid_cmp(const ble_uuid_t *a, const ble_uuid_t *b)
     return memcmp(((const ble_uuid128_t *)a)->value, ((const ble_uuid128_t *)b)->value, 16);
 }
 int ble_gap_adv_stop(void) { fake.advertising = false; return 0; }
-int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields) { (void)fields; return fake.submit_error; }
+int ble_svc_gap_device_name_set(const char *name)
+{ assert(strlen(name) <= 26); strcpy(fake.device_name, name); return fake.submit_error; }
+int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields)
+{ fake.appearance = fields->appearance_is_present ? fields->appearance : 0; return fake.submit_error; }
 int ble_gap_adv_rsp_set_fields(const struct ble_hs_adv_fields *fields) { assert(fields->name_len <= 26); return fake.submit_error; }
 int ble_gap_adv_start(uint8_t own, const ble_addr_t *addr, int32_t ms,
     const struct ble_gap_adv_params *params, ble_gap_event_fn *cb, void *arg)

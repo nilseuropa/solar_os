@@ -11,6 +11,8 @@ outgoing GATT peers share the configured host/controller capacity, with one link
 reserved for the OS keyboard. Advertising reserves one prospective incoming slot.
 It pauses when the application connection capacity is full and resumes as slots
 become available. There is no separate application-selected peer-count ceiling.
+The typed `solaros.ble.hid` peripheral uses the same lease, so it and the generic
+application server cannot be active simultaneously.
 
 ## Python and Lua API
 

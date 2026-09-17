@@ -1446,14 +1446,17 @@ static int scan_callback(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
-int solar_os_ble_nimble_security(struct ble_gap_event *event)
+int solar_os_ble_nimble_security_passkey(struct ble_gap_event *event,
+                                         uint32_t *display_passkey)
 {
+    if (display_passkey) *display_passkey = UINT32_MAX;
     if (event->type == BLE_GAP_EVENT_PASSKEY_ACTION) {
         struct ble_sm_io io = {.action = event->passkey.params.action};
         if (io.action == BLE_SM_IOACT_DISP) {
             io.passkey = esp_random() % 1000000U;
-            SOLAR_OS_LOGI(TAG, "type passkey %06lu on the keyboard, then Enter", (unsigned long)io.passkey);
-            set_status(BLE_KEYBOARD_PASSKEY, "type %06lu Enter", (unsigned long)io.passkey);
+            SOLAR_OS_LOGI(TAG, "type passkey %06lu on the peer device, then Enter",
+                          (unsigned long)io.passkey);
+            if (display_passkey) *display_passkey = io.passkey;
             return ble_sm_inject_io(event->passkey.conn_handle, &io);
         }
         (void)ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
@@ -1464,6 +1467,17 @@ int solar_os_ble_nimble_security(struct ble_gap_event *event)
         return BLE_GAP_REPEAT_PAIRING_IGNORE;
     }
     return 0;
+}
+
+int solar_os_ble_nimble_security(struct ble_gap_event *event)
+{
+    uint32_t display_passkey = UINT32_MAX;
+    const int rc = solar_os_ble_nimble_security_passkey(event, &display_passkey);
+    if (display_passkey != UINT32_MAX) {
+        set_status(BLE_KEYBOARD_PASSKEY, "peer passkey %06lu",
+                   (unsigned long)display_passkey);
+    }
+    return rc;
 }
 
 static void hidh_callback(solar_os_ble_hid_event_type_t id, solar_os_ble_hid_event_t *param)

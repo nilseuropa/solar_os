@@ -1,6 +1,6 @@
 [flavor]
-name = "custom"
-description = "Custom SolarOS flavor created with os_builder."
+name = "vga32"
+description = "Custom flavor for LilyGo VGA32"
 
 [groups]
 hardware_shell = true

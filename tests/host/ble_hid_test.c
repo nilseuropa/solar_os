@@ -10,6 +10,8 @@ void solar_os_ble_nimble_address(ble_addr_t *out,const uint8_t bda[6],uint8_t ty
 void solar_os_ble_nimble_display_address(uint8_t out[6], const ble_addr_t *addr)
 { for(size_t i=0;i<6;++i)out[i]=addr->val[5-i]; }
 int solar_os_ble_nimble_security(struct ble_gap_event *e) { (void)e; return 0; }
+int solar_os_ble_nimble_security_passkey(struct ble_gap_event *e, uint32_t *passkey)
+{ (void)e; *passkey = 12345; return 0; }
 static struct ble_gatt_error ok, done={.status=BLE_HS_EDONE};
 static uint32_t epoch;
 static void start(void)

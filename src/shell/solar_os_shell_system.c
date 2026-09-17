@@ -1562,15 +1562,40 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (task_status.last_failure_valid) {
         char failed_stack[16];
+        char failed_internal_free[16];
+        char failed_internal_largest[16];
+        char failed_external_free[16];
+        char failed_external_largest[16];
         format_bytes(task_status.last_failure_stack_bytes,
                      failed_stack,
                      sizeof(failed_stack));
+        format_bytes(task_status.last_failure_internal_free_bytes,
+                     failed_internal_free,
+                     sizeof(failed_internal_free));
+        format_bytes(task_status.last_failure_internal_largest_block_bytes,
+                     failed_internal_largest,
+                     sizeof(failed_internal_largest));
+        format_bytes(task_status.last_failure_external_free_bytes,
+                     failed_external_free,
+                     sizeof(failed_external_free));
+        format_bytes(task_status.last_failure_external_largest_block_bytes,
+                     failed_external_largest,
+                     sizeof(failed_external_largest));
         solar_os_shell_io_printf(term,
-                                 "Last task %s: %s role=%s stack=%s\n",
+                                 "Last task %s: %s role=%s stack=%s placement=%s\n",
                                  task_status.last_failure_denied ? "denial" : "failure",
                                  task_status.last_failure_name,
                                  solar_os_task_role_name(task_status.last_failure_role),
-                                 failed_stack);
+                                 failed_stack,
+                                 task_status.last_failure_external_stack ?
+                                     "PSRAM" : "internal");
+        solar_os_shell_io_printf(term,
+                                 "  at failure: internal free %s max %s; "
+                                 "PSRAM free %s max %s\n",
+                                 failed_internal_free,
+                                 failed_internal_largest,
+                                 failed_external_free,
+                                 failed_external_largest);
     }
 }
 

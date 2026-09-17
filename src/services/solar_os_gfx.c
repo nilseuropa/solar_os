@@ -686,6 +686,7 @@ static void gfx_apply_draw_state(solar_os_gfx_t *gfx)
     }
 
     u8g2_SetDrawColor(gfx->u8g2, gfx_binary_draw_color(gfx, gfx->color));
+    u8g2_SetBitmapMode(gfx->u8g2, 1);
     u8g2_SetFont(gfx->u8g2, gfx_font_data(gfx->font));
     u8g2_SetFontMode(gfx->u8g2, 1);
     u8g2_SetFontPosBaseline(gfx->u8g2);
@@ -1276,13 +1277,32 @@ void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
         return;
     }
 
+    const size_t stride = ((size_t)width + 7U) / 8U;
+    const uint8_t threshold = gfx_dither_threshold(gfx->color);
     if (gfx_uses_index8(gfx)) {
-        const size_t stride = ((size_t)width + 7U) / 8U;
         for (int row = 0; row < height; row++) {
             for (int column = 0; column < width; column++) {
                 if ((bitmap[(size_t)row * stride + ((unsigned)column >> 3U)] &
                      (uint8_t)(1U << ((unsigned)column & 7U))) != 0) {
                     gfx_draw_hline_raw_clipped(gfx, x + column, y + row, 1);
+                }
+            }
+        }
+    } else if (threshold > 0U && threshold < 16U) {
+        for (int row = 0; row < height; row++) {
+            int run_start = -1;
+            for (int column = 0; column <= width; column++) {
+                const bool set = column < width &&
+                    (bitmap[(size_t)row * stride + ((unsigned)column >> 3U)] &
+                     (uint8_t)(1U << ((unsigned)column & 7U))) != 0;
+                if (set && run_start < 0) {
+                    run_start = column;
+                } else if (!set && run_start >= 0) {
+                    gfx_draw_hline_shade_clipped(gfx,
+                                                 x + run_start,
+                                                 y + row,
+                                                 column - run_start);
+                    run_start = -1;
                 }
             }
         }

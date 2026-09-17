@@ -412,3 +412,162 @@ static mp_obj_t solaros_ble_server_disconnect(mp_obj_t peer)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_server_disconnect_obj, solaros_ble_server_disconnect);
+
+static mp_obj_t solaros_ble_hid_start(mp_obj_t name_obj)
+{
+    size_t len;
+    const char *name = mp_obj_str_get_data(name_obj, &len);
+    if (!len || len > 26 || memchr(name, 0, len))
+        mp_raise_ValueError(MP_ERROR_TEXT("HID name must be 1..26 bytes"));
+    char copied[27]; memcpy(copied, name, len); copied[len] = 0;
+    python_ble_check(solar_os_ble_hid_device_start(python_ble_get(), copied));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_hid_start_obj, solaros_ble_hid_start);
+
+static mp_obj_t solaros_ble_hid_pair(void)
+{
+    python_ble_check(solar_os_ble_hid_device_pair(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_pair_obj, solaros_ble_hid_pair);
+
+static mp_obj_t solaros_ble_hid_stop(void)
+{
+    python_ble_check(solar_os_ble_hid_device_stop(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_stop_obj, solaros_ble_hid_stop);
+
+static mp_obj_t solaros_ble_hid_status(void)
+{
+    solar_os_ble_hid_info_t info;
+    python_ble_check(solar_os_ble_hid_device_status(python_ble_get(), &info));
+    mp_obj_t result = mp_obj_new_dict(13);
+    python_dict_store_bool(result, "registered", info.registered);
+    python_dict_store_bool(result, "advertising", info.advertising);
+    python_dict_store_bool(result, "closing", info.closing);
+    python_dict_store_bool(result, "connected", info.connected);
+    python_dict_store_bool(result, "encrypted", info.encrypted);
+    python_dict_store_bool(result, "bonded", info.bonded);
+    python_dict_store_bool(result, "keyboard_subscribed", info.keyboard_subscribed);
+    python_dict_store_bool(result, "mouse_subscribed", info.mouse_subscribed);
+    python_dict_store_bool(result, "gamepad_subscribed", info.gamepad_subscribed);
+    python_dict_store_uint(result, "keyboard_leds", info.keyboard_leds);
+    python_dict_store_uint(result, "event_capacity", info.event_capacity);
+    python_dict_store_uint(result, "event_count", info.event_count);
+    python_dict_store_uint(result, "events_dropped", info.events_dropped);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_status_obj, solaros_ble_hid_status);
+
+static mp_obj_t solaros_ble_hid_poll(void)
+{
+    static const char *types[] = {
+        "connected", "disconnected", "secured", "keyboard-leds", "passkey",
+    };
+    solar_os_ble_hid_device_event_t event;
+    esp_err_t err = solar_os_ble_hid_device_poll(python_ble_get(), &event);
+    if (err == ESP_ERR_NOT_FOUND) return mp_const_none;
+    python_ble_check(err);
+    mp_obj_t result = mp_obj_new_dict(7);
+    python_dict_store_cstr(result, "type", types[event.type]);
+    python_dict_store_uint(result, "peer", event.peer);
+    python_dict_store_uint(result, "passkey", event.passkey);
+    python_dict_store_uint(result, "status", event.status);
+    python_dict_store_bool(result, "encrypted", event.encrypted);
+    python_dict_store_bool(result, "bonded", event.bonded);
+    python_dict_store_uint(result, "keyboard_leds", event.keyboard_leds);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_poll_obj, solaros_ble_hid_poll);
+
+static size_t python_ble_hid_keys(size_t n_args, const mp_obj_t *args, uint16_t keys[8])
+{
+    if (!n_args || n_args > 8) mp_raise_ValueError(MP_ERROR_TEXT("expected 1..8 keys"));
+    for (size_t i = 0; i < n_args; i++) {
+        const mp_int_t value = mp_obj_get_int(args[i]);
+        if (value < 0 || value > UINT16_MAX)
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid HID key"));
+        keys[i] = (uint16_t)value;
+    }
+    return n_args;
+}
+
+static mp_obj_t solaros_ble_hid_keyboard_press(size_t n_args, const mp_obj_t *args)
+{
+    uint16_t keys[8];
+    python_ble_check(solar_os_ble_hid_keyboard_press(
+        python_ble_get(), keys, python_ble_hid_keys(n_args, args, keys)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_press_obj, 1, 8,
+                                    solaros_ble_hid_keyboard_press);
+
+static mp_obj_t solaros_ble_hid_keyboard_release(size_t n_args, const mp_obj_t *args)
+{
+    uint16_t keys[8];
+    python_ble_check(solar_os_ble_hid_keyboard_release(
+        python_ble_get(), keys, python_ble_hid_keys(n_args, args, keys)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_release_obj, 1, 8,
+                                    solaros_ble_hid_keyboard_release);
+
+static mp_obj_t solaros_ble_hid_keyboard_release_all(void)
+{
+    python_ble_check(solar_os_ble_hid_keyboard_release_all(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_keyboard_release_all_obj,
+                          solaros_ble_hid_keyboard_release_all);
+
+static mp_obj_t solaros_ble_hid_mouse_move(mp_obj_t x_obj, mp_obj_t y_obj)
+{
+    python_ble_check(solar_os_ble_hid_mouse_move(
+        python_ble_get(), python_i32_from_obj(x_obj), python_i32_from_obj(y_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_mouse_move_obj, solaros_ble_hid_mouse_move);
+
+static mp_obj_t solaros_ble_hid_mouse_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
+{
+    python_ble_check(solar_os_ble_hid_mouse_button(
+        python_ble_get(), python_u8_from_obj(button_obj), mp_obj_is_true(pressed_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_mouse_button_obj, solaros_ble_hid_mouse_button);
+
+static mp_obj_t solaros_ble_hid_gamepad_axis(mp_obj_t axis_obj, mp_obj_t value_obj)
+{
+    const mp_int_t value = mp_obj_get_int(value_obj);
+    if (value < INT16_MIN || value > INT16_MAX)
+        mp_raise_ValueError(MP_ERROR_TEXT("expected axis value -32768..32767"));
+    python_ble_check(solar_os_ble_hid_gamepad_axis(
+        python_ble_get(), mp_obj_get_int(axis_obj), (int16_t)value));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_gamepad_axis_obj, solaros_ble_hid_gamepad_axis);
+
+static mp_obj_t solaros_ble_hid_gamepad_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
+{
+    python_ble_check(solar_os_ble_hid_gamepad_button(
+        python_ble_get(), python_u8_from_obj(button_obj), mp_obj_is_true(pressed_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_gamepad_button_obj, solaros_ble_hid_gamepad_button);
+
+static mp_obj_t solaros_ble_hid_gamepad_hat(mp_obj_t hat_obj)
+{
+    python_ble_check(solar_os_ble_hid_gamepad_hat(
+        python_ble_get(), python_u8_from_obj(hat_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_hid_gamepad_hat_obj, solaros_ble_hid_gamepad_hat);
+
+static mp_obj_t solaros_ble_hid_gamepad_send(void)
+{
+    python_ble_check(solar_os_ble_hid_gamepad_send(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_gamepad_send_obj, solaros_ble_hid_gamepad_send);

@@ -24,6 +24,83 @@
 typedef uint32_t solar_os_ble_session_t;
 typedef uint32_t solar_os_ble_peer_t;
 
+/* Native HID-over-GATT peripheral. The OS owns the standard report map,
+ * descriptors, encryption, bonding and teardown; scripts only submit typed
+ * keyboard, mouse and gamepad state. One runtime owns the connectable
+ * peripheral lease, shared with the generic application server. */
+#define SOLAR_OS_BLE_HID_KEYBOARD_LED_NUM_LOCK    0x01U
+#define SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK   0x02U
+#define SOLAR_OS_BLE_HID_KEYBOARD_LED_SCROLL_LOCK 0x04U
+#define SOLAR_OS_BLE_HID_KEYBOARD_LED_COMPOSE     0x08U
+#define SOLAR_OS_BLE_HID_KEYBOARD_LED_KANA        0x10U
+
+typedef enum {
+    SOLAR_OS_BLE_HID_CONNECTED,
+    SOLAR_OS_BLE_HID_DISCONNECTED,
+    SOLAR_OS_BLE_HID_SECURED,
+    SOLAR_OS_BLE_HID_KEYBOARD_LEDS,
+    SOLAR_OS_BLE_HID_PASSKEY,
+} solar_os_ble_hid_device_event_type_t;
+
+typedef struct {
+    solar_os_ble_hid_device_event_type_t type;
+    uint32_t peer;
+    uint32_t passkey;
+    uint16_t status;
+    uint8_t keyboard_leds;
+    bool encrypted;
+    bool bonded;
+} solar_os_ble_hid_device_event_t;
+
+typedef struct {
+    bool registered;
+    bool advertising;
+    bool closing;
+    bool connected;
+    bool encrypted;
+    bool bonded;
+    bool keyboard_subscribed;
+    bool mouse_subscribed;
+    bool gamepad_subscribed;
+    uint8_t keyboard_leds;
+    size_t event_capacity;
+    size_t event_count;
+    uint32_t events_dropped;
+} solar_os_ble_hid_info_t;
+
+esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
+                                        const char *name);
+/* Enter explicit pairing mode. The next connecting peer's stored bond is
+ * removed before security starts; normal start keeps remembered bonds. */
+esp_err_t solar_os_ble_hid_device_pair(solar_os_ble_session_t session);
+esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session);
+esp_err_t solar_os_ble_hid_device_status(solar_os_ble_session_t session,
+                                         solar_os_ble_hid_info_t *info);
+esp_err_t solar_os_ble_hid_device_poll(solar_os_ble_session_t session,
+                                       solar_os_ble_hid_device_event_t *event);
+esp_err_t solar_os_ble_hid_keyboard_press(solar_os_ble_session_t session,
+                                          const uint16_t *keys,
+                                          size_t key_count);
+esp_err_t solar_os_ble_hid_keyboard_release(solar_os_ble_session_t session,
+                                            const uint16_t *keys,
+                                            size_t key_count);
+esp_err_t solar_os_ble_hid_keyboard_release_all(solar_os_ble_session_t session);
+esp_err_t solar_os_ble_hid_mouse_move(solar_os_ble_session_t session,
+                                      int32_t x,
+                                      int32_t y);
+esp_err_t solar_os_ble_hid_mouse_button(solar_os_ble_session_t session,
+                                        uint8_t button,
+                                        bool pressed);
+esp_err_t solar_os_ble_hid_gamepad_axis(solar_os_ble_session_t session,
+                                        int axis,
+                                        int16_t value);
+esp_err_t solar_os_ble_hid_gamepad_button(solar_os_ble_session_t session,
+                                          uint8_t button,
+                                          bool pressed);
+esp_err_t solar_os_ble_hid_gamepad_hat(solar_os_ble_session_t session,
+                                       uint8_t hat);
+esp_err_t solar_os_ble_hid_gamepad_send(solar_os_ble_session_t session);
+
 /* Application peripheral API. One owned legacy-advertising lease; incoming
  * links share the stack/controller capacity with outgoing peers. Local IDs and
  * peer IDs are opaque, not ATT handles. Reads use stored values, never callbacks.

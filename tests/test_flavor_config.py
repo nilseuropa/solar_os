@@ -1,8 +1,11 @@
+from contextlib import redirect_stdout
 import importlib.util
+import io
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -59,6 +62,55 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(self.catalog.group_defs["ssh"].members,
                          ("app_ssh", "app_scp"))
         self.assertEqual(self.catalog.group_defs["ssh"].category, "Networking")
+
+    def test_builder_preserves_input_metadata_without_overrides(self):
+        captured = {}
+
+        def run_without_saving(function, *args):
+            self.assertIs(function, flavor_config._run_tui)
+            captured["name"] = args[8]
+            captured["description"] = args[9]
+            return False, None, None, None
+
+        argv = [
+            "os_builder",
+            "--input", str(REPOSITORY / "flavors" / "rover.toml"),
+            "--output", "renamed.toml",
+        ]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+            flavor_config.curses, "wrapper", side_effect=run_without_saving
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(flavor_config.main(), 0)
+
+        self.assertEqual(captured["name"], "rover")
+        self.assertEqual(
+            captured["description"],
+            "Custom SolarOS flavor created for Rover.",
+        )
+
+    def test_builder_metadata_overrides_remain_explicit(self):
+        captured = {}
+
+        def run_without_saving(function, *args):
+            self.assertIs(function, flavor_config._run_tui)
+            captured["name"] = args[8]
+            captured["description"] = args[9]
+            return False, None, None, None
+
+        argv = [
+            "os_builder",
+            "--input", str(REPOSITORY / "flavors" / "rover.toml"),
+            "--output", "renamed.toml",
+            "--name", "renamed",
+            "--description", "Explicit description.",
+        ]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+            flavor_config.curses, "wrapper", side_effect=run_without_saving
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(flavor_config.main(), 0)
+
+        self.assertEqual(captured["name"], "renamed")
+        self.assertEqual(captured["description"], "Explicit description.")
 
     def test_tree_contains_categories_and_groups_but_no_packages(self):
         estimator = flavor_config.FlashEstimator(self.catalog, {}, {}, "test")

@@ -32,6 +32,68 @@ print(solaros.ble.status())
 print("layout", solaros.ble.layout())
 ```
 
+## `solaros.ble.hid`
+
+Available when BLE support is compiled. This typed peripheral API makes the
+SolarOS device advertise as one composite BLE keyboard, mouse, and gamepad. The
+OS owns the fixed HID-over-GATT report map, descriptors, encryption, bonding,
+and teardown; scripts cannot publish arbitrary HID descriptors or report bytes.
+
+```python
+hid = solaros.ble.hid
+hid.start("SolarOS Controls")
+# Call only after an explicit user action to pair a new host.
+hid.pair()
+
+while not solaros.should_exit():
+    event = hid.poll()
+    if event is not None:
+        print(event)
+        if event["type"] == "passkey":
+            print("Enter %06d on the remote host" % event["passkey"])
+    if hid.status()["keyboard_subscribed"]:
+        hid.keyboard.press(hid.KEY_LEFT_CTRL, hid.KEY_A)
+        hid.keyboard.release_all()
+        break
+```
+
+- `start(name)`: acquire the application-peripheral lease and start connectable
+  advertising. The name is 1..26 bytes without an embedded NUL. One remote host
+  can connect at a time.
+- `pair()`: enter explicit new-host pairing mode. SolarOS removes the next
+  connecting peer's stored HID bond before starting security. Omit this on
+  normal startup so a remembered host reconnects without pairing again.
+- `stop()`: send best-effort neutral keyboard, mouse, and gamepad reports, stop
+  advertising, disconnect the host, and retire the service.
+- `status()`: return `registered`, `advertising`, `closing`, `connected`,
+  `encrypted`, `bonded`, `keyboard_subscribed`, `mouse_subscribed`,
+  `gamepad_subscribed`, `keyboard_leds`, and event queue counters.
+- `poll()`: nonblocking; return `None` when empty or an event dictionary. Event
+  types are `connected`, `secured`, `disconnected`, `keyboard-leds`, and
+  `passkey`. Render a passkey as six digits and enter it on the remote host.
+- `keyboard.press(*keys)`, `keyboard.release(*keys)`, and
+  `keyboard.release_all()` use the `KEY_*` constants. Up to six ordinary keys
+  plus modifiers can be held.
+- `mouse.move(x, y)` sends signed relative movement, chunking large deltas;
+  `mouse.button(mask, pressed)` uses the `MOUSE_*` masks.
+- `gamepad.axis(axis, value)`, `gamepad.button(number, pressed)`, and
+  `gamepad.hat(direction)` update state; `gamepad.send()` publishes it. Axes use
+  `-32768..32767`, buttons are `1..32`, and hats use the `HAT_*` constants.
+
+Input report operations require an encrypted host subscription for that report
+type and otherwise raise `OSError("ESP_ERR_INVALID_STATE")`. Keyboard LED bits
+are available as `LED_NUM_LOCK`, `LED_CAPS_LOCK`, `LED_SCROLL_LOCK`,
+`LED_COMPOSE`, and `LED_KANA`. Call `poll()` regularly and inspect
+`events_dropped`; the native queue holds 16 events and drops new events when
+full. The runtime owns this service and cleans it up on normal exit, uncaught
+exceptions, interruption, or forced stop.
+
+`solaros.ble.hid` and `solaros.ble.server` share one connectable-advertising
+lease, so a runtime cannot use both simultaneously. Outgoing
+`solaros.ble.gatt` peers remain separate subject to the shared controller
+connection budget. This BLE API is independent of the dormant USB-only
+`solaros.hid` package described in [Python input](python.input.md#solaros-hid).
+
 ## `solaros.ble.scan()`
 
 Available when BLE support is compiled. Returns a list of up to 32 device

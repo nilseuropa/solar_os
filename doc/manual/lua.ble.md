@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## `solaros.ble`
 
-- `solaros.ble`: keyboard `status`, `connected`, `pair`, `forget`, `layout`, `read`; generic client functions under `solaros.ble.gatt` and application peripheral functions under `solaros.ble.server` when BLE support is compiled
+- `solaros.ble`: keyboard `status`, `connected`, `pair`, `forget`, `layout`, `read`; generic client functions under `solaros.ble.gatt`, application peripheral functions under `solaros.ble.server`, and typed peripheral HID under `solaros.ble.hid` when BLE support is compiled
 
 ## BLE scan
 
@@ -70,6 +70,54 @@ Capacity exhaustion reports `BLE connection capacity exhausted`, and allocation
 can fail without disturbing existing peers. A caught error or completion of one
 REPL command does not close the interpreter's session. Use `disconnect(peer)`
 when finished with a peer.
+
+## Native BLE HID peripheral
+
+`solaros.ble.hid` mirrors the
+[Python BLE HID API](python.ble.md#solarosblehid). `start(name)` publishes a
+fixed encrypted and bonded composite keyboard, mouse, and gamepad service for
+one host. `pair()` explicitly forgets the next connecting peer's old HID bond
+before security; call it only for a user-requested new-host pairing flow.
+`status()` returns connection, security, subscription, keyboard LED,
+and queue state. `poll()` returns `nil` or a `connected`, `secured`,
+`disconnected`, `keyboard-leds`, or `passkey` event. Render a passkey as six
+digits and enter it on the remote host.
+
+```lua
+local hid = solaros.ble.hid
+hid.start("SolarOS Controls")
+hid.pair()
+
+while not solaros.should_exit() do
+    local event = hid.poll()
+    if event then
+        print(event.type, event.status)
+        if event.type == "passkey" then
+            print(string.format("Enter %06d on the remote host", event.passkey))
+        end
+    end
+    if hid.status().gamepad_subscribed then
+        hid.gamepad.axis(hid.AXIS_X, -12000)
+        hid.gamepad.button(1, true)
+        hid.gamepad.hat(hid.HAT_UP)
+        hid.gamepad.send()
+        break
+    end
+end
+```
+
+Keyboard calls are `keyboard.press`, `keyboard.release`, and
+`keyboard.release_all`. Mouse calls are `mouse.move` and `mouse.button`.
+Gamepad setters accept axes in `-32768..32767`, buttons `1..32`, and `HAT_*`
+directions, then `gamepad.send()` publishes the combined state. Input operations
+require the corresponding encrypted host subscription. The event queue holds
+16 entries; inspect `events_dropped`. `stop()` neutralizes reports and retires
+the service. Runtime teardown does the same automatically.
+
+The native HID service shares the single application-peripheral lease with
+`solaros.ble.server`; the two cannot be active at once. It is separate from the
+dormant USB-only `solaros.hid` package. Scripts select behavior through typed
+operations and constants; report descriptors and raw report bytes stay native.
 
 `solaros.ble.server` mirrors the [application peripheral API](../ble-server.md):
 `create`, `service`, `characteristic`, `start`, `stop`, `close`, `status`, `peers`,

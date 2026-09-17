@@ -13,6 +13,9 @@ static void *test_calloc(size_t n, size_t size) { return fail_allocation ? NULL 
 #include "../../src/services/solar_os_ble.c"
 esp_err_t solar_os_ble_backend_server_request(solar_os_ble_session_t owner, solar_os_ble_server_request_t *r)
 { (void)owner; (void)r; return ESP_ERR_INVALID_STATE; }
+esp_err_t solar_os_ble_backend_hid_request(solar_os_ble_session_t owner,
+                                           solar_os_ble_hid_request_t *r)
+{ (void)owner; (void)r; return ESP_ERR_INVALID_STATE; }
 void solar_os_ble_backend_server_cancel(solar_os_ble_session_t owner) { (void)owner; }
 #undef calloc
 

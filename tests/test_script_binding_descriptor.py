@@ -91,14 +91,43 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(nested), 16)
+        self.assertEqual(len(nested), 38)
         for module, submodule, _public_name, native_name in nested:
+            python_handler = f"solaros_{module}_{submodule}_{native_name}_obj"
+            lua_handler = f"solua_{module}_{submodule}_{native_name}"
+            self.assertTrue(
+                python_handler in PYTHON_BINDINGS
+                or (
+                    module == "ble"
+                    and submodule == "server"
+                    and f"PYTHON_BLE_SERVER_SIMPLE({native_name}," in PYTHON_BINDINGS
+                ),
+                python_handler,
+            )
+            self.assertTrue(
+                lua_handler in LUA_BINDINGS
+                or (
+                    module == "ble"
+                    and submodule == "server"
+                    and f"SOLUA_BLE_SERVER_SIMPLE({native_name}," in LUA_BINDINGS
+                ),
+                lua_handler,
+            )
+
+        subnested = re.findall(
+            r"^SOLAR_OS_SCRIPT_API_SUBSUBMODULE_FUNCTION\("
+            r"(\w+),\s*(\w+),\s*(\w+),\s*(\w+),\s*(\w+)\);$",
+            DESCRIPTOR,
+            re.MULTILINE,
+        )
+        self.assertEqual(len(subnested), 9)
+        for module, submodule, child, _public_name, native_name in subnested:
             self.assertIn(
-                f"solaros_{module}_{submodule}_{native_name}_obj",
+                f"solaros_{module}_{submodule}_{child}_{native_name}_obj",
                 PYTHON_BINDINGS,
             )
             self.assertIn(
-                f"solua_{module}_{submodule}_{native_name}",
+                f"solua_{module}_{submodule}_{child}_{native_name}",
                 LUA_BINDINGS,
             )
 
@@ -133,14 +162,35 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
                 re.MULTILINE,
             )
         )
+        submodule_constant_count = len(
+            re.findall(
+                r"^SOLAR_OS_SCRIPT_API_SUBMODULE_(?:INT|UINT)\(",
+                DESCRIPTOR,
+                re.MULTILINE,
+            )
+        )
+        subnested_count = len(
+            re.findall(
+                r"^SOLAR_OS_SCRIPT_API_SUBSUBMODULE_FUNCTION\(",
+                DESCRIPTOR,
+                re.MULTILINE,
+            )
+        )
         hid_keycode_count = len(
             re.findall(
                 r"^SOLAR_OS_HID_KEY_CONSTANT\(", HID_KEYCODES, re.MULTILINE
             )
         )
+        hid_keycode_include_count = DESCRIPTOR.count(
+            '#include "solar_os_hid_keycodes.inc"'
+        )
         self.assertEqual(
-            sum(map(len, entries.values())) + nested_count + hid_keycode_count,
-            585,
+            sum(map(len, entries.values()))
+            + nested_count
+            + submodule_constant_count
+            + subnested_count
+            + hid_keycode_count * hid_keycode_include_count,
+            720,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

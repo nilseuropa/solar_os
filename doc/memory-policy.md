@@ -82,7 +82,9 @@ Every policy allocation records its class and requested size. Failures record a
 short subsystem tag and a snapshot of free and largest blocks in the log. Use
 `mem policy` to inspect heap regions, class counters, fallback counts, the
 configured reserve, task-admission counters, pending launches, and the most
-recent tagged failure.
+recent tagged failure. A task failure retains its allocation-time free and
+largest-block snapshot, so later heap recovery does not hide fragmentation at
+the point of failure.
 
 ## Task admission
 

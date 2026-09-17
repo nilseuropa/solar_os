@@ -16,6 +16,12 @@
 #define BLE_HS_ENOTSYNCED 22
 #define BLE_HS_CONN_HANDLE_NONE 0xffff
 #define BLE_ERR_REM_USER_CONN_TERM 0x13
+#define BLE_ERR_AUTH_FAIL 0x05
+#define BLE_GAP_REPEAT_PAIRING_RETRY 1
+#define BLE_GAP_REPEAT_PAIRING_IGNORE 2
+#define BLE_GAP_SUBSCRIBE_REASON_WRITE 1
+#define BLE_GAP_SUBSCRIBE_REASON_TERM 2
+#define BLE_GAP_SUBSCRIBE_REASON_RESTORE 3
 #define BLE_OWN_ADDR_PUBLIC 0
 #define BLE_UUID_TYPE_16 16
 #define BLE_UUID_TYPE_32 32
@@ -41,18 +47,26 @@ size_t nimble_test_mbuf_len(const struct os_mbuf *om);
 #define OS_MBUF_PKTLEN(om) nimble_test_mbuf_len(om)
 int os_mbuf_copydata(const struct os_mbuf *om, int offset, int len, void *out);
 struct ble_gatt_attr { uint16_t handle; struct os_mbuf *om; };
-struct ble_gap_conn_desc { ble_addr_t peer_id_addr; };
+struct ble_gap_sec_state { unsigned encrypted:1, authenticated:1, bonded:1, key_size:5, authorize:1; };
+struct ble_gap_conn_desc { struct ble_gap_sec_state sec_state; ble_addr_t peer_id_addr; uint8_t role; };
 int ble_gap_conn_find(uint16_t conn, struct ble_gap_conn_desc *desc);
 enum { BLE_GAP_EVENT_CONNECT, BLE_GAP_EVENT_DISCONNECT, BLE_GAP_EVENT_ENC_CHANGE, BLE_GAP_EVENT_NOTIFY_RX,
-    BLE_GAP_EVENT_ADV_COMPLETE, BLE_GAP_EVENT_SUBSCRIBE, BLE_GAP_EVENT_NOTIFY_TX };
+    BLE_GAP_EVENT_ADV_COMPLETE, BLE_GAP_EVENT_SUBSCRIBE, BLE_GAP_EVENT_NOTIFY_TX,
+    BLE_GAP_EVENT_PASSKEY_ACTION, BLE_GAP_EVENT_REPEAT_PAIRING };
 struct ble_gap_event {
     int type;
     union {
         struct { int status; uint16_t conn_handle; } connect;
         struct { int reason; struct { uint16_t conn_handle; } conn; } disconnect;
         struct { int status; uint16_t conn_handle; } enc_change;
+        struct { struct { uint8_t action; uint32_t numcmp; } params; uint16_t conn_handle; } passkey;
+        struct { uint16_t conn_handle; } repeat_pairing;
         struct { uint16_t conn_handle, attr_handle; struct os_mbuf *om; bool indication; } notify_rx;
-        struct { uint16_t conn_handle, attr_handle; bool cur_notify, cur_indicate; } subscribe;
+        struct {
+            uint16_t conn_handle, attr_handle;
+            uint8_t reason;
+            bool cur_notify, cur_indicate;
+        } subscribe;
         struct { uint16_t conn_handle, attr_handle; int status; bool indication; } notify_tx;
     };
 };
@@ -84,6 +98,7 @@ int ble_gattc_write_no_rsp_flat(uint16_t, uint16_t, const void *, uint16_t);
 #define BLE_GAP_DISC_MODE_GEN 2
 #define BLE_GATT_ACCESS_OP_READ_CHR 0
 #define BLE_GATT_ACCESS_OP_WRITE_CHR 1
+#define BLE_GATT_ACCESS_OP_READ_DSC 2
 #define BLE_ATT_ERR_UNLIKELY 14
 #define BLE_ATT_ERR_INVALID_OFFSET 7
 #define BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN 13
@@ -93,13 +108,26 @@ int ble_gattc_write_no_rsp_flat(uint16_t, uint16_t, const void *, uint16_t);
 #define BLE_GATT_CHR_F_WRITE 8
 #define BLE_GATT_CHR_F_NOTIFY 16
 #define BLE_GATT_CHR_F_INDICATE 32
+#define BLE_GATT_CHR_F_READ_ENC 0x00000200
+#define BLE_GATT_CHR_F_WRITE_ENC 0x00001000
+#define BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC 0x00008000
+#define BLE_ATT_F_READ 0x01
+#define BLE_ATT_F_READ_ENC 0x04
 #define BLE_GATT_SVC_TYPE_PRIMARY 1
 struct ble_gatt_access_ctxt { uint8_t op; struct os_mbuf *om; uint16_t offset; };
+struct ble_gatt_dsc_def {
+    const ble_uuid_t *uuid;
+    uint8_t att_flags;
+    uint8_t min_key_size;
+    int (*access_cb)(uint16_t, uint16_t, struct ble_gatt_access_ctxt *, void *);
+    void *arg;
+};
 struct ble_gatt_chr_def {
     const ble_uuid_t *uuid;
     uint16_t flags;
     int (*access_cb)(uint16_t, uint16_t, struct ble_gatt_access_ctxt *, void *);
     void *arg;
+    struct ble_gatt_dsc_def *descriptors;
     uint16_t *val_handle;
 };
 struct ble_gatt_svc_def { uint8_t type; const ble_uuid_t *uuid; const struct ble_gatt_chr_def *characteristics; };
@@ -107,6 +135,8 @@ struct ble_hs_adv_fields {
     uint8_t flags, num_uuids16, num_uuids32, num_uuids128;
     ble_uuid16_t *uuids16; ble_uuid32_t *uuids32; ble_uuid128_t *uuids128;
     uint8_t *name; size_t name_len; bool name_is_complete;
+    uint16_t appearance; bool appearance_is_present;
+    bool uuids16_is_complete;
 };
 struct ble_gap_adv_params { uint8_t conn_mode, disc_mode; };
 int ble_uuid_from_str(ble_uuid_any_t *, const char *);
