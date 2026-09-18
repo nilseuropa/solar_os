@@ -660,6 +660,7 @@ static const char * const ble_subcommands[] = {
     "enable",
     "disable",
     "default",
+    "keepalive",
     "scan",
     "pair",
     "forget",
@@ -1932,6 +1933,7 @@ static const char * const path_daq_start_stream_file[] = {
     SHELL_COMPLETION_ANY,
 };
 static const char * const path_ble[] = {"ble"};
+static const char * const path_ble_keepalive[] = {"ble", "keepalive"};
 static const char * const path_ble_gatt[] = {"ble", "gatt"};
 static const char * const path_ble_gatt_connect_addr[] = {"ble", "gatt", "connect", SHELL_COMPLETION_ANY};
 static const char * const path_wifi[] = {"wifi"};
@@ -2953,6 +2955,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PATH(path_daq_start_stream_file, false),
     SHELL_COMPLETION_STATIC(path_daq_start_stream_file, daq_options),
     SHELL_COMPLETION_STATIC(path_ble, ble_subcommands),
+    SHELL_COMPLETION_STATIC(path_ble_keepalive, on_off_values),
     SHELL_COMPLETION_STATIC(path_ble_gatt, ble_gatt_subcommands),
     SHELL_COMPLETION_STATIC(path_ble_gatt_connect_addr, ble_addr_type_values),
     SHELL_COMPLETION_STATIC(path_wifi, wifi_subcommands),

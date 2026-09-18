@@ -718,6 +718,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ble` | `ble enable` | Save BLE enabled for the next boot. The current boot is unchanged. |
 | `ble` | `ble disable` | Save BLE disabled for the next boot. The current boot is unchanged. |
 | `ble` | `ble default` | Clear the saved override and use the board default on the next boot. |
+| `ble` | `ble keepalive [on\|off]` | Show or save the best-effort BLE keyboard keepalive setting. |
 | `ble` | `ble scan` | Scan nearby BLE devices. |
 | `ble` | `ble pair` | Start keyboard pairing. |
 | `ble` | `ble forget` | Erase the remembered keyboard, its BLE bond, and its cached GATT service database. |
@@ -758,6 +759,21 @@ compatibility commands. Disabling BLE does not forget the remembered keyboard
 or erase its BLE bond. On a BLE-disabled boot, SolarOS returns the unused
 Bluetooth controller and host memory to the internal heap before normal service
 initialization.
+
+When a keyboard exposes the standard Battery Service, SolarOS subscribes to its
+Battery Level notifications and reads the initial level when supported. `ble
+status`, the general `status` command, and the Python/Lua BLE status strings
+include the latest percentage while that keyboard remains connected.
+
+`ble keepalive on` sends the standard HID Exit Suspend command every 30 seconds
+when the connected keyboard exposes a writable HID Control Point. It falls back
+to reading the HID Information characteristic when Exit Suspend is unavailable.
+The setting persists and is off by default. `ble keepalive` reports the selected
+method, the last local operation result, and the attempt count. These operations
+do not count as SolarOS user activity. They can prevent sleep when a keyboard
+bases its inactivity timer on host HID or GATT traffic, but the keyboard remains
+in control of its own power policy, so the result is device-specific. `ble
+keepalive off` stops the operations.
 
 BLE GATT usage:
 

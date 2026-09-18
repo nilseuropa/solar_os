@@ -16,7 +16,8 @@ agent_reference_sections = true
 Top-level BLE functions expose keyboard pairing and layout controls. Generic
 characteristic I/O is separate, under `solaros.ble.gatt`.
 
-- `status()`: return human-readable BLE keyboard status.
+- `status()`: return human-readable BLE keyboard status, including the latest
+  reported keyboard battery percentage when available.
 - `connected()`: return whether a keyboard is connected.
 - `pair()`: start keyboard pairing.
 - `forget()`: remove remembered keyboard pairing.

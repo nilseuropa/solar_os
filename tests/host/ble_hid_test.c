@@ -64,19 +64,30 @@ int main(void)
     for(size_t i=0;i<HID_SERVICE_MAX;++i)fake.svc(7,&ok,&service,fake.arg);
     assert(fake.svc(7,&ok,&service,fake.arg)==BLE_HS_ENOMEM);
     assert(hid.closing && fake.terminate_calls==1); nimble_test_disconnect(); nimble_test_drain();
-    discover(); fake.svc(7,&ok,&service,fake.arg); fake.svc(7,&done,NULL,fake.arg);
+    discover();
+    fake.svc(7,&ok,&service,fake.arg);
+    struct ble_gatt_svc battery_service={.start_handle=81,.end_handle=90,.uuid.u16={{16},0x180f}};
+    fake.svc(7,&ok,&battery_service,fake.arg);
+    fake.svc(7,&done,NULL,fake.arg);
     struct ble_gatt_chr chr={.def_handle=2,.val_handle=3,.uuid.u16={{16},0x2a4b}};
     for(size_t i=0;i<HID_CHAR_MAX;++i)fake.chr(7,&ok,&chr,fake.arg);
     assert(fake.chr(7,&ok,&chr,fake.arg)==BLE_HS_ENOMEM);
     nimble_test_disconnect(); nimble_test_drain();
 
-    discover(); fake.svc(7,&ok,&service,fake.arg); fake.svc(7,&done,NULL,fake.arg);
+    discover();
+    fake.svc(7,&ok,&service,fake.arg);
+    fake.svc(7,&ok,&battery_service,fake.arg);
+    fake.svc(7,&done,NULL,fake.arg);
     fake.chr(7,&ok,&chr,fake.arg);
     chr=(struct ble_gatt_chr){.def_handle=4,.val_handle=5,.properties=0x10,.uuid.u16={{16},0x2a4d}};
+    fake.chr(7,&ok,&chr,fake.arg);
+    chr=(struct ble_gatt_chr){.def_handle=8,.val_handle=9,.properties=BLE_GATT_CHR_PROP_WRITE_NO_RSP,.uuid.u16={{16},0x2a4c}};
+    fake.chr(7,&ok,&chr,fake.arg);
+    chr=(struct ble_gatt_chr){.def_handle=10,.val_handle=11,.properties=BLE_GATT_CHR_PROP_READ,.uuid.u16={{16},0x2a4a}};
     fake.chr(7,&ok,&chr,fake.arg); fake.chr(7,&done,NULL,fake.arg);
     uint8_t map[]={0x05,1,0x09,6,0xa1,1,0x85,1,0x81,2,0xc0};
     nimble_test_value(0,3,map,sizeof(map)); nimble_test_value(BLE_HS_EDONE,3,NULL,0);
-    assert(fake.last_start==5 && fake.last_end==80);
+    assert(fake.last_start==5 && fake.last_end==7);
     struct ble_gatt_dsc dsc={.handle=6,.uuid.u16={{16},0x2902}};
     fake.dsc(7,&ok,5,&dsc,fake.arg);
     dsc.handle=7; dsc.uuid.u16.value=0x2908; fake.dsc(7,&ok,5,&dsc,fake.arg);
@@ -84,9 +95,62 @@ int main(void)
     uint8_t ref[]={1,1}; nimble_test_value(0,7,ref,2);
     assert(fake.last_handle==6 && fake.written_len==2 && fake.written[0]==1);
     nimble_test_value(0,6,NULL,0);
+    chr=(struct ble_gatt_chr){.def_handle=82,.val_handle=83,
+        .properties=BLE_GATT_CHR_PROP_READ|BLE_GATT_CHR_PROP_NOTIFY,
+        .uuid.u16={{16},0x2a19}};
+    fake.chr(7,&ok,&chr,fake.arg); fake.chr(7,&done,NULL,fake.arg);
+    dsc=(struct ble_gatt_dsc){.handle=84,.uuid.u16={{16},0x2902}};
+    fake.dsc(7,&ok,83,&dsc,fake.arg); fake.dsc(7,&done,83,NULL,fake.arg);
+    assert(fake.last_handle==84 && fake.written_len==2 && fake.written[0]==1);
+    nimble_test_value(0,84,NULL,0);
+    assert(fake.last_handle==83);
+    uint8_t initial_battery=87;
+    nimble_test_value(0,83,&initial_battery,1);
     assert(device.connected && hid.open_sent && !deadline.active);
+    solar_os_ble_hid_keepalive_status_t keepalive_status;
+    solar_os_ble_hid_get_keepalive_status(&keepalive_status);
+    assert(keepalive_status.method==SOLAR_OS_BLE_HID_KEEPALIVE_EXIT_SUSPEND);
+    assert(!keepalive_status.attempted && !keepalive_status.pending);
+    int keepalive_writes=fake.write_calls;
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_OK);
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_ERR_NOT_FINISHED);
+    nimble_test_drain();
+    assert(fake.write_calls==keepalive_writes+1 && fake.last_handle==9);
+    assert(fake.written_len==1 && fake.written[0]==1);
+    solar_os_ble_hid_get_keepalive_status(&keepalive_status);
+    assert(keepalive_status.attempts==1 && keepalive_status.attempted);
+    assert(!keepalive_status.pending && keepalive_status.last_status==ESP_OK);
+
+    /* Fall back to a read when the peer does not expose HID Control Point. */
+    hid.keepalive_control_count=0;
+    int keepalive_reads=fake.read_calls;
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_OK);
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_ERR_NOT_FINISHED);
+    nimble_test_drain();
+    assert(fake.read_calls==keepalive_reads+1 && fake.last_handle==11);
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_ERR_NOT_FINISHED);
+    uint8_t hid_info[]={0x11,0x01,0x00,0x02};
+    nimble_test_value(0,11,hid_info,sizeof(hid_info));
+    solar_os_ble_hid_get_keepalive_status(&keepalive_status);
+    assert(keepalive_status.method==SOLAR_OS_BLE_HID_KEEPALIVE_INFORMATION_READ);
+    assert(keepalive_status.attempts==2 && keepalive_status.last_status==ESP_OK);
+    assert(solar_os_ble_hid_keepalive(&device)==ESP_OK);
+    nimble_test_drain();
+    nimble_test_value(BLE_HS_ETIMEOUT,11,NULL,0);
+    solar_os_ble_hid_get_keepalive_status(&keepalive_status);
+    assert(keepalive_status.attempts==3 && keepalive_status.last_status==ESP_FAIL);
+    assert(device.connected && !hid.closing);
     timeout(NULL); assert(device.connected && !hid.closing); /* Queued before ready. */
     hid_event_t e; assert(xQueueReceive(events,&e,0)==pdTRUE && e.type==SOLAR_OS_BLE_HID_OPEN);
+    assert(xQueueReceive(events,&e,0)==pdTRUE && e.type==SOLAR_OS_BLE_HID_BATTERY);
+    assert(e.event.battery.level==87);
+    uint8_t updated_battery=86;
+    struct os_mbuf battery_mb={.len=1,.data=&updated_battery};
+    struct ble_gap_event battery_notify={.type=BLE_GAP_EVENT_NOTIFY_RX,
+        .notify_rx={.conn_handle=7,.attr_handle=83,.om=&battery_mb}};
+    fake.gap(&battery_notify,fake.gap_arg);
+    assert(xQueueReceive(events,&e,0)==pdTRUE && e.type==SOLAR_OS_BLE_HID_BATTERY);
+    assert(e.event.battery.level==86);
     uint8_t report[]={0,0,4,0,0,0,0,0};
     struct os_mbuf mb={.len=8,.data=report};
     struct ble_gap_event notify={.type=BLE_GAP_EVENT_NOTIFY_RX,.notify_rx={.conn_handle=7,.attr_handle=5,.om=&mb}};

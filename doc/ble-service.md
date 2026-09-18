@@ -108,7 +108,8 @@ at the transport boundary.
 `solar_os_ble_hid.c` is SolarOS's bounded HID-over-GATT client; it does not use
 ESP-IDF's HID host transport. Its asynchronous setup authenticates/encrypts,
 negotiates MTU, discovers HID/battery services, reads report maps/references,
-and subscribes to keyboard input and battery CCCDs. A bounded report-map
+subscribes to keyboard input and battery CCCDs, and reads the initial Battery
+Level when the characteristic permits it. A bounded report-map
 classifier identifies keyboard input IDs; the existing SolarOS key-report
 decoder still interprets their payloads.
 

@@ -13,7 +13,11 @@ agent_reference_sections = true
 
 ## `solaros.ble`
 
-- `solaros.ble`: keyboard `status`, `connected`, `pair`, `forget`, `layout`, `read`; generic client functions under `solaros.ble.gatt`, application peripheral functions under `solaros.ble.server`, and typed peripheral HID under `solaros.ble.hid` when BLE support is compiled
+- `solaros.ble`: keyboard `status` (including the latest reported keyboard
+  battery percentage when available), `connected`, `pair`, `forget`, `layout`,
+  `read`; generic client functions under `solaros.ble.gatt`, application
+  peripheral functions under `solaros.ble.server`, and typed peripheral HID
+  under `solaros.ble.hid` when BLE support is compiled
 
 ## BLE scan
 

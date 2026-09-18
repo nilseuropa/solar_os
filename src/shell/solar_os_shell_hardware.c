@@ -51,7 +51,7 @@ static const char * const disk_subcommands[] = {
 };
 static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
 static const char * const ble_subcommands[] = {
-    "status", "enable", "disable", "default", "scan", "pair", "forget", "gatt",
+    "status", "enable", "disable", "default", "keepalive", "scan", "pair", "forget", "gatt",
 };
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
@@ -1346,6 +1346,27 @@ static void ble_cmd_gatt(solar_os_shell_io_t *term, int argc, char **argv)
                                 "ble gatt [status|connect|disconnect|services|chars|read|write|write-nr] ...");
 }
 
+static void ble_print_keyboard_keepalive(solar_os_shell_io_t *term)
+{
+    solar_os_ble_keyboard_keepalive_status_t status = {0};
+    solar_os_ble_keyboard_get_keepalive_status(&status);
+    const char *last = "never";
+    if (status.pending) last = "pending";
+    else if (status.attempted) {
+        last = status.last_status == ESP_OK ? "ok" :
+            solar_os_shell_error_text(status.last_status);
+    }
+    solar_os_shell_io_printf(
+        term,
+        "BLE keyboard keepalive: %s, every %u s (best effort), "
+        "method %s, last %s, attempts %u\n",
+        solar_os_ble_keyboard_keepalive_enabled() ? "on" : "off",
+        (unsigned)(SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_INTERVAL_MS / 1000U),
+        solar_os_ble_keyboard_keepalive_method_name(status.method),
+        last,
+        (unsigned)status.attempts);
+}
+
 void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
 {
     char ble_status[64];
@@ -1381,6 +1402,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
             "BLE preference: %s (board default %s)\n",
             solar_os_ble_keyboard_boot_setting_name(boot_setting),
             solar_os_ble_keyboard_board_default_enabled() ? "on" : "off");
+        ble_print_keyboard_keepalive(term);
         return;
     }
 
@@ -1408,6 +1430,34 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_io_printf(term,
                                      "BLE boot setting save failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "keepalive") == 0) {
+        if (argc == 2) {
+            ble_print_keyboard_keepalive(term);
+            return;
+        }
+        if (argc != 3 ||
+            (strcmp(argv[2], "on") != 0 && strcmp(argv[2], "off") != 0)) {
+            solar_os_shell_diag_invalid(term, "ble keepalive", "setting",
+                                        argc >= 3 ? argv[2] : NULL, "on or off",
+                                        "ble keepalive [on|off]", false);
+            return;
+        }
+        const bool enabled = strcmp(argv[2], "on") == 0;
+        const esp_err_t err =
+            solar_os_ble_keyboard_set_keepalive_enabled(enabled);
+        if (err == ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "BLE keyboard keepalive saved: %s\n",
+                                     enabled ? "on" : "off");
+            ble_print_keyboard_keepalive(term);
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "BLE keyboard keepalive save failed: %s\n",
                                      solar_os_shell_error_text(err));
         }
         return;
@@ -1459,7 +1509,7 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "ble", argc, argv,
-                                   "ble [status|enable|disable|default|scan|pair|forget|gatt] ...",
+                                   "ble [status|enable|disable|default|keepalive|scan|pair|forget|gatt] ...",
                                    ble_subcommands,
                                    sizeof(ble_subcommands) / sizeof(ble_subcommands[0]));
 }
