@@ -29,6 +29,7 @@ pio run -e freenove_esp32_s3_display_4_0
 pio run -e cl_32
 pio run -e t_lora_pager
 pio run -e t_deck_plus
+pio run -e waveshare_esp32_s3_sim7670g_4g
 pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 pio run -e odroid_go
 pio run -e freenove_esp32_wrover_v3
