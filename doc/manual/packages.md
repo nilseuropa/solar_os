@@ -16,6 +16,14 @@ packages unsupported by the target board. A maintainer can use individual
 package overrides for unusual build work, but packages are not part of the
 normal flavor-configurator workflow.
 
+`service.ppp` owns PPP network negotiation, authentication, DNS, routing, and
+ESP-NETIF state independently of any modem. A consumer supplies byte-stream
+write access and either a read callback or received byte chunks. Optional link
+start and stop hooks let a modem dial and hang up around the same generic PPP
+session. `expansion.sim7670` composes this service with its UART and AT-command
+adapter; other serial, USB, or radio transports can reuse it without registering
+a cellular modem.
+
 `service.streams` owns the dynamic typed endpoint registry. Sensor, port, and
 audio providers register their endpoints there at runtime. `service.audio`
 also owns audio-device discovery; devices refer to their capture and playback
