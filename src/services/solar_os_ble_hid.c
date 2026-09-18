@@ -28,7 +28,7 @@ typedef struct {
     solar_os_ble_hid_event_type_t type;
     solar_os_ble_hid_event_t event;
 } hid_event_t;
-typedef enum { READ_MAP, READ_REFERENCE, WRITE_CCC } phase_t;
+typedef enum { READ_MAP, READ_REFERENCE, WRITE_CCC, READ_BATTERY } phase_t;
 
 /* All discovery and link state belongs to the NimBLE host task. Other tasks
  * submit commands, never lend stack buffers to the host. A slot stays pinned
@@ -39,10 +39,17 @@ static struct {
     atomic_bool active;
     bool closing, open_sent, connecting, discovery_started;
     bool caller_waiting, release_requested, close_requested;
+    bool keepalive_requested, keepalive_in_progress, keepalive_attempted;
+    uint32_t keepalive_attempts;
+    esp_err_t keepalive_last_status;
     size_t service_count, service_index, char_count, char_index, report_count;
     uint16_t reference, ccc, map_handle, protocol_handle;
+    uint16_t keepalive_control_handles[HID_SERVICE_MAX], keepalive_read_handle;
+    size_t keepalive_control_count;
     size_t map_len;
     uint8_t map_index;
+    bool initial_battery_known;
+    uint8_t initial_battery_level;
     phase_t phase;
 } hid;
 #if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
@@ -74,6 +81,15 @@ static void next_characteristic(void);
 static void next_service(void);
 static int value_callback(uint16_t conn, const struct ble_gatt_error *error,
                           struct ble_gatt_attr *attr, void *arg);
+static int keepalive_callback(uint16_t conn, const struct ble_gatt_error *error,
+                              struct ble_gatt_attr *attr, void *arg);
+
+static solar_os_ble_hid_keepalive_method_t keepalive_method(void)
+{
+    if (hid.keepalive_control_count) return SOLAR_OS_BLE_HID_KEEPALIVE_EXIT_SUSPEND;
+    if (hid.keepalive_read_handle) return SOLAR_OS_BLE_HID_KEEPALIVE_INFORMATION_READ;
+    return SOLAR_OS_BLE_HID_KEEPALIVE_UNAVAILABLE;
+}
 
 static void *token(void) { return (void *)(uintptr_t)hid.epoch; }
 static bool live(uint16_t conn, void *arg)
@@ -134,9 +150,27 @@ static void post_control(solar_os_ble_hid_event_type_t type, int status)
     configASSERT(xQueueSend(events, &e, 0) == pdTRUE);
 }
 
+static void post_battery(uint8_t level)
+{
+    hid_event_t e = {
+        .type = SOLAR_OS_BLE_HID_BATTERY,
+        .event.battery.level = level,
+    };
+    /* Battery telemetry is optional. Keep the reserved lifecycle/input slots
+     * available instead of failing an otherwise usable keyboard connection. */
+    if (uxQueueSpacesAvailable(events) > 2) {
+        (void)xQueueSend(events, &e, 0);
+    }
+}
+
 static void disconnected(int status)
 {
     stop_deadline();
+    portENTER_CRITICAL(&command_lock);
+    hid.keepalive_requested = false;
+    if (hid.keepalive_in_progress) hid.keepalive_last_status = ESP_ERR_INVALID_STATE;
+    hid.keepalive_in_progress = false;
+    portEXIT_CRITICAL(&command_lock);
     device.connected = false;
     device.conn_id = -1;
     device.status = status ? status : BLE_HS_ENOTCONN;
@@ -184,6 +218,9 @@ static void ready(void)
     device.status = 0;
     hid.open_sent = true;
     post_control(SOLAR_OS_BLE_HID_OPEN, 0);
+    if (hid.initial_battery_known) {
+        post_battery(hid.initial_battery_level);
+    }
     xSemaphoreGive(open_done);
 }
 
@@ -203,6 +240,20 @@ static void subscribe(uint8_t id)
     if (rc) fail(rc);
 }
 
+static void read_battery_or_advance(void)
+{
+    struct ble_gatt_chr *chr = &hid_data.chars[hid.char_index];
+    if (chr->properties & BLE_GATT_CHR_PROP_READ) {
+        hid.phase = READ_BATTERY;
+        if (!arm(HID_SETUP_TIMEOUT_MS)) return;
+        const int rc = ble_gattc_read(device.conn_id, chr->val_handle,
+                                      value_callback, token());
+        if (!rc) return;
+    }
+    ++hid.char_index;
+    next_characteristic();
+}
+
 static int descriptors_callback(uint16_t conn, const struct ble_gatt_error *error,
     uint16_t handle, const struct ble_gatt_dsc *dsc, void *arg)
 {
@@ -214,7 +265,10 @@ static int descriptors_callback(uint16_t conn, const struct ble_gatt_error *erro
         return 0;
     }
     if (error->status != BLE_HS_EDONE) { fail(error->status); return 0; }
-    if (ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x180f) subscribe(0);
+    if (ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x180f) {
+        if (hid.ccc) subscribe(0);
+        else read_battery_or_advance();
+    }
     else if (hid.reference) {
         hid.phase = READ_REFERENCE;
         int rc = ble_gattc_read(conn, hid.reference, value_callback, token());
@@ -232,8 +286,17 @@ static void next_characteristic(void)
     while (hid.char_index < hid.char_count) {
         struct ble_gatt_chr *chr = &hid_data.chars[hid.char_index];
         uint16_t uuid = ble_uuid_u16(&chr->uuid.u);
+        const bool subscribable =
+            (chr->properties &
+             (BLE_GATT_CHR_PROP_NOTIFY | BLE_GATT_CHR_PROP_INDICATE)) != 0;
+        const bool readable_battery =
+            battery && (chr->properties & BLE_GATT_CHR_PROP_READ) != 0;
         if (uuid == (battery ? 0x2a19 : 0x2a4d) &&
-            (chr->properties & (BLE_GATT_CHR_PROP_NOTIFY | BLE_GATT_CHR_PROP_INDICATE))) {
+            (subscribable || readable_battery)) {
+            if (!subscribable) {
+                read_battery_or_advance();
+                return;
+            }
             uint16_t end = hid.char_index + 1 < hid.char_count ?
                 hid_data.chars[hid.char_index + 1].def_handle - 1 : hid_data.services[hid.service_index].end_handle;
             hid.reference = hid.ccc = 0;
@@ -277,6 +340,17 @@ static int value_callback(uint16_t conn, const struct ble_gatt_error *error,
         else fail(rc);
         return 0;
     }
+    if (hid.phase == READ_BATTERY) {
+        uint8_t level = 0;
+        if (!rc && attr && attr->om && OS_MBUF_PKTLEN(attr->om) == 1 &&
+            os_mbuf_copydata(attr->om, 0, 1, &level) == 0 && level <= 100U) {
+            hid.initial_battery_known = true;
+            hid.initial_battery_level = level;
+        }
+        ++hid.char_index;
+        next_characteristic();
+        return 0;
+    }
     if (rc) { fail(rc); return 0; }
     if (hid.phase == READ_REFERENCE) {
         uint8_t ref[2];
@@ -285,8 +359,29 @@ static int value_callback(uint16_t conn, const struct ble_gatt_error *error,
         if (ref[1] == ESP_HID_REPORT_TYPE_INPUT && hid_data.keyboard_ids[ref[0]]) subscribe(ref[0]);
         else { ++hid.char_index; next_characteristic(); }
     } else if (hid.phase == WRITE_CCC) {
+        const bool battery =
+            ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x180f;
+        if (battery) {
+            read_battery_or_advance();
+            return 0;
+        }
         ++hid.char_index;
         next_characteristic();
+    }
+    return 0;
+}
+
+static int keepalive_callback(uint16_t conn, const struct ble_gatt_error *error,
+                              struct ble_gatt_attr *attr, void *arg)
+{
+    (void)error;
+    (void)attr;
+    if (hid.active && hid.epoch == (uint32_t)(uintptr_t)arg &&
+        device.conn_id == conn) {
+        portENTER_CRITICAL(&command_lock);
+        hid.keepalive_last_status = solar_os_ble_nimble_error(error->status);
+        hid.keepalive_in_progress = false;
+        portEXIT_CRITICAL(&command_lock);
     }
     return 0;
 }
@@ -300,6 +395,23 @@ static int characteristics_callback(uint16_t conn, const struct ble_gatt_error *
         hid_data.chars[hid.char_count++] = *chr;
         if (ble_uuid_u16(&chr->uuid.u) == 0x2a4b) hid.map_handle = chr->val_handle;
         if (ble_uuid_u16(&chr->uuid.u) == 0x2a4e) hid.protocol_handle = chr->val_handle;
+        if (ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x1812 &&
+            ble_uuid_u16(&chr->uuid.u) == 0x2a4a &&
+            (chr->properties & BLE_GATT_CHR_PROP_READ)) {
+            portENTER_CRITICAL(&command_lock);
+            hid.keepalive_read_handle = chr->val_handle;
+            portEXIT_CRITICAL(&command_lock);
+        }
+        if (ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x1812 &&
+            ble_uuid_u16(&chr->uuid.u) == 0x2a4c &&
+            (chr->properties & BLE_GATT_CHR_PROP_WRITE_NO_RSP)) {
+            portENTER_CRITICAL(&command_lock);
+            if (hid.keepalive_control_count < HID_SERVICE_MAX) {
+                hid.keepalive_control_handles[hid.keepalive_control_count++] =
+                    chr->val_handle;
+            }
+            portEXIT_CRITICAL(&command_lock);
+        }
         return 0;
     }
     if (error->status != BLE_HS_EDONE) { fail(error->status); return 0; }
@@ -413,6 +525,7 @@ static int gap_callback(struct ble_gap_event *event, void *arg)
                 if (n != 1) break;
                 e.type = SOLAR_OS_BLE_HID_BATTERY;
                 os_mbuf_copydata(event->notify_rx.om, 0, 1, &e.event.battery.level);
+                if (e.event.battery.level > 100U) break;
             } else {
                 if (!n || n > sizeof(e.event.input.data)) { fail(BLE_HS_EINVAL); break; }
                 e.type = SOLAR_OS_BLE_HID_INPUT;
@@ -438,7 +551,14 @@ static void command(struct ble_npl_event *event)
     portENTER_CRITICAL(&command_lock);
     bool closing = hid.close_requested;
     bool releasing = hid.release_requested && !hid.caller_waiting;
+    bool keepalive = hid.keepalive_requested;
+    uint16_t keepalive_controls[HID_SERVICE_MAX];
+    size_t keepalive_control_count = hid.keepalive_control_count;
+    memcpy(keepalive_controls, hid.keepalive_control_handles,
+           keepalive_control_count * sizeof(keepalive_controls[0]));
+    uint16_t keepalive_read = hid.keepalive_read_handle;
     hid.close_requested = false;
+    hid.keepalive_requested = false;
     if (releasing) {
         hid.active = false;
         hid.release_requested = false;
@@ -446,6 +566,40 @@ static void command(struct ble_npl_event *event)
     portEXIT_CRITICAL(&command_lock);
     if (releasing || !hid.active) return;
     if (closing) { fail(BLE_HS_EAPP); return; }
+    if (keepalive && device.connected && !hid.closing &&
+        (keepalive_control_count || keepalive_read)) {
+        portENTER_CRITICAL(&command_lock);
+        hid.keepalive_attempted = true;
+        ++hid.keepalive_attempts;
+        hid.keepalive_last_status = ESP_ERR_NOT_FINISHED;
+        hid.keepalive_in_progress = keepalive_control_count == 0;
+        portEXIT_CRITICAL(&command_lock);
+        int rc;
+        if (keepalive_control_count) {
+            const uint8_t exit_suspend = 1U;
+            esp_err_t result = ESP_OK;
+            for (size_t i = 0; i < keepalive_control_count; ++i) {
+                rc = ble_gattc_write_no_rsp_flat(device.conn_id,
+                                                  keepalive_controls[i],
+                                                  &exit_suspend,
+                                                  sizeof(exit_suspend));
+                if (rc && result == ESP_OK) result = solar_os_ble_nimble_error(rc);
+            }
+            portENTER_CRITICAL(&command_lock);
+            hid.keepalive_last_status = result;
+            hid.keepalive_in_progress = false;
+            portEXIT_CRITICAL(&command_lock);
+        } else {
+            rc = ble_gattc_read(device.conn_id, keepalive_read,
+                                keepalive_callback, token());
+            if (rc) {
+                portENTER_CRITICAL(&command_lock);
+                hid.keepalive_last_status = solar_os_ble_nimble_error(rc);
+                hid.keepalive_in_progress = false;
+                portEXIT_CRITICAL(&command_lock);
+            }
+        }
+    }
     if (device.conn_id >= 0 || hid.closing || hid.connecting) return;
     ble_addr_t addr;
     solar_os_ble_nimble_address(&addr, device.bda, device.addr_type);
@@ -526,6 +680,42 @@ esp_err_t solar_os_ble_hid_close(solar_os_ble_hid_device_t *dev)
     portEXIT_CRITICAL(&command_lock);
     submit_command();
     return ESP_OK;
+}
+
+esp_err_t solar_os_ble_hid_keepalive(solar_os_ble_hid_device_t *dev)
+{
+    if (dev != &device) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&command_lock);
+    if (!hid.active || hid.closing || !device.connected) {
+        portEXIT_CRITICAL(&command_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (keepalive_method() == SOLAR_OS_BLE_HID_KEEPALIVE_UNAVAILABLE) {
+        portEXIT_CRITICAL(&command_lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (hid.keepalive_requested || hid.keepalive_in_progress) {
+        portEXIT_CRITICAL(&command_lock);
+        return ESP_ERR_NOT_FINISHED;
+    }
+    hid.keepalive_requested = true;
+    portEXIT_CRITICAL(&command_lock);
+    submit_command();
+    return ESP_OK;
+}
+
+void solar_os_ble_hid_get_keepalive_status(solar_os_ble_hid_keepalive_status_t *status)
+{
+    if (status == NULL) return;
+    portENTER_CRITICAL(&command_lock);
+    *status = (solar_os_ble_hid_keepalive_status_t){
+        .method = keepalive_method(),
+        .attempts = hid.keepalive_attempts,
+        .last_status = hid.keepalive_last_status,
+        .attempted = hid.keepalive_attempted,
+        .pending = hid.keepalive_requested || hid.keepalive_in_progress,
+    };
+    portEXIT_CRITICAL(&command_lock);
 }
 
 void solar_os_ble_hid_cancel_open(void)

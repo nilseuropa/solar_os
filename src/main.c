@@ -1750,6 +1750,11 @@ void app_main(void)
     while (true) {
         solar_os_schedule_poll();
         solar_os_power_poll();
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+        if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
+            solar_os_ble_keyboard_poll(millis_u32());
+        }
+#endif
         poll_key_button();
         dispatch_input_sources();
         dispatch_app_tick();

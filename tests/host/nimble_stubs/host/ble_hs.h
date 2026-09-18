@@ -28,6 +28,8 @@
 #define BLE_UUID_TYPE_128 128
 #define BLE_GATT_CHR_PROP_NOTIFY 0x10
 #define BLE_GATT_CHR_PROP_INDICATE 0x20
+#define BLE_GATT_CHR_PROP_READ 0x02
+#define BLE_GATT_CHR_PROP_WRITE_NO_RSP 0x04
 typedef struct { uint8_t type; uint8_t val[6]; } ble_addr_t;
 typedef struct { uint8_t type; } ble_uuid_t;
 typedef struct { ble_uuid_t u; uint16_t value; } ble_uuid16_t;

@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.12.2** — 2026-09-18 — Added an optional persistent BLE keyboard
+  keepalive that periodically sends HID Exit Suspend, with a readable HID
+  Information fallback and visible local attempt status. Keyboard Battery
+  Service support now reads the initial level, follows notifications, and
+  includes the latest percentage in shell, Python, and Lua BLE status output.
+  Keepalive remains disabled by default because keyboard power policy is
+  device-specific.
+- **4.12.1** — 2026-09-18 — Edit now asks whether to save or discard pending
+  changes before quitting. Files retains its function-key map while adding
+  View, Edit, Copy, Move, Mkdir, Delete, and Zip letter shortcuts, with their
+  mnemonic characters emphasized in the help bar.
 - **4.12.0** — 2026-09-17 — Added the LilyGO T-Deck Plus target with its
   320x240 ST7789 display, GT911 touch controller, raw-matrix keyboard,
   five-way trackball, microSD slot, I2S speaker output, ES7210 microphone
