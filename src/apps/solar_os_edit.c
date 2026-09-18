@@ -45,6 +45,7 @@ typedef struct {
     size_t left_col;
     size_t selection_anchor;
     bool dirty;
+    bool quit_pending;
     bool selection_active;
     bool saved_text_size_valid;
     editor_mode_t mode;
@@ -397,7 +398,7 @@ static size_t editor_text_rows(void)
 {
     const size_t rows = solar_os_tui_rows(&editor.tui);
     const size_t footer_rows = solar_os_tui_screen_fullscreen(&editor.tui) ?
-        (editor.search.input_active ? 1U : 0U) : 1U;
+        (editor.search.input_active || editor.quit_pending ? 1U : 0U) : 1U;
     return rows > 1U + footer_rows ? rows - 1U - footer_rows : 0U;
 }
 
@@ -636,7 +637,9 @@ static void editor_render(solar_os_context_t *ctx)
 
     if (rows > 1) {
         char footer[192];
-        if (editor.search.input_active) {
+        if (editor.quit_pending) {
+            snprintf(footer, sizeof(footer), "Save changes? Y save / N discard");
+        } else if (editor.search.input_active) {
             snprintf(footer,
                      sizeof(footer),
                      "Find: %s_",
@@ -659,11 +662,13 @@ static void editor_render(solar_os_context_t *ctx)
         }
         solar_os_tui_draw_footer(
             &editor.tui,
-            editor.search.input_active || editor.message[0] != '\0' ? footer : NULL,
+            editor.quit_pending || editor.search.input_active || editor.message[0] != '\0' ?
+                footer : NULL,
             footer);
     }
 
-    if (text_rows > 0 &&
+    if (!editor.quit_pending &&
+        text_rows > 0 &&
         cursor_line >= editor.top_line &&
         cursor_line < editor.top_line + text_rows &&
         cursor_col >= editor.left_col) {
@@ -1227,6 +1232,37 @@ static esp_err_t editor_save(void)
     return ESP_OK;
 }
 
+static bool editor_request_quit(solar_os_context_t *ctx)
+{
+    if (editor.mode == EDITOR_MODE_TEXT && editor.dirty) {
+        editor.quit_pending = true;
+        editor_set_message("");
+        return true;
+    }
+
+    solar_os_context_finish(ctx, 0, NULL);
+    return false;
+}
+
+static bool editor_handle_quit_confirmation(solar_os_context_t *ctx, uint8_t key)
+{
+    if (!editor.quit_pending) {
+        return false;
+    }
+
+    if (key == 'y' || key == 'Y') {
+        editor.quit_pending = false;
+        if (editor_save() == ESP_OK) {
+            solar_os_context_finish(ctx, 0, NULL);
+        } else {
+            editor_render(ctx);
+        }
+    } else if (key == 'n' || key == 'N') {
+        solar_os_context_finish(ctx, 0, NULL);
+    }
+    return true;
+}
+
 static void editor_open_empty(void)
 {
     editor.len = 0;
@@ -1616,8 +1652,13 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     const char ch = event->data.ch;
+    if (editor_handle_quit_confirmation(ctx, (uint8_t)ch)) {
+        return true;
+    }
     if ((uint8_t)ch == SOLAR_OS_KEY_APP_EXIT) {
-        solar_os_context_finish(ctx, 0, NULL);
+        if (editor_request_quit(ctx)) {
+            editor_render(ctx);
+        }
         return true;
     }
 
@@ -1633,7 +1674,9 @@ static bool edit_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     case SOLAR_OS_KEY_ESCAPE:
     case 0x11:
     case SOLAR_OS_KEY_F10:
-        solar_os_context_finish(ctx, 0, NULL);
+        if (!editor_request_quit(ctx)) {
+            return true;
+        }
         break;
     case 0x01:
         editor_select_all();
