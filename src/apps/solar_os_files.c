@@ -860,6 +860,8 @@ static void files_draw_pane(files_pane_t *pane,
 
 static void files_draw_bottom(size_t rows, size_t cols)
 {
+    static const char help[] =
+        "F3 V-iew F4 E-dit F5 C-opy F6 M-ove F7 mK-dir F8 D-elete F9 Z-ip";
     const bool input_active = files.input_mode != FILES_INPUT_NONE;
     if (solar_os_tui_screen_fullscreen(&files.tui) && !input_active) {
         solar_os_tui_draw_footer(&files.tui, files.message, NULL);
@@ -880,9 +882,20 @@ static void files_draw_bottom(size_t rows, size_t cols)
         solar_os_tui_write_cell(&files.tui, msg_row, 0, cols, files.message, SOLAR_OS_TUI_ATTR_NORMAL);
     }
 
-    solar_os_tui_draw_help(
-        &files.tui,
-        "F3 View F4 Edit F5 Copy F6 Move F7 Mkdir F8 Del F9 Zip");
+    solar_os_tui_draw_help(&files.tui, help);
+    if (!solar_os_tui_screen_fullscreen(&files.tui)) {
+        const size_t help_row = solar_os_tui_rows(&files.tui) - 1U;
+        for (size_t col = 0; help[col] != '\0' && col < cols; col++) {
+            if (strchr("VECMKDZ", help[col]) != NULL) {
+                (void)solar_os_tui_putch(&files.tui,
+                                         help_row,
+                                         col,
+                                         help[col],
+                                         SOLAR_OS_TUI_ATTR_INVERSE |
+                                             SOLAR_OS_TUI_ATTR_BOLD);
+            }
+        }
+    }
 }
 
 static void files_render(solar_os_context_t *ctx)
@@ -2216,6 +2229,7 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         break;
     case SOLAR_OS_KEY_F7:
+    case 'K':
     case 'n':
     case 'N':
         if (!files.launcher_mode) {

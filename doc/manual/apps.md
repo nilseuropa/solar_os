@@ -639,7 +639,8 @@ Controls:
 - `Ctrl+F` or `F3` opens Find. Matches are case-insensitive and wrap at the end
   of the file.
 - `Ctrl+S` or `F2` saves in place. `Ctrl+Q`, `Esc`, `F10`, or the app-exit key
-  exits without saving pending changes.
+  exits. When the file has pending changes, answer `Y` to save and exit or `N`
+  to discard the changes and exit.
 - `Ctrl++` and `Ctrl+-` adjust editor text size for the active session.
 
 ## hexedit
@@ -753,7 +754,11 @@ Controls:
 - `Enter` opens directories or launches known files.
 - Returning to a parent directory restores the cursor to the directory that
   was just exited.
-- `F5`, `F6`, and `F8` copy, move, and delete the current or marked entries.
+- `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`K`, `F8`/`D`, and `F9`/`Z`
+  view, edit, copy, move, create a directory, delete, and create a zip archive.
+  The function keys remain the primary map; the help bar shows the letter
+  mnemonics within the action names.
+- Copy, move, and delete operate on the current or marked entries.
   Copy and recursive delete scan their source trees first, then show measured
   progress with the current entry. Move shows progress across the selected
   top-level entries.
