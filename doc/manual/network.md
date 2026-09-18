@@ -35,7 +35,8 @@ enter its password to connect. `saved stations` lists remembered station
 profiles and can forget them. `saved access points` adds, edits, or removes the
 stored SoftAP configuration, including its password. `repeater` starts or stops
 repeating the current or preferred saved station and shows whether forwarding
-is waiting or active. A script can scan before connecting:
+is waiting or active. `internet share` starts the saved SoftAP and routes it
+through the active SolarOS uplink. A script can scan before connecting:
 
 ```python
 import solaros
@@ -47,6 +48,26 @@ print(solaros.wifi.status())
 
 Connecting or stopping Wi-Fi can interrupt an active agent, SSH, chat, or HTTP
 session. Confirm disruptive changes locally.
+
+`wifi share on` starts the saved SoftAP configuration, enables IPv4 NAT, and
+uses the active SolarOS uplink. The uplink can be Wi-Fi station mode, a cellular
+PPP link such as SIM7670, or another network transport registered with the
+uplink service. Sharing stays ready when no uplink is available and activates
+when one comes up. If a higher-priority uplink appears, routing and the DNS
+server offered to AP clients follow it. `wifi share off` disables NAT and stops
+the downstream AP. Configure the AP name and password first when the default
+open `SolarOS-sol` network is not appropriate:
+
+```text
+wifi ap on FieldTerminal downstream-password wpa2
+wifi ap off
+modem connect modem0
+wifi share on
+wifi share
+```
+
+Carrier filtering and SIM-specific ACLs remain properties of the selected
+uplink; internet sharing does not add destination restrictions of its own.
 
 `wifi repeater on` enables IPv4 layer-2 forwarding between a station and
 SoftAP. It
@@ -76,7 +97,7 @@ upstream channel, so repeated traffic consumes airtime in both directions and
 throughput is lower than a dedicated dual-radio extender. `wifi repeater off`
 leaves the station connection running. Repeater and NAT modes are mutually
 exclusive; the lower-level `wifi ap` and `wifi nat` commands remain available
-for AP-only and routed APSTA setups. While repeater mode is active, SolarOS
+for AP-only and manually composed routed setups. While repeater mode is active, SolarOS
 automatically retries a lost upstream connection with bounded backoff.
 
 Forwarded client traffic bypasses SolarOS IP services, including a SolarOS
@@ -141,7 +162,7 @@ script.
 
 solaros.wifi provides status, status_text, start, stop, connect, connect_saved,
 disconnect, forget, forget_ssid, forget_all, known, scan, ap_start, ap_stop,
-nat, repeater_start, and repeater_stop. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
+nat, share_start, share_stop, repeater_start, and repeater_stop. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
 provides status, connect, disconnect, publish, subscribe,
 and read. solaros.net.ping(host, optional count, timeout_ms, interval_ms,
 data_size) returns statistics. These modules are package-gated.

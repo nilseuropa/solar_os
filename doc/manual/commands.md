@@ -702,13 +702,14 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi` | `wifi disconnect` | Disconnect station mode. |
 | `wifi` | `wifi known` | List remembered station profiles. |
 | `wifi` | `wifi forget [ssid|all]` | Remove one or all remembered station profiles. |
+| `wifi share` | `wifi share [on|off]` | Share the active SolarOS uplink, including cellular PPP, through the saved Wi-Fi SoftAP using IPv4 NAT. |
 | `wifi repeater` | `wifi repeater` | Show L2 IPv4 repeater state, upstream, downstream, learned clients, and forwarding counters. |
 | `wifi repeater` | `wifi repeater on` | Repeat the current or preferred saved network with the same SSID and password on the same IPv4 subnet. |
 | `wifi repeater` | `wifi repeater off` | Stop L2 forwarding and the downstream AP while retaining the upstream station. |
 | `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
-| `wifi nat` | `wifi nat [status|on|off]` | Configure IPv4 NAT for APSTA. |
+| `wifi nat` | `wifi nat [status|on|off]` | Configure IPv4 NAT between SoftAP and the active SolarOS uplink. |
 | `wireguard` | `wireguard [status]` | Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material. |
 | `wireguard` | `wireguard import <file>` | Validate one standard WireGuard client profile and save it in NVS. The source file is not removed. |
 | `wireguard` | `wireguard forget` | Logically remove the saved profile from NVS. Bring the tunnel down first. |

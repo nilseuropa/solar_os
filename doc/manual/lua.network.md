@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## `solaros.wifi`
 
-- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
+- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `share_start`, `share_stop`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
 
 ## `solaros.mqtt`
 

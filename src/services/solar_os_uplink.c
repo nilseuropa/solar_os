@@ -150,6 +150,11 @@ esp_err_t solar_os_uplink_set_ready(esp_netif_t *netif, bool ready)
         return ret;
     }
 
+    esp_netif_dns_info_t dns = {0};
+    if (ready) {
+        (void)esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns);
+    }
+
     xSemaphoreTake(uplink_mutex, portMAX_DELAY);
     uplink_entry_t *entry = find_netif_locked(netif);
     if (entry == NULL) {
@@ -157,6 +162,7 @@ esp_err_t solar_os_uplink_set_ready(esp_netif_t *netif, bool ready)
         return ESP_ERR_NOT_FOUND;
     }
     entry->ready = ready;
+    entry->info.dns = dns;
     xSemaphoreGive(uplink_mutex);
     post_changed();
     return ESP_OK;

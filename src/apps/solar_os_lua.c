@@ -872,6 +872,7 @@ static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *s
     solua_set_str(L, -1, "ap_ssid", status->ap_ssid);
     solua_set_str(L, -1, "ap_auth", status->ap_auth);
     solua_set_str(L, -1, "ap_ip", status->ap_ip);
+    solua_set_str(L, -1, "nat_uplink", status->nat_uplink);
     solua_set_int(L, -1, "rssi", status->rssi);
     solua_set_int(L, -1, "channel", status->channel);
     solua_set_int(L, -1, "disconnect_reason", status->disconnect_reason);
@@ -1940,6 +1941,16 @@ static int solua_wifi_ap_stop(lua_State *L)
 static int solua_wifi_nat(lua_State *L)
 {
     return solua_check_esp(L, solar_os_wifi_nat_set(lua_toboolean(L, 1)));
+}
+
+static int solua_wifi_share_start(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_wifi_share_start());
+}
+
+static int solua_wifi_share_stop(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_wifi_share_stop());
 }
 
 static int solua_wifi_repeater_start(lua_State *L)

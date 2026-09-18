@@ -88,6 +88,7 @@ static char wifi_netmask[16];
 static char wifi_ap_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
 static char wifi_ap_auth[SOLAR_OS_WIFI_AUTH_MAX];
 static char wifi_ap_ip[16];
+static char wifi_nat_uplink[SOLAR_OS_WIFI_UPLINK_NAME_MAX + 1];
 static int8_t wifi_rssi;
 static uint8_t wifi_channel;
 static uint8_t wifi_disconnect_reason;
@@ -106,7 +107,8 @@ static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 static char wifi_latency_owner[SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
 
 static void wifi_set_started_state(bool started);
-static esp_err_t wifi_update_ap_dns_from_sta(void);
+static esp_err_t wifi_update_ap_dns_from_uplink(
+    const solar_os_uplink_info_t *uplink);
 static void wifi_repeater_schedule_reconnect(void);
 static void wifi_lock(void);
 static void wifi_unlock(void);
@@ -880,17 +882,22 @@ static esp_err_t wifi_apply_nat(void)
 {
     bool nat_active = false;
     bool should_enable = false;
+    solar_os_uplink_info_t uplink = {0};
+    const bool have_uplink = solar_os_uplink_get_active(&uplink);
 
     wifi_lock();
     nat_active = wifi_nat_active;
     should_enable = wifi_nat_enabled &&
         !wifi_repeater_starting &&
         !solar_os_wifi_repeater_is_enabled() &&
-        wifi_sta_enabled &&
-        wifi_connected &&
-        wifi_has_ip &&
+        have_uplink &&
         wifi_ap_enabled &&
         wifi_ap_running;
+    if (should_enable) {
+        strlcpy(wifi_nat_uplink, uplink.name, sizeof(wifi_nat_uplink));
+    } else {
+        wifi_nat_uplink[0] = '\0';
+    }
     wifi_unlock();
 
     if (!should_enable && !nat_active) {
@@ -909,11 +916,14 @@ static esp_err_t wifi_apply_nat(void)
         return should_enable ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
 
-    if (should_enable && !nat_active) {
-        esp_err_t dns_ret = wifi_update_ap_dns_from_sta();
+    if (should_enable) {
+        esp_err_t dns_ret = wifi_update_ap_dns_from_uplink(&uplink);
         if (dns_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "AP DHCP DNS preparation failed before NAT: %s", esp_err_to_name(dns_ret));
         }
+    }
+
+    if (should_enable && !nat_active) {
         const esp_err_t ret = esp_netif_napt_enable(wifi_ap_netif);
         wifi_lock();
         wifi_nat_active = ret == ESP_OK;
@@ -942,22 +952,24 @@ static esp_err_t wifi_apply_nat(void)
     return ESP_OK;
 }
 
-static esp_err_t wifi_update_ap_dns_from_sta(void)
+static esp_err_t wifi_update_ap_dns_from_uplink(
+    const solar_os_uplink_info_t *uplink)
 {
-    if (wifi_sta_netif == NULL || wifi_ap_netif == NULL) {
+    if (uplink == NULL || wifi_ap_netif == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_netif_dns_info_t dns = {0};
-    esp_err_t ret = esp_netif_get_dns_info(wifi_sta_netif, ESP_NETIF_DNS_MAIN, &dns);
-    if (ret != ESP_OK || dns.ip.type != ESP_IPADDR_TYPE_V4 || dns.ip.u_addr.ip4.addr == 0) {
-        return ret == ESP_OK ? ESP_ERR_NOT_FOUND : ret;
+    esp_netif_dns_info_t dns = uplink->dns;
+    if (dns.ip.type != ESP_IPADDR_TYPE_V4 || dns.ip.u_addr.ip4.addr == 0) {
+        return ESP_ERR_NOT_FOUND;
     }
 
     bool dns_matches = false;
     bool offer_dns = false;
     esp_netif_dns_info_t ap_dns = {0};
-    ret = esp_netif_get_dns_info(wifi_ap_netif, ESP_NETIF_DNS_MAIN, &ap_dns);
+    esp_err_t ret = esp_netif_get_dns_info(wifi_ap_netif,
+                                           ESP_NETIF_DNS_MAIN,
+                                           &ap_dns);
     if (ret == ESP_OK &&
         ap_dns.ip.type == ESP_IPADDR_TYPE_V4 &&
         ap_dns.ip.u_addr.ip4.addr == dns.ip.u_addr.ip4.addr) {
@@ -1337,6 +1349,12 @@ static void wifi_event_handler(void *arg,
             break;
         }
         (void)wifi_apply_nat();
+        return;
+    }
+
+    if (event_base == SOLAR_OS_UPLINK_EVENT &&
+        event_id == SOLAR_OS_UPLINK_EVENT_CHANGED) {
+        (void)wifi_apply_nat();
     }
 }
 
@@ -1459,6 +1477,15 @@ esp_err_t solar_os_wifi_init(void)
 
     ret = esp_event_handler_instance_register(IP_EVENT,
                                               IP_EVENT_STA_LOST_IP,
+                                              wifi_event_handler,
+                                              NULL,
+                                              NULL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = esp_event_handler_instance_register(SOLAR_OS_UPLINK_EVENT,
+                                              SOLAR_OS_UPLINK_EVENT_CHANGED,
                                               wifi_event_handler,
                                               NULL,
                                               NULL);
@@ -2206,6 +2233,41 @@ esp_err_t solar_os_wifi_nat_set(bool enabled)
     return wifi_apply_nat();
 }
 
+esp_err_t solar_os_wifi_share_start(void)
+{
+    esp_err_t ret = solar_os_wifi_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (solar_os_wifi_repeater_is_enabled()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    bool ap_was_enabled = false;
+    wifi_lock();
+    ap_was_enabled = wifi_ap_enabled;
+    wifi_unlock();
+
+    ret = wifi_ap_start_config(NULL, NULL, NULL, false);
+    if (ret == ESP_OK) {
+        ret = wifi_wait_for_ap_running();
+    }
+    if (ret == ESP_OK) {
+        ret = solar_os_wifi_nat_set(true);
+    }
+    if (ret != ESP_OK && !ap_was_enabled) {
+        (void)solar_os_wifi_ap_stop();
+    }
+    return ret;
+}
+
+esp_err_t solar_os_wifi_share_stop(void)
+{
+    const esp_err_t nat_ret = solar_os_wifi_nat_set(false);
+    const esp_err_t ap_ret = solar_os_wifi_ap_stop();
+    return nat_ret != ESP_OK ? nat_ret : ap_ret;
+}
+
 esp_err_t solar_os_wifi_repeater_start(void)
 {
     esp_err_t ret = solar_os_wifi_init();
@@ -2721,6 +2783,9 @@ void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
     strlcpy(status->ap_ssid, wifi_ap_ssid, sizeof(status->ap_ssid));
     strlcpy(status->ap_auth, wifi_ap_auth, sizeof(status->ap_auth));
     strlcpy(status->ap_ip, wifi_ap_ip, sizeof(status->ap_ip));
+    strlcpy(status->nat_uplink,
+            wifi_nat_uplink,
+            sizeof(status->nat_uplink));
     strlcpy(status->connectionless_owner,
             wifi_connectionless_owner,
             sizeof(status->connectionless_owner));

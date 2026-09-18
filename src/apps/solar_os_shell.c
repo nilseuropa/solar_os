@@ -703,6 +703,7 @@ static const char * const wifi_subcommands[] = {
     "forget",
     "nat",
     "repeater",
+    "share",
 };
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
@@ -723,6 +724,7 @@ static const char * const wireguard_policy_values[] = {
 static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_repeater_subcommands[] = {"on", "off"};
+static const char * const wifi_share_subcommands[] = {"on", "off"};
 static const char * const wifi_ap_auth_values[] = {"open", "wpa", "wpa2", "wpa/wpa2"};
 static const char * const wifi_forget_values[] = {"all"};
 
@@ -1958,6 +1960,7 @@ static const char * const path_wifi_ap_on_auth[] = {
 static const char * const path_wifi_connect[] = {"wifi", "connect"};
 static const char * const path_wifi_nat[] = {"wifi", "nat"};
 static const char * const path_wifi_repeater[] = {"wifi", "repeater"};
+static const char * const path_wifi_share[] = {"wifi", "share"};
 static const char * const path_wifi_forget[] = {"wifi", "forget"};
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
 static const char * const path_wireguard[] = {"wireguard"};
@@ -2979,6 +2982,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_WIFI_SSIDS(path_wifi_connect),
     SHELL_COMPLETION_STATIC(path_wifi_nat, wifi_nat_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_repeater, wifi_repeater_subcommands),
+    SHELL_COMPLETION_STATIC(path_wifi_share, wifi_share_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_forget, wifi_forget_values),
     SHELL_COMPLETION_WIFI_SSIDS(path_wifi_forget),
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD

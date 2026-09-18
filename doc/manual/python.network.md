@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## `solaros.wifi`
 
-Wi-Fi functions expose station, SoftAP, scan, NAT, and L2 IPv4 repeater controls.
+Wi-Fi functions expose station, SoftAP, scan, internet sharing, NAT, and L2 IPv4 repeater controls.
 
 - `status()`: return detailed Wi-Fi status.
 - `status_text()`: return the same compact status text used by the shell.
@@ -29,7 +29,9 @@ Wi-Fi functions expose station, SoftAP, scan, NAT, and L2 IPv4 repeater controls
 - `scan()`: return visible APs as dictionaries with `ssid`, `auth`, `rssi`, `channel`, and `hidden`.
 - `ap_start([ssid[, password[, auth]]])`: start SoftAP, reusing saved AP config when no arguments are supplied.
 - `ap_stop()`: stop SoftAP.
-- `nat(enabled)`: persistently enable or disable APSTA NAT.
+- `nat(enabled)`: persistently enable or disable NAT from SoftAP to the active SolarOS uplink.
+- `share_start()`: start the saved SoftAP and share the active uplink through IPv4 NAT.
+- `share_stop()`: disable internet sharing and stop the SoftAP.
 - `repeater_start()`: connect the preferred remembered upstream when needed, repeat its saved SSID and password, and bridge upstream DHCP plus IPv4/ARP traffic without NAT.
 - `repeater_stop()`: stop L2 forwarding and the SoftAP while retaining the upstream station.
 

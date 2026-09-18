@@ -13,6 +13,7 @@ typedef struct {
     esp_netif_t *netif;
     char name[SOLAR_OS_UPLINK_NAME_MAX + 1U];
     int route_priority;
+    esp_netif_dns_info_t dns;
 } solar_os_uplink_info_t;
 
 ESP_EVENT_DECLARE_BASE(SOLAR_OS_UPLINK_EVENT);
