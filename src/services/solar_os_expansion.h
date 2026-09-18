@@ -122,6 +122,7 @@ typedef struct {
 
 esp_err_t solar_os_expansion_init(void);
 esp_err_t solar_os_expansion_init_early(void);
+void solar_os_expansion_poll(uint32_t now_ms);
 bool solar_os_expansion_available(void);
 
 size_t solar_os_expansion_driver_count(void);

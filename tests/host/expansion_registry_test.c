@@ -217,6 +217,32 @@ static esp_err_t test_i2c_detach(const char *name)
     return ESP_OK;
 }
 
+static unsigned flaky_attach_failures = 1U;
+
+static esp_err_t test_flaky_attach(const char *name,
+                                   const solar_os_expansion_binding_t *bindings,
+                                   size_t binding_count)
+{
+    (void)name;
+    (void)bindings;
+    (void)binding_count;
+    if (flaky_attach_failures > 0U) {
+        flaky_attach_failures--;
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
+}
+
+const solar_os_expansion_driver_t test_flaky_expansion_driver = {
+    .name = "test-flaky",
+    .summary = "test delayed board device",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_UTILITY,
+    .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
+    .allow_unlisted_bindings = true,
+    .attach = test_flaky_attach,
+    .detach = test_i2c_detach,
+};
+
 static const int test_i2c_addresses[] = {0x5d, 0x14};
 static const solar_os_expansion_binding_spec_t test_i2c_specs[] = {
     {
@@ -289,7 +315,13 @@ int main(void)
     assert(solar_os_expansion_init_early() == ESP_OK);
     assert(solar_os_expansion_device_count() == 0);
 
-    assert(solar_os_expansion_init() == ESP_OK);
+    assert(solar_os_expansion_init() == ESP_ERR_TIMEOUT);
+    assert(solar_os_expansion_device_count() == 8);
+    assert(live_allocations == 8);
+    solar_os_expansion_poll(100U);
+    solar_os_expansion_poll(599U);
+    assert(solar_os_expansion_device_count() == 8);
+    solar_os_expansion_poll(600U);
     assert(solar_os_expansion_device_count() == 9);
     assert(live_allocations == 9);
     assert(last_memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED);
