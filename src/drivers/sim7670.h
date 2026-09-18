@@ -7,6 +7,9 @@
 #include "esp_err.h"
 
 #define SIM7670_COMMAND_MAX 160U
+#define SIM7670_APN_MAX 100U
+#define SIM7670_USERNAME_MAX 64U
+#define SIM7670_PASSWORD_MAX 64U
 
 typedef esp_err_t (*sim7670_write_fn_t)(void *user,
                                        const uint8_t *data,
@@ -48,7 +51,22 @@ typedef struct {
     bool rssi_valid;
     int16_t rssi_dbm;
     uint8_t bit_error_rate;
+    bool data_status_valid;
+    bool data_active;
 } sim7670_status_t;
+
+typedef enum {
+    SIM7670_PDP_IPV4 = 0,
+    SIM7670_PDP_IPV6,
+    SIM7670_PDP_IPV4V6,
+} sim7670_pdp_type_t;
+
+typedef enum {
+    SIM7670_AUTH_NONE = 0,
+    SIM7670_AUTH_PAP,
+    SIM7670_AUTH_CHAP,
+    SIM7670_AUTH_AUTO,
+} sim7670_auth_t;
 
 typedef struct {
     bool valid;
@@ -72,6 +90,15 @@ esp_err_t sim7670_command(sim7670_t *device,
                           size_t response_size);
 esp_err_t sim7670_read_status(sim7670_t *device,
                               sim7670_status_t *status);
+esp_err_t sim7670_configure_pdp(sim7670_t *device,
+                                const char *apn,
+                                sim7670_pdp_type_t pdp_type,
+                                sim7670_auth_t auth,
+                                const char *username,
+                                const char *password);
+esp_err_t sim7670_clear_pdp(sim7670_t *device);
+esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active);
+esp_err_t sim7670_unlock_sim(sim7670_t *device, const char *pin);
 esp_err_t sim7670_set_gnss_power(sim7670_t *device, bool enabled);
 esp_err_t sim7670_read_gnss_fix(sim7670_t *device,
                                 uint32_t timeout_ms,
@@ -83,6 +110,9 @@ bool sim7670_parse_csq(const char *response,
                        uint8_t *bit_error_rate);
 bool sim7670_parse_cereg(const char *response,
                          sim7670_registration_t *registration);
+bool sim7670_parse_cgact(const char *response,
+                         unsigned context_id,
+                         bool *active);
 bool sim7670_parse_cgpsinfo(const char *response,
                             sim7670_gnss_fix_t *fix);
 const char *sim7670_registration_name(sim7670_registration_t registration);

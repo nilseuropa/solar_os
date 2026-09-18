@@ -9,6 +9,9 @@
 #define SIM7670_READ_SLICE_MS 100U
 #define SIM7670_STATUS_TIMEOUT_MS 2000U
 #define SIM7670_STATUS_AT_ATTEMPTS 3U
+#define SIM7670_CONFIG_TIMEOUT_MS 5000U
+#define SIM7670_ACTIVATION_TIMEOUT_MS 45000U
+#define SIM7670_CONTEXT_ID 1U
 
 typedef enum {
     TERMINAL_NONE,
@@ -240,6 +243,28 @@ bool sim7670_parse_cereg(const char *response,
     return true;
 }
 
+bool sim7670_parse_cgact(const char *response,
+                         unsigned context_id,
+                         bool *active)
+{
+    if (response == NULL || context_id == 0U || context_id > 15U ||
+        active == NULL) {
+        return false;
+    }
+    const char *line = response;
+    while ((line = strstr(line, "+CGACT:")) != NULL) {
+        line += strlen("+CGACT:");
+        unsigned cid = 0U;
+        unsigned state = 0U;
+        if (sscanf(line, " %u,%u", &cid, &state) == 2 &&
+            cid == context_id && state <= 1U) {
+            *active = state == 1U;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool parse_unsigned_field(const char *text,
                                  size_t digits,
                                  unsigned *value)
@@ -429,7 +454,191 @@ esp_err_t sim7670_read_status(sim7670_t *device,
                               &status->rssi_dbm,
                               &status->bit_error_rate);
     }
+    ret = sim7670_command(device,
+                          "AT+CGACT?",
+                          SIM7670_STATUS_TIMEOUT_MS,
+                          response,
+                          sizeof(response));
+    if (ret == ESP_OK) {
+        status->data_status_valid =
+            sim7670_parse_cgact(response,
+                                SIM7670_CONTEXT_ID,
+                                &status->data_active);
+    }
     return ESP_OK;
+}
+
+static bool quoted_value_valid(const char *value, size_t max_len, bool required)
+{
+    if (value == NULL) {
+        return !required;
+    }
+    const size_t len = strnlen(value, max_len + 1U);
+    if ((required && len == 0U) || len > max_len) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        const unsigned char ch = (unsigned char)value[i];
+        if (ch < 0x20U || ch > 0x7eU || ch == '"' || ch == '\\' ||
+            ch == '\r' || ch == '\n') {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool apn_valid(const char *apn)
+{
+    if (!quoted_value_valid(apn, SIM7670_APN_MAX, true)) {
+        return false;
+    }
+    for (const unsigned char *ch = (const unsigned char *)apn;
+         *ch != '\0'; ch++) {
+        if (!(isalnum(*ch) || *ch == '-' || *ch == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static esp_err_t run_config_command(sim7670_t *device,
+                                    const char *command,
+                                    uint32_t timeout_ms)
+{
+    char response[256];
+    return sim7670_command(device,
+                           command,
+                           timeout_ms,
+                           response,
+                           sizeof(response));
+}
+
+esp_err_t sim7670_configure_pdp(sim7670_t *device,
+                                const char *apn,
+                                sim7670_pdp_type_t pdp_type,
+                                sim7670_auth_t auth,
+                                const char *username,
+                                const char *password)
+{
+    const bool credentials_required =
+        auth == SIM7670_AUTH_PAP || auth == SIM7670_AUTH_CHAP;
+    if (device == NULL || !device->initialized || !apn_valid(apn) ||
+        pdp_type > SIM7670_PDP_IPV4V6 || auth > SIM7670_AUTH_AUTO ||
+        !quoted_value_valid(username,
+                            SIM7670_USERNAME_MAX,
+                            credentials_required) ||
+        !quoted_value_valid(password,
+                            SIM7670_PASSWORD_MAX,
+                            credentials_required) ||
+        (!credentials_required &&
+         ((username != NULL && username[0] != '\0') ||
+          (password != NULL && password[0] != '\0')))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *pdp_name = pdp_type == SIM7670_PDP_IPV4
+        ? "IP"
+        : (pdp_type == SIM7670_PDP_IPV6 ? "IPV6" : "IPV4V6");
+    char command[SIM7670_COMMAND_MAX + 1U];
+    int length = snprintf(command,
+                          sizeof(command),
+                          "AT+CGDCONT=%u,\"%s\",\"%s\"",
+                          SIM7670_CONTEXT_ID,
+                          pdp_name,
+                          apn);
+    if (length <= 0 || (size_t)length >= sizeof(command)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    esp_err_t ret = run_config_command(device,
+                                       command,
+                                       SIM7670_CONFIG_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (auth == SIM7670_AUTH_NONE || auth == SIM7670_AUTH_AUTO) {
+        length = snprintf(command,
+                          sizeof(command),
+                          "AT+CGAUTH=%u,0",
+                          SIM7670_CONTEXT_ID);
+    } else {
+        length = snprintf(command,
+                          sizeof(command),
+                          "AT+CGAUTH=%u,%u,\"%s\",\"%s\"",
+                          SIM7670_CONTEXT_ID,
+                          auth == SIM7670_AUTH_PAP ? 1U : 2U,
+                          password,
+                          username);
+    }
+    if (length <= 0 || (size_t)length >= sizeof(command)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return run_config_command(device, command, SIM7670_CONFIG_TIMEOUT_MS);
+}
+
+esp_err_t sim7670_clear_pdp(sim7670_t *device)
+{
+    esp_err_t ret = sim7670_set_pdp_active(device, false);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = run_config_command(device,
+                             "AT+CGDCONT=1",
+                             SIM7670_CONFIG_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return run_config_command(device,
+                              "AT+CGAUTH=1,0",
+                              SIM7670_CONFIG_TIMEOUT_MS);
+}
+
+esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active)
+{
+    if (device == NULL || !device->initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (active) {
+        esp_err_t ret = run_config_command(device,
+                                           "AT+CGATT=1",
+                                           SIM7670_ACTIVATION_TIMEOUT_MS);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+    esp_err_t ret = run_config_command(
+        device,
+        active ? "AT+CGACT=1,1" : "AT+CGACT=0,1",
+        SIM7670_ACTIVATION_TIMEOUT_MS);
+    if (!active && ret != ESP_OK) {
+        /* LTE may reject deactivation of its last PDN. Detaching packet
+         * service deactivates the context and gives disconnect its expected
+         * modem-level semantics. */
+        ret = run_config_command(device,
+                                 "AT+CGATT=0",
+                                 SIM7670_ACTIVATION_TIMEOUT_MS);
+    }
+    return ret;
+}
+
+esp_err_t sim7670_unlock_sim(sim7670_t *device, const char *pin)
+{
+    if (device == NULL || !device->initialized || pin == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t len = strnlen(pin, 9U);
+    if (len < 4U || len > 8U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (!isdigit((unsigned char)pin[i])) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    char command[24];
+    const int length = snprintf(command, sizeof(command), "AT+CPIN=%s", pin);
+    if (length <= 0 || (size_t)length >= sizeof(command)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return run_config_command(device, command, SIM7670_CONFIG_TIMEOUT_MS);
 }
 
 esp_err_t sim7670_set_gnss_power(sim7670_t *device, bool enabled)

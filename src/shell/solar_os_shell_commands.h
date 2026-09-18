@@ -79,7 +79,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 void solar_os_shell_cmd_midi(solar_os_context_t *ctx, int argc, char **argv);
 #endif
-#if SOLAR_OS_PACKAGE_SIM7670
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
 void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);

@@ -10,7 +10,12 @@ typedef struct {
     const char *response;
     size_t offset;
     char request[SIM7670_COMMAND_MAX + 3U];
+    char requests[32][SIM7670_COMMAND_MAX + 3U];
+    size_t request_count;
     bool sim_missing;
+    bool pdp_active;
+    bool packet_attached;
+    bool reject_last_pdn_deactivation;
     unsigned at_failures_remaining;
 } fake_transport_t;
 
@@ -23,6 +28,11 @@ static esp_err_t fake_write(void *user,
     assert(len < sizeof(transport->request));
     memcpy(transport->request, data, len);
     transport->request[len] = '\0';
+    assert(transport->request_count < 32U);
+    memcpy(transport->requests[transport->request_count],
+           transport->request,
+           len + 1U);
+    transport->request_count++;
     transport->offset = 0U;
     if (strcmp(transport->request, "AT\r\n") == 0) {
         if (transport->at_failures_remaining > 0U) {
@@ -39,6 +49,32 @@ static esp_err_t fake_write(void *user,
         transport->response = "\r\n+CEREG: 0,5\r\n\r\nOK\r\n";
     } else if (strcmp(transport->request, "AT+CSQ\r\n") == 0) {
         transport->response = "\r\n+CSQ: 18,3\r\n\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGACT?\r\n") == 0) {
+        transport->response = transport->pdp_active
+            ? "\r\n+CGACT: 1,1\r\n\r\nOK\r\n"
+            : "\r\n+CGACT: 1,0\r\n\r\nOK\r\n";
+    } else if (strncmp(transport->request, "AT+CGDCONT=", 11U) == 0 ||
+               strncmp(transport->request, "AT+CGAUTH=", 10U) == 0 ||
+               strncmp(transport->request, "AT+CPIN=", 8U) == 0) {
+        transport->response = "\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGATT=1\r\n") == 0) {
+        transport->packet_attached = true;
+        transport->response = "\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGATT=0\r\n") == 0) {
+        transport->packet_attached = false;
+        transport->pdp_active = false;
+        transport->response = "\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGACT=1,1\r\n") == 0) {
+        transport->pdp_active = true;
+        transport->response = "\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGACT=0,1\r\n") == 0) {
+        if (transport->reject_last_pdn_deactivation) {
+            transport->response =
+                "\r\n+CME ERROR: Last PDN disconnection not allowed\r\n";
+        } else {
+            transport->pdp_active = false;
+            transport->response = "\r\nOK\r\n";
+        }
     } else {
         transport->response = "\r\nERROR\r\n";
     }
@@ -95,6 +131,8 @@ int main(void)
     assert(status.rssi_valid);
     assert(status.rssi_dbm == -77);
     assert(status.bit_error_rate == 3U);
+    assert(status.data_status_valid);
+    assert(!status.data_active);
 
     transport.sim_missing = true;
     transport.at_failures_remaining = 1U;
@@ -106,10 +144,16 @@ int main(void)
     assert(status.registration == SIM7670_REGISTRATION_ROAMING);
     assert(status.signal_status_valid);
     assert(status.rssi_valid);
+    assert(status.data_status_valid);
 
     sim7670_registration_t registration;
     assert(sim7670_parse_cereg("\r\n+CEREG: 1\r\nOK\r\n", &registration));
     assert(registration == SIM7670_REGISTRATION_HOME);
+    bool active = false;
+    assert(sim7670_parse_cgact(
+        "\r\n+CGACT: 1,0\r\n+CGACT: 2,1\r\nOK\r\n", 2U, &active));
+    assert(active);
+    assert(!sim7670_parse_cgact("+CGACT: 1,0\r\nOK\r\n", 2U, &active));
 
     sim7670_gnss_fix_t fix;
     assert(sim7670_parse_cgpsinfo(
@@ -137,6 +181,43 @@ int main(void)
                            1000U,
                            response,
                            sizeof(response)) == ESP_ERR_INVALID_ARG);
+
+    size_t request = transport.request_count;
+    assert(sim7670_configure_pdp(&modem,
+                                 "5g.vodafone.iot",
+                                 SIM7670_PDP_IPV4V6,
+                                 SIM7670_AUTH_PAP,
+                                 "device-user",
+                                 "device-pass") == ESP_OK);
+    assert(strcmp(transport.requests[request++],
+                  "AT+CGDCONT=1,\"IPV4V6\",\"5g.vodafone.iot\"\r\n") == 0);
+    assert(strcmp(transport.requests[request++],
+                  "AT+CGAUTH=1,1,\"device-pass\",\"device-user\"\r\n") == 0);
+    assert(sim7670_configure_pdp(&modem,
+                                 "bad\"apn",
+                                 SIM7670_PDP_IPV4,
+                                 SIM7670_AUTH_NONE,
+                                 "",
+                                 "") == ESP_ERR_INVALID_ARG);
+    assert(sim7670_set_pdp_active(&modem, true) == ESP_OK);
+    assert(transport.pdp_active);
+    assert(transport.packet_attached);
+    assert(sim7670_read_status(&modem, &status) == ESP_OK);
+    assert(status.data_status_valid && status.data_active);
+    assert(sim7670_set_pdp_active(&modem, false) == ESP_OK);
+    assert(!transport.pdp_active);
+    transport.pdp_active = true;
+    transport.reject_last_pdn_deactivation = true;
+    request = transport.request_count;
+    assert(sim7670_set_pdp_active(&modem, false) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGACT=0,1\r\n") == 0);
+    assert(strcmp(transport.requests[request++], "AT+CGATT=0\r\n") == 0);
+    assert(!transport.packet_attached);
+    assert(!transport.pdp_active);
+    transport.reject_last_pdn_deactivation = false;
+    assert(sim7670_unlock_sim(&modem, "1234") == ESP_OK);
+    assert(sim7670_unlock_sim(&modem, "12x4") == ESP_ERR_INVALID_ARG);
+    assert(sim7670_clear_pdp(&modem) == ESP_OK);
 
     puts("SIM7670 tests: ok");
     return 0;

@@ -516,8 +516,8 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     {"gnss", "GNSS receiver status", solar_os_shell_cmd_gnss},
 #endif
-#if SOLAR_OS_PACKAGE_SIM7670
-    {"modem", "SIM7670 modem status and AT commands", solar_os_shell_cmd_modem},
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+    {"modem", "cellular modem profiles and status", solar_os_shell_cmd_modem},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
@@ -903,8 +903,12 @@ static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 static const char * const gnss_subcommands[] = {"list", "power", "fix"};
 #endif
-#if SOLAR_OS_PACKAGE_SIM7670
-static const char * const modem_subcommands[] = {"list", "status", "at"};
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+static const char * const modem_subcommands[] = {
+    "list", "status", "profile", "connect", "disconnect", "sim", "at",
+};
+static const char * const modem_profile_subcommands[] = {"show", "set", "clear"};
+static const char * const modem_sim_subcommands[] = {"unlock"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const haptic_subcommands[] = {"list", "play", "stop"};
@@ -2193,8 +2197,10 @@ static const char * const path_expansion_detach[] = {"expansion", "detach"};
 static const char * const path_gnss[] = {"gnss"};
 static const char * const path_gnss_power[] = {"gnss", "power"};
 #endif
-#if SOLAR_OS_PACKAGE_SIM7670
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
 static const char * const path_modem[] = {"modem"};
+static const char * const path_modem_profile[] = {"modem", "profile"};
+static const char * const path_modem_sim[] = {"modem", "sim"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const path_haptic[] = {"haptic"};
@@ -3147,8 +3153,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),
     SHELL_COMPLETION_STATIC(path_gnss_power, on_off_values),
 #endif
-#if SOLAR_OS_PACKAGE_SIM7670
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
     SHELL_COMPLETION_STATIC(path_modem, modem_subcommands),
+    SHELL_COMPLETION_STATIC(path_modem_profile, modem_profile_subcommands),
+    SHELL_COMPLETION_STATIC(path_modem_sim, modem_sim_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     SHELL_COMPLETION_STATIC(path_haptic, haptic_subcommands),

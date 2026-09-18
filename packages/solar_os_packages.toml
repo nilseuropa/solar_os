@@ -1166,6 +1166,14 @@ sources = [
   "shell/solar_os_shell_gnss.c",
 ]
 
+[packages.service_modem]
+label = "service.modem"
+sources = [
+  "services/solar_os_modem.c",
+  "shell/solar_os_shell_modem.c",
+]
+requires = ["nvs_flash"]
+
 [packages.service_haptic]
 label = "service.haptic"
 sources = [
@@ -1496,12 +1504,11 @@ capabilities = ["i2c"]
 label = "expansion.sim7670"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_sim7670_expansion_driver"]
-depends = ["service_expansion", "service_gnss", "service_uart"]
+depends = ["service_expansion", "service_gnss", "service_modem", "service_uart"]
 sources = [
   "drivers/sim7670.c",
   "services/solar_os_sim7670.c",
   "services/solar_os_sim7670_driver.c",
-  "shell/solar_os_shell_modem.c",
 ]
 capabilities = ["expansion_uart"]
 
