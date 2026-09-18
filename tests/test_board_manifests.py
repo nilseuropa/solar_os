@@ -272,10 +272,17 @@ class BoardManifestTest(unittest.TestCase):
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
-            {2, 3, 40},
+            {2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 39, 40, 41, 42},
         )
-        for gpio in (7, 14, 17, 18, 21, 38, 39, 41, 42, 46):
+        for gpio in (17, 18, 21, 38, 45, 46):
             self.assertEqual(pins[gpio]["policy"], "fixed")
+        self.assertEqual(
+            board["runtime"]["spi_hosts"],
+            ["SPI2_HOST", "SPI3_HOST"],
+        )
+        self.assertEqual(board["runtime"]["i2s_ports"], ["I2S_NUM_1"])
+        self.assertIn("expansion_spi", board["build"]["capabilities"])
+        self.assertIn("expansion_i2s", board["build"]["capabilities"])
 
         header = generate_header(board, self.drivers)
         self.assertIn('.driver = "sim7670", .name = "modem0"', header)

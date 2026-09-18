@@ -16,14 +16,16 @@ drivers = [
   "storage_expansion",
   "battery_expansion",
   "i2c_esp_idf",
+  "spi_esp_idf",
   "gpio_esp_idf",
   "adc_esp_idf",
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "gfx", "uart", "sd", "i2c", "battery", "wifi", "ble",
+  "psram", "simd", "gfx", "uart", "sd", "i2c", "spi", "battery", "wifi", "ble",
   "key", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
-  "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_i2s",
 ]
 required_packages = []
 psram_bytes = 8388608
@@ -44,7 +46,9 @@ SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_4"
 SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_6"
 
 [runtime]
+spi_hosts = ["SPI2_HOST", "SPI3_HOST"]
 uart_ports = ["UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
 
 [[buses]]
 name = "i2c0"
@@ -439,53 +443,77 @@ role = "SDMMC D0"
 expansion = true
 [[pins]]
 gpio = 7
-policy = "fixed"
-role = "camera D2 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 8
-policy = "fixed"
-role = "camera D3 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 9
-policy = "fixed"
-role = "camera D4 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 10
-policy = "fixed"
-role = "camera D5 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 11
-policy = "fixed"
-role = "camera D6 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 12
-policy = "fixed"
-role = "camera D7 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 13
-policy = "fixed"
-role = "camera D8 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 14
-policy = "fixed"
-role = "camera D9 (camera unsupported)"
+policy = "free"
+role = "expansion"
 expansion = true
+user = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 15
 policy = "fixed"
-role = "I2C SDA / MAX17048 / camera control"
+role = "I2C SDA / MAX17048"
 expansion = true
 [[pins]]
 gpio = 16
 policy = "fixed"
-role = "I2C SCL / MAX17048 / camera control"
+role = "I2C SCL / MAX17048"
 expansion = true
 [[pins]]
 gpio = 17
@@ -518,9 +546,11 @@ policy = "fixed"
 role = "onboard WS2812B"
 [[pins]]
 gpio = 39
-policy = "fixed"
-role = "camera XCLK (camera unsupported)"
+policy = "free"
+role = "expansion / JTAG MTCK"
 expansion = true
+user = true
+pwm = true
 [[pins]]
 gpio = 40
 policy = "free"
@@ -530,14 +560,18 @@ user = true
 pwm = true
 [[pins]]
 gpio = 41
-policy = "fixed"
-role = "camera HREF (camera unsupported)"
+policy = "free"
+role = "expansion / JTAG MTDI"
 expansion = true
+user = true
+pwm = true
 [[pins]]
 gpio = 42
-policy = "fixed"
-role = "camera VSYNC (camera unsupported)"
+policy = "free"
+role = "expansion / JTAG MTMS"
 expansion = true
+user = true
+pwm = true
 [[pins]]
 gpio = 43
 policy = "fixed"
@@ -556,5 +590,5 @@ expansion = true
 [[pins]]
 gpio = 46
 policy = "fixed"
-role = "camera PCLK / strapping (camera unsupported)"
+role = "strapping / input-only"
 expansion = true
