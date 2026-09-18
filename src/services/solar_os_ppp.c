@@ -21,6 +21,7 @@
 #include "freertos/task.h"
 #include "lwip/ip4_addr.h"
 #include "solar_os_task.h"
+#include "solar_os_uplink.h"
 
 #define PPP_RX_BUFFER_SIZE 768U
 #define PPP_TASK_STACK 4096U
@@ -232,6 +233,7 @@ static void ppp_event_handler(void *arg,
                 ppp->netif,
                 ppp->status.interface_name);
             xSemaphoreGive(ppp->mutex);
+            (void)solar_os_uplink_set_ready(ppp->netif, true);
             bits = PPP_EVENT_GOT_IP;
         } else if (event_id == IP_EVENT_PPP_LOST_IP) {
             const ip_event_got_ip_t *event = event_data;
@@ -244,6 +246,7 @@ static void ppp_event_handler(void *arg,
             }
             clear_addresses_locked(ppp);
             xSemaphoreGive(ppp->mutex);
+            (void)solar_os_uplink_set_ready(ppp->netif, false);
             bits = PPP_EVENT_LOST_IP;
         }
     } else if (event_base == NETIF_PPP_STATUS) {
@@ -341,6 +344,7 @@ static void runtime_destroy(solar_os_ppp_t *ppp)
         ppp->got_ip_handler = NULL;
     }
     if (ppp->netif != NULL) {
+        (void)solar_os_uplink_unregister(ppp->netif);
         esp_netif_destroy(ppp->netif);
         ppp->netif = NULL;
     }
@@ -378,6 +382,13 @@ static esp_err_t runtime_init_locked(solar_os_ppp_t *ppp)
     ppp->netif = esp_netif_new(&config);
     if (ppp->netif == NULL) {
         return ESP_ERR_NO_MEM;
+    }
+    ret = solar_os_uplink_register(ppp->name,
+                                   ppp->netif,
+                                   ppp->route_priority);
+    if (ret != ESP_OK) {
+        runtime_destroy(ppp);
+        return ret;
     }
     const esp_netif_ppp_config_t ppp_config = {
         .ppp_phase_event_enabled = true,
@@ -626,6 +637,7 @@ esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp)
     xSemaphoreGive(ppp->mutex);
 
     if (session_active) {
+        (void)solar_os_uplink_set_ready(ppp->netif, false);
         esp_netif_action_disconnected(ppp->netif, 0, 0, NULL);
         esp_netif_action_stop(ppp->netif, 0, 0, NULL);
         (void)xEventGroupWaitBits(ppp->events,

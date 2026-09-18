@@ -17,6 +17,7 @@
 #include "nvs.h"
 #include "solar_os_identity.h"
 #include "solar_os_log.h"
+#include "solar_os_uplink.h"
 #include "solar_os_wifi_repeater.h"
 
 static const char *TAG = "solar_os_wifi";
@@ -40,6 +41,7 @@ static const char *TAG = "solar_os_wifi";
 #define WIFI_REPEATER_RECONNECT_MAX_MS 30000U
 #define WIFI_REPEATER_AP_SETTLE_MS 100U
 #define WIFI_REPEATER_AP_START_TIMEOUT_MS 1500U
+#define WIFI_STA_ROUTE_PRIORITY 100
 
 typedef struct {
     char ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
@@ -1181,6 +1183,7 @@ static void wifi_event_handler(void *arg,
             wifi_unlock();
             break;
         case WIFI_EVENT_STA_STOP:
+            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
             wifi_lock();
             wifi_clear_link_state();
             if (!wifi_suspended) {
@@ -1268,6 +1271,7 @@ static void wifi_event_handler(void *arg,
             }
             wifi_state = wifi_started ? SOLAR_OS_WIFI_STATE_DISCONNECTED : SOLAR_OS_WIFI_STATE_OFF;
             wifi_unlock();
+            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
             solar_os_wifi_repeater_clear_clients();
             wifi_repeater_schedule_reconnect();
             break;
@@ -1304,6 +1308,7 @@ static void wifi_event_handler(void *arg,
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), ap_info.ssid, sizeof(ap_info.ssid));
             }
             wifi_unlock();
+            (void)solar_os_uplink_set_ready(wifi_sta_netif, true);
             wifi_repeater_cancel_reconnect();
             if (event != NULL) {
                 solar_os_wifi_repeater_on_upstream_ip(&event->ip_info);
@@ -1325,6 +1330,7 @@ static void wifi_event_handler(void *arg,
                 wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
             }
             wifi_unlock();
+            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
             solar_os_wifi_repeater_clear_clients();
             break;
         default:
@@ -1456,6 +1462,13 @@ esp_err_t solar_os_wifi_init(void)
                                               wifi_event_handler,
                                               NULL,
                                               NULL);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = solar_os_uplink_register("wifi-sta",
+                                   wifi_sta_netif,
+                                   WIFI_STA_ROUTE_PRIORITY);
     if (ret != ESP_OK) {
         return ret;
     }

@@ -797,8 +797,14 @@ sources = ["shell/solar_os_shell_fs.c"]
 label = "service.zip"
 sources = ["services/solar_os_zip.c"]
 
+[packages.service_uplink]
+label = "network.uplink"
+sources = ["services/solar_os_uplink.c"]
+requires = ["esp_event", "esp_netif"]
+
 [packages.service_wifi]
 label = "service.wifi"
+depends = ["service_uplink"]
 sources = [
   "services/solar_os_lwip_route.c",
   "services/solar_os_wifi.c",
@@ -1176,6 +1182,7 @@ requires = ["nvs_flash"]
 
 [packages.service_ppp]
 label = "service.ppp"
+depends = ["service_uplink"]
 sources = ["services/solar_os_ppp.c"]
 requires = ["esp_event", "esp_netif", "lwip"]
 
