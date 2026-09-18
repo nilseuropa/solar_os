@@ -1357,3 +1357,38 @@ kind = "i2c_address"
 hint = "0x55"
 required = true
 allowed = [0x55]
+
+[drivers.max17048]
+summary = "MAX17048 fuel gauge"
+package = "max17048"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["battery"]
+board_driver = "battery_expansion"
+default_name = "battery0"
+
+[[drivers.max17048.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.max17048.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x36"
+required = true
+allowed = [0x36]
+
+[drivers.sim7670]
+summary = "SIM7670 LTE modem and GNSS receiver"
+package = "sim7670"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_uart"]
+default_name = "modem0"
+
+[[drivers.sim7670.bindings]]
+key = "uart"
+kind = "uart_port"
+hint = "bus"
+required = true

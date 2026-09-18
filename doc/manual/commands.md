@@ -846,7 +846,7 @@ available for the compiled board.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `battery` | `battery [status]` | Show voltage, estimated charge, power source, config, and monitor trend. |
+| `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
 | `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
@@ -930,6 +930,9 @@ available for the compiled board.
 | `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable a receiver that has a driver-managed power rail. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
+| `modem` | `modem [list]` | List registered SIM7670 modems, their UARTs, and GNSS power state. |
+| `modem` | `modem status [name]` | Read SIM readiness, LTE registration, RSSI, and bit error rate. |
+| `modem` | `modem at <quoted-command> [name] [timeout-ms]` | Send one validated AT command and print the complete response. |
 | `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
 | `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
 | `haptic` | `haptic stop [name]` | Stop the active haptic effect. |

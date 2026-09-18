@@ -516,6 +516,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     {"gnss", "GNSS receiver status", solar_os_shell_cmd_gnss},
 #endif
+#if SOLAR_OS_PACKAGE_SIM7670
+    {"modem", "SIM7670 modem status and AT commands", solar_os_shell_cmd_modem},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
 #endif
@@ -899,6 +902,9 @@ static const char * const expansion_bus_protocols[] = {
 };
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 static const char * const gnss_subcommands[] = {"list", "power", "fix"};
+#endif
+#if SOLAR_OS_PACKAGE_SIM7670
+static const char * const modem_subcommands[] = {"list", "status", "at"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const haptic_subcommands[] = {"list", "play", "stop"};
@@ -2187,6 +2193,9 @@ static const char * const path_expansion_detach[] = {"expansion", "detach"};
 static const char * const path_gnss[] = {"gnss"};
 static const char * const path_gnss_power[] = {"gnss", "power"};
 #endif
+#if SOLAR_OS_PACKAGE_SIM7670
+static const char * const path_modem[] = {"modem"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const path_haptic[] = {"haptic"};
 #endif
@@ -3137,6 +3146,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),
     SHELL_COMPLETION_STATIC(path_gnss_power, on_off_values),
+#endif
+#if SOLAR_OS_PACKAGE_SIM7670
+    SHELL_COMPLETION_STATIC(path_modem, modem_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     SHELL_COMPLETION_STATIC(path_haptic, haptic_subcommands),

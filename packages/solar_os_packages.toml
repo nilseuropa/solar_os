@@ -466,6 +466,11 @@ label = "u-blox MIA-M10Q GNSS receiver"
 category = "Expansion hardware"
 members = ["ublox_mia_m10q"]
 
+[groups.sim7670]
+label = "SIM7670 LTE modem and GNSS receiver"
+category = "Expansion hardware"
+members = ["sim7670"]
+
 [groups.st25r3916]
 label = "ST25R3916 NFC-A reader"
 category = "Expansion hardware"
@@ -632,6 +637,11 @@ members = ["rotary_encoder"]
 label = "BQ27220 fuel gauge"
 category = "Expansion hardware"
 members = ["bq27220"]
+
+[groups.max17048]
+label = "MAX17048 fuel gauge"
+category = "Expansion hardware"
+members = ["max17048"]
 
 [packages.core_runtime]
 label = "bootstrap.runtime"
@@ -1468,6 +1478,32 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.max17048]
+label = "expansion.max17048"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_max17048_expansion_driver"]
+depends = ["service_battery", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/max17048.c",
+  "services/solar_os_max17048.c",
+  "services/solar_os_max17048_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.sim7670]
+label = "expansion.sim7670"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sim7670_expansion_driver"]
+depends = ["service_expansion", "service_gnss", "service_uart"]
+sources = [
+  "drivers/sim7670.c",
+  "services/solar_os_sim7670.c",
+  "services/solar_os_sim7670_driver.c",
+  "shell/solar_os_shell_modem.c",
+]
+capabilities = ["expansion_uart"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"

@@ -599,8 +599,9 @@ static void battery_print_status(solar_os_shell_io_t *term)
                              (unsigned)(status.voltage_mv / 1000U),
                              (unsigned)(status.voltage_mv % 1000U));
     solar_os_shell_io_printf(term,
-                             "Charge: %u%% estimated%s\n",
+                             "Charge: %u%%%s%s\n",
                              (unsigned)status.percent,
+                             status.percent_estimated ? " estimated" : "",
                              status.adc_calibrated ? "" : " (uncalibrated ADC)");
     solar_os_shell_io_printf(term,
                              "Power: %s\n",

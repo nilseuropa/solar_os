@@ -48,6 +48,8 @@ typedef struct {
 typedef struct {
     uint16_t battery_mv;
     bool calibrated;
+    bool percent_valid;
+    uint8_t percent;
     bool external_power_valid;
     bool external_power;
     bool charging_valid;
