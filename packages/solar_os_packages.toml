@@ -1510,6 +1510,7 @@ sources = [
   "services/solar_os_sim7670.c",
   "services/solar_os_sim7670_driver.c",
 ]
+requires = ["esp_event", "esp_netif", "lwip"]
 capabilities = ["expansion_uart"]
 
 [packages.expansion_analog_joystick]

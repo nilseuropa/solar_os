@@ -184,6 +184,11 @@ int main(void)
     strlcpy(profile.apn, "bad\"apn", sizeof(profile.apn));
     assert(solar_os_modem_profile_validate(&profile) == ESP_ERR_INVALID_ARG);
     strlcpy(profile.apn, "5g.vodafone.iot", sizeof(profile.apn));
+    strlcpy(profile.dns, "8.8.8.8", sizeof(profile.dns));
+    assert(solar_os_modem_profile_validate(&profile) == ESP_OK);
+    strlcpy(profile.dns, "8.8.8.999", sizeof(profile.dns));
+    assert(solar_os_modem_profile_validate(&profile) == ESP_ERR_INVALID_ARG);
+    strlcpy(profile.dns, "8.8.8.8", sizeof(profile.dns));
     profile.auth = SOLAR_OS_MODEM_AUTH_PAP;
     assert(solar_os_modem_profile_validate(&profile) == ESP_ERR_INVALID_ARG);
     strlcpy(profile.username, "user", sizeof(profile.username));
@@ -231,6 +236,7 @@ int main(void)
     solar_os_modem_profile_t loaded;
     assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_OK);
     assert(strcmp(loaded.apn, profile.apn) == 0);
+    assert(strcmp(loaded.dns, profile.dns) == 0);
     assert(loaded.ip_type == SOLAR_OS_MODEM_IP_IPV4V6);
 
     assert(solar_os_modem_set_data_active("modem0", true) == ESP_OK);
@@ -264,6 +270,9 @@ int main(void)
     assert(strcmp(solar_os_modem_registration_name(
                       SOLAR_OS_MODEM_REGISTRATION_HOME),
                   "home") == 0);
+    assert(strcmp(solar_os_modem_network_state_name(
+                      SOLAR_OS_MODEM_NETWORK_CONNECTING),
+                  "connecting") == 0);
 
     puts("Modem service registry/profile tests: ok");
     return 0;

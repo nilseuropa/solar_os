@@ -75,6 +75,10 @@ static esp_err_t fake_write(void *user,
             transport->pdp_active = false;
             transport->response = "\r\nOK\r\n";
         }
+    } else if (strcmp(transport->request, "ATD*99#\r\n") == 0) {
+        transport->response = "\r\nCONNECT\r\n";
+    } else if (strcmp(transport->request, "ATD*98#\r\n") == 0) {
+        transport->response = "\r\nNO CARRIER\r\n";
     } else {
         transport->response = "\r\nERROR\r\n";
     }
@@ -181,6 +185,11 @@ int main(void)
                            1000U,
                            response,
                            sizeof(response)) == ESP_ERR_INVALID_ARG);
+    assert(sim7670_command(&modem,
+                           "ATD*98#",
+                           1000U,
+                           response,
+                           sizeof(response)) == ESP_FAIL);
 
     size_t request = transport.request_count;
     assert(sim7670_configure_pdp(&modem,
@@ -199,6 +208,8 @@ int main(void)
                                  SIM7670_AUTH_NONE,
                                  "",
                                  "") == ESP_ERR_INVALID_ARG);
+    assert(sim7670_set_packet_attached(&modem, true) == ESP_OK);
+    assert(transport.packet_attached);
     assert(sim7670_set_pdp_active(&modem, true) == ESP_OK);
     assert(transport.pdp_active);
     assert(transport.packet_attached);
@@ -215,6 +226,9 @@ int main(void)
     assert(!transport.packet_attached);
     assert(!transport.pdp_active);
     transport.reject_last_pdn_deactivation = false;
+    assert(sim7670_enter_data_mode(&modem) == ESP_OK);
+    assert(strcmp(transport.requests[transport.request_count - 1U],
+                  "ATD*99#\r\n") == 0);
     assert(sim7670_unlock_sim(&modem, "1234") == ESP_OK);
     assert(sim7670_unlock_sim(&modem, "12x4") == ESP_ERR_INVALID_ARG);
     assert(sim7670_clear_pdp(&modem) == ESP_OK);

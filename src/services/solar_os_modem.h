@@ -10,8 +10,10 @@
 #define SOLAR_OS_MODEM_DRIVER_MAX 24U
 #define SOLAR_OS_MODEM_TRANSPORT_MAX 24U
 #define SOLAR_OS_MODEM_APN_MAX 100U
+#define SOLAR_OS_MODEM_DNS_MAX 15U
 #define SOLAR_OS_MODEM_USERNAME_MAX 64U
 #define SOLAR_OS_MODEM_PASSWORD_MAX 64U
+#define SOLAR_OS_MODEM_ADDRESS_MAX 46U
 
 typedef enum {
     SOLAR_OS_MODEM_IP_IPV4 = 0,
@@ -35,8 +37,17 @@ typedef enum {
     SOLAR_OS_MODEM_REGISTRATION_ROAMING,
 } solar_os_modem_network_registration_t;
 
+typedef enum {
+    SOLAR_OS_MODEM_NETWORK_UNKNOWN = 0,
+    SOLAR_OS_MODEM_NETWORK_DOWN,
+    SOLAR_OS_MODEM_NETWORK_CONNECTING,
+    SOLAR_OS_MODEM_NETWORK_UP,
+    SOLAR_OS_MODEM_NETWORK_FAILED,
+} solar_os_modem_network_state_t;
+
 typedef struct {
     char apn[SOLAR_OS_MODEM_APN_MAX + 1U];
+    char dns[SOLAR_OS_MODEM_DNS_MAX + 1U];
     solar_os_modem_ip_type_t ip_type;
     solar_os_modem_auth_t auth;
     char username[SOLAR_OS_MODEM_USERNAME_MAX + 1U];
@@ -55,6 +66,12 @@ typedef struct {
     uint8_t bit_error_rate;
     bool data_status_valid;
     bool data_active;
+    bool network_status_valid;
+    solar_os_modem_network_state_t network_state;
+    char network_interface[8];
+    char ipv4_address[SOLAR_OS_MODEM_ADDRESS_MAX];
+    char ipv4_gateway[SOLAR_OS_MODEM_ADDRESS_MAX];
+    char dns_address[SOLAR_OS_MODEM_ADDRESS_MAX];
 } solar_os_modem_status_t;
 
 typedef struct {
@@ -119,3 +136,5 @@ bool solar_os_modem_auth_parse(const char *name, solar_os_modem_auth_t *auth);
 const char *solar_os_modem_auth_name(solar_os_modem_auth_t auth);
 const char *solar_os_modem_registration_name(
     solar_os_modem_network_registration_t registration);
+const char *solar_os_modem_network_state_name(
+    solar_os_modem_network_state_t state);

@@ -931,10 +931,10 @@ available for the compiled board.
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable a receiver that has a driver-managed power rail. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
 | `modem` | `modem [list]` | List registered cellular modems, concrete drivers, and transports. |
-| `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, and packet-context state. |
-| `modem` | `modem profile set [name] --apn <apn> [--ip ipv4\|ipv6\|ipv4v6] [--auth none\|pap\|chap\|auto] [--user <user> --password <password>]` | Validate, apply, and persist a modem-independent cellular profile. |
+| `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
+| `modem` | `modem profile set [name] --apn <apn> [--dns <ipv4\|auto>] [--ip ipv4\|ipv6\|ipv4v6] [--auth none\|pap\|chap\|auto] [--user <user> --password <password>]` | Validate, apply, and persist a modem-independent cellular profile. |
 | `modem` | `modem profile show\|clear [name]` | Inspect a saved profile with its password redacted, or remove it. |
-| `modem` | `modem connect\|disconnect [name]` | Activate or deactivate the saved modem-side packet context. |
+| `modem` | `modem connect\|disconnect [name]` | Bring the saved cellular network connection and PPP interface up or down. |
 | `modem` | `modem sim unlock <pin> [name]` | Enter a required SIM PIN without persisting it. |
 | `modem` | `modem at <quoted-command> [name] [timeout-ms]` | Send one validated AT command and print the complete response. |
 | `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |

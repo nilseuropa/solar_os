@@ -16,6 +16,7 @@
 typedef enum {
     TERMINAL_NONE,
     TERMINAL_OK,
+    TERMINAL_CONNECT,
     TERMINAL_ERROR,
 } terminal_result_t;
 
@@ -51,9 +52,17 @@ static terminal_result_t terminal_result(const char *response)
         if (len == 2U && memcmp(line, "OK", 2U) == 0) {
             return TERMINAL_OK;
         }
+        if (len >= 7U && memcmp(line, "CONNECT", 7U) == 0 &&
+            (len == 7U || line[7] == ' ')) {
+            return TERMINAL_CONNECT;
+        }
         if ((len == 5U && memcmp(line, "ERROR", 5U) == 0) ||
             (len >= 10U && memcmp(line, "+CME ERROR", 10U) == 0) ||
-            (len >= 10U && memcmp(line, "+CMS ERROR", 10U) == 0)) {
+            (len >= 10U && memcmp(line, "+CMS ERROR", 10U) == 0) ||
+            (len == 10U && memcmp(line, "NO CARRIER", 10U) == 0) ||
+            (len == 4U && memcmp(line, "BUSY", 4U) == 0) ||
+            (len == 9U && memcmp(line, "NO ANSWER", 9U) == 0) ||
+            (len == 11U && memcmp(line, "NO DIALTONE", 11U) == 0)) {
             return TERMINAL_ERROR;
         }
         line = end;
@@ -146,7 +155,7 @@ esp_err_t sim7670_command(sim7670_t *device,
         used += read_len;
         response[used] = '\0';
         const terminal_result_t terminal = terminal_result(response);
-        if (terminal == TERMINAL_OK) {
+        if (terminal == TERMINAL_OK || terminal == TERMINAL_CONNECT) {
             return ESP_OK;
         }
         if (terminal == TERMINAL_ERROR) {
@@ -597,9 +606,7 @@ esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active)
         return ESP_ERR_INVALID_ARG;
     }
     if (active) {
-        esp_err_t ret = run_config_command(device,
-                                           "AT+CGATT=1",
-                                           SIM7670_ACTIVATION_TIMEOUT_MS);
+        esp_err_t ret = sim7670_set_packet_attached(device, true);
         if (ret != ESP_OK) {
             return ret;
         }
@@ -617,6 +624,32 @@ esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active)
                                  SIM7670_ACTIVATION_TIMEOUT_MS);
     }
     return ret;
+}
+
+esp_err_t sim7670_set_packet_attached(sim7670_t *device, bool attached)
+{
+    if (device == NULL || !device->initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return run_config_command(device,
+                              attached ? "AT+CGATT=1" : "AT+CGATT=0",
+                              SIM7670_ACTIVATION_TIMEOUT_MS);
+}
+
+esp_err_t sim7670_enter_data_mode(sim7670_t *device)
+{
+    if (device == NULL || !device->initialized) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char response[128];
+    const esp_err_t ret = sim7670_command(device,
+                                          "ATD*99#",
+                                          SIM7670_ACTIVATION_TIMEOUT_MS + 5000U,
+                                          response,
+                                          sizeof(response));
+    return ret == ESP_OK && strstr(response, "CONNECT") != NULL
+        ? ESP_OK
+        : (ret == ESP_OK ? ESP_ERR_INVALID_RESPONSE : ret);
 }
 
 esp_err_t sim7670_unlock_sim(sim7670_t *device, const char *pin)

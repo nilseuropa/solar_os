@@ -97,7 +97,9 @@ esp_err_t sim7670_configure_pdp(sim7670_t *device,
                                 const char *username,
                                 const char *password);
 esp_err_t sim7670_clear_pdp(sim7670_t *device);
+esp_err_t sim7670_set_packet_attached(sim7670_t *device, bool attached);
 esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active);
+esp_err_t sim7670_enter_data_mode(sim7670_t *device);
 esp_err_t sim7670_unlock_sim(sim7670_t *device, const char *pin);
 esp_err_t sim7670_set_gnss_power(sim7670_t *device, bool enabled);
 esp_err_t sim7670_read_gnss_fix(sim7670_t *device,

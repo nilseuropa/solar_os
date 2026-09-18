@@ -46,7 +46,10 @@ static void print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  modem profile show [name]");
     solar_os_shell_io_writeln(
         term,
-        "  modem profile set [name] --apn <apn> [--ip ipv4|ipv6|ipv4v6]");
+        "  modem profile set [name] --apn <apn> [--dns <ipv4|auto>]");
+    solar_os_shell_io_writeln(
+        term,
+        "      [--ip ipv4|ipv6|ipv4v6]");
     solar_os_shell_io_writeln(
         term,
         "      [--auth none|pap|chap|auto] [--user <user> --password <password>]");
@@ -104,12 +107,16 @@ static void show_status(solar_os_shell_io_t *term,
         ? (status.data_active ? "active" : "inactive")
         : "unknown";
     solar_os_shell_io_printf(term,
-                             "%s online=%s sim=%s registration=%s data=%s\r\n",
+                             "%s online=%s sim=%s registration=%s data=%s network=%s\r\n",
                              name,
                              status.online ? "yes" : "no",
                              sim_state,
                              registration,
-                             data);
+                             data,
+                             status.network_status_valid
+                                 ? solar_os_modem_network_state_name(
+                                       status.network_state)
+                                 : "unknown");
     if (status.signal_status_valid && status.rssi_valid) {
         solar_os_shell_io_printf(term, "rssi=%d dBm ", status.rssi_dbm);
     } else {
@@ -119,6 +126,19 @@ static void show_status(solar_os_shell_io_t *term,
         solar_os_shell_io_printf(term, "ber=%u\r\n", status.bit_error_rate);
     } else {
         solar_os_shell_io_writeln(term, "ber=unknown");
+    }
+    if (status.network_status_valid &&
+        status.network_state == SOLAR_OS_MODEM_NETWORK_UP) {
+        solar_os_shell_io_printf(term,
+                                 "interface=%s ipv4=%s gateway=%s dns=%s\r\n",
+                                 status.network_interface[0] != '\0'
+                                     ? status.network_interface : "unknown",
+                                 status.ipv4_address[0] != '\0'
+                                     ? status.ipv4_address : "unknown",
+                                 status.ipv4_gateway[0] != '\0'
+                                     ? status.ipv4_gateway : "unknown",
+                                 status.dns_address[0] != '\0'
+                                     ? status.dns_address : "unknown");
     }
 }
 
@@ -133,6 +153,7 @@ static bool parse_profile_options(int argc,
         SEEN_AUTH = 1U << 2,
         SEEN_USER = 1U << 3,
         SEEN_PASSWORD = 1U << 4,
+        SEEN_DNS = 1U << 5,
     };
     unsigned seen = 0U;
     *profile = (solar_os_modem_profile_t) {
@@ -150,6 +171,13 @@ static bool parse_profile_options(int argc,
             flag = SEEN_APN;
             if (strlcpy(profile->apn, value, sizeof(profile->apn)) >=
                 sizeof(profile->apn)) {
+                return false;
+            }
+        } else if (strcmp(option, "--dns") == 0) {
+            flag = SEEN_DNS;
+            if (strcmp(value, "auto") != 0 &&
+                strlcpy(profile->dns, value, sizeof(profile->dns)) >=
+                    sizeof(profile->dns)) {
                 return false;
             }
         } else if (strcmp(option, "--ip") == 0) {
@@ -203,9 +231,10 @@ static void show_profile(solar_os_shell_io_t *term, const char *name)
         return;
     }
     solar_os_shell_io_printf(term,
-                             "%s apn=%s ip=%s auth=%s\r\n",
+                             "%s apn=%s dns=%s ip=%s auth=%s\r\n",
                              name,
                              profile.apn,
+                             profile.dns[0] != '\0' ? profile.dns : "auto",
                              solar_os_modem_ip_type_name(profile.ip_type),
                              solar_os_modem_auth_name(profile.auth));
     solar_os_shell_io_printf(term,
@@ -311,10 +340,22 @@ static void set_data_active(solar_os_shell_io_t *term,
     }
     const esp_err_t ret = solar_os_modem_set_data_active(name, active);
     if (ret == ESP_OK) {
-        solar_os_shell_io_printf(term,
-                                 "%s data=%s\r\n",
-                                 name,
-                                 active ? "active" : "inactive");
+        solar_os_modem_status_t status;
+        const esp_err_t status_ret = solar_os_modem_get_status(name, &status);
+        if (status_ret == ESP_OK && status.network_status_valid) {
+            solar_os_shell_io_printf(
+                term,
+                "%s network=%s%s%s\r\n",
+                name,
+                solar_os_modem_network_state_name(status.network_state),
+                status.ipv4_address[0] != '\0' ? " ipv4=" : "",
+                status.ipv4_address[0] != '\0' ? status.ipv4_address : "");
+        } else {
+            solar_os_shell_io_printf(term,
+                                     "%s data=%s\r\n",
+                                     name,
+                                     active ? "active" : "inactive");
+        }
     } else if (ret == ESP_ERR_NOT_FOUND && active) {
         solar_os_shell_io_writeln(
             term,

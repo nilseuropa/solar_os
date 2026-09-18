@@ -103,10 +103,44 @@ static bool credential_valid(const char *value, size_t max_len)
     return true;
 }
 
+static bool dns_valid(const char *address)
+{
+    const size_t len = strnlen(address, SOLAR_OS_MODEM_DNS_MAX + 1U);
+    if (len == 0U) {
+        return true;
+    }
+    if (len > SOLAR_OS_MODEM_DNS_MAX) {
+        return false;
+    }
+    size_t octets = 0U;
+    unsigned value = 0U;
+    size_t digits = 0U;
+    bool nonzero = false;
+    for (size_t i = 0U; i <= len; i++) {
+        const unsigned char ch = (unsigned char)address[i];
+        if (isdigit(ch)) {
+            value = value * 10U + (unsigned)(ch - '0');
+            if (++digits > 3U || value > 255U) {
+                return false;
+            }
+            continue;
+        }
+        if ((ch != '.' && ch != '\0') || digits == 0U) {
+            return false;
+        }
+        nonzero = nonzero || value != 0U;
+        octets++;
+        value = 0U;
+        digits = 0U;
+    }
+    return octets == 4U && nonzero;
+}
+
 esp_err_t solar_os_modem_profile_validate(
     const solar_os_modem_profile_t *profile)
 {
     if (profile == NULL || !apn_valid(profile->apn) ||
+        !dns_valid(profile->dns) ||
         profile->ip_type > SOLAR_OS_MODEM_IP_IPV4V6 ||
         profile->auth > SOLAR_OS_MODEM_AUTH_AUTO ||
         !credential_valid(profile->username, SOLAR_OS_MODEM_USERNAME_MAX) ||
@@ -204,6 +238,24 @@ const char *solar_os_modem_registration_name(
     case SOLAR_OS_MODEM_REGISTRATION_ROAMING:
         return "roaming";
     case SOLAR_OS_MODEM_REGISTRATION_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+const char *solar_os_modem_network_state_name(
+    solar_os_modem_network_state_t state)
+{
+    switch (state) {
+    case SOLAR_OS_MODEM_NETWORK_DOWN:
+        return "down";
+    case SOLAR_OS_MODEM_NETWORK_CONNECTING:
+        return "connecting";
+    case SOLAR_OS_MODEM_NETWORK_UP:
+        return "up";
+    case SOLAR_OS_MODEM_NETWORK_FAILED:
+        return "failed";
+    case SOLAR_OS_MODEM_NETWORK_UNKNOWN:
     default:
         return "unknown";
     }
