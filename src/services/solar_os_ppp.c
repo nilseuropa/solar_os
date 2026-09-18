@@ -5,6 +5,11 @@
 #include <string.h>
 
 #include "sdkconfig.h"
+
+#if !CONFIG_LWIP_PPP_SUPPORT
+#error "service.ppp requires CONFIG_LWIP_PPP_SUPPORT=y"
+#endif
+
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
