@@ -53,6 +53,8 @@ static esp_err_t fake_read_fix(void *ctx,
     }
     *fix = (solar_os_gnss_fix_t) {
         .valid = true,
+        .satellites_valid = true,
+        .satellites = 7U,
         .latitude_deg_e7 = fake->latitude,
     };
     return ESP_OK;
@@ -118,6 +120,7 @@ int main(void)
     assert(solar_os_gnss_get_status(second.name, 250U, &status) == ESP_OK);
     assert(!status.power_control && status.powered);
     assert(status.fix_available && status.fix.valid);
+    assert(status.fix.satellites_valid && status.fix.satellites == 7U);
     assert(status.fix.latitude_deg_e7 == second.latitude);
     assert(second.reads == 1U);
 

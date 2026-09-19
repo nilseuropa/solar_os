@@ -45,7 +45,7 @@ print(solaros.sensors.humidity())
   defaulting to the first receiver, and return the requested state.
 - `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
   a 1000 ms timeout. The result includes scaled-integer position, accuracy,
-  motion, fix, satellite, and UTC fields.
+  motion, fix, `satellites_valid`, satellite count, and UTC fields.
 
 ```lua
 local fix = solaros.gnss.fix()

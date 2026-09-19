@@ -65,9 +65,10 @@ Available when the firmware includes a GNSS receiver service.
   defaulting to the first receiver, and return the requested state.
 - `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
   a 1000 ms timeout. The result contains fix and UTC validity, date and time,
-  fix type, satellite count, longitude and latitude in degrees times 10^7,
-  MSL height and accuracy in millimeters, ground speed in millimeters per
-  second, heading in degrees times 10^5, and position DOP times 100.
+  fix type, `satellites_valid` and satellite count, longitude and latitude in
+  degrees times 10^7, MSL height and accuracy in millimeters, ground speed in
+  millimeters per second, heading in degrees times 10^5, and position DOP
+  times 100.
 
 ```python
 import solaros

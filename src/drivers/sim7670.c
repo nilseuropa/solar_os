@@ -577,13 +577,17 @@ bool sim7670_parse_cgnssinfo(const char *response,
 
     const size_t latitude_index = hemisphere_index - 1U;
     uint8_t visible = 0U;
+    bool visible_valid = false;
     for (size_t i = 1U; i < latitude_index; i++) {
         uint8_t constellation = 0U;
-        if (parse_uint8_field(fields[i], &constellation) &&
-            UINT8_MAX - visible >= constellation) {
-            visible = (uint8_t)(visible + constellation);
+        if (parse_uint8_field(fields[i], &constellation)) {
+            visible_valid = true;
+            if (UINT8_MAX - visible >= constellation) {
+                visible = (uint8_t)(visible + constellation);
+            }
         }
     }
+    fix->satellites_valid = visible_valid;
     fix->satellites = visible;
 
     const bool degrees_minutes =
@@ -636,6 +640,7 @@ bool sim7670_parse_cgnssinfo(const char *response,
     uint8_t used = 0U;
     if (tail + 8U < field_count &&
         parse_uint8_field(fields[tail + 8U], &used)) {
+        fix->satellites_valid = true;
         fix->satellites = used;
     }
     return true;

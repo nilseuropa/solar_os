@@ -4480,7 +4480,7 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
         ? python_u32_from_obj(args[1]) : 1000U;
     solar_os_gnss_fix_t fix;
     python_check_esp(solar_os_gnss_read_fix(name, timeout_ms, &fix));
-    mp_obj_t result = mp_obj_new_dict(19);
+    mp_obj_t result = mp_obj_new_dict(20);
     python_dict_store_cstr(result, "name", name);
     python_dict_store_bool(result, "valid", fix.valid);
     python_dict_store_bool(result, "time_valid", fix.time_valid);
@@ -4491,6 +4491,7 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
     python_dict_store_int(result, "minute", fix.minute);
     python_dict_store_int(result, "second", fix.second);
     python_dict_store_int(result, "fix_type", fix.fix_type);
+    python_dict_store_bool(result, "satellites_valid", fix.satellites_valid);
     python_dict_store_int(result, "satellites", fix.satellites);
     python_dict_store_int(result, "longitude_deg_e7", fix.longitude_deg_e7);
     python_dict_store_int(result, "latitude_deg_e7", fix.latitude_deg_e7);

@@ -52,6 +52,16 @@ static bool parse_timeout(const char *text, uint32_t *timeout_ms)
     return true;
 }
 
+static void print_satellite_count(solar_os_shell_io_t *term,
+                                  const solar_os_gnss_fix_t *fix)
+{
+    if (fix->satellites_valid) {
+        solar_os_shell_io_printf(term, "%u\r\n", fix->satellites);
+    } else {
+        solar_os_shell_io_writeln(term, "unknown");
+    }
+}
+
 static void show_status(solar_os_shell_io_t *term,
                         int argc,
                         char **argv)
@@ -84,12 +94,12 @@ static void show_status(solar_os_shell_io_t *term,
         return;
     }
     solar_os_shell_io_printf(term,
-                             "%s power=%s fix=%s type=%u satellites=%u\r\n",
+                             "%s power=%s fix=%s type=%u satellites=",
                              name,
                              power,
                              status.fix.valid ? "valid" : "invalid",
-                             status.fix.fix_type,
-                             status.fix.satellites);
+                             status.fix.fix_type);
+    print_satellite_count(term, &status.fix);
 }
 
 void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
@@ -165,11 +175,11 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     solar_os_shell_io_printf(term,
-                             "%s fix=%s type=%u satellites=%u\r\n",
+                             "%s fix=%s type=%u satellites=",
                              name,
                              fix.valid ? "valid" : "invalid",
-                             fix.fix_type,
-                             fix.satellites);
+                             fix.fix_type);
+    print_satellite_count(term, &fix);
     print_coordinate(term, "lat", fix.latitude_deg_e7);
     solar_os_shell_io_write(term, " ");
     print_coordinate(term, "lon", fix.longitude_deg_e7);

@@ -4214,6 +4214,7 @@ static int solua_gnss_fix(lua_State *L)
     solua_set_int(L, -1, "minute", fix.minute);
     solua_set_int(L, -1, "second", fix.second);
     solua_set_int(L, -1, "fix_type", fix.fix_type);
+    solua_set_bool(L, -1, "satellites_valid", fix.satellites_valid);
     solua_set_int(L, -1, "satellites", fix.satellites);
     solua_set_int(L, -1, "longitude_deg_e7", fix.longitude_deg_e7);
     solua_set_int(L, -1, "latitude_deg_e7", fix.latitude_deg_e7);

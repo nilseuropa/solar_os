@@ -12,6 +12,7 @@
 typedef struct {
     bool valid;
     bool time_valid;
+    bool satellites_valid;
     uint16_t year;
     uint8_t month;
     uint8_t day;

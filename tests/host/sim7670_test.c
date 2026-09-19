@@ -183,7 +183,8 @@ int main(void)
         "\r\n+CGNSSINFO: 2,09,05,00,00,3113.330650,N,12121.262554,E,"
         "131117,091918.00,32.9,0.0,255.0,1.1,0.8,0.7,14\r\nOK\r\n",
         &fix));
-    assert(fix.valid && fix.fix_type == 2U && fix.satellites == 14U);
+    assert(fix.valid && fix.fix_type == 2U && fix.satellites_valid &&
+           fix.satellites == 14U);
     assert(fix.latitude_deg_e7 == 312221775);
     assert(fix.longitude_deg_e7 == 1213543759);
     assert(fix.time_valid);
@@ -197,14 +198,15 @@ int main(void)
         &fix));
     assert(!fix.valid && fix.fix_type == 0U && fix.satellites == 0U);
     assert(sim7670_parse_cgnssinfo(
-        "+CGNSSINFO: ,,,,,,,,,,,,\r\nOK\r\n",
+        "+CGNSSINFO: ,,,,,,,,\r\nOK\r\n",
         &fix));
-    assert(!fix.valid && fix.fix_type == 0U && fix.satellites == 0U);
+    assert(!fix.valid && fix.fix_type == 0U && !fix.satellites_valid);
     assert(sim7670_parse_cgnssinfo(
         "+CGNSSINFO: 3,13,06,18,31.399003,N,73.175373,E,261225,"
         "191834.000,195.5,0.16,0.00,0.80,0.53,0.60,25\r\nOK\r\n",
         &fix));
-    assert(fix.valid && fix.fix_type == 3U && fix.satellites == 25U);
+    assert(fix.valid && fix.fix_type == 3U && fix.satellites_valid &&
+           fix.satellites == 25U);
     assert(fix.latitude_deg_e7 == 313990030);
     assert(fix.longitude_deg_e7 == 731753730);
 
