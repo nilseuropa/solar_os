@@ -24,11 +24,19 @@ SolarOS separates three networking concepts:
 - The **router** forwards traffic for other devices from the local downstream
   interface through the same route table SolarOS uses for its own traffic.
 
-Use `network status` for the combined view, `network interfaces` for interface
-state and addresses, and `network routes` to see the automatic base path and
-WireGuard routes. Transport commands configure their own interfaces: `wifi`
-manages the Wi-Fi radio and SoftAP, `modem` manages cellular PPP, and
-`wireguard` manages the VPN tunnel.
+Run `network` to open a two-tab TUI. **Status** combines interface state,
+addresses, the selected default path, VPN routes, and downstream client
+routing. **Settings** changes each base interface's priority and enables or
+disables downstream client routing. Tab switches views. Use the arrow keys to
+select a setting; Left and Right lower or raise priority, and Enter toggles
+routing. Higher priority wins. Priority overrides are saved by interface name
+and apply again when a runtime interface such as `modem0` is registered later.
+
+For scripts and plain output, use `network status` for the same combined view,
+`network interfaces` for interface state and addresses, and `network routes`
+to see the automatic base path and WireGuard routes. Transport commands
+configure their own interfaces: `wifi` manages the Wi-Fi radio and SoftAP,
+`modem` manages cellular PPP, and `wireguard` manages the VPN tunnel.
 
 `network router on` starts the saved Wi-Fi SoftAP and enables IPv4 forwarding
 with NAT. Packets from AP clients follow the route table; this can send ordinary

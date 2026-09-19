@@ -802,6 +802,7 @@ label = "network.routing"
 sources = [
   "services/solar_os_network.c",
   "shell/solar_os_shell_network_status.c",
+  "shell/solar_os_shell_network_tui.c",
 ]
 requires = ["esp_event", "esp_netif", "nvs_flash"]
 

@@ -691,7 +691,8 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `network` | `network [status]` | Show network interfaces, route selection, VPN routes, and router state. |
+| `network` | `network` | Open the two-tab network TUI. Status shows interfaces and routes; Settings changes persistent interface priority and client routing. |
+| `network` | `network status` | Show network interfaces, route selection, VPN routes, and router state as text. |
 | `network` | `network interfaces` | List route-capable interfaces, addresses, priorities, and the local downstream interface. |
 | `network` | `network routes` | Show the default route, automatic base path, and active WireGuard routes. |
 | `network router` | `network router [status\|on\|off]` | Route Wi-Fi AP clients through the SolarOS route table using IPv4 forwarding and NAT. |

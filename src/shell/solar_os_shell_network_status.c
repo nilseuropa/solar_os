@@ -8,6 +8,7 @@
 #include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_shell_tui_apps.h"
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
 #include "solar_os_wireguard.h"
 #endif
@@ -168,7 +169,8 @@ static void network_print_status(solar_os_shell_io_t *term)
 static void network_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  network [status]");
+    solar_os_shell_io_writeln(term, "  network");
+    solar_os_shell_io_writeln(term, "  network status");
     solar_os_shell_io_writeln(term, "  network interfaces");
     solar_os_shell_io_writeln(term, "  network routes");
     solar_os_shell_io_writeln(term, "  network router [status|on|off]");
@@ -177,7 +179,18 @@ static void network_print_usage(solar_os_shell_io_t *term)
 void solar_os_shell_cmd_network(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
-    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+    if (argc == 1) {
+        const esp_err_t ret = solar_os_shell_launch_network_tui(ctx);
+        if (ret != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "network: launch failed: %s\n",
+                                     solar_os_shell_error_text(ret));
+        } else {
+            solar_os_shell_session_prepare_foreground_launch(ctx, true);
+        }
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "status") == 0) {
         network_print_status(term);
         return;
     }
