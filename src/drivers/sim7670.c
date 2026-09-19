@@ -407,6 +407,134 @@ bool sim7670_parse_cgpsinfo(const char *response,
     return true;
 }
 
+static bool parse_uint8_field(const char *text, uint8_t *value)
+{
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+    char *end = NULL;
+    const unsigned long parsed = strtoul(text, &end, 10);
+    if (end == text || *end != '\0' || parsed > UINT8_MAX) {
+        return false;
+    }
+    *value = (uint8_t)parsed;
+    return true;
+}
+
+static void parse_gnss_datetime(const char *date,
+                                const char *time,
+                                sim7670_gnss_fix_t *fix)
+{
+    if (date == NULL || time == NULL || strlen(date) < 6U ||
+        strlen(time) < 6U) {
+        return;
+    }
+    unsigned day = 0U;
+    unsigned month = 0U;
+    unsigned year = 0U;
+    unsigned hour = 0U;
+    unsigned minute = 0U;
+    unsigned second = 0U;
+    if (parse_unsigned_field(&date[0], 2U, &day) &&
+        parse_unsigned_field(&date[2], 2U, &month) &&
+        parse_unsigned_field(&date[4], 2U, &year) &&
+        parse_unsigned_field(&time[0], 2U, &hour) &&
+        parse_unsigned_field(&time[2], 2U, &minute) &&
+        parse_unsigned_field(&time[4], 2U, &second) &&
+        day >= 1U && day <= 31U && month >= 1U && month <= 12U &&
+        hour <= 23U && minute <= 59U && second <= 60U) {
+        fix->year = (uint16_t)(2000U + year);
+        fix->month = (uint8_t)month;
+        fix->day = (uint8_t)day;
+        fix->hour = (uint8_t)hour;
+        fix->minute = (uint8_t)minute;
+        fix->second = (uint8_t)second;
+        fix->time_valid = true;
+    }
+}
+
+static bool parse_double_field(const char *text, double *value)
+{
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+    char *end = NULL;
+    const double parsed = strtod(text, &end);
+    if (end == text || *end != '\0') {
+        return false;
+    }
+    *value = parsed;
+    return true;
+}
+
+bool sim7670_parse_cgnssinfo(const char *response,
+                             sim7670_gnss_fix_t *fix)
+{
+    if (response == NULL || fix == NULL) {
+        return false;
+    }
+    memset(fix, 0, sizeof(*fix));
+    const char *value = find_line(response, "+CGNSSINFO:");
+    if (value == NULL) {
+        return false;
+    }
+    while (*value == ' ') {
+        value++;
+    }
+    const size_t line_len = strcspn(value, "\r\n");
+    if (line_len >= 256U) {
+        return false;
+    }
+    char line[256];
+    memcpy(line, value, line_len);
+    line[line_len] = '\0';
+    char *fields[18] = {0};
+    if (split_csv(line, fields, 18U) < 18U) {
+        return false;
+    }
+
+    uint8_t visible = 0U;
+    for (size_t i = 1U; i <= 4U; i++) {
+        uint8_t constellation = 0U;
+        if (parse_uint8_field(fields[i], &constellation) &&
+            UINT8_MAX - visible >= constellation) {
+            visible = (uint8_t)(visible + constellation);
+        }
+    }
+    uint8_t used = 0U;
+    fix->satellites = parse_uint8_field(fields[17], &used) ? used : visible;
+
+    uint8_t mode = 0U;
+    if (!parse_uint8_field(fields[0], &mode) ||
+        (mode != 2U && mode != 3U)) {
+        return true;
+    }
+    fix->fix_type = mode;
+    if (!parse_coordinate(fields[5], fields[6][0], &fix->latitude_deg_e7) ||
+        !parse_coordinate(fields[7], fields[8][0], &fix->longitude_deg_e7)) {
+        return false;
+    }
+    fix->valid = true;
+    parse_gnss_datetime(fields[9], fields[10], fix);
+
+    double parsed = 0.0;
+    if (parse_double_field(fields[11], &parsed)) {
+        fix->height_msl_mm = (int32_t)(parsed * 1000.0 +
+            (parsed >= 0.0 ? 0.5 : -0.5));
+    }
+    if (parse_double_field(fields[12], &parsed) && parsed >= 0.0) {
+        fix->ground_speed_mm_s = (int32_t)(parsed * 514.444 + 0.5);
+    }
+    if (parse_double_field(fields[13], &parsed) && parsed >= 0.0) {
+        fix->heading_deg_e5 = (int32_t)(parsed * 100000.0 + 0.5);
+    }
+    if (parse_double_field(fields[14], &parsed) && parsed >= 0.0 &&
+        parsed <= 655.35) {
+        fix->position_dop_e2 = (uint16_t)(parsed * 100.0 + 0.5);
+    }
+    return true;
+}
+
 esp_err_t sim7670_read_status(sim7670_t *device,
                               sim7670_status_t *status)
 {
@@ -691,16 +819,16 @@ esp_err_t sim7670_read_gnss_fix(sim7670_t *device,
     if (fix == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    char response[384];
+    char response[512];
     const esp_err_t ret = sim7670_command(device,
-                                          "AT+CGPSINFO",
+                                          "AT+CGNSSINFO",
                                           timeout_ms,
                                           response,
                                           sizeof(response));
     if (ret != ESP_OK) {
         return ret;
     }
-    return sim7670_parse_cgpsinfo(response, fix)
+    return sim7670_parse_cgnssinfo(response, fix)
         ? ESP_OK
         : ESP_ERR_INVALID_RESPONSE;
 }

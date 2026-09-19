@@ -9,7 +9,7 @@ COMPLETION = (ROOT / "src/apps/solar_os_shell.c").read_text(encoding="utf-8")
 class HardwareCommandSurfaceTest(unittest.TestCase):
     def test_new_hardware_commands_complete_subcommands(self):
         expected = {
-            "gnss": ("list", "power", "fix"),
+            "gnss": ("list", "status", "power", "fix"),
             "haptic": ("list", "play", "stop"),
             "charger": (
                 "list",

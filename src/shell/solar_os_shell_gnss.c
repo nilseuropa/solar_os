@@ -35,6 +35,46 @@ static void print_coordinate(solar_os_shell_io_t *term,
                              magnitude % 10000000ULL);
 }
 
+static void show_status(solar_os_shell_io_t *term,
+                        int argc,
+                        char **argv)
+{
+    if (argc > 3) {
+        solar_os_shell_io_writeln(term, "usage: gnss status [name]");
+        return;
+    }
+    const char *name = argc == 3 ? argv[2] : default_name();
+    if (name == NULL) {
+        solar_os_shell_io_writeln(term, "gnss: no receiver");
+        return;
+    }
+    solar_os_gnss_status_t status;
+    const esp_err_t ret = solar_os_gnss_get_status(name, 1000U, &status);
+    if (ret != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "gnss status: %s\r\n",
+                                 esp_err_to_name(ret));
+        return;
+    }
+    const char *power = status.power_control
+        ? (status.powered ? "on" : "off")
+        : "always-on";
+    if (!status.fix_available) {
+        solar_os_shell_io_printf(term,
+                                 "%s power=%s fix=unavailable\r\n",
+                                 name,
+                                 power);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "%s power=%s fix=%s type=%u satellites=%u\r\n",
+                             name,
+                             power,
+                             status.fix.valid ? "valid" : "invalid",
+                             status.fix.fix_type,
+                             status.fix.satellites);
+}
+
 void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -53,6 +93,10 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
                                          ? (info.powered ? "on" : "off")
                                          : "always-on");
         }
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "status") == 0) {
+        show_status(term, argc, argv);
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "power") == 0) {
@@ -77,8 +121,9 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (argc < 2 || argc > 4 || strcmp(argv[1], "fix") != 0) {
         solar_os_shell_io_writeln(term,
-                                  "usage: gnss [list] | gnss power <on|off> [name] | "
-                                  "gnss fix [name] [timeout-ms]");
+                                  "usage: gnss [list] | gnss status [name] | "
+                                  "gnss power <on|off> [name] | gnss fix [name] "
+                                  "[timeout-ms]");
         return;
     }
     const char *name = argc >= 3 ? argv[2] : default_name();

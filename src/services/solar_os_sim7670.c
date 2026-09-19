@@ -21,7 +21,7 @@
 #define SIM7670_PPP_CONNECT_TIMEOUT_MS 65000U
 #define SIM7670_DATA_ESCAPE_GUARD_MS 1100U
 #define SIM7670_POWER_OFF_SETTLE_MS 100U
-#define SIM7670_POWER_ON_SETTLE_MS 100U
+#define SIM7670_POWER_ON_SETTLE_MS 5000U
 #define SIM7670_POWER_CYCLE_OFF_MS 1100U
 #define SIM7670_RESET_PULSE_MS 500U
 #define SIM7670_RESET_SETTLE_MS 1000U
@@ -786,10 +786,14 @@ static esp_err_t gnss_read_fix(void *ctx,
             .hour = modem_fix.hour,
             .minute = modem_fix.minute,
             .second = modem_fix.second,
-            .fix_type = modem_fix.valid ? 3U : 0U,
+            .fix_type = modem_fix.fix_type,
+            .satellites = modem_fix.satellites,
             .latitude_deg_e7 = modem_fix.latitude_deg_e7,
             .longitude_deg_e7 = modem_fix.longitude_deg_e7,
             .height_msl_mm = modem_fix.height_msl_mm,
+            .ground_speed_mm_s = modem_fix.ground_speed_mm_s,
+            .heading_deg_e5 = modem_fix.heading_deg_e5,
+            .position_dop_e2 = modem_fix.position_dop_e2,
         };
     }
     xSemaphoreGive(device->mutex);
@@ -799,7 +803,20 @@ static esp_err_t gnss_read_fix(void *ctx,
 static esp_err_t gnss_set_power(void *ctx, bool enabled)
 {
     solar_os_sim7670_device_t *device = ctx;
-    if (device == NULL || !device->active || !device->powered) {
+    if (device == NULL || !device->active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!enabled && device->power_control) {
+        return solar_os_modem_set_power(device->name, false);
+    }
+    if (enabled && device->power_control && !device->powered) {
+        const esp_err_t power_ret =
+            solar_os_modem_set_power(device->name, true);
+        if (power_ret != ESP_OK) {
+            return power_ret;
+        }
+    }
+    if (!device->powered) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
@@ -809,7 +826,10 @@ static esp_err_t gnss_set_power(void *ctx, bool enabled)
         return ESP_ERR_INVALID_STATE;
     }
 #endif
-    const esp_err_t ret = sim7670_set_gnss_power(&device->modem, enabled);
+    esp_err_t ret = ESP_OK;
+    if (device->gnss_powered != enabled) {
+        ret = sim7670_set_gnss_power(&device->modem, enabled);
+    }
     if (ret == ESP_OK) {
         device->gnss_powered = enabled;
     }

@@ -53,6 +53,11 @@ static esp_err_t fake_write(void *user,
         transport->response = transport->pdp_active
             ? "\r\n+CGACT: 1,1\r\n\r\nOK\r\n"
             : "\r\n+CGACT: 1,0\r\n\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGNSSINFO\r\n") == 0) {
+        transport->response =
+            "\r\n+CGNSSINFO: 2,09,05,00,00,3113.330650,N,"
+            "12121.262554,E,131117,091918.00,32.9,0.0,255.0,"
+            "1.1,0.8,0.7,14\r\n\r\nOK\r\n";
     } else if (strncmp(transport->request, "AT+CGDCONT=", 11U) == 0 ||
                strncmp(transport->request, "AT+CGAUTH=", 10U) == 0 ||
                strncmp(transport->request, "AT+CPIN=", 8U) == 0) {
@@ -174,6 +179,29 @@ int main(void)
     assert(sim7670_parse_cgpsinfo("+CGPSINFO: ,,,,,,,,\r\nOK\r\n", &fix));
     assert(!fix.valid);
 
+    assert(sim7670_parse_cgnssinfo(
+        "\r\n+CGNSSINFO: 2,09,05,00,00,3113.330650,N,12121.262554,E,"
+        "131117,091918.00,32.9,0.0,255.0,1.1,0.8,0.7,14\r\nOK\r\n",
+        &fix));
+    assert(fix.valid && fix.fix_type == 2U && fix.satellites == 14U);
+    assert(fix.latitude_deg_e7 == 312221775);
+    assert(fix.longitude_deg_e7 == 1213543759);
+    assert(fix.time_valid);
+    assert(fix.year == 2017U && fix.month == 11U && fix.day == 13U);
+    assert(fix.hour == 9U && fix.minute == 19U && fix.second == 18U);
+    assert(fix.height_msl_mm == 32900);
+    assert(fix.heading_deg_e5 == 25500000);
+    assert(fix.position_dop_e2 == 110U);
+    assert(sim7670_parse_cgnssinfo(
+        "+CGNSSINFO: ,,,,,,,,,,,,,,,,,\r\nOK\r\n",
+        &fix));
+    assert(!fix.valid && fix.fix_type == 0U && fix.satellites == 0U);
+
+    size_t request = transport.request_count;
+    assert(sim7670_read_gnss_fix(&modem, 10000U, &fix) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGNSSINFO\r\n") == 0);
+    assert(fix.valid && fix.satellites == 14U);
+
     char response[64];
     assert(sim7670_command(&modem,
                            "AT+UNKNOWN",
@@ -191,7 +219,7 @@ int main(void)
                            response,
                            sizeof(response)) == ESP_FAIL);
 
-    size_t request = transport.request_count;
+    request = transport.request_count;
     assert(sim7670_configure_pdp(&modem,
                                  "5g.vodafone.iot",
                                  SIM7670_PDP_IPV4V6,

@@ -912,7 +912,9 @@ static const char * const expansion_bus_protocols[] = {
 #endif
 };
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
-static const char * const gnss_subcommands[] = {"list", "power", "fix"};
+static const char * const gnss_subcommands[] = {
+    "list", "status", "power", "fix",
+};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MODEM
 static const char * const modem_subcommands[] = {

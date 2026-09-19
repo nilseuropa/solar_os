@@ -77,9 +77,14 @@ typedef struct {
     uint8_t hour;
     uint8_t minute;
     uint8_t second;
+    uint8_t fix_type;
+    uint8_t satellites;
     int32_t latitude_deg_e7;
     int32_t longitude_deg_e7;
     int32_t height_msl_mm;
+    int32_t ground_speed_mm_s;
+    int32_t heading_deg_e5;
+    uint16_t position_dop_e2;
 } sim7670_gnss_fix_t;
 
 esp_err_t sim7670_init(sim7670_t *device, const sim7670_io_t *io);
@@ -117,4 +122,6 @@ bool sim7670_parse_cgact(const char *response,
                          bool *active);
 bool sim7670_parse_cgpsinfo(const char *response,
                             sim7670_gnss_fix_t *fix);
+bool sim7670_parse_cgnssinfo(const char *response,
+                             sim7670_gnss_fix_t *fix);
 const char *sim7670_registration_name(sim7670_registration_t registration);
