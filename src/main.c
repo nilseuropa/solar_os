@@ -120,7 +120,7 @@ static solar_os_terminal_t *terminal;
 static solar_os_terminal_t *shell_terminal;
 static u8g2_t *display_u8g2;
 static solar_os_gfx_t gfx;
-static solar_os_context_t os_ctx;
+static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx;
 static bool alt_prefix_pending;
 static uint32_t session_overlay_until_ms;
 static char session_overlay_title[SESSION_OVERLAY_TITLE_MAX];

@@ -25,18 +25,29 @@ class RuntimeBoundaryTest(unittest.TestCase):
             source = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(declaration, source, key)
 
-    def test_hot_core_registries_stay_internal(self):
+    def test_psram_safe_core_metadata_uses_external_bss(self):
         declarations = {
             "src/solar_os_jobs.c":
-                "static solar_os_job_runtime_t job_runtimes",
+                "static EXT_RAM_BSS_ATTR solar_os_job_runtime_t job_runtimes",
             "src/services/solar_os_sessions.c":
-                "static solar_os_session_state_t session_state",
+                "static EXT_RAM_BSS_ATTR solar_os_session_state_t session_state",
+            "src/apps/solar_os_app_registry.c":
+                "static EXT_RAM_BSS_ATTR char app_owners",
+            "src/apps/solar_os_shell.c":
+                "static EXT_RAM_BSS_ATTR shell_completion_index_t shell_completion_index",
+            "src/main.c":
+                "static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx",
+        }
+        for relative_path, declaration in declarations.items():
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, relative_path)
+
+    def test_hardware_facing_core_registries_stay_internal(self):
+        declarations = {
             "src/services/solar_os_buses.c":
                 "static solar_os_bus_info_t buses",
             "src/services/solar_os_port.c":
                 "static solar_os_port_entry_t ports",
-            "src/apps/solar_os_app_registry.c":
-                "static char app_owners",
             "src/jobs/solar_os_telnetd_job.c":
                 "static telnetd_job_state_t telnetd_job",
         }
