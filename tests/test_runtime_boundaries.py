@@ -333,6 +333,12 @@ class RuntimeBoundaryTest(unittest.TestCase):
         ppp = (ROOT / "src/services/solar_os_ppp.c").read_text(
             encoding="utf-8"
         )
+        ppp_header = (ROOT / "src/services/solar_os_ppp.h").read_text(
+            encoding="utf-8"
+        )
+        sim7670 = (ROOT / "src/services/solar_os_sim7670.c").read_text(
+            encoding="utf-8"
+        )
         wifi_shell = (ROOT / "src/shell/solar_os_shell_network.c").read_text(
             encoding="utf-8"
         )
@@ -386,8 +392,11 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("solar_os_network_router_register(&router_provider)", wifi)
         self.assertIn("solar_os_network_path_register(\"wifi-sta\"", wifi)
         self.assertIn("SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED", wifi)
-        self.assertIn("solar_os_network_path_register(ppp->name", ppp)
-        self.assertIn("solar_os_network_path_set_ready(ppp->netif, true)", ppp)
+        self.assertIn("solar_os_ppp_netif_binding_t", ppp_header)
+        self.assertNotIn("route_priority", ppp_header)
+        self.assertNotIn("solar_os_network", ppp)
+        self.assertIn("solar_os_network_path_register(device->name", sim7670)
+        self.assertIn("solar_os_network_path_set_ready(netif, ready)", sim7670)
 
         self.assertNotIn('strcmp(argv[1], "share")', wifi_shell)
         self.assertIn('strcmp(argv[1], "router")', network_shell)
@@ -408,7 +417,14 @@ class RuntimeBoundaryTest(unittest.TestCase):
                 descriptor,
             )
         self.assertIn("[packages.service_network]", packages)
-        self.assertIn('depends = ["service_network"]', packages)
+        service_ppp = packages.split("[packages.service_ppp]", 1)[1].split(
+            "\n[packages.", 1
+        )[0]
+        sim7670_package = packages.split("[packages.sim7670]", 1)[1].split(
+            "\n[packages.", 1
+        )[0]
+        self.assertNotIn("service_network", service_ppp)
+        self.assertIn('"service_network"', sim7670_package)
         self.assertNotIn("service_uplink", packages)
 
     def test_radio_link_repeater_is_one_hop_and_bounded(self):

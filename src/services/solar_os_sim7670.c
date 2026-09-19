@@ -14,11 +14,13 @@
 #include "solar_os_gnss.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_modem.h"
+#include "solar_os_network.h"
 #include "solar_os_ppp.h"
 
 #define SIM7670_DEVICE_MAX 2U
 #define SIM7670_PPP_READ_TIMEOUT_MS 100U
 #define SIM7670_PPP_CONNECT_TIMEOUT_MS 65000U
+#define SIM7670_PPP_ROUTE_PRIORITY 110
 #define SIM7670_DATA_ESCAPE_GUARD_MS 1100U
 #define SIM7670_POWER_OFF_SETTLE_MS 100U
 #define SIM7670_POWER_ON_SETTLE_MS 5000U
@@ -58,6 +60,46 @@ typedef struct {
 
 static const char *TAG = "sim7670";
 static solar_os_sim7670_device_t devices[SIM7670_DEVICE_MAX];
+
+#if CONFIG_LWIP_PPP_SUPPORT
+static esp_err_t ppp_netif_attach(void *ctx, esp_netif_t *netif)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    if (device == NULL || netif == NULL || !device->active) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return solar_os_network_path_register(device->name,
+                                          netif,
+                                          SIM7670_PPP_ROUTE_PRIORITY);
+}
+
+static void ppp_netif_set_ready(void *ctx,
+                                esp_netif_t *netif,
+                                bool ready)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    const esp_err_t ret = solar_os_network_path_set_ready(netif, ready);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s failed to mark PPP path %s: %s",
+                 device != NULL ? device->name : "sim7670",
+                 ready ? "ready" : "not ready",
+                 esp_err_to_name(ret));
+    }
+}
+
+static void ppp_netif_detach(void *ctx, esp_netif_t *netif)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    const esp_err_t ret = solar_os_network_path_unregister(netif);
+    if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG,
+                 "%s failed to remove PPP path: %s",
+                 device != NULL ? device->name : "sim7670",
+                 esp_err_to_name(ret));
+    }
+}
+#endif
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
@@ -1250,13 +1292,18 @@ esp_err_t solar_os_sim7670_attach(
 #if CONFIG_LWIP_PPP_SUPPORT
     const solar_os_ppp_config_t ppp_config = {
         .name = name,
-        .route_priority = 110,
         .read_timeout_ms = SIM7670_PPP_READ_TIMEOUT_MS,
         .transport = {
             .start = ppp_link_start,
             .stop = ppp_link_stop,
             .read = modem_read,
             .write = modem_write,
+            .ctx = device,
+        },
+        .netif = {
+            .attach = ppp_netif_attach,
+            .set_ready = ppp_netif_set_ready,
+            .detach = ppp_netif_detach,
             .ctx = device,
         },
     };

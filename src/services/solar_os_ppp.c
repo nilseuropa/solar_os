@@ -21,7 +21,6 @@
 #include "freertos/task.h"
 #include "lwip/ip4_addr.h"
 #include "solar_os_task.h"
-#include "solar_os_network.h"
 
 #define PPP_RX_BUFFER_SIZE 768U
 #define PPP_TASK_STACK 4096U
@@ -36,9 +35,9 @@
 
 struct solar_os_ppp {
     char name[SOLAR_OS_PPP_NAME_MAX + 1U];
-    int route_priority;
     uint32_t read_timeout_ms;
     solar_os_ppp_transport_t transport;
+    solar_os_ppp_netif_binding_t netif_binding;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
     EventGroupHandle_t events;
@@ -51,6 +50,7 @@ struct solar_os_ppp {
     TaskHandle_t worker;
     volatile bool worker_stop_requested;
     volatile bool worker_done;
+    bool netif_bound;
     bool session_active;
     bool link_open;
     bool transitioning;
@@ -108,6 +108,15 @@ static void clear_addresses_locked(solar_os_ppp_t *ppp)
     ppp->status.ipv4_address[0] = '\0';
     ppp->status.ipv4_gateway[0] = '\0';
     ppp->status.dns_address[0] = '\0';
+}
+
+static void set_netif_ready(solar_os_ppp_t *ppp, bool ready)
+{
+    if (ppp->netif_bound) {
+        ppp->netif_binding.set_ready(ppp->netif_binding.ctx,
+                                     ppp->netif,
+                                     ready);
+    }
 }
 
 static void format_ipv4(const esp_ip4_addr_t *address,
@@ -233,7 +242,7 @@ static void ppp_event_handler(void *arg,
                 ppp->netif,
                 ppp->status.interface_name);
             xSemaphoreGive(ppp->mutex);
-            (void)solar_os_network_path_set_ready(ppp->netif, true);
+            set_netif_ready(ppp, true);
             bits = PPP_EVENT_GOT_IP;
         } else if (event_id == IP_EVENT_PPP_LOST_IP) {
             const ip_event_got_ip_t *event = event_data;
@@ -246,7 +255,7 @@ static void ppp_event_handler(void *arg,
             }
             clear_addresses_locked(ppp);
             xSemaphoreGive(ppp->mutex);
-            (void)solar_os_network_path_set_ready(ppp->netif, false);
+            set_netif_ready(ppp, false);
             bits = PPP_EVENT_LOST_IP;
         }
     } else if (event_base == NETIF_PPP_STATUS) {
@@ -344,7 +353,10 @@ static void runtime_destroy(solar_os_ppp_t *ppp)
         ppp->got_ip_handler = NULL;
     }
     if (ppp->netif != NULL) {
-        (void)solar_os_network_path_unregister(ppp->netif);
+        if (ppp->netif_bound) {
+            ppp->netif_binding.detach(ppp->netif_binding.ctx, ppp->netif);
+            ppp->netif_bound = false;
+        }
         esp_netif_destroy(ppp->netif);
         ppp->netif = NULL;
     }
@@ -369,7 +381,6 @@ static esp_err_t runtime_init_locked(solar_os_ppp_t *ppp)
     esp_netif_inherent_config_t base = ESP_NETIF_INHERENT_DEFAULT_PPP();
     base.if_key = ppp->if_key;
     base.if_desc = ppp->if_desc;
-    base.route_prio = ppp->route_priority;
     ppp->driver = (esp_netif_driver_ifconfig_t) {
         .handle = ppp,
         .transmit = ppp_transmit,
@@ -383,12 +394,13 @@ static esp_err_t runtime_init_locked(solar_os_ppp_t *ppp)
     if (ppp->netif == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    ret = solar_os_network_path_register(ppp->name,
-                                         ppp->netif,
-                                         ppp->route_priority);
-    if (ret != ESP_OK) {
-        runtime_destroy(ppp);
-        return ret;
+    if (ppp->netif_binding.attach != NULL) {
+        ret = ppp->netif_binding.attach(ppp->netif_binding.ctx, ppp->netif);
+        if (ret != ESP_OK) {
+            runtime_destroy(ppp);
+            return ret;
+        }
+        ppp->netif_bound = true;
     }
     const esp_netif_ppp_config_t ppp_config = {
         .ppp_phase_event_enabled = true,
@@ -442,12 +454,18 @@ static esp_err_t configure_auth_locked(solar_os_ppp_t *ppp)
 esp_err_t solar_os_ppp_create(const solar_os_ppp_config_t *config,
                               solar_os_ppp_t **out_ppp)
 {
+    const bool have_netif_binding = config != NULL &&
+        (config->netif.attach != NULL || config->netif.set_ready != NULL ||
+         config->netif.detach != NULL);
     if (config == NULL || out_ppp == NULL || config->name == NULL ||
         config->name[0] == '\0' ||
         strlen(config->name) > SOLAR_OS_PPP_NAME_MAX ||
         config->transport.write == NULL ||
         ((config->transport.start == NULL) !=
-         (config->transport.stop == NULL))) {
+         (config->transport.stop == NULL)) ||
+        (have_netif_binding &&
+         (config->netif.attach == NULL || config->netif.set_ready == NULL ||
+          config->netif.detach == NULL))) {
         return ESP_ERR_INVALID_ARG;
     }
     *out_ppp = NULL;
@@ -456,11 +474,11 @@ esp_err_t solar_os_ppp_create(const solar_os_ppp_config_t *config,
         return ESP_ERR_NO_MEM;
     }
     strlcpy(ppp->name, config->name, sizeof(ppp->name));
-    ppp->route_priority = config->route_priority;
     ppp->read_timeout_ms = config->read_timeout_ms != 0U
         ? config->read_timeout_ms
         : PPP_DEFAULT_READ_TIMEOUT_MS;
     ppp->transport = config->transport;
+    ppp->netif_binding = config->netif;
     ppp->mutex = xSemaphoreCreateMutexStatic(&ppp->mutex_storage);
     ppp->events = xEventGroupCreateStatic(&ppp->events_storage);
     if (ppp->mutex == NULL || ppp->events == NULL) {
@@ -637,7 +655,7 @@ esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp)
     xSemaphoreGive(ppp->mutex);
 
     if (session_active) {
-        (void)solar_os_network_path_set_ready(ppp->netif, false);
+        set_netif_ready(ppp, false);
         esp_netif_action_disconnected(ppp->netif, 0, 0, NULL);
         esp_netif_action_stop(ppp->netif, 0, 0, NULL);
         (void)xEventGroupWaitBits(ppp->events,
@@ -703,7 +721,7 @@ esp_err_t solar_os_ppp_notify_transport_reset(solar_os_ppp_t *ppp)
     xSemaphoreGive(ppp->mutex);
 
     if (session_active) {
-        (void)solar_os_network_path_set_ready(ppp->netif, false);
+        set_netif_ready(ppp, false);
         esp_netif_action_disconnected(ppp->netif, 0, 0, NULL);
         esp_netif_action_stop(ppp->netif, 0, 0, NULL);
     }

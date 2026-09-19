@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "esp_netif.h"
 
 #define SOLAR_OS_PPP_NAME_MAX 20U
 #define SOLAR_OS_PPP_USERNAME_MAX 64U
@@ -59,12 +60,19 @@ typedef struct {
 } solar_os_ppp_transport_t;
 
 typedef struct {
+    /* Optional hooks bind the PPP netif to an owner-defined network role. */
+    esp_err_t (*attach)(void *ctx, esp_netif_t *netif);
+    void (*set_ready)(void *ctx, esp_netif_t *netif, bool ready);
+    void (*detach)(void *ctx, esp_netif_t *netif);
+    void *ctx;
+} solar_os_ppp_netif_binding_t;
+
+typedef struct {
     const char *name;
-    /* Higher priorities become the preferred default route. */
-    int route_priority;
     /* Pull transports must return from read within this interval. */
     uint32_t read_timeout_ms;
     solar_os_ppp_transport_t transport;
+    solar_os_ppp_netif_binding_t netif;
 } solar_os_ppp_config_t;
 
 typedef struct solar_os_ppp solar_os_ppp_t;
