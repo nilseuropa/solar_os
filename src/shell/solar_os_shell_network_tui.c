@@ -24,7 +24,7 @@
 #define NETWORK_TUI_REFRESH_MS 1000U
 #define NETWORK_TUI_MIN_ROWS 7U
 #define NETWORK_TUI_MIN_COLS 28U
-#define NETWORK_TUI_ROW_MAX 24U
+#define NETWORK_TUI_ROW_MAX 32U
 #define NETWORK_TUI_ROW_TEXT_MAX 96U
 #define NETWORK_TUI_STATUS_MAX 96U
 #define NETWORK_TUI_PRIORITY_STEP 10
@@ -96,16 +96,26 @@ static void network_tui_add_row(network_tui_row_t *rows,
     (*count)++;
 }
 
-static void network_tui_ip(const solar_os_network_path_info_t *path,
-                           char *address,
-                           size_t address_len)
+static void network_tui_interface_detail(
+    const solar_os_network_interface_info_t *interface,
+    char *detail,
+    size_t detail_len)
 {
-    strlcpy(address, "-", address_len);
-    esp_netif_ip_info_t ip = {0};
-    if (path != NULL && path->ready &&
-        esp_netif_get_ip_info(path->netif, &ip) == ESP_OK &&
-        ip.ip.addr != 0U) {
-        esp_ip4addr_ntoa(&ip.ip, address, address_len);
+    if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK) {
+        (void)snprintf(detail,
+                       detail_len,
+                       "uplink p%d",
+                       interface->route_priority);
+    } else if (interface->role ==
+               SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM) {
+        (void)snprintf(detail,
+                       detail_len,
+                       "downstream%s",
+                       interface->nat_enabled ? " NAT" : "");
+    } else {
+        strlcpy(detail,
+                solar_os_network_interface_role_name(interface->role),
+                detail_len);
     }
 }
 
@@ -113,36 +123,37 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
                                             size_t max_rows)
 {
     size_t count = 0U;
-    solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    const size_t path_count = solar_os_network_path_list(
-        paths,
-        sizeof(paths) / sizeof(paths[0]));
+    solar_os_network_interface_info_t
+        interfaces[SOLAR_OS_NETWORK_INTERFACE_MAX];
+    const size_t interface_count = solar_os_network_interface_list(
+        interfaces,
+        sizeof(interfaces) / sizeof(interfaces[0]));
     solar_os_network_path_info_t preferred = {0};
     const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
 
     network_tui_add_row(rows, max_rows, &count,
                         SOLAR_OS_TUI_ATTR_BOLD, "Interfaces");
-    if (path_count == 0U) {
+    if (interface_count == 0U) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "  no route-capable interfaces");
+                            "  no network interfaces");
     }
     for (size_t i = 0U;
-         i < path_count && i < SOLAR_OS_NETWORK_PATH_MAX;
+         i < interface_count && i < SOLAR_OS_NETWORK_INTERFACE_MAX;
          i++) {
-        char address[16];
-        network_tui_ip(&paths[i], address, sizeof(address));
+        char detail[32];
+        network_tui_interface_detail(&interfaces[i], detail, sizeof(detail));
         network_tui_add_row(
             rows,
             max_rows,
             &count,
             SOLAR_OS_TUI_ATTR_NORMAL,
-            "%c %-10s %-4s %-15s p%d",
-            have_preferred && paths[i].netif == preferred.netif ? '*' : ' ',
-            paths[i].name,
-            paths[i].ready ? "up" : "down",
-            address,
-            paths[i].route_priority);
+            "%c %-10s %-10s %-15s %s",
+            have_preferred && interfaces[i].netif == preferred.netif ? '*' : ' ',
+            interfaces[i].name,
+            solar_os_network_interface_state_name(interfaces[i].state),
+            interfaces[i].address[0] != '\0' ? interfaces[i].address : "-",
+            detail);
     }
 
     solar_os_network_router_status_t router = {0};
@@ -153,11 +164,12 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
             max_rows,
             &count,
             SOLAR_OS_TUI_ATTR_NORMAL,
-            "  %-10s %-4s %-15s local",
+            "  %-10s %-10s %-15s downstream%s",
             router.downstream,
             router.downstream_active ? "up" : "down",
             router.downstream_active && router.address[0] != '\0' ?
-                router.address : "-");
+                router.address : "-",
+            router.nat_enabled ? " NAT" : "");
     }
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
@@ -167,7 +179,7 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
         wireguard.routes_active) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "  %-10s %-4s %-15s tunnel",
+                            "  %-10s %-10s %-15s tunnel",
                             "wireguard",
                             wireguard.routes_active ? "up" : "down",
                             wireguard.routes_active ? wireguard.address : "-");
@@ -214,18 +226,63 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
     }
 #endif
 
+    for (size_t i = 0U;
+         i < interface_count && i < SOLAR_OS_NETWORK_INTERFACE_MAX;
+         i++) {
+        const solar_os_network_interface_info_t *interface = &interfaces[i];
+        if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM) {
+            if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
+                have_preferred) {
+                network_tui_add_row(
+                    rows, max_rows, &count,
+                    SOLAR_OS_TUI_ATTR_NORMAL,
+                    "%s -> %s%s",
+                    interface->name,
+#if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
+                    wireguard.default_route_active ? "wireguard" : preferred.name,
+#else
+                    preferred.name,
+#endif
+                    interface->nat_enabled ? ", NAT" : "");
+            } else if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP) {
+                network_tui_add_row(rows, max_rows, &count,
+                                    SOLAR_OS_TUI_ATTR_NORMAL,
+                                    "%s: waiting for default route",
+                                    interface->name);
+            } else {
+                network_tui_add_row(
+                    rows, max_rows, &count,
+                    SOLAR_OS_TUI_ATTR_NORMAL,
+                    "%s: %s",
+                    interface->name,
+                    solar_os_network_interface_state_name(interface->state));
+            }
+        } else if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_PEER) {
+            network_tui_add_row(
+                rows, max_rows, &count,
+                SOLAR_OS_TUI_ATTR_NORMAL,
+                "%s: peer %s",
+                interface->name,
+                interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
+                        interface->peer[0] != '\0' ?
+                    interface->peer :
+                    solar_os_network_interface_state_name(interface->state));
+        }
+    }
+
     if (!router.available) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: routing unavailable");
+                            "wifi-ap: routing unavailable");
     } else if (!router.enabled) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: routing off");
+                            "%s: routing off",
+                            router.downstream);
     } else if (router.active) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: %s -> %s, NAT %u/%u",
+                            "%s -> %s, NAT %u/%u",
                             router.downstream,
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
                             wireguard.default_route_active ? "wireguard" :
@@ -236,16 +293,18 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
     } else if (router.last_error != ESP_OK) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: error %s",
+                            "%s: error %s",
+                            router.downstream,
                             solar_os_shell_error_text(router.last_error));
     } else if (!have_preferred) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: waiting for default route");
+                            "%s: waiting for default route",
+                            router.downstream);
     } else {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "clients: starting %s",
+                            "%s: starting",
                             router.downstream);
     }
     return count;
@@ -396,7 +455,7 @@ static size_t network_tui_build_settings(
     network_tui_add_setting(items, max_items, &count,
                             NETWORK_TUI_SETTING_ROUTING, 0U, true,
                             "  %-12s %s",
-                            "routing",
+                            router.available ? router.downstream : "routing",
                             network_tui_routing_value(&router));
     network_tui_add_setting(items, max_items, &count,
                             NETWORK_TUI_SETTING_HELP, 0U, false,
@@ -406,7 +465,7 @@ static size_t network_tui_build_settings(
                             "Higher priority wins the default route.");
     network_tui_add_setting(items, max_items, &count,
                             NETWORK_TUI_SETTING_HELP, 0U, false,
-                            "Routing forwards Wi-Fi AP clients through it.");
+                            "Downstream routing controls Wi-Fi AP clients.");
     return count;
 }
 

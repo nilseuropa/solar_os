@@ -22,6 +22,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_network.h"
 #include "solar_os_port.h"
 #include "solar_os_task.h"
 #include "solar_os_uart.h"
@@ -67,6 +68,7 @@ typedef struct {
     TaskHandle_t task;
     solar_os_port_handle_t port;
     char port_name[SOLAR_OS_PORT_NAME_MAX];
+    char interface_name[SOLAR_OS_NETWORK_PATH_NAME_MAX + 1U];
     uint32_t baud_rate;
     esp_netif_t *esp_netif;
     slip_driver_t driver;
@@ -524,11 +526,32 @@ static esp_err_t slip_add_netif(const slip_job_config_t *config)
     } else {
         SOLAR_OS_LOGW(TAG, "NAT enable failed: %s", esp_err_to_name(err));
     }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    solar_os_network_interface_info_t info = {
+        .role = SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM,
+        .state = SOLAR_OS_NETWORK_INTERFACE_STATE_UP,
+        .route_priority = 5,
+        .nat_enabled = true,
+        .last_error = ESP_OK,
+    };
+    strlcpy(info.name, slip_job.interface_name, sizeof(info.name));
+    ip4addr_ntoa_r(&config->local_ip, info.address, sizeof(info.address));
+    ip4addr_ntoa_r(&config->peer_ip, info.peer, sizeof(info.peer));
+    err = solar_os_network_interface_publish(&info);
+    if (err != ESP_OK) {
+        (void)slip_set_nat(false);
+    }
     return err;
 }
 
 static void slip_remove_netif(void)
 {
+    if (slip_job.interface_name[0] != '\0') {
+        (void)solar_os_network_interface_remove(slip_job.interface_name);
+    }
     if (slip_job.nat_active) {
         (void)slip_set_nat(false);
     }
@@ -747,6 +770,10 @@ static esp_err_t slip_job_start(solar_os_context_t *ctx, int argc, char **argv)
     slip_job.last_error = ESP_OK;
     slip_reset_rx_frame();
     strlcpy(slip_job.port_name, config.port_name, sizeof(slip_job.port_name));
+    (void)snprintf(slip_job.interface_name,
+                   sizeof(slip_job.interface_name),
+                   "slip-%.15s",
+                   config.port_name);
 
     err = slip_add_netif(&config);
     if (err != ESP_OK) {

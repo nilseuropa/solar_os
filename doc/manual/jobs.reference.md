@@ -982,11 +982,17 @@ for configurable UART ports; CDC and virtual ports retain their transport rate.
 This initial service uses unauthenticated PPP. Use it on a physically trusted
 link. `job status pppd` reports negotiation state, assigned addresses, NAPT,
 traffic counters, reconnects, and the most recent PPP error.
+While the job runs, `network` and `network status` show `ppp-<port>` with its
+uplink, downstream, or peer role. Only the uplink role appears in the Network
+Settings priority list.
 
 ## slip
 
 IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines,
 headless boards, and serial networking experiments.
+The active `slip-<port>` interface appears as a downstream NAT link in
+`network` and `network status`; its traffic follows the selected SolarOS route,
+which can be Wi-Fi, cellular, or WireGuard.
 
 Usage:
 

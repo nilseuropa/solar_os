@@ -26,13 +26,17 @@ SolarOS separates three networking concepts:
 
 Run `network` to open a two-tab TUI. **Status** combines interface state,
 addresses, the selected default path, VPN routes, and downstream client
-routing. **Settings** opens the installed Wi-Fi and modem control TUIs, changes
-each base interface's priority, and enables or disables downstream client
-routing. A transport TUI returns to the same Network tab and selection when it
-exits. Tab switches views. Use the arrow keys to select a setting; Left and
-Right lower or raise priority, and Enter opens a transport or toggles routing.
-Higher priority wins. Priority overrides are saved by interface name and apply
-again when a runtime interface such as `modem0` is registered later.
+routing. Active SLIP and PPP jobs appear by interface name and are labelled as
+an uplink, downstream, or routed peer; downstream rows show whether NAT is
+active and which selected route carries their traffic. **Settings** opens the
+installed Wi-Fi and modem control TUIs, changes each uplink's priority, and
+enables or disables Wi-Fi AP routing. Downstream and peer links are status-only
+here; their owning jobs configure their lifecycle. A transport TUI returns to
+the same Network tab and selection when it exits. Tab switches views. Use the
+arrow keys to select a setting; Left and Right lower or raise priority, and
+Enter opens a transport or toggles routing. Higher priority wins. Priority
+overrides are saved by interface name and apply again when a runtime interface
+such as `modem0` is registered later.
 
 For scripts and plain output, use `network status` for the same combined view,
 `network interfaces` for interface state and addresses, and `network routes`
@@ -50,7 +54,9 @@ stops the downstream AP.
 `job start pppd <port>` creates a separate serial downstream by default. That
 job owns NAPT for its PPP interface, while `network router` owns client routing
 for `wifi-ap`. With `role=uplink`, the same job instead adds `ppp-<port>` to the
-base-path priority list. See [jobs.reference.md](jobs.reference.md#pppd).
+base-path priority list. Downstream and peer instances remain outside default
+route selection but appear in Network status and routing. See
+[jobs.reference.md](jobs.reference.md#pppd).
 
 Configure the AP name and password first when the default open `SolarOS-sol`
 network is not appropriate:

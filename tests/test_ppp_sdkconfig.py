@@ -54,6 +54,9 @@ class PppSdkconfigTest(unittest.TestCase):
         self.assertIn("PPPD_ROLE_PEER", source)
         self.assertIn("solar_os_jobs_claim_port", source)
         self.assertIn("solar_os_network_path_register", source)
+        self.assertIn("solar_os_network_path_set_connecting", source)
+        self.assertIn("solar_os_network_interface_publish", source)
+        self.assertIn("solar_os_network_interface_remove", source)
         self.assertIn("esp_netif_napt_enable", source)
         self.assertIn("solar_os_ppp_start", source)
 

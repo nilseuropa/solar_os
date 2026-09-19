@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_netif_net_stack.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -11,11 +12,17 @@
 #define NETWORK_NVS_PRIORITIES_KEY "priorities"
 #define NETWORK_PRIORITY_STORE_VERSION 1U
 #define NETWORK_PRIORITY_STORE_MAX 16U
+#define NETWORK_AUX_INTERFACE_MAX 8U
 
 typedef struct {
     solar_os_network_path_info_t info;
     bool registered;
 } network_path_entry_t;
+
+typedef struct {
+    solar_os_network_interface_info_t info;
+    bool registered;
+} network_interface_entry_t;
 
 typedef struct {
     char name[SOLAR_OS_NETWORK_PATH_NAME_MAX + 1U];
@@ -33,6 +40,8 @@ ESP_EVENT_DEFINE_BASE(SOLAR_OS_NETWORK_EVENT);
 static StaticSemaphore_t network_mutex_storage;
 static SemaphoreHandle_t network_mutex;
 static network_path_entry_t network_paths[SOLAR_OS_NETWORK_PATH_MAX];
+static EXT_RAM_BSS_ATTR network_interface_entry_t
+    network_interfaces[NETWORK_AUX_INTERFACE_MAX];
 static solar_os_network_router_provider_t router_provider;
 static bool router_provider_registered;
 static network_priority_store_t priority_store;
@@ -52,6 +61,25 @@ static bool name_valid(const char *name)
     return name != NULL && name[0] != '\0' &&
         strnlen(name, SOLAR_OS_NETWORK_PATH_NAME_MAX + 1U) <=
             SOLAR_OS_NETWORK_PATH_NAME_MAX;
+}
+
+static bool address_valid(const char *address)
+{
+    return address != NULL &&
+        strnlen(address, SOLAR_OS_NETWORK_ADDRESS_MAX + 1U) <=
+            SOLAR_OS_NETWORK_ADDRESS_MAX;
+}
+
+static bool interface_role_valid(solar_os_network_interface_role_t role)
+{
+    return role >= SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK &&
+        role <= SOLAR_OS_NETWORK_INTERFACE_ROLE_TUNNEL;
+}
+
+static bool interface_state_valid(solar_os_network_interface_state_t state)
+{
+    return state >= SOLAR_OS_NETWORK_INTERFACE_STATE_DOWN &&
+        state <= SOLAR_OS_NETWORK_INTERFACE_STATE_ERROR;
 }
 
 static network_path_entry_t *find_netif_locked(esp_netif_t *netif)
@@ -185,6 +213,15 @@ static void post_paths_changed(void)
                          0U);
 }
 
+static void post_interfaces_changed(void)
+{
+    (void)esp_event_post(SOLAR_OS_NETWORK_EVENT,
+                         SOLAR_OS_NETWORK_EVENT_INTERFACES_CHANGED,
+                         NULL,
+                         0U,
+                         0U);
+}
+
 esp_err_t solar_os_network_path_register(const char *name,
                                          esp_netif_t *netif,
                                          int route_priority)
@@ -278,7 +315,31 @@ esp_err_t solar_os_network_path_set_ready(esp_netif_t *netif, bool ready)
         return ESP_ERR_NOT_FOUND;
     }
     entry->info.ready = ready;
+    entry->info.connecting = false;
     entry->info.dns = dns;
+    xSemaphoreGive(network_mutex);
+    post_paths_changed();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_network_path_set_connecting(esp_netif_t *netif,
+                                               bool connecting)
+{
+    if (netif == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(network_mutex, portMAX_DELAY);
+    network_path_entry_t *entry = find_netif_locked(netif);
+    if (entry == NULL) {
+        xSemaphoreGive(network_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    entry->info.connecting = connecting && !entry->info.ready;
     xSemaphoreGive(network_mutex);
     post_paths_changed();
     return ESP_OK;
@@ -385,6 +446,165 @@ struct netif *solar_os_network_lwip_preferred(void)
      * aligned pointer load is atomic on supported ESP targets, so the lwIP
      * route hook can stay non-blocking on the TCP/IP thread. */
     return network_preferred_lwip;
+}
+
+esp_err_t solar_os_network_interface_publish(
+    const solar_os_network_interface_info_t *info)
+{
+    if (info == NULL || !name_valid(info->name) ||
+        !interface_role_valid(info->role) ||
+        info->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK ||
+        !interface_state_valid(info->state) ||
+        !priority_valid(info->route_priority) ||
+        !address_valid(info->address) || !address_valid(info->peer)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(network_mutex, portMAX_DELAY);
+    if (find_name_locked(info->name) != NULL) {
+        xSemaphoreGive(network_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    network_interface_entry_t *selected = NULL;
+    for (size_t i = 0U; i < NETWORK_AUX_INTERFACE_MAX; i++) {
+        network_interface_entry_t *entry = &network_interfaces[i];
+        if (entry->registered && strcmp(entry->info.name, info->name) == 0) {
+            selected = entry;
+            break;
+        }
+        if (!entry->registered && selected == NULL) {
+            selected = entry;
+        }
+    }
+    if (selected == NULL) {
+        xSemaphoreGive(network_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+    selected->info = *info;
+    selected->info.netif = NULL;
+    selected->registered = true;
+    xSemaphoreGive(network_mutex);
+    post_interfaces_changed();
+    return ESP_OK;
+}
+
+esp_err_t solar_os_network_interface_remove(const char *name)
+{
+    if (!name_valid(name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(network_mutex, portMAX_DELAY);
+    for (size_t i = 0U; i < NETWORK_AUX_INTERFACE_MAX; i++) {
+        network_interface_entry_t *entry = &network_interfaces[i];
+        if (entry->registered && strcmp(entry->info.name, name) == 0) {
+            memset(entry, 0, sizeof(*entry));
+            xSemaphoreGive(network_mutex);
+            post_interfaces_changed();
+            return ESP_OK;
+        }
+    }
+    xSemaphoreGive(network_mutex);
+    return ESP_ERR_NOT_FOUND;
+}
+
+size_t solar_os_network_interface_list(
+    solar_os_network_interface_info_t *interfaces,
+    size_t max_interfaces)
+{
+    if (ensure_mutex() != ESP_OK) {
+        return 0U;
+    }
+    size_t count = 0U;
+    xSemaphoreTake(network_mutex, portMAX_DELAY);
+    for (size_t i = 0U; i < SOLAR_OS_NETWORK_PATH_MAX; i++) {
+        const network_path_entry_t *path = &network_paths[i];
+        if (!path->registered) {
+            continue;
+        }
+        if (interfaces != NULL && count < max_interfaces) {
+            solar_os_network_interface_info_t *info = &interfaces[count];
+            memset(info, 0, sizeof(*info));
+            info->netif = path->info.netif;
+            info->role = SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK;
+            info->state = path->info.ready ?
+                SOLAR_OS_NETWORK_INTERFACE_STATE_UP :
+                (path->info.connecting ?
+                    SOLAR_OS_NETWORK_INTERFACE_STATE_CONNECTING :
+                    SOLAR_OS_NETWORK_INTERFACE_STATE_DOWN);
+            info->route_priority = path->info.route_priority;
+            strlcpy(info->name, path->info.name, sizeof(info->name));
+        }
+        count++;
+    }
+    for (size_t i = 0U; i < NETWORK_AUX_INTERFACE_MAX; i++) {
+        if (!network_interfaces[i].registered) {
+            continue;
+        }
+        if (interfaces != NULL && count < max_interfaces) {
+            interfaces[count] = network_interfaces[i].info;
+        }
+        count++;
+    }
+    xSemaphoreGive(network_mutex);
+
+    const size_t copied = count < max_interfaces ? count : max_interfaces;
+    for (size_t i = 0U; interfaces != NULL && i < copied; i++) {
+        solar_os_network_interface_info_t *info = &interfaces[i];
+        if (info->role != SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK ||
+            info->state != SOLAR_OS_NETWORK_INTERFACE_STATE_UP ||
+            info->netif == NULL) {
+            continue;
+        }
+        esp_netif_ip_info_t ip = {0};
+        if (esp_netif_get_ip_info(info->netif, &ip) == ESP_OK &&
+            ip.ip.addr != 0U) {
+            esp_ip4addr_ntoa(&ip.ip, info->address, sizeof(info->address));
+        }
+    }
+    return count;
+}
+
+const char *solar_os_network_interface_role_name(
+    solar_os_network_interface_role_t role)
+{
+    switch (role) {
+    case SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK:
+        return "uplink";
+    case SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM:
+        return "downstream";
+    case SOLAR_OS_NETWORK_INTERFACE_ROLE_PEER:
+        return "peer";
+    case SOLAR_OS_NETWORK_INTERFACE_ROLE_TUNNEL:
+        return "tunnel";
+    default:
+        return "unknown";
+    }
+}
+
+const char *solar_os_network_interface_state_name(
+    solar_os_network_interface_state_t state)
+{
+    switch (state) {
+    case SOLAR_OS_NETWORK_INTERFACE_STATE_DOWN:
+        return "down";
+    case SOLAR_OS_NETWORK_INTERFACE_STATE_CONNECTING:
+        return "connecting";
+    case SOLAR_OS_NETWORK_INTERFACE_STATE_UP:
+        return "up";
+    case SOLAR_OS_NETWORK_INTERFACE_STATE_ERROR:
+        return "error";
+    default:
+        return "unknown";
+    }
 }
 
 esp_err_t solar_os_network_router_register(

@@ -2245,10 +2245,9 @@ capabilities = ["wifi"]
 
 [packages.job_slip]
 label = "job.slip"
-depends = ["service_uart", "service_wifi"]
+depends = ["service_uart", "service_network"]
 sources = ["jobs/solar_os_slip_job.c"]
 requires = ["lwip"]
-capabilities = ["wifi"]
 
 [packages.job_pppd]
 label = "job.pppd"

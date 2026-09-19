@@ -131,6 +131,52 @@ static const char *pppd_state_name(solar_os_ppp_state_t state)
     }
 }
 
+static bool pppd_has_published_interface(void)
+{
+    return pppd_job.config.role == PPPD_ROLE_DOWNSTREAM ||
+        pppd_job.config.role == PPPD_ROLE_PEER;
+}
+
+static esp_err_t pppd_publish_interface(
+    solar_os_network_interface_state_t state,
+    bool nat_enabled,
+    esp_err_t error)
+{
+    if (!pppd_has_published_interface()) {
+        return ESP_OK;
+    }
+    solar_os_network_interface_info_t info = {
+        .role = pppd_job.config.role == PPPD_ROLE_DOWNSTREAM ?
+            SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM :
+            SOLAR_OS_NETWORK_INTERFACE_ROLE_PEER,
+        .state = state,
+        .route_priority = PPPD_DOWNSTREAM_ROUTE_PRIORITY,
+        .nat_enabled = nat_enabled,
+        .last_error = error,
+    };
+    strlcpy(info.name, pppd_job.path_name, sizeof(info.name));
+
+    solar_os_ppp_status_t status = {0};
+    if (state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
+        pppd_job.ppp != NULL &&
+        solar_os_ppp_get_status(pppd_job.ppp, &status) == ESP_OK) {
+        strlcpy(info.address, status.ipv4_address, sizeof(info.address));
+        strlcpy(info.peer, status.ipv4_gateway, sizeof(info.peer));
+    }
+    if (info.address[0] == '\0' &&
+        pppd_job.config.local_address.addr != 0U) {
+        esp_ip4addr_ntoa(&pppd_job.config.local_address,
+                         info.address,
+                         sizeof(info.address));
+    }
+    if (info.peer[0] == '\0' && pppd_job.config.peer_address.addr != 0U) {
+        esp_ip4addr_ntoa(&pppd_job.config.peer_address,
+                         info.peer,
+                         sizeof(info.peer));
+    }
+    return solar_os_network_interface_publish(&info);
+}
+
 static bool pppd_parse_u32(const char *text,
                            uint32_t minimum,
                            uint32_t maximum,
@@ -381,16 +427,22 @@ static esp_err_t pppd_netif_attach(void *ctx, esp_netif_t *netif)
     pppd_state_t *state = ctx;
     state->netif = netif;
     if (state->config.role == PPPD_ROLE_UPLINK) {
-        return solar_os_network_path_register(state->path_name,
-                                              netif,
-                                              state->config.priority);
+        esp_err_t ret = solar_os_network_path_register(state->path_name,
+                                                       netif,
+                                                       state->config.priority);
+        if (ret == ESP_OK) {
+            ret = solar_os_network_path_set_connecting(netif, true);
+        }
+        return ret;
     }
     if (esp_netif_set_route_prio(netif, PPPD_DOWNSTREAM_ROUTE_PRIORITY) !=
         PPPD_DOWNSTREAM_ROUTE_PRIORITY) {
         state->netif = NULL;
         return ESP_FAIL;
     }
-    return ESP_OK;
+    return pppd_publish_interface(SOLAR_OS_NETWORK_INTERFACE_STATE_CONNECTING,
+                                  false,
+                                  ESP_OK);
 }
 
 static void pppd_netif_set_ready(void *ctx,
@@ -419,9 +471,25 @@ static void pppd_netif_set_ready(void *ctx,
                           ready ? "enable" : "disable",
                           esp_err_to_name(ret));
         }
+        const esp_err_t publish_ret = pppd_publish_interface(
+            ready ? SOLAR_OS_NETWORK_INTERFACE_STATE_UP :
+                    SOLAR_OS_NETWORK_INTERFACE_STATE_CONNECTING,
+            state->nat_active,
+            ret);
+        if (publish_ret != ESP_OK) {
+            state->last_error = publish_ret;
+        }
         return;
     }
     if (state->config.role == PPPD_ROLE_PEER) {
+        const esp_err_t ret = pppd_publish_interface(
+            ready ? SOLAR_OS_NETWORK_INTERFACE_STATE_UP :
+                    SOLAR_OS_NETWORK_INTERFACE_STATE_CONNECTING,
+            false,
+            ESP_OK);
+        if (ret != ESP_OK) {
+            state->last_error = ret;
+        }
         return;
     }
     const esp_err_t ret = solar_os_network_path_set_ready(netif, ready);
@@ -432,6 +500,12 @@ static void pppd_netif_set_ready(void *ctx,
                       state->path_name,
                       ready ? "yes" : "no",
                       esp_err_to_name(ret));
+    } else if (!ready && !state->stop_requested) {
+        const esp_err_t connecting_ret =
+            solar_os_network_path_set_connecting(netif, true);
+        if (connecting_ret != ESP_OK) {
+            state->last_error = connecting_ret;
+        }
     }
 }
 
@@ -449,6 +523,9 @@ static void pppd_netif_detach(void *ctx, esp_netif_t *netif)
             state->last_error = ret;
         }
         state->nat_active = false;
+    }
+    if (state->config.role != PPPD_ROLE_UPLINK) {
+        (void)solar_os_network_interface_remove(state->path_name);
     }
     state->netif = NULL;
 }
@@ -483,6 +560,9 @@ static void pppd_cleanup(void)
         } else {
             pppd_job.last_error = destroy_ret;
         }
+    }
+    if (pppd_has_published_interface()) {
+        (void)solar_os_network_interface_remove(pppd_job.path_name);
     }
     if (solar_os_port_handle_valid(&pppd_job.port)) {
         (void)solar_os_port_release(&pppd_job.port);

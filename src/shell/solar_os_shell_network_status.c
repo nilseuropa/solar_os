@@ -1,5 +1,6 @@
 #include "solar_os_shell_commands.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_netif.h"
@@ -18,35 +19,56 @@ static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
     return solar_os_shell_command_io(ctx);
 }
 
+static void network_interface_detail(
+    const solar_os_network_interface_info_t *interface,
+    char *detail,
+    size_t detail_len)
+{
+    if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_UPLINK) {
+        (void)snprintf(detail,
+                       detail_len,
+                       "uplink priority %d",
+                       interface->route_priority);
+    } else if (interface->role ==
+               SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM) {
+        (void)snprintf(detail,
+                       detail_len,
+                       "downstream%s",
+                       interface->nat_enabled ? " NAT" : "");
+    } else {
+        strlcpy(detail,
+                solar_os_network_interface_role_name(interface->role),
+                detail_len);
+    }
+}
+
 static void network_print_interfaces(solar_os_shell_io_t *term)
 {
-    solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    const size_t path_count = solar_os_network_path_list(
-        paths,
-        sizeof(paths) / sizeof(paths[0]));
+    solar_os_network_interface_info_t
+        interfaces[SOLAR_OS_NETWORK_INTERFACE_MAX];
+    const size_t interface_count = solar_os_network_interface_list(
+        interfaces,
+        sizeof(interfaces) / sizeof(interfaces[0]));
     solar_os_network_path_info_t preferred = {0};
     const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
 
     solar_os_shell_io_writeln(term, "Interfaces:");
-    if (path_count == 0U) {
-        solar_os_shell_io_writeln(term, "  no route-capable interfaces");
+    if (interface_count == 0U) {
+        solar_os_shell_io_writeln(term, "  no network interfaces");
     }
-    for (size_t i = 0; i < path_count && i < SOLAR_OS_NETWORK_PATH_MAX; i++) {
-        esp_netif_ip_info_t ip = {0};
-        char address[16] = "-";
-        if (paths[i].ready &&
-            esp_netif_get_ip_info(paths[i].netif, &ip) == ESP_OK &&
-            ip.ip.addr != 0U) {
-            esp_ip4addr_ntoa(&ip.ip, address, sizeof(address));
-        }
+    for (size_t i = 0U;
+         i < interface_count && i < SOLAR_OS_NETWORK_INTERFACE_MAX;
+         i++) {
+        char detail[40];
+        network_interface_detail(&interfaces[i], detail, sizeof(detail));
         solar_os_shell_io_printf(
             term,
-            "  %-10s %-4s %-15s priority %d%s\n",
-            paths[i].name,
-            paths[i].ready ? "up" : "down",
-            address,
-            paths[i].route_priority,
-            have_preferred && paths[i].netif == preferred.netif ?
+            "  %-10s %-10s %-15s %s%s\n",
+            interfaces[i].name,
+            solar_os_network_interface_state_name(interfaces[i].state),
+            interfaces[i].address[0] != '\0' ? interfaces[i].address : "-",
+            detail,
+            have_preferred && interfaces[i].netif == preferred.netif ?
                 " (preferred base path)" : "");
     }
 
@@ -54,11 +76,12 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
     solar_os_network_router_get_status(&router);
     if (router.available) {
         solar_os_shell_io_printf(term,
-                                 "  %-10s %-4s %-15s local downstream\n",
+                                 "  %-10s %-10s %-15s downstream%s\n",
                                  router.downstream,
                                  router.downstream_active ? "up" : "down",
                                  router.downstream_active && router.address[0] != '\0' ?
-                                     router.address : "-");
+                                     router.address : "-",
+                                 router.nat_enabled ? " NAT" : "");
     }
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
@@ -66,7 +89,7 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
     solar_os_wireguard_get_status(&wireguard);
     if (wireguard.configured || wireguard.desired_up || wireguard.routes_active) {
         solar_os_shell_io_printf(term,
-                                 "  %-10s %-4s %-15s tunnel (%s)\n",
+                                 "  %-10s %-10s %-15s tunnel (%s)\n",
                                  "wireguard",
                                  wireguard.routes_active ? "up" : "down",
                                  wireguard.routes_active ? wireguard.address : "-",
@@ -77,6 +100,11 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
 
 static void network_print_routes(solar_os_shell_io_t *term)
 {
+    solar_os_network_interface_info_t
+        interfaces[SOLAR_OS_NETWORK_INTERFACE_MAX];
+    const size_t interface_count = solar_os_network_interface_list(
+        interfaces,
+        sizeof(interfaces) / sizeof(interfaces[0]));
     solar_os_network_path_info_t preferred = {0};
     const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
 
@@ -118,6 +146,46 @@ static void network_print_routes(solar_os_shell_io_t *term)
         solar_os_shell_io_writeln(term, "  default unavailable");
     }
 #endif
+
+    for (size_t i = 0U;
+         i < interface_count && i < SOLAR_OS_NETWORK_INTERFACE_MAX;
+         i++) {
+        const solar_os_network_interface_info_t *interface = &interfaces[i];
+        if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM) {
+            if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
+                have_preferred) {
+                solar_os_shell_io_printf(
+                    term,
+                    "  %s -> %s%s\n",
+                    interface->name,
+#if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
+                    wireguard.default_route_active ? "wireguard" : preferred.name,
+#else
+                    preferred.name,
+#endif
+                    interface->nat_enabled ? " with NAT" : "");
+            } else if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP) {
+                solar_os_shell_io_printf(term,
+                                         "  %s waiting for a default route\n",
+                                         interface->name);
+            } else {
+                solar_os_shell_io_printf(
+                    term,
+                    "  %s %s\n",
+                    interface->name,
+                    solar_os_network_interface_state_name(interface->state));
+            }
+        } else if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_PEER) {
+            solar_os_shell_io_printf(
+                term,
+                "  %s peer %s\n",
+                interface->name,
+                interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
+                        interface->peer[0] != '\0' ?
+                    interface->peer :
+                    solar_os_network_interface_state_name(interface->state));
+        }
+    }
 }
 
 static void network_print_router(solar_os_shell_io_t *term)
@@ -125,27 +193,36 @@ static void network_print_router(solar_os_shell_io_t *term)
     solar_os_network_router_status_t status = {0};
     solar_os_network_router_get_status(&status);
     if (!status.available) {
-        solar_os_shell_io_writeln(term, "Router: unavailable (no downstream interface)");
+        solar_os_shell_io_writeln(term,
+                                  "Router: unavailable (no managed downstream)");
         return;
     }
     if (!status.enabled) {
-        solar_os_shell_io_writeln(term, "Router: off");
+        solar_os_shell_io_printf(term,
+                                 "Router %s: off\n",
+                                 status.downstream);
         return;
     }
 
     if (status.active) {
         solar_os_shell_io_printf(term,
-                                 "Router: active, clients %u/%u\n",
+                                 "Router %s: active, clients %u/%u\n",
+                                 status.downstream,
                                  (unsigned)status.client_count,
                                  (unsigned)status.client_limit);
     } else if (status.last_error != ESP_OK) {
         solar_os_shell_io_printf(term,
-                                 "Router: error %s\n",
+                                 "Router %s: error %s\n",
+                                 status.downstream,
                                  solar_os_shell_error_text(status.last_error));
     } else if (!solar_os_network_path_get_preferred(NULL)) {
-        solar_os_shell_io_writeln(term, "Router: waiting for a default route");
+        solar_os_shell_io_printf(term,
+                                 "Router %s: waiting for a default route\n",
+                                 status.downstream);
     } else {
-        solar_os_shell_io_writeln(term, "Router: starting downstream interface");
+        solar_os_shell_io_printf(term,
+                                 "Router %s: starting\n",
+                                 status.downstream);
     }
 
     solar_os_shell_io_printf(term,
