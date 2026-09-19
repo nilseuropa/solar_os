@@ -740,7 +740,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | `mqtt disconnect` | Disconnect and stop the MQTT client. |
 | `mqtt` | `mqtt publish <topic> <payload> [qos] [retain]` | Publish a message with optional QoS 0–2 and retain flag. |
 | `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
-| `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
+| `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
 
