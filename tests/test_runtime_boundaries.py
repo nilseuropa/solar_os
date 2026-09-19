@@ -55,6 +55,29 @@ class RuntimeBoundaryTest(unittest.TestCase):
             source = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(declaration, source, relative_path)
 
+    def test_task_context_service_metadata_uses_external_bss(self):
+        declarations = {
+            "src/services/solar_os_network.c":
+                "static EXT_RAM_BSS_ATTR network_path_entry_t",
+            "src/services/solar_os_http_server.c":
+                "static EXT_RAM_BSS_ATTR http_route_slot_t route_slots",
+            "src/services/solar_os_ramfs.c":
+                "static EXT_RAM_BSS_ATTR ramfs_mount_t mounts",
+            "src/services/solar_os_modem.c":
+                "static EXT_RAM_BSS_ATTR modem_device_t modem_devices",
+            "src/services/solar_os_gnss.c":
+                "static EXT_RAM_BSS_ATTR gnss_device_t gnss_devices",
+            "src/services/solar_os_radio.c":
+                "static EXT_RAM_BSS_ATTR radio_device_t radio_devices",
+            "src/services/solar_os_chat.c":
+                "static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t chat",
+            "src/services/solar_os_chat_transport_gateway.c":
+                "static EXT_RAM_BSS_ATTR solar_os_chat_state_data_t chat_state",
+        }
+        for relative_path, declaration in declarations.items():
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, relative_path)
+
     def test_expansion_registry_prefers_external_memory(self):
         source = (ROOT / "src/services/solar_os_expansion.c").read_text(
             encoding="utf-8"

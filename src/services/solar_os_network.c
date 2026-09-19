@@ -39,7 +39,8 @@ ESP_EVENT_DEFINE_BASE(SOLAR_OS_NETWORK_EVENT);
 
 static StaticSemaphore_t network_mutex_storage;
 static SemaphoreHandle_t network_mutex;
-static network_path_entry_t network_paths[SOLAR_OS_NETWORK_PATH_MAX];
+static EXT_RAM_BSS_ATTR network_path_entry_t
+    network_paths[SOLAR_OS_NETWORK_PATH_MAX];
 static EXT_RAM_BSS_ATTR network_interface_entry_t
     network_interfaces[NETWORK_AUX_INTERFACE_MAX];
 static solar_os_network_router_provider_t router_provider;

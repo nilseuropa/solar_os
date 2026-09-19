@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -18,7 +19,7 @@ typedef struct {
 
 static SemaphoreHandle_t gnss_mutex;
 static StaticSemaphore_t gnss_mutex_storage;
-static gnss_device_t gnss_devices[GNSS_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR gnss_device_t gnss_devices[GNSS_DEVICE_MAX];
 static uint32_t gnss_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)

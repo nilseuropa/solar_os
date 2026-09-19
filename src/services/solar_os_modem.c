@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -47,7 +48,7 @@ typedef struct {
 
 static SemaphoreHandle_t modem_mutex;
 static StaticSemaphore_t modem_mutex_storage;
-static modem_device_t modem_devices[MODEM_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR modem_device_t modem_devices[MODEM_DEVICE_MAX];
 static uint32_t modem_next_generation = 1U;
 static const char *TAG = "modem";
 

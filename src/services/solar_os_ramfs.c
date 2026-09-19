@@ -12,6 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "esp_attr.h"
 #include "esp_vfs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -74,7 +75,7 @@ typedef struct {
     struct dirent entry;
 } ramfs_dir_t;
 
-static ramfs_mount_t mounts[SOLAR_OS_RAMFS_MAX_MOUNTS];
+static EXT_RAM_BSS_ATTR ramfs_mount_t mounts[SOLAR_OS_RAMFS_MAX_MOUNTS];
 
 static bool ramfs_path_is_on_mount(const char *path, const char *mount_point)
 {
