@@ -33,6 +33,8 @@ typedef struct {
     bool desired_up;
     bool peer_up;
     bool full_tunnel;
+    bool routes_active;
+    bool default_route_active;
     bool kill_switch_active;
     bool dns_configured;
     uint8_t route_count;

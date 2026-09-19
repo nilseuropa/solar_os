@@ -14,7 +14,6 @@
 #define SOLAR_OS_WIFI_PROFILE_MAX 5
 #define SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX 32
 #define SOLAR_OS_WIFI_LATENCY_OWNER_MAX 32
-#define SOLAR_OS_WIFI_UPLINK_NAME_MAX 20
 
 typedef enum {
     SOLAR_OS_WIFI_STATE_OFF,
@@ -60,7 +59,6 @@ typedef struct {
     char ap_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
     char ap_auth[SOLAR_OS_WIFI_AUTH_MAX];
     char ap_ip[16];
-    char nat_uplink[SOLAR_OS_WIFI_UPLINK_NAME_MAX + 1];
     int8_t rssi;
     uint8_t channel;
     uint8_t disconnect_reason;
@@ -111,8 +109,6 @@ esp_err_t solar_os_wifi_ap_saved_get(solar_os_wifi_ap_config_t *config);
 esp_err_t solar_os_wifi_ap_save(const char *ssid, const char *password, const char *auth);
 esp_err_t solar_os_wifi_ap_forget(void);
 esp_err_t solar_os_wifi_nat_set(bool enabled);
-esp_err_t solar_os_wifi_share_start(void);
-esp_err_t solar_os_wifi_share_stop(void);
 esp_err_t solar_os_wifi_repeater_start(void);
 esp_err_t solar_os_wifi_repeater_stop(void);
 esp_err_t solar_os_wifi_scan(solar_os_wifi_ap_t *aps, size_t max_aps, size_t *found);

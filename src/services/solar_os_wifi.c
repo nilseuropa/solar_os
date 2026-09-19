@@ -17,7 +17,7 @@
 #include "nvs.h"
 #include "solar_os_identity.h"
 #include "solar_os_log.h"
-#include "solar_os_uplink.h"
+#include "solar_os_network.h"
 #include "solar_os_wifi_repeater.h"
 
 static const char *TAG = "solar_os_wifi";
@@ -88,7 +88,6 @@ static char wifi_netmask[16];
 static char wifi_ap_ssid[SOLAR_OS_WIFI_SSID_MAX + 1];
 static char wifi_ap_auth[SOLAR_OS_WIFI_AUTH_MAX];
 static char wifi_ap_ip[16];
-static char wifi_nat_uplink[SOLAR_OS_WIFI_UPLINK_NAME_MAX + 1];
 static int8_t wifi_rssi;
 static uint8_t wifi_channel;
 static uint8_t wifi_disconnect_reason;
@@ -107,8 +106,12 @@ static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 static char wifi_latency_owner[SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
 
 static void wifi_set_started_state(bool started);
-static esp_err_t wifi_update_ap_dns_from_uplink(
-    const solar_os_uplink_info_t *uplink);
+static esp_err_t wifi_update_ap_dns_from_path(
+    const solar_os_network_path_info_t *path);
+static esp_err_t wifi_router_start(void *context);
+static esp_err_t wifi_router_stop(void *context);
+static void wifi_router_get_status(void *context,
+                                   solar_os_network_router_status_t *status);
 static void wifi_repeater_schedule_reconnect(void);
 static void wifi_lock(void);
 static void wifi_unlock(void);
@@ -882,22 +885,17 @@ static esp_err_t wifi_apply_nat(void)
 {
     bool nat_active = false;
     bool should_enable = false;
-    solar_os_uplink_info_t uplink = {0};
-    const bool have_uplink = solar_os_uplink_get_active(&uplink);
+    solar_os_network_path_info_t path = {0};
+    const bool have_path = solar_os_network_path_get_preferred(&path);
 
     wifi_lock();
     nat_active = wifi_nat_active;
     should_enable = wifi_nat_enabled &&
         !wifi_repeater_starting &&
         !solar_os_wifi_repeater_is_enabled() &&
-        have_uplink &&
+        have_path &&
         wifi_ap_enabled &&
         wifi_ap_running;
-    if (should_enable) {
-        strlcpy(wifi_nat_uplink, uplink.name, sizeof(wifi_nat_uplink));
-    } else {
-        wifi_nat_uplink[0] = '\0';
-    }
     wifi_unlock();
 
     if (!should_enable && !nat_active) {
@@ -917,7 +915,7 @@ static esp_err_t wifi_apply_nat(void)
     }
 
     if (should_enable) {
-        esp_err_t dns_ret = wifi_update_ap_dns_from_uplink(&uplink);
+        esp_err_t dns_ret = wifi_update_ap_dns_from_path(&path);
         if (dns_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "AP DHCP DNS preparation failed before NAT: %s", esp_err_to_name(dns_ret));
         }
@@ -952,14 +950,14 @@ static esp_err_t wifi_apply_nat(void)
     return ESP_OK;
 }
 
-static esp_err_t wifi_update_ap_dns_from_uplink(
-    const solar_os_uplink_info_t *uplink)
+static esp_err_t wifi_update_ap_dns_from_path(
+    const solar_os_network_path_info_t *path)
 {
-    if (uplink == NULL || wifi_ap_netif == NULL) {
+    if (path == NULL || wifi_ap_netif == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_netif_dns_info_t dns = uplink->dns;
+    esp_netif_dns_info_t dns = path->dns;
     if (dns.ip.type != ESP_IPADDR_TYPE_V4 || dns.ip.u_addr.ip4.addr == 0) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -1195,7 +1193,7 @@ static void wifi_event_handler(void *arg,
             wifi_unlock();
             break;
         case WIFI_EVENT_STA_STOP:
-            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
+            (void)solar_os_network_path_set_ready(wifi_sta_netif, false);
             wifi_lock();
             wifi_clear_link_state();
             if (!wifi_suspended) {
@@ -1283,7 +1281,7 @@ static void wifi_event_handler(void *arg,
             }
             wifi_state = wifi_started ? SOLAR_OS_WIFI_STATE_DISCONNECTED : SOLAR_OS_WIFI_STATE_OFF;
             wifi_unlock();
-            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
+            (void)solar_os_network_path_set_ready(wifi_sta_netif, false);
             solar_os_wifi_repeater_clear_clients();
             wifi_repeater_schedule_reconnect();
             break;
@@ -1320,7 +1318,7 @@ static void wifi_event_handler(void *arg,
                 wifi_copy_ssid(wifi_ssid, sizeof(wifi_ssid), ap_info.ssid, sizeof(ap_info.ssid));
             }
             wifi_unlock();
-            (void)solar_os_uplink_set_ready(wifi_sta_netif, true);
+            (void)solar_os_network_path_set_ready(wifi_sta_netif, true);
             wifi_repeater_cancel_reconnect();
             if (event != NULL) {
                 solar_os_wifi_repeater_on_upstream_ip(&event->ip_info);
@@ -1342,7 +1340,7 @@ static void wifi_event_handler(void *arg,
                 wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
             }
             wifi_unlock();
-            (void)solar_os_uplink_set_ready(wifi_sta_netif, false);
+            (void)solar_os_network_path_set_ready(wifi_sta_netif, false);
             solar_os_wifi_repeater_clear_clients();
             break;
         default:
@@ -1352,8 +1350,8 @@ static void wifi_event_handler(void *arg,
         return;
     }
 
-    if (event_base == SOLAR_OS_UPLINK_EVENT &&
-        event_id == SOLAR_OS_UPLINK_EVENT_CHANGED) {
+    if (event_base == SOLAR_OS_NETWORK_EVENT &&
+        event_id == SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED) {
         (void)wifi_apply_nat();
     }
 }
@@ -1484,8 +1482,8 @@ esp_err_t solar_os_wifi_init(void)
         return ret;
     }
 
-    ret = esp_event_handler_instance_register(SOLAR_OS_UPLINK_EVENT,
-                                              SOLAR_OS_UPLINK_EVENT_CHANGED,
+    ret = esp_event_handler_instance_register(SOLAR_OS_NETWORK_EVENT,
+                                              SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED,
                                               wifi_event_handler,
                                               NULL,
                                               NULL);
@@ -1493,9 +1491,20 @@ esp_err_t solar_os_wifi_init(void)
         return ret;
     }
 
-    ret = solar_os_uplink_register("wifi-sta",
-                                   wifi_sta_netif,
-                                   WIFI_STA_ROUTE_PRIORITY);
+    ret = solar_os_network_path_register("wifi-sta",
+                                         wifi_sta_netif,
+                                         WIFI_STA_ROUTE_PRIORITY);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const solar_os_network_router_provider_t router_provider = {
+        .name = "wifi-ap",
+        .start = wifi_router_start,
+        .stop = wifi_router_stop,
+        .get_status = wifi_router_get_status,
+    };
+    ret = solar_os_network_router_register(&router_provider);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -2233,8 +2242,9 @@ esp_err_t solar_os_wifi_nat_set(bool enabled)
     return wifi_apply_nat();
 }
 
-esp_err_t solar_os_wifi_share_start(void)
+static esp_err_t wifi_router_start(void *context)
 {
+    (void)context;
     esp_err_t ret = solar_os_wifi_init();
     if (ret != ESP_OK) {
         return ret;
@@ -2261,11 +2271,32 @@ esp_err_t solar_os_wifi_share_start(void)
     return ret;
 }
 
-esp_err_t solar_os_wifi_share_stop(void)
+static esp_err_t wifi_router_stop(void *context)
 {
+    (void)context;
     const esp_err_t nat_ret = solar_os_wifi_nat_set(false);
     const esp_err_t ap_ret = solar_os_wifi_ap_stop();
     return nat_ret != ESP_OK ? nat_ret : ap_ret;
+}
+
+static void wifi_router_get_status(void *context,
+                                   solar_os_network_router_status_t *status)
+{
+    (void)context;
+    if (status == NULL) {
+        return;
+    }
+    solar_os_wifi_status_t wifi;
+    solar_os_wifi_get_status(&wifi);
+    status->downstream_active = wifi.ap_enabled || wifi.ap_running;
+    status->enabled = wifi.nat_enabled;
+    status->active = wifi.nat_active;
+    status->nat_enabled = wifi.nat_enabled;
+    status->client_count = wifi.ap_station_count;
+    status->client_limit = wifi.ap_max_connections;
+    status->last_error = wifi.nat_last_error;
+    strlcpy(status->address, wifi.ap_ip, sizeof(status->address));
+    strlcpy(status->label, wifi.ap_ssid, sizeof(status->label));
 }
 
 esp_err_t solar_os_wifi_repeater_start(void)
@@ -2783,9 +2814,6 @@ void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
     strlcpy(status->ap_ssid, wifi_ap_ssid, sizeof(status->ap_ssid));
     strlcpy(status->ap_auth, wifi_ap_auth, sizeof(status->ap_auth));
     strlcpy(status->ap_ip, wifi_ap_ip, sizeof(status->ap_ip));
-    strlcpy(status->nat_uplink,
-            wifi_nat_uplink,
-            sizeof(status->nat_uplink));
     strlcpy(status->connectionless_owner,
             wifi_connectionless_owner,
             sizeof(status->connectionless_owner));

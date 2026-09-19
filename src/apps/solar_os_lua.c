@@ -107,6 +107,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #include "solar_os_net_session.h"
+#include "solar_os_network.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 #include "solar_os_ssh_keys.h"
@@ -872,7 +873,6 @@ static void solua_push_wifi_status(lua_State *L, const solar_os_wifi_status_t *s
     solua_set_str(L, -1, "ap_ssid", status->ap_ssid);
     solua_set_str(L, -1, "ap_auth", status->ap_auth);
     solua_set_str(L, -1, "ap_ip", status->ap_ip);
-    solua_set_str(L, -1, "nat_uplink", status->nat_uplink);
     solua_set_int(L, -1, "rssi", status->rssi);
     solua_set_int(L, -1, "channel", status->channel);
     solua_set_int(L, -1, "disconnect_reason", status->disconnect_reason);
@@ -1941,16 +1941,6 @@ static int solua_wifi_ap_stop(lua_State *L)
 static int solua_wifi_nat(lua_State *L)
 {
     return solua_check_esp(L, solar_os_wifi_nat_set(lua_toboolean(L, 1)));
-}
-
-static int solua_wifi_share_start(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_wifi_share_start());
-}
-
-static int solua_wifi_share_stop(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_wifi_share_stop());
 }
 
 static int solua_wifi_repeater_start(lua_State *L)
@@ -5886,6 +5876,16 @@ static int solua_identity_format(lua_State *L)
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
+static int solua_net_router_start(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_network_router_start());
+}
+
+static int solua_net_router_stop(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_network_router_stop());
+}
+
 static int solua_net_ping(lua_State *L)
 {
     const char *host = luaL_checkstring(L, 1);

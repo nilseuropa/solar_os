@@ -1619,6 +1619,11 @@ void solar_os_wireguard_get_status(solar_os_wireguard_status_t *status)
     status->desired_up = wireguard_service.desired_up;
     status->peer_up = wireguard_service.peer_up;
     status->full_tunnel = wireguard_service.full_tunnel;
+    status->routes_active = wireguard_service.runtime_active;
+    status->default_route_active = wireguard_service.runtime_active &&
+        wireguard_service.full_tunnel &&
+        (wireguard_service.peer_up ||
+         wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED);
     status->kill_switch_active = wireguard_service.kill_switch_active;
     status->dns_configured = wireguard_service.summary.dns_valid != 0U;
     status->route_count = wireguard_service.summary.route_count;

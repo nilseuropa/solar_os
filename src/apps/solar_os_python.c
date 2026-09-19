@@ -117,6 +117,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #include "solar_os_net_session.h"
+#include "solar_os_network.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 #include "solar_os_onewire.h"
@@ -925,7 +926,7 @@ static mp_obj_t python_storage_block_to_dict(const solar_os_storage_block_t *blo
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
 static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
 {
-    mp_obj_t dict = mp_obj_new_dict(37);
+    mp_obj_t dict = mp_obj_new_dict(36);
     python_dict_store_cstr(dict, "state", solar_os_wifi_state_name(status->state));
     python_dict_store_bool(dict, "initialized", status->initialized);
     python_dict_store_bool(dict, "started", status->started);
@@ -949,7 +950,6 @@ static mp_obj_t python_wifi_status_to_dict(const solar_os_wifi_status_t *status)
     python_dict_store_cstr(dict, "ap_ssid", status->ap_ssid);
     python_dict_store_cstr(dict, "ap_auth", status->ap_auth);
     python_dict_store_cstr(dict, "ap_ip", status->ap_ip);
-    python_dict_store_cstr(dict, "nat_uplink", status->nat_uplink);
     python_dict_store_int(dict, "rssi", status->rssi);
     python_dict_store_int(dict, "channel", status->channel);
     python_dict_store_int(dict, "disconnect_reason", status->disconnect_reason);
@@ -2043,20 +2043,6 @@ static mp_obj_t solaros_wifi_nat(mp_obj_t enabled_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_wifi_nat_obj, solaros_wifi_nat);
-
-static mp_obj_t solaros_wifi_share_start(void)
-{
-    python_check_esp(solar_os_wifi_share_start());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_share_start_obj, solaros_wifi_share_start);
-
-static mp_obj_t solaros_wifi_share_stop(void)
-{
-    python_check_esp(solar_os_wifi_share_stop());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_wifi_share_stop_obj, solaros_wifi_share_stop);
 
 static mp_obj_t solaros_wifi_repeater_start(void)
 {
@@ -6313,6 +6299,20 @@ static mp_obj_t solaros_identity_format(void)
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_identity_format_obj, solaros_identity_format);
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
+static mp_obj_t solaros_net_router_start(void)
+{
+    python_check_esp(solar_os_network_router_start());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_net_router_start_obj, solaros_net_router_start);
+
+static mp_obj_t solaros_net_router_stop(void)
+{
+    python_check_esp(solar_os_network_router_stop());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_net_router_stop_obj, solaros_net_router_stop);
+
 static mp_obj_t solaros_net_ping(size_t n_args, const mp_obj_t *args)
 {
     const char *host = mp_obj_str_get_str(args[0]);

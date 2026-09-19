@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## `solaros.wifi`
 
-- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `share_start`, `share_stop`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
+- `solaros.wifi`: `status`, `status_text`, `start`, `stop`, `connect`, `connect_saved`, `disconnect`, `forget`, `forget_ssid`, `forget_all`, `known`, `scan`, `ap_start`, `ap_stop`, `nat`, `repeater_start`, `repeater_stop` when Wi-Fi support is compiled
 
 ## `solaros.mqtt`
 
@@ -28,6 +28,8 @@ agent_reference_sections = true
 - `solaros.ftp`: passive-mode list, download, upload, directory, delete, and rename operations when `network.ftp` is compiled
 
 ## `solaros.net`
+
+- `solaros.net.router_start()` and `router_stop()` control OS router mode.
 
 - `solaros.net`: `ping`, managed `tcp_connect`, `tcp_send`, `tcp_receive`, `udp_open`, `udp_send`, `udp_receive`, `websocket_connect`, `websocket_send`, `websocket_receive`, `close`, `close_all`, and `limits` when `network.base` is compiled
 

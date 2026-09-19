@@ -89,6 +89,9 @@ void solar_os_shell_cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT
 void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+void solar_os_shell_cmd_network(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 void solar_os_shell_cmd_neopixel(solar_os_context_t *ctx, int argc, char **argv);
 #endif

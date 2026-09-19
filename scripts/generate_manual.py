@@ -51,6 +51,7 @@ DERIVED_ALIAS_OWNERS = {
     ("command.link", "link"): "link",
     ("command.meshcore", "meshcore"): "meshcore",
     ("command.mqtt", "mqtt"): "network",
+    ("command.network", "network"): "network",
     ("command.neopixel", "neopixel"): "expansion",
     ("command.onewire", "onewire"): "compatibility.io",
     ("command.osc", "osc"): "osc",

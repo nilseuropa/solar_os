@@ -317,11 +317,11 @@ class RuntimeBoundaryTest(unittest.TestCase):
                 descriptor,
             )
 
-    def test_wifi_internet_share_uses_the_active_routed_uplink(self):
-        uplink_header = (ROOT / "src/services/solar_os_uplink.h").read_text(
+    def test_network_router_uses_paths_without_becoming_wifi_policy(self):
+        network_header = (ROOT / "src/services/solar_os_network.h").read_text(
             encoding="utf-8"
         )
-        uplink = (ROOT / "src/services/solar_os_uplink.c").read_text(
+        network = (ROOT / "src/services/solar_os_network.c").read_text(
             encoding="utf-8"
         )
         wifi = (ROOT / "src/services/solar_os_wifi.c").read_text(
@@ -330,59 +330,79 @@ class RuntimeBoundaryTest(unittest.TestCase):
         ppp = (ROOT / "src/services/solar_os_ppp.c").read_text(
             encoding="utf-8"
         )
-        shell = (ROOT / "src/shell/solar_os_shell_network.c").read_text(
+        wifi_shell = (ROOT / "src/shell/solar_os_shell_network.c").read_text(
             encoding="utf-8"
         )
+        network_shell = (
+            ROOT / "src/shell/solar_os_shell_network_status.c"
+        ).read_text(encoding="utf-8")
         completion = (ROOT / "src/apps/solar_os_shell.c").read_text(
             encoding="utf-8"
         )
         descriptor = (ROOT / "src/apps/solar_os_script_api.inc").read_text(
             encoding="utf-8"
         )
+        packages = (ROOT / "packages/solar_os_packages.toml").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("esp_netif_dns_info_t dns;", uplink_header)
-        self.assertIn("solar_os_uplink_get_active", uplink_header)
-        self.assertIn("candidate->info.route_priority >", uplink)
-        self.assertIn("esp_netif_get_default_netif()", uplink)
-        self.assertIn("esp_netif_get_dns_info(netif", uplink)
-        self.assertIn("entry->info.dns = dns;", uplink)
+        self.assertIn("esp_netif_dns_info_t dns;", network_header)
+        self.assertIn("solar_os_network_path_get_preferred", network_header)
+        self.assertIn("solar_os_network_path_list", network_header)
+        self.assertIn("solar_os_network_router_provider_t", network_header)
+        self.assertIn("candidate->info.route_priority >", network)
+        self.assertIn("esp_netif_get_default_netif()", network)
+        self.assertIn("esp_netif_get_dns_info(netif", network)
+        self.assertIn("entry->info.dns = dns;", network)
 
         apply_start = wifi.index("static esp_err_t wifi_apply_nat(void)")
         apply_end = wifi.index(
-            "static esp_err_t wifi_update_ap_dns_from_uplink(",
+            "static esp_err_t wifi_update_ap_dns_from_path(",
             apply_start,
         )
         apply_nat = wifi[apply_start:apply_end]
-        self.assertIn("solar_os_uplink_get_active(&uplink)", apply_nat)
-        self.assertIn("wifi_update_ap_dns_from_uplink(&uplink)", apply_nat)
+        self.assertIn("solar_os_network_path_get_preferred(&path)", apply_nat)
+        self.assertIn("wifi_update_ap_dns_from_path(&path)", apply_nat)
         self.assertNotIn("wifi_sta_enabled", apply_nat)
         self.assertNotIn("wifi_connected", apply_nat)
         self.assertNotIn("wifi_has_ip", apply_nat)
 
-        share_start = wifi.index("esp_err_t solar_os_wifi_share_start(")
-        share_end = wifi.index("esp_err_t solar_os_wifi_share_stop(", share_start)
-        share = wifi[share_start:share_end]
-        self.assertIn("wifi_ap_start_config(NULL, NULL, NULL, false)", share)
-        self.assertIn("solar_os_wifi_nat_set(true)", share)
+        router_start = wifi.rindex("static esp_err_t wifi_router_start(")
+        router_end = wifi.index("static esp_err_t wifi_router_stop(", router_start)
+        router = wifi[router_start:router_end]
+        self.assertIn("wifi_ap_start_config(NULL, NULL, NULL, false)", router)
+        self.assertIn("solar_os_wifi_nat_set(true)", router)
         self.assertLess(
-            share.index("wifi_ap_start_config(NULL, NULL, NULL, false)"),
-            share.index("solar_os_wifi_nat_set(true)"),
+            router.index("wifi_ap_start_config(NULL, NULL, NULL, false)"),
+            router.index("solar_os_wifi_nat_set(true)"),
         )
-        self.assertIn("solar_os_uplink_register(\"wifi-sta\"", wifi)
-        self.assertIn("SOLAR_OS_UPLINK_EVENT_CHANGED", wifi)
-        self.assertIn("solar_os_uplink_register(ppp->name", ppp)
-        self.assertIn("solar_os_uplink_set_ready(ppp->netif, true)", ppp)
+        self.assertIn("solar_os_network_router_register(&router_provider)", wifi)
+        self.assertIn("solar_os_network_path_register(\"wifi-sta\"", wifi)
+        self.assertIn("SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED", wifi)
+        self.assertIn("solar_os_network_path_register(ppp->name", ppp)
+        self.assertIn("solar_os_network_path_set_ready(ppp->netif, true)", ppp)
 
-        self.assertIn('strcmp(argv[1], "share")', shell)
+        self.assertNotIn('strcmp(argv[1], "share")', wifi_shell)
+        self.assertIn('strcmp(argv[1], "router")', network_shell)
+        self.assertIn("solar_os_network_router_start()", network_shell)
+        self.assertIn("solar_os_network_router_stop()", network_shell)
         self.assertIn(
-            "SHELL_COMPLETION_STATIC(path_wifi_share, wifi_share_subcommands)",
+            "SHELL_COMPLETION_STATIC(path_network_router, network_router_subcommands)",
             completion,
         )
-        for method in ("share_start", "share_stop"):
+        self.assertNotIn("path_wifi_share", completion)
+        for method in ("router_start", "router_stop"):
             self.assertIn(
+                f"SOLAR_OS_SCRIPT_API_FUNCTION(net, {method}, {method});",
+                descriptor,
+            )
+            self.assertNotIn(
                 f"SOLAR_OS_SCRIPT_API_FUNCTION(wifi, {method}, {method});",
                 descriptor,
             )
+        self.assertIn("[packages.service_network]", packages)
+        self.assertIn('depends = ["service_network"]', packages)
+        self.assertNotIn("service_uplink", packages)
 
     def test_radio_link_repeater_is_one_hop_and_bounded(self):
         link_header = (ROOT / "src/services/solar_os_link.h").read_text(

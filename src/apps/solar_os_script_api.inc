@@ -154,8 +154,6 @@ SOLAR_OS_SCRIPT_API_FUNCTION(wifi, scan, scan);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, ap_start, ap_start);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, ap_stop, ap_stop);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, nat, nat);
-SOLAR_OS_SCRIPT_API_FUNCTION(wifi, share_start, share_start);
-SOLAR_OS_SCRIPT_API_FUNCTION(wifi, share_stop, share_stop);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, repeater_start, repeater_start);
 SOLAR_OS_SCRIPT_API_FUNCTION(wifi, repeater_stop, repeater_stop);
 SOLAR_OS_SCRIPT_API_MODULE_END(wifi);
@@ -677,6 +675,8 @@ SOLAR_OS_SCRIPT_API_MODULE_END(identity);
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(net);
+SOLAR_OS_SCRIPT_API_FUNCTION(net, router_start, router_start);
+SOLAR_OS_SCRIPT_API_FUNCTION(net, router_stop, router_stop);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, ping, ping);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, tcp_connect, tcp_connect);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, tcp_send, tcp_send);

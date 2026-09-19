@@ -1,16 +1,55 @@
 +++
 id = "network"
-title = "Wi-Fi, WireGuard, MQTT, and network APIs"
+title = "Network interfaces, routing, Wi-Fi, WireGuard, and APIs"
 section = "network"
 summary = "Connect, inspect, and communicate over installed network services"
-aliases = ["wifi", "repeater", "wireguard", "vpn", "mqtt", "net"]
+aliases = ["routing", "router", "wifi", "repeater", "wireguard", "vpn", "mqtt", "net"]
 keywords = "python lua wifi wireless repeater wireguard vpn tunnel kill switch station access point ap nat scan connect mqtt network ping"
-packages_any = ["service_wifi", "service_wireguard", "service_mqtt", "service_net"]
+packages_any = ["service_network", "service_wifi", "service_wireguard", "service_mqtt", "service_net"]
 +++
-# Wi-Fi, WireGuard, MQTT, and network APIs
+# Network interfaces, routing, Wi-Fi, WireGuard, and APIs
 
 Network modules are package-gated. Inspect their status before assuming Wi-Fi,
-WireGuard, MQTT, or diagnostic networking exists in the current firmware.
+cellular PPP, WireGuard, MQTT, or diagnostic networking exists in the current
+firmware.
+
+## Network model
+
+SolarOS separates three networking concepts:
+
+- An **interface** is a connection such as `wifi-sta`, `modem0`, `wifi-ap`, or
+  the WireGuard tunnel.
+- A **route** decides which interface carries traffic to a destination. One
+  route is the default used when no more-specific route matches.
+- The **router** forwards traffic for other devices from the local downstream
+  interface through the same route table SolarOS uses for its own traffic.
+
+Use `network status` for the combined view, `network interfaces` for interface
+state and addresses, and `network routes` to see the automatic base path and
+WireGuard routes. Transport commands configure their own interfaces: `wifi`
+manages the Wi-Fi radio and SoftAP, `modem` manages cellular PPP, and
+`wireguard` manages the VPN tunnel.
+
+`network router on` starts the saved Wi-Fi SoftAP and enables IPv4 forwarding
+with NAT. Packets from AP clients follow the route table; this can send ordinary
+traffic through Wi-Fi station mode or cellular PPP, and matching traffic
+through WireGuard. Router mode remains ready while no default route exists and
+activates when a route becomes available. `network router off` disables NAT and
+stops the downstream AP.
+
+Configure the AP name and password first when the default open `SolarOS-sol`
+network is not appropriate:
+
+```text
+wifi ap on FieldTerminal downstream-password wpa2
+wifi ap off
+modem connect modem0
+network router on
+network status
+```
+
+Carrier filtering and SIM-specific ACLs remain properties of the selected
+network path; router mode does not add destination restrictions of its own.
 
 ## Wi-Fi
 
@@ -35,8 +74,9 @@ enter its password to connect. `saved stations` lists remembered station
 profiles and can forget them. `saved access points` adds, edits, or removes the
 stored SoftAP configuration, including its password. `repeater` starts or stops
 repeating the current or preferred saved station and shows whether forwarding
-is waiting or active. `internet share` starts the saved SoftAP and routes it
-through the active SolarOS uplink. A script can scan before connecting:
+is waiting or active. Routing the AP through another interface is configured
+with `network router`, not the Wi-Fi controls. A script can scan before
+connecting:
 
 ```python
 import solaros
@@ -48,26 +88,6 @@ print(solaros.wifi.status())
 
 Connecting or stopping Wi-Fi can interrupt an active agent, SSH, chat, or HTTP
 session. Confirm disruptive changes locally.
-
-`wifi share on` starts the saved SoftAP configuration, enables IPv4 NAT, and
-uses the active SolarOS uplink. The uplink can be Wi-Fi station mode, a cellular
-PPP link such as SIM7670, or another network transport registered with the
-uplink service. Sharing stays ready when no uplink is available and activates
-when one comes up. If a higher-priority uplink appears, routing and the DNS
-server offered to AP clients follow it. `wifi share off` disables NAT and stops
-the downstream AP. Configure the AP name and password first when the default
-open `SolarOS-sol` network is not appropriate:
-
-```text
-wifi ap on FieldTerminal downstream-password wpa2
-wifi ap off
-modem connect modem0
-wifi share on
-wifi share
-```
-
-Carrier filtering and SIM-specific ACLs remain properties of the selected
-uplink; internet sharing does not add destination restrictions of its own.
 
 `wifi repeater on` enables IPv4 layer-2 forwarding between a station and
 SoftAP. It
@@ -97,7 +117,7 @@ upstream channel, so repeated traffic consumes airtime in both directions and
 throughput is lower than a dedicated dual-radio extender. `wifi repeater off`
 leaves the station connection running. Repeater and NAT modes are mutually
 exclusive; the lower-level `wifi ap` and `wifi nat` commands remain available
-for AP-only and manually composed routed setups. While repeater mode is active, SolarOS
+for AP setup and diagnostics. While repeater mode is active, SolarOS
 automatically retries a lost upstream connection with bounded backoff.
 
 Forwarded client traffic bypasses SolarOS IP services, including a SolarOS
@@ -162,7 +182,8 @@ script.
 
 solaros.wifi provides status, status_text, start, stop, connect, connect_saved,
 disconnect, forget, forget_ssid, forget_all, known, scan, ap_start, ap_stop,
-nat, share_start, share_stop, repeater_start, and repeater_stop. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
+nat, repeater_start, and repeater_stop. solaros.net provides router_start,
+router_stop, ping, and socket APIs. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
 provides status, connect, disconnect, publish, subscribe,
 and read. solaros.net.ping(host, optional count, timeout_ms, interval_ms,
 data_size) returns statistics. These modules are package-gated.

@@ -38,12 +38,11 @@
 
 static const char * const wifi_subcommands[] = {
     "status", "enable", "disable", "on", "off", "scan", "connect", "disconnect", "known",
-    "forget", "share", "repeater", "nat", "ap",
+    "forget", "repeater", "nat", "ap",
 };
 static const char * const wifi_ap_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_nat_subcommands[] = {"status", "on", "off"};
 static const char * const wifi_repeater_subcommands[] = {"on", "off"};
-static const char * const wifi_share_subcommands[] = {"on", "off"};
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
@@ -71,7 +70,6 @@ static void wifi_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  wifi repeater");
     solar_os_shell_io_writeln(term, "  wifi repeater on");
     solar_os_shell_io_writeln(term, "  wifi repeater off");
-    solar_os_shell_io_writeln(term, "  wifi share [on|off]");
     solar_os_shell_io_writeln(term, "  wifi nat [status|on|off]");
     solar_os_shell_io_writeln(term, "  wifi ap [status]");
     solar_os_shell_io_writeln(term, "  wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]");
@@ -89,10 +87,7 @@ static void wifi_print_nat_status(solar_os_shell_io_t *term, const solar_os_wifi
         return;
     }
     if (status->nat_active) {
-        solar_os_shell_io_printf(term,
-                                 "NAT: active via %s\n",
-                                 status->nat_uplink[0] != '\0' ?
-                                     status->nat_uplink : "uplink");
+        solar_os_shell_io_writeln(term, "NAT: active");
         return;
     }
     if (status->nat_last_error != ESP_OK) {
@@ -340,79 +335,6 @@ static void wifi_cmd_nat(solar_os_shell_io_t *term, int argc, char **argv)
                                                     sizeof(wifi_nat_subcommands) / sizeof(wifi_nat_subcommands[0]));
     solar_os_shell_diag_unknown(term, "wifi nat", "subcommand", argv[2], suggestion,
                                 "wifi nat [status|on|off]");
-}
-
-static void wifi_print_share_status(solar_os_shell_io_t *term)
-{
-    solar_os_wifi_status_t status;
-    solar_os_wifi_get_status(&status);
-
-    if (status.nat_active) {
-        solar_os_shell_io_printf(term,
-                                 "Internet sharing: active via %s, clients %u\n",
-                                 status.nat_uplink[0] != '\0' ?
-                                     status.nat_uplink : "uplink",
-                                 (unsigned)status.ap_station_count);
-    } else if (status.nat_enabled && status.ap_running) {
-        solar_os_shell_io_writeln(term, "Internet sharing: waiting for uplink");
-    } else if (status.nat_enabled || status.ap_enabled) {
-        solar_os_shell_io_writeln(term, "Internet sharing: starting access point");
-    } else {
-        solar_os_shell_io_writeln(term, "Internet sharing: off");
-    }
-
-    if (status.ap_enabled || status.ap_running) {
-        solar_os_shell_io_printf(term,
-                                 "Downstream: %s (%s), clients %u/%u\n",
-                                 status.ap_ssid[0] != '\0' ? status.ap_ssid : "starting",
-                                 status.ap_auth[0] != '\0' ? status.ap_auth : "open",
-                                 (unsigned)status.ap_station_count,
-                                 (unsigned)status.ap_max_connections);
-    }
-}
-
-static void wifi_cmd_share(solar_os_shell_io_t *term, int argc, char **argv)
-{
-    if (argc == 2) {
-        wifi_print_share_status(term);
-        return;
-    }
-    if (argc != 3) {
-        solar_os_shell_diag_unexpected(term,
-                                       "wifi share",
-                                       argv[3],
-                                       "wifi share [on|off]");
-        return;
-    }
-
-    esp_err_t err = ESP_ERR_INVALID_ARG;
-    if (strcmp(argv[2], "on") == 0) {
-        err = solar_os_wifi_share_start();
-    } else if (strcmp(argv[2], "off") == 0) {
-        err = solar_os_wifi_share_stop();
-    } else {
-        const char *suggestion = solar_os_shell_suggest(
-            argv[2],
-            wifi_share_subcommands,
-            sizeof(wifi_share_subcommands) / sizeof(wifi_share_subcommands[0]));
-        solar_os_shell_diag_unknown(term,
-                                    "wifi share",
-                                    "subcommand",
-                                    argv[2],
-                                    suggestion,
-                                    "wifi share [on|off]");
-        return;
-    }
-
-    if (err == ESP_OK) {
-        wifi_print_share_status(term);
-    } else if (err == ESP_ERR_INVALID_STATE) {
-        solar_os_shell_io_writeln(term, "wifi share: stop the L2 repeater first");
-    } else {
-        solar_os_shell_io_printf(term,
-                                 "wifi share failed: %s\n",
-                                 solar_os_shell_error_text(err));
-    }
 }
 
 static void wifi_print_repeater_status(solar_os_shell_io_t *term)
@@ -703,11 +625,6 @@ void solar_os_shell_cmd_wifi(solar_os_context_t *ctx, int argc, char **argv)
 
     if (strcmp(argv[1], "repeater") == 0) {
         wifi_cmd_repeater(term, argc, argv);
-        return;
-    }
-
-    if (strcmp(argv[1], "share") == 0) {
-        wifi_cmd_share(term, argc, argv);
         return;
     }
 
