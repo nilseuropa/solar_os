@@ -10,6 +10,7 @@
 #include "esp_netif.h"
 #include "solar_os_config.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_network.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_tui.h"
@@ -63,7 +64,15 @@ typedef struct {
     solar_os_tui_viewport_t settings_viewport;
     char status[NETWORK_TUI_STATUS_MAX];
     uint32_t last_refresh_ms;
+    union {
+        network_tui_row_t status_rows[NETWORK_TUI_ROW_MAX];
+        network_tui_setting_t settings[NETWORK_TUI_ROW_MAX];
+    } scratch;
 } network_tui_state_t;
+
+_Static_assert(sizeof(network_tui_state_t) <=
+                   SOLAR_OS_MEMORY_INTERNAL_FALLBACK_MAX_BYTES,
+               "network TUI state must fit the SRAM fallback allocation");
 
 static void *network_tui_state;
 #define network_tui (*(network_tui_state_t *)network_tui_state)
@@ -354,10 +363,10 @@ static void network_tui_draw_tabs(const solar_os_tui_screen_layout_t *layout)
 
 static void network_tui_draw_status(const solar_os_tui_screen_layout_t *layout)
 {
-    network_tui_row_t rows[NETWORK_TUI_ROW_MAX];
+    network_tui_row_t *rows = network_tui.scratch.status_rows;
     const size_t row_count = network_tui_build_status_rows(
         rows,
-        sizeof(rows) / sizeof(rows[0]));
+        NETWORK_TUI_ROW_MAX);
     solar_os_tui_viewport_reconcile(&network_tui.status_viewport,
                                     row_count,
                                     layout->body.height);
@@ -514,9 +523,9 @@ static void network_tui_settings_move(const network_tui_setting_t *items,
 static void network_tui_draw_settings(const solar_os_tui_screen_layout_t *layout)
 {
     solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    network_tui_setting_t items[NETWORK_TUI_ROW_MAX];
+    network_tui_setting_t *items = network_tui.scratch.settings;
     const size_t item_count = network_tui_build_settings(
-        items, sizeof(items) / sizeof(items[0]), paths, NULL);
+        items, NETWORK_TUI_ROW_MAX, paths, NULL);
     network_tui_settings_reconcile(items,
                                    item_count,
                                    layout->body.height);
@@ -640,10 +649,10 @@ static void network_tui_set_routing(bool enabled)
 
 static void network_tui_handle_status_key(uint8_t key)
 {
-    network_tui_row_t rows[NETWORK_TUI_ROW_MAX];
+    network_tui_row_t *rows = network_tui.scratch.status_rows;
     const size_t row_count = network_tui_build_status_rows(
         rows,
-        sizeof(rows) / sizeof(rows[0]));
+        NETWORK_TUI_ROW_MAX);
     const size_t visible = solar_os_tui_screen_content_rows(&network_tui.tui,
                                                             2U,
                                                             1U);
@@ -659,11 +668,11 @@ static void network_tui_handle_status_key(uint8_t key)
 static void network_tui_handle_settings_key(uint8_t key)
 {
     solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    network_tui_setting_t items[NETWORK_TUI_ROW_MAX];
+    network_tui_setting_t *items = network_tui.scratch.settings;
     size_t path_count = 0U;
     const size_t item_count = network_tui_build_settings(
         items,
-        sizeof(items) / sizeof(items[0]),
+        NETWORK_TUI_ROW_MAX,
         paths,
         &path_count);
     const size_t visible = solar_os_tui_screen_content_rows(&network_tui.tui,

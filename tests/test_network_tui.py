@@ -39,6 +39,13 @@ class NetworkTuiTest(unittest.TestCase):
         self.assertIn("network_tui_build_status_rows", TUI)
         self.assertIn("network_tui_draw_settings", TUI)
 
+    def test_large_render_workspaces_use_cold_state(self):
+        self.assertIn("network_tui_row_t status_rows[NETWORK_TUI_ROW_MAX]", TUI)
+        self.assertIn("network_tui_setting_t settings[NETWORK_TUI_ROW_MAX]", TUI)
+        self.assertNotIn("network_tui_row_t rows[NETWORK_TUI_ROW_MAX]", TUI)
+        self.assertNotIn("network_tui_setting_t items[NETWORK_TUI_ROW_MAX]", TUI)
+        self.assertIn("SOLAR_OS_MEMORY_INTERNAL_FALLBACK_MAX_BYTES", TUI)
+
     def test_settings_use_generic_network_service(self):
         self.assertIn("solar_os_network_path_set_priority", TUI)
         self.assertIn("solar_os_network_router_start()", TUI)
