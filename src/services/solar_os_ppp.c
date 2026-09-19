@@ -38,6 +38,7 @@ struct solar_os_ppp {
     uint32_t read_timeout_ms;
     solar_os_ppp_transport_t transport;
     solar_os_ppp_netif_binding_t netif_binding;
+    solar_os_ppp_link_t link;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
     EventGroupHandle_t events;
@@ -405,6 +406,13 @@ static esp_err_t runtime_init_locked(solar_os_ppp_t *ppp)
     const esp_netif_ppp_config_t ppp_config = {
         .ppp_phase_event_enabled = true,
         .ppp_error_event_enabled = true,
+#if CONFIG_LWIP_PPP_SERVER_SUPPORT
+        .ppp_our_ip4_addr = ppp->link.local_address,
+        .ppp_their_ip4_addr = ppp->link.peer_address,
+        .ppp_dns1_addr = ppp->link.primary_dns,
+        .ppp_dns2_addr = ppp->link.secondary_dns,
+        .ppp_passive = ppp->link.mode == SOLAR_OS_PPP_MODE_PASSIVE,
+#endif
     };
     ret = esp_netif_ppp_set_params(ppp->netif, &ppp_config);
     if (ret == ESP_OK) {
@@ -460,6 +468,7 @@ esp_err_t solar_os_ppp_create(const solar_os_ppp_config_t *config,
     if (config == NULL || out_ppp == NULL || config->name == NULL ||
         config->name[0] == '\0' ||
         strlen(config->name) > SOLAR_OS_PPP_NAME_MAX ||
+        config->link.mode > SOLAR_OS_PPP_MODE_PASSIVE ||
         config->transport.write == NULL ||
         ((config->transport.start == NULL) !=
          (config->transport.stop == NULL)) ||
@@ -479,6 +488,7 @@ esp_err_t solar_os_ppp_create(const solar_os_ppp_config_t *config,
         : PPP_DEFAULT_READ_TIMEOUT_MS;
     ppp->transport = config->transport;
     ppp->netif_binding = config->netif;
+    ppp->link = config->link;
     ppp->mutex = xSemaphoreCreateMutexStatic(&ppp->mutex_storage);
     ppp->events = xEventGroupCreateStatic(&ppp->events_storage);
     if (ppp->mutex == NULL || ppp->events == NULL) {
@@ -516,11 +526,10 @@ esp_err_t solar_os_ppp_destroy(solar_os_ppp_t *ppp)
     return ESP_OK;
 }
 
-esp_err_t solar_os_ppp_connect(solar_os_ppp_t *ppp,
-                               const solar_os_ppp_profile_t *profile,
-                               uint32_t timeout_ms)
+esp_err_t solar_os_ppp_start(solar_os_ppp_t *ppp,
+                             const solar_os_ppp_profile_t *profile)
 {
-    if (ppp == NULL || timeout_ms == 0U) {
+    if (ppp == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = validate_profile(profile);
@@ -615,6 +624,21 @@ esp_err_t solar_os_ppp_connect(solar_os_ppp_t *ppp,
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
     ppp->transitioning = false;
     xSemaphoreGive(ppp->mutex);
+
+    return ESP_OK;
+}
+
+esp_err_t solar_os_ppp_connect(solar_os_ppp_t *ppp,
+                               const solar_os_ppp_profile_t *profile,
+                               uint32_t timeout_ms)
+{
+    if (ppp == NULL || timeout_ms == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_ppp_start(ppp, profile);
+    if (ret != ESP_OK || solar_os_ppp_is_connected(ppp)) {
+        return ret;
+    }
 
     const EventBits_t bits = xEventGroupWaitBits(
         ppp->events,

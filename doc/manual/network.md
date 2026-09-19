@@ -47,6 +47,11 @@ through WireGuard. Router mode remains ready while no default route exists and
 activates when a route becomes available. `network router off` disables NAT and
 stops the downstream AP.
 
+`job start pppd <port>` creates a separate serial downstream by default. That
+job owns NAPT for its PPP interface, while `network router` owns client routing
+for `wifi-ap`. With `role=uplink`, the same job instead adds `ppp-<port>` to the
+base-path priority list. See [jobs.reference.md](jobs.reference.md#pppd).
+
 Configure the AP name and password first when the default open `SolarOS-sol`
 network is not appropriate:
 

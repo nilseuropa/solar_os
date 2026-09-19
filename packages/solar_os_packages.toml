@@ -281,6 +281,11 @@ label = "SLIP networking"
 category = "Networking"
 members = ["job_slip"]
 
+[groups.ppp]
+label = "PPP networking"
+category = "Networking"
+members = ["job_pppd"]
+
 [groups.osc]
 label = "Open Sound Control"
 category = "Networking"
@@ -2244,6 +2249,12 @@ depends = ["service_uart", "service_wifi"]
 sources = ["jobs/solar_os_slip_job.c"]
 requires = ["lwip"]
 capabilities = ["wifi"]
+
+[packages.job_pppd]
+label = "job.pppd"
+depends = ["service_network", "service_ppp"]
+sources = ["jobs/solar_os_pppd_job.c"]
+requires = ["esp_netif", "lwip"]
 
 [packages.job_bridge]
 label = "job.bridge"

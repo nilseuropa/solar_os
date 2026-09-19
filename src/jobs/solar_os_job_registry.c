@@ -58,6 +58,9 @@
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 #include "solar_os_pocsag_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+#include "solar_os_pppd_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
 #include "solar_os_ps2_keyboard_job.h"
 #endif
@@ -128,6 +131,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
     {"pocsag", "POCSAG pager receiver", &solar_os_pocsag_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+    {"pppd", "PPP link on a byte-stream port", &solar_os_pppd_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_PS2_KEYBOARD
     {"ps2-keyboard", "attach a keyboard on a named PS/2 bus", &solar_os_ps2_keyboard_job},

@@ -796,6 +796,21 @@ static const char * const telnetd_values[] = {"23", "2323", "--password"};
 #if SOLAR_OS_PACKAGE_JOB_SLIP
 static const char * const slip_baud_values[] = {"9600", "38400", "115200", "230400", "921600"};
 #endif
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+static const char * const pppd_options[] = {
+    "baud=115200",
+    "role=downstream",
+    "role=uplink",
+    "role=peer",
+    "mode=passive",
+    "mode=active",
+    "local=192.168.8.1",
+    "peer=192.168.8.2",
+    "dns=auto",
+    "dns=none",
+    "priority=90",
+};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 static const char * const pocsag_subcommands[] = {"status", "send"};
 static const char * const pocsag_format_values[] = {"alpha", "numeric"};
@@ -1893,6 +1908,13 @@ static const char * const path_job_start_slip_port[] = {
     "slip",
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_job_start_pppd[] = {"job", "start", "pppd"};
+static const char * const path_job_start_pppd_port[] = {
+    "job",
+    "start",
+    "pppd",
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_job_start_sump[] = {"job", "start", "sump"};
 static const char * const path_job_start_daq[] = {"job", "start", "daq"};
 static const char * const path_job_start_daq_stream[] = {"job", "start", "daq", SHELL_COMPLETION_ANY};
@@ -2950,6 +2972,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PORTS(path_job_start_slip),
 #if SOLAR_OS_PACKAGE_JOB_SLIP
     SHELL_COMPLETION_STATIC(path_job_start_slip_port, slip_baud_values),
+#endif
+    SHELL_COMPLETION_PORTS(path_job_start_pppd),
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+    SHELL_COMPLETION_STATIC(path_job_start_pppd_port, pppd_options),
 #endif
     SHELL_COMPLETION_GPIO_PINS(path_job_start_sump),
     SHELL_COMPLETION_STREAMS(path_job_start_daq),

@@ -84,6 +84,14 @@ struct netif *solar_os_lwip_ip4_route_src_hook(const ip4_addr_t *src,
         }
     }
 
+    /* Let lwIP check connected subnets and point-to-point gateways before
+     * applying SolarOS destination policy or the preferred default path.
+     * ip4_route_src() calls this hook again with src == NULL if its normal
+     * route lookup does not find a directly connected destination. */
+    if (src != NULL) {
+        return NULL;
+    }
+
     if (dest != NULL && route_state.netif != NULL) {
         for (size_t i = 0; i < route_state.route_count; i++) {
             if (ip4_addr_netcmp(dest,

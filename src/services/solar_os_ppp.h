@@ -26,6 +26,19 @@ typedef enum {
     SOLAR_OS_PPP_STATE_FAILED,
 } solar_os_ppp_state_t;
 
+typedef enum {
+    SOLAR_OS_PPP_MODE_ACTIVE = 0,
+    SOLAR_OS_PPP_MODE_PASSIVE,
+} solar_os_ppp_mode_t;
+
+typedef struct {
+    solar_os_ppp_mode_t mode;
+    esp_ip4_addr_t local_address;
+    esp_ip4_addr_t peer_address;
+    esp_ip4_addr_t primary_dns;
+    esp_ip4_addr_t secondary_dns;
+} solar_os_ppp_link_t;
+
 typedef struct {
     solar_os_ppp_auth_t auth;
     char username[SOLAR_OS_PPP_USERNAME_MAX + 1U];
@@ -73,6 +86,7 @@ typedef struct {
     uint32_t read_timeout_ms;
     solar_os_ppp_transport_t transport;
     solar_os_ppp_netif_binding_t netif;
+    solar_os_ppp_link_t link;
 } solar_os_ppp_config_t;
 
 typedef struct solar_os_ppp solar_os_ppp_t;
@@ -81,6 +95,9 @@ esp_err_t solar_os_ppp_create(const solar_os_ppp_config_t *config,
                               solar_os_ppp_t **out_ppp);
 esp_err_t solar_os_ppp_destroy(solar_os_ppp_t *ppp);
 
+/* Start negotiation without waiting for the peer or an assigned address. */
+esp_err_t solar_os_ppp_start(solar_os_ppp_t *ppp,
+                             const solar_os_ppp_profile_t *profile);
 esp_err_t solar_os_ppp_connect(solar_os_ppp_t *ppp,
                                const solar_os_ppp_profile_t *profile,
                                uint32_t timeout_ms);

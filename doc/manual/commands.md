@@ -570,6 +570,7 @@ job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200
+job start pppd uart0 baud=115200
 job stop log
 ```
 

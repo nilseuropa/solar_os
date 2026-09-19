@@ -393,9 +393,18 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("solar_os_network_path_register(\"wifi-sta\"", wifi)
         self.assertIn("SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED", wifi)
         self.assertIn("solar_os_ppp_netif_binding_t", ppp_header)
+        self.assertIn("solar_os_ppp_start", ppp_header)
+        self.assertIn("SOLAR_OS_PPP_MODE_PASSIVE", ppp_header)
         self.assertNotIn("route_priority", ppp_header)
         self.assertNotIn("solar_os_network", ppp)
         self.assertIn("solar_os_network_path_register(device->name", sim7670)
+
+        lwip_route = (ROOT / "src/services/solar_os_lwip_route.c").read_text(
+            encoding="utf-8"
+        )
+        connected_fallback = lwip_route.index("if (src != NULL) {\n        return NULL;")
+        destination_policy = lwip_route.index("if (dest != NULL && route_state.netif")
+        self.assertLess(connected_fallback, destination_policy)
         self.assertIn("solar_os_network_path_set_ready(netif, ready)", sim7670)
 
         self.assertNotIn('strcmp(argv[1], "share")', wifi_shell)

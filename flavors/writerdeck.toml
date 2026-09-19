@@ -43,6 +43,7 @@ wireguard = true
 mqtt = true
 ntp = true
 slip = true
+ppp = true
 osc = true
 inbox = true
 contacts = true
