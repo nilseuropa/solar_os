@@ -803,7 +803,7 @@ sources = [
   "services/solar_os_network.c",
   "shell/solar_os_shell_network_status.c",
 ]
-requires = ["esp_event", "esp_netif"]
+requires = ["esp_event", "esp_netif", "nvs_flash"]
 
 [packages.service_wifi]
 label = "service.wifi"

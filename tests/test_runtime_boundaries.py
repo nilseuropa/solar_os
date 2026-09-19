@@ -324,6 +324,9 @@ class RuntimeBoundaryTest(unittest.TestCase):
         network = (ROOT / "src/services/solar_os_network.c").read_text(
             encoding="utf-8"
         )
+        routes = (ROOT / "src/services/solar_os_lwip_route.c").read_text(
+            encoding="utf-8"
+        )
         wifi = (ROOT / "src/services/solar_os_wifi.c").read_text(
             encoding="utf-8"
         )
@@ -349,11 +352,15 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("esp_netif_dns_info_t dns;", network_header)
         self.assertIn("solar_os_network_path_get_preferred", network_header)
         self.assertIn("solar_os_network_path_list", network_header)
+        self.assertIn("solar_os_network_path_set_priority", network_header)
         self.assertIn("solar_os_network_router_provider_t", network_header)
         self.assertIn("candidate->info.route_priority >", network)
         self.assertIn("esp_netif_get_default_netif()", network)
         self.assertIn("esp_netif_get_dns_info(netif", network)
         self.assertIn("entry->info.dns = dns;", network)
+        self.assertIn("esp_netif_set_route_prio", network)
+        self.assertIn("NETWORK_NVS_PRIORITIES_KEY", network)
+        self.assertIn("solar_os_network_lwip_preferred()", routes)
 
         apply_start = wifi.index("static esp_err_t wifi_apply_nat(void)")
         apply_end = wifi.index(

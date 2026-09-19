@@ -2,13 +2,31 @@
 
 #include <string.h>
 
+#include "esp_netif_net_stack.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "nvs.h"
+
+#define NETWORK_NVS_NAMESPACE "network"
+#define NETWORK_NVS_PRIORITIES_KEY "priorities"
+#define NETWORK_PRIORITY_STORE_VERSION 1U
+#define NETWORK_PRIORITY_STORE_MAX 16U
 
 typedef struct {
     solar_os_network_path_info_t info;
     bool registered;
 } network_path_entry_t;
+
+typedef struct {
+    char name[SOLAR_OS_NETWORK_PATH_NAME_MAX + 1U];
+    int32_t priority;
+} network_priority_record_t;
+
+typedef struct {
+    uint32_t version;
+    uint32_t count;
+    network_priority_record_t records[NETWORK_PRIORITY_STORE_MAX];
+} network_priority_store_t;
 
 ESP_EVENT_DEFINE_BASE(SOLAR_OS_NETWORK_EVENT);
 
@@ -17,6 +35,9 @@ static SemaphoreHandle_t network_mutex;
 static network_path_entry_t network_paths[SOLAR_OS_NETWORK_PATH_MAX];
 static solar_os_network_router_provider_t router_provider;
 static bool router_provider_registered;
+static network_priority_store_t priority_store;
+static bool priority_store_loaded;
+static struct netif * volatile network_preferred_lwip;
 
 static esp_err_t ensure_mutex(void)
 {
@@ -41,6 +62,89 @@ static network_path_entry_t *find_netif_locked(esp_netif_t *netif)
         }
     }
     return NULL;
+}
+
+static network_path_entry_t *find_name_locked(const char *name)
+{
+    for (size_t i = 0; i < SOLAR_OS_NETWORK_PATH_MAX; i++) {
+        if (network_paths[i].registered &&
+            strcmp(network_paths[i].info.name, name) == 0) {
+            return &network_paths[i];
+        }
+    }
+    return NULL;
+}
+
+static bool priority_valid(int priority)
+{
+    return priority >= SOLAR_OS_NETWORK_PRIORITY_MIN &&
+        priority <= SOLAR_OS_NETWORK_PRIORITY_MAX;
+}
+
+static void priority_store_load_locked(void)
+{
+    if (priority_store_loaded) {
+        return;
+    }
+    priority_store_loaded = true;
+    memset(&priority_store, 0, sizeof(priority_store));
+
+    nvs_handle_t nvs;
+    if (nvs_open(NETWORK_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return;
+    }
+    network_priority_store_t stored = {0};
+    size_t size = sizeof(stored);
+    const esp_err_t ret = nvs_get_blob(nvs,
+                                       NETWORK_NVS_PRIORITIES_KEY,
+                                       &stored,
+                                       &size);
+    nvs_close(nvs);
+    if (ret != ESP_OK || size != sizeof(stored) ||
+        stored.version != NETWORK_PRIORITY_STORE_VERSION ||
+        stored.count > NETWORK_PRIORITY_STORE_MAX) {
+        return;
+    }
+    for (size_t i = 0; i < stored.count; i++) {
+        if (!name_valid(stored.records[i].name) ||
+            !priority_valid(stored.records[i].priority)) {
+            return;
+        }
+    }
+    priority_store = stored;
+}
+
+static bool priority_store_find_locked(const char *name, int *priority)
+{
+    priority_store_load_locked();
+    for (size_t i = 0; i < priority_store.count; i++) {
+        if (strcmp(priority_store.records[i].name, name) == 0) {
+            if (priority != NULL) {
+                *priority = priority_store.records[i].priority;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t priority_store_save(const network_priority_store_t *store)
+{
+    nvs_handle_t nvs = 0;
+    esp_err_t ret = nvs_open(NETWORK_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret == ESP_OK) {
+        ret = nvs_set_blob(nvs,
+                           NETWORK_NVS_PRIORITIES_KEY,
+                           store,
+                           sizeof(*store));
+    }
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    if (nvs != 0) {
+        nvs_close(nvs);
+    }
+    return ret;
 }
 
 static network_path_entry_t *select_preferred_locked(void)
@@ -69,6 +173,9 @@ static void post_paths_changed(void)
     const network_path_entry_t *selected = select_preferred_locked();
     if (selected != NULL) {
         preferred = selected->info;
+        network_preferred_lwip = esp_netif_get_netif_impl(selected->info.netif);
+    } else {
+        network_preferred_lwip = NULL;
     }
     xSemaphoreGive(network_mutex);
     (void)esp_event_post(SOLAR_OS_NETWORK_EVENT,
@@ -82,7 +189,7 @@ esp_err_t solar_os_network_path_register(const char *name,
                                          esp_netif_t *netif,
                                          int route_priority)
 {
-    if (!name_valid(name) || netif == NULL) {
+    if (!name_valid(name) || netif == NULL || !priority_valid(route_priority)) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = ensure_mutex();
@@ -107,10 +214,17 @@ esp_err_t solar_os_network_path_register(const char *name,
         xSemaphoreGive(network_mutex);
         return ESP_ERR_NO_MEM;
     }
+    int effective_priority = route_priority;
+    (void)priority_store_find_locked(name, &effective_priority);
+    if (esp_netif_set_route_prio(netif, effective_priority) !=
+        effective_priority) {
+        xSemaphoreGive(network_mutex);
+        return ESP_FAIL;
+    }
     *free_entry = (network_path_entry_t) {
         .info = {
             .netif = netif,
-            .route_priority = route_priority,
+            .route_priority = effective_priority,
         },
         .registered = true,
     };
@@ -170,6 +284,60 @@ esp_err_t solar_os_network_path_set_ready(esp_netif_t *netif, bool ready)
     return ESP_OK;
 }
 
+esp_err_t solar_os_network_path_set_priority(const char *name, int priority)
+{
+    if (!name_valid(name) || !priority_valid(priority)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = ensure_mutex();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    xSemaphoreTake(network_mutex, portMAX_DELAY);
+    network_path_entry_t *path = find_name_locked(name);
+    if (path == NULL) {
+        xSemaphoreGive(network_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+    priority_store_load_locked();
+    network_priority_store_t updated = priority_store;
+    size_t index = updated.count;
+    for (size_t i = 0; i < updated.count; i++) {
+        if (strcmp(updated.records[i].name, name) == 0) {
+            index = i;
+            break;
+        }
+    }
+    if (index == updated.count) {
+        if (updated.count >= NETWORK_PRIORITY_STORE_MAX) {
+            xSemaphoreGive(network_mutex);
+            return ESP_ERR_NO_MEM;
+        }
+        updated.count++;
+    }
+    updated.version = NETWORK_PRIORITY_STORE_VERSION;
+    strlcpy(updated.records[index].name,
+            name,
+            sizeof(updated.records[index].name));
+    updated.records[index].priority = priority;
+
+    ret = priority_store_save(&updated);
+    if (ret == ESP_OK &&
+        esp_netif_set_route_prio(path->info.netif, priority) != priority) {
+        ret = ESP_FAIL;
+    }
+    if (ret == ESP_OK) {
+        priority_store = updated;
+        path->info.route_priority = priority;
+    }
+    xSemaphoreGive(network_mutex);
+    if (ret == ESP_OK) {
+        post_paths_changed();
+    }
+    return ret;
+}
+
 bool solar_os_network_path_get_preferred(solar_os_network_path_info_t *info)
 {
     if (ensure_mutex() != ESP_OK) {
@@ -209,6 +377,14 @@ size_t solar_os_network_path_list(solar_os_network_path_info_t *paths,
     }
     xSemaphoreGive(network_mutex);
     return count;
+}
+
+struct netif *solar_os_network_lwip_preferred(void)
+{
+    /* Registration removes a path before its esp-netif is destroyed. An
+     * aligned pointer load is atomic on supported ESP targets, so the lwIP
+     * route hook can stay non-blocking on the TCP/IP thread. */
+    return network_preferred_lwip;
 }
 
 esp_err_t solar_os_network_router_register(

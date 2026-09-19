@@ -8,10 +8,14 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 
+struct netif;
+
 #define SOLAR_OS_NETWORK_PATH_NAME_MAX 20U
 #define SOLAR_OS_NETWORK_PATH_MAX 8U
 #define SOLAR_OS_NETWORK_ADDRESS_MAX 46U
 #define SOLAR_OS_NETWORK_DOWNSTREAM_LABEL_MAX 32U
+#define SOLAR_OS_NETWORK_PRIORITY_MIN 0
+#define SOLAR_OS_NETWORK_PRIORITY_MAX 255
 
 typedef struct {
     esp_netif_t *netif;
@@ -59,9 +63,11 @@ esp_err_t solar_os_network_path_register(const char *name,
                                          int route_priority);
 esp_err_t solar_os_network_path_unregister(esp_netif_t *netif);
 esp_err_t solar_os_network_path_set_ready(esp_netif_t *netif, bool ready);
+esp_err_t solar_os_network_path_set_priority(const char *name, int priority);
 bool solar_os_network_path_get_preferred(solar_os_network_path_info_t *info);
 size_t solar_os_network_path_list(solar_os_network_path_info_t *paths,
                                   size_t max_paths);
+struct netif *solar_os_network_lwip_preferred(void);
 
 esp_err_t solar_os_network_router_register(
     const solar_os_network_router_provider_t *provider);

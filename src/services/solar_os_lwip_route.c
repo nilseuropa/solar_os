@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "lwip/ip4.h"
+#include "solar_os_network.h"
 #include "solar_os_wifi_repeater.h"
 
 typedef struct {
@@ -93,6 +94,12 @@ struct netif *solar_os_lwip_ip4_route_src_hook(const ip4_addr_t *src,
     if (repeater_upstream != NULL && netif_is_up(repeater_upstream) &&
         netif_is_link_up(repeater_upstream)) {
         return repeater_upstream;
+    }
+
+    struct netif *preferred = solar_os_network_lwip_preferred();
+    if (preferred != NULL && netif_is_up(preferred) &&
+        netif_is_link_up(preferred)) {
+        return preferred;
     }
 
     return NULL;
