@@ -2,6 +2,7 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,22 @@ static void print_coordinate(solar_os_shell_io_t *term,
                              value < 0 ? "-" : "",
                              magnitude / 10000000ULL,
                              magnitude % 10000000ULL);
+}
+
+static bool parse_timeout(const char *text, uint32_t *timeout_ms)
+{
+    if (text == NULL || text[0] == '\0' || timeout_ms == NULL) {
+        return false;
+    }
+    errno = 0;
+    char *end = NULL;
+    const unsigned long long parsed = strtoull(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' || parsed == 0U ||
+        parsed > UINT32_MAX) {
+        return false;
+    }
+    *timeout_ms = (uint32_t)parsed;
+    return true;
 }
 
 static void show_status(solar_os_shell_io_t *term,
@@ -126,10 +143,19 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
                                   "[timeout-ms]");
         return;
     }
-    const char *name = argc >= 3 ? argv[2] : default_name();
-    const uint32_t timeout_ms = argc == 4 ? (uint32_t)strtoul(argv[3], NULL, 0) : 1000U;
-    if (name == NULL || timeout_ms == 0U) {
-        solar_os_shell_io_writeln(term, "gnss: no receiver or invalid timeout");
+    const char *name = default_name();
+    uint32_t timeout_ms = 1000U;
+    if (argc == 3 && !parse_timeout(argv[2], &timeout_ms)) {
+        name = argv[2];
+    } else if (argc == 4) {
+        name = argv[2];
+        if (!parse_timeout(argv[3], &timeout_ms)) {
+            solar_os_shell_io_writeln(term, "gnss: invalid timeout");
+            return;
+        }
+    }
+    if (name == NULL) {
+        solar_os_shell_io_writeln(term, "gnss: no receiver");
         return;
     }
     solar_os_gnss_fix_t fix;

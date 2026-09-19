@@ -467,6 +467,56 @@ static bool parse_double_field(const char *text, double *value)
     return true;
 }
 
+static void trim_csv_field(char **field)
+{
+    char *start = *field;
+    while (isspace((unsigned char)*start)) {
+        start++;
+    }
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1])) {
+        *--end = '\0';
+    }
+    *field = start;
+}
+
+static size_t coordinate_integer_digits(const char *text)
+{
+    size_t digits = 0U;
+    if (*text == '+' || *text == '-') {
+        text++;
+    }
+    while (isdigit((unsigned char)*text)) {
+        digits++;
+        text++;
+    }
+    return digits;
+}
+
+static bool parse_decimal_coordinate(const char *text,
+                                     char hemisphere,
+                                     int32_t *degrees_e7)
+{
+    double decimal = 0.0;
+    if (!parse_double_field(text, &decimal) || decimal < 0.0) {
+        return false;
+    }
+    const double maximum = hemisphere == 'N' || hemisphere == 'S'
+        ? 90.0
+        : hemisphere == 'E' || hemisphere == 'W'
+        ? 180.0
+        : -1.0;
+    if (maximum < 0.0 || decimal > maximum) {
+        return false;
+    }
+    if (hemisphere == 'S' || hemisphere == 'W') {
+        decimal = -decimal;
+    }
+    *degrees_e7 = (int32_t)(decimal * 10000000.0 +
+        (decimal >= 0.0 ? 0.5 : -0.5));
+    return true;
+}
+
 bool sim7670_parse_cgnssinfo(const char *response,
                              sim7670_gnss_fix_t *fix)
 {
@@ -488,49 +538,105 @@ bool sim7670_parse_cgnssinfo(const char *response,
     char line[256];
     memcpy(line, value, line_len);
     line[line_len] = '\0';
-    char *fields[18] = {0};
-    if (split_csv(line, fields, 18U) < 18U) {
+    char *fields[24] = {0};
+    const size_t field_count = split_csv(line, fields, 24U);
+    if (field_count == 0U) {
+        return false;
+    }
+    for (size_t i = 0U; i < field_count; i++) {
+        trim_csv_field(&fields[i]);
+    }
+
+    uint8_t mode = 0U;
+    if (fields[0][0] == '\0') {
+        return true;
+    }
+    if (!parse_uint8_field(fields[0], &mode)) {
+        return false;
+    }
+    if (mode != 2U && mode != 3U) {
+        return true;
+    }
+
+    size_t hemisphere_index = SIZE_MAX;
+    for (size_t i = 2U; i + 2U < field_count; i++) {
+        const bool north_south =
+            fields[i][1] == '\0' &&
+            (fields[i][0] == 'N' || fields[i][0] == 'S');
+        const bool east_west =
+            fields[i + 2U][1] == '\0' &&
+            (fields[i + 2U][0] == 'E' || fields[i + 2U][0] == 'W');
+        if (north_south && east_west) {
+            hemisphere_index = i;
+            break;
+        }
+    }
+    if (hemisphere_index == SIZE_MAX) {
         return false;
     }
 
+    const size_t latitude_index = hemisphere_index - 1U;
     uint8_t visible = 0U;
-    for (size_t i = 1U; i <= 4U; i++) {
+    for (size_t i = 1U; i < latitude_index; i++) {
         uint8_t constellation = 0U;
         if (parse_uint8_field(fields[i], &constellation) &&
             UINT8_MAX - visible >= constellation) {
             visible = (uint8_t)(visible + constellation);
         }
     }
-    uint8_t used = 0U;
-    fix->satellites = parse_uint8_field(fields[17], &used) ? used : visible;
+    fix->satellites = visible;
 
-    uint8_t mode = 0U;
-    if (!parse_uint8_field(fields[0], &mode) ||
-        (mode != 2U && mode != 3U)) {
-        return true;
-    }
+    const bool degrees_minutes =
+        coordinate_integer_digits(fields[latitude_index]) > 2U ||
+        coordinate_integer_digits(fields[hemisphere_index + 1U]) > 3U;
     fix->fix_type = mode;
-    if (!parse_coordinate(fields[5], fields[6][0], &fix->latitude_deg_e7) ||
-        !parse_coordinate(fields[7], fields[8][0], &fix->longitude_deg_e7)) {
+    const bool latitude_valid = degrees_minutes
+        ? parse_coordinate(fields[latitude_index],
+                           fields[hemisphere_index][0],
+                           &fix->latitude_deg_e7)
+        : parse_decimal_coordinate(fields[latitude_index],
+                                   fields[hemisphere_index][0],
+                                   &fix->latitude_deg_e7);
+    const bool longitude_valid = degrees_minutes
+        ? parse_coordinate(fields[hemisphere_index + 1U],
+                           fields[hemisphere_index + 2U][0],
+                           &fix->longitude_deg_e7)
+        : parse_decimal_coordinate(fields[hemisphere_index + 1U],
+                                   fields[hemisphere_index + 2U][0],
+                                   &fix->longitude_deg_e7);
+    if (!latitude_valid || !longitude_valid) {
         return false;
     }
     fix->valid = true;
-    parse_gnss_datetime(fields[9], fields[10], fix);
+
+    const size_t tail = hemisphere_index + 3U;
+    if (tail + 1U < field_count) {
+        parse_gnss_datetime(fields[tail], fields[tail + 1U], fix);
+    }
 
     double parsed = 0.0;
-    if (parse_double_field(fields[11], &parsed)) {
+    if (tail + 2U < field_count &&
+        parse_double_field(fields[tail + 2U], &parsed)) {
         fix->height_msl_mm = (int32_t)(parsed * 1000.0 +
             (parsed >= 0.0 ? 0.5 : -0.5));
     }
-    if (parse_double_field(fields[12], &parsed) && parsed >= 0.0) {
+    if (tail + 3U < field_count &&
+        parse_double_field(fields[tail + 3U], &parsed) && parsed >= 0.0) {
         fix->ground_speed_mm_s = (int32_t)(parsed * 514.444 + 0.5);
     }
-    if (parse_double_field(fields[13], &parsed) && parsed >= 0.0) {
+    if (tail + 4U < field_count &&
+        parse_double_field(fields[tail + 4U], &parsed) && parsed >= 0.0) {
         fix->heading_deg_e5 = (int32_t)(parsed * 100000.0 + 0.5);
     }
-    if (parse_double_field(fields[14], &parsed) && parsed >= 0.0 &&
+    if (tail + 5U < field_count &&
+        parse_double_field(fields[tail + 5U], &parsed) && parsed >= 0.0 &&
         parsed <= 655.35) {
         fix->position_dop_e2 = (uint16_t)(parsed * 100.0 + 0.5);
+    }
+    uint8_t used = 0U;
+    if (tail + 8U < field_count &&
+        parse_uint8_field(fields[tail + 8U], &used)) {
+        fix->satellites = used;
     }
     return true;
 }

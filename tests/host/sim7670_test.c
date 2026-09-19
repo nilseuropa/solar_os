@@ -196,6 +196,17 @@ int main(void)
         "+CGNSSINFO: ,,,,,,,,,,,,,,,,,\r\nOK\r\n",
         &fix));
     assert(!fix.valid && fix.fix_type == 0U && fix.satellites == 0U);
+    assert(sim7670_parse_cgnssinfo(
+        "+CGNSSINFO: ,,,,,,,,,,,,\r\nOK\r\n",
+        &fix));
+    assert(!fix.valid && fix.fix_type == 0U && fix.satellites == 0U);
+    assert(sim7670_parse_cgnssinfo(
+        "+CGNSSINFO: 3,13,06,18,31.399003,N,73.175373,E,261225,"
+        "191834.000,195.5,0.16,0.00,0.80,0.53,0.60,25\r\nOK\r\n",
+        &fix));
+    assert(fix.valid && fix.fix_type == 3U && fix.satellites == 25U);
+    assert(fix.latitude_deg_e7 == 313990030);
+    assert(fix.longitude_deg_e7 == 731753730);
 
     size_t request = transport.request_count;
     assert(sim7670_read_gnss_fix(&modem, 10000U, &fix) == ESP_OK);
