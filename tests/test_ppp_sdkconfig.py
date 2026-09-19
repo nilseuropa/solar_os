@@ -59,6 +59,9 @@ class PppSdkconfigTest(unittest.TestCase):
         self.assertIn("solar_os_network_interface_remove", source)
         self.assertIn("esp_netif_napt_enable", source)
         self.assertIn("solar_os_ppp_start", source)
+        self.assertIn("solar_os_task_create_pinned_external(pppd_task", source)
+        self.assertIn("solar_os_task_delete_external(NULL);", source)
+        self.assertIn(".worker_stack_external = true,", source)
 
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn(

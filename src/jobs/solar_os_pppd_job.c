@@ -610,7 +610,7 @@ static void pppd_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(PPPD_STATUS_POLL_MS));
     }
     pppd_cleanup();
-    solar_os_task_delete(NULL);
+    solar_os_task_delete_external(NULL);
 }
 
 static esp_err_t pppd_job_start(solar_os_context_t *ctx,
@@ -710,14 +710,14 @@ static esp_err_t pppd_job_start(solar_os_context_t *ctx,
                                       resource,
                                       pppd_mode_name(config.mode));
 
-    if (solar_os_task_create_pinned(pppd_task,
-                                    "pppd_job",
-                                    PPPD_TASK_STACK,
-                                    NULL,
-                                    PPPD_TASK_PRIORITY,
-                                    &pppd_job.task,
-                                    tskNO_AFFINITY,
-                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+    if (solar_os_task_create_pinned_external(pppd_task,
+                                             "pppd_job",
+                                             PPPD_TASK_STACK,
+                                             NULL,
+                                             PPPD_TASK_PRIORITY,
+                                             &pppd_job.task,
+                                             tskNO_AFFINITY,
+                                             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         pppd_cleanup();
         return ESP_ERR_NO_MEM;
     }
@@ -804,5 +804,6 @@ const solar_os_job_t solar_os_pppd_job = {
     .start = pppd_job_start,
     .stop = pppd_job_stop,
     .worker_stack_bytes = PPPD_TASK_STACK,
+    .worker_stack_external = true,
     .detail = pppd_job_detail,
 };
