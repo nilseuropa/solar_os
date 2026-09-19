@@ -39,6 +39,18 @@ class NetworkTuiTest(unittest.TestCase):
         self.assertIn("solar_os_network_router_stop()", TUI)
         self.assertNotIn("solar_os_wifi_", TUI)
 
+    def test_settings_launch_transport_children_and_return(self):
+        self.assertIn('"Configure"', TUI)
+        self.assertIn('"  Wi-Fi..."', TUI)
+        self.assertIn('"  Modems... (%u registered)"', TUI)
+        self.assertIn("solar_os_shell_launch_wifi_tui_ex", TUI)
+        self.assertIn("solar_os_shell_launch_modem_tui_ex", TUI)
+        self.assertEqual(TUI.count("SOLAR_OS_LAUNCH_CHILD_RETURN"), 2)
+        self.assertIn("SOLAR_OS_EVENT_RESUME", TUI)
+        self.assertIn(".flags = SOLAR_OS_APP_FLAG_RESUMABLE", TUI)
+        self.assertIn(".suspend = network_tui_suspend", TUI)
+        self.assertIn(".resume = network_tui_resume", TUI)
+
     def test_status_explains_default_and_client_routing(self):
         self.assertIn('"default: %s (automatic)"', TUI)
         self.assertIn('"clients: %s -> %s, NAT %u/%u"', TUI)

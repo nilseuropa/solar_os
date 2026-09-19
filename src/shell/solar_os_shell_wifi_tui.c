@@ -1215,5 +1215,16 @@ static const solar_os_app_t wifi_tui_app = {
 
 esp_err_t solar_os_shell_launch_wifi_tui(solar_os_context_t *ctx)
 {
-    return solar_os_context_request_launch(ctx, &wifi_tui_app, 0, NULL);
+    return solar_os_shell_launch_wifi_tui_ex(ctx, SOLAR_OS_LAUNCH_REPLACE);
+}
+
+esp_err_t solar_os_shell_launch_wifi_tui_ex(
+    solar_os_context_t *ctx,
+    solar_os_launch_policy_t policy)
+{
+    return solar_os_context_request_launch_ex(ctx,
+                                              &wifi_tui_app,
+                                              0,
+                                              NULL,
+                                              policy);
 }

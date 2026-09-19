@@ -26,11 +26,13 @@ SolarOS separates three networking concepts:
 
 Run `network` to open a two-tab TUI. **Status** combines interface state,
 addresses, the selected default path, VPN routes, and downstream client
-routing. **Settings** changes each base interface's priority and enables or
-disables downstream client routing. Tab switches views. Use the arrow keys to
-select a setting; Left and Right lower or raise priority, and Enter toggles
-routing. Higher priority wins. Priority overrides are saved by interface name
-and apply again when a runtime interface such as `modem0` is registered later.
+routing. **Settings** opens the installed Wi-Fi and modem control TUIs, changes
+each base interface's priority, and enables or disables downstream client
+routing. A transport TUI returns to the same Network tab and selection when it
+exits. Tab switches views. Use the arrow keys to select a setting; Left and
+Right lower or raise priority, and Enter opens a transport or toggles routing.
+Higher priority wins. Priority overrides are saved by interface name and apply
+again when a runtime interface such as `modem0` is registered later.
 
 For scripts and plain output, use `network status` for the same combined view,
 `network interfaces` for interface state and addresses, and `network routes`

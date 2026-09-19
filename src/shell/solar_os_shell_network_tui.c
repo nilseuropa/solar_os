@@ -14,6 +14,9 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+#include "solar_os_modem.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
 #include "solar_os_wireguard.h"
 #endif
@@ -35,6 +38,22 @@ typedef struct {
     char text[NETWORK_TUI_ROW_TEXT_MAX];
     uint8_t attr;
 } network_tui_row_t;
+
+typedef enum {
+    NETWORK_TUI_SETTING_HEADER,
+    NETWORK_TUI_SETTING_WIFI,
+    NETWORK_TUI_SETTING_MODEMS,
+    NETWORK_TUI_SETTING_PATH,
+    NETWORK_TUI_SETTING_ROUTING,
+    NETWORK_TUI_SETTING_HELP,
+} network_tui_setting_type_t;
+
+typedef struct {
+    network_tui_setting_type_t type;
+    size_t path_index;
+    bool selectable;
+    char text[NETWORK_TUI_ROW_TEXT_MAX];
+} network_tui_setting_t;
 
 typedef struct {
     solar_os_context_t *ctx;
@@ -304,53 +323,159 @@ static size_t network_tui_get_paths(
                                                SOLAR_OS_NETWORK_PATH_MAX;
 }
 
+static void network_tui_add_setting(network_tui_setting_t *items,
+                                    size_t max_items,
+                                    size_t *count,
+                                    network_tui_setting_type_t type,
+                                    size_t path_index,
+                                    bool selectable,
+                                    const char *format,
+                                    ...)
+{
+    if (items == NULL || count == NULL || *count >= max_items ||
+        format == NULL) {
+        return;
+    }
+    network_tui_setting_t *item = &items[*count];
+    item->type = type;
+    item->path_index = path_index;
+    item->selectable = selectable;
+    va_list args;
+    va_start(args, format);
+    (void)vsnprintf(item->text, sizeof(item->text), format, args);
+    va_end(args);
+    (*count)++;
+}
+
+static size_t network_tui_build_settings(
+    network_tui_setting_t *items,
+    size_t max_items,
+    solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX],
+    size_t *path_count_out)
+{
+    const size_t path_count = network_tui_get_paths(paths);
+    if (path_count_out != NULL) {
+        *path_count_out = path_count;
+    }
+    size_t count = 0U;
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI || SOLAR_OS_PACKAGE_SERVICE_MODEM
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_HEADER, 0U, false,
+                            "Configure");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_WIFI, 0U, true,
+                            "  Wi-Fi...");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+    const size_t modem_count = solar_os_modem_count();
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_MODEMS, 0U, true,
+                            "  Modems... (%u registered)",
+                            (unsigned)modem_count);
+#endif
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_HEADER, 0U, false,
+                            "Routing");
+
+    solar_os_network_path_info_t preferred = {0};
+    const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
+    for (size_t i = 0U; i < path_count; i++) {
+        network_tui_add_setting(
+            items, max_items, &count,
+            NETWORK_TUI_SETTING_PATH, i, true,
+            "%c %-12s priority %d",
+            have_preferred && paths[i].netif == preferred.netif ? '*' : ' ',
+            paths[i].name,
+            paths[i].route_priority);
+    }
+
+    solar_os_network_router_status_t router = {0};
+    solar_os_network_router_get_status(&router);
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_ROUTING, 0U, true,
+                            "  %-12s %s",
+                            "routing",
+                            network_tui_routing_value(&router));
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_HELP, 0U, false,
+                            "");
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_HELP, 0U, false,
+                            "Higher priority wins the default route.");
+    network_tui_add_setting(items, max_items, &count,
+                            NETWORK_TUI_SETTING_HELP, 0U, false,
+                            "Routing forwards Wi-Fi AP clients through it.");
+    return count;
+}
+
+static void network_tui_settings_reconcile(
+    const network_tui_setting_t *items,
+    size_t item_count,
+    size_t visible_rows)
+{
+    if (item_count == 0U) {
+        network_tui.settings_viewport = (solar_os_tui_viewport_t){0};
+        return;
+    }
+    if (network_tui.settings_viewport.cursor >= item_count ||
+        !items[network_tui.settings_viewport.cursor].selectable) {
+        size_t first = 0U;
+        while (first < item_count && !items[first].selectable) {
+            first++;
+        }
+        network_tui.settings_viewport.cursor = first < item_count ? first : 0U;
+    }
+    solar_os_tui_viewport_reconcile(&network_tui.settings_viewport,
+                                    item_count,
+                                    visible_rows);
+}
+
+static void network_tui_settings_move(const network_tui_setting_t *items,
+                                      size_t item_count,
+                                      int direction,
+                                      size_t visible_rows)
+{
+    network_tui_settings_reconcile(items, item_count, visible_rows);
+    size_t cursor = network_tui.settings_viewport.cursor;
+    while ((direction < 0 && cursor > 0U) ||
+           (direction > 0 && cursor + 1U < item_count)) {
+        cursor = direction < 0 ? cursor - 1U : cursor + 1U;
+        if (items[cursor].selectable) {
+            network_tui.settings_viewport.cursor = cursor;
+            break;
+        }
+    }
+    solar_os_tui_viewport_reconcile(&network_tui.settings_viewport,
+                                    item_count,
+                                    visible_rows);
+}
+
 static void network_tui_draw_settings(const solar_os_tui_screen_layout_t *layout)
 {
     solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    const size_t path_count = network_tui_get_paths(paths);
-    const size_t item_count = path_count + 1U;
-    solar_os_network_path_info_t preferred = {0};
-    const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
-    solar_os_network_router_status_t router = {0};
-    solar_os_network_router_get_status(&router);
-
-    solar_os_tui_viewport_reconcile(&network_tui.settings_viewport,
-                                    item_count,
-                                    layout->body.height);
+    network_tui_setting_t items[NETWORK_TUI_ROW_MAX];
+    const size_t item_count = network_tui_build_settings(
+        items, sizeof(items) / sizeof(items[0]), paths, NULL);
+    network_tui_settings_reconcile(items,
+                                   item_count,
+                                   layout->body.height);
     for (size_t row = 0U; row < layout->body.height; row++) {
         const size_t index = network_tui.settings_viewport.top + row;
-        char line[NETWORK_TUI_ROW_TEXT_MAX] = "";
         uint8_t attr = SOLAR_OS_TUI_ATTR_NORMAL;
-        if (index < path_count) {
-            snprintf(line,
-                     sizeof(line),
-                     "%c %-12s priority %d",
-                     have_preferred && paths[index].netif == preferred.netif ?
-                         '*' : ' ',
-                     paths[index].name,
-                     paths[index].route_priority);
-        } else if (index == path_count) {
-            snprintf(line,
-                     sizeof(line),
-                     "  %-12s %s",
-                     "routing",
-                     network_tui_routing_value(&router));
-        } else if (index == item_count + 1U) {
-            strlcpy(line, "Higher priority wins the default route.", sizeof(line));
-        } else if (index == item_count + 2U) {
-            strlcpy(line,
-                    "Routing forwards Wi-Fi AP clients through it.",
-                    sizeof(line));
-        }
-        if (index < item_count &&
+        if (index < item_count && items[index].selectable &&
             index == network_tui.settings_viewport.cursor) {
             attr = SOLAR_OS_TUI_ATTR_INVERSE;
+        } else if (index < item_count &&
+                   items[index].type == NETWORK_TUI_SETTING_HEADER) {
+            attr = SOLAR_OS_TUI_ATTR_BOLD;
         }
         solar_os_tui_write_cell(&network_tui.tui,
                                 layout->body.row + row,
                                 0U,
                                 layout->body.width,
-                                line,
+                                index < item_count ? items[index].text : "",
                                 attr);
     }
 }
@@ -393,7 +518,7 @@ static void network_tui_render(void)
         network_tui.status,
         network_tui.tab == NETWORK_TUI_TAB_STATUS ?
             "TAB settings  UP/DOWN scroll  ESC exit" :
-            "TAB status  arrows select/change  ENTER routing  ESC exit");
+            "TAB status  arrows select/change  ENTER opens/acts  ESC exit");
     solar_os_tui_set_cursor_visible(&network_tui.tui, false);
     solar_os_tui_refresh(&network_tui.tui);
 }
@@ -475,44 +600,77 @@ static void network_tui_handle_status_key(uint8_t key)
 static void network_tui_handle_settings_key(uint8_t key)
 {
     solar_os_network_path_info_t paths[SOLAR_OS_NETWORK_PATH_MAX];
-    const size_t path_count = network_tui_get_paths(paths);
-    const size_t item_count = path_count + 1U;
+    network_tui_setting_t items[NETWORK_TUI_ROW_MAX];
+    size_t path_count = 0U;
+    const size_t item_count = network_tui_build_settings(
+        items,
+        sizeof(items) / sizeof(items[0]),
+        paths,
+        &path_count);
     const size_t visible = solar_os_tui_screen_content_rows(&network_tui.tui,
                                                             2U,
                                                             1U);
-    if (key == SOLAR_OS_KEY_UP || key == SOLAR_OS_KEY_DOWN) {
-        if (solar_os_tui_viewport_key(&network_tui.settings_viewport,
-                                      key,
-                                      item_count,
-                                      visible,
-                                      false)) {
-            network_tui_set_status("");
-        }
+    if (key == SOLAR_OS_KEY_UP) {
+        network_tui_settings_move(items, item_count, -1, visible);
+        network_tui_set_status("");
+        return;
+    }
+    if (key == SOLAR_OS_KEY_DOWN) {
+        network_tui_settings_move(items, item_count, 1, visible);
+        network_tui_set_status("");
         return;
     }
 
-    solar_os_tui_viewport_reconcile(&network_tui.settings_viewport,
-                                    item_count,
-                                    visible);
-    const size_t selected = network_tui.settings_viewport.cursor;
-    if (selected < path_count) {
+    network_tui_settings_reconcile(items, item_count, visible);
+    const network_tui_setting_t *selected =
+        &items[network_tui.settings_viewport.cursor];
+    const bool enter = key == SOLAR_OS_KEY_ENTER || key == '\r' || key == '\n';
+    if (selected->type == NETWORK_TUI_SETTING_WIFI && enter) {
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+        const esp_err_t ret = solar_os_shell_launch_wifi_tui_ex(
+            network_tui.ctx,
+            SOLAR_OS_LAUNCH_CHILD_RETURN);
+        if (ret != ESP_OK) {
+            network_tui_set_status("Wi-Fi settings unavailable");
+        }
+#endif
+        return;
+    }
+    if (selected->type == NETWORK_TUI_SETTING_MODEMS && enter) {
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+        const esp_err_t ret = solar_os_shell_launch_modem_tui_ex(
+            network_tui.ctx,
+            SOLAR_OS_LAUNCH_CHILD_RETURN);
+        if (ret != ESP_OK) {
+            network_tui_set_status("modem settings unavailable");
+        }
+#endif
+        return;
+    }
+    if (selected->type == NETWORK_TUI_SETTING_PATH &&
+        selected->path_index < path_count) {
+        const solar_os_network_path_info_t *path =
+            &paths[selected->path_index];
         if (key == SOLAR_OS_KEY_LEFT) {
-            network_tui_change_priority(&paths[selected], -1);
+            network_tui_change_priority(path, -1);
         } else if (key == SOLAR_OS_KEY_RIGHT) {
-            network_tui_change_priority(&paths[selected], 1);
-        } else if (key == SOLAR_OS_KEY_ENTER || key == '\r' || key == '\n') {
+            network_tui_change_priority(path, 1);
+        } else if (enter) {
             network_tui_set_status("left/right changes priority");
         }
         return;
     }
 
+    if (selected->type != NETWORK_TUI_SETTING_ROUTING) {
+        return;
+    }
     solar_os_network_router_status_t router = {0};
     solar_os_network_router_get_status(&router);
     if (key == SOLAR_OS_KEY_LEFT) {
         network_tui_set_routing(false);
     } else if (key == SOLAR_OS_KEY_RIGHT) {
         network_tui_set_routing(true);
-    } else if (key == SOLAR_OS_KEY_ENTER || key == '\r' || key == '\n') {
+    } else if (enter) {
         network_tui_set_routing(!router.enabled);
     }
 }
@@ -528,6 +686,20 @@ static esp_err_t network_tui_start(solar_os_context_t *ctx)
     solar_os_tui_set_cursor_visible(&network_tui.tui, false);
     network_tui_render();
     return ESP_OK;
+}
+
+static void network_tui_suspend(solar_os_context_t *ctx)
+{
+    (void)ctx;
+    solar_os_tui_set_cursor_visible(&network_tui.tui, true);
+    solar_os_tui_refresh(&network_tui.tui);
+}
+
+static void network_tui_resume(solar_os_context_t *ctx)
+{
+    network_tui.ctx = ctx;
+    solar_os_tui_set_cursor_visible(&network_tui.tui, false);
+    network_tui_render();
 }
 
 static void network_tui_stop(solar_os_context_t *ctx)
@@ -588,7 +760,10 @@ static const solar_os_app_t network_tui_app = {
     .name = "network",
     .summary = "Network status and routing settings",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
     .start = network_tui_start,
+    .suspend = network_tui_suspend,
+    .resume = network_tui_resume,
     .stop = network_tui_stop,
     .event = network_tui_event,
     .state_slot = &network_tui_state,
