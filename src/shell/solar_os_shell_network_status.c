@@ -84,9 +84,12 @@ static void network_print_routes(solar_os_shell_io_t *term)
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
     solar_os_wireguard_status_t wireguard = {0};
     solar_os_wireguard_get_status(&wireguard);
+    const char *underlay = wireguard.underlay[0] != '\0' ?
+        wireguard.underlay : "uplink";
     if (wireguard.default_route_active) {
-        solar_os_shell_io_writeln(term,
-                                  "  default via wireguard over wifi-sta");
+        solar_os_shell_io_printf(term,
+                                 "  default via wireguard over %s\n",
+                                 underlay);
     } else if (have_preferred) {
         solar_os_shell_io_printf(term,
                                  "  default via %s (automatic)\n",
@@ -96,9 +99,10 @@ static void network_print_routes(solar_os_shell_io_t *term)
     }
     if (wireguard.routes_active) {
         solar_os_shell_io_printf(term,
-                                 "  %u VPN route%s via wireguard over wifi-sta%s\n",
+                                 "  %u VPN route%s via wireguard over %s%s\n",
                                  (unsigned)wireguard.route_count,
                                  wireguard.route_count == 1U ? "" : "s",
+                                 underlay,
                                  wireguard.full_tunnel ? " (full tunnel)" : "");
     } else if (wireguard.desired_up) {
         solar_os_shell_io_printf(term,

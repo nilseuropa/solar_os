@@ -39,6 +39,10 @@ static void wireguard_print_status(solar_os_shell_io_t *term)
         return;
     }
     solar_os_shell_io_printf(term, "Address: %s\n", status.address);
+    solar_os_shell_io_printf(term,
+                             "Underlay: %s\n",
+                             status.underlay[0] != '\0' ?
+                                 status.underlay : "none");
     if (status.endpoint_ip[0] != '\0') {
         solar_os_shell_io_printf(term,
                                  "Endpoint: %s:%u (%s)\n",

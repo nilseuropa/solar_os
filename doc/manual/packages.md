@@ -169,10 +169,11 @@ mapping, named volatile outbound bindings, and the `osc` shell command.
 and counters. It consumes the existing stream and control services without
 making either core service depend on networking.
 
-`network.wireguard` depends directly on `service.wifi` and lwIP. It owns the
-native tunnel, its bounded route table, the lwIP route hook, persistent client
-profile, Wi-Fi address-event handling, and light-sleep lifecycle. It is not part
-of either embedded scripting runtime.
+`network.wireguard` depends on the generic network service and lwIP. It owns the
+native tunnel, its bounded route table, persistent client profile, preferred
+underlay changes, and light-sleep lifecycle. The network service owns the shared
+lwIP route hook used by Wi-Fi, PPP, WireGuard, and other IP paths. WireGuard is
+not part of either embedded scripting runtime.
 
 `network.http-client` owns the shared TLS-enabled HTTP transport used by `curl`,
 `webradio`, and `web`. It exposes request headers and bodies, redirects,

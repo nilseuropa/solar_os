@@ -3,8 +3,11 @@
 #include <string.h>
 
 #include "lwip/ip4.h"
+#include "solar_os_config.h"
 #include "solar_os_network.h"
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
 #include "solar_os_wifi_repeater.h"
+#endif
 
 typedef struct {
     struct netif *netif;
@@ -51,13 +54,17 @@ struct netif *solar_os_lwip_ip4_route_src_hook(const ip4_addr_t *src,
 
     LWIP_ASSERT_CORE_LOCKED();
 
-    struct netif *repeater_netif = solar_os_wifi_repeater_route(dest);
+    struct netif *repeater_netif = NULL;
+    struct netif *repeater_upstream = NULL;
+#if SOLAR_OS_PACKAGE_SERVICE_WIFI
+    repeater_netif = solar_os_wifi_repeater_route(dest);
+    repeater_upstream = solar_os_wifi_repeater_upstream_route();
+#endif
     if (repeater_netif != NULL && netif_is_up(repeater_netif) &&
         netif_is_link_up(repeater_netif)) {
         return repeater_netif;
     }
 
-    struct netif *repeater_upstream = solar_os_wifi_repeater_upstream_route();
     if (repeater_upstream != NULL && src != NULL && !ip4_addr_isany(src) &&
         ip4_addr_cmp(src, netif_ip4_addr(repeater_upstream)) &&
         netif_is_up(repeater_upstream) && netif_is_link_up(repeater_upstream)) {
@@ -65,8 +72,8 @@ struct netif *solar_os_lwip_ip4_route_src_hook(const ip4_addr_t *src,
     }
 
     /* Preserve ESP-IDF's normal source-address routing before consulting the
-     * destination table. This keeps a PCB bound to the Wi-Fi interface on
-     * Wi-Fi even when 0.0.0.0/0 is routed through WireGuard. */
+     * destination table. This keeps a PCB bound to its selected underlay on
+     * that interface even when 0.0.0.0/0 is routed through WireGuard. */
     if (src != NULL && !ip4_addr_isany(src)) {
         NETIF_FOREACH(candidate) {
             if (netif_is_up(candidate) && netif_is_link_up(candidate) &&

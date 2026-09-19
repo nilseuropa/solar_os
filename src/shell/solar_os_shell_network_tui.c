@@ -163,7 +163,9 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
     if (wireguard.default_route_active) {
         network_tui_add_row(rows, max_rows, &count,
                             SOLAR_OS_TUI_ATTR_NORMAL,
-                            "default: wireguard over wifi-sta");
+                            "default: wireguard over %s",
+                            wireguard.underlay[0] != '\0' ?
+                                wireguard.underlay : "uplink");
     } else
 #endif
     if (have_preferred) {
@@ -206,6 +208,9 @@ static size_t network_tui_build_status_rows(network_tui_row_t *rows,
                             SOLAR_OS_TUI_ATTR_NORMAL,
                             "clients: %s -> %s, NAT %u/%u",
                             router.downstream,
+#if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
+                            wireguard.default_route_active ? "wireguard" :
+#endif
                             have_preferred ? preferred.name : "default",
                             (unsigned)router.client_count,
                             (unsigned)router.client_limit);

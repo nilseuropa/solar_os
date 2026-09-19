@@ -402,11 +402,15 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["service_wireguard"].depends,
-            ("service_wifi",),
+            ("service_network",),
         )
         self.assertEqual(
             self.catalog.package_defs["service_wireguard"].capabilities,
-            ("wifi",),
+            (),
+        )
+        self.assertNotIn(
+            "esp_wifi",
+            self.catalog.package_defs["service_wireguard"].requires,
         )
         self.assertIn(
             "wireguard_lwip",
@@ -473,7 +477,7 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(pruned[package], package)
         self.assertFalse(pruned["service_espnow"])
-        self.assertFalse(pruned["service_wireguard"])
+        self.assertTrue(pruned["service_wireguard"])
         self.assertFalse(pruned["job_espnow_link"])
 
     def test_standard_flavors_do_not_select_dormant_hid(self):

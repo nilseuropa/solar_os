@@ -714,10 +714,10 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
 | `wifi nat` | `wifi nat [status|on|off]` | Advanced control for IPv4 NAT on the SoftAP interface. Prefer `network router`. |
-| `wireguard` | `wireguard [status]` | Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material. |
+| `wireguard` | `wireguard [status]` | Show profile, tunnel, selected underlay, route, peer, DNS, and kill-switch state without printing key material. |
 | `wireguard` | `wireguard import <file>` | Validate one standard WireGuard client profile and save it in NVS. The source file is not removed. |
 | `wireguard` | `wireguard forget` | Logically remove the saved profile from NVS. Bring the tunnel down first. |
-| `wireguard` | `wireguard up [fail-open\|fail-closed]` | Request the tunnel and reconnect it after Wi-Fi address changes. The default is fail-closed for a full tunnel and fail-open for a split tunnel. |
+| `wireguard` | `wireguard up [fail-open\|fail-closed]` | Request the tunnel and reconnect it when the preferred network underlay changes. The default is fail-closed for a full tunnel and fail-open for a split tunnel. |
 | `wireguard` | `wireguard down` | Stop the tunnel, remove its routes, restore DNS, and disable its kill switch. |
 | `ble` | `ble [status]` | Show BLE keyboard state and the current/next boot setting. |
 | `ble` | `ble enable` | Save BLE enabled for the next boot. The current boot is unchanged. |

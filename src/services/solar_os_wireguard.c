@@ -12,7 +12,6 @@
 #include "esp_netif_net_stack.h"
 #include "esp_random.h"
 #include "esp_timer.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -29,9 +28,9 @@
 #include "solar_os_log.h"
 #include "solar_os_lwip_route.h"
 #include "solar_os_memory.h"
+#include "solar_os_network.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
-#include "solar_os_wifi.h"
 #include "wireguard.h"
 #include "wireguardif.h"
 #include "crypto.h"
@@ -78,7 +77,8 @@ typedef struct {
 } wireguard_profile_store_t;
 
 typedef struct {
-    struct netif *wifi_netif;
+    struct netif *underlay_netif;
+    char underlay_name[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U];
     ip4_addr_t endpoint_ip;
     wireguard_profile_store_t profile;
     uint8_t preshared_key[WIREGUARD_SESSION_KEY_LEN];
@@ -97,13 +97,14 @@ typedef struct {
     bool configured;
     bool desired_up;
     bool suspended;
-    bool wifi_has_ip;
+    bool uplink_ready;
     bool runtime_active;
     bool peer_up;
     bool full_tunnel;
     bool kill_switch_active;
     bool filter_installed;
     bool dns_overridden;
+    bool uplink_dns_valid;
     bool time_ready;
     solar_os_wireguard_state_t state;
     solar_os_wireguard_policy_t policy;
@@ -112,14 +113,19 @@ typedef struct {
     uint64_t tai_base_seconds;
     uint64_t tai_started_ms;
     struct netif wg_netif;
-    struct netif *wifi_netif;
-    netif_output_fn wifi_output;
+    struct netif *uplink_netif;
+    char uplink_name[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U];
+    struct netif *bound_netif;
+    char bound_name[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U];
+    struct netif *filter_netif;
+    netif_output_fn underlay_output;
 #if LWIP_IPV6
-    netif_output_ip6_fn wifi_output_ip6;
+    netif_output_ip6_fn underlay_output_ip6;
 #endif
     u8_t peer_index;
     ip4_addr_t endpoint_ip;
     ip_addr_t saved_dns;
+    ip_addr_t uplink_dns;
     wireguard_profile_store_t summary;
     char peer_key_fingerprint[17];
 } wireguard_service_t;
@@ -749,87 +755,101 @@ static bool wireguard_destination_is_protected(const ip4_addr_t *destination)
     return false;
 }
 
-static err_t wireguard_wifi_output_filter(struct netif *netif,
-                                          struct pbuf *packet,
-                                          const ip4_addr_t *destination)
+static err_t wireguard_underlay_output_filter(struct netif *netif,
+                                              struct pbuf *packet,
+                                              const ip4_addr_t *destination)
 {
-    if (wireguard_service.wifi_output == NULL) {
+    if (wireguard_service.underlay_output == NULL ||
+        wireguard_service.filter_netif != netif) {
         return ERR_IF;
     }
     if (wireguard_packet_is_allowed(packet) ||
         !wireguard_destination_is_protected(destination)) {
-        return wireguard_service.wifi_output(netif, packet, destination);
+        return wireguard_service.underlay_output(netif, packet, destination);
     }
     return ERR_RTE;
 }
 
 #if LWIP_IPV6
-static err_t wireguard_wifi_output_ip6_filter(struct netif *netif,
-                                              struct pbuf *packet,
-                                              const ip6_addr_t *destination)
+static err_t wireguard_underlay_output_ip6_filter(struct netif *netif,
+                                                  struct pbuf *packet,
+                                                  const ip6_addr_t *destination)
 {
     if (!wireguard_service.full_tunnel &&
-        wireguard_service.wifi_output_ip6 != NULL) {
-        return wireguard_service.wifi_output_ip6(netif, packet, destination);
+        wireguard_service.underlay_output_ip6 != NULL &&
+        wireguard_service.filter_netif == netif) {
+        return wireguard_service.underlay_output_ip6(netif, packet, destination);
     }
     return ERR_RTE;
 }
 #endif
-
-static void wireguard_filter_install(struct netif *wifi_netif)
-{
-    LWIP_ASSERT_CORE_LOCKED();
-    if (wifi_netif == NULL || wireguard_service.filter_installed) {
-        return;
-    }
-    wireguard_service.wifi_output = wifi_netif->output;
-    wifi_netif->output = wireguard_wifi_output_filter;
-#if LWIP_IPV6
-    wireguard_service.wifi_output_ip6 = wifi_netif->output_ip6;
-    wifi_netif->output_ip6 = wireguard_wifi_output_ip6_filter;
-#endif
-    wireguard_service.filter_installed = true;
-    wireguard_service.kill_switch_active = true;
-}
 
 static void wireguard_filter_restore(void)
 {
     LWIP_ASSERT_CORE_LOCKED();
-    if (!wireguard_service.filter_installed || wireguard_service.wifi_netif == NULL) {
+    if (!wireguard_service.filter_installed ||
+        wireguard_service.filter_netif == NULL) {
         wireguard_service.kill_switch_active = false;
         return;
     }
-    wireguard_service.wifi_netif->output = wireguard_service.wifi_output;
+    wireguard_service.filter_netif->output = wireguard_service.underlay_output;
 #if LWIP_IPV6
-    wireguard_service.wifi_netif->output_ip6 = wireguard_service.wifi_output_ip6;
+    wireguard_service.filter_netif->output_ip6 =
+        wireguard_service.underlay_output_ip6;
 #endif
-    wireguard_service.wifi_output = NULL;
+    wireguard_service.filter_netif = NULL;
+    wireguard_service.underlay_output = NULL;
 #if LWIP_IPV6
-    wireguard_service.wifi_output_ip6 = NULL;
+    wireguard_service.underlay_output_ip6 = NULL;
 #endif
     wireguard_service.filter_installed = false;
     wireguard_service.kill_switch_active = false;
 }
 
-static void wireguard_filter_install_tcpip(void *argument)
+static void wireguard_filter_install(struct netif *underlay_netif)
 {
-    struct netif *wifi_netif = (struct netif *)argument;
     LWIP_ASSERT_CORE_LOCKED();
-    if (wifi_netif != NULL) {
-        wireguard_service.wifi_netif = wifi_netif;
-        wireguard_filter_install(wifi_netif);
+    if (underlay_netif == NULL) {
+        return;
     }
+    if (wireguard_service.filter_installed) {
+        if (wireguard_service.filter_netif == underlay_netif) {
+            return;
+        }
+        wireguard_filter_restore();
+    }
+    wireguard_service.filter_netif = underlay_netif;
+    wireguard_service.underlay_output = underlay_netif->output;
+    underlay_netif->output = wireguard_underlay_output_filter;
+#if LWIP_IPV6
+    wireguard_service.underlay_output_ip6 = underlay_netif->output_ip6;
+    underlay_netif->output_ip6 = wireguard_underlay_output_ip6_filter;
+#endif
+    wireguard_service.filter_installed = true;
+    wireguard_service.kill_switch_active = true;
 }
 
-static esp_err_t wireguard_enforce_fail_closed(void)
+static void wireguard_filter_install_tcpip(void *argument)
 {
-    esp_netif_t *wifi = solar_os_wifi_get_sta_netif();
-    struct netif *wifi_netif = wifi != NULL ? esp_netif_get_netif_impl(wifi) : NULL;
-    if (wifi_netif == NULL) {
+    struct netif *underlay_netif = (struct netif *)argument;
+    LWIP_ASSERT_CORE_LOCKED();
+    wireguard_filter_install(underlay_netif);
+}
+
+static void wireguard_filter_restore_tcpip(void *argument)
+{
+    (void)argument;
+    LWIP_ASSERT_CORE_LOCKED();
+    wireguard_filter_restore();
+}
+
+static esp_err_t wireguard_enforce_fail_closed(struct netif *underlay_netif)
+{
+    if (underlay_netif == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
     return tcpip_callback_wait(wireguard_filter_install_tcpip,
-                               wifi_netif) == ERR_OK ? ESP_OK : ESP_FAIL;
+                               underlay_netif) == ERR_OK ? ESP_OK : ESP_FAIL;
 }
 
 static void wireguard_dns_apply(const wireguard_profile_store_t *profile)
@@ -854,7 +874,10 @@ static void wireguard_dns_restore(void)
 {
     LWIP_ASSERT_CORE_LOCKED();
     if (wireguard_service.dns_overridden) {
-        dns_setserver(0U, &wireguard_service.saved_dns);
+        dns_setserver(0U,
+                      wireguard_service.uplink_dns_valid ?
+                          &wireguard_service.uplink_dns :
+                          &wireguard_service.saved_dns);
         wireguard_service.dns_overridden = false;
     }
 }
@@ -867,7 +890,7 @@ static void wireguard_apply_link_policy(bool peer_up)
     }
 
     if (wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED) {
-        wireguard_filter_install(wireguard_service.wifi_netif);
+        wireguard_filter_install(wireguard_service.bound_netif);
     } else {
         wireguard_filter_restore();
     }
@@ -884,8 +907,8 @@ static void wireguard_apply_link_policy(bool peer_up)
         wireguard_dns_apply(&wireguard_service.summary);
     } else {
         wireguard_filter_restore();
-        if (wireguard_service.wifi_netif != NULL) {
-            netif_set_default(wireguard_service.wifi_netif);
+        if (wireguard_service.bound_netif != NULL) {
+            netif_set_default(wireguard_service.bound_netif);
         }
         wireguard_dns_restore();
     }
@@ -923,16 +946,19 @@ static void wireguard_stop_tcpip(void *argument)
         wireguard_service.peer_index = WIREGUARDIF_INVALID_INDEX;
     }
 
-    if (wireguard_service.wifi_netif != NULL) {
-        netif_set_default(wireguard_service.wifi_netif);
+    if (wireguard_service.uplink_netif != NULL) {
+        netif_set_default(wireguard_service.uplink_netif);
     }
     if (preserve_fail_closed &&
-        wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED) {
-        wireguard_filter_install(wireguard_service.wifi_netif);
+        wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED &&
+        wireguard_service.uplink_netif != NULL) {
+        wireguard_filter_install(wireguard_service.uplink_netif);
     } else {
         wireguard_filter_restore();
         wireguard_dns_restore();
     }
+    wireguard_service.bound_netif = NULL;
+    wireguard_service.bound_name[0] = '\0';
 }
 
 static err_t wireguard_netif_init(struct netif *netif)
@@ -951,7 +977,8 @@ static void wireguard_start_tcpip(void *argument)
 
     wireguard_lock();
     const bool start_permitted = wireguard_service.desired_up &&
-        !wireguard_service.suspended && wireguard_service.wifi_has_ip &&
+        !wireguard_service.suspended && wireguard_service.uplink_ready &&
+        wireguard_service.uplink_netif == request->underlay_netif &&
         wireguard_service.policy == request->policy;
     wireguard_unlock();
     if (!start_permitted) {
@@ -967,7 +994,7 @@ static void wireguard_start_tcpip(void *argument)
     struct wireguardif_init_data init_data = {
         .private_key = request->profile.private_key,
         .listen_port = request->profile.listen_port,
-        .bind_netif = request->wifi_netif,
+        .bind_netif = request->underlay_netif,
         .initiator_only = true,
     };
     ip4_addr_t address = {.addr = request->profile.address};
@@ -1039,7 +1066,10 @@ static void wireguard_start_tcpip(void *argument)
         return;
     }
 
-    wireguard_service.wifi_netif = request->wifi_netif;
+    wireguard_service.bound_netif = request->underlay_netif;
+    strlcpy(wireguard_service.bound_name,
+            request->underlay_name,
+            sizeof(wireguard_service.bound_name));
     wireguard_service.endpoint_ip = request->endpoint_ip;
     wireguard_service.peer_index = peer_index;
     wireguard_service.runtime_active = true;
@@ -1064,16 +1094,25 @@ static esp_err_t wireguard_start_runtime(void)
     ip4_addr_t cached_endpoint = wireguard_service.endpoint_ip;
     wireguard_unlock();
 
+    solar_os_network_path_info_t uplink = {0};
+    if (!solar_os_network_path_get_preferred(&uplink)) {
+        crypto_zero(&profile, sizeof(profile));
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct netif *underlay_netif = esp_netif_get_netif_impl(uplink.netif);
+    if (underlay_netif == NULL) {
+        crypto_zero(&profile, sizeof(profile));
+        return ESP_ERR_INVALID_STATE;
+    }
+
     esp_err_t error = ESP_OK;
     ip4_addr_t endpoint_ip = cached_endpoint;
     if (endpoint_ip.addr == 0U) {
         error = wireguard_resolve_endpoint(profile.endpoint, &endpoint_ip);
     }
-    esp_netif_t *wifi = solar_os_wifi_get_sta_netif();
-    struct netif *wifi_netif = wifi != NULL ? esp_netif_get_netif_impl(wifi) : NULL;
-    if (error != ESP_OK || wifi_netif == NULL) {
+    if (error != ESP_OK) {
         crypto_zero(&profile, sizeof(profile));
-        return error != ESP_OK ? error : ESP_ERR_INVALID_STATE;
+        return error;
     }
 
     wireguard_start_request_t *request = calloc(1U, sizeof(*request));
@@ -1081,7 +1120,10 @@ static esp_err_t wireguard_start_runtime(void)
         crypto_zero(&profile, sizeof(profile));
         return ESP_ERR_NO_MEM;
     }
-    request->wifi_netif = wifi_netif;
+    request->underlay_netif = underlay_netif;
+    strlcpy(request->underlay_name,
+            uplink.name,
+            sizeof(request->underlay_name));
     request->endpoint_ip = endpoint_ip;
     request->profile = profile;
     request->policy = policy;
@@ -1111,6 +1153,9 @@ static esp_err_t wireguard_start_runtime(void)
                       "runtime start failed: callback=%d runtime=%d",
                       (int)callback_error,
                       (int)start_error);
+        if (callback_error == ERR_OK && start_error == ERR_ABRT) {
+            return ESP_ERR_INVALID_STATE;
+        }
         return ESP_FAIL;
     }
     return ESP_OK;
@@ -1137,7 +1182,7 @@ static void wireguard_worker(void *argument)
         wireguard_lock();
         const bool stop_requested = wireguard_service.worker_stop_requested;
         const bool should_run = wireguard_service.desired_up &&
-            !wireguard_service.suspended && wireguard_service.wifi_has_ip;
+            !wireguard_service.suspended && wireguard_service.uplink_ready;
         const bool runtime_active = wireguard_service.runtime_active;
         const uint32_t now_ms = (uint32_t)(solar_os_time_uptime_ms() & UINT32_MAX);
         const bool retry_due = wireguard_service.last_retry_ms == 0U ||
@@ -1157,9 +1202,17 @@ static void wireguard_worker(void *argument)
                 wireguard_service.desired_up && !wireguard_service.suspended;
             if (still_requested) {
                 wireguard_service.last_error = error;
-                wireguard_service.state = error == ESP_OK ?
-                    SOLAR_OS_WIREGUARD_STATE_CONNECTING :
-                    SOLAR_OS_WIREGUARD_STATE_ERROR;
+                if (error == ESP_OK) {
+                    wireguard_service.state =
+                        SOLAR_OS_WIREGUARD_STATE_CONNECTING;
+                } else if (error == ESP_ERR_INVALID_STATE) {
+                    wireguard_service.state = wireguard_service.uplink_ready ?
+                        SOLAR_OS_WIREGUARD_STATE_RESOLVING :
+                        SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK;
+                    wireguard_service.last_retry_ms = 0U;
+                } else {
+                    wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_ERROR;
+                }
             }
             wireguard_unlock();
         }
@@ -1175,7 +1228,8 @@ static void wireguard_worker(void *argument)
             bool peer_up = false;
             if (tcpip_callback_wait(wireguard_poll_peer, &peer_up) == ERR_OK) {
                 wireguard_lock();
-                if (!wireguard_service.worker_stop_requested) {
+                if (!wireguard_service.worker_stop_requested &&
+                    wireguard_service.runtime_active) {
                     wireguard_service.peer_up = peer_up;
                     wireguard_service.state = peer_up ?
                         SOLAR_OS_WIREGUARD_STATE_UP :
@@ -1257,18 +1311,111 @@ static esp_err_t wireguard_worker_stop(void)
     return ESP_OK;
 }
 
-static void wireguard_handle_wifi_lost(void)
+static bool wireguard_preferred_uplink(struct netif **netif,
+                                       char *name,
+                                       size_t name_len,
+                                       ip_addr_t *dns,
+                                       bool *dns_valid)
 {
+    if (netif != NULL) {
+        *netif = NULL;
+    }
+    if (name != NULL && name_len > 0U) {
+        name[0] = '\0';
+    }
+    if (dns != NULL) {
+        ip_addr_set_zero(dns);
+    }
+    if (dns_valid != NULL) {
+        *dns_valid = false;
+    }
+    solar_os_network_path_info_t preferred = {0};
+    if (!solar_os_network_path_get_preferred(&preferred)) {
+        return false;
+    }
+    struct netif *preferred_netif = esp_netif_get_netif_impl(preferred.netif);
+    if (preferred_netif == NULL) {
+        return false;
+    }
+    if (netif != NULL) {
+        *netif = preferred_netif;
+    }
+    if (name != NULL && name_len > 0U) {
+        strlcpy(name, preferred.name, name_len);
+    }
+    if (dns != NULL && dns_valid != NULL &&
+        preferred.dns.ip.type == ESP_IPADDR_TYPE_V4 &&
+        preferred.dns.ip.u_addr.ip4.addr != 0U) {
+        ip_addr_set_ip4_u32(dns, preferred.dns.ip.u_addr.ip4.addr);
+        *dns_valid = true;
+    }
+    return true;
+}
+
+static void wireguard_handle_paths_changed(void)
+{
+    struct netif *uplink_netif = NULL;
+    char uplink_name[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U] = {0};
+    ip_addr_t uplink_dns;
+    bool uplink_dns_valid = false;
+    const bool uplink_ready = wireguard_preferred_uplink(
+        &uplink_netif,
+        uplink_name,
+        sizeof(uplink_name),
+        &uplink_dns,
+        &uplink_dns_valid);
+
     wireguard_lock();
-    wireguard_service.wifi_has_ip = false;
+    const bool changed = wireguard_service.uplink_netif != uplink_netif;
+    wireguard_service.uplink_ready = uplink_ready;
+    wireguard_service.uplink_netif = uplink_netif;
+    strlcpy(wireguard_service.uplink_name,
+            uplink_name,
+            sizeof(wireguard_service.uplink_name));
+    wireguard_service.uplink_dns = uplink_dns;
+    wireguard_service.uplink_dns_valid = uplink_dns_valid;
     const bool desired = wireguard_service.desired_up;
-    const bool preserve = desired &&
+    const bool wake = desired && !wireguard_service.suspended && uplink_ready;
+    const bool restart = wireguard_service.runtime_active &&
+        wireguard_service.bound_netif != uplink_netif;
+    const bool fail_closed = desired &&
         wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED;
-    wireguard_service.state = desired ?
-        SOLAR_OS_WIREGUARD_STATE_WAIT_WIFI : SOLAR_OS_WIREGUARD_STATE_OFF;
+    if (desired && !wireguard_service.suspended &&
+        (changed || !wireguard_service.runtime_active)) {
+        wireguard_service.state = uplink_ready ?
+            SOLAR_OS_WIREGUARD_STATE_RESOLVING :
+            SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK;
+        wireguard_service.last_retry_ms = 0U;
+    }
     wireguard_unlock();
-    (void)tcpip_callback_wait(wireguard_stop_tcpip,
-                              preserve ? &wireguard_service : NULL);
+
+    if (restart) {
+        (void)tcpip_callback_wait(wireguard_stop_tcpip,
+                                  fail_closed ? &wireguard_service : NULL);
+    } else if (fail_closed && uplink_ready) {
+        const esp_err_t filter_error =
+            wireguard_enforce_fail_closed(uplink_netif);
+        if (filter_error != ESP_OK) {
+            wireguard_lock();
+            wireguard_service.desired_up = false;
+            wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_ERROR;
+            wireguard_service.last_error = filter_error;
+            wireguard_unlock();
+            return;
+        }
+    } else if (fail_closed) {
+        (void)tcpip_callback_wait(wireguard_filter_restore_tcpip, NULL);
+    }
+
+    if (wake) {
+        wireguard_lock();
+        if (wireguard_service.desired_up && !wireguard_service.suspended &&
+            wireguard_service.uplink_ready && wireguard_service.worker != NULL &&
+            !wireguard_service.worker_stop_requested) {
+            xTaskNotifyGive(wireguard_service.worker);
+        }
+        wireguard_unlock();
+    }
 }
 
 static void wireguard_network_event(void *argument,
@@ -1278,46 +1425,9 @@ static void wireguard_network_event(void *argument,
 {
     (void)argument;
     (void)event_data;
-    if (event_base == WIFI_EVENT &&
-        (event_id == WIFI_EVENT_STA_DISCONNECTED || event_id == WIFI_EVENT_STA_STOP)) {
-        wireguard_handle_wifi_lost();
-        return;
-    }
-    if (event_base != IP_EVENT) {
-        return;
-    }
-
-    if (event_id == IP_EVENT_STA_GOT_IP) {
-        wireguard_lock();
-        wireguard_service.wifi_has_ip = true;
-        const bool wake = wireguard_service.desired_up && !wireguard_service.suspended;
-        const bool fail_closed = wake &&
-            wireguard_service.policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED;
-        if (wake) {
-            wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_RESOLVING;
-            wireguard_service.last_retry_ms = 0U;
-        }
-        wireguard_unlock();
-        if (fail_closed) {
-            const esp_err_t filter_error = wireguard_enforce_fail_closed();
-            if (filter_error != ESP_OK) {
-                wireguard_lock();
-                wireguard_service.desired_up = false;
-                wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_ERROR;
-                wireguard_service.last_error = filter_error;
-                wireguard_unlock();
-                return;
-            }
-        }
-        wireguard_lock();
-        if (wireguard_service.desired_up && !wireguard_service.suspended &&
-            wireguard_service.wifi_has_ip && wireguard_service.worker != NULL &&
-            !wireguard_service.worker_stop_requested) {
-            xTaskNotifyGive(wireguard_service.worker);
-        }
-        wireguard_unlock();
-    } else if (event_id == IP_EVENT_STA_LOST_IP) {
-        wireguard_handle_wifi_lost();
+    if (event_base == SOLAR_OS_NETWORK_EVENT &&
+        event_id == SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED) {
+        wireguard_handle_paths_changed();
     }
 }
 
@@ -1339,32 +1449,12 @@ esp_err_t solar_os_wireguard_init(void)
     if (event_loop_error != ESP_OK && event_loop_error != ESP_ERR_INVALID_STATE) {
         return event_loop_error;
     }
-    esp_err_t error = esp_event_handler_instance_register(IP_EVENT,
-                                                          IP_EVENT_STA_GOT_IP,
-                                                          wireguard_network_event,
-                                                          NULL,
-                                                          NULL);
-    if (error == ESP_OK) {
-        error = esp_event_handler_instance_register(IP_EVENT,
-                                                    IP_EVENT_STA_LOST_IP,
-                                                    wireguard_network_event,
-                                                    NULL,
-                                                    NULL);
-    }
-    if (error == ESP_OK) {
-        error = esp_event_handler_instance_register(WIFI_EVENT,
-                                                    WIFI_EVENT_STA_DISCONNECTED,
-                                                    wireguard_network_event,
-                                                    NULL,
-                                                    NULL);
-    }
-    if (error == ESP_OK) {
-        error = esp_event_handler_instance_register(WIFI_EVENT,
-                                                    WIFI_EVENT_STA_STOP,
-                                                    wireguard_network_event,
-                                                    NULL,
-                                                    NULL);
-    }
+    esp_err_t error = esp_event_handler_instance_register(
+        SOLAR_OS_NETWORK_EVENT,
+        SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED,
+        wireguard_network_event,
+        NULL,
+        NULL);
     if (error != ESP_OK) {
         return error;
     }
@@ -1381,9 +1471,12 @@ esp_err_t solar_os_wireguard_init(void)
         crypto_zero(&profile, sizeof(profile));
     }
 
-    solar_os_wifi_status_t wifi;
-    solar_os_wifi_get_status(&wifi);
-    wireguard_service.wifi_has_ip = wifi.has_ip;
+    wireguard_service.uplink_ready = wireguard_preferred_uplink(
+        &wireguard_service.uplink_netif,
+        wireguard_service.uplink_name,
+        sizeof(wireguard_service.uplink_name),
+        &wireguard_service.uplink_dns,
+        &wireguard_service.uplink_dns_valid);
     wireguard_service.initialized = true;
     return ESP_OK;
 }
@@ -1506,15 +1599,17 @@ esp_err_t solar_os_wireguard_up(solar_os_wireguard_policy_t policy)
     wireguard_service.suspended = false;
     wireguard_service.last_error = ESP_OK;
     wireguard_service.last_retry_ms = 0U;
-    wireguard_service.state = wireguard_service.wifi_has_ip ?
+    wireguard_service.state = wireguard_service.uplink_ready ?
         SOLAR_OS_WIREGUARD_STATE_RESOLVING :
-        SOLAR_OS_WIREGUARD_STATE_WAIT_WIFI;
-    const bool notify = wireguard_service.wifi_has_ip;
+        SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK;
+    const bool notify = wireguard_service.uplink_ready;
     const bool fail_closed = policy == SOLAR_OS_WIREGUARD_POLICY_FAIL_CLOSED;
+    struct netif *uplink_netif = wireguard_service.uplink_netif;
     wireguard_unlock();
-    if (fail_closed) {
-        const esp_err_t filter_error = wireguard_enforce_fail_closed();
-        if (filter_error != ESP_OK && notify) {
+    if (fail_closed && notify) {
+        const esp_err_t filter_error =
+            wireguard_enforce_fail_closed(uplink_netif);
+        if (filter_error != ESP_OK) {
             wireguard_lock();
             wireguard_service.desired_up = false;
             wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_ERROR;
@@ -1527,7 +1622,7 @@ esp_err_t solar_os_wireguard_up(solar_os_wireguard_policy_t policy)
         }
     }
     wireguard_lock();
-    if (wireguard_service.desired_up && wireguard_service.wifi_has_ip &&
+    if (wireguard_service.desired_up && wireguard_service.uplink_ready &&
         wireguard_service.worker != NULL &&
         !wireguard_service.worker_stop_requested) {
         xTaskNotifyGive(wireguard_service.worker);
@@ -1589,11 +1684,12 @@ esp_err_t solar_os_wireguard_resume(void)
     }
     wireguard_lock();
     wireguard_service.suspended = false;
-    const bool notify = wireguard_service.desired_up && wireguard_service.wifi_has_ip;
+    const bool notify = wireguard_service.desired_up &&
+        wireguard_service.uplink_ready;
     if (wireguard_service.desired_up) {
-        wireguard_service.state = wireguard_service.wifi_has_ip ?
+        wireguard_service.state = wireguard_service.uplink_ready ?
             SOLAR_OS_WIREGUARD_STATE_RESOLVING :
-            SOLAR_OS_WIREGUARD_STATE_WAIT_WIFI;
+            SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK;
         wireguard_service.last_retry_ms = 0U;
     }
     if (notify && wireguard_service.worker != NULL &&
@@ -1638,6 +1734,10 @@ void solar_os_wireguard_get_status(solar_os_wireguard_status_t *status)
     strlcpy(status->peer_key_fingerprint,
             wireguard_service.peer_key_fingerprint,
             sizeof(status->peer_key_fingerprint));
+    strlcpy(status->underlay,
+            wireguard_service.runtime_active ?
+                wireguard_service.bound_name : wireguard_service.uplink_name,
+            sizeof(status->underlay));
     ip4addr_ntoa_r(&wireguard_service.endpoint_ip,
                    status->endpoint_ip,
                    sizeof(status->endpoint_ip));
@@ -1660,7 +1760,7 @@ const char *solar_os_wireguard_state_name(solar_os_wireguard_state_t state)
 {
     switch (state) {
     case SOLAR_OS_WIREGUARD_STATE_OFF: return "off";
-    case SOLAR_OS_WIREGUARD_STATE_WAIT_WIFI: return "waiting for Wi-Fi";
+    case SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK: return "waiting for uplink";
     case SOLAR_OS_WIREGUARD_STATE_RESOLVING: return "resolving endpoint";
     case SOLAR_OS_WIREGUARD_STATE_CONNECTING: return "connecting";
     case SOLAR_OS_WIREGUARD_STATE_UP: return "up";

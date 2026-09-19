@@ -800,17 +800,17 @@ sources = ["services/solar_os_zip.c"]
 [packages.service_network]
 label = "network.routing"
 sources = [
+  "services/solar_os_lwip_route.c",
   "services/solar_os_network.c",
   "shell/solar_os_shell_network_status.c",
   "shell/solar_os_shell_network_tui.c",
 ]
-requires = ["esp_event", "esp_netif", "nvs_flash"]
+requires = ["esp_event", "esp_netif", "lwip", "nvs_flash"]
 
 [packages.service_wifi]
 label = "service.wifi"
 depends = ["service_network"]
 sources = [
-  "services/solar_os_lwip_route.c",
   "services/solar_os_wifi.c",
   "services/solar_os_wifi_repeater.c",
   "shell/solar_os_shell_network.c",
@@ -821,13 +821,12 @@ capabilities = ["wifi"]
 
 [packages.service_wireguard]
 label = "network.wireguard"
-depends = ["service_wifi"]
+depends = ["service_network"]
 sources = [
   "services/solar_os_wireguard.c",
   "shell/solar_os_shell_wireguard.c",
 ]
-requires = ["esp_event", "esp_netif", "esp_system", "esp_wifi", "lwip", "nvs_flash", "wireguard_lwip"]
-capabilities = ["wifi"]
+requires = ["esp_event", "esp_netif", "esp_system", "lwip", "nvs_flash", "wireguard_lwip"]
 
 [packages.service_espnow]
 label = "service.espnow"

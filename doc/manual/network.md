@@ -164,21 +164,23 @@ file.
 
 The allowed-prefix table controls IPv4 destination routing. A `0.0.0.0/0`
 prefix makes the WireGuard interface the default route. The encrypted outer UDP
-flow stays bound to the Wi-Fi station interface to avoid routing it back into
-the tunnel. A full tunnel uses fail-closed behavior by default. While its
-hostname is being resolved, only endpoint-resolution DNS and DHCP traffic may
-use Wi-Fi directly. After resolution, only WireGuard endpoint UDP and DHCP
-remain permitted. This also blocks direct local-LAN and IPv6 traffic. Select
-`wireguard up fail-open` to restore direct Wi-Fi routing if the peer is down.
-For split tunnels the default is fail-open; `fail-closed` prevents matching
-prefixes from falling through but does not block unrelated direct Wi-Fi
-traffic.
+flow stays bound to the currently preferred base interface to avoid routing it
+back into the tunnel. That underlay can be Wi-Fi, cellular PPP, Ethernet, SLIP,
+or another IPv4-capable path registered with the network service. A full tunnel
+uses fail-closed behavior by default. While its hostname is being resolved,
+only endpoint-resolution DNS and DHCP traffic may use the underlay directly.
+After resolution, only WireGuard endpoint UDP and DHCP remain permitted. This
+also blocks direct local-network and IPv6 traffic. Select `wireguard up
+fail-open` to restore direct underlay routing if the peer is down. For split
+tunnels the default is fail-open; `fail-closed` prevents matching prefixes from
+falling through but does not block unrelated direct underlay traffic.
 
 The service stops its lwIP interface before light sleep and recreates it after
-Wi-Fi resumes. It also tears down on a lost station address and retries after a
-new address arrives. Handshake timestamps prefer synchronized wall time. A
-persisted forward-only reservation supplies replay-safe timestamps when wall
-time is not synchronized.
+an uplink resumes. It also tears down and reconnects when route priority or link
+state selects another base interface. `wireguard status` reports the selected
+underlay. Handshake timestamps prefer synchronized wall time. A persisted
+forward-only reservation supplies replay-safe timestamps when wall time is not
+synchronized.
 
 ## MQTT
 

@@ -136,13 +136,11 @@ void solar_os_boot_services_init(uint32_t now_ms)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
-    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_WIFI)) {
-        const esp_err_t wireguard_err = solar_os_wireguard_init();
-        if (wireguard_err != ESP_OK) {
-            SOLAR_OS_LOGW(TAG,
-                          "WireGuard unavailable: %s",
-                          esp_err_to_name(wireguard_err));
-        }
+    const esp_err_t wireguard_err = solar_os_wireguard_init();
+    if (wireguard_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG,
+                      "WireGuard unavailable: %s",
+                      esp_err_to_name(wireguard_err));
     }
 #endif
 
