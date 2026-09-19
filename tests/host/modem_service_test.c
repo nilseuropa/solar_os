@@ -16,7 +16,10 @@ typedef struct {
     unsigned unlock_count;
     unsigned power_count;
     unsigned reset_count;
+    unsigned transport_rate_set_count;
     unsigned status_count;
+    uint32_t configured_transport_rate;
+    uint32_t active_transport_rate;
     bool data_active;
     bool powered;
     bool try_unregister;
@@ -24,10 +27,34 @@ typedef struct {
 } fake_modem_t;
 
 static bool nvs_namespace_exists;
-static bool nvs_blob_exists;
-static char nvs_key[16];
-static uint8_t nvs_blob[512];
-static size_t nvs_blob_size;
+
+typedef struct {
+    bool exists;
+    char key[16];
+    uint8_t blob[512];
+    size_t size;
+} fake_nvs_entry_t;
+
+static fake_nvs_entry_t nvs_entries[4];
+
+static fake_nvs_entry_t *find_nvs_entry(const char *key, bool create)
+{
+    fake_nvs_entry_t *free_entry = NULL;
+    for (size_t i = 0U; i < sizeof(nvs_entries) / sizeof(nvs_entries[0]); i++) {
+        if (nvs_entries[i].exists && strcmp(nvs_entries[i].key, key) == 0) {
+            return &nvs_entries[i];
+        }
+        if (!nvs_entries[i].exists && free_entry == NULL) {
+            free_entry = &nvs_entries[i];
+        }
+    }
+    if (create && free_entry != NULL) {
+        free_entry->exists = true;
+        (void)snprintf(free_entry->key, sizeof(free_entry->key), "%s", key);
+        return free_entry;
+    }
+    return NULL;
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -59,14 +86,15 @@ esp_err_t nvs_get_blob(nvs_handle_t handle,
                        size_t *length)
 {
     assert(handle == 1U);
-    if (!nvs_blob_exists || strcmp(key, nvs_key) != 0) {
+    fake_nvs_entry_t *entry = find_nvs_entry(key, false);
+    if (entry == NULL) {
         return ESP_ERR_NVS_NOT_FOUND;
     }
-    if (*length < nvs_blob_size) {
+    if (*length < entry->size) {
         return ESP_ERR_INVALID_SIZE;
     }
-    memcpy(value, nvs_blob, nvs_blob_size);
-    *length = nvs_blob_size;
+    memcpy(value, entry->blob, entry->size);
+    *length = entry->size;
     return ESP_OK;
 }
 
@@ -76,23 +104,22 @@ esp_err_t nvs_set_blob(nvs_handle_t handle,
                        size_t length)
 {
     assert(handle == 1U);
-    assert(length <= sizeof(nvs_blob));
-    strlcpy(nvs_key, key, sizeof(nvs_key));
-    memcpy(nvs_blob, value, length);
-    nvs_blob_size = length;
-    nvs_blob_exists = true;
+    fake_nvs_entry_t *entry = find_nvs_entry(key, true);
+    assert(entry != NULL);
+    assert(length <= sizeof(entry->blob));
+    memcpy(entry->blob, value, length);
+    entry->size = length;
     return ESP_OK;
 }
 
 esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key)
 {
     assert(handle == 1U);
-    if (!nvs_blob_exists || strcmp(key, nvs_key) != 0) {
+    fake_nvs_entry_t *entry = find_nvs_entry(key, false);
+    if (entry == NULL) {
         return ESP_ERR_NVS_NOT_FOUND;
     }
-    memset(nvs_blob, 0, sizeof(nvs_blob));
-    nvs_blob_size = 0U;
-    nvs_blob_exists = false;
+    memset(entry, 0, sizeof(*entry));
     return ESP_OK;
 }
 
@@ -163,6 +190,34 @@ static esp_err_t fake_set_data_active(void *ctx, bool active)
     return ESP_OK;
 }
 
+static esp_err_t fake_get_transport_rate(
+    void *ctx,
+    solar_os_modem_transport_rate_info_t *info)
+{
+    fake_modem_t *fake = ctx;
+    *info = (solar_os_modem_transport_rate_info_t) {
+        .automatic = fake->configured_transport_rate == 0U,
+        .configured_rate = fake->configured_transport_rate,
+        .active_rate = fake->active_transport_rate,
+        .supported_rates = {115200U, 230400U, 460800U},
+        .supported_rate_count = 3U,
+    };
+    return ESP_OK;
+}
+
+static esp_err_t fake_set_transport_rate(void *ctx, uint32_t rate)
+{
+    fake_modem_t *fake = ctx;
+    if (rate != 0U && rate != 115200U && rate != 230400U &&
+        rate != 460800U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    fake->configured_transport_rate = rate;
+    fake->active_transport_rate = rate == 0U ? 460800U : rate;
+    fake->transport_rate_set_count++;
+    return ESP_OK;
+}
+
 static esp_err_t fake_unlock_sim(void *ctx, const char *pin)
 {
     fake_modem_t *fake = ctx;
@@ -192,6 +247,8 @@ static const solar_os_modem_ops_t fake_ops = {
     .apply_profile = fake_apply_profile,
     .clear_profile = fake_clear_profile,
     .set_data_active = fake_set_data_active,
+    .get_transport_rate = fake_get_transport_rate,
+    .set_transport_rate = fake_set_transport_rate,
     .unlock_sim = fake_unlock_sim,
     .command = fake_command,
 };
@@ -234,6 +291,7 @@ int main(void)
             .registration = SOLAR_OS_MODEM_REGISTRATION_ROAMING,
         },
         .powered = true,
+        .active_transport_rate = 460800U,
         .try_unregister = true,
     };
     const solar_os_modem_registration_t registration = {
@@ -252,7 +310,21 @@ int main(void)
     assert(strcmp(info.driver, "fake") == 0);
     assert(info.power_control && info.powered && info.reset_control);
     assert(info.profile_support && info.data_control && info.sim_unlock);
+    assert(info.transport_rate_control);
     assert(info.raw_command);
+
+    solar_os_modem_transport_rate_info_t rate_info;
+    assert(solar_os_modem_transport_rate_get("modem0", &rate_info) == ESP_OK);
+    assert(rate_info.automatic && rate_info.configured_rate == 0U);
+    assert(rate_info.active_rate == 460800U);
+    assert(rate_info.supported_rate_count == 3U);
+    assert(solar_os_modem_transport_rate_set("modem0", 230400U) == ESP_OK);
+    assert(fake.transport_rate_set_count == 1U);
+    assert(solar_os_modem_transport_rate_get("modem0", &rate_info) == ESP_OK);
+    assert(!rate_info.automatic && rate_info.configured_rate == 230400U);
+    assert(rate_info.active_rate == 230400U);
+    assert(solar_os_modem_transport_rate_set("modem0", 921600U) ==
+           ESP_ERR_INVALID_ARG);
 
     solar_os_modem_status_t status;
     assert(solar_os_modem_get_status("modem0", &status) == ESP_OK);
@@ -316,6 +388,11 @@ int main(void)
     assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_ERR_NOT_FOUND);
     assert(solar_os_modem_unregister("modem0") == ESP_OK);
     assert(solar_os_modem_count() == 0U);
+    const unsigned rate_set_count = fake.transport_rate_set_count;
+    assert(solar_os_modem_register(&registration) == ESP_OK);
+    assert(fake.transport_rate_set_count == rate_set_count + 1U);
+    assert(fake.configured_transport_rate == 230400U);
+    assert(solar_os_modem_unregister("modem0") == ESP_OK);
 
     fake_modem_t always_on = {
         .status = {
@@ -333,11 +410,16 @@ int main(void)
     assert(solar_os_modem_register(&always_on_registration) == ESP_OK);
     assert(solar_os_modem_get(0U, &info));
     assert(!info.power_control && info.powered && !info.reset_control);
+    assert(!info.transport_rate_control);
     assert(solar_os_modem_get_status("modem1", &status) == ESP_OK);
     assert(!status.power_control && status.powered && status.online);
     assert(solar_os_modem_set_power("modem1", false) ==
            ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_modem_reset("modem1") == ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_modem_transport_rate_get("modem1", &rate_info) ==
+           ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_modem_transport_rate_set("modem1", 115200U) ==
+           ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_modem_unregister("modem1") == ESP_OK);
 
     solar_os_modem_ip_type_t ip_type;

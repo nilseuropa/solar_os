@@ -40,6 +40,7 @@ typedef struct {
     bool powered;
     bool gnss_powered;
     uint32_t boot_baud_rate;
+    uint32_t configured_baud_rate;
     uint32_t active_baud_rate;
     solar_os_gpio_line_ref_t power_line;
     solar_os_gpio_line_ref_t reset_line;
@@ -643,21 +644,24 @@ static esp_err_t recover_boot_baud_locked(solar_os_sim7670_device_t *device)
 
 static esp_err_t prepare_uart_locked(solar_os_sim7670_device_t *device)
 {
+    const uint32_t target_baud_rate = device->configured_baud_rate != 0U
+        ? device->configured_baud_rate
+        : SIM7670_UART_MAX_BAUD_RATE;
     ESP_RETURN_ON_ERROR(set_host_baud_locked(device,
                                              device->boot_baud_rate),
                         TAG,
                         "set modem boot baud failed");
     esp_err_t boot_probe = probe_modem_locked(device);
     if (boot_probe != ESP_OK &&
-        device->boot_baud_rate != SIM7670_UART_MAX_BAUD_RATE) {
+        device->boot_baud_rate != target_baud_rate) {
         const esp_err_t fast_set = set_host_baud_locked(
             device,
-            SIM7670_UART_MAX_BAUD_RATE);
+            target_baud_rate);
         if (fast_set == ESP_OK && probe_modem_locked(device) == ESP_OK) {
             ESP_LOGI(TAG,
                      "%s transport already at %u baud",
                      device->name,
-                     (unsigned)SIM7670_UART_MAX_BAUD_RATE);
+                     (unsigned)target_baud_rate);
             return ESP_OK;
         }
         (void)set_host_baud_locked(device, device->boot_baud_rate);
@@ -666,38 +670,38 @@ static esp_err_t prepare_uart_locked(solar_os_sim7670_device_t *device)
         const esp_err_t recovery_ret = recover_boot_baud_locked(device);
         if (recovery_ret == ESP_OK) {
             ESP_LOGW(TAG,
-                     "%s transport recovered at %u baud; fast baud deferred",
+                     "%s transport recovered at %u baud; configured baud deferred",
                      device->name,
                      (unsigned)device->boot_baud_rate);
             return ESP_OK;
         }
         return recovery_ret;
     }
-    if (device->boot_baud_rate == SIM7670_UART_MAX_BAUD_RATE) {
+    if (device->boot_baud_rate == target_baud_rate) {
         return ESP_OK;
     }
 
     const esp_err_t command_ret = sim7670_set_uart_baud_rate(
         &device->modem,
-        SIM7670_UART_MAX_BAUD_RATE);
+        target_baud_rate);
     if (command_ret == ESP_FAIL) {
         ESP_LOGW(TAG,
-                 "%s rejected %u baud; continuing at %u baud",
+                 "%s rejected configured %u baud; continuing at %u baud",
                  device->name,
-                 (unsigned)SIM7670_UART_MAX_BAUD_RATE,
+                 (unsigned)target_baud_rate,
                  (unsigned)device->boot_baud_rate);
         return ESP_OK;
     }
     vTaskDelay(pdMS_TO_TICKS(SIM7670_UART_SWITCH_SETTLE_MS));
     const esp_err_t switch_ret = set_host_baud_locked(
         device,
-        SIM7670_UART_MAX_BAUD_RATE);
+        target_baud_rate);
     if (switch_ret == ESP_OK && probe_modem_locked(device) == ESP_OK) {
         ESP_LOGI(TAG,
-                 "%s transport raised from %u to %u baud%s",
+                 "%s transport changed from %u to %u baud%s",
                  device->name,
                  (unsigned)device->boot_baud_rate,
-                 (unsigned)SIM7670_UART_MAX_BAUD_RATE,
+                 (unsigned)target_baud_rate,
                  command_ret == ESP_OK ? "" : " after an unconfirmed response");
         return ESP_OK;
     }
@@ -705,7 +709,7 @@ static esp_err_t prepare_uart_locked(solar_os_sim7670_device_t *device)
     const esp_err_t recovery_ret = recover_boot_baud_locked(device);
     if (recovery_ret == ESP_OK) {
         ESP_LOGW(TAG,
-                 "%s fast baud unavailable; continuing at %u baud",
+                 "%s configured baud unavailable; continuing at %u baud",
                  device->name,
                  (unsigned)device->boot_baud_rate);
         return ESP_OK;
@@ -717,6 +721,112 @@ static esp_err_t prepare_uart_locked(solar_os_sim7670_device_t *device)
              esp_err_to_name(switch_ret),
              esp_err_to_name(recovery_ret));
     return recovery_ret;
+}
+
+static bool transport_rate_supported(uint32_t rate)
+{
+    switch (rate) {
+    case 600U:
+    case 1200U:
+    case 2400U:
+    case 4800U:
+    case 9600U:
+    case 19200U:
+    case 38400U:
+    case 57600U:
+    case 115200U:
+    case 230400U:
+    case SIM7670_UART_MAX_BAUD_RATE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static esp_err_t modem_get_transport_rate(
+    void *ctx,
+    solar_os_modem_transport_rate_info_t *info)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    if (device == NULL || !device->active || info == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    static const uint32_t supported_rates[] = {
+        600U, 1200U, 2400U, 4800U, 9600U, 19200U,
+        38400U, 57600U, 115200U, 230400U,
+        SIM7670_UART_MAX_BAUD_RATE,
+    };
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    *info = (solar_os_modem_transport_rate_info_t) {
+        .automatic = device->configured_baud_rate == 0U,
+        .configured_rate = device->configured_baud_rate,
+        .active_rate = device->active_baud_rate,
+        .supported_rate_count = sizeof(supported_rates) /
+            sizeof(supported_rates[0]),
+    };
+    memcpy(info->supported_rates,
+           supported_rates,
+           sizeof(supported_rates));
+    xSemaphoreGive(device->mutex);
+    return ESP_OK;
+}
+
+static esp_err_t modem_set_transport_rate(void *ctx, uint32_t rate)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    if (device == NULL || !device->active ||
+        (rate != 0U && !transport_rate_supported(rate))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint32_t target_rate = rate == 0U
+        ? SIM7670_UART_MAX_BAUD_RATE
+        : rate;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+#if CONFIG_LWIP_PPP_SUPPORT
+    if (solar_os_ppp_is_busy(device->ppp)) {
+        xSemaphoreGive(device->mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+    if (!device->powered || device->active_baud_rate == target_rate) {
+        device->configured_baud_rate = rate;
+        xSemaphoreGive(device->mutex);
+        return ESP_OK;
+    }
+
+    const uint32_t previous_active_rate = device->active_baud_rate;
+    const esp_err_t command_ret = sim7670_set_uart_baud_rate(&device->modem,
+                                                             target_rate);
+    if (command_ret == ESP_FAIL) {
+        xSemaphoreGive(device->mutex);
+        return command_ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(SIM7670_UART_SWITCH_SETTLE_MS));
+    esp_err_t ret = set_host_baud_locked(device, target_rate);
+    if (ret == ESP_OK) {
+        ret = probe_modem_locked(device);
+    }
+    if (ret == ESP_OK) {
+        device->configured_baud_rate = rate;
+        ESP_LOGI(TAG,
+                 "%s transport changed from %u to %u baud%s",
+                 device->name,
+                 (unsigned)previous_active_rate,
+                 (unsigned)target_rate,
+                 command_ret == ESP_OK ? "" : " after an unconfirmed response");
+        xSemaphoreGive(device->mutex);
+        return ESP_OK;
+    }
+
+    const esp_err_t restore_ret = set_host_baud_locked(device,
+                                                        previous_active_rate);
+    if (restore_ret == ESP_OK && probe_modem_locked(device) == ESP_OK) {
+        device->active_baud_rate = previous_active_rate;
+    } else {
+        (void)recover_boot_baud_locked(device);
+    }
+    xSemaphoreGive(device->mutex);
+    return ret;
 }
 
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -912,6 +1022,8 @@ static const solar_os_modem_ops_t modem_ops = {
     .apply_profile = modem_apply_profile,
     .clear_profile = modem_clear_profile,
     .set_data_active = modem_set_data_active,
+    .get_transport_rate = modem_get_transport_rate,
+    .set_transport_rate = modem_set_transport_rate,
     .unlock_sim = modem_unlock_sim,
     .command = modem_command,
 };
@@ -923,6 +1035,8 @@ static const solar_os_modem_ops_t powered_modem_ops = {
     .apply_profile = modem_apply_profile,
     .clear_profile = modem_clear_profile,
     .set_data_active = modem_set_data_active,
+    .get_transport_rate = modem_get_transport_rate,
+    .set_transport_rate = modem_set_transport_rate,
     .unlock_sim = modem_unlock_sim,
     .command = modem_command,
 };
@@ -933,6 +1047,8 @@ static const solar_os_modem_ops_t resettable_modem_ops = {
     .apply_profile = modem_apply_profile,
     .clear_profile = modem_clear_profile,
     .set_data_active = modem_set_data_active,
+    .get_transport_rate = modem_get_transport_rate,
+    .set_transport_rate = modem_set_transport_rate,
     .unlock_sim = modem_unlock_sim,
     .command = modem_command,
 };

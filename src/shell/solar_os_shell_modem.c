@@ -2,6 +2,8 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 
+#include <errno.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -45,6 +47,7 @@ static void print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  modem status [name]");
     solar_os_shell_io_writeln(term, "  modem power <on|off> [name]");
     solar_os_shell_io_writeln(term, "  modem reset [name]");
+    solar_os_shell_io_writeln(term, "  modem baud [name] [auto|rate]");
     solar_os_shell_io_writeln(term, "  modem profile show [name]");
     solar_os_shell_io_writeln(
         term,
@@ -205,6 +208,93 @@ static void reset_modem(solar_os_shell_io_t *term,
     } else {
         print_error(term, "reset", ret);
     }
+}
+
+static bool parse_transport_rate(const char *text, uint32_t *rate)
+{
+    if (strcmp(text, "auto") == 0) {
+        *rate = 0U;
+        return true;
+    }
+    errno = 0;
+    char *end = NULL;
+    const unsigned long parsed = strtoul(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0' || parsed == 0UL ||
+        parsed > UINT32_MAX) {
+        return false;
+    }
+    *rate = (uint32_t)parsed;
+    return true;
+}
+
+static void show_transport_rate(solar_os_shell_io_t *term, const char *name)
+{
+    solar_os_modem_transport_rate_info_t info;
+    const esp_err_t ret = solar_os_modem_transport_rate_get(name, &info);
+    if (ret != ESP_OK) {
+        print_error(term, "baud", ret);
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "%s baud=%" PRIu32 " configured=",
+                             name,
+                             info.active_rate);
+    if (info.automatic) {
+        solar_os_shell_io_write(term, "auto");
+    } else {
+        solar_os_shell_io_printf(term, "%" PRIu32, info.configured_rate);
+    }
+    solar_os_shell_io_write(term, " supported=");
+    for (size_t i = 0U; i < info.supported_rate_count; i++) {
+        solar_os_shell_io_printf(term,
+                                 "%s%" PRIu32,
+                                 i == 0U ? "" : ",",
+                                 info.supported_rates[i]);
+    }
+    solar_os_shell_io_write(term, "\r\n");
+}
+
+static void handle_transport_rate(solar_os_shell_io_t *term,
+                                  int argc,
+                                  char **argv)
+{
+    if (argc < 2 || argc > 4) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: modem baud [name] [auto|rate]");
+        return;
+    }
+    const char *name = NULL;
+    uint32_t rate = 0U;
+    bool set = false;
+    if (argc == 2) {
+        name = default_name();
+    } else if (argc == 3 && parse_transport_rate(argv[2], &rate)) {
+        name = default_name();
+        set = true;
+    } else {
+        name = argv[2];
+        if (argc == 4) {
+            set = parse_transport_rate(argv[3], &rate);
+            if (!set) {
+                solar_os_shell_io_writeln(
+                    term,
+                    "usage: modem baud [name] [auto|rate]");
+                return;
+            }
+        }
+    }
+    if (name == NULL) {
+        solar_os_shell_io_writeln(term, "modem: no device");
+        return;
+    }
+    if (set) {
+        const esp_err_t ret = solar_os_modem_transport_rate_set(name, rate);
+        if (ret != ESP_OK) {
+            print_error(term, "baud", ret);
+            return;
+        }
+    }
+    show_transport_rate(term, name);
 }
 
 static bool parse_profile_options(int argc,
@@ -500,6 +590,8 @@ void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv)
         set_power(term, argc, argv);
     } else if (strcmp(argv[1], "reset") == 0) {
         reset_modem(term, argc, argv);
+    } else if (strcmp(argv[1], "baud") == 0) {
+        handle_transport_rate(term, argc, argv);
     } else if (strcmp(argv[1], "profile") == 0) {
         handle_profile(term, argc, argv);
     } else if (strcmp(argv[1], "connect") == 0) {

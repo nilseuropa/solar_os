@@ -14,6 +14,7 @@
 #define SOLAR_OS_MODEM_USERNAME_MAX 64U
 #define SOLAR_OS_MODEM_PASSWORD_MAX 64U
 #define SOLAR_OS_MODEM_ADDRESS_MAX 46U
+#define SOLAR_OS_MODEM_TRANSPORT_RATE_MAX 12U
 
 typedef enum {
     SOLAR_OS_MODEM_IP_IPV4 = 0,
@@ -77,6 +78,14 @@ typedef struct {
 } solar_os_modem_status_t;
 
 typedef struct {
+    bool automatic;
+    uint32_t configured_rate;
+    uint32_t active_rate;
+    uint32_t supported_rates[SOLAR_OS_MODEM_TRANSPORT_RATE_MAX];
+    size_t supported_rate_count;
+} solar_os_modem_transport_rate_info_t;
+
+typedef struct {
     esp_err_t (*get_status)(void *ctx, solar_os_modem_status_t *status);
     esp_err_t (*set_power)(void *ctx, bool enabled);
     esp_err_t (*reset)(void *ctx);
@@ -84,6 +93,10 @@ typedef struct {
                                const solar_os_modem_profile_t *profile);
     esp_err_t (*clear_profile)(void *ctx);
     esp_err_t (*set_data_active)(void *ctx, bool active);
+    esp_err_t (*get_transport_rate)(
+        void *ctx,
+        solar_os_modem_transport_rate_info_t *info);
+    esp_err_t (*set_transport_rate)(void *ctx, uint32_t rate);
     esp_err_t (*unlock_sim)(void *ctx, const char *pin);
     esp_err_t (*command)(void *ctx,
                          const char *command,
@@ -110,6 +123,7 @@ typedef struct {
     bool reset_control;
     bool profile_support;
     bool data_control;
+    bool transport_rate_control;
     bool sim_unlock;
     bool raw_command;
 } solar_os_modem_info_t;
@@ -130,6 +144,10 @@ esp_err_t solar_os_modem_profile_get(const char *name,
                                      solar_os_modem_profile_t *profile);
 esp_err_t solar_os_modem_profile_clear(const char *name);
 esp_err_t solar_os_modem_set_data_active(const char *name, bool active);
+esp_err_t solar_os_modem_transport_rate_get(
+    const char *name,
+    solar_os_modem_transport_rate_info_t *info);
+esp_err_t solar_os_modem_transport_rate_set(const char *name, uint32_t rate);
 esp_err_t solar_os_modem_unlock_sim(const char *name, const char *pin);
 esp_err_t solar_os_modem_command(const char *name,
                                  const char *command,

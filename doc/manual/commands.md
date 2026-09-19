@@ -940,6 +940,7 @@ available for the compiled board.
 | `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
 | `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
 | `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |
+| `modem` | `modem baud [name] [auto\|rate]` | Show or persist an optional serial modem transport rate. `auto` selects the driver's preferred rate. |
 | `modem` | `modem profile set [name] --apn <apn> [--dns <ipv4\|auto>] [--ip ipv4\|ipv6\|ipv4v6] [--auth none\|pap\|chap\|auto] [--user <user> --password <password>]` | Validate, apply, and persist a modem-independent cellular profile. |
 | `modem` | `modem profile show\|clear [name]` | Inspect a saved profile with its password redacted, or remove it. |
 | `modem` | `modem connect\|disconnect [name]` | Bring the saved cellular network connection and PPP interface up or down. |

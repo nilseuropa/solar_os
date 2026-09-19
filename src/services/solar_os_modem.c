@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
@@ -12,6 +13,7 @@
 #define MODEM_DEVICE_MAX 3U
 #define MODEM_NVS_NAMESPACE "cellular"
 #define MODEM_PROFILE_VERSION 1U
+#define MODEM_TRANSPORT_RATE_VERSION 1U
 
 typedef struct {
     bool active;
@@ -29,6 +31,12 @@ typedef struct {
 } modem_profile_record_t;
 
 typedef struct {
+    uint32_t version;
+    char name[SOLAR_OS_MODEM_NAME_MAX];
+    uint32_t rate;
+} modem_transport_rate_record_t;
+
+typedef struct {
     const solar_os_modem_ops_t *ops;
     void *ctx;
     size_t index;
@@ -41,6 +49,7 @@ static SemaphoreHandle_t modem_mutex;
 static StaticSemaphore_t modem_mutex_storage;
 static modem_device_t modem_devices[MODEM_DEVICE_MAX];
 static uint32_t modem_next_generation = 1U;
+static const char *TAG = "modem";
 
 static esp_err_t ensure_mutex(void)
 {
@@ -263,7 +272,7 @@ const char *solar_os_modem_network_state_name(
     }
 }
 
-static void profile_key(const char *name, char key[10])
+static void settings_key(const char *name, char prefix, char key[10])
 {
     uint32_t hash = UINT32_C(2166136261);
     for (const unsigned char *ch = (const unsigned char *)name;
@@ -271,7 +280,7 @@ static void profile_key(const char *name, char key[10])
         hash ^= *ch;
         hash *= UINT32_C(16777619);
     }
-    (void)snprintf(key, 10U, "p%08" PRIx32, hash);
+    (void)snprintf(key, 10U, "%c%08" PRIx32, prefix, hash);
 }
 
 static esp_err_t profile_load(const char *name,
@@ -289,7 +298,7 @@ static esp_err_t profile_load(const char *name,
         return ret;
     }
     char key[10];
-    profile_key(name, key);
+    settings_key(name, 'p', key);
     modem_profile_record_t record = {0};
     size_t size = sizeof(record);
     ret = nvs_get_blob(nvs, key, &record, &size);
@@ -320,7 +329,7 @@ static esp_err_t profile_save(const char *name,
     };
     strlcpy(record.name, name, sizeof(record.name));
     char key[10];
-    profile_key(name, key);
+    settings_key(name, 'p', key);
     nvs_handle_t nvs;
     bool opened = false;
     esp_err_t ret = nvs_open(MODEM_NVS_NAMESPACE, NVS_READWRITE, &nvs);
@@ -341,7 +350,7 @@ static esp_err_t profile_save(const char *name,
 static esp_err_t profile_remove(const char *name)
 {
     char key[10];
-    profile_key(name, key);
+    settings_key(name, 'p', key);
     nvs_handle_t nvs;
     esp_err_t ret = nvs_open(MODEM_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (ret != ESP_OK) {
@@ -355,6 +364,65 @@ static esp_err_t profile_remove(const char *name)
         ret = nvs_commit(nvs);
     }
     nvs_close(nvs);
+    return ret;
+}
+
+static esp_err_t transport_rate_load(const char *name, uint32_t *rate)
+{
+    if (!modem_name_valid(name) || rate == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(MODEM_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    char key[10];
+    settings_key(name, 'b', key);
+    modem_transport_rate_record_t record = {0};
+    size_t size = sizeof(record);
+    ret = nvs_get_blob(nvs, key, &record, &size);
+    nvs_close(nvs);
+    if (ret == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (size != sizeof(record) ||
+        record.version != MODEM_TRANSPORT_RATE_VERSION ||
+        strncmp(record.name, name, sizeof(record.name)) != 0) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    *rate = record.rate;
+    return ESP_OK;
+}
+
+static esp_err_t transport_rate_save(const char *name, uint32_t rate)
+{
+    modem_transport_rate_record_t record = {
+        .version = MODEM_TRANSPORT_RATE_VERSION,
+        .rate = rate,
+    };
+    strlcpy(record.name, name, sizeof(record.name));
+    char key[10];
+    settings_key(name, 'b', key);
+    nvs_handle_t nvs;
+    bool opened = false;
+    esp_err_t ret = nvs_open(MODEM_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret == ESP_OK) {
+        opened = true;
+        ret = nvs_set_blob(nvs, key, &record, sizeof(record));
+    }
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs);
+    }
+    if (opened) {
+        nvs_close(nvs);
+    }
     return ret;
 }
 
@@ -456,6 +524,9 @@ esp_err_t solar_os_modem_register(
     free_device->info.reset_control = registration->ops->reset != NULL;
     free_device->info.data_control =
         registration->ops->set_data_active != NULL;
+    free_device->info.transport_rate_control =
+        registration->ops->get_transport_rate != NULL &&
+        registration->ops->set_transport_rate != NULL;
     free_device->info.sim_unlock = registration->ops->unlock_sim != NULL;
     free_device->info.raw_command = registration->ops->command != NULL;
     free_device->ops = registration->ops;
@@ -464,7 +535,31 @@ esp_err_t solar_os_modem_register(
     if (free_device->generation == 0U) {
         free_device->generation = modem_next_generation++;
     }
+    const bool transport_rate_control =
+        free_device->info.transport_rate_control;
     xSemaphoreGive(modem_mutex);
+
+    if (transport_rate_control) {
+        uint32_t saved_rate = 0U;
+        const esp_err_t load_ret = transport_rate_load(registration->name,
+                                                       &saved_rate);
+        if (load_ret == ESP_OK) {
+            const esp_err_t apply_ret = registration->ops->set_transport_rate(
+                registration->ctx,
+                saved_rate);
+            if (apply_ret != ESP_OK) {
+                ESP_LOGW(TAG,
+                         "%s saved transport rate unavailable: %s",
+                         registration->name,
+                         esp_err_to_name(apply_ret));
+            }
+        } else if (load_ret != ESP_ERR_NOT_FOUND) {
+            ESP_LOGW(TAG,
+                     "%s saved transport rate unreadable: %s",
+                     registration->name,
+                     esp_err_to_name(load_ret));
+        }
+    }
     return ESP_OK;
 }
 
@@ -683,6 +778,53 @@ esp_err_t solar_os_modem_set_data_active(const char *name, bool active)
         release_device(&ref);
     }
     secure_zero(&profile, sizeof(profile));
+    return ret;
+}
+
+esp_err_t solar_os_modem_transport_rate_get(
+    const char *name,
+    solar_os_modem_transport_rate_info_t *info)
+{
+    if (info == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    modem_ref_t ref = {0};
+    esp_err_t ret = acquire_device(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (ref.ops->get_transport_rate == NULL ||
+        ref.ops->set_transport_rate == NULL) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    } else {
+        memset(info, 0, sizeof(*info));
+        ret = ref.ops->get_transport_rate(ref.ctx, info);
+        if (ret == ESP_OK &&
+            info->supported_rate_count > SOLAR_OS_MODEM_TRANSPORT_RATE_MAX) {
+            ret = ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    release_device(&ref);
+    return ret;
+}
+
+esp_err_t solar_os_modem_transport_rate_set(const char *name, uint32_t rate)
+{
+    modem_ref_t ref = {0};
+    esp_err_t ret = acquire_device(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (ref.ops->get_transport_rate == NULL ||
+        ref.ops->set_transport_rate == NULL) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    } else {
+        ret = ref.ops->set_transport_rate(ref.ctx, rate);
+    }
+    release_device(&ref);
+    if (ret == ESP_OK) {
+        ret = transport_rate_save(name, rate);
+    }
     return ret;
 }
 
