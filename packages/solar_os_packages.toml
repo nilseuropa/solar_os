@@ -1178,6 +1178,7 @@ label = "service.modem"
 sources = [
   "services/solar_os_modem.c",
   "shell/solar_os_shell_modem.c",
+  "shell/solar_os_shell_modem_tui.c",
 ]
 requires = ["nvs_flash"]
 

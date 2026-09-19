@@ -936,7 +936,8 @@ available for the compiled board.
 | `gnss` | `gnss status [name]` | Show power, fix, fix type, and satellite state for one logical receiver. |
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable one logical receiver using its driver-specific power control. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. A timeout can be supplied without a receiver name. |
-| `modem` | `modem [list]` | List registered cellular modems, concrete drivers, and transports. |
+| `modem` | `modem` | Open the modem status and settings TUI. |
+| `modem` | `modem list` | List registered cellular modems, concrete drivers, and transports. |
 | `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
 | `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
 | `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |

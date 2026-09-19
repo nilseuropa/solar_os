@@ -1,6 +1,7 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_shell_tui_apps.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -43,7 +44,8 @@ static void print_error(solar_os_shell_io_t *term,
 static void print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
-    solar_os_shell_io_writeln(term, "  modem [list]");
+    solar_os_shell_io_writeln(term, "  modem");
+    solar_os_shell_io_writeln(term, "  modem list");
     solar_os_shell_io_writeln(term, "  modem status [name]");
     solar_os_shell_io_writeln(term, "  modem power <on|off> [name]");
     solar_os_shell_io_writeln(term, "  modem reset [name]");
@@ -76,14 +78,15 @@ static void list_modems(solar_os_shell_io_t *term)
     solar_os_modem_info_t info;
     for (size_t i = 0; solar_os_modem_get(i, &info); i++) {
         solar_os_shell_io_printf(term,
-                                 "%s  driver=%s  transport=%s  power=%s  reset=%s\r\n",
+                                 "%s  driver=%s  transport=%s  power=%s  reset=%s  baud=%s\r\n",
                                  info.name,
                                  info.driver,
                                  info.transport,
                                  info.power_control
                                      ? (info.powered ? "on" : "off")
                                      : "always-on",
-                                 info.reset_control ? "yes" : "no");
+                                 info.reset_control ? "yes" : "no",
+                                 info.transport_rate_control ? "yes" : "no");
     }
 }
 
@@ -582,7 +585,14 @@ static void send_at(solar_os_shell_io_t *term,
 void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
-    if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
+    if (argc == 1) {
+        const esp_err_t ret = solar_os_shell_launch_modem_tui(ctx);
+        if (ret != ESP_OK) {
+            print_error(term, "launch", ret);
+        } else {
+            solar_os_shell_session_prepare_foreground_launch(ctx, true);
+        }
+    } else if (argc == 2 && strcmp(argv[1], "list") == 0) {
         list_modems(term);
     } else if (strcmp(argv[1], "status") == 0) {
         show_status(term, argc, argv);
