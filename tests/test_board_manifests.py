@@ -260,8 +260,9 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(
             (buses["modem-uart"]["port"],
              buses["modem-uart"]["tx"],
-             buses["modem-uart"]["rx"]),
-            ("UART_NUM_1", 18, 17),
+             buses["modem-uart"]["rx"],
+             buses["modem-uart"]["baud_rate"]),
+            ("UART_NUM_1", 18, 17, "115200"),
         )
         self.assertEqual(board["runtime"]["uart_ports"], ["UART_NUM_2"])
         self.assertEqual(

@@ -10,6 +10,7 @@
 #define SIM7670_APN_MAX 100U
 #define SIM7670_USERNAME_MAX 64U
 #define SIM7670_PASSWORD_MAX 64U
+#define SIM7670_UART_MAX_BAUD_RATE 460800U
 
 typedef esp_err_t (*sim7670_write_fn_t)(void *user,
                                        const uint8_t *data,
@@ -94,6 +95,8 @@ esp_err_t sim7670_command(sim7670_t *device,
                           uint32_t timeout_ms,
                           char *response,
                           size_t response_size);
+esp_err_t sim7670_set_uart_baud_rate(sim7670_t *device,
+                                     uint32_t baud_rate);
 esp_err_t sim7670_read_status(sim7670_t *device,
                               sim7670_status_t *status);
 esp_err_t sim7670_configure_pdp(sim7670_t *device,

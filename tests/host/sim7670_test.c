@@ -10,7 +10,7 @@ typedef struct {
     const char *response;
     size_t offset;
     char request[SIM7670_COMMAND_MAX + 3U];
-    char requests[32][SIM7670_COMMAND_MAX + 3U];
+    char requests[40][SIM7670_COMMAND_MAX + 3U];
     size_t request_count;
     bool sim_missing;
     bool pdp_active;
@@ -28,7 +28,7 @@ static esp_err_t fake_write(void *user,
     assert(len < sizeof(transport->request));
     memcpy(transport->request, data, len);
     transport->request[len] = '\0';
-    assert(transport->request_count < 32U);
+    assert(transport->request_count < 40U);
     memcpy(transport->requests[transport->request_count],
            transport->request,
            len + 1U);
@@ -58,6 +58,8 @@ static esp_err_t fake_write(void *user,
             "\r\n+CGNSSINFO: 2,09,05,00,00,3113.330650,N,"
             "12121.262554,E,131117,091918.00,32.9,0.0,255.0,"
             "1.1,0.8,0.7,14\r\n\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+IPR=460800\r\n") == 0) {
+        transport->response = "\r\nOK\r\n";
     } else if (strncmp(transport->request, "AT+CGDCONT=", 11U) == 0 ||
                strncmp(transport->request, "AT+CGAUTH=", 10U) == 0 ||
                strncmp(transport->request, "AT+CPIN=", 8U) == 0) {
@@ -231,6 +233,13 @@ int main(void)
                            1000U,
                            response,
                            sizeof(response)) == ESP_FAIL);
+
+    request = transport.request_count;
+    assert(sim7670_set_uart_baud_rate(
+               &modem, SIM7670_UART_MAX_BAUD_RATE) == ESP_OK);
+    assert(strcmp(transport.requests[request++],
+                  "AT+IPR=460800\r\n") == 0);
+    assert(sim7670_set_uart_baud_rate(&modem, 921600U) == ESP_ERR_INVALID_ARG);
 
     request = transport.request_count;
     assert(sim7670_configure_pdp(&modem,

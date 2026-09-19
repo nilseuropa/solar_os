@@ -84,6 +84,9 @@ esp_err_t solar_os_bus_uart_read(const char *name,
                                  size_t len,
                                  uint32_t timeout_ms,
                                  size_t *read_len);
+esp_err_t solar_os_bus_uart_set_baud_rate(const char *name,
+                                          uint32_t baud_rate,
+                                          const char *owner);
 esp_err_t solar_os_bus_uart_autobaud_start(const char *name, const char *owner);
 esp_err_t solar_os_bus_uart_autobaud_finish(const char *name,
                                             const char *owner,

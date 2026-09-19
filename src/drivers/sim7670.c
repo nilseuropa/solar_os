@@ -1,6 +1,7 @@
 #include "sim7670.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #define SIM7670_STATUS_TIMEOUT_MS 2000U
 #define SIM7670_STATUS_AT_ATTEMPTS 3U
 #define SIM7670_CONFIG_TIMEOUT_MS 5000U
+#define SIM7670_BAUD_TIMEOUT_MS 5000U
 #define SIM7670_ACTIVATION_TIMEOUT_MS 45000U
 #define SIM7670_CONTEXT_ID 1U
 
@@ -163,6 +165,49 @@ esp_err_t sim7670_command(sim7670_t *device,
         }
     }
     return ESP_ERR_TIMEOUT;
+}
+
+static bool uart_baud_rate_supported(uint32_t baud_rate)
+{
+    switch (baud_rate) {
+    case 600U:
+    case 1200U:
+    case 2400U:
+    case 4800U:
+    case 9600U:
+    case 19200U:
+    case 38400U:
+    case 57600U:
+    case 115200U:
+    case 230400U:
+    case SIM7670_UART_MAX_BAUD_RATE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+esp_err_t sim7670_set_uart_baud_rate(sim7670_t *device,
+                                     uint32_t baud_rate)
+{
+    if (device == NULL || !device->initialized ||
+        !uart_baud_rate_supported(baud_rate)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char command[32];
+    const int len = snprintf(command,
+                             sizeof(command),
+                             "AT+IPR=%" PRIu32,
+                             baud_rate);
+    if (len <= 0 || (size_t)len >= sizeof(command)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    char response[64];
+    return sim7670_command(device,
+                           command,
+                           SIM7670_BAUD_TIMEOUT_MS,
+                           response,
+                           sizeof(response));
 }
 
 static const char *find_line(const char *response, const char *prefix)

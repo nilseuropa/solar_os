@@ -26,6 +26,10 @@
 #define SIM7670_RESET_PULSE_MS 500U
 #define SIM7670_RESET_SETTLE_MS 1000U
 #define SIM7670_POWER_OFF_TIMEOUT_MS 5000U
+#define SIM7670_UART_VERIFY_TIMEOUT_MS 1500U
+#define SIM7670_UART_PROBE_ATTEMPTS 3U
+#define SIM7670_UART_PROBE_RETRY_MS 100U
+#define SIM7670_UART_SWITCH_SETTLE_MS 50U
 
 typedef struct {
     bool active;
@@ -35,6 +39,8 @@ typedef struct {
     bool reset_control;
     bool powered;
     bool gnss_powered;
+    uint32_t boot_baud_rate;
+    uint32_t active_baud_rate;
     solar_os_gpio_line_ref_t power_line;
     solar_os_gpio_line_ref_t reset_line;
     sim7670_t modem;
@@ -564,6 +570,155 @@ static void clear_power_dependent_state_locked(
 #endif
 }
 
+static esp_err_t set_host_baud_locked(solar_os_sim7670_device_t *device,
+                                      uint32_t baud_rate)
+{
+    const esp_err_t ret = solar_os_bus_uart_set_baud_rate(device->uart_bus,
+                                                          baud_rate,
+                                                          device->name);
+    if (ret == ESP_OK) {
+        device->active_baud_rate = baud_rate;
+    }
+    return ret;
+}
+
+static esp_err_t probe_modem_locked(solar_os_sim7670_device_t *device)
+{
+    esp_err_t ret = ESP_FAIL;
+    for (size_t attempt = 0U; attempt < SIM7670_UART_PROBE_ATTEMPTS; attempt++) {
+        char response[64];
+        ret = sim7670_command(&device->modem,
+                              "AT",
+                              SIM7670_UART_VERIFY_TIMEOUT_MS,
+                              response,
+                              sizeof(response));
+        if (ret == ESP_OK) {
+            return ESP_OK;
+        }
+        if (attempt + 1U < SIM7670_UART_PROBE_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_UART_PROBE_RETRY_MS));
+        }
+    }
+    return ret;
+}
+
+static esp_err_t recover_boot_baud_locked(solar_os_sim7670_device_t *device)
+{
+    ESP_RETURN_ON_ERROR(set_host_baud_locked(device,
+                                             device->boot_baud_rate),
+                        TAG,
+                        "restore boot baud failed");
+    if (probe_modem_locked(device) == ESP_OK) {
+        return ESP_OK;
+    }
+
+    clear_power_dependent_state_locked(device);
+    esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
+    if (device->reset_control) {
+        ret = solar_os_gpio_line_write(&device->reset_line, false);
+        if (ret == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_PULSE_MS));
+            ret = solar_os_gpio_line_write(&device->reset_line, true);
+        }
+        if (ret == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_SETTLE_MS));
+        }
+    } else if (device->power_control) {
+        ret = solar_os_gpio_line_write(&device->power_line, false);
+        if (ret == ESP_OK) {
+            device->powered = false;
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_CYCLE_OFF_MS));
+            ret = solar_os_gpio_line_write(&device->power_line, true);
+        }
+        if (ret == ESP_OK) {
+            device->powered = true;
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_ON_SETTLE_MS));
+        }
+    }
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return probe_modem_locked(device);
+}
+
+static esp_err_t prepare_uart_locked(solar_os_sim7670_device_t *device)
+{
+    ESP_RETURN_ON_ERROR(set_host_baud_locked(device,
+                                             device->boot_baud_rate),
+                        TAG,
+                        "set modem boot baud failed");
+    esp_err_t boot_probe = probe_modem_locked(device);
+    if (boot_probe != ESP_OK &&
+        device->boot_baud_rate != SIM7670_UART_MAX_BAUD_RATE) {
+        const esp_err_t fast_set = set_host_baud_locked(
+            device,
+            SIM7670_UART_MAX_BAUD_RATE);
+        if (fast_set == ESP_OK && probe_modem_locked(device) == ESP_OK) {
+            ESP_LOGI(TAG,
+                     "%s transport already at %u baud",
+                     device->name,
+                     (unsigned)SIM7670_UART_MAX_BAUD_RATE);
+            return ESP_OK;
+        }
+        (void)set_host_baud_locked(device, device->boot_baud_rate);
+    }
+    if (boot_probe != ESP_OK) {
+        const esp_err_t recovery_ret = recover_boot_baud_locked(device);
+        if (recovery_ret == ESP_OK) {
+            ESP_LOGW(TAG,
+                     "%s transport recovered at %u baud; fast baud deferred",
+                     device->name,
+                     (unsigned)device->boot_baud_rate);
+            return ESP_OK;
+        }
+        return recovery_ret;
+    }
+    if (device->boot_baud_rate == SIM7670_UART_MAX_BAUD_RATE) {
+        return ESP_OK;
+    }
+
+    const esp_err_t command_ret = sim7670_set_uart_baud_rate(
+        &device->modem,
+        SIM7670_UART_MAX_BAUD_RATE);
+    if (command_ret == ESP_FAIL) {
+        ESP_LOGW(TAG,
+                 "%s rejected %u baud; continuing at %u baud",
+                 device->name,
+                 (unsigned)SIM7670_UART_MAX_BAUD_RATE,
+                 (unsigned)device->boot_baud_rate);
+        return ESP_OK;
+    }
+    vTaskDelay(pdMS_TO_TICKS(SIM7670_UART_SWITCH_SETTLE_MS));
+    const esp_err_t switch_ret = set_host_baud_locked(
+        device,
+        SIM7670_UART_MAX_BAUD_RATE);
+    if (switch_ret == ESP_OK && probe_modem_locked(device) == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "%s transport raised from %u to %u baud%s",
+                 device->name,
+                 (unsigned)device->boot_baud_rate,
+                 (unsigned)SIM7670_UART_MAX_BAUD_RATE,
+                 command_ret == ESP_OK ? "" : " after an unconfirmed response");
+        return ESP_OK;
+    }
+
+    const esp_err_t recovery_ret = recover_boot_baud_locked(device);
+    if (recovery_ret == ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s fast baud unavailable; continuing at %u baud",
+                 device->name,
+                 (unsigned)device->boot_baud_rate);
+        return ESP_OK;
+    }
+    ESP_LOGE(TAG,
+             "%s baud negotiation failed: command=%s switch=%s recovery=%s",
+             device->name,
+             esp_err_to_name(command_ret),
+             esp_err_to_name(switch_ret),
+             esp_err_to_name(recovery_ret));
+    return recovery_ret;
+}
+
 #if CONFIG_LWIP_PPP_SUPPORT
 static void stop_ppp_for_hardware_control(solar_os_sim7670_device_t *device)
 {
@@ -621,6 +776,16 @@ static esp_err_t modem_set_power(void *ctx, bool enabled)
         return ESP_OK;
     }
 
+    if (enabled) {
+        const esp_err_t baud_ret = set_host_baud_locked(
+            device,
+            device->boot_baud_rate);
+        if (baud_ret != ESP_OK) {
+            xSemaphoreGive(device->mutex);
+            return baud_ret;
+        }
+    }
+
     if (!enabled) {
 #if CONFIG_LWIP_PPP_SUPPORT
         const bool can_use_at = !solar_os_ppp_is_busy(device->ppp);
@@ -665,6 +830,21 @@ static esp_err_t modem_set_power(void *ctx, bool enabled)
 
     if (enabled) {
         vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_ON_SETTLE_MS));
+        xSemaphoreTake(device->mutex, portMAX_DELAY);
+        const esp_err_t baud_ret = prepare_uart_locked(device);
+        xSemaphoreGive(device->mutex);
+        if (baud_ret != ESP_OK) {
+            xSemaphoreTake(device->mutex, portMAX_DELAY);
+            const esp_err_t power_ret = solar_os_gpio_line_write(
+                &device->power_line,
+                false);
+            if (power_ret == ESP_OK) {
+                device->powered = false;
+                clear_power_dependent_state_locked(device);
+            }
+            xSemaphoreGive(device->mutex);
+            return baud_ret;
+        }
     } else {
         vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_OFF_SETTLE_MS));
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -689,7 +869,11 @@ static esp_err_t modem_reset(void *ctx)
 
     if (device->reset_control) {
         xSemaphoreTake(device->mutex, portMAX_DELAY);
-        esp_err_t ret = solar_os_gpio_line_write(&device->reset_line, false);
+        esp_err_t ret = set_host_baud_locked(device,
+                                             device->boot_baud_rate);
+        if (ret == ESP_OK) {
+            ret = solar_os_gpio_line_write(&device->reset_line, false);
+        }
         if (ret == ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_PULSE_MS));
             ret = solar_os_gpio_line_write(&device->reset_line, true);
@@ -706,7 +890,10 @@ static esp_err_t modem_reset(void *ctx)
 #endif
         notify_gnss_power_off(device);
         vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_SETTLE_MS));
-        return ESP_OK;
+        xSemaphoreTake(device->mutex, portMAX_DELAY);
+        ret = prepare_uart_locked(device);
+        xSemaphoreGive(device->mutex);
+        return ret;
     }
 
     ESP_RETURN_ON_ERROR(modem_set_power(device, false),
@@ -879,6 +1066,13 @@ esp_err_t solar_os_sim7670_attach(
                                        &reset_line),
                         TAG,
                         "invalid bindings");
+    solar_os_bus_info_t uart_info;
+    if (!solar_os_bus_find(uart_bus,
+                           SOLAR_OS_BUS_PROTOCOL_UART,
+                           &uart_info) ||
+        uart_info.config.uart.baud_rate > SIM7670_UART_MAX_BAUD_RATE) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     memset(device, 0, sizeof(*device));
     device->active = true;
@@ -889,6 +1083,8 @@ esp_err_t solar_os_sim7670_attach(
     device->power_line = power_line;
     device->reset_line = reset_line;
     device->powered = !power_control;
+    device->boot_baud_rate = uart_info.config.uart.baud_rate;
+    device->active_baud_rate = device->boot_baud_rate;
     device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);
     if (device->mutex == NULL) {
         memset(device, 0, sizeof(*device));
@@ -918,6 +1114,16 @@ esp_err_t solar_os_sim7670_attach(
         .user = device,
     };
     ret = sim7670_init(&device->modem, &io);
+    if (ret != ESP_OK) {
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
+        memset(device, 0, sizeof(*device));
+        return ret;
+    }
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    ret = prepare_uart_locked(device);
+    xSemaphoreGive(device->mutex);
     if (ret != ESP_OK) {
         if (power_control) {
             (void)solar_os_gpio_line_write(&device->power_line, false);
@@ -990,9 +1196,10 @@ esp_err_t solar_os_sim7670_attach(
         return ret;
     }
     ESP_LOGI(TAG,
-             "%s attached on %s power=%s reset=%s",
+             "%s attached on %s at %u baud power=%s reset=%s",
              name,
              uart_bus,
+             (unsigned)device->active_baud_rate,
              power_control ? "controlled" : "always-on",
              reset_control ? "controlled" :
                  (power_control ? "power-cycle" : "none"));
