@@ -33,6 +33,8 @@ typedef struct {
     void *ctx;
     size_t index;
     uint32_t generation;
+    bool power_control;
+    bool powered;
 } modem_ref_t;
 
 static SemaphoreHandle_t modem_mutex;
@@ -371,6 +373,8 @@ static esp_err_t acquire_device(const char *name, modem_ref_t *ref)
                 .ctx = modem_devices[i].ctx,
                 .index = i,
                 .generation = modem_devices[i].generation,
+                .power_control = modem_devices[i].info.power_control,
+                .powered = modem_devices[i].info.powered,
             };
             xSemaphoreGive(modem_mutex);
             return ESP_OK;
@@ -388,6 +392,17 @@ static void release_device(const modem_ref_t *ref)
         modem_devices[ref->index].generation == ref->generation &&
         modem_devices[ref->index].refs > 0U) {
         modem_devices[ref->index].refs--;
+    }
+    xSemaphoreGive(modem_mutex);
+}
+
+static void update_power_state(const modem_ref_t *ref, bool powered)
+{
+    xSemaphoreTake(modem_mutex, portMAX_DELAY);
+    if (ref->index < MODEM_DEVICE_MAX &&
+        modem_devices[ref->index].active &&
+        modem_devices[ref->index].generation == ref->generation) {
+        modem_devices[ref->index].info.powered = powered;
     }
     xSemaphoreGive(modem_mutex);
 }
@@ -435,6 +450,10 @@ esp_err_t solar_os_modem_register(
     free_device->info.profile_support =
         registration->ops->apply_profile != NULL &&
         registration->ops->clear_profile != NULL;
+    free_device->info.power_control = registration->ops->set_power != NULL;
+    free_device->info.powered = free_device->info.power_control
+        ? registration->powered : true;
+    free_device->info.reset_control = registration->ops->reset != NULL;
     free_device->info.data_control =
         registration->ops->set_data_active != NULL;
     free_device->info.sim_unlock = registration->ops->unlock_sim != NULL;
@@ -517,7 +536,61 @@ esp_err_t solar_os_modem_get_status(const char *name,
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = ref.ops->get_status(ref.ctx, status);
+    if (ref.power_control && !ref.powered) {
+        memset(status, 0, sizeof(*status));
+        status->power_control = true;
+        status->powered = false;
+        status->network_status_valid = true;
+        status->network_state = SOLAR_OS_MODEM_NETWORK_DOWN;
+        ret = ESP_OK;
+    } else {
+        ret = ref.ops->get_status(ref.ctx, status);
+        if (ret == ESP_OK) {
+            status->power_control = ref.power_control;
+            status->powered = true;
+        }
+    }
+    release_device(&ref);
+    return ret;
+}
+
+esp_err_t solar_os_modem_set_power(const char *name, bool enabled)
+{
+    modem_ref_t ref = {0};
+    esp_err_t ret = acquire_device(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (!ref.power_control || ref.ops->set_power == NULL) {
+        release_device(&ref);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (ref.powered == enabled) {
+        release_device(&ref);
+        return ESP_OK;
+    }
+    ret = ref.ops->set_power(ref.ctx, enabled);
+    if (ret == ESP_OK) {
+        update_power_state(&ref, enabled);
+    }
+    release_device(&ref);
+    return ret;
+}
+
+esp_err_t solar_os_modem_reset(const char *name)
+{
+    modem_ref_t ref = {0};
+    esp_err_t ret = acquire_device(name, &ref);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (ref.ops->reset == NULL) {
+        ret = ESP_ERR_NOT_SUPPORTED;
+    } else if (ref.power_control && !ref.powered) {
+        ret = ESP_ERR_INVALID_STATE;
+    } else {
+        ret = ref.ops->reset(ref.ctx);
+    }
     release_device(&ref);
     return ret;
 }
@@ -533,6 +606,10 @@ esp_err_t solar_os_modem_profile_set(const char *name,
     ret = acquire_device(name, &ref);
     if (ret != ESP_OK) {
         return ret;
+    }
+    if (ref.power_control && !ref.powered) {
+        release_device(&ref);
+        return ESP_ERR_INVALID_STATE;
     }
     if (ref.ops->apply_profile == NULL) {
         release_device(&ref);
@@ -587,6 +664,11 @@ esp_err_t solar_os_modem_set_data_active(const char *name, bool active)
     if (ret == ESP_OK && ref.ops->set_data_active == NULL) {
         ret = ESP_ERR_NOT_SUPPORTED;
     }
+    if (ret == ESP_OK && ref.power_control && !ref.powered) {
+        release_device(&ref);
+        secure_zero(&profile, sizeof(profile));
+        return active ? ESP_ERR_INVALID_STATE : ESP_OK;
+    }
     if (ret == ESP_OK && active) {
         if (ref.ops->apply_profile == NULL) {
             ret = ESP_ERR_NOT_SUPPORTED;
@@ -614,7 +696,9 @@ esp_err_t solar_os_modem_unlock_sim(const char *name, const char *pin)
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = ref.ops->unlock_sim != NULL
+    ret = ref.power_control && !ref.powered
+        ? ESP_ERR_INVALID_STATE
+        : ref.ops->unlock_sim != NULL
         ? ref.ops->unlock_sim(ref.ctx, pin)
         : ESP_ERR_NOT_SUPPORTED;
     release_device(&ref);
@@ -632,7 +716,9 @@ esp_err_t solar_os_modem_command(const char *name,
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = ref.ops->command != NULL
+    ret = ref.power_control && !ref.powered
+        ? ESP_ERR_INVALID_STATE
+        : ref.ops->command != NULL
         ? ref.ops->command(ref.ctx,
                            command,
                            timeout_ms,

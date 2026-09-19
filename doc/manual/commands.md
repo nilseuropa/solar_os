@@ -937,6 +937,8 @@ available for the compiled board.
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
 | `modem` | `modem [list]` | List registered cellular modems, concrete drivers, and transports. |
 | `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
+| `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
+| `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |
 | `modem` | `modem profile set [name] --apn <apn> [--dns <ipv4\|auto>] [--ip ipv4\|ipv6\|ipv4v6] [--auth none\|pap\|chap\|auto] [--user <user> --password <password>]` | Validate, apply, and persist a modem-independent cellular profile. |
 | `modem` | `modem profile show\|clear [name]` | Inspect a saved profile with its password redacted, or remove it. |
 | `modem` | `modem connect\|disconnect [name]` | Bring the saved cellular network connection and PPP interface up or down. |

@@ -95,7 +95,7 @@ bindings = { data = 38, count = 1 }
 [[devices]]
 driver = "sim7670"
 name = "modem0"
-bindings = { uart = "modem-uart" }
+bindings = { uart = "modem-uart", power = 21 }
 
 [connector]
 title = "P3 / P2 side headers"
@@ -538,7 +538,7 @@ expansion = true
 [[pins]]
 gpio = 21
 policy = "fixed"
-role = "SIM7670G power control; leave high-impedance with 4G DIP ON"
+role = "SIM7670G VBAT enable; SolarOS drives active-high with 4G DIP OFF"
 expansion = true
 [[pins]]
 gpio = 38

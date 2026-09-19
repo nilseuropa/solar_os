@@ -78,6 +78,9 @@ esp_err_t solar_os_ppp_connect(solar_os_ppp_t *ppp,
                                uint32_t timeout_ms);
 esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp);
 
+/* Reconcile a PPP session after its physical transport has been reset. */
+esp_err_t solar_os_ppp_notify_transport_reset(solar_os_ppp_t *ppp);
+
 /* Feed received bytes here when the transport does not provide read(). */
 esp_err_t solar_os_ppp_receive(solar_os_ppp_t *ppp,
                                const uint8_t *data,

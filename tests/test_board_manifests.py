@@ -287,6 +287,10 @@ class BoardManifestTest(unittest.TestCase):
         header = generate_header(board, self.drivers)
         self.assertIn('.driver = "sim7670", .name = "modem0"', header)
         self.assertIn('.target = "modem-uart", .value = UART_NUM_1', header)
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", .value = 21',
+            header,
+        )
         self.assertIn('.driver = "max17048", .name = "battery0"', header)
         self.assertIn('.driver = "neopixel", .name = "pixels0"', header)
         self.assertIn('.driver = "sdmmc", .name = "storage0"', header)

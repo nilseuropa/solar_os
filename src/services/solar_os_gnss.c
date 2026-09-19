@@ -188,6 +188,24 @@ esp_err_t solar_os_gnss_set_power(const char *name, bool enabled)
     return ret;
 }
 
+esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered)
+{
+    if (!name_valid(name) || ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
+        if (gnss_devices[i].active &&
+            strcmp(gnss_devices[i].info.name, name) == 0) {
+            gnss_devices[i].info.powered = powered;
+            xSemaphoreGive(gnss_mutex);
+            return ESP_OK;
+        }
+    }
+    xSemaphoreGive(gnss_mutex);
+    return ESP_ERR_NOT_FOUND;
+}
+
 esp_err_t solar_os_gnss_read_fix(const char *name,
                                  uint32_t timeout_ms,
                                  solar_os_gnss_fix_t *fix)

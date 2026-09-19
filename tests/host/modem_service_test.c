@@ -14,7 +14,11 @@ typedef struct {
     unsigned clear_count;
     unsigned data_count;
     unsigned unlock_count;
+    unsigned power_count;
+    unsigned reset_count;
+    unsigned status_count;
     bool data_active;
+    bool powered;
     bool try_unregister;
     char pin[9];
 } fake_modem_t;
@@ -106,12 +110,29 @@ void nvs_close(nvs_handle_t handle)
 static esp_err_t fake_get_status(void *ctx, solar_os_modem_status_t *status)
 {
     fake_modem_t *fake = ctx;
+    fake->status_count++;
     if (fake->try_unregister) {
         assert(solar_os_modem_unregister("modem0") == ESP_ERR_INVALID_STATE);
     }
     *status = fake->status;
     status->data_status_valid = true;
     status->data_active = fake->data_active;
+    return ESP_OK;
+}
+
+static esp_err_t fake_set_power(void *ctx, bool enabled)
+{
+    fake_modem_t *fake = ctx;
+    fake->powered = enabled;
+    fake->power_count++;
+    return ESP_OK;
+}
+
+static esp_err_t fake_reset(void *ctx)
+{
+    fake_modem_t *fake = ctx;
+    assert(fake->powered);
+    fake->reset_count++;
     return ESP_OK;
 }
 
@@ -166,11 +187,17 @@ static esp_err_t fake_command(void *ctx,
 
 static const solar_os_modem_ops_t fake_ops = {
     .get_status = fake_get_status,
+    .set_power = fake_set_power,
+    .reset = fake_reset,
     .apply_profile = fake_apply_profile,
     .clear_profile = fake_clear_profile,
     .set_data_active = fake_set_data_active,
     .unlock_sim = fake_unlock_sim,
     .command = fake_command,
+};
+
+static const solar_os_modem_ops_t always_on_ops = {
+    .get_status = fake_get_status,
 };
 
 int main(void)
@@ -206,6 +233,7 @@ int main(void)
             .registration_status_valid = true,
             .registration = SOLAR_OS_MODEM_REGISTRATION_ROAMING,
         },
+        .powered = true,
         .try_unregister = true,
     };
     const solar_os_modem_registration_t registration = {
@@ -214,6 +242,7 @@ int main(void)
         .transport = "uart0",
         .ops = &fake_ops,
         .ctx = &fake,
+        .powered = true,
     };
     assert(solar_os_modem_register(&registration) == ESP_OK);
     assert(solar_os_modem_count() == 1U);
@@ -221,11 +250,13 @@ int main(void)
     assert(solar_os_modem_get(0U, &info));
     assert(strcmp(info.name, "modem0") == 0);
     assert(strcmp(info.driver, "fake") == 0);
+    assert(info.power_control && info.powered && info.reset_control);
     assert(info.profile_support && info.data_control && info.sim_unlock);
     assert(info.raw_command);
 
     solar_os_modem_status_t status;
     assert(solar_os_modem_get_status("modem0", &status) == ESP_OK);
+    assert(status.power_control && status.powered);
     assert(status.sim_ready);
     assert(status.registration == SOLAR_OS_MODEM_REGISTRATION_ROAMING);
 
@@ -255,11 +286,59 @@ int main(void)
                                   sizeof(response)) == ESP_OK);
     assert(strcmp(response, "OK\r\n") == 0);
 
+    assert(solar_os_modem_reset("modem0") == ESP_OK);
+    assert(fake.reset_count == 1U);
+    assert(solar_os_modem_set_power("modem0", false) == ESP_OK);
+    assert(fake.power_count == 1U && !fake.powered);
+    assert(solar_os_modem_get(0U, &info));
+    assert(info.power_control && !info.powered);
+    const unsigned status_count = fake.status_count;
+    assert(solar_os_modem_get_status("modem0", &status) == ESP_OK);
+    assert(status.power_control && !status.powered && !status.online);
+    assert(status.network_status_valid);
+    assert(status.network_state == SOLAR_OS_MODEM_NETWORK_DOWN);
+    assert(fake.status_count == status_count);
+    assert(solar_os_modem_reset("modem0") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_modem_command("modem0",
+                                  "AT",
+                                  1000U,
+                                  response,
+                                  sizeof(response)) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_modem_set_data_active("modem0", false) == ESP_OK);
+    assert(fake.data_count == 2U);
+    assert(solar_os_modem_set_power("modem0", true) == ESP_OK);
+    assert(fake.power_count == 2U && fake.powered);
+    assert(solar_os_modem_reset("modem0") == ESP_OK);
+    assert(fake.reset_count == 2U);
+
     assert(solar_os_modem_profile_clear("modem0") == ESP_OK);
     assert(fake.clear_count == 1U);
     assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_ERR_NOT_FOUND);
     assert(solar_os_modem_unregister("modem0") == ESP_OK);
     assert(solar_os_modem_count() == 0U);
+
+    fake_modem_t always_on = {
+        .status = {
+            .online = true,
+        },
+        .powered = true,
+    };
+    const solar_os_modem_registration_t always_on_registration = {
+        .name = "modem1",
+        .driver = "always-on",
+        .transport = "uart1",
+        .ops = &always_on_ops,
+        .ctx = &always_on,
+    };
+    assert(solar_os_modem_register(&always_on_registration) == ESP_OK);
+    assert(solar_os_modem_get(0U, &info));
+    assert(!info.power_control && info.powered && !info.reset_control);
+    assert(solar_os_modem_get_status("modem1", &status) == ESP_OK);
+    assert(!status.power_control && status.powered && status.online);
+    assert(solar_os_modem_set_power("modem1", false) ==
+           ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_modem_reset("modem1") == ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_modem_unregister("modem1") == ESP_OK);
 
     solar_os_modem_ip_type_t ip_type;
     solar_os_modem_auth_t auth;

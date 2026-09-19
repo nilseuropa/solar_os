@@ -687,6 +687,54 @@ esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp)
     return ret;
 }
 
+esp_err_t solar_os_ppp_notify_transport_reset(solar_os_ppp_t *ppp)
+{
+    if (ppp == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    xSemaphoreTake(ppp->mutex, portMAX_DELAY);
+    if (ppp->transitioning) {
+        xSemaphoreGive(ppp->mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    ppp->transitioning = true;
+    const bool session_active = ppp->session_active;
+    TaskHandle_t worker = ppp->worker;
+    xSemaphoreGive(ppp->mutex);
+
+    if (session_active) {
+        (void)solar_os_network_path_set_ready(ppp->netif, false);
+        esp_netif_action_disconnected(ppp->netif, 0, 0, NULL);
+        esp_netif_action_stop(ppp->netif, 0, 0, NULL);
+    }
+    ppp->worker_stop_requested = true;
+    if (worker != NULL &&
+        !solar_os_task_wait_done(worker,
+                                 &ppp->worker_done,
+                                 SOLAR_OS_TASK_STOP_WAIT_MS)) {
+        xSemaphoreTake(ppp->mutex, portMAX_DELAY);
+        ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
+        ppp->status.error = ESP_ERR_TIMEOUT;
+        ppp->transitioning = false;
+        xSemaphoreGive(ppp->mutex);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    xSemaphoreTake(ppp->mutex, portMAX_DELAY);
+    ppp->worker = NULL;
+    ppp->worker_stop_requested = false;
+    ppp->worker_done = false;
+    ppp->session_active = false;
+    ppp->link_open = false;
+    ppp->status.state = SOLAR_OS_PPP_STATE_DOWN;
+    ppp->status.error = 0;
+    clear_addresses_locked(ppp);
+    secure_zero(&ppp->profile, sizeof(ppp->profile));
+    ppp->transitioning = false;
+    xSemaphoreGive(ppp->mutex);
+    return ESP_OK;
+}
+
 esp_err_t solar_os_ppp_get_status(solar_os_ppp_t *ppp,
                                   solar_os_ppp_status_t *status)
 {

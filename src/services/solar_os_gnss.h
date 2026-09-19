@@ -57,6 +57,8 @@ esp_err_t solar_os_gnss_unregister(const char *name);
 size_t solar_os_gnss_count(void);
 bool solar_os_gnss_get(size_t index, solar_os_gnss_info_t *info);
 esp_err_t solar_os_gnss_set_power(const char *name, bool enabled);
+/* Driver notification for parent-device power changes; does not touch hardware. */
+esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered);
 esp_err_t solar_os_gnss_read_fix(const char *name,
                                  uint32_t timeout_ms,
                                  solar_os_gnss_fix_t *fix);

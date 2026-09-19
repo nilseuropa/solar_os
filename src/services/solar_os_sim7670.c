@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "solar_os_buses.h"
 #include "solar_os_gnss.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_modem.h"
 #include "solar_os_ppp.h"
 
@@ -19,12 +20,23 @@
 #define SIM7670_PPP_READ_TIMEOUT_MS 100U
 #define SIM7670_PPP_CONNECT_TIMEOUT_MS 65000U
 #define SIM7670_DATA_ESCAPE_GUARD_MS 1100U
+#define SIM7670_POWER_OFF_SETTLE_MS 100U
+#define SIM7670_POWER_ON_SETTLE_MS 100U
+#define SIM7670_POWER_CYCLE_OFF_MS 1100U
+#define SIM7670_RESET_PULSE_MS 500U
+#define SIM7670_RESET_SETTLE_MS 1000U
+#define SIM7670_POWER_OFF_TIMEOUT_MS 5000U
 
 typedef struct {
     bool active;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    bool power_control;
+    bool reset_control;
+    bool powered;
     bool gnss_powered;
+    solar_os_gpio_line_ref_t power_line;
+    solar_os_gpio_line_ref_t reset_line;
     sim7670_t modem;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
@@ -43,18 +55,39 @@ static solar_os_sim7670_device_t devices[SIM7670_DEVICE_MAX];
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *uart_bus,
-                                size_t uart_bus_len)
+                                size_t uart_bus_len,
+                                bool *power_control,
+                                solar_os_gpio_line_ref_t *power_line,
+                                bool *reset_control,
+                                solar_os_gpio_line_ref_t *reset_line)
 {
     bool have_uart = false;
-    if (bindings == NULL || uart_bus == NULL) {
+    if (bindings == NULL || uart_bus == NULL || power_control == NULL ||
+        power_line == NULL || reset_control == NULL || reset_line == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     uart_bus[0] = '\0';
+    *power_control = false;
+    *reset_control = false;
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
         if (binding->kind == SOLAR_OS_EXPANSION_BINDING_UART_PORT && !have_uart) {
             strlcpy(uart_bus, binding->target, uart_bus_len);
             have_uart = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                   strcmp(binding->role, "power") == 0 && !*power_control) {
+            strlcpy(power_line->controller,
+                    binding->target,
+                    sizeof(power_line->controller));
+            power_line->line = (uint8_t)binding->value;
+            *power_control = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                   strcmp(binding->role, "reset") == 0 && !*reset_control) {
+            strlcpy(reset_line->controller,
+                    binding->target,
+                    sizeof(reset_line->controller));
+            reset_line->line = (uint8_t)binding->value;
+            *reset_control = true;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
@@ -70,7 +103,7 @@ static esp_err_t modem_write(void *user,
                              size_t *written)
 {
     solar_os_sim7670_device_t *device = user;
-    if (device == NULL || !device->active) {
+    if (device == NULL || !device->active || !device->powered) {
         return ESP_ERR_INVALID_STATE;
     }
     return solar_os_bus_uart_write(device->uart_bus, data, len, written);
@@ -83,7 +116,7 @@ static esp_err_t modem_read(void *user,
                             size_t *read_len)
 {
     solar_os_sim7670_device_t *device = user;
-    if (device == NULL || !device->active) {
+    if (device == NULL || !device->active || !device->powered) {
         return ESP_ERR_INVALID_STATE;
     }
     return solar_os_bus_uart_read(device->uart_bus,
@@ -118,7 +151,7 @@ static void secure_zero(void *data, size_t size)
 static esp_err_t ppp_link_start(void *ctx)
 {
     solar_os_sim7670_device_t *device = ctx;
-    if (device == NULL || !device->active) {
+    if (device == NULL || !device->active || !device->powered) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
@@ -229,6 +262,9 @@ static esp_err_t modem_get_status(void *ctx, solar_os_modem_status_t *status)
     if (device == NULL || !device->active || status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
+    }
 #if CONFIG_LWIP_PPP_SUPPORT
     solar_os_ppp_status_t ppp_status = {0};
     const bool ppp_busy = solar_os_ppp_is_busy(device->ppp);
@@ -309,6 +345,9 @@ static esp_err_t modem_apply_profile(
     if (device == NULL || !device->active || profile == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
+    }
     sim7670_pdp_type_t pdp_type;
     switch (profile->ip_type) {
     case SOLAR_OS_MODEM_IP_IPV4:
@@ -373,6 +412,9 @@ static esp_err_t modem_clear_profile(void *ctx)
     if (device == NULL || !device->active) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
+    }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
     esp_err_t ret = ESP_OK;
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -399,6 +441,9 @@ static esp_err_t modem_set_data_active(void *ctx, bool active)
     solar_os_sim7670_device_t *device = ctx;
     if (device == NULL || !device->active) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (!device->powered) {
+        return active ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
 #if CONFIG_LWIP_PPP_SUPPORT
     if (!active) {
@@ -458,6 +503,9 @@ static esp_err_t modem_unlock_sim(void *ctx, const char *pin)
     if (device == NULL || !device->active) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
+    }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
     esp_err_t ret = ESP_OK;
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -482,6 +530,9 @@ static esp_err_t modem_command(void *ctx,
     if (device == NULL || !device->active) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
+    }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
     esp_err_t ret = ESP_OK;
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -500,8 +551,198 @@ static esp_err_t modem_command(void *ctx,
     return ret;
 }
 
+static void clear_power_dependent_state_locked(
+    solar_os_sim7670_device_t *device)
+{
+    device->gnss_powered = false;
+    memset(&device->cached_status, 0, sizeof(device->cached_status));
+    device->cached_status_valid = false;
+#if CONFIG_LWIP_PPP_SUPPORT
+    secure_zero(&device->applied_profile,
+                sizeof(device->applied_profile));
+    device->applied_profile_valid = false;
+#endif
+}
+
+#if CONFIG_LWIP_PPP_SUPPORT
+static void stop_ppp_for_hardware_control(solar_os_sim7670_device_t *device)
+{
+    if (!solar_os_ppp_is_busy(device->ppp)) {
+        return;
+    }
+    const esp_err_t ret = solar_os_ppp_disconnect(device->ppp);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s PPP shutdown failed before hardware control: %s",
+                 device->name,
+                 esp_err_to_name(ret));
+    }
+}
+
+static void notify_ppp_transport_reset(solar_os_sim7670_device_t *device)
+{
+    const esp_err_t ret = solar_os_ppp_notify_transport_reset(device->ppp);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s PPP transport reset notification failed: %s",
+                 device->name,
+                 esp_err_to_name(ret));
+    }
+}
+#endif
+
+static void notify_gnss_power_off(solar_os_sim7670_device_t *device)
+{
+    const esp_err_t ret = solar_os_gnss_notify_power_state(device->name, false);
+    if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG,
+                 "%s GNSS power-state notification failed: %s",
+                 device->name,
+                 esp_err_to_name(ret));
+    }
+}
+
+static esp_err_t modem_set_power(void *ctx, bool enabled)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    if (device == NULL || !device->active || !device->power_control) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+#if CONFIG_LWIP_PPP_SUPPORT
+    if (!enabled) {
+        stop_ppp_for_hardware_control(device);
+    }
+#endif
+
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    if (device->powered == enabled) {
+        xSemaphoreGive(device->mutex);
+        return ESP_OK;
+    }
+
+    if (!enabled) {
+#if CONFIG_LWIP_PPP_SUPPORT
+        const bool can_use_at = !solar_os_ppp_is_busy(device->ppp);
+#else
+        const bool can_use_at = true;
+#endif
+        if (can_use_at) {
+            char response[128];
+            const esp_err_t shutdown_ret = sim7670_command(
+                &device->modem,
+                "AT+CPOF",
+                SIM7670_POWER_OFF_TIMEOUT_MS,
+                response,
+                sizeof(response));
+            if (shutdown_ret != ESP_OK) {
+                ESP_LOGW(TAG,
+                         "%s graceful modem shutdown failed: %s",
+                         device->name,
+                         esp_err_to_name(shutdown_ret));
+            }
+        }
+    } else if (device->reset_control) {
+        const esp_err_t reset_ret =
+            solar_os_gpio_line_write(&device->reset_line, true);
+        if (reset_ret != ESP_OK) {
+            xSemaphoreGive(device->mutex);
+            return reset_ret;
+        }
+    }
+
+    const esp_err_t ret = solar_os_gpio_line_write(&device->power_line, enabled);
+    if (ret == ESP_OK) {
+        device->powered = enabled;
+        if (!enabled) {
+            clear_power_dependent_state_locked(device);
+        }
+    }
+    xSemaphoreGive(device->mutex);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (enabled) {
+        vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_ON_SETTLE_MS));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_OFF_SETTLE_MS));
+#if CONFIG_LWIP_PPP_SUPPORT
+        notify_ppp_transport_reset(device);
+#endif
+        notify_gnss_power_off(device);
+    }
+    return ESP_OK;
+}
+
+static esp_err_t modem_reset(void *ctx)
+{
+    solar_os_sim7670_device_t *device = ctx;
+    if (device == NULL || !device->active || !device->powered ||
+        (!device->reset_control && !device->power_control)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+#if CONFIG_LWIP_PPP_SUPPORT
+    stop_ppp_for_hardware_control(device);
+#endif
+
+    if (device->reset_control) {
+        xSemaphoreTake(device->mutex, portMAX_DELAY);
+        esp_err_t ret = solar_os_gpio_line_write(&device->reset_line, false);
+        if (ret == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_PULSE_MS));
+            ret = solar_os_gpio_line_write(&device->reset_line, true);
+        }
+        if (ret == ESP_OK) {
+            clear_power_dependent_state_locked(device);
+        }
+        xSemaphoreGive(device->mutex);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+#if CONFIG_LWIP_PPP_SUPPORT
+        notify_ppp_transport_reset(device);
+#endif
+        notify_gnss_power_off(device);
+        vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_SETTLE_MS));
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(modem_set_power(device, false),
+                        TAG,
+                        "modem power off failed");
+    vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_CYCLE_OFF_MS));
+    ESP_RETURN_ON_ERROR(modem_set_power(device, true),
+                        TAG,
+                        "modem power on failed");
+    vTaskDelay(pdMS_TO_TICKS(SIM7670_RESET_SETTLE_MS));
+    return ESP_OK;
+}
+
 static const solar_os_modem_ops_t modem_ops = {
     .get_status = modem_get_status,
+    .apply_profile = modem_apply_profile,
+    .clear_profile = modem_clear_profile,
+    .set_data_active = modem_set_data_active,
+    .unlock_sim = modem_unlock_sim,
+    .command = modem_command,
+};
+
+static const solar_os_modem_ops_t powered_modem_ops = {
+    .get_status = modem_get_status,
+    .set_power = modem_set_power,
+    .reset = modem_reset,
+    .apply_profile = modem_apply_profile,
+    .clear_profile = modem_clear_profile,
+    .set_data_active = modem_set_data_active,
+    .unlock_sim = modem_unlock_sim,
+    .command = modem_command,
+};
+
+static const solar_os_modem_ops_t resettable_modem_ops = {
+    .get_status = modem_get_status,
+    .reset = modem_reset,
     .apply_profile = modem_apply_profile,
     .clear_profile = modem_clear_profile,
     .set_data_active = modem_set_data_active,
@@ -516,6 +757,9 @@ static esp_err_t gnss_read_fix(void *ctx,
     solar_os_sim7670_device_t *device = ctx;
     if (device == NULL || !device->active || fix == NULL || timeout_ms == 0U) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (!device->powered) {
+        return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
 #if CONFIG_LWIP_PPP_SUPPORT
@@ -555,7 +799,7 @@ static esp_err_t gnss_read_fix(void *ctx,
 static esp_err_t gnss_set_power(void *ctx, bool enabled)
 {
     solar_os_sim7670_device_t *device = ctx;
-    if (device == NULL || !device->active) {
+    if (device == NULL || !device->active || !device->powered) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
@@ -600,10 +844,18 @@ esp_err_t solar_os_sim7670_attach(
     }
 
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    bool power_control = false;
+    bool reset_control = false;
+    solar_os_gpio_line_ref_t power_line = {0};
+    solar_os_gpio_line_ref_t reset_line = {0};
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
                                        uart_bus,
-                                       sizeof(uart_bus)),
+                                       sizeof(uart_bus),
+                                       &power_control,
+                                       &power_line,
+                                       &reset_control,
+                                       &reset_line),
                         TAG,
                         "invalid bindings");
 
@@ -611,18 +863,44 @@ esp_err_t solar_os_sim7670_attach(
     device->active = true;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->uart_bus, uart_bus, sizeof(device->uart_bus));
+    device->power_control = power_control;
+    device->reset_control = reset_control;
+    device->power_line = power_line;
+    device->reset_line = reset_line;
+    device->powered = !power_control;
     device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);
     if (device->mutex == NULL) {
         memset(device, 0, sizeof(*device));
         return ESP_ERR_NO_MEM;
+    }
+    esp_err_t ret = ESP_OK;
+    if (reset_control) {
+        ret = solar_os_gpio_line_write(&device->reset_line, true);
+    }
+    if (ret == ESP_OK && power_control) {
+        ret = solar_os_gpio_line_write(&device->power_line, true);
+        device->powered = ret == ESP_OK;
+        if (ret == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_POWER_ON_SETTLE_MS));
+        }
+    }
+    if (ret != ESP_OK) {
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
+        memset(device, 0, sizeof(*device));
+        return ret;
     }
     const sim7670_io_t io = {
         .write = modem_write,
         .read = modem_read,
         .user = device,
     };
-    esp_err_t ret = sim7670_init(&device->modem, &io);
+    ret = sim7670_init(&device->modem, &io);
     if (ret != ESP_OK) {
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
         memset(device, 0, sizeof(*device));
         return ret;
     }
@@ -641,6 +919,9 @@ esp_err_t solar_os_sim7670_attach(
     };
     ret = solar_os_ppp_create(&ppp_config, &device->ppp);
     if (ret != ESP_OK) {
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
         memset(device, 0, sizeof(*device));
         return ret;
     }
@@ -650,14 +931,20 @@ esp_err_t solar_os_sim7670_attach(
         .name = name,
         .driver = "sim7670",
         .transport = device->uart_bus,
-        .ops = &modem_ops,
+        .ops = power_control
+            ? &powered_modem_ops
+            : (reset_control ? &resettable_modem_ops : &modem_ops),
         .ctx = device,
+        .powered = device->powered,
     };
     ret = solar_os_modem_register(&modem_registration);
     if (ret != ESP_OK) {
 #if CONFIG_LWIP_PPP_SUPPORT
         (void)solar_os_ppp_destroy(device->ppp);
 #endif
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
         memset(device, 0, sizeof(*device));
         return ret;
     }
@@ -675,10 +962,19 @@ esp_err_t solar_os_sim7670_attach(
 #if CONFIG_LWIP_PPP_SUPPORT
         (void)solar_os_ppp_destroy(device->ppp);
 #endif
+        if (power_control) {
+            (void)solar_os_gpio_line_write(&device->power_line, false);
+        }
         memset(device, 0, sizeof(*device));
         return ret;
     }
-    ESP_LOGI(TAG, "%s attached on %s", name, uart_bus);
+    ESP_LOGI(TAG,
+             "%s attached on %s power=%s reset=%s",
+             name,
+             uart_bus,
+             power_control ? "controlled" : "always-on",
+             reset_control ? "controlled" :
+                 (power_control ? "power-cycle" : "none"));
     return ESP_OK;
 }
 
@@ -695,6 +991,11 @@ esp_err_t solar_os_sim7670_detach(const char *name)
                             "PPP stop failed");
     }
 #endif
+    if (device->power_control && device->powered) {
+        ESP_RETURN_ON_ERROR(modem_set_power(device, false),
+                            TAG,
+                            "modem power off failed");
+    }
     ESP_RETURN_ON_ERROR(solar_os_gnss_unregister(name),
                         TAG,
                         "GNSS unregister failed");
@@ -738,6 +1039,9 @@ bool solar_os_sim7670_get(size_t index, solar_os_sim7670_info_t *info)
         if (current++ == index) {
             xSemaphoreTake(devices[i].mutex, portMAX_DELAY);
             *info = (solar_os_sim7670_info_t) {
+                .power_control = devices[i].power_control,
+                .reset_control = devices[i].reset_control,
+                .powered = devices[i].powered,
                 .gnss_powered = devices[i].gnss_powered,
             };
             strlcpy(info->name, devices[i].name, sizeof(info->name));
@@ -758,8 +1062,11 @@ esp_err_t solar_os_sim7670_read_status(const char *name,
     if (device == NULL) {
         return ESP_ERR_NOT_FOUND;
     }
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
-    esp_err_t ret = ESP_OK;
+    esp_err_t ret = device->powered ? ESP_OK : ESP_ERR_INVALID_STATE;
 #if CONFIG_LWIP_PPP_SUPPORT
     if (solar_os_ppp_is_busy(device->ppp)) {
         ret = ESP_ERR_INVALID_STATE;
@@ -783,7 +1090,7 @@ esp_err_t solar_os_sim7670_command(const char *name,
         return ESP_ERR_NOT_FOUND;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
-    esp_err_t ret = ESP_OK;
+    esp_err_t ret = device->powered ? ESP_OK : ESP_ERR_INVALID_STATE;
 #if CONFIG_LWIP_PPP_SUPPORT
     if (solar_os_ppp_is_busy(device->ppp)) {
         ret = ESP_ERR_INVALID_STATE;

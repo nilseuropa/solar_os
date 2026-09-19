@@ -916,7 +916,8 @@ static const char * const gnss_subcommands[] = {"list", "power", "fix"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MODEM
 static const char * const modem_subcommands[] = {
-    "list", "status", "profile", "connect", "disconnect", "sim", "at",
+    "list", "status", "power", "reset", "profile", "connect", "disconnect",
+    "sim", "at",
 };
 static const char * const modem_profile_subcommands[] = {"show", "set", "clear"};
 static const char * const modem_sim_subcommands[] = {"unlock"};
@@ -2212,6 +2213,7 @@ static const char * const path_gnss_power[] = {"gnss", "power"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MODEM
 static const char * const path_modem[] = {"modem"};
+static const char * const path_modem_power[] = {"modem", "power"};
 static const char * const path_modem_profile[] = {"modem", "profile"};
 static const char * const path_modem_sim[] = {"modem", "sim"};
 #endif
@@ -3170,6 +3172,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MODEM
     SHELL_COMPLETION_STATIC(path_modem, modem_subcommands),
+    SHELL_COMPLETION_STATIC(path_modem_power, on_off_values),
     SHELL_COMPLETION_STATIC(path_modem_profile, modem_profile_subcommands),
     SHELL_COMPLETION_STATIC(path_modem_sim, modem_sim_subcommands),
 #endif

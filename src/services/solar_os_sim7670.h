@@ -11,6 +11,9 @@
 typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    bool power_control;
+    bool reset_control;
+    bool powered;
     bool gnss_powered;
 } solar_os_sim7670_info_t;
 

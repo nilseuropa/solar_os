@@ -43,6 +43,8 @@ static void print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  modem [list]");
     solar_os_shell_io_writeln(term, "  modem status [name]");
+    solar_os_shell_io_writeln(term, "  modem power <on|off> [name]");
+    solar_os_shell_io_writeln(term, "  modem reset [name]");
     solar_os_shell_io_writeln(term, "  modem profile show [name]");
     solar_os_shell_io_writeln(
         term,
@@ -71,10 +73,14 @@ static void list_modems(solar_os_shell_io_t *term)
     solar_os_modem_info_t info;
     for (size_t i = 0; solar_os_modem_get(i, &info); i++) {
         solar_os_shell_io_printf(term,
-                                 "%s  driver=%s  transport=%s\r\n",
+                                 "%s  driver=%s  transport=%s  power=%s  reset=%s\r\n",
                                  info.name,
                                  info.driver,
-                                 info.transport);
+                                 info.transport,
+                                 info.power_control
+                                     ? (info.powered ? "on" : "off")
+                                     : "always-on",
+                                 info.reset_control ? "yes" : "no");
     }
 }
 
@@ -107,8 +113,11 @@ static void show_status(solar_os_shell_io_t *term,
         ? (status.data_active ? "active" : "inactive")
         : "unknown";
     solar_os_shell_io_printf(term,
-                             "%s online=%s sim=%s registration=%s data=%s network=%s\r\n",
+                             "%s power=%s online=%s sim=%s registration=%s data=%s network=%s\r\n",
                              name,
+                             status.power_control
+                                 ? (status.powered ? "on" : "off")
+                                 : "always-on",
                              status.online ? "yes" : "no",
                              sim_state,
                              registration,
@@ -139,6 +148,62 @@ static void show_status(solar_os_shell_io_t *term,
                                      ? status.ipv4_gateway : "unknown",
                                  status.dns_address[0] != '\0'
                                      ? status.dns_address : "unknown");
+    }
+}
+
+static void set_power(solar_os_shell_io_t *term,
+                      int argc,
+                      char **argv)
+{
+    if (argc != 3 && argc != 4) {
+        solar_os_shell_io_writeln(term,
+                                  "usage: modem power <on|off> [name]");
+        return;
+    }
+    bool enabled;
+    if (strcmp(argv[2], "on") == 0) {
+        enabled = true;
+    } else if (strcmp(argv[2], "off") == 0) {
+        enabled = false;
+    } else {
+        solar_os_shell_io_writeln(term,
+                                  "usage: modem power <on|off> [name]");
+        return;
+    }
+    const char *name = argc == 4 ? argv[3] : default_name();
+    if (name == NULL) {
+        solar_os_shell_io_writeln(term, "modem: no device");
+        return;
+    }
+    const esp_err_t ret = solar_os_modem_set_power(name, enabled);
+    if (ret == ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "%s power=%s\r\n",
+                                 name,
+                                 enabled ? "on" : "off");
+    } else {
+        print_error(term, "power", ret);
+    }
+}
+
+static void reset_modem(solar_os_shell_io_t *term,
+                        int argc,
+                        char **argv)
+{
+    if (argc > 3) {
+        solar_os_shell_io_writeln(term, "usage: modem reset [name]");
+        return;
+    }
+    const char *name = argc == 3 ? argv[2] : default_name();
+    if (name == NULL) {
+        solar_os_shell_io_writeln(term, "modem: no device");
+        return;
+    }
+    const esp_err_t ret = solar_os_modem_reset(name);
+    if (ret == ESP_OK) {
+        solar_os_shell_io_printf(term, "%s reset=complete\r\n", name);
+    } else {
+        print_error(term, "reset", ret);
     }
 }
 
@@ -431,6 +496,10 @@ void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv)
         list_modems(term);
     } else if (strcmp(argv[1], "status") == 0) {
         show_status(term, argc, argv);
+    } else if (strcmp(argv[1], "power") == 0) {
+        set_power(term, argc, argv);
+    } else if (strcmp(argv[1], "reset") == 0) {
+        reset_modem(term, argc, argv);
     } else if (strcmp(argv[1], "profile") == 0) {
         handle_profile(term, argc, argv);
     } else if (strcmp(argv[1], "connect") == 0) {

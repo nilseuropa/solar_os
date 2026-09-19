@@ -55,6 +55,8 @@ typedef struct {
 } solar_os_modem_profile_t;
 
 typedef struct {
+    bool power_control;
+    bool powered;
     bool online;
     bool sim_status_valid;
     bool sim_ready;
@@ -76,6 +78,8 @@ typedef struct {
 
 typedef struct {
     esp_err_t (*get_status)(void *ctx, solar_os_modem_status_t *status);
+    esp_err_t (*set_power)(void *ctx, bool enabled);
+    esp_err_t (*reset)(void *ctx);
     esp_err_t (*apply_profile)(void *ctx,
                                const solar_os_modem_profile_t *profile);
     esp_err_t (*clear_profile)(void *ctx);
@@ -94,12 +98,16 @@ typedef struct {
     const char *transport;
     const solar_os_modem_ops_t *ops;
     void *ctx;
+    bool powered;
 } solar_os_modem_registration_t;
 
 typedef struct {
     char name[SOLAR_OS_MODEM_NAME_MAX];
     char driver[SOLAR_OS_MODEM_DRIVER_MAX];
     char transport[SOLAR_OS_MODEM_TRANSPORT_MAX];
+    bool power_control;
+    bool powered;
+    bool reset_control;
     bool profile_support;
     bool data_control;
     bool sim_unlock;
@@ -114,6 +122,8 @@ bool solar_os_modem_get(size_t index, solar_os_modem_info_t *info);
 
 esp_err_t solar_os_modem_get_status(const char *name,
                                     solar_os_modem_status_t *status);
+esp_err_t solar_os_modem_set_power(const char *name, bool enabled);
+esp_err_t solar_os_modem_reset(const char *name);
 esp_err_t solar_os_modem_profile_set(const char *name,
                                      const solar_os_modem_profile_t *profile);
 esp_err_t solar_os_modem_profile_get(const char *name,
