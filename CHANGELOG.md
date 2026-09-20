@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.13.1** — 2026-09-20 — Expansion driver attachment now offers guided
+  selectors built from the live I/O map. Compatible buses and pins show their
+  routes and connector positions while excluding claimed resources. The
+  unfinished form is preserved when opening the I/O pin map and bus manager,
+  and manual resource entry remains available.
 - **4.12.2** — 2026-09-18 — Added an optional persistent BLE keyboard
   keepalive that periodically sends HID Exit Suspend, with a readable HID
   Information fallback and visible local attempt status. Keyboard Battery
