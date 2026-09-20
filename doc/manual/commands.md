@@ -65,12 +65,13 @@ available. The optional user alias file follows the default storage volume:
 Playground separately maintains `/.shell/playground`. Do not edit that file;
 installing, updating, or uninstalling community applications regenerates it.
 
-The startup script source is selected with `setterm startup [flash|sd]` and is
-stored in NVS. Internal flash is the default, including after `nvs clear`. On an
-SD-capable board, the paths are `/flash/.shell/startup` and
+The startup script source is selected with `setterm startup [auto|flash|sd]`
+and is stored in NVS. `auto` is the default, including after `nvs clear`: it
+uses a mounted board-owned SD card when available and otherwise falls back to
+internal flash. `flash` and `sd` are explicit selections without fallback. On
+an SD-capable board, the paths are `/flash/.shell/startup` and
 `/sdcard/.shell/startup`; on a board without SD, internal flash is mounted at
-`/`, so its path is `/.shell/startup`. The selected source does not fall back to
-the other volume when it is unavailable. The script runs once per boot on the
+`/`, so its path is `/.shell/startup`. The script runs once per boot on the
 first startup-enabled shell. Shell sessions created by that script do not run
 it again.
 
@@ -283,7 +284,7 @@ job for periodic polling.
 | `setterm` | `setterm keyrate [off\|1..60 [delay-ms]]` | Show or set the shared keyboard and button repeat policy. |
 | `setterm` | `setterm ble [default\|on\|off]` | Show or set the BLE preference for the next boot. |
 | `setterm` | `setterm timezone [UTC\|UTC+/-offset\|Europe/Berlin\|POSIX-TZ]` | Show or set the timezone used for local time. |
-| `setterm` | `setterm startup [flash\|sd]` | Show or select the volume containing `.shell/startup` for the next boot. |
+| `setterm` | `setterm startup [auto\|flash\|sd]` | Show or select the volume containing `.shell/startup` for the next boot. |
 | `setterm` | `setterm otaurl [url]` | Show or set the OTA metadata URL. |
 
 Input completion lists every current source after `input test`, only absolute
@@ -393,7 +394,7 @@ setterm powerkey [sleep|suspend]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
 setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
-setterm startup [flash|sd]
+setterm startup [auto|flash|sd]
 setterm otaurl [url]
 ```
 
@@ -418,9 +419,11 @@ enters explicit light sleep; `suspend` turns off the display while jobs and
 services continue. `setterm key` is accepted as a shorter alias.
 
 `setterm startup` selects the volume used for `.shell/startup` on the next boot.
-The default is `flash`. Selecting `sd` is rejected on boards without SD support.
-Use `setterm startup` without a value to show the selected source and resolved
-path.
+The default `auto` setting prefers a mounted board-owned SD card and falls back
+to flash when SD is unavailable. `flash` always selects internal flash, even
+when an SD card is mounted. `sd` always selects SD and is rejected on boards
+without SD support. Use `setterm startup` without a value to show the selected
+source and currently resolved path.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure

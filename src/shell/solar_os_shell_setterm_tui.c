@@ -360,7 +360,7 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const powerkey_values[] = {"sleep", "suspend"};
-    static const char * const startup_values[] = {"flash", "sd"};
+    static const char * const startup_values[] = {"auto", "flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     static const char * const keyboard_values[] = {"us", "de"};
     static const char * const ble_values[] = {"default", "on", "off"};
@@ -409,7 +409,7 @@ static bool setterm_tui_cycle_selected(int direction)
         return setterm_tui_cycle_value(
             startup_values,
             solar_os_board_has(SOLAR_OS_BOARD_CAP_SD) ?
-                sizeof(startup_values) / sizeof(startup_values[0]) : 1,
+                sizeof(startup_values) / sizeof(startup_values[0]) : 2,
             direction);
     default:
         return false;

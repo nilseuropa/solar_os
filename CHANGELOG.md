@@ -2,6 +2,12 @@
 
 ## 4.x
 
+- **4.13.2** — 2026-09-20 — Shell startup now defaults to `auto`: targets
+  with board-owned SD storage use `/sdcard/.shell/startup` when the card mounts
+  and fall back to flash when SD is unavailable. `setterm startup flash` and
+  `setterm startup sd` remain explicit, no-fallback selections, while
+  `setterm startup` reports the configured selection and currently resolved
+  path.
 - **4.13.1** — 2026-09-20 — Expansion driver attachment now offers guided
   selectors built from the live I/O map. Runtime display drivers register
   correctly on headless boards, including displays promoted from expansion

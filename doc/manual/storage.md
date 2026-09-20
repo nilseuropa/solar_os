@@ -22,9 +22,11 @@ mounting remain in the normal storage initialization phase.
 Shell startup is deliberately independent of whichever volume is currently the
 default. `setterm startup flash` reads `/flash/.shell/startup` on SD-capable
 boards and `/.shell/startup` on boards where flash is root. `setterm startup sd`
-reads `/sdcard/.shell/startup`. The setting is stored in NVS, takes effect on the
-next boot, and defaults to internal flash. If the selected volume is unavailable,
-SolarOS does not run a startup script from the other volume.
+reads `/sdcard/.shell/startup`. The setting is stored in NVS and takes effect on
+the next boot. The default `setterm startup auto` first uses a mounted
+board-owned SD card and falls back to flash when SD cannot be mounted. Explicit
+`flash` and `sd` selections never fall back to the other volume. If SD is
+mounted but has no `.shell/startup`, `auto` does not run the flash script.
 
 Use `disk` for both internal and removable persistent storage:
 

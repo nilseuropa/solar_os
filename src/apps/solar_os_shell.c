@@ -246,7 +246,7 @@ static bool shell_startup_attempted;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared boot startup policy")
 static bool shell_startup_source_loaded;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared boot startup policy")
-static solar_os_shell_startup_source_t shell_startup_source = SOLAR_OS_SHELL_STARTUP_FLASH;
+static solar_os_shell_startup_source_t shell_startup_source = SOLAR_OS_SHELL_STARTUP_DEFAULT;
 
 solar_os_shell_startup_source_t solar_os_shell_startup_source(void)
 {
@@ -254,13 +254,13 @@ solar_os_shell_startup_source_t solar_os_shell_startup_source(void)
         return shell_startup_source;
     }
 
-    shell_startup_source = SOLAR_OS_SHELL_STARTUP_FLASH;
+    shell_startup_source = SOLAR_OS_SHELL_STARTUP_DEFAULT;
 
     nvs_handle_t nvs;
     if (nvs_open(SHELL_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
-        uint8_t stored = (uint8_t)SOLAR_OS_SHELL_STARTUP_FLASH;
+        uint8_t stored = (uint8_t)SOLAR_OS_SHELL_STARTUP_DEFAULT;
         if (nvs_get_u8(nvs, SHELL_NVS_STARTUP_SOURCE_KEY, &stored) == ESP_OK &&
-            stored <= (uint8_t)SOLAR_OS_SHELL_STARTUP_SD) {
+            stored <= (uint8_t)SOLAR_OS_SHELL_STARTUP_AUTO) {
             const solar_os_shell_startup_source_t source =
                 (solar_os_shell_startup_source_t)stored;
             if (source != SOLAR_OS_SHELL_STARTUP_SD ||
@@ -275,38 +275,11 @@ solar_os_shell_startup_source_t solar_os_shell_startup_source(void)
     return shell_startup_source;
 }
 
-const char *solar_os_shell_startup_source_name(solar_os_shell_startup_source_t source)
-{
-    switch (source) {
-    case SOLAR_OS_SHELL_STARTUP_FLASH:
-        return "flash";
-    case SOLAR_OS_SHELL_STARTUP_SD:
-        return "sd";
-    default:
-        return "unknown";
-    }
-}
-
-bool solar_os_shell_parse_startup_source(const char *name,
-                                         solar_os_shell_startup_source_t *source)
-{
-    if (name == NULL || source == NULL) {
-        return false;
-    }
-    if (strcmp(name, "flash") == 0) {
-        *source = SOLAR_OS_SHELL_STARTUP_FLASH;
-        return true;
-    }
-    if (strcmp(name, "sd") == 0) {
-        *source = SOLAR_OS_SHELL_STARTUP_SD;
-        return true;
-    }
-    return false;
-}
-
 esp_err_t solar_os_shell_set_startup_source(solar_os_shell_startup_source_t source)
 {
-    if (source != SOLAR_OS_SHELL_STARTUP_FLASH && source != SOLAR_OS_SHELL_STARTUP_SD) {
+    if (source != SOLAR_OS_SHELL_STARTUP_FLASH &&
+        source != SOLAR_OS_SHELL_STARTUP_SD &&
+        source != SOLAR_OS_SHELL_STARTUP_AUTO) {
         return ESP_ERR_INVALID_ARG;
     }
     if (source == SOLAR_OS_SHELL_STARTUP_SD &&
@@ -333,13 +306,21 @@ esp_err_t solar_os_shell_set_startup_source(solar_os_shell_startup_source_t sour
     return ret;
 }
 
+static solar_os_shell_startup_source_t shell_startup_effective_source(void)
+{
+    return solar_os_shell_resolve_startup_source(
+        solar_os_shell_startup_source(),
+        solar_os_board_has(SOLAR_OS_BOARD_CAP_SD),
+        solar_os_storage_sd_is_mounted());
+}
+
 esp_err_t solar_os_shell_startup_path(char *path, size_t path_len)
 {
     if (path == NULL || path_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    const solar_os_shell_startup_source_t source = solar_os_shell_startup_source();
+    const solar_os_shell_startup_source_t source = shell_startup_effective_source();
     const char *base_path = source == SOLAR_OS_SHELL_STARTUP_SD ?
         solar_os_storage_sd_mount_point() :
         solar_os_storage_flash_mount_point();
@@ -356,7 +337,7 @@ esp_err_t solar_os_shell_startup_path(char *path, size_t path_len)
 
 static bool shell_startup_source_mounted(void)
 {
-    return solar_os_shell_startup_source() == SOLAR_OS_SHELL_STARTUP_SD ?
+    return shell_startup_effective_source() == SOLAR_OS_SHELL_STARTUP_SD ?
         solar_os_storage_sd_is_mounted() :
         solar_os_storage_flash_is_mounted();
 }
@@ -366,7 +347,7 @@ static esp_err_t shell_startup_state_dir(char *path, size_t path_len)
     if (path == NULL || path_len == 0U) {
         return ESP_ERR_INVALID_ARG;
     }
-    const char *base_path = solar_os_shell_startup_source() ==
+    const char *base_path = shell_startup_effective_source() ==
         SOLAR_OS_SHELL_STARTUP_SD ?
         solar_os_storage_sd_mount_point() :
         solar_os_storage_flash_mount_point();
@@ -786,7 +767,7 @@ static const char * const setterm_ble_values[] = {"default", "on", "off"};
 static const char * const setterm_powerkey_values[] = {"sleep", "suspend"};
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
-static const char * const setterm_startup_values[] = {"flash", "sd"};
+static const char * const setterm_startup_values[] = {"auto", "flash", "sd"};
 
 static const char * const display_subcommands[] = {
     "list",
@@ -9506,7 +9487,7 @@ static bool shell_run_startup_script(solar_os_context_t *ctx)
     }
     shell_startup_attempted = true;
 
-    const solar_os_shell_startup_source_t source = solar_os_shell_startup_source();
+    const solar_os_shell_startup_source_t source = shell_startup_effective_source();
     const bool source_mounted = source == SOLAR_OS_SHELL_STARTUP_SD ?
         solar_os_storage_sd_is_mounted() :
         solar_os_storage_flash_is_mounted();

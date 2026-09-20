@@ -1549,7 +1549,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm powerkey [sleep|suspend]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]");
-    solar_os_shell_io_writeln(term, "  setterm startup [flash|sd]");
+    solar_os_shell_io_writeln(term, "  setterm startup [auto|flash|sd]");
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     solar_os_shell_io_writeln(term, "  setterm otaurl [url]");
 #endif
@@ -2299,15 +2299,15 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_writeln(
                 term,
                 solar_os_board_has(SOLAR_OS_BOARD_CAP_SD) ?
-                    "values: flash sd" :
-                    "values: flash (SD is not supported on this board)");
+                    "values: auto flash sd" :
+                    "values: auto flash (SD is not supported on this board)");
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(term,
                                            "setterm startup",
                                            argv[3],
-                                           "setterm startup [flash|sd]");
+                                           "setterm startup [auto|flash|sd]");
             return;
         }
 
@@ -2317,8 +2317,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                         "setterm startup",
                                         "source",
                                         argv[2],
-                                        "flash or sd",
-                                        "setterm startup [flash|sd]",
+                                        "auto, flash, or sd",
+                                        "setterm startup [auto|flash|sd]",
                                         false);
             return;
         }
