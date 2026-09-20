@@ -1156,6 +1156,7 @@ sources = [
   "services/solar_os_gpio_controller.c",
   "shell/solar_os_shell_expansion.c",
   "shell/solar_os_shell_expansion_command.c",
+  "shell/solar_os_shell_expansion_manifest.c",
   "shell/solar_os_shell_expansion_tui.c",
 ]
 

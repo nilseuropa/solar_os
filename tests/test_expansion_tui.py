@@ -64,7 +64,13 @@ class ExpansionTuiTest(unittest.TestCase):
         package_end = PACKAGES.index("\n[packages.", package_start + 1)
         package = PACKAGES[package_start:package_end]
         self.assertIn('"shell/solar_os_shell_expansion_command.c"', package)
+        self.assertIn('"shell/solar_os_shell_expansion_manifest.c"', package)
         self.assertIn('"shell/solar_os_shell_expansion_tui.c"', package)
+
+    def test_shell_exports_expansion_manifests_without_startup_state(self):
+        self.assertIn('strcmp(argv[1], "export") == 0', COMMAND)
+        self.assertIn("solar_os_shell_expansion_export_manifest", COMMAND)
+        self.assertIn('"expansion export <path>"', COMMAND)
 
 
 if __name__ == "__main__":

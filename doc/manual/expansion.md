@@ -102,6 +102,33 @@ startup`. If the device uses a runtime bus, save that bus for startup from
 Compiled board devices already start automatically and do not need a saved
 command.
 
+When an experimental wiring arrangement becomes permanent, export its hardware
+description instead of copying startup commands:
+
+```text
+expansion export /sdcard/my-hardware.toml
+```
+
+The versioned `solaros-expansion` manifest contains the current board ID plus
+runtime-created buses and runtime-attached catalog devices. References to
+board-owned buses remain references, so the base board hardware is not
+duplicated. Readiness, leases, service state, secrets, and shell startup
+commands are not part of the file. A `manual` attachment cannot be exported
+because it has no catalog driver contract that the board compiler can validate.
+The destination is written through a temporary file and atomically replaced.
+
+Move the file to a SolarOS source tree and run:
+
+```sh
+python3 scripts/board_config.py --expansion-manifest my-hardware.toml
+```
+
+The configurator loads the recorded base manifest, asks for the new board
+identity, validates the combined pin and bus ownership, and writes a small
+inherited board profile. Imported hardware then starts as board-owned after the
+custom target is built and flashed. Remove any matching temporary startup
+commands yourself; they are intentionally outside the export contract.
+
 A Waveshare 4.2-inch V2 monochrome e-paper module uses the SSD1683 expansion
 driver and registers a 400x300 display target:
 

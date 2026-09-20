@@ -21,6 +21,7 @@ from solaros_board_manifest import (
     validate_board,
     write_if_changed,
 )
+from solaros_expansion_manifest import load_expansion_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,15 @@ BUS_KINDS = {
     "spi_bus": "spi",
     "uart_port": "uart",
     "ps2_bus": "ps2",
+}
+
+BUS_PIN_ROLES = {
+    "i2c": ("sda", "scl"),
+    "spi": ("sclk", "miso", "mosi"),
+    "uart": ("tx", "rx"),
+    "midi": ("tx", "rx"),
+    "onewire": ("pin",),
+    "ps2": ("clock", "data"),
 }
 
 
@@ -88,6 +98,162 @@ def available_base_profiles(manifest_dir: Path = MANIFEST_DIR) -> dict[str, list
         if mcu in result:
             result[mcu].append((path, board))
     return result
+
+
+def profile_from_expansion(
+    snapshot: dict[str, Any],
+    base: dict[str, Any],
+    drivers: dict[str, DriverDef],
+    board_id: str,
+    name: str,
+    vendor: str,
+    module: str,
+) -> dict[str, Any]:
+    """Promote a validated runtime expansion snapshot to a board overlay."""
+    base_id = base["board"]["id"]
+    if snapshot["base"]["board"] != base_id:
+        raise ManifestError(
+            f"expansion snapshot targets {snapshot['base']['board']}, not {base_id}"
+        )
+    base_bus_names = {bus["name"] for bus in base.get("buses", [])}
+    base_device_names = {device["name"] for device in base.get("devices", [])}
+    imported_buses = deepcopy(snapshot.get("buses", []))
+    imported_devices = deepcopy(snapshot.get("devices", []))
+    for bus in imported_buses:
+        if bus["name"] in base_bus_names:
+            raise ManifestError(f"runtime bus {bus['name']} conflicts with the base board")
+    for device in imported_devices:
+        if device["name"] in base_device_names:
+            raise ManifestError(f"runtime device {device['name']} conflicts with the base board")
+
+    selected: list[DriverDef] = []
+    mcu = base["target"]["mcu"]
+    for device in imported_devices:
+        driver = drivers.get(device["driver"])
+        if driver is None:
+            raise ManifestError(
+                f"device {device['name']} uses unknown catalog driver {device['driver']!r}"
+            )
+        if mcu not in driver.targets:
+            raise ManifestError(f"driver {driver.name} does not support {mcu}")
+        selected.append(driver)
+
+    base_capabilities = set(base.get("build", {}).get("capabilities", []))
+    for capability in EXCLUSIVE_BOARD_CAPABILITIES - base_capabilities:
+        owners = sorted(
+            driver.name for driver in selected
+            if capability in driver.board_capabilities
+        )
+        if len(owners) > 1:
+            raise ManifestError(
+                f"snapshot has multiple candidates for primary {capability}: "
+                f"{', '.join(owners)}"
+            )
+
+    capabilities: list[str] = []
+    fragments: list[str] = []
+    defines: dict[str, str] = {}
+    for driver in selected:
+        for capability in driver.capabilities:
+            if capability not in base_capabilities and capability not in capabilities:
+                capabilities.append(capability)
+        promoted = [
+            capability for capability in driver.board_capabilities
+            if capability not in base_capabilities
+        ]
+        for capability in promoted:
+            if capability not in capabilities:
+                capabilities.append(capability)
+        if promoted:
+            if driver.board_driver and driver.board_driver not in fragments:
+                fragments.append(driver.board_driver)
+            defines.update(driver.board_defines)
+
+    base_pins = {pin["gpio"]: pin for pin in base.get("pins", [])}
+    fixed_pins: dict[int, str] = {}
+
+    def claim_pin(gpio: int, role: str, *, spi_cs: bool = False) -> None:
+        pin = base_pins.get(gpio)
+        if pin is None:
+            raise ManifestError(f"{role} GPIO{gpio} is absent from the base board")
+        if pin.get("policy") != "free" or not pin.get("expansion") or not pin.get("user"):
+            raise ManifestError(f"{role} GPIO{gpio} is not a free expansion pin")
+        previous = fixed_pins.get(gpio)
+        if previous is not None and not (spi_cs and previous.endswith(" cs")):
+            raise ManifestError(f"GPIO{gpio} is assigned to both {previous} and {role}")
+        fixed_pins.setdefault(gpio, role)
+
+    for bus in imported_buses:
+        for role in BUS_PIN_ROLES[bus["protocol"]]:
+            if role in bus:
+                claim_pin(int(bus[role]), f"{bus['name']} {role}")
+        if bus["protocol"] == "spi":
+            for gpio in bus["cs"]:
+                claim_pin(int(gpio), f"{bus['name']} cs", spi_cs=True)
+
+    for device, driver in zip(imported_devices, selected):
+        specs = {binding.key: binding for binding in driver.bindings}
+        for key, value in device["bindings"].items():
+            spec = specs.get(key)
+            if spec is None:
+                continue
+            if spec.kind in {"gpio", "adc", "pwm"}:
+                claim_pin(int(value), f"{device['name']} {spec.role or key}")
+            elif spec.kind == "spi_cs":
+                claim_pin(int(value), f"{device['name']} {key}", spi_cs=True)
+            elif spec.kind == "gpio_line" and isinstance(value, int):
+                claim_pin(value, f"{device['name']} {spec.role or key}")
+
+    runtime = deepcopy(base.get("runtime", {}))
+    original_runtime = deepcopy(runtime)
+    used_spi_hosts = {
+        bus["host"] for bus in imported_buses if bus["protocol"] == "spi"
+    }
+    used_uart_ports = {
+        bus["port"] for bus in imported_buses
+        if bus["protocol"] in {"uart", "midi"}
+    }
+    used_i2s_ports = {
+        f"I2S_NUM_{value}"
+        for device, driver in zip(imported_devices, selected)
+        for key, value in device["bindings"].items()
+        if next((spec.kind for spec in driver.bindings if spec.key == key), "") == "i2s_port"
+    }
+    runtime["spi_hosts"] = [
+        item for item in runtime.get("spi_hosts", []) if item not in used_spi_hosts
+    ]
+    runtime["uart_ports"] = [
+        item for item in runtime.get("uart_ports", []) if item not in used_uart_ports
+    ]
+    runtime["i2s_ports"] = [
+        item for item in runtime.get("i2s_ports", []) if item not in used_i2s_ports
+    ]
+
+    profile: dict[str, Any] = {
+        "schema": 1,
+        "extends": base_id,
+        "board": {"id": board_id, "name": name, "vendor": vendor, "module": module},
+        "build": {"drivers": fragments, "capabilities": capabilities},
+        "buses": imported_buses,
+        "devices": imported_devices,
+    }
+    if defines:
+        profile["defines"] = defines
+    if runtime != original_runtime:
+        profile["runtime"] = runtime
+    if fixed_pins:
+        profile["pins"] = [
+            {
+                "gpio": gpio,
+                "policy": "fixed",
+                "role": role,
+                "user": False,
+                "adc": False,
+                "pwm": False,
+            }
+            for gpio, role in sorted(fixed_pins.items())
+        ]
+    return profile
 
 
 def _parse_integer(text: str) -> int:
@@ -379,29 +545,46 @@ def _run_tui(
 ) -> tuple[Path, str, str]:
     screen = Screen(window)
     catalog = load_driver_catalog(args.drivers)
-    bases = available_base_profiles(args.manifest_dir)
-    mcu = screen.choose("Target MCU", [
-        ("esp32s3", "ESP32-S3"),
-        ("esp32", "Classic ESP32"),
-    ])
-    if not bases[mcu]:
-        raise ManifestError(f"no declarative base profile is available for {mcu}")
-    base_id = screen.choose("Base board", [
-        (board["board"]["id"], f"{board['board']['name']} ({path.stem})")
-        for path, board in bases[mcu]
-    ])
-    base_path, base = next(item for item in bases[mcu] if item[1]["board"]["id"] == base_id)
+    snapshot = None
+    if args.expansion_manifest is not None:
+        snapshot = load_expansion_manifest(args.expansion_manifest)
+        base_id = snapshot["base"]["board"]
+        base_path = args.manifest_dir / f"{base_id}.toml"
+        if not base_path.is_file():
+            raise ManifestError(f"snapshot base board does not exist: {base_path}")
+        base = load_board_manifest(base_path, args.manifest_dir)
+        mcu = base["target"]["mcu"]
+    else:
+        bases = available_base_profiles(args.manifest_dir)
+        mcu = screen.choose("Target MCU", [
+            ("esp32s3", "ESP32-S3"),
+            ("esp32", "Classic ESP32"),
+        ])
+        if not bases[mcu]:
+            raise ManifestError(f"no declarative base profile is available for {mcu}")
+        base_id = screen.choose("Base board", [
+            (board["board"]["id"], f"{board['board']['name']} ({path.stem})")
+            for path, board in bases[mcu]
+        ])
+        base_path, base = next(
+            item for item in bases[mcu] if item[1]["board"]["id"] == base_id
+        )
     board_id = screen.prompt("Identity", "Board ID (lowercase letters, numbers, underscores)", "my_board")
     name = screen.prompt("Identity", "Board name", "My SolarOS Board")
     vendor = screen.prompt("Identity", "Vendor", "Custom")
     module = screen.prompt("Identity", "Module", base["board"]["module"])
-    driver_names = screen.multi_choose("Built-in expansion drivers", [
-        (driver.name, f"{driver.name:<18} {driver.summary}")
-        for driver in catalog.values()
-        if mcu in driver.targets
-    ])
-    configurator = Configurator(screen, base_path, base, catalog)
-    profile = configurator.create(board_id, name, vendor, module, driver_names)
+    if snapshot is not None:
+        profile = profile_from_expansion(
+            snapshot, base, catalog, board_id, name, vendor, module
+        )
+    else:
+        driver_names = screen.multi_choose("Built-in expansion drivers", [
+            (driver.name, f"{driver.name:<18} {driver.summary}")
+            for driver in catalog.values()
+            if mcu in driver.targets
+        ])
+        configurator = Configurator(screen, base_path, base, catalog)
+        profile = configurator.create(board_id, name, vendor, module, driver_names)
     merged = merge_board_overlay(base, profile)
     validate_board(merged, catalog)
     destination = args.manifest_dir / f"{board_id}.toml"
@@ -425,6 +608,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-dir", type=Path, default=MANIFEST_DIR)
     parser.add_argument("--drivers", type=Path, default=DRIVER_CATALOG)
+    parser.add_argument(
+        "--expansion-manifest",
+        type=Path,
+        help="promote a device-exported expansion snapshot into a custom board",
+    )
     parser.add_argument("--list", action="store_true", help="list available bases and drivers without starting curses")
     args = parser.parse_args()
     try:

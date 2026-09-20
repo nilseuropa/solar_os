@@ -22,6 +22,7 @@
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
 #include "solar_os_shell.h"
+#include "solar_os_storage.h"
 #include "solar_os_stream.h"
 #if SOLAR_OS_PACKAGE_EXPANSION_SDSPI && !SOLAR_OS_BOARD_HAS_SD
 #include "solar_os_sdspi.h"
@@ -31,7 +32,7 @@
 #endif
 
 static const char * const expansion_subcommands[] = {
-    "status", "layout", "scan", "drivers", "devices", "bus", "attach", "detach",
+    "status", "layout", "scan", "drivers", "devices", "bus", "attach", "detach", "export",
 };
 static const char * const expansion_bus_subcommands[] = {"create", "attach", "detach", "remove"};
 
@@ -60,6 +61,64 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
     solar_os_shell_io_writeln(term, "  expansion detach <name>");
+    solar_os_shell_io_writeln(term, "  expansion export <path>");
+}
+
+static void expansion_cmd_export(solar_os_context_t *ctx,
+                                 solar_os_shell_io_t *term,
+                                 int argc,
+                                 char **argv)
+{
+    if (argc < 3) {
+        solar_os_shell_diag_missing(term,
+                                    "expansion export",
+                                    "<path>",
+                                    "expansion export <path>");
+        return;
+    }
+    if (argc > 3) {
+        solar_os_shell_diag_unexpected(term,
+                                       "expansion export",
+                                       argv[3],
+                                       "expansion export <path>");
+        return;
+    }
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (!solar_os_shell_resolve_path_for_command(ctx,
+                                                 term,
+                                                 "expansion export",
+                                                 argv[2],
+                                                 path,
+                                                 sizeof(path))) {
+        return;
+    }
+    size_t bus_count = 0U;
+    size_t device_count = 0U;
+    char unsupported[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX] = {0};
+    const esp_err_t err = solar_os_shell_expansion_export_manifest(
+        path,
+        &bus_count,
+        &device_count,
+        unsupported,
+        sizeof(unsupported));
+    if (err == ESP_ERR_NOT_SUPPORTED && unsupported[0] != '\0') {
+        solar_os_shell_io_printf(
+            term,
+            "expansion export: device '%s' cannot be promoted; attach a catalog driver instead\n",
+            unsupported);
+        return;
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term,
+                                 "expansion export: %s\n",
+                                 solar_os_shell_error_text(err));
+        return;
+    }
+    solar_os_shell_io_printf(term,
+                             "exported %zu buses and %zu devices to %s\n",
+                             bus_count,
+                             device_count,
+                             path);
 }
 
 static bool parse_int_arg(const char *text, int min, int max, int *value)
@@ -2289,9 +2348,13 @@ void solar_os_shell_cmd_expansion(solar_os_context_t *ctx, int argc, char **argv
         expansion_cmd_detach(term, argc, argv);
         return;
     }
+    if (strcmp(argv[1], "export") == 0) {
+        expansion_cmd_export(ctx, term, argc, argv);
+        return;
+    }
 
     solar_os_shell_diag_subcommand(term, "expansion", argc, argv,
-                                   "expansion [status|layout|scan|drivers|devices|bus|attach|detach] ...",
+                                   "expansion [status|layout|scan|drivers|devices|bus|attach|detach|export] ...",
                                    expansion_subcommands,
                                    sizeof(expansion_subcommands) / sizeof(expansion_subcommands[0]));
 }

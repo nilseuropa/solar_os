@@ -236,6 +236,63 @@ static esp_err_t binding_token(const solar_os_expansion_driver_t *driver,
         ESP_ERR_INVALID_SIZE : ESP_OK;
 }
 
+esp_err_t solar_os_shell_expansion_binding_manifest_field(
+    const solar_os_expansion_driver_t *driver,
+    const solar_os_expansion_binding_t *binding,
+    char *key,
+    size_t key_len,
+    char *value,
+    size_t value_len,
+    bool *string_value)
+{
+    if (driver == NULL || binding == NULL || key == NULL || key_len == 0U ||
+        value == NULL || value_len == 0U || string_value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = binding_key(driver, binding, key, key_len);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    int written = -1;
+    *string_value = false;
+    switch (binding->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        *string_value = true;
+        written = snprintf(value, value_len, "%s", binding->target);
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        if (binding->target[0] == '\0') {
+            written = snprintf(value, value_len, "%d", binding->value);
+        } else {
+            *string_value = true;
+            written = snprintf(value,
+                               value_len,
+                               "%s:%d",
+                               binding->target,
+                               binding->value);
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+    case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_ADC:
+    case SOLAR_OS_EXPANSION_BINDING_PWM:
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        written = snprintf(value, value_len, "%d", binding->value);
+        break;
+    default:
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return written < 0 || (size_t)written >= value_len ?
+        ESP_ERR_INVALID_SIZE : ESP_OK;
+}
+
 esp_err_t solar_os_shell_expansion_attach_command(
     const solar_os_expansion_driver_t *driver,
     const solar_os_expansion_device_t *device,

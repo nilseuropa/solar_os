@@ -887,6 +887,7 @@ available for the compiled board.
 | `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
+| `expansion` | `expansion export <path>` | Atomically export runtime buses and catalog-backed device attachments as a portable expansion manifest for custom-board generation. |
 | `neopixel` | `neopixel [status\|list] [name]` | List attached WS2812/NeoPixel strips. |
 | `neopixel` | `neopixel set <name> <index> <red> <green> <blue>` | Set one zero-based pixel and immediately refresh the strip. |
 | `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |

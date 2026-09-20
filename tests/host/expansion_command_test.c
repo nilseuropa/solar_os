@@ -70,6 +70,22 @@ int main(void)
                   "expansion attach ssd1683 display0 spi=spi0 cs=gpio9 "
                   "dc=gpio10 reset=gpio11 busy=gpio12") == 0);
 
+    char key[24];
+    char value[32];
+    bool string_value = false;
+    assert(solar_os_shell_expansion_binding_manifest_field(
+               &display_driver, &display.bindings[0], key, sizeof(key),
+               value, sizeof(value), &string_value) == ESP_OK);
+    assert(strcmp(key, "spi") == 0);
+    assert(strcmp(value, "spi0") == 0);
+    assert(string_value);
+    assert(solar_os_shell_expansion_binding_manifest_field(
+               &display_driver, &display.bindings[2], key, sizeof(key),
+               value, sizeof(value), &string_value) == ESP_OK);
+    assert(strcmp(key, "dc") == 0);
+    assert(strcmp(value, "10") == 0);
+    assert(!string_value);
+
     static const solar_os_expansion_binding_spec_t sensor_specs[] = {
         {.key = "i2c", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS},
         {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},
@@ -98,6 +114,12 @@ int main(void)
     assert(strcmp(command,
                   "expansion attach sensor \"sensor one\" i2c=i2c0 "
                   "addr=0x5f power=gpiox0:9") == 0);
+    assert(solar_os_shell_expansion_binding_manifest_field(
+               &sensor_driver, &sensor.bindings[2], key, sizeof(key),
+               value, sizeof(value), &string_value) == ESP_OK);
+    assert(strcmp(key, "power") == 0);
+    assert(strcmp(value, "gpiox0:9") == 0);
+    assert(string_value);
 
     const solar_os_expansion_driver_t manual_driver = {
         .name = "manual",

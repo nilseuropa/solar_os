@@ -8,7 +8,12 @@
   unfinished form is preserved when opening the I/O pin map and bus manager,
   and manual resource entry remains available. Runtime device details can save
   their normalized attach command to the selected shell startup script, using
-  the same idempotent startup workflow as runtime buses in I/O.
+  the same idempotent startup workflow as runtime buses in I/O. Runtime buses
+  and catalog-backed device attachments can now be exported as an atomic,
+  versioned expansion manifest. The desktop board configurator imports that
+  snapshot, validates it against the recorded base board, and promotes the
+  tested hardware into an inherited board-owned target. Declarative board
+  manifests now also preserve runtime MIDI buses during promotion.
 - **4.12.2** — 2026-09-18 — Added an optional persistent BLE keyboard
   keepalive that periodically sends HID Exit Suspend, with a readable HID
   Information fallback and visible local attempt status. Keyboard Battery

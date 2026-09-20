@@ -2379,6 +2379,7 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+static const char * const path_expansion_export[] = {"expansion", "export"};
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 static const char * const path_gnss[] = {"gnss"};
 static const char * const path_gnss_power[] = {"gnss", "power"};
@@ -3341,6 +3342,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_EXPANSION_DRIVERS(path_expansion_attach),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+    SHELL_COMPLETION_PATH(path_expansion_export, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),

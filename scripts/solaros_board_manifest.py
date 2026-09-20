@@ -18,7 +18,7 @@ DEFINE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 HEADER_INCLUDE_RE = re.compile(r"^[A-Za-z0-9_./-]+\.h$")
 TARGET_GPIO_MAX = {"esp32": 39, "esp32s3": 48}
 POLICIES = {"free", "releasable", "fixed"}
-BUS_PROTOCOLS = {"i2c", "spi", "uart", "onewire", "ps2"}
+BUS_PROTOCOLS = {"i2c", "spi", "uart", "onewire", "ps2", "midi"}
 BINDING_KINDS = {
     "gpio",
     "gpio_line",
@@ -309,6 +309,7 @@ def _bus_gpio_roles(bus: dict[str, Any]) -> list[tuple[int, str]]:
         "i2c": ("sda", "scl"),
         "spi": ("sclk", "miso", "mosi"),
         "uart": ("tx", "rx"),
+        "midi": ("tx", "rx"),
         "onewire": ("pin",),
         "ps2": ("clock", "data"),
     }.get(protocol, ())
@@ -633,12 +634,17 @@ def _bus_initializer(bus: dict[str, Any]) -> str:
             f".cs_count = {len(cs)}, .cs = {{{cs_entries}}}"
             "}"
         )
-    elif protocol == "uart":
+    elif protocol in {"uart", "midi"}:
+        default_baud = (
+            "SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE"
+            if protocol == "midi"
+            else "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+        )
         config = (
             ".config.uart = {"
             f".port = {bus['port']}, .tx_pin = GPIO_NUM_{bus['tx']}, "
             f".rx_pin = GPIO_NUM_{bus['rx']}, "
-            f".baud_rate = {bus.get('baud_rate', 'SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE')}"
+            f".baud_rate = {bus.get('baud_rate', default_baud)}"
             "}"
         )
     elif protocol == "onewire":
