@@ -115,6 +115,11 @@ cs = [9]
 max_transfer_size = 4096
 
 [[devices]]
+driver = "cardkb"
+name = "keyboard0"
+bindings = { i2c = "i2c0", addr = 0x5f }
+
+[[devices]]
 driver = "ssd1683"
 name = "display0"
 bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
@@ -138,7 +143,10 @@ bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
         )
         self.assertEqual(profile["extends"], base["board"]["id"])
         self.assertEqual(profile["buses"][0]["name"], "spi0")
-        self.assertEqual(profile["devices"][0]["driver"], "ssd1683")
+        self.assertEqual(
+            [(device["driver"], device["name"]) for device in profile["devices"]],
+            [("cardkb", "keyboard0"), ("ssd1683", "display0")],
+        )
         self.assertIn("display_ssd1683", profile["build"]["drivers"])
         self.assertIn("display", profile["build"]["capabilities"])
         self.assertNotIn("SPI2_HOST", profile["runtime"]["spi_hosts"])
@@ -148,8 +156,10 @@ bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
         )
         merged = merge_board_overlay(base, profile)
         validate_board(merged, self.drivers)
+        self.assertIn("expansion_cardkb", required_packages(merged, self.drivers))
         header = generate_header(merged, self.drivers)
         self.assertIn("SOLAR_OS_BUS_ORIGIN_BOARD", header)
+        self.assertIn('.driver = "cardkb", .name = "keyboard0"', header)
         self.assertIn('.driver = "ssd1683", .name = "display0"', header)
 
     def test_expansion_snapshot_rejects_manual_devices(self) -> None:

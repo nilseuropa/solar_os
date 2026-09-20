@@ -33,6 +33,11 @@ cs = [9]
 max_transfer_size = 4096
 
 [[devices]]
+driver = "cardkb"
+name = "keyboard0"
+bindings = { i2c = "i2c0", addr = 0x5f }
+
+[[devices]]
 driver = "ssd1683"
 name = "display0"
 bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
