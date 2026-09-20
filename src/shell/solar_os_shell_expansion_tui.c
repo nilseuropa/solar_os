@@ -17,6 +17,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_expansion_internal.h"
 #include "solar_os_stream.h"
@@ -27,6 +28,7 @@
 #define EXPANSION_TUI_VALUE_MAX 32
 #define EXPANSION_TUI_MANUAL_MAX 192
 #define EXPANSION_TUI_FORM_SPEC_MAX 24
+#define EXPANSION_TUI_STARTUP_COMMAND_MAX 192
 
 typedef enum {
     EXPANSION_TUI_VIEW_DEVICES,
@@ -63,6 +65,7 @@ typedef struct {
     char manual_resources[EXPANSION_TUI_MANUAL_MAX];
     solar_os_tui_input_state_t input;
     size_t choice_field;
+    bool startup_saved;
     bool editing;
 } expansion_tui_state_t;
 
@@ -374,10 +377,17 @@ static void expansion_tui_device_detail_line(size_t index,
                      expansion_tui.device.active ? "active" : "inactive");
         break;
     case 3U:
-        snprintf(line,
-                 line_len,
-                 "startup: %s",
-                 expansion_tui.device.autostart ? "automatic" : "manual");
+        if (expansion_tui.device.autostart) {
+            strlcpy(line, "startup: automatic", line_len);
+        } else if (expansion_tui.startup_saved) {
+            snprintf(line,
+                     line_len,
+                     "startup: saved (%s)",
+                     solar_os_shell_startup_source_name(
+                         solar_os_shell_startup_source()));
+        } else {
+            strlcpy(line, "startup: manual", line_len);
+        }
         break;
     case 4U:
         snprintf(line,
@@ -419,9 +429,10 @@ static void expansion_tui_render_device_detail(void)
         expansion_tui_device_detail_line(index, line, sizeof(line));
         solar_os_tui_write_cell(tui, 2U + row, 0U, cols, line, SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    expansion_tui_draw_help(expansion_tui.device.detachable ?
-                                "arrows scroll  D/del detach  P pin map  esc back" :
-                                "arrows scroll  fixed device  P pin map  esc back");
+    expansion_tui_draw_help(
+        expansion_tui.device.origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME ?
+            "arrows scroll  S startup  D detach  P pin map  esc back" :
+            "arrows scroll  fixed device  P pin map  esc back");
     expansion_tui_finish_render(false);
 }
 
@@ -626,6 +637,76 @@ static bool expansion_tui_device_exists(const char *name)
         }
     }
     return false;
+}
+
+static bool expansion_tui_find_driver(const char *name,
+                                      solar_os_expansion_driver_t *driver)
+{
+    if (name == NULL || driver == NULL) {
+        return false;
+    }
+    for (size_t i = 0U; i < solar_os_expansion_driver_count(); i++) {
+        if (solar_os_expansion_get_driver(i, driver) &&
+            strcmp(driver->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t expansion_tui_device_command(char *command,
+                                               size_t command_len)
+{
+    solar_os_expansion_driver_t driver;
+    if (!expansion_tui_find_driver(expansion_tui.device.driver, &driver)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return solar_os_shell_expansion_attach_command(&driver,
+                                                   &expansion_tui.device,
+                                                   command,
+                                                   command_len);
+}
+
+static void expansion_tui_refresh_startup(void)
+{
+    expansion_tui.startup_saved = expansion_tui.device.autostart;
+    if (expansion_tui.device.origin != SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+        return;
+    }
+
+    char command[EXPANSION_TUI_STARTUP_COMMAND_MAX];
+    bool present = false;
+    if (expansion_tui_device_command(command, sizeof(command)) == ESP_OK &&
+        solar_os_shell_startup_has_command(command, &present) == ESP_OK) {
+        expansion_tui.startup_saved = present;
+    }
+}
+
+static void expansion_tui_save_startup(void)
+{
+    if (expansion_tui.device.origin != SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+        expansion_tui_set_message("fixed devices already start automatically");
+        return;
+    }
+
+    char command[EXPANSION_TUI_STARTUP_COMMAND_MAX];
+    esp_err_t err = expansion_tui_device_command(command, sizeof(command));
+    if (err != ESP_OK) {
+        expansion_tui_set_error("build startup command", err);
+        return;
+    }
+    bool added = false;
+    err = solar_os_shell_startup_append_command(command, &added);
+    if (err != ESP_OK) {
+        expansion_tui_set_error("save startup", err);
+        return;
+    }
+    expansion_tui.startup_saved = true;
+    snprintf(expansion_tui.message,
+             sizeof(expansion_tui.message),
+             added ? "saved for %s startup" : "already in %s startup",
+             solar_os_shell_startup_source_name(
+                 solar_os_shell_startup_source()));
 }
 
 static void expansion_tui_default_device_name(void)
@@ -1322,9 +1403,24 @@ static bool expansion_tui_binding_from_spec(
         .value = -1,
         .aux = -1,
     };
-    strlcpy(binding->role,
-            spec->role != NULL ? spec->role : spec->key,
-            sizeof(binding->role));
+    const char *role = spec->role;
+    if (role == NULL) {
+        switch (spec->kind) {
+        case SOLAR_OS_EXPANSION_BINDING_GPIO:
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        case SOLAR_OS_EXPANSION_BINDING_ADC:
+        case SOLAR_OS_EXPANSION_BINDING_PWM:
+        case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+        case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+            role = spec->key;
+            break;
+        default:
+            role = "";
+            break;
+        }
+    }
+    strlcpy(binding->role, role, sizeof(binding->role));
 
     switch (spec->kind) {
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
@@ -1562,6 +1658,7 @@ static void expansion_tui_handle_devices(uint8_t key)
                solar_os_expansion_get_device(expansion_tui.devices.cursor,
                                              &expansion_tui.device)) {
         expansion_tui.detail = (solar_os_tui_viewport_t) {0};
+        expansion_tui_refresh_startup();
         expansion_tui.view = EXPANSION_TUI_VIEW_DEVICE_DETAIL;
         expansion_tui_set_message("");
     } else if (solar_os_tui_viewport_key(&expansion_tui.devices,
@@ -1579,6 +1676,8 @@ static void expansion_tui_handle_device_detail(uint8_t key)
     if (key == SOLAR_OS_KEY_ESCAPE) {
         expansion_tui.view = EXPANSION_TUI_VIEW_DEVICES;
         expansion_tui_set_message("");
+    } else if (key == 's' || key == 'S') {
+        expansion_tui_save_startup();
     } else if (key == 'd' || key == 'D' || key == SOLAR_OS_KEY_DELETE) {
         if (expansion_tui.device.detachable) {
             expansion_tui.view = EXPANSION_TUI_VIEW_DETACH_CONFIRM;

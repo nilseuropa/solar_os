@@ -94,6 +94,14 @@ expansion detach lcd0
 Detaching releases the resources. Do not invent a target name or copy bindings
 from a different board.
 
+To restore a runtime attachment after reboot, open its device detail in
+`expansion` and press `S`. SolarOS reconstructs the normalized `expansion
+attach` command and adds it once to the startup script selected by `setterm
+startup`. If the device uses a runtime bus, save that bus for startup from
+`io` first so its `expansion bus create` command appears earlier in the script.
+Compiled board devices already start automatically and do not need a saved
+command.
+
 A Waveshare 4.2-inch V2 monochrome e-paper module uses the SSD1683 expansion
 driver and registers a 400x300 display target:
 

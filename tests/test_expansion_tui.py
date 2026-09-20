@@ -46,6 +46,13 @@ class ExpansionTuiTest(unittest.TestCase):
         self.assertIn("E manual", TUI)
         self.assertIn("P pin map/buses", TUI)
 
+    def test_runtime_devices_can_be_saved_to_shell_startup(self):
+        self.assertIn("solar_os_shell_expansion_attach_command", TUI)
+        self.assertIn("solar_os_shell_startup_has_command", TUI)
+        self.assertIn("solar_os_shell_startup_append_command", TUI)
+        self.assertIn("S startup", TUI)
+        self.assertIn("startup: saved", TUI)
+
     def test_tui_does_not_manage_bus_lifecycle(self):
         self.assertNotIn("solar_os_bus_attach(", TUI)
         self.assertNotIn("solar_os_bus_detach(", TUI)
@@ -56,6 +63,7 @@ class ExpansionTuiTest(unittest.TestCase):
         package_start = PACKAGES.index("[packages.service_expansion]")
         package_end = PACKAGES.index("\n[packages.", package_start + 1)
         package = PACKAGES[package_start:package_end]
+        self.assertIn('"shell/solar_os_shell_expansion_command.c"', package)
         self.assertIn('"shell/solar_os_shell_expansion_tui.c"', package)
 
 

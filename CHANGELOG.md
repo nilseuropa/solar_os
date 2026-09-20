@@ -6,7 +6,9 @@
   selectors built from the live I/O map. Compatible buses and pins show their
   routes and connector positions while excluding claimed resources. The
   unfinished form is preserved when opening the I/O pin map and bus manager,
-  and manual resource entry remains available.
+  and manual resource entry remains available. Runtime device details can save
+  their normalized attach command to the selected shell startup script, using
+  the same idempotent startup workflow as runtime buses in I/O.
 - **4.12.2** — 2026-09-18 — Added an optional persistent BLE keyboard
   keepalive that periodically sends HID Exit Suspend, with a readable HID
   Information fallback and visible local attempt status. Keyboard Battery

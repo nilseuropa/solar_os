@@ -19,6 +19,8 @@ bool solar_os_shell_parse_startup_source(const char *name,
                                          solar_os_shell_startup_source_t *source);
 esp_err_t solar_os_shell_set_startup_source(solar_os_shell_startup_source_t source);
 esp_err_t solar_os_shell_startup_path(char *path, size_t path_len);
+esp_err_t solar_os_shell_startup_has_command(const char *command, bool *present);
+esp_err_t solar_os_shell_startup_append_command(const char *command, bool *added);
 
 solar_os_shell_session_t *solar_os_shell_session_create(void);
 void solar_os_shell_session_destroy(solar_os_shell_session_t *session);

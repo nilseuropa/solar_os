@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1077,6 +1078,207 @@ bool solar_os_shell_expansion_parse_binding_token(
     return false;
 }
 
+static const solar_os_expansion_binding_spec_t *expansion_find_binding_spec(
+    const solar_os_expansion_driver_t *driver,
+    const char *key)
+{
+    if (driver == NULL || key == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0U; i < driver->binding_spec_count; i++) {
+        if (strcmp(driver->binding_specs[i].key, key) == 0) {
+            return &driver->binding_specs[i];
+        }
+    }
+    return NULL;
+}
+
+static const char *expansion_spec_binding_role(
+    const solar_os_expansion_binding_spec_t *spec)
+{
+    if (spec->role != NULL) {
+        return spec->role;
+    }
+    switch (spec->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+    case SOLAR_OS_EXPANSION_BINDING_ADC:
+    case SOLAR_OS_EXPANSION_BINDING_PWM:
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        return spec->key;
+    default:
+        return "";
+    }
+}
+
+static bool expansion_parse_driver_binding_token(
+    const solar_os_expansion_driver_t *driver,
+    const char *arg,
+    solar_os_expansion_binding_t *bindings,
+    size_t *binding_count)
+{
+    if (driver == NULL || arg == NULL || bindings == NULL ||
+        binding_count == NULL) {
+        return false;
+    }
+    if (driver->allow_unlisted_bindings) {
+        return solar_os_shell_expansion_parse_binding_token(arg,
+                                                            bindings,
+                                                            binding_count);
+    }
+
+    const char *eq = strchr(arg, '=');
+    if (eq == NULL) {
+        return solar_os_shell_expansion_parse_binding_token(arg,
+                                                            bindings,
+                                                            binding_count);
+    }
+    char key[SOLAR_OS_EXPANSION_ROLE_MAX];
+    const size_t key_len = (size_t)(eq - arg);
+    if (key_len == 0U || key_len >= sizeof(key)) {
+        return false;
+    }
+    memcpy(key, arg, key_len);
+    key[key_len] = '\0';
+    const solar_os_expansion_binding_spec_t *spec =
+        expansion_find_binding_spec(driver, key);
+    if (spec == NULL) {
+        return false;
+    }
+
+    const char *value = eq + 1;
+    const char *role = expansion_spec_binding_role(spec);
+    int parsed = -1;
+    switch (spec->kind) {
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+        return solar_os_expansion_find_i2c_bus(value, NULL, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          value,
+                          -1,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+        return solar_os_expansion_find_spi_bus(value, NULL, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          value,
+                          -1,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT: {
+        solar_os_expansion_uart_port_t port;
+        return solar_os_expansion_find_uart_port(value, &port, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          value,
+                          port.port,
+                          -1);
+    }
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        return solar_os_bus_find(value, SOLAR_OS_BUS_PROTOCOL_PS2, NULL) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          value,
+                          -1,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
+        solar_os_stream_info_t stream;
+        return solar_os_stream_get_info(value, &stream) == ESP_OK &&
+            stream.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+            stream.direction != SOLAR_OS_STREAM_DIRECTION_SINK &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          value,
+                          -1,
+                          -1);
+    }
+    case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
+        return parse_i2s_port(value, &parsed) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          "",
+                          parsed,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
+        return parse_int_arg(value, 0x03, 0x77, &parsed) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          "",
+                          parsed,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE: {
+        solar_os_gpio_line_ref_t line;
+        return solar_os_gpio_line_parse(value, &line) &&
+            (solar_os_gpio_line_is_native(&line) ||
+             solar_os_gpio_controller_find(line.controller, NULL)) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          line.controller,
+                          line.line,
+                          -1);
+    }
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_ADC:
+    case SOLAR_OS_EXPANSION_BINDING_PWM:
+        return parse_int_arg(value, 0, 63, &parsed) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          "",
+                          parsed,
+                          -1);
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS: {
+        char spi_target[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
+        for (size_t i = 0U; i < *binding_count; i++) {
+            if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_SPI_BUS) {
+                strlcpy(spi_target,
+                        bindings[i].target,
+                        sizeof(spi_target));
+                break;
+            }
+        }
+        return spi_target[0] != '\0' &&
+            parse_int_arg(value, 0, 63, &parsed) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          spi_target,
+                          parsed,
+                          -1);
+    }
+    case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+        return parse_int_arg(value, INT_MIN, INT_MAX, &parsed) &&
+            binding_store(bindings,
+                          binding_count,
+                          spec->kind,
+                          role,
+                          "",
+                          parsed,
+                          -1);
+    default:
+        return false;
+    }
+}
+
 static void expansion_print_attach_error(solar_os_shell_io_t *term,
                                          const char *driver,
                                          esp_err_t err)
@@ -1164,7 +1366,10 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
     }
 
     for (int i = 4; i < argc; i++) {
-        if (!solar_os_shell_expansion_parse_binding_token(argv[i], bindings, &binding_count)) {
+        if (!expansion_parse_driver_binding_token(&driver,
+                                                  argv[i],
+                                                  bindings,
+                                                  &binding_count)) {
             solar_os_shell_io_printf(term, "expansion attach: invalid resource syntax or value '%s'\n", argv[i]);
             expansion_print_driver_usage(term, &driver);
             return;
