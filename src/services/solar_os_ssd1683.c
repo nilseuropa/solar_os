@@ -323,8 +323,7 @@ esp_err_t solar_os_ssd1683_attach(const char *name,
     }
 
     device->active = true;
-    device->primary = SOLAR_OS_BOARD_HAS_DISPLAY &&
-        strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;
+    device->primary = solar_os_display_target_is_board_primary(name);
     u8g2_t *const u8g2 = epd_ssd1683_get_u8g2(&device->driver);
     device->display = (solar_os_board_display_t) {
         .ops = &display_ops,

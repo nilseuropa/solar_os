@@ -738,6 +738,36 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn(".height = u8g2_GetDisplayHeight(u8g2)", registered_geometry)
         self.assertNotIn("SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH", registered_geometry)
 
+    def test_runtime_displays_on_headless_boards_use_target_registry(self):
+        display = (ROOT / "src/services/solar_os_display.c").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "bool solar_os_display_target_is_board_primary(const char *name)",
+            display,
+        )
+        self.assertIn("return SOLAR_OS_BOARD_HAS_DISPLAY &&", display)
+
+        drivers = (
+            "solar_os_ssd1683.c",
+            "solar_os_st7305_display.c",
+            "solar_os_tft_display.c",
+            "solar_os_cvbs_display.c",
+            "solar_os_vga32_display.c",
+        )
+        for filename in drivers:
+            source = (ROOT / "src/services" / filename).read_text(encoding="utf-8")
+            self.assertIn(
+                "device->primary = solar_os_display_target_is_board_primary(name);",
+                source,
+                filename,
+            )
+            self.assertNotIn(
+                "device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET)",
+                source,
+                filename,
+            )
+
     def test_foreground_apps_use_one_class_lifecycle(self):
         sources = list((ROOT / "src/apps").glob("*.c"))
         sources += list((ROOT / "src/shell").glob("*.c"))

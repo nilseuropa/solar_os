@@ -30,6 +30,11 @@ typedef esp_err_t (*solar_os_display_frame_presenter_t)(
 #define SOLAR_OS_DISPLAY_TARGET_OWNER_MAX 32
 #define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
 
+/* Only a display declared by the board profile belongs to the board-primary
+ * path. A runtime display named display0 on a headless board remains a normal
+ * display target so sessions and applications can discover it. */
+bool solar_os_display_target_is_board_primary(const char *name);
+
 typedef struct {
     char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char source[SOLAR_OS_DISPLAY_TARGET_SOURCE_MAX];

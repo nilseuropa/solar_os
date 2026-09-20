@@ -317,7 +317,7 @@ static esp_err_t attach_tft(const char *name,
         .max_stream_pixels_per_second = 1600000U,
         .ready = true,
     };
-    device->primary = strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;
+    device->primary = solar_os_display_target_is_board_primary(name);
     ret = device->primary ?
         solar_os_board_display_register_primary(&device->display) :
         register_auxiliary(device);

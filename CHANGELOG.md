@@ -16,7 +16,7 @@
   PPP and SLIP links appear in network status. Ping can be stopped with Esc or
   Ctrl+C. Runtime metadata and the PPP monitor prefer PSRAM with safe internal
   fallback, the Network TUI no longer exhausts small foreground stacks, and
-  runtime SSD1683 displays register correctly on headless boards. Expansion
+  runtime displays register correctly on headless boards. Expansion
   driver attachment now offers guided selectors built from the live I/O map.
   Compatible buses and pins show their routes and connector positions while
   excluding claimed resources. The unfinished form is preserved when opening
