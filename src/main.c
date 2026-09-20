@@ -120,7 +120,7 @@ static solar_os_terminal_t *terminal;
 static solar_os_terminal_t *shell_terminal;
 static u8g2_t *display_u8g2;
 static solar_os_gfx_t gfx;
-static solar_os_context_t os_ctx;
+static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx;
 static bool alt_prefix_pending;
 static uint32_t session_overlay_until_ms;
 static char session_overlay_title[SESSION_OVERLAY_TITLE_MAX];
@@ -1750,6 +1750,9 @@ void app_main(void)
     while (true) {
         solar_os_schedule_poll();
         solar_os_power_poll();
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+        solar_os_expansion_poll(millis_u32());
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
         if (board_has(SOLAR_OS_BOARD_CAP_BLE)) {
             solar_os_ble_keyboard_poll(millis_u32());

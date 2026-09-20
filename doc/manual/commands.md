@@ -570,6 +570,7 @@ job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200
+job start pppd uart0 baud=115200
 job stop log
 ```
 
@@ -691,6 +692,11 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 
 | Command | Usage | Description |
 | --- | --- | --- |
+| `network` | `network` | Open the two-tab network TUI. Status shows interfaces and routes; Settings changes persistent interface priority and client routing. |
+| `network` | `network status` | Show network interfaces, route selection, VPN routes, and router state as text. |
+| `network` | `network interfaces` | List route-capable interfaces, addresses, priorities, and the local downstream interface. |
+| `network` | `network routes` | Show the default route, automatic base path, and active WireGuard routes. |
+| `network router` | `network router [status\|on\|off]` | Route Wi-Fi AP clients through the SolarOS route table using IPv4 forwarding and NAT. |
 | `wifi` | `wifi` | Open the Wi-Fi display TUI when launched from the display shell. |
 | `wifi` | `wifi status` | Show station/AP/NAT state and the current/next boot setting. |
 | `wifi` | `wifi enable` | Save Wi-Fi enabled for the next boot. The current boot is unchanged. |
@@ -708,11 +714,11 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
 | `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
-| `wifi nat` | `wifi nat [status|on|off]` | Configure IPv4 NAT for APSTA. |
-| `wireguard` | `wireguard [status]` | Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material. |
+| `wifi nat` | `wifi nat [status|on|off]` | Advanced control for IPv4 NAT on the SoftAP interface. Prefer `network router`. |
+| `wireguard` | `wireguard [status]` | Show profile, tunnel, selected underlay, route, peer, DNS, and kill-switch state without printing key material. |
 | `wireguard` | `wireguard import <file>` | Validate one standard WireGuard client profile and save it in NVS. The source file is not removed. |
 | `wireguard` | `wireguard forget` | Logically remove the saved profile from NVS. Bring the tunnel down first. |
-| `wireguard` | `wireguard up [fail-open\|fail-closed]` | Request the tunnel and reconnect it after Wi-Fi address changes. The default is fail-closed for a full tunnel and fail-open for a split tunnel. |
+| `wireguard` | `wireguard up [fail-open\|fail-closed]` | Request the tunnel and reconnect it when the preferred network underlay changes. The default is fail-closed for a full tunnel and fail-open for a split tunnel. |
 | `wireguard` | `wireguard down` | Stop the tunnel, remove its routes, restore DNS, and disable its kill switch. |
 | `ble` | `ble [status]` | Show BLE keyboard state and the current/next boot setting. |
 | `ble` | `ble enable` | Save BLE enabled for the next boot. The current boot is unchanged. |
@@ -735,7 +741,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | `mqtt disconnect` | Disconnect and stop the MQTT client. |
 | `mqtt` | `mqtt publish <topic> <payload> [qos] [retain]` | Publish a message with optional QoS 0–2 and retain flag. |
 | `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
-| `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until app-exit. |
+| `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit. |
 | `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
 
@@ -846,7 +852,7 @@ available for the compiled board.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `battery` | `battery [status]` | Show voltage, estimated charge, power source, config, and monitor trend. |
+| `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
 | `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
@@ -928,8 +934,20 @@ available for the compiled board.
 | `radio` | `radio send <name> <text|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
-| `gnss` | `gnss power <on\|off> [name]` | Enable or disable a receiver that has a driver-managed power rail. |
-| `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. |
+| `gnss` | `gnss status [name]` | Show power, fix, fix type, and satellite state for one logical receiver. |
+| `gnss` | `gnss power <on\|off> [name]` | Enable or disable one logical receiver using its driver-specific power control. |
+| `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. A timeout can be supplied without a receiver name. |
+| `modem` | `modem` | Open the modem status and settings TUI. |
+| `modem` | `modem list` | List registered cellular modems, concrete drivers, and transports. |
+| `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
+| `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
+| `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |
+| `modem` | `modem baud [name] [auto\|rate]` | Show or persist an optional serial modem transport rate. `auto` selects the driver's preferred rate. |
+| `modem` | `modem profile set [name] --apn <apn> [--dns <ipv4\|auto>] [--ip ipv4\|ipv6\|ipv4v6] [--auth none\|pap\|chap\|auto] [--user <user> --password <password>]` | Validate, apply, and persist a modem-independent cellular profile. |
+| `modem` | `modem profile show\|clear [name]` | Inspect a saved profile with its password redacted, or remove it. |
+| `modem` | `modem connect\|disconnect [name]` | Bring the saved cellular network connection and PPP interface up or down. |
+| `modem` | `modem sim unlock <pin> [name]` | Enter a required SIM PIN without persisting it. |
+| `modem` | `modem at <quoted-command> [name] [timeout-ms]` | Send one validated AT command and print the complete response. |
 | `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
 | `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
 | `haptic` | `haptic stop [name]` | Stop the active haptic effect. |

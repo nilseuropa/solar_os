@@ -14,6 +14,11 @@ def function(source: str, signature: str, next_signature: str) -> str:
 
 
 class WifiTuiScanFlowTest(unittest.TestCase):
+    def test_router_policy_is_not_owned_by_the_wifi_tui(self):
+        self.assertNotIn("WIFI_TUI_SHARE", TUI)
+        self.assertNotIn("internet share", TUI)
+        self.assertNotIn("solar_os_network_router_", TUI)
+
     def test_repeater_is_visible_and_toggles_the_service(self):
         current_value = function(
             TUI,

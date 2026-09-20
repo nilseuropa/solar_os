@@ -7,6 +7,7 @@
 #include <strings.h>
 
 #include "solar_os_log.h"
+#include "solar_os_network.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "lwip/inet.h"
@@ -14,7 +15,6 @@
 #include "ping/ping_sock.h"
 #include "solar_os_queue.h"
 #include "solar_os_storage.h"
-#include "solar_os_wifi.h"
 
 #define SOLAR_OS_NET_PING_DEFAULT_TIMEOUT_MS 1000U
 #define SOLAR_OS_NET_PING_DEFAULT_INTERVAL_MS 1000U
@@ -306,9 +306,7 @@ esp_err_t solar_os_net_ping(const char *host,
         return ESP_ERR_INVALID_ARG;
     }
 
-    solar_os_wifi_status_t wifi_status;
-    solar_os_wifi_get_status(&wifi_status);
-    if (!wifi_status.has_ip) {
+    if (!solar_os_network_path_get_preferred(NULL)) {
         return ESP_ERR_INVALID_STATE;
     }
 

@@ -25,20 +25,54 @@ class RuntimeBoundaryTest(unittest.TestCase):
             source = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(declaration, source, key)
 
-    def test_hot_core_registries_stay_internal(self):
+    def test_psram_safe_core_metadata_uses_external_bss(self):
         declarations = {
             "src/solar_os_jobs.c":
-                "static solar_os_job_runtime_t job_runtimes",
+                "static EXT_RAM_BSS_ATTR solar_os_job_runtime_t job_runtimes",
             "src/services/solar_os_sessions.c":
-                "static solar_os_session_state_t session_state",
+                "static EXT_RAM_BSS_ATTR solar_os_session_state_t session_state",
+            "src/apps/solar_os_app_registry.c":
+                "static EXT_RAM_BSS_ATTR char app_owners",
+            "src/apps/solar_os_shell.c":
+                "static EXT_RAM_BSS_ATTR shell_completion_index_t shell_completion_index",
+            "src/main.c":
+                "static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx",
+        }
+        for relative_path, declaration in declarations.items():
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, relative_path)
+
+    def test_hardware_facing_core_registries_stay_internal(self):
+        declarations = {
             "src/services/solar_os_buses.c":
                 "static solar_os_bus_info_t buses",
             "src/services/solar_os_port.c":
                 "static solar_os_port_entry_t ports",
-            "src/apps/solar_os_app_registry.c":
-                "static char app_owners",
             "src/jobs/solar_os_telnetd_job.c":
                 "static telnetd_job_state_t telnetd_job",
+        }
+        for relative_path, declaration in declarations.items():
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(declaration, source, relative_path)
+
+    def test_task_context_service_metadata_uses_external_bss(self):
+        declarations = {
+            "src/services/solar_os_network.c":
+                "static EXT_RAM_BSS_ATTR network_path_entry_t",
+            "src/services/solar_os_http_server.c":
+                "static EXT_RAM_BSS_ATTR http_route_slot_t route_slots",
+            "src/services/solar_os_ramfs.c":
+                "static EXT_RAM_BSS_ATTR ramfs_mount_t mounts",
+            "src/services/solar_os_modem.c":
+                "static EXT_RAM_BSS_ATTR modem_device_t modem_devices",
+            "src/services/solar_os_gnss.c":
+                "static EXT_RAM_BSS_ATTR gnss_device_t gnss_devices",
+            "src/services/solar_os_radio.c":
+                "static EXT_RAM_BSS_ATTR radio_device_t radio_devices",
+            "src/services/solar_os_chat.c":
+                "static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t chat",
+            "src/services/solar_os_chat_transport_gateway.c":
+                "static EXT_RAM_BSS_ATTR solar_os_chat_state_data_t chat_state",
         }
         for relative_path, declaration in declarations.items():
             source = (ROOT / relative_path).read_text(encoding="utf-8")
@@ -316,6 +350,128 @@ class RuntimeBoundaryTest(unittest.TestCase):
                 f"SOLAR_OS_SCRIPT_API_FUNCTION(wifi, {method}, {method});",
                 descriptor,
             )
+
+    def test_network_router_uses_paths_without_becoming_wifi_policy(self):
+        network_header = (ROOT / "src/services/solar_os_network.h").read_text(
+            encoding="utf-8"
+        )
+        network = (ROOT / "src/services/solar_os_network.c").read_text(
+            encoding="utf-8"
+        )
+        routes = (ROOT / "src/services/solar_os_lwip_route.c").read_text(
+            encoding="utf-8"
+        )
+        wifi = (ROOT / "src/services/solar_os_wifi.c").read_text(
+            encoding="utf-8"
+        )
+        ppp = (ROOT / "src/services/solar_os_ppp.c").read_text(
+            encoding="utf-8"
+        )
+        ppp_header = (ROOT / "src/services/solar_os_ppp.h").read_text(
+            encoding="utf-8"
+        )
+        sim7670 = (ROOT / "src/services/solar_os_sim7670.c").read_text(
+            encoding="utf-8"
+        )
+        wifi_shell = (ROOT / "src/shell/solar_os_shell_network.c").read_text(
+            encoding="utf-8"
+        )
+        network_shell = (
+            ROOT / "src/shell/solar_os_shell_network_status.c"
+        ).read_text(encoding="utf-8")
+        completion = (ROOT / "src/apps/solar_os_shell.c").read_text(
+            encoding="utf-8"
+        )
+        descriptor = (ROOT / "src/apps/solar_os_script_api.inc").read_text(
+            encoding="utf-8"
+        )
+        packages = (ROOT / "packages/solar_os_packages.toml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("esp_netif_dns_info_t dns;", network_header)
+        self.assertIn("solar_os_network_path_get_preferred", network_header)
+        self.assertIn("solar_os_network_path_list", network_header)
+        self.assertIn("solar_os_network_path_set_priority", network_header)
+        self.assertIn("solar_os_network_path_set_connecting", network_header)
+        self.assertIn("solar_os_network_interface_publish", network_header)
+        self.assertIn("solar_os_network_interface_list", network_header)
+        self.assertIn("solar_os_network_router_provider_t", network_header)
+        self.assertIn("candidate->info.route_priority >", network)
+        self.assertIn("esp_netif_get_default_netif()", network)
+        self.assertIn("esp_netif_get_dns_info(netif", network)
+        self.assertIn("entry->info.dns = dns;", network)
+        self.assertIn("esp_netif_set_route_prio", network)
+        self.assertIn("NETWORK_NVS_PRIORITIES_KEY", network)
+        self.assertIn("solar_os_network_lwip_preferred()", routes)
+
+        apply_start = wifi.index("static esp_err_t wifi_apply_nat(void)")
+        apply_end = wifi.index(
+            "static esp_err_t wifi_update_ap_dns_from_path(",
+            apply_start,
+        )
+        apply_nat = wifi[apply_start:apply_end]
+        self.assertIn("solar_os_network_path_get_preferred(&path)", apply_nat)
+        self.assertIn("wifi_update_ap_dns_from_path(&path)", apply_nat)
+        self.assertNotIn("wifi_sta_enabled", apply_nat)
+        self.assertNotIn("wifi_connected", apply_nat)
+        self.assertNotIn("wifi_has_ip", apply_nat)
+
+        router_start = wifi.rindex("static esp_err_t wifi_router_start(")
+        router_end = wifi.index("static esp_err_t wifi_router_stop(", router_start)
+        router = wifi[router_start:router_end]
+        self.assertIn("wifi_ap_start_config(NULL, NULL, NULL, false)", router)
+        self.assertIn("solar_os_wifi_nat_set(true)", router)
+        self.assertLess(
+            router.index("wifi_ap_start_config(NULL, NULL, NULL, false)"),
+            router.index("solar_os_wifi_nat_set(true)"),
+        )
+        self.assertIn("solar_os_network_router_register(&router_provider)", wifi)
+        self.assertIn("solar_os_network_path_register(\"wifi-sta\"", wifi)
+        self.assertIn("SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED", wifi)
+        self.assertIn("solar_os_ppp_netif_binding_t", ppp_header)
+        self.assertIn("solar_os_ppp_start", ppp_header)
+        self.assertIn("SOLAR_OS_PPP_MODE_PASSIVE", ppp_header)
+        self.assertNotIn("route_priority", ppp_header)
+        self.assertNotIn("solar_os_network", ppp)
+        self.assertIn("solar_os_network_path_register(device->name", sim7670)
+
+        lwip_route = (ROOT / "src/services/solar_os_lwip_route.c").read_text(
+            encoding="utf-8"
+        )
+        connected_fallback = lwip_route.index("if (src != NULL) {\n        return NULL;")
+        destination_policy = lwip_route.index("if (dest != NULL && route_state.netif")
+        self.assertLess(connected_fallback, destination_policy)
+        self.assertIn("solar_os_network_path_set_ready(netif, ready)", sim7670)
+
+        self.assertNotIn('strcmp(argv[1], "share")', wifi_shell)
+        self.assertIn('strcmp(argv[1], "router")', network_shell)
+        self.assertIn("solar_os_network_router_start()", network_shell)
+        self.assertIn("solar_os_network_router_stop()", network_shell)
+        self.assertIn(
+            "SHELL_COMPLETION_STATIC(path_network_router, network_router_subcommands)",
+            completion,
+        )
+        self.assertNotIn("path_wifi_share", completion)
+        for method in ("router_start", "router_stop"):
+            self.assertIn(
+                f"SOLAR_OS_SCRIPT_API_FUNCTION(net, {method}, {method});",
+                descriptor,
+            )
+            self.assertNotIn(
+                f"SOLAR_OS_SCRIPT_API_FUNCTION(wifi, {method}, {method});",
+                descriptor,
+            )
+        self.assertIn("[packages.service_network]", packages)
+        service_ppp = packages.split("[packages.service_ppp]", 1)[1].split(
+            "\n[packages.", 1
+        )[0]
+        sim7670_package = packages.split("[packages.sim7670]", 1)[1].split(
+            "\n[packages.", 1
+        )[0]
+        self.assertNotIn("service_network", service_ppp)
+        self.assertIn('"service_network"', sim7670_package)
+        self.assertNotIn("service_uplink", packages)
 
     def test_radio_link_repeater_is_one_hop_and_bounded(self):
         link_header = (ROOT / "src/services/solar_os_link.h").read_text(

@@ -12,6 +12,7 @@
 typedef struct {
     bool valid;
     bool time_valid;
+    bool satellites_valid;
     uint16_t year;
     uint8_t month;
     uint8_t day;
@@ -29,6 +30,13 @@ typedef struct {
     int32_t heading_deg_e5;
     uint16_t position_dop_e2;
 } solar_os_gnss_fix_t;
+
+typedef struct {
+    bool power_control;
+    bool powered;
+    bool fix_available;
+    solar_os_gnss_fix_t fix;
+} solar_os_gnss_status_t;
 
 typedef struct {
     esp_err_t (*read_fix)(void *ctx,
@@ -57,6 +65,11 @@ esp_err_t solar_os_gnss_unregister(const char *name);
 size_t solar_os_gnss_count(void);
 bool solar_os_gnss_get(size_t index, solar_os_gnss_info_t *info);
 esp_err_t solar_os_gnss_set_power(const char *name, bool enabled);
+/* Driver notification for parent-device power changes; does not touch hardware. */
+esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered);
+esp_err_t solar_os_gnss_get_status(const char *name,
+                                   uint32_t timeout_ms,
+                                   solar_os_gnss_status_t *status);
 esp_err_t solar_os_gnss_read_fix(const char *name,
                                  uint32_t timeout_ms,
                                  solar_os_gnss_fix_t *fix);

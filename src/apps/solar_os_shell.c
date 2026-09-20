@@ -461,6 +461,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     {"ble", "BLE keyboard control", solar_os_shell_cmd_ble},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+    {"network", "network interfaces, routes, and router", solar_os_shell_cmd_network},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI
     {"wifi", "Wi-Fi station control", solar_os_shell_cmd_wifi},
 #endif
@@ -515,6 +518,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     {"gnss", "GNSS receiver status", solar_os_shell_cmd_gnss},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+    {"modem", "cellular modem profiles and status", solar_os_shell_cmd_modem},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
@@ -702,6 +708,14 @@ static const char * const wifi_subcommands[] = {
     "repeater",
 };
 
+static const char * const network_subcommands[] = {
+    "status",
+    "interfaces",
+    "routes",
+    "router",
+};
+static const char * const network_router_subcommands[] = {"status", "on", "off"};
+
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
 static const char * const wireguard_subcommands[] = {
     "status",
@@ -781,6 +795,21 @@ static const char * const telnetd_values[] = {"23", "2323", "--password"};
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SLIP
 static const char * const slip_baud_values[] = {"9600", "38400", "115200", "230400", "921600"};
+#endif
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+static const char * const pppd_options[] = {
+    "baud=115200",
+    "role=downstream",
+    "role=uplink",
+    "role=peer",
+    "mode=passive",
+    "mode=active",
+    "local=192.168.8.1",
+    "peer=192.168.8.2",
+    "dns=auto",
+    "dns=none",
+    "priority=90",
+};
 #endif
 #if SOLAR_OS_PACKAGE_JOB_POCSAG
 static const char * const pocsag_subcommands[] = {"status", "send"};
@@ -898,7 +927,17 @@ static const char * const expansion_bus_protocols[] = {
 #endif
 };
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
-static const char * const gnss_subcommands[] = {"list", "power", "fix"};
+static const char * const gnss_subcommands[] = {
+    "list", "status", "power", "fix",
+};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+static const char * const modem_subcommands[] = {
+    "list", "status", "power", "reset", "profile", "connect", "disconnect",
+    "sim", "at",
+};
+static const char * const modem_profile_subcommands[] = {"show", "set", "clear"};
+static const char * const modem_sim_subcommands[] = {"unlock"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const haptic_subcommands[] = {"list", "play", "stop"};
@@ -1869,6 +1908,13 @@ static const char * const path_job_start_slip_port[] = {
     "slip",
     SHELL_COMPLETION_ANY,
 };
+static const char * const path_job_start_pppd[] = {"job", "start", "pppd"};
+static const char * const path_job_start_pppd_port[] = {
+    "job",
+    "start",
+    "pppd",
+    SHELL_COMPLETION_ANY,
+};
 static const char * const path_job_start_sump[] = {"job", "start", "sump"};
 static const char * const path_job_start_daq[] = {"job", "start", "daq"};
 static const char * const path_job_start_daq_stream[] = {"job", "start", "daq", SHELL_COMPLETION_ANY};
@@ -1936,6 +1982,8 @@ static const char * const path_ble[] = {"ble"};
 static const char * const path_ble_keepalive[] = {"ble", "keepalive"};
 static const char * const path_ble_gatt[] = {"ble", "gatt"};
 static const char * const path_ble_gatt_connect_addr[] = {"ble", "gatt", "connect", SHELL_COMPLETION_ANY};
+static const char * const path_network[] = {"network"};
+static const char * const path_network_router[] = {"network", "router"};
 static const char * const path_wifi[] = {"wifi"};
 static const char * const path_wifi_ap[] = {"wifi", "ap"};
 static const char * const path_wifi_ap_on_auth[] = {
@@ -2186,6 +2234,12 @@ static const char * const path_expansion_detach[] = {"expansion", "detach"};
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 static const char * const path_gnss[] = {"gnss"};
 static const char * const path_gnss_power[] = {"gnss", "power"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+static const char * const path_modem[] = {"modem"};
+static const char * const path_modem_power[] = {"modem", "power"};
+static const char * const path_modem_profile[] = {"modem", "profile"};
+static const char * const path_modem_sim[] = {"modem", "sim"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const path_haptic[] = {"haptic"};
@@ -2919,6 +2973,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_JOB_SLIP
     SHELL_COMPLETION_STATIC(path_job_start_slip_port, slip_baud_values),
 #endif
+    SHELL_COMPLETION_PORTS(path_job_start_pppd),
+#if SOLAR_OS_PACKAGE_JOB_PPPD
+    SHELL_COMPLETION_STATIC(path_job_start_pppd_port, pppd_options),
+#endif
     SHELL_COMPLETION_GPIO_PINS(path_job_start_sump),
     SHELL_COMPLETION_STREAMS(path_job_start_daq),
     SHELL_COMPLETION_PATH(path_job_start_daq, false),
@@ -2958,6 +3016,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_ble_keepalive, on_off_values),
     SHELL_COMPLETION_STATIC(path_ble_gatt, ble_gatt_subcommands),
     SHELL_COMPLETION_STATIC(path_ble_gatt_connect_addr, ble_addr_type_values),
+    SHELL_COMPLETION_STATIC(path_network, network_subcommands),
+    SHELL_COMPLETION_STATIC(path_network_router, network_router_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi, wifi_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_ap, wifi_ap_subcommands),
     SHELL_COMPLETION_STATIC(path_wifi_ap_on_auth, wifi_ap_auth_values),
@@ -3138,6 +3198,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),
     SHELL_COMPLETION_STATIC(path_gnss_power, on_off_values),
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+    SHELL_COMPLETION_STATIC(path_modem, modem_subcommands),
+    SHELL_COMPLETION_STATIC(path_modem_power, on_off_values),
+    SHELL_COMPLETION_STATIC(path_modem_profile, modem_profile_subcommands),
+    SHELL_COMPLETION_STATIC(path_modem_sim, modem_sim_subcommands),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     SHELL_COMPLETION_STATIC(path_haptic, haptic_subcommands),
 #endif
@@ -3274,8 +3340,8 @@ typedef struct {
     bool ready;
 } shell_completion_index_t;
 
-SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell completion command index")
-static shell_completion_index_t shell_completion_index;
+SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shared shell completion command index in external BSS")
+static EXT_RAM_BSS_ATTR shell_completion_index_t shell_completion_index;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("shell completion index initialization lock")
 static portMUX_TYPE shell_completion_index_lock = portMUX_INITIALIZER_UNLOCKED;
 

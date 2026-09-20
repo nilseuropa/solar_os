@@ -29,6 +29,20 @@ CONFIG_FATFS_VOLUME_COUNT=4
 CONFIG_LWIP_IP_FORWARD=y
 CONFIG_LWIP_IPV4_NAPT=y
 CONFIG_LWIP_IPV4_NAPT_PORTMAP=y
+# Keep PPP available for built-in and runtime expansion modems. The session
+# itself allocates its worker and network state only when a link is opened.
+CONFIG_LWIP_PPP_SUPPORT=y
+CONFIG_LWIP_PPP_ENABLE_IPV4=y
+# CONFIG_LWIP_PPP_ENABLE_IPV6 is not set
+CONFIG_LWIP_PPP_NOTIFY_PHASE_SUPPORT=y
+CONFIG_LWIP_PPP_PAP_SUPPORT=y
+CONFIG_LWIP_PPP_CHAP_SUPPORT=y
+CONFIG_LWIP_PPP_SERVER_SUPPORT=y
+# CONFIG_LWIP_PPP_VJ_HEADER_COMPRESSION is not set
+CONFIG_LWIP_ENABLE_LCP_ECHO=y
+CONFIG_LWIP_LCP_ECHOINTERVAL=10
+CONFIG_LWIP_LCP_MAXECHOFAILS=3
+CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y
 # WireGuard performs its initial key setup from an lwIP core callback. The
 # default 3 KiB TCP/IP task stack is not sufficient for the reference crypto.
 CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=5120

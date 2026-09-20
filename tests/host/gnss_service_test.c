@@ -28,6 +28,9 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 static esp_err_t fake_set_power(void *ctx, bool enabled)
 {
     fake_gnss_t *fake = ctx;
+    if (fake->powered == enabled) {
+        return ESP_OK;
+    }
     fake->power_changes++;
     if (fake->try_unregister) {
         assert(solar_os_gnss_unregister(fake->name) == ESP_ERR_INVALID_STATE);
@@ -50,6 +53,8 @@ static esp_err_t fake_read_fix(void *ctx,
     }
     *fix = (solar_os_gnss_fix_t) {
         .valid = true,
+        .satellites_valid = true,
+        .satellites = 7U,
         .latitude_deg_e7 = fake->latitude,
     };
     return ESP_OK;
@@ -107,6 +112,18 @@ int main(void)
     assert(info.powered);
     assert(!solar_os_gnss_get(2U, &info));
 
+    solar_os_gnss_status_t status;
+    assert(solar_os_gnss_get_status(first.name, 250U, &status) == ESP_OK);
+    assert(status.power_control && !status.powered);
+    assert(!status.fix_available);
+    assert(first.reads == 0U);
+    assert(solar_os_gnss_get_status(second.name, 250U, &status) == ESP_OK);
+    assert(!status.power_control && status.powered);
+    assert(status.fix_available && status.fix.valid);
+    assert(status.fix.satellites_valid && status.fix.satellites == 7U);
+    assert(status.fix.latitude_deg_e7 == second.latitude);
+    assert(second.reads == 1U);
+
     solar_os_gnss_fix_t fix;
     assert(solar_os_gnss_read_fix(first.name, 250U, &fix) == ESP_ERR_INVALID_STATE);
     assert(solar_os_gnss_set_power(first.name, true) == ESP_OK);
@@ -114,6 +131,22 @@ int main(void)
     assert(first.power_changes == 1U);
     assert(solar_os_gnss_set_power(first.name, true) == ESP_OK);
     assert(first.power_changes == 1U);
+
+    first.powered = false;
+    assert(solar_os_gnss_notify_power_state(first.name, false) == ESP_OK);
+    assert(solar_os_gnss_get(0U, &info));
+    assert(!info.powered);
+    assert(solar_os_gnss_get(1U, &info));
+    assert(info.powered);
+    assert(first.power_changes == 1U);
+    assert(solar_os_gnss_read_fix(first.name, 250U, &fix) ==
+           ESP_ERR_INVALID_STATE);
+    assert(solar_os_gnss_read_fix(second.name, 250U, &fix) == ESP_OK);
+    assert(fix.latitude_deg_e7 == second.latitude);
+    assert(second.reads == 2U);
+    assert(solar_os_gnss_set_power(first.name, true) == ESP_OK);
+    assert(first.power_changes == 2U);
+
     assert(solar_os_gnss_read_fix(first.name, 250U, &fix) == ESP_OK);
     assert(fix.valid);
     assert(fix.latitude_deg_e7 == first.latitude);
@@ -121,13 +154,17 @@ int main(void)
 
     assert(solar_os_gnss_read_fix(second.name, 250U, &fix) == ESP_OK);
     assert(fix.latitude_deg_e7 == second.latitude);
-    assert(second.reads == 1U);
+    assert(second.reads == 3U);
     assert(solar_os_gnss_read_fix("missing", 250U, &fix) == ESP_ERR_NOT_FOUND);
     assert(solar_os_gnss_set_power(second.name, false) == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_gnss_set_power("missing", true) == ESP_ERR_NOT_FOUND);
     assert(solar_os_gnss_set_power(first.name, false) == ESP_OK);
     assert(!first.powered);
-    assert(first.power_changes == 2U);
+    assert(first.power_changes == 3U);
+    assert(solar_os_gnss_notify_power_state("missing", false) ==
+           ESP_ERR_NOT_FOUND);
+    assert(solar_os_gnss_get_status("missing", 250U, &status) ==
+           ESP_ERR_NOT_FOUND);
 
     assert(solar_os_gnss_unregister(first.name) == ESP_OK);
     assert(solar_os_gnss_unregister(second.name) == ESP_OK);

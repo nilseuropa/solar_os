@@ -675,6 +675,8 @@ SOLAR_OS_SCRIPT_API_MODULE_END(identity);
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(net);
+SOLAR_OS_SCRIPT_API_FUNCTION(net, router_start, router_start);
+SOLAR_OS_SCRIPT_API_FUNCTION(net, router_stop, router_stop);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, ping, ping);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, tcp_connect, tcp_connect);
 SOLAR_OS_SCRIPT_API_FUNCTION(net, tcp_send, tcp_send);

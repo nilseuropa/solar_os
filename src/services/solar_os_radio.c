@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -145,7 +146,7 @@ _Static_assert(sizeof(radio_builtin_profiles) / sizeof(radio_builtin_profiles[0]
                    SOLAR_OS_RADIO_BUILTIN_PROFILE_COUNT,
                "built-in radio profile count mismatch");
 
-static radio_device_t radio_devices[SOLAR_OS_RADIO_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR radio_device_t radio_devices[SOLAR_OS_RADIO_DEVICE_MAX];
 static SemaphoreHandle_t radio_mutex;
 static SemaphoreHandle_t radio_profile_mutex;
 static uint32_t radio_next_token = 1;

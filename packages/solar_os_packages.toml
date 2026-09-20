@@ -281,6 +281,11 @@ label = "SLIP networking"
 category = "Networking"
 members = ["job_slip"]
 
+[groups.ppp]
+label = "PPP networking"
+category = "Networking"
+members = ["job_pppd"]
+
 [groups.osc]
 label = "Open Sound Control"
 category = "Networking"
@@ -466,6 +471,11 @@ label = "u-blox MIA-M10Q GNSS receiver"
 category = "Expansion hardware"
 members = ["ublox_mia_m10q"]
 
+[groups.sim7670]
+label = "SIM7670 LTE modem and GNSS receiver"
+category = "Expansion hardware"
+members = ["sim7670"]
+
 [groups.st25r3916]
 label = "ST25R3916 NFC-A reader"
 category = "Expansion hardware"
@@ -633,6 +643,11 @@ label = "BQ27220 fuel gauge"
 category = "Expansion hardware"
 members = ["bq27220"]
 
+[groups.max17048]
+label = "MAX17048 fuel gauge"
+category = "Expansion hardware"
+members = ["max17048"]
+
 [packages.core_runtime]
 label = "bootstrap.runtime"
 depends = ["service_schedule", "service_streams"]
@@ -787,10 +802,20 @@ sources = ["shell/solar_os_shell_fs.c"]
 label = "service.zip"
 sources = ["services/solar_os_zip.c"]
 
-[packages.service_wifi]
-label = "service.wifi"
+[packages.service_network]
+label = "network.routing"
 sources = [
   "services/solar_os_lwip_route.c",
+  "services/solar_os_network.c",
+  "shell/solar_os_shell_network_status.c",
+  "shell/solar_os_shell_network_tui.c",
+]
+requires = ["esp_event", "esp_netif", "lwip", "nvs_flash"]
+
+[packages.service_wifi]
+label = "service.wifi"
+depends = ["service_network"]
+sources = [
   "services/solar_os_wifi.c",
   "services/solar_os_wifi_repeater.c",
   "shell/solar_os_shell_network.c",
@@ -801,13 +826,12 @@ capabilities = ["wifi"]
 
 [packages.service_wireguard]
 label = "network.wireguard"
-depends = ["service_wifi"]
+depends = ["service_network"]
 sources = [
   "services/solar_os_wireguard.c",
   "shell/solar_os_shell_wireguard.c",
 ]
-requires = ["esp_event", "esp_netif", "esp_system", "esp_wifi", "lwip", "nvs_flash", "wireguard_lwip"]
-capabilities = ["wifi"]
+requires = ["esp_event", "esp_netif", "esp_system", "lwip", "nvs_flash", "wireguard_lwip"]
 
 [packages.service_espnow]
 label = "service.espnow"
@@ -821,10 +845,9 @@ capabilities = ["wifi"]
 
 [packages.service_net]
 label = "network.base"
-depends = ["service_wifi"]
+depends = ["service_network"]
 sources = ["services/solar_os_net.c"]
 requires = ["lwip"]
-capabilities = ["wifi"]
 
 [packages.service_osc]
 label = "service.osc"
@@ -839,7 +862,6 @@ label = "service.script-network"
 depends = ["service_net"]
 sources = ["services/solar_os_net_session.c"]
 requires = ["esp-tls", "esp_timer", "lwip", "mbedtls", "tcp_transport"]
-capabilities = ["wifi"]
 
 [packages.service_ftp]
 label = "network.ftp"
@@ -1156,6 +1178,20 @@ sources = [
   "shell/solar_os_shell_gnss.c",
 ]
 
+[packages.service_modem]
+label = "service.modem"
+sources = [
+  "services/solar_os_modem.c",
+  "shell/solar_os_shell_modem.c",
+  "shell/solar_os_shell_modem_tui.c",
+]
+requires = ["nvs_flash"]
+
+[packages.service_ppp]
+label = "service.ppp"
+sources = ["services/solar_os_ppp.c"]
+requires = ["esp_event", "esp_netif", "lwip"]
+
 [packages.service_haptic]
 label = "service.haptic"
 sources = [
@@ -1468,6 +1504,38 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.max17048]
+label = "expansion.max17048"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_max17048_expansion_driver"]
+depends = ["service_battery", "service_expansion", "service_i2c"]
+sources = [
+  "drivers/max17048.c",
+  "services/solar_os_max17048.c",
+  "services/solar_os_max17048_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.sim7670]
+label = "expansion.sim7670"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sim7670_expansion_driver"]
+depends = [
+  "service_expansion",
+  "service_gnss",
+  "service_modem",
+  "service_network",
+  "service_ppp",
+  "service_uart",
+]
+sources = [
+  "drivers/sim7670.c",
+  "services/solar_os_sim7670.c",
+  "services/solar_os_sim7670_driver.c",
+]
+capabilities = ["expansion_uart"]
 
 [packages.expansion_analog_joystick]
 label = "expansion.analog-joystick"
@@ -2177,10 +2245,15 @@ capabilities = ["wifi"]
 
 [packages.job_slip]
 label = "job.slip"
-depends = ["service_uart", "service_wifi"]
+depends = ["service_uart", "service_network"]
 sources = ["jobs/solar_os_slip_job.c"]
 requires = ["lwip"]
-capabilities = ["wifi"]
+
+[packages.job_pppd]
+label = "job.pppd"
+depends = ["service_network", "service_ppp"]
+sources = ["jobs/solar_os_pppd_job.c"]
+requires = ["esp_netif", "lwip"]
 
 [packages.job_bridge]
 label = "job.bridge"

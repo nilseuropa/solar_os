@@ -19,7 +19,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [agent command](agent.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio state, global speaker level, tone queue, and active synth telemetry.
-- [battery command](commands.md) — Show voltage, estimated charge, power source, config, and monitor trend.
+- [battery command](commands.md) — Show voltage, state of charge, power source, config, and monitor trend.
 - [ble command](commands.md) — Show BLE keyboard state and the current/next boot setting.
 - [board command](commands.md) — Print board ID, name, and capabilities.
 - [cat command](commands.md) — Print a small text file.
@@ -187,6 +187,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [osc job](jobs.reference.md#osc) — OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and explicit named outbound stream, event-stream, or normalized-control bindings.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
 - [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service. This job is a compatibility wrapper around a ps2-keyboard expansion attachment; new configurations can attach the device directly.
+- [pppd job](jobs.reference.md#pppd) — PPP over a physical or virtual byte-stream port, independently configured as an uplink, downstream gateway, or routed peer.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
 - [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.

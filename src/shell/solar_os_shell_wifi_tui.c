@@ -35,7 +35,6 @@ typedef enum {
     WIFI_TUI_DISCONNECT,
     WIFI_TUI_REPEATER,
     WIFI_TUI_AP,
-    WIFI_TUI_NAT,
     WIFI_TUI_SCAN,
     WIFI_TUI_SAVED_STA,
     WIFI_TUI_SAVED_AP,
@@ -81,7 +80,6 @@ static const wifi_tui_item_def_t wifi_tui_items[] = {
     [WIFI_TUI_DISCONNECT] = {.label = "disconnect"},
     [WIFI_TUI_REPEATER] = {.label = "repeater"},
     [WIFI_TUI_AP] = {.label = "ap"},
-    [WIFI_TUI_NAT] = {.label = "nat"},
     [WIFI_TUI_SCAN] = {.label = "scan"},
     [WIFI_TUI_SAVED_STA] = {.label = "saved stations"},
     [WIFI_TUI_SAVED_AP] = {.label = "saved access points"},
@@ -95,21 +93,6 @@ static size_t wifi_tui_visible_width(size_t cols, size_t start_col)
 static void wifi_tui_set_status(const char *status)
 {
     strlcpy(wifi_tui.status, status != NULL ? status : "", sizeof(wifi_tui.status));
-}
-
-static void wifi_tui_nat_value(const solar_os_wifi_status_t *status,
-                               char *buffer,
-                               size_t buffer_len)
-{
-    if (!status->nat_enabled) {
-        strlcpy(buffer, "off", buffer_len);
-    } else if (status->nat_active) {
-        strlcpy(buffer, "active", buffer_len);
-    } else if (status->nat_last_error != ESP_OK) {
-        snprintf(buffer, buffer_len, "error %s", solar_os_shell_error_text(status->nat_last_error));
-    } else {
-        strlcpy(buffer, "waiting", buffer_len);
-    }
 }
 
 static void wifi_tui_repeater_value(const solar_os_wifi_status_t *status,
@@ -181,9 +164,6 @@ static void wifi_tui_current_value(wifi_tui_item_t item,
         } else {
             strlcpy(buffer, "off", buffer_len);
         }
-        break;
-    case WIFI_TUI_NAT:
-        wifi_tui_nat_value(status, buffer, buffer_len);
         break;
     case WIFI_TUI_SCAN:
         if (wifi_tui.scan_valid) {
@@ -957,19 +937,6 @@ static void wifi_tui_apply_selected(void)
         }
         break;
     }
-    case WIFI_TUI_NAT: {
-        const esp_err_t err = solar_os_wifi_nat_set(!status.nat_enabled);
-        if (err == ESP_OK) {
-            wifi_tui_set_status(status.nat_enabled ? "nat off" : "nat on");
-        } else if (err == ESP_ERR_NOT_SUPPORTED) {
-            wifi_tui_set_status("nat unsupported");
-        } else {
-            char message[WIFI_TUI_STATUS_MAX];
-            snprintf(message, sizeof(message), "nat failed: %s", solar_os_shell_error_text(err));
-            wifi_tui_set_status(message);
-        }
-        break;
-    }
     case WIFI_TUI_SCAN: {
         wifi_tui_open_scan();
         return;
@@ -1248,5 +1215,16 @@ static const solar_os_app_t wifi_tui_app = {
 
 esp_err_t solar_os_shell_launch_wifi_tui(solar_os_context_t *ctx)
 {
-    return solar_os_context_request_launch(ctx, &wifi_tui_app, 0, NULL);
+    return solar_os_shell_launch_wifi_tui_ex(ctx, SOLAR_OS_LAUNCH_REPLACE);
+}
+
+esp_err_t solar_os_shell_launch_wifi_tui_ex(
+    solar_os_context_t *ctx,
+    solar_os_launch_policy_t policy)
+{
+    return solar_os_context_request_launch_ex(ctx,
+                                              &wifi_tui_app,
+                                              0,
+                                              NULL,
+                                              policy);
 }

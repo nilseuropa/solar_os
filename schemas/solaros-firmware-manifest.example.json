@@ -48,6 +48,7 @@
       "app.chat",
       "job.httpd",
       "job.slip",
+      "job.pppd",
       "job.bridge",
       "job.log",
       "job.batmon",

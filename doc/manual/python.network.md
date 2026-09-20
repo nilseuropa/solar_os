@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## `solaros.wifi`
 
-Wi-Fi functions expose station, SoftAP, scan, NAT, and L2 IPv4 repeater controls.
+Wi-Fi functions expose station, SoftAP, scan, low-level NAT, and L2 IPv4 repeater controls.
 
 - `status()`: return detailed Wi-Fi status.
 - `status_text()`: return the same compact status text used by the shell.
@@ -29,7 +29,7 @@ Wi-Fi functions expose station, SoftAP, scan, NAT, and L2 IPv4 repeater controls
 - `scan()`: return visible APs as dictionaries with `ssid`, `auth`, `rssi`, `channel`, and `hidden`.
 - `ap_start([ssid[, password[, auth]]])`: start SoftAP, reusing saved AP config when no arguments are supplied.
 - `ap_stop()`: stop SoftAP.
-- `nat(enabled)`: persistently enable or disable APSTA NAT.
+- `nat(enabled)`: advanced control for NAT on the SoftAP interface. Prefer `solaros.net.router_start()` and `router_stop()`.
 - `repeater_start()`: connect the preferred remembered upstream when needed, repeat its saved SSID and password, and bridge upstream DHCP plus IPv4/ARP traffic without NAT.
 - `repeater_stop()`: stop L2 forwarding and the SoftAP while retaining the upstream station.
 
@@ -44,6 +44,14 @@ print(solaros.wifi.status())
 for ap in solaros.wifi.scan():
     print(ap["rssi"], ap["auth"], ap["ssid"])
 ```
+
+## `solaros.net`
+
+- `router_start()`: start the saved downstream Wi-Fi AP and route its clients through the SolarOS route table using IPv4 NAT.
+- `router_stop()`: disable router mode and stop the downstream AP.
+- `ping(host[, count[, timeout_ms[, interval_ms[, data_size]]]])`: send bounded ICMP echo requests.
+
+The remaining `solaros.net` functions provide bounded TCP, UDP, and WebSocket handles.
 
 ## `solaros.mqtt`
 

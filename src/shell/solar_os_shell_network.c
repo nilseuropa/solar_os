@@ -97,7 +97,9 @@ static void wifi_print_nat_status(solar_os_shell_io_t *term, const solar_os_wifi
         return;
     }
 
-    solar_os_shell_io_writeln(term, "NAT: waiting for APSTA link");
+    solar_os_shell_io_writeln(
+        term,
+        status->ap_running ? "NAT: waiting for uplink" : "NAT: waiting for access point");
 }
 
 static void wifi_print_status(solar_os_shell_io_t *term)
@@ -710,11 +712,22 @@ static void ping_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage: ping <host> [count]");
     solar_os_shell_io_printf(term,
-                             "%s stops a running ping\n",
+                             "Esc, Ctrl+C, or %s stops a running ping\n",
                              solar_os_shell_io_app_exit_key(term));
 }
 
-static bool shell_read_app_exit_key(void *user)
+static bool shell_stop_key_matches(uint8_t ch,
+                                   bool raw_port,
+                                   bool allow_ping_keys)
+{
+    if (ch == SOLAR_OS_KEY_APP_EXIT || (raw_port && ch == 0x1dU)) {
+        return true;
+    }
+    return allow_ping_keys &&
+        (ch == SOLAR_OS_KEY_ESCAPE || ch == 0x03U); /* Ctrl+C */
+}
+
+static bool shell_read_stop_key(void *user, bool allow_ping_keys)
 {
     solar_os_shell_io_t *term = (solar_os_shell_io_t *)user;
     char chars[8];
@@ -723,7 +736,7 @@ static bool shell_read_app_exit_key(void *user)
     while ((count = solar_os_ble_keyboard_read_chars(chars, sizeof(chars))) > 0) {
         for (size_t i = 0; i < count; i++) {
             const uint8_t ch = (uint8_t)chars[i];
-            if (ch == SOLAR_OS_KEY_APP_EXIT) {
+            if (shell_stop_key_matches(ch, false, allow_ping_keys)) {
                 return true;
             }
         }
@@ -747,14 +760,24 @@ static bool shell_read_app_exit_key(void *user)
             return false;
         }
         for (size_t i = 0; i < count; i++) {
-            if (port_chars[i] == 0x1d ||
-                port_chars[i] == SOLAR_OS_KEY_APP_EXIT) {
+            if (shell_stop_key_matches(port_chars[i], true,
+                                       allow_ping_keys)) {
                 return true;
             }
         }
     } while (count > 0);
 
     return false;
+}
+
+static bool shell_read_app_exit_key(void *user)
+{
+    return shell_read_stop_key(user, false);
+}
+
+static bool ping_read_stop_key(void *user)
+{
+    return shell_read_stop_key(user, true);
 }
 
 static void ping_print_event(const solar_os_net_ping_event_t *event, void *user)
@@ -814,7 +837,7 @@ void solar_os_shell_cmd_ping(solar_os_context_t *ctx, int argc, char **argv)
 
     if (count == SOLAR_OS_NET_PING_FOREVER) {
         solar_os_shell_io_printf(term,
-                                 "ping %s, %s to stop\n",
+                                 "ping %s, Esc, Ctrl+C, or %s to stop\n",
                                  host,
                                  solar_os_shell_io_app_exit_key(term));
     } else {
@@ -826,7 +849,7 @@ void solar_os_shell_cmd_ping(solar_os_context_t *ctx, int argc, char **argv)
                                             &options,
                                             ping_print_event,
                                             term,
-                                            shell_read_app_exit_key,
+                                            ping_read_stop_key,
                                             term,
                                             &result);
     if (err == ESP_ERR_INVALID_STATE) {

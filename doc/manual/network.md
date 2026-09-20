@@ -1,16 +1,76 @@
 +++
 id = "network"
-title = "Wi-Fi, WireGuard, MQTT, and network APIs"
+title = "Network interfaces, routing, Wi-Fi, WireGuard, and APIs"
 section = "network"
 summary = "Connect, inspect, and communicate over installed network services"
-aliases = ["wifi", "repeater", "wireguard", "vpn", "mqtt", "net"]
+aliases = ["routing", "router", "wifi", "repeater", "wireguard", "vpn", "mqtt", "net"]
 keywords = "python lua wifi wireless repeater wireguard vpn tunnel kill switch station access point ap nat scan connect mqtt network ping"
-packages_any = ["service_wifi", "service_wireguard", "service_mqtt", "service_net"]
+packages_any = ["service_network", "service_wifi", "service_wireguard", "service_mqtt", "service_net"]
 +++
-# Wi-Fi, WireGuard, MQTT, and network APIs
+# Network interfaces, routing, Wi-Fi, WireGuard, and APIs
 
 Network modules are package-gated. Inspect their status before assuming Wi-Fi,
-WireGuard, MQTT, or diagnostic networking exists in the current firmware.
+cellular PPP, WireGuard, MQTT, or diagnostic networking exists in the current
+firmware.
+
+## Network model
+
+SolarOS separates three networking concepts:
+
+- An **interface** is a connection such as `wifi-sta`, `modem0`, `wifi-ap`, or
+  the WireGuard tunnel.
+- A **route** decides which interface carries traffic to a destination. One
+  route is the default used when no more-specific route matches.
+- The **router** forwards traffic for other devices from the local downstream
+  interface through the same route table SolarOS uses for its own traffic.
+
+Run `network` to open a two-tab TUI. **Status** combines interface state,
+addresses, the selected default path, VPN routes, and downstream client
+routing. Active SLIP and PPP jobs appear by interface name and are labelled as
+an uplink, downstream, or routed peer; downstream rows show whether NAT is
+active and which selected route carries their traffic. **Settings** opens the
+installed Wi-Fi and modem control TUIs, changes each uplink's priority, and
+enables or disables Wi-Fi AP routing. Downstream and peer links are status-only
+here; their owning jobs configure their lifecycle. A transport TUI returns to
+the same Network tab and selection when it exits. Tab switches views. Use the
+arrow keys to select a setting; Left and Right lower or raise priority, and
+Enter opens a transport or toggles routing. Higher priority wins. Priority
+overrides are saved by interface name and apply again when a runtime interface
+such as `modem0` is registered later.
+
+For scripts and plain output, use `network status` for the same combined view,
+`network interfaces` for interface state and addresses, and `network routes`
+to see the automatic base path and WireGuard routes. Transport commands
+configure their own interfaces: `wifi` manages the Wi-Fi radio and SoftAP,
+`modem` manages cellular PPP, and `wireguard` manages the VPN tunnel.
+
+`network router on` starts the saved Wi-Fi SoftAP and enables IPv4 forwarding
+with NAT. Packets from AP clients follow the route table; this can send ordinary
+traffic through Wi-Fi station mode or cellular PPP, and matching traffic
+through WireGuard. Router mode remains ready while no default route exists and
+activates when a route becomes available. `network router off` disables NAT and
+stops the downstream AP.
+
+`job start pppd <port>` creates a separate serial downstream by default. That
+job owns NAPT for its PPP interface, while `network router` owns client routing
+for `wifi-ap`. With `role=uplink`, the same job instead adds `ppp-<port>` to the
+base-path priority list. Downstream and peer instances remain outside default
+route selection but appear in Network status and routing. See
+[jobs.reference.md](jobs.reference.md#pppd).
+
+Configure the AP name and password first when the default open `SolarOS-sol`
+network is not appropriate:
+
+```text
+wifi ap on FieldTerminal downstream-password wpa2
+wifi ap off
+modem connect modem0
+network router on
+network status
+```
+
+Carrier filtering and SIM-specific ACLs remain properties of the selected
+network path; router mode does not add destination restrictions of its own.
 
 ## Wi-Fi
 
@@ -35,7 +95,9 @@ enter its password to connect. `saved stations` lists remembered station
 profiles and can forget them. `saved access points` adds, edits, or removes the
 stored SoftAP configuration, including its password. `repeater` starts or stops
 repeating the current or preferred saved station and shows whether forwarding
-is waiting or active. A script can scan before connecting:
+is waiting or active. Routing the AP through another interface is configured
+with `network router`, not the Wi-Fi controls. A script can scan before
+connecting:
 
 ```python
 import solaros
@@ -76,7 +138,7 @@ upstream channel, so repeated traffic consumes airtime in both directions and
 throughput is lower than a dedicated dual-radio extender. `wifi repeater off`
 leaves the station connection running. Repeater and NAT modes are mutually
 exclusive; the lower-level `wifi ap` and `wifi nat` commands remain available
-for AP-only and routed APSTA setups. While repeater mode is active, SolarOS
+for AP setup and diagnostics. While repeater mode is active, SolarOS
 automatically retries a lost upstream connection with bounded backoff.
 
 Forwarded client traffic bypasses SolarOS IP services, including a SolarOS
@@ -115,21 +177,23 @@ file.
 
 The allowed-prefix table controls IPv4 destination routing. A `0.0.0.0/0`
 prefix makes the WireGuard interface the default route. The encrypted outer UDP
-flow stays bound to the Wi-Fi station interface to avoid routing it back into
-the tunnel. A full tunnel uses fail-closed behavior by default. While its
-hostname is being resolved, only endpoint-resolution DNS and DHCP traffic may
-use Wi-Fi directly. After resolution, only WireGuard endpoint UDP and DHCP
-remain permitted. This also blocks direct local-LAN and IPv6 traffic. Select
-`wireguard up fail-open` to restore direct Wi-Fi routing if the peer is down.
-For split tunnels the default is fail-open; `fail-closed` prevents matching
-prefixes from falling through but does not block unrelated direct Wi-Fi
-traffic.
+flow stays bound to the currently preferred base interface to avoid routing it
+back into the tunnel. That underlay can be Wi-Fi, cellular PPP, Ethernet, SLIP,
+or another IPv4-capable path registered with the network service. A full tunnel
+uses fail-closed behavior by default. While its hostname is being resolved,
+only endpoint-resolution DNS and DHCP traffic may use the underlay directly.
+After resolution, only WireGuard endpoint UDP and DHCP remain permitted. This
+also blocks direct local-network and IPv6 traffic. Select `wireguard up
+fail-open` to restore direct underlay routing if the peer is down. For split
+tunnels the default is fail-open; `fail-closed` prevents matching prefixes from
+falling through but does not block unrelated direct underlay traffic.
 
 The service stops its lwIP interface before light sleep and recreates it after
-Wi-Fi resumes. It also tears down on a lost station address and retries after a
-new address arrives. Handshake timestamps prefer synchronized wall time. A
-persisted forward-only reservation supplies replay-safe timestamps when wall
-time is not synchronized.
+an uplink resumes. It also tears down and reconnects when route priority or link
+state selects another base interface. `wireguard status` reports the selected
+underlay. Handshake timestamps prefer synchronized wall time. A persisted
+forward-only reservation supplies replay-safe timestamps when wall time is not
+synchronized.
 
 ## MQTT
 
@@ -141,7 +205,8 @@ script.
 
 solaros.wifi provides status, status_text, start, stop, connect, connect_saved,
 disconnect, forget, forget_ssid, forget_all, known, scan, ap_start, ap_stop,
-nat, repeater_start, and repeater_stop. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
+nat, repeater_start, and repeater_stop. solaros.net provides router_start,
+router_stop, ping, and socket APIs. WireGuard intentionally has no Python or Lua binding. solaros.mqtt
 provides status, connect, disconnect, publish, subscribe,
 and read. solaros.net.ping(host, optional count, timeout_ms, interval_ms,
 data_size) returns statistics. These modules are package-gated.

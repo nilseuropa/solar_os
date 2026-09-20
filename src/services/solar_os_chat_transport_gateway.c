@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_crt_bundle.h"
 #include "esp_tls.h"
 #include "esp_tls_errors.h"
@@ -76,7 +77,7 @@ typedef struct {
     SemaphoreHandle_t lock;
 } solar_os_chat_state_data_t;
 
-static solar_os_chat_state_data_t chat_state;
+static EXT_RAM_BSS_ATTR solar_os_chat_state_data_t chat_state;
 static const char *TAG = "solar_os_chat";
 static ssize_t chat_last_io_ret;
 static int chat_last_io_errno;

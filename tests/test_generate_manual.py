@@ -201,6 +201,10 @@ class ManualReleaseLimitTest(unittest.TestCase):
             generate_manual.DERIVED_ALIAS_OWNERS[("command.mqtt", "mqtt")],
             "network",
         )
+        self.assertEqual(
+            generate_manual.DERIVED_ALIAS_OWNERS[("command.network", "network")],
+            "network",
+        )
         self.assertNotIn(
             ("command.schedule", "schedule"),
             generate_manual.DERIVED_ALIAS_OWNERS,

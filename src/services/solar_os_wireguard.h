@@ -8,10 +8,11 @@
 
 #define SOLAR_OS_WIREGUARD_ENDPOINT_MAX 127U
 #define SOLAR_OS_WIREGUARD_ROUTE_MAX 8U
+#define SOLAR_OS_WIREGUARD_UNDERLAY_MAX 20U
 
 typedef enum {
     SOLAR_OS_WIREGUARD_STATE_OFF = 0,
-    SOLAR_OS_WIREGUARD_STATE_WAIT_WIFI,
+    SOLAR_OS_WIREGUARD_STATE_WAIT_UPLINK,
     SOLAR_OS_WIREGUARD_STATE_RESOLVING,
     SOLAR_OS_WIREGUARD_STATE_CONNECTING,
     SOLAR_OS_WIREGUARD_STATE_UP,
@@ -33,6 +34,8 @@ typedef struct {
     bool desired_up;
     bool peer_up;
     bool full_tunnel;
+    bool routes_active;
+    bool default_route_active;
     bool kill_switch_active;
     bool dns_configured;
     uint8_t route_count;
@@ -46,6 +49,7 @@ typedef struct {
     char endpoint_ip[16];
     char dns[16];
     char peer_key_fingerprint[17];
+    char underlay[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U];
 } solar_os_wireguard_status_t;
 
 esp_err_t solar_os_wireguard_init(void);

@@ -29,6 +29,8 @@ agent_reference_sections = true
 
 ## `solaros.net`
 
+- `solaros.net.router_start()` and `router_stop()` control OS router mode.
+
 - `solaros.net`: `ping`, managed `tcp_connect`, `tcp_send`, `tcp_receive`, `udp_open`, `udp_send`, `udp_receive`, `websocket_connect`, `websocket_send`, `websocket_receive`, `close`, `close_all`, and `limits` when `network.base` is compiled
 
 ## `solaros.ssh_keys`

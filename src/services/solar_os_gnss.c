@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -18,7 +19,7 @@ typedef struct {
 
 static SemaphoreHandle_t gnss_mutex;
 static StaticSemaphore_t gnss_mutex_storage;
-static gnss_device_t gnss_devices[GNSS_DEVICE_MAX];
+static EXT_RAM_BSS_ATTR gnss_device_t gnss_devices[GNSS_DEVICE_MAX];
 static uint32_t gnss_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
@@ -156,10 +157,6 @@ esp_err_t solar_os_gnss_set_power(const char *name, bool enabled)
                 xSemaphoreGive(gnss_mutex);
                 return ESP_ERR_NOT_SUPPORTED;
             }
-            if (gnss_devices[i].info.powered == enabled) {
-                xSemaphoreGive(gnss_mutex);
-                return ESP_OK;
-            }
             gnss_devices[i].refs++;
             ops = gnss_devices[i].ops;
             ctx = gnss_devices[i].ctx;
@@ -183,6 +180,74 @@ esp_err_t solar_os_gnss_set_power(const char *name, bool enabled)
         if (ret == ESP_OK) {
             gnss_devices[index].info.powered = enabled;
         }
+    }
+    xSemaphoreGive(gnss_mutex);
+    return ret;
+}
+
+esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered)
+{
+    if (!name_valid(name) || ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
+        if (gnss_devices[i].active &&
+            strcmp(gnss_devices[i].info.name, name) == 0) {
+            gnss_devices[i].info.powered = powered;
+            xSemaphoreGive(gnss_mutex);
+            return ESP_OK;
+        }
+    }
+    xSemaphoreGive(gnss_mutex);
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_gnss_get_status(const char *name,
+                                   uint32_t timeout_ms,
+                                   solar_os_gnss_status_t *status)
+{
+    if (!name_valid(name) || timeout_ms == 0U || status == NULL ||
+        ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const solar_os_gnss_ops_t *ops = NULL;
+    void *ctx = NULL;
+    size_t index = 0U;
+    uint32_t generation = 0U;
+    memset(status, 0, sizeof(*status));
+    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
+    for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
+        if (gnss_devices[i].active &&
+            strcmp(gnss_devices[i].info.name, name) == 0) {
+            status->power_control = gnss_devices[i].info.power_control;
+            status->powered = gnss_devices[i].info.powered;
+            if (!status->powered) {
+                xSemaphoreGive(gnss_mutex);
+                return ESP_OK;
+            }
+            gnss_devices[i].refs++;
+            ops = gnss_devices[i].ops;
+            ctx = gnss_devices[i].ctx;
+            index = i;
+            generation = gnss_devices[i].generation;
+            break;
+        }
+    }
+    xSemaphoreGive(gnss_mutex);
+    if (ops == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const esp_err_t ret = ops->read_fix(ctx, timeout_ms, &status->fix);
+    status->fix_available = ret == ESP_OK;
+
+    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
+    if (gnss_devices[index].active &&
+        gnss_devices[index].generation == generation &&
+        gnss_devices[index].refs > 0U) {
+        gnss_devices[index].refs--;
     }
     xSemaphoreGive(gnss_mutex);
     return ret;

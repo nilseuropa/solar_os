@@ -22,6 +22,6 @@
       .bindings = {{.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pin", .value = 6}} }, \
     { .driver = "manual", .name = "board7", .binding_count = 1, \
       .bindings = {{.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pin", .value = 7}} }, \
-    { .driver = "manual", .name = "board8", .binding_count = 1, \
+    { .driver = "test-flaky", .name = "board8", .binding_count = 1, \
       .bindings = {{.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pin", .value = 8}} }, \
 }

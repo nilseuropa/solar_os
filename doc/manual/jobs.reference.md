@@ -11,7 +11,7 @@ packages_any = []
 
 This document covers the built-in background job registry. Jobs are autonomous
 workers such as log followers, DAQ capture, HTTP serving, Telnet shell access,
-SLIP, chatd, or NTP sync. Foreground applications are documented in
+SLIP, PPP, chatd, or NTP sync. Foreground applications are documented in
 [apps.md](apps.md), and shell commands are documented in
 [commands.md](commands.md). Port shells are sessions, started with
 `session create shell <port>` plus optional `--term`, `--charset`, and `--size`
@@ -918,10 +918,81 @@ job started. Mutating direct radio operations are rejected while the radio is
 owned by the job. See [link.md](link.md) for commands, frame layout, IDs,
 queue limits, transport MTUs, and version-one exclusions.
 
+## pppd
+
+PPP over any bidirectional SolarOS byte-stream port. A physical UART, USB CDC,
+or a virtual port carried by a packet-radio link can provide the bytes; the PPP
+negotiation mode and the interface's routing role are configured separately.
+
+Usage:
+
+```text
+job start pppd <port> [baud|baud=rate]
+    [role=downstream|uplink|peer] [mode=passive|active]
+    [local=address] [peer=address] [dns=auto|none|address]
+    [priority=0..255]
+job stop pppd
+job status pppd
+```
+
+Defaults:
+
+| Setting | Value |
+| --- | --- |
+| Baud | Keep the port's current rate |
+| Role | `downstream` |
+| Mode | `passive` for downstream; `active` otherwise |
+| Local address | `192.168.8.1` for downstream |
+| Peer address | `192.168.8.2` for downstream |
+| DNS | `auto`, copied from the preferred SolarOS uplink |
+| Uplink priority | `90` |
+
+Routing roles have these effects:
+
+- `downstream` enables NAPT on the PPP interface. A connected computer can use
+  whichever Wi-Fi, cellular, or WireGuard routes SolarOS currently selects.
+- `uplink` registers `ppp-<port>` as a base network path. It participates in
+  the same persistent priority selection as Wi-Fi and cellular interfaces.
+- `peer` creates only the point-to-point interface. It does not enable NAPT or
+  advertise the interface as a default-route candidate.
+
+`mode=active` starts negotiation. `mode=passive` listens for the other endpoint
+to initiate it. Either mode can be combined with any routing role; the defaults
+are conveniences, not a coupling between negotiation and routing.
+
+Examples:
+
+```text
+# Retro computer dials into SolarOS and reaches its selected Internet route.
+job start pppd uart0 baud=115200
+
+# The same downstream service over native USB CDC with an explicit DNS server.
+job start pppd cdc0 role=downstream dns=8.8.8.8
+
+# Treat a virtual serial port over a radio link as a SolarOS uplink.
+job start pppd vser0 role=uplink mode=active priority=120
+
+# A routed point-to-point link without address translation.
+job start pppd uart0 38400 role=peer mode=passive \
+    local=10.20.0.1 peer=10.20.0.2 dns=none
+```
+
+The job exclusively claims the selected port. A baud argument is accepted only
+for configurable UART ports; CDC and virtual ports retain their transport rate.
+This initial service uses unauthenticated PPP. Use it on a physically trusted
+link. `job status pppd` reports negotiation state, assigned addresses, NAPT,
+traffic counters, reconnects, and the most recent PPP error.
+While the job runs, `network` and `network status` show `ppp-<port>` with its
+uplink, downstream, or peer role. Only the uplink role appears in the Network
+Settings priority list.
+
 ## slip
 
 IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines,
 headless boards, and serial networking experiments.
+The active `slip-<port>` interface appears as a downstream NAT link in
+`network` and `network status`; its traffic follows the selected SolarOS route,
+which can be Wi-Fi, cellular, or WireGuard.
 
 Usage:
 

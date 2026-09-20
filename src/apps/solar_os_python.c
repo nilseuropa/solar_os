@@ -117,6 +117,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #include "solar_os_net_session.h"
+#include "solar_os_network.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ONEWIRE
 #include "solar_os_onewire.h"
@@ -4479,7 +4480,7 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
         ? python_u32_from_obj(args[1]) : 1000U;
     solar_os_gnss_fix_t fix;
     python_check_esp(solar_os_gnss_read_fix(name, timeout_ms, &fix));
-    mp_obj_t result = mp_obj_new_dict(19);
+    mp_obj_t result = mp_obj_new_dict(20);
     python_dict_store_cstr(result, "name", name);
     python_dict_store_bool(result, "valid", fix.valid);
     python_dict_store_bool(result, "time_valid", fix.time_valid);
@@ -4490,6 +4491,7 @@ static mp_obj_t solaros_gnss_fix(size_t n_args, const mp_obj_t *args)
     python_dict_store_int(result, "minute", fix.minute);
     python_dict_store_int(result, "second", fix.second);
     python_dict_store_int(result, "fix_type", fix.fix_type);
+    python_dict_store_bool(result, "satellites_valid", fix.satellites_valid);
     python_dict_store_int(result, "satellites", fix.satellites);
     python_dict_store_int(result, "longitude_deg_e7", fix.longitude_deg_e7);
     python_dict_store_int(result, "latitude_deg_e7", fix.latitude_deg_e7);
@@ -6298,6 +6300,20 @@ static mp_obj_t solaros_identity_format(void)
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_identity_format_obj, solaros_identity_format);
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
+static mp_obj_t solaros_net_router_start(void)
+{
+    python_check_esp(solar_os_network_router_start());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_net_router_start_obj, solaros_net_router_start);
+
+static mp_obj_t solaros_net_router_stop(void)
+{
+    python_check_esp(solar_os_network_router_stop());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_net_router_stop_obj, solaros_net_router_stop);
+
 static mp_obj_t solaros_net_ping(size_t n_args, const mp_obj_t *args)
 {
     const char *host = mp_obj_str_get_str(args[0]);

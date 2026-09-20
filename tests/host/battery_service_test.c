@@ -127,6 +127,22 @@ int main(void)
     assert(status.external_power);
     assert(status.charging);
     assert(status.charging_known);
+    assert(status.percent_estimated);
+
+    provider_sample = (solar_os_battery_sample_t) {
+        .battery_mv = 3750U,
+        .calibrated = true,
+        .percent_valid = true,
+        .percent = 73U,
+    };
+    status = read_status();
+    assert(status.percent == 73U);
+    assert(!status.percent_estimated);
+
+    provider_sample.percent = 129U;
+    status = read_status();
+    assert(status.percent == 100U);
+    assert(!status.percent_estimated);
 
     provider_sample = (solar_os_battery_sample_t) {
         .battery_mv = 5000U,

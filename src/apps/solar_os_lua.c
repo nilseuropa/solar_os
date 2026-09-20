@@ -107,6 +107,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_NET
 #include "solar_os_net.h"
 #include "solar_os_net_session.h"
+#include "solar_os_network.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 #include "solar_os_ssh_keys.h"
@@ -4213,6 +4214,7 @@ static int solua_gnss_fix(lua_State *L)
     solua_set_int(L, -1, "minute", fix.minute);
     solua_set_int(L, -1, "second", fix.second);
     solua_set_int(L, -1, "fix_type", fix.fix_type);
+    solua_set_bool(L, -1, "satellites_valid", fix.satellites_valid);
     solua_set_int(L, -1, "satellites", fix.satellites);
     solua_set_int(L, -1, "longitude_deg_e7", fix.longitude_deg_e7);
     solua_set_int(L, -1, "latitude_deg_e7", fix.latitude_deg_e7);
@@ -5875,6 +5877,16 @@ static int solua_identity_format(lua_State *L)
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_NET
+static int solua_net_router_start(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_network_router_start());
+}
+
+static int solua_net_router_stop(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_network_router_stop());
+}
+
 static int solua_net_ping(lua_State *L)
 {
     const char *host = luaL_checkstring(L, 1);

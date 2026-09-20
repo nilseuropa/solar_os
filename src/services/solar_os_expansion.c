@@ -51,6 +51,16 @@ static expansion_device_node_t *devices;
 static SemaphoreHandle_t devices_mutex;
 static StaticSemaphore_t devices_mutex_storage;
 
+#define EXPANSION_DEFAULT_RETRY_INITIAL_MS 500U
+#define EXPANSION_DEFAULT_RETRY_MAX_MS 4000U
+#define EXPANSION_DEFAULT_RETRY_LIMIT 8U
+
+static bool default_retry_pending;
+static bool default_retry_scheduled;
+static uint8_t default_retry_attempts;
+static uint32_t default_retry_due_ms;
+static uint32_t default_retry_delay_ms;
+
 #if SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT > 0
 static const solar_os_expansion_default_device_t board_default_devices[] =
     SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES;
@@ -616,7 +626,50 @@ esp_err_t solar_os_expansion_init_early(void)
 
 esp_err_t solar_os_expansion_init(void)
 {
-    return expansion_init_board_defaults(false);
+    const esp_err_t ret = expansion_init_board_defaults(false);
+    default_retry_pending = ret != ESP_OK;
+    default_retry_scheduled = false;
+    default_retry_attempts = 0U;
+    default_retry_delay_ms = EXPANSION_DEFAULT_RETRY_INITIAL_MS;
+    return ret;
+}
+
+void solar_os_expansion_poll(uint32_t now_ms)
+{
+    if (!default_retry_pending) {
+        return;
+    }
+    if (!default_retry_scheduled) {
+        default_retry_due_ms = now_ms + default_retry_delay_ms;
+        default_retry_scheduled = true;
+        return;
+    }
+    if ((int32_t)(now_ms - default_retry_due_ms) < 0) {
+        return;
+    }
+
+    const esp_err_t ret = expansion_init_board_defaults(false);
+    default_retry_attempts++;
+    if (ret == ESP_OK) {
+        default_retry_pending = false;
+        default_retry_scheduled = false;
+        ESP_LOGI("expansion", "Board expansion devices recovered");
+        return;
+    }
+    if (default_retry_attempts >= EXPANSION_DEFAULT_RETRY_LIMIT) {
+        default_retry_pending = false;
+        default_retry_scheduled = false;
+        ESP_LOGW("expansion", "Board expansion device retries exhausted");
+        return;
+    }
+
+    if (default_retry_delay_ms < EXPANSION_DEFAULT_RETRY_MAX_MS) {
+        default_retry_delay_ms *= 2U;
+        if (default_retry_delay_ms > EXPANSION_DEFAULT_RETRY_MAX_MS) {
+            default_retry_delay_ms = EXPANSION_DEFAULT_RETRY_MAX_MS;
+        }
+    }
+    default_retry_due_ms = now_ms + default_retry_delay_ms;
 }
 
 bool solar_os_expansion_available(void)

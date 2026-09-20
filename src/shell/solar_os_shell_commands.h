@@ -79,12 +79,18 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_JOB_MIDI
 void solar_os_shell_cmd_midi(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 void solar_os_shell_cmd_mkdir(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_rm(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_mv(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_cp(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_MQTT
 void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+void solar_os_shell_cmd_network(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 void solar_os_shell_cmd_neopixel(solar_os_context_t *ctx, int argc, char **argv);

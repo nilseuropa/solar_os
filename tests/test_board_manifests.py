@@ -251,6 +251,57 @@ class BoardManifestTest(unittest.TestCase):
         packages = required_packages(board, self.drivers)
         self.assertIn("ublox_mia_m10q", packages)
 
+    def test_waveshare_sim7670_v2_claims_fixed_peripherals(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml",
+            self.manifest_dir,
+        )
+        buses = {bus["name"]: bus for bus in board["buses"]}
+        self.assertEqual(
+            (buses["modem-uart"]["port"],
+             buses["modem-uart"]["tx"],
+             buses["modem-uart"]["rx"],
+             buses["modem-uart"]["baud_rate"]),
+            ("UART_NUM_1", 18, 17, "115200"),
+        )
+        self.assertEqual(board["runtime"]["uart_ports"], ["UART_NUM_2"])
+        self.assertEqual(
+            {device["name"] for device in board["devices"]},
+            {"storage0", "battery0", "pixels0", "modem0"},
+        )
+
+        pins = {pin["gpio"]: pin for pin in board["pins"]}
+        self.assertEqual(
+            {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
+            {2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 39, 40, 41, 42},
+        )
+        for gpio in (17, 18, 21, 38, 45, 46):
+            self.assertEqual(pins[gpio]["policy"], "fixed")
+        self.assertEqual(
+            board["runtime"]["spi_hosts"],
+            ["SPI2_HOST", "SPI3_HOST"],
+        )
+        self.assertEqual(board["runtime"]["i2s_ports"], ["I2S_NUM_1"])
+        self.assertIn("expansion_spi", board["build"]["capabilities"])
+        self.assertIn("expansion_i2s", board["build"]["capabilities"])
+
+        header = generate_header(board, self.drivers)
+        self.assertIn('.driver = "sim7670", .name = "modem0"', header)
+        self.assertIn('.target = "modem-uart", .value = UART_NUM_1', header)
+        self.assertIn(
+            '.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "power", .value = 21',
+            header,
+        )
+        self.assertIn('.driver = "max17048", .name = "battery0"', header)
+        self.assertIn('.driver = "neopixel", .name = "pixels0"', header)
+        self.assertIn('.driver = "sdmmc", .name = "storage0"', header)
+
+        packages = required_packages(board, self.drivers)
+        self.assertIn("sim7670", packages)
+        self.assertIn("max17048", packages)
+        self.assertIn("expansion_neopixel", packages)
+        self.assertIn("expansion_sdmmc", packages)
+
     def test_solar_term_battery_binding_matches_runtime_driver(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "solar_term.toml",

@@ -1,0 +1,594 @@
+schema = 1
+
+[board]
+id = "waveshare_esp32_s3_sim7670g_4g"
+name = "Waveshare ESP32-S3-SIM7670G-4G V2.0"
+vendor = "Waveshare"
+module = "ESP32-S3R8 with 16 MB external flash"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "esp32-s3-devkitc1-n16r8"
+
+[build]
+drivers = [
+  "uart_esp_idf",
+  "storage_expansion",
+  "battery_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "gpio_esp_idf",
+  "adc_esp_idf",
+  "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "gfx", "uart", "sd", "i2c", "spi", "battery", "wifi", "ble",
+  "key", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
+  "expansion_i2s",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_0"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_15"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_16"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_6"
+
+[runtime]
+spi_hosts = ["SPI2_HOST", "SPI3_HOST"]
+uart_ports = ["UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 15
+scl = 16
+speed_hz = "SOLAR_OS_BUS_I2C_DEFAULT_SPEED_HZ"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "modem-uart"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 18
+rx = 17
+baud_rate = "115200"
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 5, cmd = 4, d0 = 6 }
+
+[[devices]]
+driver = "max17048"
+name = "battery0"
+bindings = { i2c = "i2c0", addr = 0x36 }
+
+[[devices]]
+driver = "neopixel"
+name = "pixels0"
+bindings = { data = 38, count = 1 }
+
+[[devices]]
+driver = "sim7670"
+name = "modem0"
+bindings = { uart = "modem-uart", power = 21 }
+
+[connector]
+title = "P3 / P2 side headers"
+view = "battery-holder side; DIP switch at top"
+rows = 19
+columns = 2
+
+[[connectors]]
+connector = "P3"
+position = 1
+row = 0
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "P2"
+position = 1
+row = 0
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "P3"
+position = 2
+row = 1
+column = 0
+gpio = 43
+kind = "gpio"
+label = "TXD / console UART TX"
+[[connectors]]
+connector = "P2"
+position = 2
+row = 1
+column = 1
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "P3"
+position = 3
+row = 2
+column = 0
+gpio = 44
+kind = "gpio"
+label = "RXD / console UART RX"
+[[connectors]]
+connector = "P2"
+position = 3
+row = 2
+column = 1
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "P3"
+position = 4
+row = 3
+column = 0
+gpio = 41
+kind = "gpio"
+label = "IO41"
+[[connectors]]
+connector = "P2"
+position = 4
+row = 3
+column = 1
+gpio = 4
+kind = "gpio"
+label = "IO4 / SD CMD"
+[[connectors]]
+connector = "P3"
+position = 5
+row = 4
+column = 0
+gpio = 40
+kind = "gpio"
+label = "IO40"
+[[connectors]]
+connector = "P2"
+position = 5
+row = 4
+column = 1
+gpio = 5
+kind = "gpio"
+label = "IO5 / SD CLK"
+[[connectors]]
+connector = "P3"
+position = 6
+row = 5
+column = 0
+gpio = 39
+kind = "gpio"
+label = "IO39"
+[[connectors]]
+connector = "P2"
+position = 6
+row = 5
+column = 1
+gpio = 6
+kind = "gpio"
+label = "IO6 / SD D0"
+[[connectors]]
+connector = "P3"
+position = 7
+row = 6
+column = 0
+gpio = 45
+kind = "gpio"
+label = "IO45"
+[[connectors]]
+connector = "P2"
+position = 7
+row = 6
+column = 1
+gpio = 46
+kind = "gpio"
+label = "IO46"
+[[connectors]]
+connector = "P3"
+position = 8
+row = 7
+column = 0
+gpio = 2
+kind = "gpio"
+label = "IO2"
+[[connectors]]
+connector = "P2"
+position = 8
+row = 7
+column = 1
+gpio = 15
+kind = "gpio"
+label = "IO15 / I2C SDA"
+[[connectors]]
+connector = "P3"
+position = 9
+row = 8
+column = 0
+gpio = 42
+kind = "gpio"
+label = "IO42"
+[[connectors]]
+connector = "P2"
+position = 9
+row = 8
+column = 1
+gpio = 16
+kind = "gpio"
+label = "IO16 / I2C SCL"
+[[connectors]]
+connector = "P3"
+position = 10
+row = 9
+column = 0
+gpio = 1
+kind = "gpio"
+label = "IO1 / battery ADC"
+[[connectors]]
+connector = "P2"
+position = 10
+row = 9
+column = 1
+gpio = 7
+kind = "gpio"
+label = "IO7"
+[[connectors]]
+connector = "P3"
+position = 11
+row = 10
+column = 0
+gpio = 21
+kind = "gpio"
+label = "IO21 / modem power control"
+[[connectors]]
+connector = "P2"
+position = 11
+row = 10
+column = 1
+gpio = 8
+kind = "gpio"
+label = "IO8"
+[[connectors]]
+connector = "P3"
+position = 12
+row = 11
+column = 0
+gpio = 3
+kind = "gpio"
+label = "IO3"
+[[connectors]]
+connector = "P2"
+position = 12
+row = 11
+column = 1
+gpio = 9
+kind = "gpio"
+label = "IO9"
+[[connectors]]
+connector = "P3"
+position = 13
+row = 12
+column = 0
+gpio = 19
+kind = "gpio"
+label = "IO19 / USB D-"
+[[connectors]]
+connector = "P2"
+position = 13
+row = 12
+column = 1
+gpio = 10
+kind = "gpio"
+label = "IO10"
+[[connectors]]
+connector = "P3"
+position = 14
+row = 13
+column = 0
+gpio = 20
+kind = "gpio"
+label = "IO20 / USB D+"
+[[connectors]]
+connector = "P2"
+position = 14
+row = 13
+column = 1
+gpio = 11
+kind = "gpio"
+label = "IO11"
+[[connectors]]
+connector = "P3"
+position = 15
+row = 14
+column = 0
+gpio = 0
+kind = "gpio"
+label = "IO0 / BOOT"
+[[connectors]]
+connector = "P2"
+position = 15
+row = 14
+column = 1
+gpio = 12
+kind = "gpio"
+label = "IO12"
+[[connectors]]
+connector = "P3"
+position = 16
+row = 15
+column = 0
+gpio = 17
+kind = "gpio"
+label = "RX1 / modem UART RX"
+[[connectors]]
+connector = "P2"
+position = 16
+row = 15
+column = 1
+gpio = 13
+kind = "gpio"
+label = "IO13"
+[[connectors]]
+connector = "P3"
+position = 17
+row = 16
+column = 0
+gpio = 18
+kind = "gpio"
+label = "TX1 / modem UART TX"
+[[connectors]]
+connector = "P2"
+position = 17
+row = 16
+column = 1
+gpio = 14
+kind = "gpio"
+label = "IO14"
+[[connectors]]
+connector = "P3"
+position = 18
+row = 17
+column = 0
+kind = "power"
+label = "VBAT"
+[[connectors]]
+connector = "P2"
+position = 18
+row = 17
+column = 1
+kind = "power"
+label = "5V"
+[[connectors]]
+connector = "P3"
+position = 19
+row = 18
+column = 0
+kind = "ground"
+label = "GND"
+[[connectors]]
+connector = "P2"
+position = 19
+row = 18
+column = 1
+kind = "ground"
+label = "GND"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download / KEY"
+expansion = true
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "battery ADC divider"
+expansion = true
+[[pins]]
+gpio = 2
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 3
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "SDMMC CMD"
+expansion = true
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "SDMMC CLK"
+expansion = true
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "SDMMC D0"
+expansion = true
+[[pins]]
+gpio = 7
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 8
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 9
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 10
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 11
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 12
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 13
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 14
+policy = "free"
+role = "expansion"
+expansion = true
+user = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "I2C SDA / MAX17048"
+expansion = true
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "I2C SCL / MAX17048"
+expansion = true
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "SIM7670G UART RX"
+expansion = true
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "SIM7670G UART TX"
+expansion = true
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D- / SIM7670G USB mux"
+expansion = true
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+ / SIM7670G USB mux"
+expansion = true
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "SIM7670G VBAT enable; SolarOS drives active-high with 4G DIP OFF"
+expansion = true
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "onboard WS2812B"
+[[pins]]
+gpio = 39
+policy = "free"
+role = "expansion / JTAG MTCK"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 40
+policy = "free"
+role = "expansion / JTAG MTDO"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 41
+policy = "free"
+role = "expansion / JTAG MTDI"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 42
+policy = "free"
+role = "expansion / JTAG MTMS"
+expansion = true
+user = true
+pwm = true
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "console UART TX / CH343"
+expansion = true
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "console UART RX / CH343"
+expansion = true
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "strapping"
+expansion = true
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "strapping / input-only"
+expansion = true
