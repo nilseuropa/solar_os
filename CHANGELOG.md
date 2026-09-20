@@ -2,6 +2,37 @@
 
 ## 4.x
 
+- **4.13.1** — 2026-09-20 — Expansion driver attachment now offers guided
+  selectors built from the live I/O map. Runtime display drivers register
+  correctly on headless boards, including displays promoted from expansion
+  manifests. The included expansion-export reference manifest combines a
+  fixed CardKB keyboard and SSD1683 display. Compatible buses and pins show
+  their routes and connector positions while excluding claimed resources.
+  The unfinished form is preserved when opening the I/O pin map and bus
+  manager, and manual resource entry remains available.
+  Runtime device details can save their normalized attach command to the
+  selected shell startup script, using the same idempotent startup workflow as
+  runtime buses in I/O. Runtime buses and catalog-backed device attachments can
+  now be exported as an atomic, versioned expansion manifest. The desktop board
+  configurator imports that snapshot, validates it against the recorded base
+  board, and promotes the tested hardware into an inherited board-owned target.
+  Declarative board manifests now also preserve runtime MIDI buses during
+  promotion.
+- **4.13.0** — 2026-09-20 — Added the Waveshare
+  ESP32-S3-SIM7670G-4G V2.0 target with SIM7670G LTE and GNSS, MAX17048
+  battery monitoring, SDMMC storage, a WS2812B status pixel, software modem
+  power/reset control, and the camera-off expansion pin surface. Cellular
+  access now uses modem-independent saved profiles, a status/settings TUI,
+  configurable serial rates, and a reusable PPP service rather than exposing
+  modem-specific AT setup to normal users. The network service now presents a
+  two-tab interface and routing model with persistent uplink priorities,
+  Wi-Fi AP client routing, transport child TUIs, and WireGuard over whichever
+  base path is selected. The new `pppd` job runs PPP over physical or virtual
+  byte-stream ports as an uplink, downstream gateway, or routed peer; active
+  PPP and SLIP links appear in network status. Ping can be stopped with Esc or
+  Ctrl+C. Runtime metadata and the PPP monitor prefer PSRAM with safe internal
+  fallback, the Network TUI no longer exhausts small foreground stacks, and
+  runtime SSD1683 displays register correctly on headless boards.
 - **4.12.2** — 2026-09-18 — Added an optional persistent BLE keyboard
   keepalive that periodically sends HID Exit Suspend, with a readable HID
   Information fallback and visible local attempt status. Keyboard Battery

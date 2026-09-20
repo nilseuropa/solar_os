@@ -129,6 +129,10 @@ size_t solar_os_expansion_driver_count(void);
 bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *driver);
 bool solar_os_expansion_driver_supported(const char *name);
 const char *solar_os_expansion_category_name(solar_os_expansion_category_t category);
+bool solar_os_expansion_binding_pin_supported(
+    solar_os_expansion_binding_kind_t kind,
+    const char *target,
+    int pin);
 esp_err_t solar_os_expansion_validate_bindings(
     const char *driver,
     const solar_os_expansion_binding_t *bindings,

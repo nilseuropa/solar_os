@@ -1,0 +1,99 @@
+schema = 1
+extends = "waveshare_esp32_s3_sim7670g_4g"
+
+[board]
+id = "waveshare_esp32_s3_sim7670g_4g_epaper"
+name = "Waveshare ESP32-S3-SIM7670G-4G E-paper"
+vendor = "Custom"
+module = "ESP32-S3R8 with 16 MB external flash"
+
+[build]
+drivers = ["display_ssd1683"]
+capabilities = ["display"]
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = "\"SSD1683\""
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "400"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300"
+
+[runtime]
+spi_hosts = ["SPI3_HOST"]
+uart_ports = ["UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 7
+mosi = 8
+miso = 3
+cs = [9]
+max_transfer_size = 4096
+
+[[devices]]
+driver = "cardkb"
+name = "keyboard0"
+bindings = { i2c = "i2c0", addr = 0x5f }
+
+[[devices]]
+driver = "ssd1683"
+name = "display0"
+bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
+
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "spi0 miso"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "spi0 sclk"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "spi0 mosi"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "spi0 cs"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "display0 dc"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "display0 reset"
+user = false
+adc = false
+pwm = false
+
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "display0 busy"
+user = false
+adc = false
+pwm = false

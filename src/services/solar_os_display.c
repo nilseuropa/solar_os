@@ -69,6 +69,12 @@ static void display_publish_frame(u8g2_t *u8g2);
 static void display_publish_surface(u8g2_t *u8g2,
                                     const solar_os_display_surface_t *surface);
 
+bool solar_os_display_target_is_board_primary(const char *name)
+{
+    return SOLAR_OS_BOARD_HAS_DISPLAY && name != NULL &&
+        strcmp(name, SOLAR_OS_DISPLAY_PRIMARY_TARGET) == 0;
+}
+
 static void display_release_slot_ref(size_t slot_index, uint32_t generation)
 {
     portENTER_CRITICAL(&display_targets_lock);

@@ -870,12 +870,12 @@ available for the compiled board.
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
 | `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
-| `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, and detach runtime devices. Bus lifecycle remains in the `io` app. |
+| `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
 | `expansion` | `expansion status` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
 | `expansion` | `expansion layout [connector]` | Draw the board's physical connector map with live free, releasable, claimed, fixed, power, ground, and NC markers. |
 | `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
 | `expansion` | `expansion drivers` | List compiled expansion drivers. |
-| `expansion` | `expansion devices` | List manually attached expansion devices. |
+| `expansion` | `expansion devices` | List fixed board and runtime-attached expansion devices with origin, readiness, startup mode, policy, and bindings. |
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
 | `expansion` | `expansion bus create ps2 <name> clock=<gpio> data=<gpio>` | Define an exclusive PS/2 bus on two approved expansion pins. |
@@ -887,6 +887,7 @@ available for the compiled board.
 | `expansion` | `expansion bus remove <name>` | Remove an idle runtime bus and release its signal pins. |
 | `expansion` | `expansion attach <driver> <name> <resource...>` | Attach a compiled expansion driver or manual resource profile. |
 | `expansion` | `expansion detach <name>` | Detach an active expansion device and release its resource claims. |
+| `expansion` | `expansion export <path>` | Atomically export runtime buses and catalog-backed device attachments as a portable expansion manifest for custom-board generation. |
 | `neopixel` | `neopixel [status\|list] [name]` | List attached WS2812/NeoPixel strips. |
 | `neopixel` | `neopixel set <name> <index> <red> <green> <blue>` | Set one zero-based pixel and immediately refresh the strip. |
 | `neopixel` | `neopixel fill <name> <red> <green> <blue>` | Fill and immediately refresh the strip. Color components are `0..255`. |
@@ -938,7 +939,7 @@ available for the compiled board.
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable one logical receiver using its driver-specific power control. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. A timeout can be supplied without a receiver name. |
 | `modem` | `modem` | Open the modem status and settings TUI. |
-| `modem` | `modem list` | List registered cellular modems, concrete drivers, and transports. |
+| `modem` | `modem list` | List registered cellular modems, concrete drivers, transports, and power, reset, and baud capabilities. |
 | `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
 | `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
 | `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |

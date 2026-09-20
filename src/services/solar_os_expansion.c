@@ -738,6 +738,29 @@ bool solar_os_expansion_driver_supported(const char *name)
         (caps & driver->required_capabilities) == driver->required_capabilities;
 }
 
+bool solar_os_expansion_binding_pin_supported(
+    solar_os_expansion_binding_kind_t kind,
+    const char *target,
+    int pin)
+{
+    switch (kind) {
+    case SOLAR_OS_EXPANSION_BINDING_GPIO:
+    case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        return pin_is_expansion_gpio(pin);
+    case SOLAR_OS_EXPANSION_BINDING_ADC:
+        return pin_is_expansion_adc(pin);
+    case SOLAR_OS_EXPANSION_BINDING_PWM:
+        return pin_is_expansion_pwm(pin);
+    case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+        return pin_is_expansion_gpio(pin) &&
+            solar_os_expansion_spi_cs_allowed(
+                target != NULL && target[0] != '\0' ? target : NULL,
+                pin);
+    default:
+        return false;
+    }
+}
+
 static esp_err_t validate_bindings(
     const char *driver,
     const solar_os_expansion_binding_t *bindings,

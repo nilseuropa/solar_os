@@ -42,7 +42,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [engine command](commands.md) — Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations.
 - [espnow command](commands.md) — Show ESP-NOW owner, channel, PHY, peers, traffic, drops, conflicts, and last error.
 - [exit command](commands.md) — Close the current UART, USB CDC, or telnet shell when another interactive shell remains.
-- [expansion command](expansion.md) — Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, and detach runtime devices. Bus lifecycle remains in the io app.
+- [expansion command](expansion.md) — Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the io app.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
 - [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
@@ -67,10 +67,12 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [messages command](commands.md) — Show bounded-store, persistence, drop, and live provider state.
 - [midi command](commands.md) — Show MIDI worker, traffic, parser, and queue status.
 - [mkdir command](commands.md) — Create directories.
+- [modem command](commands.md) — Open the modem status and settings TUI.
 - [mqtt command](commands.md) — Show broker, authentication, connection, traffic, queue, and error status without revealing the password.
 - [mv command](commands.md) — Rename or move a file or matched set.
 - [neopixel command](commands.md) — List attached WS2812/NeoPixel strips.
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
+- [network command](commands.md) — Open the two-tab network TUI. Status shows interfaces and routes; Settings changes persistent interface priority and client routing.
 - [nfc command](commands.md) — List registered NFC readers and their concrete drivers.
 - [ntp command](commands.md) — Sync the wall clock from NTP.
 - [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
@@ -78,7 +80,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [osc command](commands.md) — Inspect named outbound OSC bindings and their live source, value, send, and error state.
 - [ota command](commands.md) — Show running and configured OTA state.
 - [outbox command](commands.md) — List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox.
-- [ping command](commands.md) — Send ICMP echo requests. Without count, ping runs until app-exit.
+- [ping command](commands.md) — Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit.
 - [pkg command](commands.md) — Print compiled package groups and build units.
 - [pocsag command](commands.md) — Show POCSAG receiver configuration, counters, correction statistics, and RSSI.
 - [port command](commands.md) — List byte-stream ports.
@@ -110,7 +112,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [wait command](commands.md) — Pause the calling shell or shell script for 0 through 86400 seconds.
 - [watch command](commands.md) — Repeat another shell command until Esc, q, or the app-exit key is pressed.
 - [wifi command](commands.md) — Open the Wi-Fi display TUI when launched from the display shell.
-- [wireguard command](commands.md) — Show profile, tunnel, route, peer, DNS, and kill-switch state without printing key material.
+- [wireguard command](commands.md) — Show profile, tunnel, selected underlay, route, peer, DNS, and kill-switch state without printing key material.
 - [xfer command](commands.md) — List supported and reserved transfer protocols.
 - [zip command](commands.md) — Create a ZIP archive. -0 stores without compression.
 
@@ -186,18 +188,18 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ntp-sync job](jobs.reference.md#ntp-sync) — Network time synchronization job. It updates the SolarOS wall clock from NTP and also updates the hardware RTC when the board provides one.
 - [osc job](jobs.reference.md#osc) — OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and explicit named outbound stream, event-stream, or normalized-control bindings.
 - [pocsag job](jobs.reference.md#pocsag) — POCSAG pager receiver job. It configures a registered packet radio for a continuous POCSAG byte stream, frames successive 64-byte batches, filters pages to one receiver identity code (RIC), decodes alphanumeric or numeric payloads, and publishes completed messages to the universal inbox.
+- [pppd job](jobs.reference.md#pppd) — PPP over any bidirectional SolarOS byte-stream port. A physical UART, USB CDC, or a virtual port carried by a packet-radio link can provide the bytes; the PPP negotiation mode and the interface's routing role are configured separately.
 - [ps2-keyboard job](jobs.reference.md#ps2-keyboard) — Receives keyboard scan-code set 2 from an exclusive named PS/2 bus and publishes press and release transitions through the generic SolarOS input service. This job is a compatibility wrapper around a ps2-keyboard expansion attachment; new configurations can attach the device directly.
-- [pppd job](jobs.reference.md#pppd) — PPP over a physical or virtual byte-stream port, independently configured as an uplink, downstream gateway, or routed peer.
 - [radio-link job](jobs.reference.md#radio-link) — Packet-radio adapter for the transport-independent SolarOS Link service.
-- [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments.
+- [slip job](jobs.reference.md#slip) — IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines, headless boards, and serial networking experiments. The active interface is named with the slip- prefix plus the selected port, for example slip-uart0. It appears as a downstream NAT link in the Network views; its traffic follows the selected SolarOS route, which can be Wi-Fi, cellular, or WireGuard.
 - [sump job](jobs.reference.md#sump) — SUMP-compatible logic analyzer server on cdc0. It claims the CDC port and uses the shared logic analyzer service for acquisition. PulseView and sigrok can connect with the OpenBench Logic Sniffer/SUMP serial driver.
 - [telnetd job](jobs.reference.md#telnetd) — Remote Telnet shell server. The listener is a background job; each accepted connection is attached to its own normal SolarOS port-shell session.
 
 ## Networking and security
 
+- [Network interfaces, routing, Wi-Fi, WireGuard, and APIs](network.md) — Connect, inspect, and communicate over installed network services
 - [Open Sound Control](osc.md) — Control live app parameters and publish named stream or control bindings over OSC 1.0 UDP
 - [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
-- [Wi-Fi, WireGuard, MQTT, and network APIs](network.md) — Connect, inspect, and communicate over installed network services
 
 ## Hardware and expansion
 
@@ -242,6 +244,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## System services
 
+- [Cellular modem](sim7670.md) — Configure cellular profiles without modem-specific AT commands
 - [Device identity](identity.md) — Read and configure the NVS-backed user and hostname
 - [Foreground sessions and applications](sessions.apps.md) — Create shells and inspect resumable foreground applications
 - [MeshCore companion messaging](meshcore.md) — Secure messages and trusted virtual serial ports over a claimed packet radio

@@ -90,6 +90,38 @@ conflicts. Pins used by a fixed device or a new bus are removed from the runtime
 user-pin surface automatically. The output is one inherited TOML file under
 `boards/manifests/`.
 
+## Promoting A Tested Runtime Configuration
+
+You can start from any supported board, create buses in `io`, attach catalog
+drivers in `expansion`, and test the real wiring before defining a custom
+target. Export the settled hardware configuration on the device:
+
+```text
+expansion export /sdcard/my-hardware.toml
+```
+
+Then copy the file into the SolarOS source tree and pass it to the same board
+configurator:
+
+```sh
+python3 scripts/board_config.py --expansion-manifest my-hardware.toml
+```
+
+The snapshot names its original board manifest. The configurator uses that as
+the inherited base, promotes exported buses and devices to board-owned entries,
+fixes their GPIOs, and removes their peripheral controllers from the runtime
+pool. If the base has no primary display, storage, audio, pointer, battery, or
+RTC provider and exactly one imported driver supplies that role, its board
+capabilities, driver fragment, and required defines are promoted too. Existing
+primary roles remain primary; ambiguous new primary roles are rejected instead
+of selected silently.
+
+The export contains hardware topology only. It does not include startup jobs,
+network settings, credentials, readiness, or resource leases. Runtime `manual`
+attachments make export fail because a custom board must reference a validated
+driver in `boards/expansion_drivers.toml`. Edit or remove temporary startup
+commands separately after flashing the generated target.
+
 For example, `devkitc1_epaper_workbench.toml` extends the S3 DevKitC profile and
 declares CardKB, SSD1683, and SDSPI as fixed devices. It also declares the second
 SPI bus used by the SD card. Build an inherited profile through its base
@@ -182,6 +214,7 @@ The current tree includes these board targets:
 | `t_lora_pager` | `t_lora_pager` | LilyGO T-LoRa-Pager (SX1262) | ESP32-S3-WROOM-1-N16R8 target with a 480x222 ST7796 display, a TCA8418 4x10 matrix keyboard, an SX1262 LoRa radio, PCF85063 RTC, microSD over SDSPI, ES8311 audio, a BQ27220 battery gauge, a BQ25896 charger, a rotary encoder, an XL9555 I2C GPIO controller for integrated power rails, a MIA-M10Q GNSS receiver, an ST25R3916 NFC-A reader, a BHI260AP IMU, a DRV2605 haptic controller, native USB CDC, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM. SD power and its external pull-up start enabled; GNSS and NFC power start disabled and are enabled with `gnss power on` and `nfc power on`. Use `haptic play EFFECT` for DRV2605 ROM effects 1 through 117. The Pager fixes BQ25896 fast-charge current at 704 mA during attachment; inspect or explicitly change charger settings with `charger`. |
 | `t_deck_plus` | `t_deck_plus` | LilyGO T-Deck Plus | ESP32-S3FN16R8 target with a 320x240 ST7789 display, GT911 touch, I2C keyboard, five-way trackball, separate I2S speaker output and ES7210 microphone capture, SX1262 LoRa radio, microSD over SDSPI, battery ADC, internal GPS UART, native USB CDC, Wi-Fi, and BLE. |
 | `waveshare_esp32_s3_sim7670g_4g` | `waveshare_esp32_s3_sim7670g_4g` | [Waveshare ESP32-S3-SIM7670G-4G V2.0](https://www.waveshare.com/esp32-s3-sim7670g-4g.htm) | Headless ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, CH343/UART console, SIM7670G AT, GNSS, and IPv4 PPP access over UART1, MAX17048 battery gauge, one-bit SDMMC, one WS2812B, Wi-Fi, BLE, and expansion GPIO/ADC/PWM/SPI/I2S. Set the DIP switches to CAM OFF, HUB ON, 4G OFF, USB OFF. With CAM off, the unused camera signal pins are available as expansion GPIOs and can form runtime SPI or I2S buses; GPIO15/GPIO16 remain the shared MAX17048 I2C bus and GPIO46 remains blocked as an input-only strapping pin. SolarOS drives GPIO21 active-high to control the modem VBAT rail; leave the 4G switch OFF to avoid contention and permit software power-off/reset. The modem UART belongs exclusively to PPP while connected; disconnect it before AT or GNSS use. Camera support is not included. |
+| `waveshare_esp32_s3_sim7670g_4g_epaper` | `waveshare_esp32_s3_sim7670g_4g` with `SOLAR_OS_BOARD=waveshare_esp32_s3_sim7670g_4g_epaper` | Waveshare ESP32-S3-SIM7670G-4G E-paper workbench | Expansion-export reference target with a fixed CardKB keyboard on the board-owned I2C bus at address `0x5f` and a fixed primary 400x300 SSD1683 display on SPI2 using GPIO3/GPIO7 through GPIO12. |
 
 ## Generated Build Interface
 

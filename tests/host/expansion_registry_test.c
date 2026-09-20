@@ -298,6 +298,17 @@ static void assert_device(size_t index,
 
 int main(void)
 {
+    assert(solar_os_expansion_binding_pin_supported(
+        SOLAR_OS_EXPANSION_BINDING_GPIO, NULL, 5));
+    assert(solar_os_expansion_binding_pin_supported(
+        SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, NULL, 5));
+    assert(!solar_os_expansion_binding_pin_supported(
+        SOLAR_OS_EXPANSION_BINDING_GPIO, NULL, 64));
+    assert(!solar_os_expansion_binding_pin_supported(
+        SOLAR_OS_EXPANSION_BINDING_ADC, NULL, 5));
+    assert(!solar_os_expansion_binding_pin_supported(
+        SOLAR_OS_EXPANSION_BINDING_I2C_BUS, NULL, 5));
+
     const char *expected_categories[SOLAR_OS_EXPANSION_CATEGORY_COUNT] = {
         "Audio", "Display", "Input", "Power",
         "Radio", "Sensor", "Storage", "Utility",

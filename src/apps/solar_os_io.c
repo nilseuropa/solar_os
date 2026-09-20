@@ -1,7 +1,6 @@
 #include "solar_os_io.h"
 
 #include <ctype.h>
-#include <errno.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,7 +19,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
-#include "solar_os_storage.h"
+#include "solar_os_shell.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
@@ -34,8 +33,6 @@
 #define IO_ACTION_MAX 10
 #define IO_PIN_MAX 64
 #define IO_FORM_CS_MAX 4
-#define IO_STARTUP_DIR ".shell"
-#define IO_STARTUP_FILE "startup"
 #define IO_STARTUP_COMMAND_MAX 256
 
 typedef enum {
@@ -1087,76 +1084,6 @@ static esp_err_t io_bus_create_command(const solar_os_bus_info_t *bus,
     }
 }
 
-static esp_err_t io_append_startup_command(const char *command, bool *added)
-{
-    char dir[SOLAR_OS_STORAGE_PATH_MAX];
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (added != NULL) {
-        *added = false;
-    }
-    if (command == NULL || command[0] == '\0' || !solar_os_storage_is_mounted()) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    esp_err_t ret = solar_os_storage_default_path(IO_STARTUP_DIR, dir, sizeof(dir));
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = solar_os_storage_join_path(dir, IO_STARTUP_FILE, path, sizeof(path));
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    if (solar_os_storage_mkdir(dir) != ESP_OK && errno != EEXIST) {
-        return ESP_FAIL;
-    }
-
-    bool has_content = false;
-    bool ends_with_newline = true;
-    FILE *file = fopen(path, "r");
-    if (file != NULL) {
-        char line[IO_STARTUP_COMMAND_MAX + 4];
-        while (fgets(line, sizeof(line), file) != NULL) {
-            const size_t line_len = strlen(line);
-            has_content = true;
-            ends_with_newline = line_len > 0 && line[line_len - 1] == '\n';
-            line[strcspn(line, "\r\n")] = '\0';
-            if (strcmp(line, command) == 0) {
-                fclose(file);
-                return ESP_OK;
-            }
-        }
-        if (ferror(file)) {
-            fclose(file);
-            return ESP_FAIL;
-        }
-        fclose(file);
-    } else if (errno != ENOENT) {
-        return ESP_FAIL;
-    }
-
-    file = fopen(path, "a");
-    if (file == NULL) {
-        return ESP_FAIL;
-    }
-    bool ok = true;
-    if (has_content && !ends_with_newline) {
-        ok = fputc('\n', file) != EOF;
-    }
-    if (ok) {
-        ok = fprintf(file, "%s\n", command) >= 0;
-    }
-    if (fclose(file) != 0) {
-        ok = false;
-    }
-    if (!ok) {
-        return ESP_FAIL;
-    }
-    if (added != NULL) {
-        *added = true;
-    }
-    return ESP_OK;
-}
-
 static esp_err_t io_autostart_bus(const char *name, bool *added)
 {
     solar_os_bus_info_t bus;
@@ -1168,7 +1095,7 @@ static esp_err_t io_autostart_bus(const char *name, bool *added)
     if (ret != ESP_OK) {
         return ret;
     }
-    return io_append_startup_command(command, added);
+    return solar_os_shell_startup_append_command(command, added);
 }
 
 static void io_build_bus_actions(const solar_os_bus_info_t *bus)
@@ -2016,8 +1943,12 @@ static void io_execute_action(io_action_kind_t action)
         bool added = false;
         err = io_autostart_bus(io.selected_bus, &added);
         if (err == ESP_OK) {
-            io_set_message(added ? "autostart added to /.shell/startup" :
-                                   "autostart already in /.shell/startup");
+            snprintf(io.message,
+                     sizeof(io.message),
+                     added ? "autostart added to %s startup" :
+                             "autostart already in %s startup",
+                     solar_os_shell_startup_source_name(
+                         solar_os_shell_startup_source()));
         }
         break;
     }

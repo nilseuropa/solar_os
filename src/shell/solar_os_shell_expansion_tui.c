@@ -10,10 +10,14 @@
 #include <string.h>
 
 #include "esp_err.h"
+#include "solar_os_app_registry.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
+#include "solar_os_pins.h"
+#include "solar_os_resources.h"
+#include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_expansion_internal.h"
 #include "solar_os_stream.h"
@@ -24,6 +28,7 @@
 #define EXPANSION_TUI_VALUE_MAX 32
 #define EXPANSION_TUI_MANUAL_MAX 192
 #define EXPANSION_TUI_FORM_SPEC_MAX 24
+#define EXPANSION_TUI_STARTUP_COMMAND_MAX 192
 
 typedef enum {
     EXPANSION_TUI_VIEW_DEVICES,
@@ -32,8 +37,14 @@ typedef enum {
     EXPANSION_TUI_VIEW_DRIVERS,
     EXPANSION_TUI_VIEW_DRIVER_DETAIL,
     EXPANSION_TUI_VIEW_ATTACH,
+    EXPANSION_TUI_VIEW_CHOICES,
     EXPANSION_TUI_VIEW_DETACH_CONFIRM,
 } expansion_tui_view_t;
+
+typedef struct {
+    char value[EXPANSION_TUI_VALUE_MAX];
+    char label[EXPANSION_TUI_MESSAGE_MAX];
+} expansion_tui_choice_t;
 
 typedef struct {
     solar_os_context_t *ctx;
@@ -44,6 +55,7 @@ typedef struct {
     solar_os_tui_viewport_t drivers;
     solar_os_tui_viewport_t detail;
     solar_os_tui_viewport_t form;
+    solar_os_tui_viewport_t choices;
     solar_os_expansion_category_t category;
     solar_os_expansion_device_t device;
     solar_os_expansion_driver_t driver;
@@ -52,6 +64,8 @@ typedef struct {
     char values[EXPANSION_TUI_FORM_SPEC_MAX][EXPANSION_TUI_VALUE_MAX];
     char manual_resources[EXPANSION_TUI_MANUAL_MAX];
     solar_os_tui_input_state_t input;
+    size_t choice_field;
+    bool startup_saved;
     bool editing;
 } expansion_tui_state_t;
 
@@ -59,6 +73,7 @@ static void *expansion_tui_state;
 #define expansion_tui (*(expansion_tui_state_t *)expansion_tui_state)
 
 static void expansion_tui_render(void);
+static bool expansion_tui_parse_int(const char *text, int min, int max, int *value);
 
 static size_t expansion_tui_body_rows(void)
 {
@@ -79,6 +94,27 @@ static void expansion_tui_set_error(const char *operation, esp_err_t err)
              "%s: %s",
              operation,
              solar_os_shell_error_text(err));
+}
+
+static bool expansion_tui_open_io(void)
+{
+    const solar_os_app_registry_entry_t *entry =
+        solar_os_app_registry_find("io");
+    if (entry == NULL || entry->app == NULL) {
+        expansion_tui_set_message("I/O manager is not installed");
+        return false;
+    }
+    const esp_err_t err = solar_os_context_request_launch_ex(
+        expansion_tui.ctx,
+        entry->app,
+        0,
+        NULL,
+        SOLAR_OS_LAUNCH_CHILD_RETURN);
+    if (err != ESP_OK) {
+        expansion_tui_set_error("open I/O", err);
+        return false;
+    }
+    return true;
 }
 
 static void expansion_tui_draw_tabs(bool devices_selected)
@@ -242,7 +278,8 @@ static void expansion_tui_render_devices(void)
                                 "no expansion devices attached",
                                 SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    expansion_tui_draw_help("arrows select  enter details  N attach  tab drivers  Q exit");
+    expansion_tui_draw_help(
+        "arrows select  enter details  N attach  tab drivers  P pin map  Q exit");
     expansion_tui_finish_render(false);
 }
 
@@ -340,10 +377,17 @@ static void expansion_tui_device_detail_line(size_t index,
                      expansion_tui.device.active ? "active" : "inactive");
         break;
     case 3U:
-        snprintf(line,
-                 line_len,
-                 "startup: %s",
-                 expansion_tui.device.autostart ? "automatic" : "manual");
+        if (expansion_tui.device.autostart) {
+            strlcpy(line, "startup: automatic", line_len);
+        } else if (expansion_tui.startup_saved) {
+            snprintf(line,
+                     line_len,
+                     "startup: saved (%s)",
+                     solar_os_shell_startup_source_name(
+                         solar_os_shell_startup_source()));
+        } else {
+            strlcpy(line, "startup: manual", line_len);
+        }
         break;
     case 4U:
         snprintf(line,
@@ -385,9 +429,10 @@ static void expansion_tui_render_device_detail(void)
         expansion_tui_device_detail_line(index, line, sizeof(line));
         solar_os_tui_write_cell(tui, 2U + row, 0U, cols, line, SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    expansion_tui_draw_help(expansion_tui.device.detachable ?
-                                "arrows scroll  D/del detach  esc back" :
-                                "arrows scroll  fixed device  esc back");
+    expansion_tui_draw_help(
+        expansion_tui.device.origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME ?
+            "arrows scroll  S startup  D detach  P pin map  esc back" :
+            "arrows scroll  fixed device  P pin map  esc back");
     expansion_tui_finish_render(false);
 }
 
@@ -454,7 +499,8 @@ static void expansion_tui_render_categories(void)
                                     SOLAR_OS_TUI_ATTR_INVERSE :
                                     SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    expansion_tui_draw_help("arrows select  enter browse  tab devices  Q exit");
+    expansion_tui_draw_help(
+        "arrows select  enter browse  tab devices  P pin map  Q exit");
     expansion_tui_finish_render(false);
 }
 
@@ -493,7 +539,8 @@ static void expansion_tui_render_drivers(void)
                                     SOLAR_OS_TUI_ATTR_INVERSE :
                                     SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    expansion_tui_draw_help("arrows select  enter details  esc categories");
+    expansion_tui_draw_help(
+        "arrows select  enter details  P pin map  esc categories");
     expansion_tui_finish_render(false);
 }
 
@@ -575,8 +622,8 @@ static void expansion_tui_render_driver_detail(void)
         solar_os_tui_write_cell(tui, 2U + row, 0U, cols, line, SOLAR_OS_TUI_ATTR_NORMAL);
     }
     expansion_tui_draw_help(solar_os_expansion_driver_supported(expansion_tui.driver.name) ?
-                                "arrows scroll  A/enter attach  esc back" :
-                                "arrows scroll  unsupported  esc back");
+                                "arrows scroll  A/enter attach  P pin map  esc back" :
+                                "arrows scroll  P pin map  esc back");
     expansion_tui_finish_render(false);
 }
 
@@ -590,6 +637,76 @@ static bool expansion_tui_device_exists(const char *name)
         }
     }
     return false;
+}
+
+static bool expansion_tui_find_driver(const char *name,
+                                      solar_os_expansion_driver_t *driver)
+{
+    if (name == NULL || driver == NULL) {
+        return false;
+    }
+    for (size_t i = 0U; i < solar_os_expansion_driver_count(); i++) {
+        if (solar_os_expansion_get_driver(i, driver) &&
+            strcmp(driver->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static esp_err_t expansion_tui_device_command(char *command,
+                                               size_t command_len)
+{
+    solar_os_expansion_driver_t driver;
+    if (!expansion_tui_find_driver(expansion_tui.device.driver, &driver)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    return solar_os_shell_expansion_attach_command(&driver,
+                                                   &expansion_tui.device,
+                                                   command,
+                                                   command_len);
+}
+
+static void expansion_tui_refresh_startup(void)
+{
+    expansion_tui.startup_saved = expansion_tui.device.autostart;
+    if (expansion_tui.device.origin != SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+        return;
+    }
+
+    char command[EXPANSION_TUI_STARTUP_COMMAND_MAX];
+    bool present = false;
+    if (expansion_tui_device_command(command, sizeof(command)) == ESP_OK &&
+        solar_os_shell_startup_has_command(command, &present) == ESP_OK) {
+        expansion_tui.startup_saved = present;
+    }
+}
+
+static void expansion_tui_save_startup(void)
+{
+    if (expansion_tui.device.origin != SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+        expansion_tui_set_message("fixed devices already start automatically");
+        return;
+    }
+
+    char command[EXPANSION_TUI_STARTUP_COMMAND_MAX];
+    esp_err_t err = expansion_tui_device_command(command, sizeof(command));
+    if (err != ESP_OK) {
+        expansion_tui_set_error("build startup command", err);
+        return;
+    }
+    bool added = false;
+    err = solar_os_shell_startup_append_command(command, &added);
+    if (err != ESP_OK) {
+        expansion_tui_set_error("save startup", err);
+        return;
+    }
+    expansion_tui.startup_saved = true;
+    snprintf(expansion_tui.message,
+             sizeof(expansion_tui.message),
+             added ? "saved for %s startup" : "already in %s startup",
+             solar_os_shell_startup_source_name(
+                 solar_os_shell_startup_source()));
 }
 
 static void expansion_tui_default_device_name(void)
@@ -738,6 +855,418 @@ static void expansion_tui_form_label(size_t field, char *label, size_t label_len
     }
 }
 
+static const solar_os_expansion_binding_spec_t *expansion_tui_form_spec(
+    size_t field)
+{
+    if (field == 0U || expansion_tui.driver.allow_unlisted_bindings ||
+        field > expansion_tui.driver.binding_spec_count) {
+        return NULL;
+    }
+    return &expansion_tui.driver.binding_specs[field - 1U];
+}
+
+static bool expansion_tui_spec_value_allowed(
+    const solar_os_expansion_binding_spec_t *spec,
+    int value)
+{
+    if (spec == NULL || spec->allowed_value_count == 0U) {
+        return true;
+    }
+    for (size_t i = 0U; i < spec->allowed_value_count; i++) {
+        if (spec->allowed_values[i] == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool expansion_tui_kind_is_pin(solar_os_expansion_binding_kind_t kind)
+{
+    return kind == SOLAR_OS_EXPANSION_BINDING_GPIO ||
+        kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE ||
+        kind == SOLAR_OS_EXPANSION_BINDING_ADC ||
+        kind == SOLAR_OS_EXPANSION_BINDING_PWM ||
+        kind == SOLAR_OS_EXPANSION_BINDING_SPI_CS;
+}
+
+static bool expansion_tui_kind_protocol(solar_os_expansion_binding_kind_t kind,
+                                        solar_os_bus_protocol_t *protocol)
+{
+    if (protocol == NULL) {
+        return false;
+    }
+    switch (kind) {
+    case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
+        *protocol = SOLAR_OS_BUS_PROTOCOL_I2C;
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
+        *protocol = SOLAR_OS_BUS_PROTOCOL_SPI;
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
+        *protocol = SOLAR_OS_BUS_PROTOCOL_UART;
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+        *protocol = SOLAR_OS_BUS_PROTOCOL_PS2;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static const char *expansion_tui_spi_bus_value(void)
+{
+    for (size_t i = 0U; i < expansion_tui.driver.binding_spec_count; i++) {
+        if (expansion_tui.driver.binding_specs[i].kind ==
+            SOLAR_OS_EXPANSION_BINDING_SPI_BUS) {
+            return expansion_tui.values[i];
+        }
+    }
+    return NULL;
+}
+
+static bool expansion_tui_form_uses_pin(size_t except_field, int pin)
+{
+    for (size_t i = 0U; i < expansion_tui.driver.binding_spec_count; i++) {
+        const size_t field = i + 1U;
+        if (field == except_field ||
+            !expansion_tui_kind_is_pin(expansion_tui.driver.binding_specs[i].kind)) {
+            continue;
+        }
+        int selected = -1;
+        if (expansion_tui_parse_int(expansion_tui.values[i], 0, 63, &selected) &&
+            selected == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool expansion_tui_pin_is_available(
+    const solar_os_expansion_binding_spec_t *spec,
+    size_t field,
+    int pin)
+{
+    solar_os_resource_claim_t claim;
+    if (spec == NULL || expansion_tui_form_uses_pin(field, pin) ||
+        solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN,
+                                     pin,
+                                     -1,
+                                     &claim)) {
+        return false;
+    }
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_ADC &&
+        solar_os_resource_find_claim(SOLAR_OS_RESOURCE_ADC_PIN,
+                                     pin,
+                                     -1,
+                                     &claim)) {
+        return false;
+    }
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_PWM &&
+        solar_os_resource_find_claim(SOLAR_OS_RESOURCE_PWM_PIN,
+                                     pin,
+                                     -1,
+                                     &claim)) {
+        return false;
+    }
+    return spec->kind != SOLAR_OS_EXPANSION_BINDING_SPI_CS ||
+        !solar_os_resource_find_claim(SOLAR_OS_RESOURCE_SPI_CS,
+                                      pin,
+                                      -1,
+                                      &claim);
+}
+
+static bool expansion_tui_connector_for_pin(
+    int pin,
+    solar_os_connector_pin_info_t *connector_pin)
+{
+    for (size_t i = 0U; i < solar_os_connector_pin_count(); i++) {
+        solar_os_connector_pin_info_t candidate;
+        if (solar_os_connector_pin_get_info(i, &candidate) &&
+            candidate.kind == SOLAR_OS_CONNECTOR_PIN_GPIO &&
+            candidate.pin == pin) {
+            if (connector_pin != NULL) {
+                *connector_pin = candidate;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static void expansion_tui_format_pin_choice(int pin,
+                                            expansion_tui_choice_t *choice)
+{
+    snprintf(choice->value, sizeof(choice->value), "gpio%d", pin);
+    solar_os_connector_pin_info_t connector_pin;
+    solar_os_pin_info_t pin_info;
+    const bool have_pin = solar_os_pin_get_info_by_pin(pin, &pin_info);
+    const char *policy = have_pin ? solar_os_pin_policy_name(pin_info.policy) : "available";
+    if (expansion_tui_connector_for_pin(pin, &connector_pin)) {
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "%s.%u  GPIO%-2d  %s",
+                 connector_pin.connector != NULL ? connector_pin.connector : "?",
+                 (unsigned)connector_pin.position,
+                 pin,
+                 policy);
+    } else {
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "GPIO%-2d  %s",
+                 pin,
+                 policy);
+    }
+}
+
+static void expansion_tui_format_bus_choice(const solar_os_bus_info_t *bus,
+                                            expansion_tui_choice_t *choice)
+{
+    strlcpy(choice->value, bus->name, sizeof(choice->value));
+    switch (bus->protocol) {
+    case SOLAR_OS_BUS_PROTOCOL_I2C:
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "%-10s SDA=GPIO%d SCL=GPIO%d",
+                 bus->name,
+                 bus->config.i2c.sda_pin,
+                 bus->config.i2c.scl_pin);
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_SPI:
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "%-10s SCLK=%d MOSI=%d MISO=%d CS=%u",
+                 bus->name,
+                 bus->config.spi.sclk_pin,
+                 bus->config.spi.mosi_pin,
+                 bus->config.spi.miso_pin,
+                 (unsigned)bus->config.spi.cs_count);
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_UART:
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "%-10s TX=%d RX=%d @%lu",
+                 bus->name,
+                 bus->config.uart.tx_pin,
+                 bus->config.uart.rx_pin,
+                 (unsigned long)bus->config.uart.baud_rate);
+        break;
+    case SOLAR_OS_BUS_PROTOCOL_PS2:
+        snprintf(choice->label,
+                 sizeof(choice->label),
+                 "%-10s CLOCK=%d DATA=%d",
+                 bus->name,
+                 bus->config.ps2.clock_pin,
+                 bus->config.ps2.data_pin);
+        break;
+    default:
+        strlcpy(choice->label, bus->name, sizeof(choice->label));
+        break;
+    }
+}
+
+static void expansion_tui_format_discrete_choice(
+    const solar_os_expansion_binding_spec_t *spec,
+    int value,
+    expansion_tui_choice_t *choice)
+{
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS) {
+        snprintf(choice->value, sizeof(choice->value), "0x%02x", value);
+    } else if (spec->kind == SOLAR_OS_EXPANSION_BINDING_I2S_PORT) {
+        snprintf(choice->value, sizeof(choice->value), "i2s%d", value);
+    } else {
+        snprintf(choice->value, sizeof(choice->value), "%d", value);
+    }
+    strlcpy(choice->label, choice->value, sizeof(choice->label));
+}
+
+static bool expansion_tui_get_choice(size_t index,
+                                     expansion_tui_choice_t *choice)
+{
+    const solar_os_expansion_binding_spec_t *spec =
+        expansion_tui_form_spec(expansion_tui.choice_field);
+    if (spec == NULL || choice == NULL) {
+        return false;
+    }
+
+    size_t current = 0U;
+    if (!spec->required) {
+        if (index == current) {
+            choice->value[0] = '\0';
+            strlcpy(choice->label, "<not connected>", sizeof(choice->label));
+            return true;
+        }
+        current++;
+    }
+
+    if (expansion_tui_kind_is_pin(spec->kind)) {
+        const char *target = spec->kind == SOLAR_OS_EXPANSION_BINDING_SPI_CS ?
+            expansion_tui_spi_bus_value() : NULL;
+        for (size_t i = 0U; i < solar_os_pin_count(); i++) {
+            solar_os_pin_info_t pin_info;
+            if (!solar_os_pin_get_info(i, &pin_info) ||
+                !expansion_tui_spec_value_allowed(spec, pin_info.pin) ||
+                !solar_os_expansion_binding_pin_supported(spec->kind,
+                                                          target,
+                                                          pin_info.pin) ||
+                !expansion_tui_pin_is_available(spec,
+                                                expansion_tui.choice_field,
+                                                pin_info.pin)) {
+                continue;
+            }
+            if (index == current++) {
+                expansion_tui_format_pin_choice(pin_info.pin, choice);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    solar_os_bus_protocol_t protocol;
+    if (expansion_tui_kind_protocol(spec->kind, &protocol)) {
+        for (size_t i = 0U; i < solar_os_bus_count_protocol(protocol); i++) {
+            solar_os_bus_info_t bus;
+            if (!solar_os_bus_get_protocol(protocol, i, &bus) ||
+                (bus.sharing == SOLAR_OS_BUS_EXCLUSIVE && bus.lease_count > 0U)) {
+                continue;
+            }
+            if (index == current++) {
+                expansion_tui_format_bus_choice(&bus, choice);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM) {
+        for (size_t i = 0U; i < solar_os_stream_count(); i++) {
+            solar_os_stream_info_t stream;
+            if (!solar_os_stream_get(i, &stream) ||
+                stream.type != SOLAR_OS_STREAM_TYPE_SCALAR ||
+                stream.direction == SOLAR_OS_STREAM_DIRECTION_SINK) {
+                continue;
+            }
+            if (index == current++) {
+                strlcpy(choice->value, stream.id, sizeof(choice->value));
+                strlcpy(choice->label, stream.id, sizeof(choice->label));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for (size_t i = 0U; i < spec->allowed_value_count; i++) {
+        if (index == current++) {
+            expansion_tui_format_discrete_choice(spec,
+                                                 spec->allowed_values[i],
+                                                 choice);
+            return true;
+        }
+    }
+    return false;
+}
+
+static size_t expansion_tui_choice_count(void)
+{
+    expansion_tui_choice_t choice;
+    size_t count = 0U;
+    while (count < 64U && expansion_tui_get_choice(count, &choice)) {
+        count++;
+    }
+    return count;
+}
+
+static bool expansion_tui_field_has_choices(size_t field)
+{
+    const solar_os_expansion_binding_spec_t *spec =
+        expansion_tui_form_spec(field);
+    solar_os_bus_protocol_t protocol;
+    return spec != NULL &&
+        (expansion_tui_kind_is_pin(spec->kind) ||
+         expansion_tui_kind_protocol(spec->kind, &protocol) ||
+         spec->kind == SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM ||
+         spec->allowed_value_count > 0U);
+}
+
+static void expansion_tui_begin_edit(size_t field)
+{
+    size_t capacity = 0U;
+    char *value = expansion_tui_form_value(field, &capacity);
+    (void)capacity;
+    expansion_tui.view = EXPANSION_TUI_VIEW_ATTACH;
+    expansion_tui.form.cursor = field;
+    expansion_tui.input.cursor = value != NULL ? strlen(value) : 0U;
+    expansion_tui.input.view = 0U;
+    expansion_tui.editing = value != NULL;
+    expansion_tui_set_message("");
+}
+
+static void expansion_tui_open_choices(size_t field)
+{
+    expansion_tui.choice_field = field;
+    expansion_tui.choices = (solar_os_tui_viewport_t) {0};
+    expansion_tui.view = EXPANSION_TUI_VIEW_CHOICES;
+    expansion_tui_set_message("");
+}
+
+static void expansion_tui_render_choices(void)
+{
+    solar_os_tui_t *tui = &expansion_tui.tui;
+    const size_t cols = solar_os_tui_cols(tui);
+    const size_t count = expansion_tui_choice_count();
+    const solar_os_expansion_binding_spec_t *spec =
+        expansion_tui_form_spec(expansion_tui.choice_field);
+    solar_os_tui_clear(tui);
+    solar_os_tui_draw_title(tui,
+                            "choose resource",
+                            spec != NULL ? spec->key : expansion_tui.driver.name);
+    solar_os_tui_write_cell(tui,
+                            1U,
+                            0U,
+                            cols,
+                            " Compatible resources from the live I/O map",
+                            SOLAR_OS_TUI_ATTR_BOLD);
+
+    const size_t visible = expansion_tui_body_rows();
+    solar_os_tui_viewport_reconcile(&expansion_tui.choices, count, visible);
+    for (size_t row = 0U; row < visible; row++) {
+        const size_t index = expansion_tui.choices.top + row;
+        expansion_tui_choice_t choice;
+        if (index >= count || !expansion_tui_get_choice(index, &choice)) {
+            break;
+        }
+        size_t capacity = 0U;
+        const char *selected = expansion_tui_form_value(
+            expansion_tui.choice_field,
+            &capacity);
+        (void)capacity;
+        char line[EXPANSION_TUI_MESSAGE_MAX];
+        snprintf(line,
+                 sizeof(line),
+                 "%c %s",
+                 selected != NULL && strcmp(selected, choice.value) == 0 ? '*' : ' ',
+                 choice.label);
+        solar_os_tui_write_cell(tui,
+                                2U + row,
+                                0U,
+                                cols,
+                                line,
+                                index == expansion_tui.choices.cursor ?
+                                    SOLAR_OS_TUI_ATTR_INVERSE :
+                                    SOLAR_OS_TUI_ATTR_NORMAL);
+    }
+    if (count == 0U && visible > 0U) {
+        solar_os_tui_write_cell(tui,
+                                2U,
+                                0U,
+                                cols,
+                                "No compatible free resources. Press P for I/O.",
+                                SOLAR_OS_TUI_ATTR_NORMAL);
+    }
+    expansion_tui_draw_help(
+        "arrows select  enter use  E manual  P pin map/buses  esc back");
+    expansion_tui_finish_render(false);
+}
+
 static void expansion_tui_render_attach(void)
 {
     solar_os_tui_t *tui = &expansion_tui.tui;
@@ -799,7 +1328,7 @@ static void expansion_tui_render_attach(void)
     }
     expansion_tui_draw_help(expansion_tui.editing ?
                                 "type value  enter accepts  esc cancels edit" :
-                                "arrows select  enter edit/attach  esc back");
+                                "arrows select  enter choose  E manual  P pin map/buses  esc back");
     expansion_tui_finish_render(expansion_tui.editing);
 }
 
@@ -829,6 +1358,9 @@ static void expansion_tui_render(void)
         break;
     case EXPANSION_TUI_VIEW_ATTACH:
         expansion_tui_render_attach();
+        break;
+    case EXPANSION_TUI_VIEW_CHOICES:
+        expansion_tui_render_choices();
         break;
     case EXPANSION_TUI_VIEW_DETACH_CONFIRM:
         expansion_tui_render_detach_confirm();
@@ -871,9 +1403,24 @@ static bool expansion_tui_binding_from_spec(
         .value = -1,
         .aux = -1,
     };
-    strlcpy(binding->role,
-            spec->role != NULL ? spec->role : spec->key,
-            sizeof(binding->role));
+    const char *role = spec->role;
+    if (role == NULL) {
+        switch (spec->kind) {
+        case SOLAR_OS_EXPANSION_BINDING_GPIO:
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+        case SOLAR_OS_EXPANSION_BINDING_ADC:
+        case SOLAR_OS_EXPANSION_BINDING_PWM:
+        case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+        case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+            role = spec->key;
+            break;
+        default:
+            role = "";
+            break;
+        }
+    }
+    strlcpy(binding->role, role, sizeof(binding->role));
 
     switch (spec->kind) {
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
@@ -1111,6 +1658,7 @@ static void expansion_tui_handle_devices(uint8_t key)
                solar_os_expansion_get_device(expansion_tui.devices.cursor,
                                              &expansion_tui.device)) {
         expansion_tui.detail = (solar_os_tui_viewport_t) {0};
+        expansion_tui_refresh_startup();
         expansion_tui.view = EXPANSION_TUI_VIEW_DEVICE_DETAIL;
         expansion_tui_set_message("");
     } else if (solar_os_tui_viewport_key(&expansion_tui.devices,
@@ -1128,6 +1676,8 @@ static void expansion_tui_handle_device_detail(uint8_t key)
     if (key == SOLAR_OS_KEY_ESCAPE) {
         expansion_tui.view = EXPANSION_TUI_VIEW_DEVICES;
         expansion_tui_set_message("");
+    } else if (key == 's' || key == 'S') {
+        expansion_tui_save_startup();
     } else if (key == 'd' || key == 'D' || key == SOLAR_OS_KEY_DELETE) {
         if (expansion_tui.device.detachable) {
             expansion_tui.view = EXPANSION_TUI_VIEW_DETACH_CONFIRM;
@@ -1259,21 +1809,50 @@ static void expansion_tui_handle_attach(uint8_t key)
     } else if (key == SOLAR_OS_KEY_ESCAPE) {
         expansion_tui.view = EXPANSION_TUI_VIEW_DRIVER_DETAIL;
         expansion_tui_set_message("");
+    } else if ((key == 'e' || key == 'E') &&
+               expansion_tui.form.cursor < input_count) {
+        expansion_tui_begin_edit(expansion_tui.form.cursor);
     } else if (key == SOLAR_OS_KEY_ENTER || key == '\r') {
         if (expansion_tui.form.cursor == input_count) {
             expansion_tui_attach();
+        } else if (expansion_tui_field_has_choices(expansion_tui.form.cursor)) {
+            expansion_tui_open_choices(expansion_tui.form.cursor);
         } else {
-            size_t capacity = 0U;
-            char *value = expansion_tui_form_value(expansion_tui.form.cursor, &capacity);
-            (void)capacity;
-            expansion_tui.input.cursor = value != NULL ? strlen(value) : 0U;
-            expansion_tui.input.view = 0U;
-            expansion_tui.editing = value != NULL;
-            expansion_tui_set_message("");
+            expansion_tui_begin_edit(expansion_tui.form.cursor);
         }
     } else if (solar_os_tui_viewport_key(&expansion_tui.form,
                                          key,
                                          input_count + 1U,
+                                         expansion_tui_body_rows(),
+                                         false)) {
+        expansion_tui_set_message("");
+    }
+    expansion_tui_render();
+}
+
+static void expansion_tui_handle_choices(uint8_t key)
+{
+    const size_t count = expansion_tui_choice_count();
+    if (key == SOLAR_OS_KEY_ESCAPE) {
+        expansion_tui.view = EXPANSION_TUI_VIEW_ATTACH;
+        expansion_tui_set_message("");
+    } else if (key == 'e' || key == 'E') {
+        expansion_tui_begin_edit(expansion_tui.choice_field);
+    } else if ((key == SOLAR_OS_KEY_ENTER || key == '\r') && count > 0U) {
+        expansion_tui_choice_t choice;
+        if (expansion_tui_get_choice(expansion_tui.choices.cursor, &choice)) {
+            size_t capacity = 0U;
+            char *value = expansion_tui_form_value(expansion_tui.choice_field,
+                                                    &capacity);
+            if (value != NULL && capacity > 0U) {
+                strlcpy(value, choice.value, capacity);
+                expansion_tui.view = EXPANSION_TUI_VIEW_ATTACH;
+                expansion_tui_set_message("");
+            }
+        }
+    } else if (solar_os_tui_viewport_key(&expansion_tui.choices,
+                                         key,
+                                         count,
                                          expansion_tui_body_rows(),
                                          false)) {
         expansion_tui_set_message("");
@@ -1336,6 +1915,12 @@ static bool expansion_tui_event(solar_os_context_t *ctx,
         solar_os_context_finish(expansion_tui.ctx, 0, NULL);
         return true;
     }
+    if (!expansion_tui.editing && (key == 'p' || key == 'P')) {
+        if (!expansion_tui_open_io()) {
+            expansion_tui_render();
+        }
+        return true;
+    }
     switch (expansion_tui.view) {
     case EXPANSION_TUI_VIEW_DEVICES:
         expansion_tui_handle_devices(key);
@@ -1357,6 +1942,9 @@ static bool expansion_tui_event(solar_os_context_t *ctx,
         break;
     case EXPANSION_TUI_VIEW_ATTACH:
         expansion_tui_handle_attach(key);
+        break;
+    case EXPANSION_TUI_VIEW_CHOICES:
+        expansion_tui_handle_choices(key);
         break;
     default:
         break;

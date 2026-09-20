@@ -990,9 +990,10 @@ Settings priority list.
 
 IPv4 SLIP gateway on a byte-stream port. This is intended for retro machines,
 headless boards, and serial networking experiments.
-The active `slip-<port>` interface appears as a downstream NAT link in
-`network` and `network status`; its traffic follows the selected SolarOS route,
-which can be Wi-Fi, cellular, or WireGuard.
+The active interface is named with the `slip-` prefix plus the selected port,
+for example `slip-uart0`. It appears as a downstream NAT link in the Network
+views; its traffic follows the selected SolarOS route, which can be Wi-Fi,
+cellular, or WireGuard.
 
 Usage:
 

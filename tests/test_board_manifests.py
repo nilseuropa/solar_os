@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 import sys
+import tempfile
 import tomllib
 import unittest
 
@@ -10,7 +11,13 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from board_config import available_base_profiles, profile_commands, render_overlay
+from board_config import (
+    available_base_profiles,
+    profile_commands,
+    profile_from_expansion,
+    render_overlay,
+)
+from solaros_expansion_manifest import load_expansion_manifest
 from solaros_board_manifest import (
     DriverBinding,
     DriverDef,
@@ -86,6 +93,125 @@ class BoardManifestTest(unittest.TestCase):
             "SOLAR_OS_BOARD=my_board pio run -e esp32_s3_devkitc1_n16r8",
         )
         self.assertEqual(upload, f"{build} -t upload")
+
+    def test_device_expansion_snapshot_promotes_to_valid_board_overlay(self) -> None:
+        content = """\
+schema = 1
+kind = "solaros-expansion"
+
+[base]
+board = "waveshare_esp32_s3_sim7670g_4g"
+firmware = "4.13.1"
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 7
+mosi = 8
+miso = 3
+cs = [9]
+max_transfer_size = 4096
+
+[[devices]]
+driver = "cardkb"
+name = "keyboard0"
+bindings = { i2c = "i2c0", addr = 0x5f }
+
+[[devices]]
+driver = "ssd1683"
+name = "display0"
+bindings = { spi = "spi0", cs = 9, dc = 10, reset = 11, busy = 12 }
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "expansion.toml"
+            path.write_text(content, encoding="utf-8")
+            snapshot = load_expansion_manifest(path)
+        base = load_board_manifest(
+            self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml",
+            self.manifest_dir,
+        )
+        profile = profile_from_expansion(
+            snapshot,
+            base,
+            self.drivers,
+            "waveshare_4g_epaper",
+            "Waveshare 4G E-paper",
+            "Custom",
+            base["board"]["module"],
+        )
+        self.assertEqual(profile["extends"], base["board"]["id"])
+        self.assertEqual(profile["buses"][0]["name"], "spi0")
+        self.assertEqual(
+            [(device["driver"], device["name"]) for device in profile["devices"]],
+            [("cardkb", "keyboard0"), ("ssd1683", "display0")],
+        )
+        self.assertIn("display_ssd1683", profile["build"]["drivers"])
+        self.assertIn("display", profile["build"]["capabilities"])
+        self.assertNotIn("SPI2_HOST", profile["runtime"]["spi_hosts"])
+        self.assertEqual(
+            {pin["gpio"] for pin in profile["pins"]},
+            {3, 7, 8, 9, 10, 11, 12},
+        )
+        merged = merge_board_overlay(base, profile)
+        validate_board(merged, self.drivers)
+        self.assertIn("expansion_cardkb", required_packages(merged, self.drivers))
+        header = generate_header(merged, self.drivers)
+        self.assertIn("SOLAR_OS_BUS_ORIGIN_BOARD", header)
+        self.assertIn('.driver = "cardkb", .name = "keyboard0"', header)
+        self.assertIn('.driver = "ssd1683", .name = "display0"', header)
+
+    def test_expansion_snapshot_rejects_manual_devices(self) -> None:
+        content = """\
+schema = 1
+kind = "solaros-expansion"
+[base]
+board = "waveshare_esp32_s3_sim7670g_4g"
+firmware = "4.13.1"
+[[devices]]
+driver = "manual"
+name = "probe0"
+bindings = { gpio = 7 }
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manual.toml"
+            path.write_text(content, encoding="utf-8")
+            with self.assertRaisesRegex(ManifestError, "cannot become board-owned"):
+                load_expansion_manifest(path)
+
+    def test_board_manifest_generates_midi_bus(self) -> None:
+        base = load_board_manifest(
+            self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml",
+            self.manifest_dir,
+        )
+        overlay = {
+            "buses": [{
+                "name": "midi0",
+                "protocol": "midi",
+                "sharing": "exclusive",
+                "port": "UART_NUM_2",
+                "tx": 7,
+                "rx": 8,
+                "baud_rate": 31250,
+            }],
+            "pins": [
+                {
+                    "gpio": 7, "policy": "fixed", "role": "midi0 tx",
+                    "user": False, "adc": False, "pwm": False,
+                },
+                {
+                    "gpio": 8, "policy": "fixed", "role": "midi0 rx",
+                    "user": False, "adc": False, "pwm": False,
+                },
+            ],
+            "runtime": {"uart_ports": []},
+        }
+        board = merge_board_overlay(base, overlay)
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn("SOLAR_OS_BUS_PROTOCOL_MIDI", header)
+        self.assertIn(".baud_rate = 31250", header)
 
     def test_workbench_inherits_and_overrides_devkit(self) -> None:
         board = load_board_manifest(

@@ -354,6 +354,154 @@ esp_err_t solar_os_shell_startup_path(char *path, size_t path_len)
     return solar_os_storage_join_path(state_dir, SHELL_STARTUP_FILE, path, path_len);
 }
 
+static bool shell_startup_source_mounted(void)
+{
+    return solar_os_shell_startup_source() == SOLAR_OS_SHELL_STARTUP_SD ?
+        solar_os_storage_sd_is_mounted() :
+        solar_os_storage_flash_is_mounted();
+}
+
+static esp_err_t shell_startup_state_dir(char *path, size_t path_len)
+{
+    if (path == NULL || path_len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *base_path = solar_os_shell_startup_source() ==
+        SOLAR_OS_SHELL_STARTUP_SD ?
+        solar_os_storage_sd_mount_point() :
+        solar_os_storage_flash_mount_point();
+    return solar_os_storage_join_path(base_path,
+                                      SHELL_STATE_DIR,
+                                      path,
+                                      path_len);
+}
+
+static esp_err_t shell_startup_scan_command(const char *path,
+                                            const char *command,
+                                            bool *present,
+                                            bool *has_content,
+                                            bool *ends_with_newline)
+{
+    if (path == NULL || command == NULL || present == NULL ||
+        has_content == NULL || ends_with_newline == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *present = false;
+    *has_content = false;
+    *ends_with_newline = true;
+
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        return errno == ENOENT ? ESP_OK : ESP_FAIL;
+    }
+
+    char line[SHELL_INPUT_MAX + 2U];
+    while (fgets(line, sizeof(line), file) != NULL) {
+        const size_t line_len = strlen(line);
+        *has_content = true;
+        *ends_with_newline = line_len > 0U && line[line_len - 1U] == '\n';
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strcmp(line, command) == 0) {
+            *present = true;
+        }
+    }
+    const bool failed = ferror(file) != 0;
+    fclose(file);
+    return failed ? ESP_FAIL : ESP_OK;
+}
+
+esp_err_t solar_os_shell_startup_has_command(const char *command, bool *present)
+{
+    if (command == NULL || command[0] == '\0' || present == NULL ||
+        strlen(command) >= SHELL_INPUT_MAX ||
+        strpbrk(command, "\r\n") != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *present = false;
+    if (!shell_startup_source_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char path[SHELL_PATH_MAX];
+    esp_err_t ret = solar_os_shell_startup_path(path, sizeof(path));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    bool has_content = false;
+    bool ends_with_newline = true;
+    return shell_startup_scan_command(path,
+                                      command,
+                                      present,
+                                      &has_content,
+                                      &ends_with_newline);
+}
+
+esp_err_t solar_os_shell_startup_append_command(const char *command, bool *added)
+{
+    if (added != NULL) {
+        *added = false;
+    }
+    if (command == NULL || command[0] == '\0' ||
+        strlen(command) >= SHELL_INPUT_MAX ||
+        strpbrk(command, "\r\n") != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!shell_startup_source_mounted()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char dir[SHELL_PATH_MAX];
+    char path[SHELL_PATH_MAX];
+    esp_err_t ret = shell_startup_state_dir(dir, sizeof(dir));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = solar_os_shell_startup_path(path, sizeof(path));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (solar_os_storage_mkdir(dir) != ESP_OK && errno != EEXIST) {
+        return ESP_FAIL;
+    }
+
+    bool present = false;
+    bool has_content = false;
+    bool ends_with_newline = true;
+    ret = shell_startup_scan_command(path,
+                                     command,
+                                     &present,
+                                     &has_content,
+                                     &ends_with_newline);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    if (present) {
+        return ESP_OK;
+    }
+
+    FILE *file = fopen(path, "a");
+    if (file == NULL) {
+        return ESP_FAIL;
+    }
+    bool ok = true;
+    if (has_content && !ends_with_newline) {
+        ok = fputc('\n', file) != EOF;
+    }
+    if (ok) {
+        ok = fprintf(file, "%s\n", command) >= 0;
+    }
+    if (fclose(file) != 0) {
+        ok = false;
+    }
+    if (!ok) {
+        return ESP_FAIL;
+    }
+    if (added != NULL) {
+        *added = true;
+    }
+    return ESP_OK;
+}
+
 static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_echo(solar_os_context_t *ctx, int argc, char **argv);
 static void cmd_sh(solar_os_context_t *ctx, int argc, char **argv);
@@ -2231,6 +2379,7 @@ static const char * const path_expansion_bus_detach[] = {"expansion", "bus", "de
 static const char * const path_expansion_bus_remove[] = {"expansion", "bus", "remove"};
 static const char * const path_expansion_attach[] = {"expansion", "attach"};
 static const char * const path_expansion_detach[] = {"expansion", "detach"};
+static const char * const path_expansion_export[] = {"expansion", "export"};
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 static const char * const path_gnss[] = {"gnss"};
 static const char * const path_gnss_power[] = {"gnss", "power"};
@@ -3193,6 +3342,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_BUSES(path_expansion_bus_remove),
     SHELL_COMPLETION_EXPANSION_DRIVERS(path_expansion_attach),
     SHELL_COMPLETION_EXPANSION_DEVICES(path_expansion_detach),
+    SHELL_COMPLETION_PATH(path_expansion_export, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
     SHELL_COMPLETION_STATIC(path_gnss, gnss_subcommands),
