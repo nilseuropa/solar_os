@@ -755,6 +755,7 @@ capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
 label = "bootstrap.shell"
 sources = [
   "apps/solar_os_shell.c",
+  "apps/solar_os_shell_startup_policy.c",
   "shell/solar_os_shell_common.c",
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
