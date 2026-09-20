@@ -875,7 +875,7 @@ available for the compiled board.
 | `expansion` | `expansion layout [connector]` | Draw the board's physical connector map with live free, releasable, claimed, fixed, power, ground, and NC markers. |
 | `expansion` | `expansion scan` | List expansion resources and probe-capable drivers. |
 | `expansion` | `expansion drivers` | List compiled expansion drivers. |
-| `expansion` | `expansion devices` | List manually attached expansion devices. |
+| `expansion` | `expansion devices` | List fixed board and runtime-attached expansion devices with origin, readiness, startup mode, policy, and bindings. |
 | `expansion` | `expansion bus create i2c <name> port=<i2c0\|i2c1> sda=<gpio> scl=<gpio> [speed=<hz>]` | Define a runtime I2C bus on an unused controller and approved expansion pins. |
 | `expansion` | `expansion bus create onewire <name> pin=<gpio>` | Define a runtime named 1-Wire bus on an approved expansion pin. |
 | `expansion` | `expansion bus create ps2 <name> clock=<gpio> data=<gpio>` | Define an exclusive PS/2 bus on two approved expansion pins. |
@@ -939,7 +939,7 @@ available for the compiled board.
 | `gnss` | `gnss power <on\|off> [name]` | Enable or disable one logical receiver using its driver-specific power control. |
 | `gnss` | `gnss fix [name] [timeout-ms]` | Poll one receiver for a position, UTC time, fix type, satellite count, and accuracy. A timeout can be supplied without a receiver name. |
 | `modem` | `modem` | Open the modem status and settings TUI. |
-| `modem` | `modem list` | List registered cellular modems, concrete drivers, and transports. |
+| `modem` | `modem list` | List registered cellular modems, concrete drivers, transports, and power, reset, and baud capabilities. |
 | `modem` | `modem status [name]` | Read SIM readiness, LTE registration, signal, packet-context, and IP-interface state. |
 | `modem` | `modem power <on\|off> [name]` | Switch a modem's optional hardware power line. |
 | `modem` | `modem reset [name]` | Reset a supported modem using its reset line or driver-defined power cycle. |

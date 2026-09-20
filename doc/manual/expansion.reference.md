@@ -272,7 +272,7 @@ Run `expansion drivers` on the device to see the exact compiled set.
 | `shtc3` | SHTC3 temperature and humidity sensor | `i2c=<bus> addr=0x70` | Registers temperature and humidity providers. |
 | `battery-adc` | ADC battery monitor | `adc=<pin> divider=<1000..10000>` | Registers a battery provider using the configured divider ratio in thousandths. |
 | `bq27220` | BQ27220 fuel gauge | `i2c=<bus> addr=0x55` | Registers a battery provider backed by the fuel gauge. |
-| `max17048` | MAX17048 fuel gauge | `i2c=<bus> addr=0x36` | Registers a battery provider with gauge-reported voltage and state of charge. |
+| `max17048` | MAX17048 fuel gauge | `i2c=<bus> addr=0x36` | Registers a battery provider with gauge-reported voltage and state of charge. The chip does not report charger or external-power state, so charging remains unknown unless another provider supplies it. |
 | `bq25896` | BQ25896 battery charger | `i2c=<bus> addr=0x6b`; optional `charge_current=<0..3008>` and `charge_voltage=<3840..4608>` | Registers a charger provider; optional values configure milliamps and millivolts within the device's supported steps. |
 | `xl9555` | XL9555 16-line GPIO controller | `i2c=<bus> addr=<0x20..0x27>`; optional `output=<0..65535> direction=<0..65535>` | Registers named digital control lines such as `gpiox0:4`; initial output latches are applied before output directions. |
 | `ublox-mia-m10q` | u-blox MIA-M10Q GNSS receiver | `uart=<bus>`; optional `power=<gpio-or-controller-line>` | Registers a GNSS provider and controls its optional power line around the UART-backed receiver. |
