@@ -55,6 +55,12 @@ class InputActionsTest(unittest.TestCase):
         )[0]
         self.assertIn("queue_empty", worker)
         self.assertIn("solar_os_task_delete_internal(NULL)", worker)
+        self.assertIn("input_action_worker_state_t", ACTIONS)
+        self.assertNotIn("worker_starting", ACTIONS)
+        stop = ACTIONS.split("void solar_os_input_actions_stop", 1)[1].split(
+            "bool solar_os_input_actions_running", 1
+        )[0]
+        self.assertIn("input_action_wait_worker_published()", stop)
 
     def test_queue_generation_prevents_reused_ids_from_running_stale_actions(self):
         self.assertIn("item.generation == state.generation", ACTIONS)
