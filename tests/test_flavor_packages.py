@@ -82,6 +82,22 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(pruned_packages["app_sketch"])
         self.assertFalse(pruned_packages["app_view"])
 
+    def test_graffiti_is_available_for_runtime_attached_pointers(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["handwriting_input"])
+        self.assertTrue(packages["job_graffiti"])
+
+        pruned_groups, pruned_packages = (
+            generate_flavor_config.apply_board_capability_pruning(
+                self.catalog,
+                groups,
+                packages,
+                {"psram"},
+            )
+        )
+        self.assertTrue(pruned_groups["handwriting_input"])
+        self.assertTrue(pruned_packages["job_graffiti"])
+
     def test_launcher_is_available_on_graphics_builds(self):
         for flavor in ("core", "full", "netrunner", "rover", "vga32", "writerdeck"):
             groups, packages = self.resolve(flavor)[2:]

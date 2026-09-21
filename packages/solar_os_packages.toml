@@ -2334,7 +2334,7 @@ sources = ["services/solar_os_graffiti.c"]
 label = "job.graffiti"
 depends = ["service_graffiti"]
 sources = ["jobs/solar_os_graffiti_job.c"]
-capabilities = ["pointer", "psram"]
+capabilities = ["psram"]
 
 [packages.job_gpio_keys]
 label = "job.gpio-keys"
