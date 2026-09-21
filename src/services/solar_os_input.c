@@ -192,6 +192,19 @@ static bool input_source_valid_locked(solar_os_input_source_t source)
         input_sources[source - 1U].active;
 }
 
+static void input_source_snapshot_locked(size_t index,
+                                         solar_os_input_source_info_t *info)
+{
+    *info = (solar_os_input_source_info_t) {
+        .source = (solar_os_input_source_t)(index + 1U),
+        .source_class = input_sources[index].source_class,
+        .capabilities = input_sources[index].capabilities,
+        .gesture_mask = input_sources[index].gesture_mask,
+        .ready = input_sources[index].ready,
+    };
+    strlcpy(info->name, input_sources[index].name, sizeof(info->name));
+}
+
 static uint32_t input_source_name_hash(const char *name)
 {
     uint32_t hash = 2166136261U;
@@ -900,14 +913,7 @@ bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info)
         if (current++ != index) {
             continue;
         }
-        *info = (solar_os_input_source_info_t) {
-            .source = (solar_os_input_source_t)(i + 1U),
-            .source_class = input_sources[i].source_class,
-            .capabilities = input_sources[i].capabilities,
-            .gesture_mask = input_sources[i].gesture_mask,
-            .ready = input_sources[i].ready,
-        };
-        strlcpy(info->name, input_sources[i].name, sizeof(info->name));
+        input_source_snapshot_locked(i, info);
         found = true;
         break;
     }
@@ -924,15 +930,7 @@ bool solar_os_input_source_get_info(solar_os_input_source_t source,
     portENTER_CRITICAL(&input_lock);
     const bool found = input_source_valid_locked(source);
     if (found) {
-        const size_t index = source - 1U;
-        *info = (solar_os_input_source_info_t) {
-            .source = source,
-            .source_class = input_sources[index].source_class,
-            .capabilities = input_sources[index].capabilities,
-            .gesture_mask = input_sources[index].gesture_mask,
-            .ready = input_sources[index].ready,
-        };
-        strlcpy(info->name, input_sources[index].name, sizeof(info->name));
+        input_source_snapshot_locked(source - 1U, info);
     }
     portEXIT_CRITICAL(&input_lock);
     return found;
@@ -949,14 +947,7 @@ bool solar_os_input_source_find(const char *name, solar_os_input_source_info_t *
         if (!input_sources[i].active || strcmp(input_sources[i].name, name) != 0) {
             continue;
         }
-        *info = (solar_os_input_source_info_t) {
-            .source = (solar_os_input_source_t)(i + 1U),
-            .source_class = input_sources[i].source_class,
-            .capabilities = input_sources[i].capabilities,
-            .gesture_mask = input_sources[i].gesture_mask,
-            .ready = input_sources[i].ready,
-        };
-        strlcpy(info->name, input_sources[i].name, sizeof(info->name));
+        input_source_snapshot_locked(i, info);
         found = true;
         break;
     }
