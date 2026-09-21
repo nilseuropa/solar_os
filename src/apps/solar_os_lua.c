@@ -6481,7 +6481,7 @@ static void solua_push_input_event(lua_State *L,
         solua_set_int(L, -1, "delta_y", pointer->delta_y);
         solua_set_int(L, -1, "buttons", pointer->buttons);
         solua_set_str(L, -1, "target", pointer->target);
-    } else {
+    } else if (event->type == SOLAR_OS_EVENT_AXIS) {
         const solar_os_input_axis_event_t *axis = &event->data.axis;
         solua_set_str(L, -1, "type", "axis");
         solua_input_set_source(L, axis->source);
@@ -6490,6 +6490,19 @@ static void solua_push_input_event(lua_State *L,
                       solar_os_input_axis_name(axis->axis));
         solua_set_int(L, -1, "value", axis->value);
         solua_set_int(L, -1, "delta", axis->delta);
+    } else {
+        const solar_os_input_gesture_event_t *gesture = &event->data.gesture;
+        solua_set_str(L, -1, "type", "gesture");
+        solua_input_set_source(L, gesture->source);
+        solua_set_int(L, -1, "gesture", gesture->gesture);
+        solua_set_str(L, -1, "gesture_name",
+                      solar_os_input_gesture_name(gesture->gesture));
+        solua_set_int(L, -1, "direction", gesture->direction);
+        solua_set_str(L, -1, "direction_name",
+                      solar_os_input_gesture_direction_name(gesture->direction));
+        solua_set_int(L, -1, "flags", gesture->flags);
+        solua_set_int(L, -1, "value", gesture->value);
+        solua_set_int(L, -1, "raw", gesture->raw);
     }
 }
 
@@ -8747,7 +8760,8 @@ static bool solua_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (event->type == SOLAR_OS_EVENT_POINTER ||
-        event->type == SOLAR_OS_EVENT_AXIS) {
+        event->type == SOLAR_OS_EVENT_AXIS ||
+        event->type == SOLAR_OS_EVENT_GESTURE) {
         solua_queue_device_input(event);
         return true;
     }
@@ -8849,7 +8863,8 @@ const solar_os_app_t solar_os_lua_app = {
     .name = "lua",
     .summary = "Lua runtime",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS |
+        SOLAR_OS_APP_FLAG_GESTURE_EVENTS,
     .start = solua_start,
     .stop = solua_stop,
     .event = solua_event,

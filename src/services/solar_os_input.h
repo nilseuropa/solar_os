@@ -22,6 +22,14 @@
 #define SOLAR_OS_INPUT_CAP_POINTER_BUTTONS (1U << 3)
 #define SOLAR_OS_INPUT_CAP_SCROLL (1U << 4)
 #define SOLAR_OS_INPUT_CAP_AXIS_EVENTS (1U << 5)
+#define SOLAR_OS_INPUT_CAP_GESTURE_EVENTS (1U << 6)
+
+#define SOLAR_OS_INPUT_GESTURE_FLAG_EDGE (1U << 0)
+#define SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE (1U << 1)
+#define SOLAR_OS_INPUT_GESTURE_FLAG_HAND_PRESENT (1U << 2)
+#define SOLAR_OS_INPUT_GESTURE_FLAG_HAND_HELD (1U << 3)
+#define SOLAR_OS_INPUT_GESTURE_FLAG_HAND_INSIDE (1U << 4)
+#define SOLAR_OS_INPUT_GESTURE_FLAG_IN_PROGRESS (1U << 5)
 
 #define SOLAR_OS_INPUT_REPEAT_RATE_MIN 1U
 #define SOLAR_OS_INPUT_REPEAT_RATE_MAX 60U
@@ -135,6 +143,41 @@ typedef struct {
     int32_t delta;
 } solar_os_input_axis_event_t;
 
+typedef enum {
+    SOLAR_OS_INPUT_GESTURE_FLICK,
+    SOLAR_OS_INPUT_GESTURE_CIRCLE,
+    SOLAR_OS_INPUT_GESTURE_WAVE,
+    SOLAR_OS_INPUT_GESTURE_HOLD,
+    SOLAR_OS_INPUT_GESTURE_PRESENCE,
+    SOLAR_OS_INPUT_GESTURE_TAP,
+    SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP,
+    SOLAR_OS_INPUT_GESTURE_AIRWHEEL,
+    SOLAR_OS_INPUT_GESTURE_COUNT,
+} solar_os_input_gesture_t;
+
+typedef enum {
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_CENTER,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_CLOCKWISE,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNTERCLOCKWISE,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_HORIZONTAL,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_VERTICAL,
+    SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT,
+} solar_os_input_gesture_direction_t;
+
+typedef struct {
+    solar_os_input_source_t source;
+    solar_os_input_gesture_t gesture;
+    solar_os_input_gesture_direction_t direction;
+    uint32_t flags;
+    int16_t value;
+    uint32_t raw;
+} solar_os_input_gesture_event_t;
+
 typedef struct {
     int16_t min_x;
     int16_t max_x;
@@ -148,13 +191,16 @@ typedef struct {
     uint32_t key_events;
     uint32_t pointer_events;
     uint32_t axis_events;
+    uint32_t gesture_events;
     bool has_key;
     bool has_pointer;
     bool has_axis;
+    bool has_gesture;
     solar_os_input_key_event_t last_key;
     solar_os_input_pointer_event_t last_pointer;
     solar_os_input_pointer_event_t last_pointer_raw;
     solar_os_input_axis_event_t last_axis;
+    solar_os_input_gesture_event_t last_gesture;
     bool calibration_enabled;
     solar_os_input_pointer_calibration_t calibration;
 } solar_os_input_source_diagnostics_t;
@@ -195,6 +241,9 @@ const char *solar_os_input_source_class_name(solar_os_input_source_class_t sourc
 const char *solar_os_input_pointer_mode_name(solar_os_input_pointer_mode_t mode);
 const char *solar_os_input_pointer_action_name(solar_os_input_pointer_action_t action);
 const char *solar_os_input_axis_name(solar_os_input_axis_t axis);
+const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture);
+const char *solar_os_input_gesture_direction_name(
+    solar_os_input_gesture_direction_t direction);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 
@@ -215,6 +264,9 @@ esp_err_t solar_os_input_pointer_apply_orientation(
     uint16_t orientation_degrees);
 esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
                                     const solar_os_input_axis_event_t *event);
+esp_err_t solar_os_input_write_gesture(
+    solar_os_input_source_t source,
+    const solar_os_input_gesture_event_t *event);
 esp_err_t solar_os_input_pointer_calibration_get(
     solar_os_input_source_t source,
     bool *enabled,
@@ -237,6 +289,8 @@ size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events
                                           size_t event_count);
 size_t solar_os_input_read_axis_events(solar_os_input_axis_event_t *events,
                                        size_t event_count);
+size_t solar_os_input_read_gesture_events(solar_os_input_gesture_event_t *events,
+                                          size_t event_count);
 size_t solar_os_input_read_chars(char *buffer, size_t buffer_len);
 size_t solar_os_input_read_source_chars(solar_os_input_source_t source,
                                         char *buffer,

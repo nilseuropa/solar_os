@@ -16,6 +16,7 @@
 #define INPUT_QUEUE_MAX 64U
 #define INPUT_POINTER_QUEUE_MAX 32U
 #define INPUT_AXIS_QUEUE_MAX 32U
+#define INPUT_GESTURE_QUEUE_MAX 32U
 #define INPUT_REPEAT_RATE_DEFAULT 15U
 #define INPUT_REPEAT_DELAY_DEFAULT_MS 450U
 #define INPUT_NVS_NAMESPACE "input"
@@ -39,9 +40,11 @@ typedef struct {
     uint32_t key_events;
     uint32_t pointer_events;
     uint32_t axis_events;
+    uint32_t gesture_events;
     bool has_key;
     bool has_pointer;
     bool has_axis;
+    bool has_gesture;
     solar_os_input_key_event_t last_key;
     struct {
         solar_os_input_pointer_event_t event;
@@ -51,6 +54,7 @@ typedef struct {
         int16_t raw_delta_y;
     } last_pointer;
     solar_os_input_axis_event_t last_axis;
+    solar_os_input_gesture_event_t last_gesture;
     bool calibration_enabled;
     solar_os_input_pointer_calibration_t calibration;
 } input_source_diagnostics_state_t;
@@ -94,6 +98,9 @@ static size_t input_pointer_queue_count;
 static solar_os_input_axis_event_t *input_axis_queue;
 static size_t input_axis_queue_head;
 static size_t input_axis_queue_count;
+static solar_os_input_gesture_event_t *input_gesture_queue;
+static size_t input_gesture_queue_head;
+static size_t input_gesture_queue_count;
 static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
@@ -136,6 +143,30 @@ static const char *const input_axis_names[] = {
     [SOLAR_OS_INPUT_AXIS_RX] = "rx",
     [SOLAR_OS_INPUT_AXIS_RY] = "ry",
     [SOLAR_OS_INPUT_AXIS_RZ] = "rz",
+};
+
+static const char *const input_gesture_names[] = {
+    [SOLAR_OS_INPUT_GESTURE_FLICK] = "flick",
+    [SOLAR_OS_INPUT_GESTURE_CIRCLE] = "circle",
+    [SOLAR_OS_INPUT_GESTURE_WAVE] = "wave",
+    [SOLAR_OS_INPUT_GESTURE_HOLD] = "hold",
+    [SOLAR_OS_INPUT_GESTURE_PRESENCE] = "presence",
+    [SOLAR_OS_INPUT_GESTURE_TAP] = "tap",
+    [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
+    [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
+};
+
+static const char *const input_gesture_direction_names[] = {
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE] = "none",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST] = "west",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST] = "east",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH] = "north",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH] = "south",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_CENTER] = "center",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_CLOCKWISE] = "clockwise",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNTERCLOCKWISE] = "counterclockwise",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_HORIZONTAL] = "horizontal",
+    [SOLAR_OS_INPUT_GESTURE_DIRECTION_VERTICAL] = "vertical",
 };
 
 static uint32_t input_now_ms(void)
@@ -403,6 +434,21 @@ static bool input_axis_queue_push_locked(const solar_os_input_axis_event_t *even
     return true;
 }
 
+static bool input_gesture_queue_push_locked(
+    const solar_os_input_gesture_event_t *event)
+{
+    if (event == NULL || input_gesture_queue == NULL ||
+        input_gesture_queue_count >= INPUT_GESTURE_QUEUE_MAX) {
+        return false;
+    }
+    const size_t index =
+        (input_gesture_queue_head + input_gesture_queue_count) %
+        INPUT_GESTURE_QUEUE_MAX;
+    input_gesture_queue[index] = *event;
+    input_gesture_queue_count++;
+    return true;
+}
+
 static void input_repeat_stop_locked(solar_os_input_source_t source,
                                      uint16_t physical_key)
 {
@@ -602,17 +648,22 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
 
     solar_os_input_pointer_event_t *pointer_candidate = NULL;
     solar_os_input_axis_event_t *axis_candidate = NULL;
+    solar_os_input_gesture_event_t *gesture_candidate = NULL;
     for (;;) {
         portENTER_CRITICAL(&input_lock);
         const bool needs_pointer_queue =
             (capabilities & INPUT_POINTER_CAPABILITIES) != 0;
         const bool needs_axis_queue =
             (capabilities & SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0;
+        const bool needs_gesture_queue =
+            (capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0;
         const bool pointer_ready = !needs_pointer_queue ||
             input_pointer_queue != NULL || pointer_candidate != NULL;
         const bool axis_ready = !needs_axis_queue ||
             input_axis_queue != NULL || axis_candidate != NULL;
-        if (pointer_ready && axis_ready) {
+        const bool gesture_ready = !needs_gesture_queue ||
+            input_gesture_queue != NULL || gesture_candidate != NULL;
+        if (pointer_ready && axis_ready && gesture_ready) {
             const esp_err_t result = input_source_open_locked(name,
                                                               source_class,
                                                               capabilities,
@@ -627,6 +678,11 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
                 input_axis_queue = axis_candidate;
                 axis_candidate = NULL;
             }
+            if (result == ESP_OK && needs_gesture_queue &&
+                input_gesture_queue == NULL) {
+                input_gesture_queue = gesture_candidate;
+                gesture_candidate = NULL;
+            }
             if (result == ESP_OK &&
                 (capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) != 0) {
                 input_diagnostics[*source - 1U].calibration_enabled =
@@ -636,6 +692,7 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
             portEXIT_CRITICAL(&input_lock);
             solar_os_memory_free(pointer_candidate);
             solar_os_memory_free(axis_candidate);
+            solar_os_memory_free(gesture_candidate);
             return result;
         }
         portEXIT_CRITICAL(&input_lock);
@@ -648,6 +705,7 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
                 "input-pointer");
             if (pointer_candidate == NULL) {
                 solar_os_memory_free(axis_candidate);
+                solar_os_memory_free(gesture_candidate);
                 return ESP_ERR_NO_MEM;
             }
         }
@@ -659,6 +717,19 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
                 "input-axis");
             if (axis_candidate == NULL) {
                 solar_os_memory_free(pointer_candidate);
+                solar_os_memory_free(gesture_candidate);
+                return ESP_ERR_NO_MEM;
+            }
+        }
+        if (!gesture_ready) {
+            gesture_candidate = solar_os_memory_calloc(
+                INPUT_GESTURE_QUEUE_MAX,
+                sizeof(*gesture_candidate),
+                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                "input-gesture");
+            if (gesture_candidate == NULL) {
+                solar_os_memory_free(pointer_candidate);
+                solar_os_memory_free(axis_candidate);
                 return ESP_ERR_NO_MEM;
             }
         }
@@ -868,12 +939,15 @@ bool solar_os_input_source_get_diagnostics(
             .key_events = state->key_events,
             .pointer_events = state->pointer_events,
             .axis_events = state->axis_events,
+            .gesture_events = state->gesture_events,
             .has_key = state->has_key,
             .has_pointer = state->has_pointer,
             .has_axis = state->has_axis,
+            .has_gesture = state->has_gesture,
             .last_key = state->last_key,
             .last_pointer = state->last_pointer.event,
             .last_axis = state->last_axis,
+            .last_gesture = state->last_gesture,
             .calibration_enabled = state->calibration_enabled,
             .calibration = state->calibration,
         };
@@ -923,6 +997,25 @@ const char *solar_os_input_axis_name(solar_os_input_axis_t axis)
     return input_axis_names[axis];
 }
 
+const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture)
+{
+    if (gesture < SOLAR_OS_INPUT_GESTURE_FLICK ||
+        gesture >= SOLAR_OS_INPUT_GESTURE_COUNT) {
+        return "invalid";
+    }
+    return input_gesture_names[gesture];
+}
+
+const char *solar_os_input_gesture_direction_name(
+    solar_os_input_gesture_direction_t direction)
+{
+    if (direction < SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE ||
+        direction >= SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT) {
+        return "invalid";
+    }
+    return input_gesture_direction_names[direction];
+}
+
 void solar_os_input_source_release_all(solar_os_input_source_t source)
 {
     portENTER_CRITICAL(&input_lock);
@@ -956,6 +1049,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
 
     solar_os_input_pointer_event_t *pointer_queue_to_free = NULL;
     solar_os_input_axis_event_t *axis_queue_to_free = NULL;
+    solar_os_input_gesture_event_t *gesture_queue_to_free = NULL;
     portENTER_CRITICAL(&input_lock);
     if (!input_source_valid_locked(source)) {
         portEXIT_CRITICAL(&input_lock);
@@ -1001,6 +1095,20 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     if (input_axis_queue_count == 0) {
         input_axis_queue_head = 0;
     }
+    const size_t gesture_event_count = input_gesture_queue_count;
+    for (size_t i = 0; i < gesture_event_count; i++) {
+        const solar_os_input_gesture_event_t event =
+            input_gesture_queue[input_gesture_queue_head];
+        input_gesture_queue_head =
+            (input_gesture_queue_head + 1U) % INPUT_GESTURE_QUEUE_MAX;
+        input_gesture_queue_count--;
+        if (event.source != source) {
+            (void)input_gesture_queue_push_locked(&event);
+        }
+    }
+    if (input_gesture_queue_count == 0) {
+        input_gesture_queue_head = 0;
+    }
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
             memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
@@ -1014,6 +1122,9 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     const bool axis_source =
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0;
+    const bool gesture_source =
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0;
     memset(&input_sources[source - 1U], 0, sizeof(input_sources[source - 1U]));
     memset(&input_diagnostics[source - 1U], 0, sizeof(input_diagnostics[source - 1U]));
     if (pointer_source) {
@@ -1049,9 +1160,27 @@ void solar_os_input_source_close(solar_os_input_source_t source)
             input_axis_queue_count = 0;
         }
     }
+    if (gesture_source) {
+        bool another_gesture_source = false;
+        for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+            if (input_sources[i].active &&
+                (input_sources[i].capabilities &
+                 SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0) {
+                another_gesture_source = true;
+                break;
+            }
+        }
+        if (!another_gesture_source) {
+            gesture_queue_to_free = input_gesture_queue;
+            input_gesture_queue = NULL;
+            input_gesture_queue_head = 0;
+            input_gesture_queue_count = 0;
+        }
+    }
     portEXIT_CRITICAL(&input_lock);
     solar_os_memory_free(pointer_queue_to_free);
     solar_os_memory_free(axis_queue_to_free);
+    solar_os_memory_free(gesture_queue_to_free);
 }
 
 esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
@@ -1278,6 +1407,41 @@ esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
     return result;
 }
 
+esp_err_t solar_os_input_write_gesture(
+    solar_os_input_source_t source,
+    const solar_os_input_gesture_event_t *event)
+{
+    if (event == NULL || event->gesture < SOLAR_OS_INPUT_GESTURE_FLICK ||
+        event->gesture >= SOLAR_OS_INPUT_GESTURE_COUNT ||
+        event->direction < SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE ||
+        event->direction >= SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0 ||
+        input_gesture_queue == NULL) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        solar_os_input_gesture_event_t queued = *event;
+        queued.source = source;
+        if (!input_gesture_queue_push_locked(&queued)) {
+            result = ESP_ERR_NO_MEM;
+        } else {
+            input_source_diagnostics_state_t *diagnostics =
+                &input_diagnostics[source - 1U];
+            input_increment_counter(&diagnostics->gesture_events);
+            diagnostics->has_gesture = true;
+            diagnostics->last_gesture = queued;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
 esp_err_t solar_os_input_pointer_calibration_get(
     solar_os_input_source_t source,
     bool *enabled,
@@ -1473,6 +1637,29 @@ size_t solar_os_input_read_axis_events(solar_os_input_axis_event_t *events,
     }
     if (input_axis_queue_count == 0) {
         input_axis_queue_head = 0;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return count;
+}
+
+size_t solar_os_input_read_gesture_events(solar_os_input_gesture_event_t *events,
+                                          size_t event_count)
+{
+    if (events == NULL || event_count == 0) {
+        return 0;
+    }
+
+    portENTER_CRITICAL(&input_lock);
+    size_t count = 0;
+    while (input_gesture_queue != NULL && count < event_count &&
+           input_gesture_queue_count > 0) {
+        events[count++] = input_gesture_queue[input_gesture_queue_head];
+        input_gesture_queue_head =
+            (input_gesture_queue_head + 1U) % INPUT_GESTURE_QUEUE_MAX;
+        input_gesture_queue_count--;
+    }
+    if (input_gesture_queue_count == 0) {
+        input_gesture_queue_head = 0;
     }
     portEXIT_CRITICAL(&input_lock);
     return count;

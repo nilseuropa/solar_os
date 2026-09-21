@@ -7223,7 +7223,7 @@ static mp_obj_t python_input_event_to_dict(const solar_os_event_t *event)
         python_dict_store_int(dict, "delta_y", pointer->delta_y);
         python_dict_store_uint(dict, "buttons", pointer->buttons);
         python_dict_store_cstr(dict, "target", pointer->target);
-    } else {
+    } else if (event->type == SOLAR_OS_EVENT_AXIS) {
         const solar_os_input_axis_event_t *axis = &event->data.axis;
         python_dict_store_cstr(dict, "type", "axis");
         python_input_store_source(dict, axis->source);
@@ -7232,6 +7232,21 @@ static mp_obj_t python_input_event_to_dict(const solar_os_event_t *event)
             dict, "axis_name", solar_os_input_axis_name(axis->axis));
         python_dict_store_int(dict, "value", axis->value);
         python_dict_store_int(dict, "delta", axis->delta);
+    } else {
+        const solar_os_input_gesture_event_t *gesture = &event->data.gesture;
+        python_dict_store_cstr(dict, "type", "gesture");
+        python_input_store_source(dict, gesture->source);
+        python_dict_store_int(dict, "gesture", gesture->gesture);
+        python_dict_store_cstr(
+            dict, "gesture_name", solar_os_input_gesture_name(gesture->gesture));
+        python_dict_store_int(dict, "direction", gesture->direction);
+        python_dict_store_cstr(
+            dict,
+            "direction_name",
+            solar_os_input_gesture_direction_name(gesture->direction));
+        python_dict_store_uint(dict, "flags", gesture->flags);
+        python_dict_store_int(dict, "value", gesture->value);
+        python_dict_store_uint(dict, "raw", gesture->raw);
     }
     return dict;
 }
@@ -9494,7 +9509,8 @@ static bool python_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     if (event->type == SOLAR_OS_EVENT_POINTER ||
-        event->type == SOLAR_OS_EVENT_AXIS) {
+        event->type == SOLAR_OS_EVENT_AXIS ||
+        event->type == SOLAR_OS_EVENT_GESTURE) {
         python_queue_device_input(event);
         return true;
     }
@@ -9605,7 +9621,8 @@ const solar_os_app_t solar_os_python_app = {
     .name = "python",
     .summary = "MicroPython runtime",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_AXIS_EVENTS |
+        SOLAR_OS_APP_FLAG_GESTURE_EVENTS,
     .start = python_start,
     .stop = python_stop,
     .event = python_event,

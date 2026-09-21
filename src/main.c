@@ -1321,6 +1321,26 @@ static void dispatch_input_axis(const solar_os_input_axis_event_t *axis)
     }
 }
 
+static void dispatch_input_gesture(const solar_os_input_gesture_event_t *gesture)
+{
+    if (gesture == NULL) {
+        return;
+    }
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    if (input_app == NULL ||
+        (input_app->flags & SOLAR_OS_APP_FLAG_GESTURE_EVENTS) == 0) {
+        return;
+    }
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_GESTURE,
+        .data.gesture = *gesture,
+    };
+    if (solar_os_sessions_dispatch_input_event(&event)) {
+        solar_os_power_note_activity(millis_u32());
+        process_app_requests();
+    }
+}
+
 static void poll_local_input_sources(void)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
@@ -1360,6 +1380,14 @@ static void dispatch_input_sources(void)
                 sizeof(axis_events) / sizeof(axis_events[0]))) > 0) {
         for (size_t i = 0; i < count; i++) {
             dispatch_input_axis(&axis_events[i]);
+        }
+    }
+    solar_os_input_gesture_event_t gesture_events[8];
+    while ((count = solar_os_input_read_gesture_events(
+                gesture_events,
+                sizeof(gesture_events) / sizeof(gesture_events[0]))) > 0) {
+        for (size_t i = 0; i < count; i++) {
+            dispatch_input_gesture(&gesture_events[i]);
         }
     }
 }

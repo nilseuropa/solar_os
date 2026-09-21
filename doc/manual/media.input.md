@@ -3,8 +3,8 @@ id = "media.input"
 title = "Audio, input, and clipboard APIs"
 section = "hardware"
 summary = "Use installed media and generic input services"
-aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick"]
-keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick calibration clipboard"
+aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick", "gesture"]
+keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick gesture calibration clipboard"
 packages_any = []
 +++
 # Audio, input, and clipboard APIs
@@ -89,29 +89,35 @@ input test touch0
 ```
 
 Touch and other absolute pointers report positions; mice report relative
-deltas; analog joysticks report normalized X/Y axes. Pointer and axis queues
+deltas; analog joysticks report normalized X/Y axes; gesture sensors report
+recognized motions and taps. Pointer, axis, and gesture queues
 are allocated only when the first matching source attaches. `input test`
 retains counters and the most recent accepted event, so it also works for
 polling touch controllers while the shell is active.
 
 Native foreground applications opt in to structured pointer input with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS` and to axis input with
-`SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Their event callback then receives
+`SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Gesture-aware applications opt in with
+`SOLAR_OS_APP_FLAG_GESTURE_EVENTS`. Their event callback then receives
 `SOLAR_OS_EVENT_POINTER` in `event.data.pointer` or `SOLAR_OS_EVENT_AXIS` in
-`event.data.axis`. Pointer events contain the source, pointer ID, absolute or
+`event.data.axis`, or `SOLAR_OS_EVENT_GESTURE` in `event.data.gesture`.
+Pointer events contain the source, pointer ID, absolute or
 relative mode, action, coordinates, deltas, buttons, and optional display
 target. A non-empty target routes to the active opted-in application on that
 display. Its absolute coordinates and deltas follow the target's current
 `setterm orientation`; orientation `0` is the device driver's normal mounting.
 An empty target follows local input focus. Axis events contain the source,
 X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input focus.
+Gesture events contain the recognized kind, direction, flags, optional value,
+and original sensor word and also follow local input focus.
 Applications without the matching flag do not receive those structured events.
 
-Foreground Python and Lua scripts receive the same structured pointer and axis
+Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute
 `x`/`y` coordinates and press/move/release actions; relative mice expose
 `delta_x`/`delta_y` and button bits; joystick events expose their named axis,
-normalized value, and delta. `solaros.input.sources()` lists the registered
+normalized value, and delta; gesture events expose names, direction, flags,
+value, and raw sensor data. `solaros.input.sources()` lists the registered
 semantic sources. Each runtime keeps a bounded 16-event foreground queue and
 reports overwritten events through `solaros.input.status().dropped`. Keyboard
 characters remain on `solaros.tui.getch()`.
@@ -222,5 +228,5 @@ configure_filter, configure_performance, note_on, note_off, all_notes_off, and
 stop. solaros.ble provides status, connected, pair, forget, layout, read.
 solaros.clipboard provides set, get, size, clear. Audio, synth, and BLE are
 package-gated. Foreground Python and Lua applications use solaros.input sources,
-read, clear, and status for structured pointer and axis events; keyboard
+read, clear, and status for structured pointer, axis, and gesture events; keyboard
 characters remain on solaros.tui.getch().

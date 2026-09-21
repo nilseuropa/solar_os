@@ -79,6 +79,9 @@ static void input_format_capabilities(uint32_t capabilities,
     if ((capabilities & SOLAR_OS_INPUT_CAP_AXIS_EVENTS) != 0) {
         input_append_capability(buffer, buffer_len, "axes");
     }
+    if ((capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0) {
+        input_append_capability(buffer, buffer_len, "gestures");
+    }
     if (buffer[0] == '\0') {
         strlcpy(buffer, "-", buffer_len);
     }
@@ -188,10 +191,11 @@ static void input_test_source(solar_os_shell_io_t *io, const char *name)
                              info.ready ? "yes" : "no",
                              capabilities);
     solar_os_shell_io_printf(io,
-                             "events: key=%" PRIu32 " pointer=%" PRIu32 " axis=%" PRIu32 "\n",
+                             "events: key=%" PRIu32 " pointer=%" PRIu32 " axis=%" PRIu32 " gesture=%" PRIu32 "\n",
                              diagnostics.key_events,
                              diagnostics.pointer_events,
-                             diagnostics.axis_events);
+                             diagnostics.axis_events,
+                             diagnostics.gesture_events);
     if (diagnostics.has_key) {
         const solar_os_input_key_event_t *event = &diagnostics.last_key;
         solar_os_shell_io_printf(io,
@@ -224,6 +228,16 @@ static void input_test_source(solar_os_shell_io_t *io, const char *name)
                                  solar_os_input_axis_name(event->axis),
                                  event->value,
                                  event->delta);
+    }
+    if (diagnostics.has_gesture) {
+        const solar_os_input_gesture_event_t *event = &diagnostics.last_gesture;
+        solar_os_shell_io_printf(io,
+                                 "last gesture: gesture=%s direction=%s flags=0x%08" PRIx32 " value=%d raw=0x%08" PRIx32 "\n",
+                                 solar_os_input_gesture_name(event->gesture),
+                                 solar_os_input_gesture_direction_name(event->direction),
+                                 event->flags,
+                                 event->value,
+                                 event->raw);
     }
     if ((info.capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) != 0) {
         input_print_calibration(io, info.name, &diagnostics);

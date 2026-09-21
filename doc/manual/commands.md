@@ -239,7 +239,7 @@ job for periodic polling.
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
 | `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons]` | List all input sources or filter them by semantic class. |
-| `input` | `input test <source>` | Show event counters and the last key, pointer, or axis event accepted from one source. |
+| `input` | `input test <source>` | Show event counters and the last key, pointer, axis, or gesture event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |

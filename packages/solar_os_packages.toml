@@ -601,6 +601,11 @@ label = "GT911 touch controller"
 category = "Expansion hardware"
 members = ["driver_gt911"]
 
+[groups.mgc3130]
+label = "MGC3130 3D gesture sensor"
+category = "Expansion hardware"
+members = ["driver_mgc3130"]
+
 [groups.pcf85063]
 label = "PCF85063 real-time clock"
 category = "Expansion hardware"
@@ -1817,6 +1822,19 @@ sources = [
 ]
 requires = ["esp_driver_gpio"]
 capabilities = ["i2c", "gpio"]
+
+[packages.driver_mgc3130]
+label = "driver.mgc3130"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_mgc3130_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "drivers/mgc3130.c",
+  "services/solar_os_mgc3130.c",
+  "services/solar_os_mgc3130_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["i2c", "gpio", "gfx"]
 
 [packages.driver_pcf85063]
 label = "driver.pcf85063"

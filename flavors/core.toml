@@ -59,3 +59,4 @@ neopixel = true
 audio_pwm = true
 pcm5102 = true
 pcm1808 = true
+mgc3130 = true

@@ -202,6 +202,56 @@ hint = "gpio"
 role = "irq"
 required = true
 
+[drivers.mgc3130]
+summary = "MGC3130 3D gesture and touch sensor"
+package = "driver_mgc3130"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_i2c", "expansion_gpio"]
+default_name = "gesture0"
+
+[[drivers.mgc3130.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.mgc3130.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x42|0x43"
+required = true
+allowed = [0x42, 0x43]
+
+[[drivers.mgc3130.bindings]]
+key = "transfer"
+kind = "gpio"
+hint = "gpio"
+role = "transfer"
+required = true
+
+[[drivers.mgc3130.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.mgc3130.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+required = true
+min = 0
+max = 3
+
+[[drivers.mgc3130.bindings]]
+key = "airwheel"
+kind = "parameter"
+hint = "0|1"
+role = "airwheel"
+allowed = [0, 1]
+
 [drivers.drv2605]
 summary = "TI DRV2605 haptic controller"
 package = "drv2605"

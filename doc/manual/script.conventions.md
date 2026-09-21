@@ -32,14 +32,14 @@ nonzero code. `status` shows the most recent foreground-application exit code.
 
 ## Read foreground input
 
-Use `solaros.input.sources()` to discover pointer and axis sources, then use
+Use `solaros.input.sources()` to discover pointer, axis, and gesture sources, then use
 `solaros.input.read(timeout_ms)` for touch coordinates, mouse deltas and
-buttons, or joystick axes. The input queue belongs to the foreground Python or
+buttons, joystick axes, or recognized gestures. The input queue belongs to the foreground Python or
 Lua application. Headless source runners do not receive these events. Keep the
 timeout bounded so the loop can check `solaros.should_exit()` regularly.
 
 Keyboard characters and navigation keys use `solaros.tui.getch()` instead of
-the pointer and axis queue. See the Python or Lua API reference for event fields,
+the pointer, axis, and gesture queue. See the Python or Lua API reference for event fields,
 constants, queue capacity, and overflow reporting.
 
 ## Run a saved script

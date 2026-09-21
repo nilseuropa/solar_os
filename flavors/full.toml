@@ -117,6 +117,7 @@ cvbs = true
 vga = true
 ft6336 = true
 gt911 = true
+mgc3130 = true
 pcf85063 = true
 shtc3 = true
 battery_adc = true
