@@ -203,7 +203,7 @@ role = "irq"
 required = true
 
 [drivers.mgc3130]
-summary = "MGC3130 3D gesture and touch sensor"
+summary = "MGC3130 3D gesture and hover sensor"
 package = "driver_mgc3130"
 targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_i2c", "expansion_gpio"]

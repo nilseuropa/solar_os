@@ -14,7 +14,7 @@ static const solar_os_expansion_binding_spec_t binding_specs[] = {
 const solar_os_expansion_driver_t solar_os_mgc3130_expansion_driver = {
     .name = "mgc3130",
     .category = SOLAR_OS_EXPANSION_CATEGORY_INPUT,
-    .summary = "MGC3130 3D gesture and touch sensor",
+    .summary = "MGC3130 3D gesture and hover sensor",
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C |
         SOLAR_OS_BOARD_CAP_EXPANSION_GPIO | SOLAR_OS_BOARD_CAP_GFX,
     .probe_supported = false,

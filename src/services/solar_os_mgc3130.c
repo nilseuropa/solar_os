@@ -39,7 +39,6 @@
 typedef struct {
     bool active;
     bool pointer_valid;
-    bool pressed;
     bool position_valid;
     bool airwheel_valid;
     volatile bool stop_requested;
@@ -318,33 +317,23 @@ static void publish_pointer(solar_os_mgc3130_device_t *device,
 {
     const bool position_valid = sample->has_position &&
         (sample->system_info & MGC3130_SYSTEM_POSITION_VALID) != 0U;
-    const bool touched = sample->has_touch &&
-        (sample->touch_info & MGC3130_TOUCH_MASK) != 0U;
-    int16_t x = device->pointer_x;
-    int16_t y = device->pointer_y;
-    if (position_valid) {
-        map_pointer(device, sample->x, sample->y, &x, &y);
+    if (!position_valid) {
+        device->pointer_valid = false;
+        return;
     }
-
-    solar_os_input_pointer_action_t action;
-    if (touched && !device->pressed) {
-        action = SOLAR_OS_INPUT_POINTER_PRESS;
-    } else if (!touched && device->pressed) {
-        action = SOLAR_OS_INPUT_POINTER_RELEASE;
-    } else if (position_valid &&
-               (!device->pointer_valid || x != device->pointer_x ||
-                y != device->pointer_y)) {
-        action = SOLAR_OS_INPUT_POINTER_MOVE;
-    } else {
-        device->pointer_valid = position_valid;
+    int16_t x;
+    int16_t y;
+    map_pointer(device, sample->x, sample->y, &x, &y);
+    if (device->pointer_valid && x == device->pointer_x &&
+        y == device->pointer_y) {
         return;
     }
 
     solar_os_input_pointer_event_t event = {
         .pointer_id = 0,
-        .buttons = touched ? SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY : 0,
+        .buttons = 0,
         .mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE,
-        .action = action,
+        .action = SOLAR_OS_INPUT_POINTER_MOVE,
         .x = x,
         .y = y,
         .delta_x = (int16_t)(x - device->pointer_x),
@@ -352,8 +341,7 @@ static void publish_pointer(solar_os_mgc3130_device_t *device,
     };
     strlcpy(event.target, SOLAR_OS_DISPLAY_PRIMARY_TARGET, sizeof(event.target));
     if (solar_os_input_write_pointer(device->input_source, &event) == ESP_OK) {
-        device->pressed = touched;
-        device->pointer_valid = position_valid;
+        device->pointer_valid = true;
         device->pointer_x = x;
         device->pointer_y = y;
     }
@@ -568,11 +556,10 @@ esp_err_t solar_os_mgc3130_attach(
 
     strlcpy(candidate.name, name, sizeof(candidate.name));
     const uint32_t capabilities = SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE |
-        SOLAR_OS_INPUT_CAP_POINTER_BUTTONS |
         SOLAR_OS_INPUT_CAP_AXIS_EVENTS |
         SOLAR_OS_INPUT_CAP_GESTURE_EVENTS;
     esp_err_t ret = solar_os_input_source_open_typed(candidate.name,
-                                                     SOLAR_OS_INPUT_SOURCE_TOUCH,
+                                                     SOLAR_OS_INPUT_SOURCE_OTHER,
                                                      capabilities,
                                                      true,
                                                      &candidate.input_source);

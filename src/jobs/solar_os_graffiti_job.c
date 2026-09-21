@@ -31,6 +31,7 @@ typedef struct {
 typedef struct {
     bool running;
     bool tracking;
+    solar_os_input_source_t pointer_source;
     uint8_t pointer_id;
     uint16_t display_width;
     graffiti_stroke_t active;
@@ -95,6 +96,7 @@ static bool graffiti_job_filter(const solar_os_input_pointer_event_t *event,
         state->display_width = graffiti_job_display_width(event);
         if (state->display_width > 0U) {
             state->tracking = true;
+            state->pointer_source = event->source;
             state->pointer_id = event->pointer_id;
             state->active.count = 0U;
             state->active.zone = solar_os_graffiti_zone_for_start(
@@ -105,7 +107,8 @@ static bool graffiti_job_filter(const solar_os_input_pointer_event_t *event,
         }
         return false;
     }
-    if (!state->tracking || event->pointer_id != state->pointer_id) {
+    if (!state->tracking || event->source != state->pointer_source ||
+        event->pointer_id != state->pointer_id) {
         return false;
     }
     graffiti_job_add_point(&state->active, event->x, event->y);
