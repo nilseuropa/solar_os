@@ -520,23 +520,9 @@ esp_err_t solar_os_input_actions_emit_key(const char *name)
     }
 
     const uint16_t physical_key = (uint16_t)key + 0x100U;
-    esp_err_t err = solar_os_input_write_key(source,
-                                             physical_key,
-                                             SOLAR_OS_INPUT_USAGE_NONE,
-                                             key,
-                                             modifiers,
-                                             SOLAR_OS_INPUT_KEY_PRESS);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = solar_os_input_write_key(source,
-                                   physical_key,
-                                   SOLAR_OS_INPUT_USAGE_NONE,
-                                   key,
-                                   modifiers,
-                                   SOLAR_OS_INPUT_KEY_RELEASE);
-    if (err != ESP_OK) {
-        solar_os_input_source_release_all(source);
-    }
-    return err;
+    return solar_os_input_write_key_tap(source,
+                                        physical_key,
+                                        SOLAR_OS_INPUT_USAGE_NONE,
+                                        key,
+                                        modifiers);
 }

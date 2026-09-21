@@ -134,7 +134,8 @@ gesture unbind 2
 `input emit` creates a virtual local keyboard on first use and injects a key
 tap into the normal input-focus path. Modifier chords use `CTRL`, `SHIFT`,
 `ALT`, `GUI`, or their left/right forms, for example `ALT+RIGHT`. It does not
-send USB or BLE HID reports.
+send USB or BLE HID reports. A chord tap releases its modifiers together with
+the named key.
 Bindings are deliberately volatile and remain configured when the
 `gesture-listener` job stops. Put the required `gesture bind` commands followed
 by `job start gesture-listener` in the selected startup shell script to recreate

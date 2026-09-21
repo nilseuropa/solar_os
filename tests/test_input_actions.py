@@ -70,6 +70,7 @@ class InputActionsTest(unittest.TestCase):
         for subcommand in ('"bind"', '"bindings"', '"unbind"'):
             self.assertIn(subcommand, SHELL_INPUT)
         self.assertIn("solar_os_input_actions_emit_key", SHELL_INPUT)
+        self.assertIn("solar_os_input_write_key_tap", ACTIONS)
         self.assertIn("solar_os_input_actions_bind", SHELL_INPUT)
         self.assertIn("solar_os_input_actions_clear", SHELL_INPUT)
 

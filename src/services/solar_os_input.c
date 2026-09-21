@@ -1333,6 +1333,46 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
     return result;
 }
 
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
+                                       uint16_t physical_key,
+                                       uint16_t usage,
+                                       uint8_t key,
+                                       uint8_t modifiers)
+{
+    if (physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE || key == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_input_key_event_t press = {
+        .source = source,
+        .physical_key = physical_key,
+        .usage = usage,
+        .key = key,
+        .modifiers = modifiers,
+        .action = SOLAR_OS_INPUT_KEY_PRESS,
+    };
+    solar_os_input_key_event_t release = press;
+    release.modifiers = 0U;
+    release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0U) {
+        result = ESP_ERR_INVALID_STATE;
+    } else if (input_queue_count > INPUT_QUEUE_MAX - 2U) {
+        result = ESP_ERR_NO_MEM;
+    } else {
+        (void)input_queue_push_locked(&press);
+        (void)input_queue_push_locked(&release);
+        input_record_key_locked(&press);
+        input_record_key_locked(&release);
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
 {
     solar_os_input_key_event_t press = {
