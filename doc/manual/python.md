@@ -36,7 +36,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | --- | --- |
 | [Storage and files](python.storage.md) | `solaros.storage` |
 | [Time and scheduling](python.time.md) | `solaros.time`, `solaros.rtc`, `solaros.schedule` |
-| [Networking](python.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.ssh_keys` |
+| [Networking](python.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.sftpsync`, `solaros.ssh_keys` |
 | [Bluetooth](python.ble.md) | `solaros.ble` |
 | [GPIO and peripherals](python.hardware.md) | `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.nfc` |
 | [Buses and expansion](python.buses.md) | `solaros.buses`, `solaros.expansion` |
@@ -84,6 +84,7 @@ Optional API groups follow these package gates:
 - `network.mqtt`: `solaros.mqtt`
 - `network.http-client`: `solaros.http`
 - `network.ftp`: `solaros.ftp`
+- `network.sftpsync`: `solaros.sftpsync`
 - `network.base`: `solaros.net`
 - `network.ssh`: `solaros.ssh_keys`
 - `service.ble`: `solaros.ble`

@@ -30,6 +30,9 @@
 #if SOLAR_OS_PACKAGE_APP_SCP
 #include "solar_os_scp_app.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+#include "solar_os_sftpsync_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_SSH
 #include "solar_os_ssh_app.h"
 #endif
@@ -165,6 +168,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
     APP_ENTRY("scp", "SCP file copy", &solar_os_scp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "scp [-P port] <source> <destination>", 3, 5),
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+    APP_ENTRY("sftpsync", "synchronize files over SSH", &solar_os_sftpsync_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sftpsync [-arn] [-P port] <source> <destination>", 3, 8),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SSH
     APP_ENTRY("ssh", "SSH client", &solar_os_ssh_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ssh [user@]host [port]", 2, 3),

@@ -78,6 +78,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_FTP
 #include "solar_os_ftp.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
+#include "solar_os_sftpsync.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
 #endif
@@ -8128,6 +8131,9 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_FTP
 #include "solar_os_python_ftp.inc"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
+#include "solar_os_python_sftpsync.inc"
 #endif
 
 static void python_module_store(mp_obj_t module, const char *name, mp_obj_t value)
