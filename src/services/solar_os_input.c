@@ -99,6 +99,8 @@ static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US;
 static input_repeat_state_t input_repeat;
+static solar_os_input_pointer_filter_t input_pointer_filter;
+static void *input_pointer_filter_context;
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static const char *const input_keyboard_layout_names[] = {
@@ -530,6 +532,8 @@ esp_err_t solar_os_input_init(void)
     if (layout_err == ESP_OK) {
         input_keyboard_layout = (solar_os_input_keyboard_layout_t)layout_value;
     }
+    input_pointer_filter = NULL;
+    input_pointer_filter_context = NULL;
     portEXIT_CRITICAL(&input_lock);
     return repeat_err != ESP_OK ? repeat_err : layout_err;
 }
@@ -1359,6 +1363,52 @@ esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t sourc
     }
     portEXIT_CRITICAL(&input_lock);
     return err;
+}
+
+esp_err_t solar_os_input_pointer_filter_register(
+    solar_os_input_pointer_filter_t filter,
+    void *context)
+{
+    if (filter == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (input_pointer_filter != NULL) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        input_pointer_filter = filter;
+        input_pointer_filter_context = context;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
+void solar_os_input_pointer_filter_unregister(
+    solar_os_input_pointer_filter_t filter,
+    void *context)
+{
+    portENTER_CRITICAL(&input_lock);
+    if (input_pointer_filter == filter && input_pointer_filter_context == context) {
+        input_pointer_filter = NULL;
+        input_pointer_filter_context = NULL;
+    }
+    portEXIT_CRITICAL(&input_lock);
+}
+
+bool solar_os_input_pointer_filter_event(
+    const solar_os_input_pointer_event_t *event)
+{
+    if (event == NULL) {
+        return false;
+    }
+    solar_os_input_pointer_filter_t filter;
+    void *context;
+    portENTER_CRITICAL(&input_lock);
+    filter = input_pointer_filter;
+    context = input_pointer_filter_context;
+    portEXIT_CRITICAL(&input_lock);
+    return filter != NULL && filter(event, context);
 }
 
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count)

@@ -1029,6 +1029,42 @@ Notes:
 - `cdc0` is useful for Linux host testing; `uart0` is the natural expansion
   port path.
 
+## graffiti
+
+Full-screen Palm Graffiti handwriting input for boards with absolute touch and
+PSRAM. The job does not draw an overlay or change the active application.
+
+```text
+job start graffiti
+job status graffiti
+job stop graffiti
+```
+
+The pen-down position chooses the recognition alphabet for the complete
+stroke. Start in the left two-thirds of the oriented display for letters, or
+in the right one-third for numbers. The boundary follows the current display
+orientation. Relative pointer sources are ignored.
+
+The recognizer implements the `$1` unistroke pipeline with Palm Graffiti 1
+alphabet and numeral templates. It preserves stroke direction so a downward
+vertical stroke can be `I` or `1`, while an upward vertical stroke is Shift.
+The Palm editing gestures are also available:
+
+| Stroke | Result |
+| --- | --- |
+| Upward vertical | Shift; repeat before a character for Caps Lock. |
+| Left to right | Space. |
+| Right to left | Backspace. |
+| Upper right to lower left | Enter. |
+
+While running, the job registers the `pointer-observer` resource. It observes
+absolute pointer events over the whole display but does not consume them, so
+the foreground application continues to receive the same press, move, and
+release events. Recognized characters are published by a virtual keyboard
+source named `graffiti` and therefore go to the current input focus. `job
+status graffiti` reports recognized, rejected, and dropped stroke counts plus
+the current case state.
+
 ## gpio-keys
 
 Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures

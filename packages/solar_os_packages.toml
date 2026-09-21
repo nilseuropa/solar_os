@@ -216,6 +216,11 @@ label = "GPIO keyboard"
 category = "Hardware tools"
 members = ["job_gpio_keys"]
 
+[groups.handwriting_input]
+label = "Graffiti handwriting input"
+category = "Hardware tools"
+members = ["job_graffiti"]
+
 [groups.ps2_keyboard]
 label = "PS/2 keyboard"
 category = "Hardware tools"
@@ -2297,6 +2302,21 @@ sources = [
 label = "job.controls"
 depends = ["service_controls"]
 sources = ["jobs/solar_os_controls_job.c"]
+
+[packages.service_unistroke]
+label = "service.unistroke"
+sources = ["services/solar_os_unistroke.c"]
+
+[packages.service_graffiti]
+label = "service.graffiti"
+depends = ["service_unistroke"]
+sources = ["services/solar_os_graffiti.c"]
+
+[packages.job_graffiti]
+label = "job.graffiti"
+depends = ["service_graffiti"]
+sources = ["jobs/solar_os_graffiti_job.c"]
+capabilities = ["pointer", "psram"]
 
 [packages.job_gpio_keys]
 label = "job.gpio-keys"

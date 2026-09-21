@@ -1272,6 +1272,11 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         }
     }
 
+    if (solar_os_input_pointer_filter_event(&oriented_pointer)) {
+        solar_os_power_note_activity(millis_u32());
+        return;
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_POINTER,
         .data.pointer = oriented_pointer,

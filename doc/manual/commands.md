@@ -568,6 +568,7 @@ link stream create link0 vser0 0x12345678
 job start bridge cdc0 vser0
 job start gpio-keys gpio17:UP gpio2:ENTER
 job start gpio-keys --config /flash/gpio-keys.conf
+job start graffiti
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once

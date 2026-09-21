@@ -19,6 +19,16 @@ static void *axis_queue_allocation;
 static char nvs_blob_key[16];
 static uint8_t nvs_blob[64];
 static size_t nvs_blob_length;
+static unsigned pointer_filter_calls;
+
+static bool consume_pointer(const solar_os_input_pointer_event_t *event,
+                            void *context)
+{
+    assert(event != NULL);
+    assert(context == &pointer_filter_calls);
+    pointer_filter_calls++;
+    return event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE;
+}
 
 void *solar_os_memory_calloc(size_t count,
                              size_t size,
@@ -392,6 +402,16 @@ int main(void)
     assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
     assert(pointer_read.x == 123 && pointer_read.y == 45);
     assert(strcmp(pointer_read.target, "display0") == 0);
+    assert(solar_os_input_pointer_filter_register(consume_pointer,
+                                                   &pointer_filter_calls) == ESP_OK);
+    assert(solar_os_input_pointer_filter_register(consume_pointer,
+                                                   &pointer_filter_calls) ==
+           ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_pointer_filter_event(&pointer_read));
+    assert(pointer_filter_calls == 1U);
+    solar_os_input_pointer_filter_unregister(consume_pointer,
+                                              &pointer_filter_calls);
+    assert(!solar_os_input_pointer_filter_event(&pointer_read));
 
     solar_os_input_pointer_event_t oriented = pointer_read;
     assert(solar_os_input_pointer_apply_orientation(

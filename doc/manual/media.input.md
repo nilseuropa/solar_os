@@ -28,6 +28,16 @@ Keyboard transports can additionally supply a canonical USB HID usage and
 modifier mask. This keeps physical controls independent of the selected text
 layout and lets BLE and PS/2 share the same US or German keymap.
 
+On a board with absolute touch and PSRAM, `job start graffiti` turns the whole
+display into a Palm Graffiti handwriting keyboard without drawing an overlay.
+The stroke's initial X coordinate selects its alphabet: the left two-thirds is
+letters and the right one-third is numbers. The selection does not change
+while the stroke is in progress. Recognized strokes enter the normal keyboard
+queue, so they follow the current input focus. The job observes absolute touch
+without consuming it; foreground applications still receive the pointer
+events. See
+[jobs.reference.md](jobs.reference.md#graffiti) for controls and ownership.
+
 `input test <source>` counters are cumulative from the time that source
 attached. Each accepted key press, release, or repeat increments `key`; it is
 not a count of currently held keys. Character-only devices such as CardKB emit

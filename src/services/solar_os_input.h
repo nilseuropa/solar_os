@@ -113,6 +113,11 @@ typedef struct {
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
 } solar_os_input_pointer_event_t;
 
+/* A single exclusive filter may consume display-oriented pointer events. */
+typedef bool (*solar_os_input_pointer_filter_t)(
+    const solar_os_input_pointer_event_t *event,
+    void *context);
+
 typedef enum {
     SOLAR_OS_INPUT_AXIS_X,
     SOLAR_OS_INPUT_AXIS_Y,
@@ -218,6 +223,14 @@ esp_err_t solar_os_input_pointer_calibration_set(
     solar_os_input_source_t source,
     const solar_os_input_pointer_calibration_t *calibration);
 esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source);
+esp_err_t solar_os_input_pointer_filter_register(
+    solar_os_input_pointer_filter_t filter,
+    void *context);
+void solar_os_input_pointer_filter_unregister(
+    solar_os_input_pointer_filter_t filter,
+    void *context);
+bool solar_os_input_pointer_filter_event(
+    const solar_os_input_pointer_event_t *event);
 
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count);
 size_t solar_os_input_read_pointer_events(solar_os_input_pointer_event_t *events,
