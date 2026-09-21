@@ -2,6 +2,7 @@
 
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_completion.h"
+#include "solar_os_shell_gesture_completion.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_launch.h"
@@ -523,6 +524,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"board", "show board capabilities", solar_os_shell_cmd_board},
     {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
     {"input", "show input sources", solar_os_shell_cmd_input},
+    {"gesture", "show gesture sources and bindings", solar_os_shell_cmd_gesture},
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     {"engine", "show engine utilization", solar_os_shell_cmd_engine},
 #endif
@@ -775,11 +777,20 @@ static const char * const display_subcommands[] = {
     "mode",
 };
 static const char * const input_subcommands[] = {
-    "status", "test", "calibrate", "keyboard", "touch", "mouse", "joystick",
-    "dpad", "buttons",
+    "status", "test", "calibrate", "emit",
+    "keyboard", "touch", "mouse", "joystick", "dpad", "buttons", "gesture",
+};
+static const char * const gesture_subcommands[] = {
+    "status", "bind", "bindings", "unbind",
 };
 static const char * const input_class_subcommands[] = {"status"};
 static const char * const input_calibration_subcommands[] = {"set", "reset"};
+static const char * const input_emit_keys[] = {
+    "UP", "DOWN", "LEFT", "RIGHT", "ENTER", "ESCAPE", "SPACE", "TAB",
+    "BACKSPACE", "HOME", "END", "DELETE", "PAGE_UP", "PAGE_DOWN",
+    "ALT+LEFT", "ALT+RIGHT", "ALT+TAB",
+};
+static const char * const gesture_unbind_values[] = {"all"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
@@ -1789,15 +1800,19 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_input[] = {"input"};
 static const char * const path_input_test[] = {"input", "test"};
 static const char * const path_input_calibrate[] = {"input", "calibrate"};
+static const char * const path_input_emit[] = {"input", "emit"};
 static const char * const path_input_keyboard[] = {"input", "keyboard"};
 static const char * const path_input_touch[] = {"input", "touch"};
 static const char * const path_input_mouse[] = {"input", "mouse"};
 static const char * const path_input_joystick[] = {"input", "joystick"};
 static const char * const path_input_dpad[] = {"input", "dpad"};
 static const char * const path_input_buttons[] = {"input", "buttons"};
+static const char * const path_input_gesture[] = {"input", "gesture"};
 static const char * const path_input_calibrate_source[] = {
     "input", "calibrate", SHELL_COMPLETION_ANY,
 };
+static const char * const path_gesture[] = {"gesture"};
+static const char * const path_gesture_unbind[] = {"gesture", "unbind"};
 #if SOLAR_OS_PACKAGE_APP_INBOX
 static const char * const path_inbox[] = {"inbox"};
 static const char * const path_inbox_list[] = {"inbox", "list"};
@@ -3000,13 +3015,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_input, input_subcommands),
     SHELL_COMPLETION_INPUT_SOURCES(path_input_test, false),
     SHELL_COMPLETION_INPUT_SOURCES(path_input_calibrate, true),
+    SHELL_COMPLETION_STATIC(path_input_emit, input_emit_keys),
     SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_touch, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_mouse, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_joystick, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_dpad, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_buttons, input_class_subcommands),
+    SHELL_COMPLETION_STATIC(path_input_gesture, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_calibrate_source, input_calibration_subcommands),
+    SHELL_COMPLETION_STATIC(path_gesture, gesture_subcommands),
+    SHELL_COMPLETION_STATIC(path_gesture_unbind, gesture_unbind_values),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
@@ -6107,6 +6126,49 @@ static void shell_completion_emit_input_sources(shell_completion_match_t *state,
     }
 }
 
+static bool shell_completion_get_gesture_source(
+    size_t index,
+    solar_os_input_source_info_t *info,
+    void *context)
+{
+    (void)context;
+    return solar_os_input_source_get(index, info);
+}
+
+static void shell_completion_emit_gesture_candidate(const char *candidate,
+                                                     void *context)
+{
+    shell_completion_emit((shell_completion_match_t *)context, candidate);
+}
+
+static void shell_completion_emit_gesture_bind_arguments(
+    shell_completion_match_t *state,
+    const shell_completion_parse_t *parse,
+    size_t current_index,
+    bool command)
+{
+    if (command) {
+        shell_completion_emit_commands(state);
+        return;
+    }
+
+    const char *prefix = state->prefix != NULL ? state->prefix : "";
+    const char *selected_source = NULL;
+    for (size_t i = 2U; i < current_index && i < parse->count; i++) {
+        if (starts_with(parse->tokens[i], "source=")) {
+            selected_source = &parse->tokens[i][sizeof("source=") - 1U];
+        }
+    }
+    solar_os_shell_gesture_completion_emit(
+        prefix,
+        selected_source,
+        solar_os_input_source_count(),
+        shell_completion_get_gesture_source,
+        NULL,
+        shell_completion_emit_gesture_candidate,
+        state);
+}
+
 static bool shell_completion_display_mode_seen(char values[][32],
                                                size_t count,
                                                const char *value)
@@ -7583,6 +7645,86 @@ static bool shell_complete_expansion_argument(solar_os_context_t *ctx,
 }
 #endif
 
+static bool shell_complete_gesture_argument(
+    solar_os_context_t *ctx,
+    const char *effective_command,
+    const shell_completion_parse_t *parse,
+    size_t current_index,
+    size_t token_start,
+    bool show_matches)
+{
+    if (strcmp(effective_command, "gesture") != 0 || current_index < 2U ||
+        parse->count < 2U || strcmp(parse->tokens[1], "bind") != 0) {
+        return false;
+    }
+
+    size_t separator = SIZE_MAX;
+    for (size_t i = 2U; i < current_index && i < parse->count; i++) {
+        if (strcmp(parse->tokens[i], "--") == 0) {
+            separator = i;
+            break;
+        }
+    }
+    if (separator != SIZE_MAX && current_index != separator + 1U) {
+        return false;
+    }
+
+    const char *prefix = "";
+    if (!parse->trailing_space && current_index < parse->count) {
+        prefix = parse->tokens[current_index];
+    }
+    shell_completion_match_t state;
+    shell_completion_init_state(ctx, prefix, false, &state);
+    shell_completion_emit_gesture_bind_arguments(&state,
+                                                  parse,
+                                                  current_index,
+                                                  separator != SIZE_MAX);
+    if (state.count == 0U) {
+        return true;
+    }
+
+    shell_session(ctx)->history_browsing = false;
+    shell_session(ctx)->history_index = -1;
+    if (state.count == 1U && !show_matches) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s%s",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match,
+                 solar_os_shell_completion_needs_trailing_space(state.match)
+                     ? " "
+                     : "");
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+    if (!show_matches && strlen(state.match) > strlen(prefix)) {
+        char completed[SHELL_INPUT_MAX];
+        snprintf(completed,
+                 sizeof(completed),
+                 "%.*s%s",
+                 (int)token_start,
+                 shell_session(ctx)->input,
+                 state.match);
+        shell_replace_input(ctx, completed);
+        return true;
+    }
+    if (show_matches) {
+        char original[SHELL_INPUT_MAX];
+        strlcpy(original, shell_session(ctx)->input, sizeof(original));
+        solar_os_shell_io_newline(shell_io(ctx));
+        shell_completion_init_state(ctx, prefix, true, &state);
+        shell_completion_emit_gesture_bind_arguments(&state,
+                                                      parse,
+                                                      current_index,
+                                                      separator != SIZE_MAX);
+        shell_prompt(ctx);
+        shell_replace_input(ctx, original);
+    }
+    return true;
+}
+
 static bool shell_completion_collect_matches(solar_os_context_t *ctx,
                                              const char * const *tokens,
                                              size_t token_count,
@@ -7941,6 +8083,14 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         return true;
     }
 #endif
+    if (shell_complete_gesture_argument(ctx,
+                                        effective_command,
+                                        parse,
+                                        current_index,
+                                        token_start,
+                                        show_matches)) {
+        return true;
+    }
 
     const shell_completion_rule_t *path_rule =
         shell_completion_find_path_rule(completed_tokens, completed_count);
@@ -8183,6 +8333,34 @@ esp_err_t solar_os_shell_run_background_script(const char *path)
     if (err == ESP_OK) {
         session->watch_executing = true;
         (void)solar_os_shell_run_script(&ctx, path, path, false);
+        session->watch_executing = false;
+    }
+    solar_os_shell_session_destroy(session);
+    return err;
+}
+
+esp_err_t solar_os_shell_run_background_command(const char *command)
+{
+    if (command == NULL || command[0] == '\0' || strlen(command) >= SHELL_INPUT_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_shell_session_t *session = solar_os_shell_session_create();
+    if (session == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    solar_os_context_t ctx;
+    solar_os_context_init(&ctx, NULL, NULL);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
+    solar_os_shell_io_init_terminal(io, NULL);
+    esp_err_t err = solar_os_shell_session_start(&ctx,
+                                                 session,
+                                                 io,
+                                                 false,
+                                                 false);
+    if (err == ESP_OK) {
+        session->watch_executing = true;
+        (void)shell_execute_line(&ctx, command, false, NULL, 0);
         session->watch_executing = false;
     }
     solar_os_shell_session_destroy(session);

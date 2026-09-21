@@ -3,7 +3,7 @@ id = "python.input"
 title = "Python input and clipboard API"
 section = "api"
 summary = "Input and clipboard: input, hid, clipboard"
-keywords = "python solaros api input input hid clipboard"
+keywords = "python solaros api input gesture pointer axis hid clipboard"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -70,13 +70,13 @@ print(solaros.clipboard.get())
 
 ## `solaros.input`
 
-Foreground scripts can receive the generic pointer and axis events routed to
+Foreground scripts can receive generic pointer, axis, and gesture events routed to
 their active session. `sources()` lists registered input sources with `source`,
 `name`, `source_class`, `source_class_name`, `capabilities`, and `ready`.
 
-- `read([timeout_ms])`: return the next pointer or axis event dictionary, or
+- `read([timeout_ms])`: return the next pointer, axis, or gesture event dictionary, or
   `None`. The maximum timeout is 60000 ms.
-- `clear()`: discard queued pointer and axis events and return the number
+- `clear()`: discard queued pointer, axis, and gesture events and return the number
   discarded.
 - `status()`: return `available`, `queued`, `capacity`, and cumulative
   `dropped` counters.
@@ -85,7 +85,10 @@ Pointer dictionaries have `type="pointer"`, source metadata, `pointer_id`,
 numeric and named `mode`/`action`, `x`, `y`, `delta_x`, `delta_y`, `buttons`,
 and `target`. Touch and other absolute sources use `x`/`y`; relative mice use
 the deltas. Axis dictionaries have `type="axis"`, source metadata, numeric and
-named `axis`, `value`, and `delta`.
+named `axis`, `value`, and `delta`. Gesture dictionaries have `type="gesture"`,
+numeric and named `gesture` and `direction`, `flags`, a source-specific `value`,
+and the original sensor `raw` word. AirWheel values are signed counter steps;
+32 steps approximate one revolution.
 
 ```python
 import solaros
@@ -101,8 +104,10 @@ while not solaros.should_exit():
             print("touch", event["action_name"], event["x"], event["y"])
         else:
             print("mouse", event["delta_x"], event["delta_y"], event["buttons"])
-    else:
+    elif event["type"] == "axis":
         print("axis", event["axis_name"], event["value"], event["delta"])
+    else:
+        print("gesture", event["gesture_name"], event["direction_name"])
 ```
 
 The queue holds 16 events. When it is full, the oldest event is discarded so

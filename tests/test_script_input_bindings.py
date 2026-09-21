@@ -27,15 +27,14 @@ class ScriptInputBindingsTest(unittest.TestCase):
         self.assertIn("input read limited to 60000 ms", PYTHON_SOURCE)
         self.assertIn("input read limited to 60000 ms", LUA_SOURCE)
 
-    def test_runtimes_opt_in_and_forward_pointer_and_axis_events(self):
-        flags = (
-            ".flags = SOLAR_OS_APP_FLAG_POINTER_EVENTS | "
-            "SOLAR_OS_APP_FLAG_AXIS_EVENTS"
-        )
+    def test_runtimes_opt_in_and_forward_pointer_axis_and_gesture_events(self):
         for source in (PYTHON_SOURCE, LUA_SOURCE):
-            self.assertIn(flags, source)
+            self.assertIn("SOLAR_OS_APP_FLAG_POINTER_EVENTS", source)
+            self.assertIn("SOLAR_OS_APP_FLAG_AXIS_EVENTS", source)
+            self.assertIn("SOLAR_OS_APP_FLAG_GESTURE_EVENTS", source)
             self.assertIn("event->type == SOLAR_OS_EVENT_POINTER", source)
             self.assertIn("event->type == SOLAR_OS_EVENT_AXIS", source)
+            self.assertIn("event->type == SOLAR_OS_EVENT_GESTURE", source)
             self.assertIn("sizeof(solar_os_event_t)", source)
             self.assertIn("device_input_dropped", source)
 
@@ -61,18 +60,26 @@ class ScriptInputBindingsTest(unittest.TestCase):
             "axis_name",
             "value",
             "delta",
+            "gesture",
+            "gesture_name",
+            "direction",
+            "direction_name",
+            "flags",
+            "raw",
         )
         for field in fields:
             self.assertIn(f'"{field}"', PYTHON_SOURCE)
             self.assertIn(f'"{field}"', LUA_SOURCE)
 
-    def test_input_constants_cover_discovery_pointer_and_axes(self):
+    def test_input_constants_cover_discovery_pointer_axes_and_gestures(self):
         constants = (
             "SOURCE_TOUCH",
+            "SOURCE_GESTURE",
             "SOURCE_MOUSE",
             "CAP_POINTER_ABSOLUTE",
             "CAP_POINTER_RELATIVE",
             "CAP_AXIS_EVENTS",
+            "CAP_GESTURE_EVENTS",
             "MODE_ABSOLUTE",
             "MODE_RELATIVE",
             "ACTION_MOVE",
@@ -87,6 +94,10 @@ class ScriptInputBindingsTest(unittest.TestCase):
             "AXIS_RX",
             "AXIS_RY",
             "AXIS_RZ",
+            "GESTURE_FLICK",
+            "GESTURE_AIRWHEEL",
+            "DIRECTION_CLOCKWISE",
+            "GESTURE_FLAG_EDGE",
         )
         for constant in constants:
             self.assertRegex(

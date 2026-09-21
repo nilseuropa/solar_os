@@ -125,6 +125,35 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertNotIn("device_address = GT911_ALTERNATE_ADDRESS", init)
         self.assertIn("addr = 0x5d, alt_addr = 0x14", manifest)
 
+    def test_mgc3130_is_a_buttonless_hover_pointer(self):
+        source = (ROOT / "src/services/solar_os_mgc3130.c").read_text(
+            encoding="utf-8"
+        )
+        registration = source.split(
+            "const uint32_t capabilities =", 1
+        )[1].split("if (ret != ESP_OK)", 1)[0]
+        pointer = source.split("static void publish_pointer", 1)[1].split(
+            "static uint32_t gesture_flags", 1
+        )[0]
+
+        self.assertIn("SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE", registration)
+        self.assertNotIn("SOLAR_OS_INPUT_CAP_POINTER_BUTTONS", registration)
+        self.assertIn("SOLAR_OS_INPUT_SOURCE_GESTURE", registration)
+        self.assertNotIn("SOLAR_OS_INPUT_SOURCE_TOUCH", registration)
+        self.assertIn(".action = SOLAR_OS_INPUT_POINTER_MOVE", pointer)
+        self.assertIn(".buttons = 0", pointer)
+
+    def test_graffiti_tracks_one_pointer_source_per_stroke(self):
+        source = (ROOT / "src/jobs/solar_os_graffiti_job.c").read_text(
+            encoding="utf-8"
+        )
+        pointer_filter = source.split(
+            "static bool graffiti_job_filter", 1
+        )[1].split("static void graffiti_job_worker", 1)[0]
+
+        self.assertIn("state->pointer_source = event->source", pointer_filter)
+        self.assertIn("event->source != state->pointer_source", pointer_filter)
+
     def test_system_key_can_emit_a_board_defined_short_press_input(self):
         main = (ROOT / "src/main.c").read_text(encoding="utf-8")
         short_press = main.split("static void handle_key_short_press", 1)[1].split(

@@ -61,6 +61,10 @@ int main(void)
            aggregate[2] == 'd' && aggregate[3] == '\0');
     assert(solar_os_shell_completion_common_prefix(NULL, "value") == 0U);
     assert(solar_os_shell_completion_common_prefix("value", NULL) == 0U);
+    assert(!solar_os_shell_completion_needs_trailing_space(NULL));
+    assert(!solar_os_shell_completion_needs_trailing_space(""));
+    assert(!solar_os_shell_completion_needs_trailing_space("gesture="));
+    assert(solar_os_shell_completion_needs_trailing_space("gesture=flick"));
 
     assert_completion_parse("cat My\\ F", 2U, false, "My F", 4U);
     assert_completion_parse("cat \"My F", 2U, false, "My F", 4U);

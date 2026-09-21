@@ -3,7 +3,7 @@ id = "lua.input"
 title = "Lua input and clipboard API"
 section = "api"
 summary = "Input and clipboard: input, hid, clipboard"
-keywords = "lua solaros api input input hid clipboard"
+keywords = "lua solaros api input gesture pointer axis hid clipboard"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
@@ -21,13 +21,13 @@ agent_reference_sections = true
 
 ## `solaros.input`
 
-- `solaros.input`: `sources`, `read`, `clear`, `status` for foreground pointer and axis events
+- `solaros.input`: `sources`, `read`, `clear`, `status` for foreground pointer, axis, and gesture events
 
-## Generic pointer and axis input
+## Generic pointer, axis, and gesture input
 
 `solaros.input.sources()` lists registered input sources with their numeric
 source, name, class, class name, capability bits, and ready state.
-`read([timeout_ms])` returns the next pointer or axis event table, or `nil`; the
+`read([timeout_ms])` returns the next pointer, axis, or gesture event table, or `nil`; the
 maximum timeout is 60000 ms. `clear()` discards queued events, and `status()`
 reports `available`, `queued`, `capacity`, and cumulative `dropped` counts.
 
@@ -35,6 +35,9 @@ Pointer events contain source metadata, `pointer_id`, numeric and named
 `mode`/`action`, `x`, `y`, `delta_x`, `delta_y`, `buttons`, and `target`.
 Absolute touch sources use the coordinates; relative mice use the deltas. Axis
 events contain source metadata, numeric and named `axis`, `value`, and `delta`.
+Gesture events contain numeric and named `gesture` and `direction`, `flags`, a
+source-specific `value`, and the original sensor `raw` word. AirWheel values
+are signed counter steps; 32 steps approximate one revolution.
 
 ```lua
 local solaros = require("solaros")
@@ -49,8 +52,10 @@ while not solaros.should_exit() do
         else
             print("mouse", event.delta_x, event.delta_y, event.buttons)
         end
-    elseif event then
+    elseif event and event.type == "axis" then
         print("axis", event.axis_name, event.value, event.delta)
+    elseif event then
+        print("gesture", event.gesture_name, event.direction_name)
     end
 end
 ```

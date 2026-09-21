@@ -40,6 +40,7 @@
 #include "solar_os_gfx_internal.h"
 #include "solar_os_fonts.h"
 #include "solar_os_input.h"
+#include "solar_os_input_actions.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -1272,6 +1273,11 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         }
     }
 
+    if (solar_os_input_pointer_filter_event(&oriented_pointer)) {
+        solar_os_power_note_activity(millis_u32());
+        return;
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_POINTER,
         .data.pointer = oriented_pointer,
@@ -1309,6 +1315,26 @@ static void dispatch_input_axis(const solar_os_input_axis_event_t *axis)
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_AXIS,
         .data.axis = *axis,
+    };
+    if (solar_os_sessions_dispatch_input_event(&event)) {
+        solar_os_power_note_activity(millis_u32());
+        process_app_requests();
+    }
+}
+
+static void dispatch_input_gesture(const solar_os_input_gesture_event_t *gesture)
+{
+    if (gesture == NULL) {
+        return;
+    }
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    if (input_app == NULL ||
+        (input_app->flags & SOLAR_OS_APP_FLAG_GESTURE_EVENTS) == 0) {
+        return;
+    }
+    const solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_GESTURE,
+        .data.gesture = *gesture,
     };
     if (solar_os_sessions_dispatch_input_event(&event)) {
         solar_os_power_note_activity(millis_u32());
@@ -1355,6 +1381,14 @@ static void dispatch_input_sources(void)
                 sizeof(axis_events) / sizeof(axis_events[0]))) > 0) {
         for (size_t i = 0; i < count; i++) {
             dispatch_input_axis(&axis_events[i]);
+        }
+    }
+    solar_os_input_gesture_event_t gesture_events[8];
+    while ((count = solar_os_input_read_gesture_events(
+                gesture_events,
+                sizeof(gesture_events) / sizeof(gesture_events[0]))) > 0) {
+        for (size_t i = 0; i < count; i++) {
+            dispatch_input_gesture(&gesture_events[i]);
         }
     }
 }
@@ -1627,6 +1661,13 @@ void app_main(void)
     if (log_err != ESP_OK) {
         ESP_LOGW(TAG, "Log service unavailable: %s", esp_err_to_name(log_err));
     }
+    const esp_err_t input_actions_err = solar_os_input_actions_init();
+    if (input_actions_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Input actions unavailable: %s",
+                 esp_err_to_name(input_actions_err));
+    }
+    solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
 

@@ -3,7 +3,7 @@ label = "SolarOS runtime"
 category = "System"
 hidden = true
 immutable = true
-members = ["core_runtime", "core_shell"]
+members = ["core_runtime", "core_shell", "job_gesture_listener"]
 
 [groups.hardware_shell]
 label = "Hardware shell commands"
@@ -215,6 +215,11 @@ members = ["job_daq"]
 label = "GPIO keyboard"
 category = "Hardware tools"
 members = ["job_gpio_keys"]
+
+[groups.handwriting_input]
+label = "Graffiti handwriting input"
+category = "Hardware tools"
+members = ["job_graffiti"]
 
 [groups.ps2_keyboard]
 label = "PS/2 keyboard"
@@ -596,6 +601,11 @@ label = "GT911 touch controller"
 category = "Expansion hardware"
 members = ["driver_gt911"]
 
+[groups.mgc3130]
+label = "MGC3130 3D gesture sensor"
+category = "Expansion hardware"
+members = ["driver_mgc3130"]
+
 [groups.pcf85063]
 label = "PCF85063 real-time clock"
 category = "Expansion hardware"
@@ -673,6 +683,8 @@ sources = [
   "services/solar_os_gfx_icons.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
+  "services/solar_os_input_action_match.c",
+  "services/solar_os_input_actions.c",
   "services/solar_os_input_composition.c",
   "services/solar_os_keys.c",
   "services/solar_os_log.c",
@@ -762,6 +774,7 @@ sources = [
   "shell/solar_os_shell_commands.c",
   "shell/solar_os_shell_input.c",
   "shell/solar_os_shell_completion.c",
+  "shell/solar_os_shell_gesture_completion.c",
   "shell/solar_os_shell_io.c",
   "shell/solar_os_shell_manual.c",
   "shell/solar_os_shell_line.c",
@@ -1813,6 +1826,19 @@ sources = [
 requires = ["esp_driver_gpio"]
 capabilities = ["i2c", "gpio"]
 
+[packages.driver_mgc3130]
+label = "driver.mgc3130"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_mgc3130_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "drivers/mgc3130.c",
+  "services/solar_os_mgc3130.c",
+  "services/solar_os_mgc3130_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["i2c", "gpio", "gfx"]
+
 [packages.driver_pcf85063]
 label = "driver.pcf85063"
 targets = ["esp32", "esp32s3"]
@@ -2297,6 +2323,25 @@ sources = [
 label = "job.controls"
 depends = ["service_controls"]
 sources = ["jobs/solar_os_controls_job.c"]
+
+[packages.job_gesture_listener]
+label = "job.gesture-listener"
+sources = ["jobs/solar_os_gesture_listener_job.c"]
+
+[packages.service_unistroke]
+label = "service.unistroke"
+sources = ["services/solar_os_unistroke.c"]
+
+[packages.service_graffiti]
+label = "service.graffiti"
+depends = ["service_unistroke"]
+sources = ["services/solar_os_graffiti.c"]
+
+[packages.job_graffiti]
+label = "job.graffiti"
+depends = ["service_graffiti"]
+sources = ["jobs/solar_os_graffiti_job.c"]
+capabilities = ["psram"]
 
 [packages.job_gpio_keys]
 label = "job.gpio-keys"

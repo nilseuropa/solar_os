@@ -4,7 +4,7 @@ title = "Audio, input, and clipboard APIs"
 section = "hardware"
 summary = "Use installed media and generic input services"
 aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick"]
-keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick calibration clipboard"
+keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick gesture calibration clipboard"
 packages_any = []
 +++
 # Audio, input, and clipboard APIs
@@ -27,6 +27,16 @@ events.
 Keyboard transports can additionally supply a canonical USB HID usage and
 modifier mask. This keeps physical controls independent of the selected text
 layout and lets BLE and PS/2 share the same US or German keymap.
+
+On a board with absolute touch and PSRAM, `job start graffiti` turns the whole
+display into a Palm Graffiti handwriting keyboard without drawing an overlay.
+The stroke's initial X coordinate selects its alphabet: the left two-thirds is
+letters and the right one-third is numbers. The selection does not change
+while the stroke is in progress. Recognized strokes enter the normal keyboard
+queue, so they follow the current input focus. The job observes absolute touch
+without consuming it; foreground applications still receive the pointer
+events. See
+[jobs.reference.md](jobs.reference.md#graffiti) for controls and ownership.
 
 `input test <source>` counters are cumulative from the time that source
 attached. Each accepted key press, release, or repeat increments `key`; it is
@@ -75,33 +85,73 @@ Use `input` to inspect semantic sources independently of their transport:
 input touch
 input mouse
 input joystick
+input gesture
 input test touch0
 ```
 
 Touch and other absolute pointers report positions; mice report relative
-deltas; analog joysticks report normalized X/Y axes. Pointer and axis queues
+deltas; analog joysticks report normalized X/Y axes; gesture sensors report
+recognized motions and taps. Pointer, axis, and gesture queues
 are allocated only when the first matching source attaches. `input test`
 retains counters and the most recent accepted event, so it also works for
 polling touch controllers while the shell is active.
 
 Native foreground applications opt in to structured pointer input with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS` and to axis input with
-`SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Their event callback then receives
+`SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Gesture-aware applications opt in with
+`SOLAR_OS_APP_FLAG_GESTURE_EVENTS`. Their event callback then receives
 `SOLAR_OS_EVENT_POINTER` in `event.data.pointer` or `SOLAR_OS_EVENT_AXIS` in
-`event.data.axis`. Pointer events contain the source, pointer ID, absolute or
+`event.data.axis`, or `SOLAR_OS_EVENT_GESTURE` in `event.data.gesture`.
+Pointer events contain the source, pointer ID, absolute or
 relative mode, action, coordinates, deltas, buttons, and optional display
 target. A non-empty target routes to the active opted-in application on that
 display. Its absolute coordinates and deltas follow the target's current
 `setterm orientation`; orientation `0` is the device driver's normal mounting.
 An empty target follows local input focus. Axis events contain the source,
 X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input focus.
+Gesture events contain the recognized kind, direction, flags, optional value,
+and original sensor word and also follow local input focus.
 Applications without the matching flag do not receive those structured events.
 
-Foreground Python and Lua scripts receive the same structured pointer and axis
+Gesture bindings observe the same events without taking them away from the
+foreground application. A binding can match one source or every source, one
+gesture kind, and optionally one direction. Its command runs on a single
+on-demand background worker, so two gestures never execute shell commands
+concurrently. The worker releases its internal stack after the command queue
+becomes idle. The cooldown suppresses repeated sensor reports; it defaults to
+250 ms.
+
+```text
+gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
+gesture bind source=gesture0 gesture=flick direction=west cooldown=400 -- input emit ALT+LEFT
+gesture bind source=* gesture=double-tap -- /flash/bin/toggle-light.sh
+job start gesture-listener
+gesture bindings
+job stop gesture-listener
+gesture unbind 2
+```
+
+`input emit` creates a virtual local keyboard on first use and injects a key
+tap into the normal input-focus path. Modifier chords use `CTRL`, `SHIFT`,
+`ALT`, `GUI`, or their left/right forms, for example `ALT+RIGHT`. It does not
+send USB or BLE HID reports. A chord tap releases its modifiers together with
+the named key.
+Bindings are deliberately volatile and remain configured when the
+`gesture-listener` job stops. Put the required `gesture bind` commands followed
+by `job start gesture-listener` in the selected startup shell script to recreate
+and activate them after boot. `gesture unbind all` removes every rule and resets
+the next binding ID to 1. Background commands may use shell built-ins or invoke
+scripts, but they cannot launch a foreground application. Stopping the job
+prevents new gesture actions and discards queued actions; a command already
+executing is allowed to finish. Use an explicit display target for display
+actions, for example `setterm --display display0 orientation 90`.
+
+Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute
 `x`/`y` coordinates and press/move/release actions; relative mice expose
 `delta_x`/`delta_y` and button bits; joystick events expose their named axis,
-normalized value, and delta. `solaros.input.sources()` lists the registered
+normalized value, and delta; gesture events expose names, direction, flags,
+value, and raw sensor data. `solaros.input.sources()` lists the registered
 semantic sources. Each runtime keeps a bounded 16-event foreground queue and
 reports overwritten events through `solaros.input.status().dropped`. Keyboard
 characters remain on `solaros.tui.getch()`.
@@ -212,5 +262,5 @@ configure_filter, configure_performance, note_on, note_off, all_notes_off, and
 stop. solaros.ble provides status, connected, pair, forget, layout, read.
 solaros.clipboard provides set, get, size, clear. Audio, synth, and BLE are
 package-gated. Foreground Python and Lua applications use solaros.input sources,
-read, clear, and status for structured pointer and axis events; keyboard
+read, clear, and status for structured pointer, axis, and gesture events; keyboard
 characters remain on solaros.tui.getch().

@@ -428,6 +428,27 @@ Control definitions are runtime configuration. Put the `control create`,
 restore a hardware setup after reboot. See `man controls` for calibration,
 manual script inputs, MIDI examples, and inspection commands.
 
+## gesture-listener
+
+Gesture-to-command listener. Rules are configured independently with `gesture
+bind`, while this job owns observation and dispatch:
+
+```text
+gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
+gesture bind source=gesture0 gesture=flick direction=west -- input emit ALT+LEFT
+job start gesture-listener
+job status gesture-listener
+job stop gesture-listener
+```
+
+Stopping the job preserves the rules, prevents new gesture actions, and drops
+queued actions. A command already executing finishes normally. Use `gesture
+bindings` to inspect rules and counters, `gesture unbind <id>` to remove one, or
+`gesture unbind all` to clear the table and reset the next ID to 1. Rules and job
+state are volatile; recreate them in the startup script when persistence is
+needed. The command worker is created on demand and releases its internal stack
+when its queue is idle.
+
 ## osc
 
 OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and
@@ -1028,6 +1049,42 @@ Notes:
 - The selected port is claimed by the SLIP job until it stops.
 - `cdc0` is useful for Linux host testing; `uart0` is the natural expansion
   port path.
+
+## graffiti
+
+Full-screen Palm Graffiti handwriting input for boards with absolute touch and
+PSRAM. The job does not draw an overlay or change the active application.
+
+```text
+job start graffiti
+job status graffiti
+job stop graffiti
+```
+
+The pen-down position chooses the recognition alphabet for the complete
+stroke. Start in the left two-thirds of the oriented display for letters, or
+in the right one-third for numbers. The boundary follows the current display
+orientation. Relative pointer sources are ignored.
+
+The recognizer implements the `$1` unistroke pipeline with Palm Graffiti 1
+alphabet and numeral templates. It preserves stroke direction so a downward
+vertical stroke can be `I` or `1`, while an upward vertical stroke is Shift.
+The Palm editing gestures are also available:
+
+| Stroke | Result |
+| --- | --- |
+| Upward vertical | Shift; repeat before a character for Caps Lock. |
+| Left to right | Space. |
+| Right to left | Backspace. |
+| Upper right to lower left | Enter. |
+
+While running, the job registers the `pointer-observer` resource. It observes
+absolute pointer events over the whole display but does not consume them, so
+the foreground application continues to receive the same press, move, and
+release events. Recognized characters are published by a virtual keyboard
+source named `graffiti` and therefore go to the current input focus. `job
+status graffiti` reports recognized, rejected, and dropped stroke counts plus
+the current case state.
 
 ## gpio-keys
 

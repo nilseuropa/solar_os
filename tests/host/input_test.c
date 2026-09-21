@@ -14,11 +14,35 @@ static size_t pointer_queue_allocations;
 static size_t pointer_queue_frees;
 static size_t axis_queue_allocations;
 static size_t axis_queue_frees;
+static size_t gesture_queue_allocations;
+static size_t gesture_queue_frees;
 static void *pointer_queue_allocation;
 static void *axis_queue_allocation;
+static void *gesture_queue_allocation;
 static char nvs_blob_key[16];
 static uint8_t nvs_blob[64];
 static size_t nvs_blob_length;
+static unsigned pointer_filter_calls;
+static unsigned gesture_observer_calls[2];
+
+static bool consume_pointer(const solar_os_input_pointer_event_t *event,
+                            void *context)
+{
+    assert(event != NULL);
+    assert(context == &pointer_filter_calls);
+    pointer_filter_calls++;
+    return event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE;
+}
+
+static void observe_gesture(const solar_os_input_gesture_event_t *event,
+                            void *context)
+{
+    unsigned *calls = (unsigned *)context;
+    assert(event != NULL);
+    assert(event->gesture == SOLAR_OS_INPUT_GESTURE_FLICK);
+    assert(event->direction == SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    (*calls)++;
+}
 
 void *solar_os_memory_calloc(size_t count,
                              size_t size,
@@ -34,12 +58,17 @@ void *solar_os_memory_calloc(size_t count,
         assert(pointer_queue_allocation == NULL);
         pointer_queue_allocation = allocation;
         pointer_queue_allocations++;
-    } else {
-        assert(strcmp(tag, "input-axis") == 0);
+    } else if (strcmp(tag, "input-axis") == 0) {
         assert(size == sizeof(solar_os_input_axis_event_t));
         assert(axis_queue_allocation == NULL);
         axis_queue_allocation = allocation;
         axis_queue_allocations++;
+    } else {
+        assert(strcmp(tag, "input-gesture") == 0);
+        assert(size == sizeof(solar_os_input_gesture_event_t));
+        assert(gesture_queue_allocation == NULL);
+        gesture_queue_allocation = allocation;
+        gesture_queue_allocations++;
     }
     return allocation;
 }
@@ -50,10 +79,13 @@ void solar_os_memory_free(void *ptr)
         if (ptr == pointer_queue_allocation) {
             pointer_queue_allocation = NULL;
             pointer_queue_frees++;
-        } else {
-            assert(ptr == axis_queue_allocation);
+        } else if (ptr == axis_queue_allocation) {
             axis_queue_allocation = NULL;
             axis_queue_frees++;
+        } else {
+            assert(ptr == gesture_queue_allocation);
+            gesture_queue_allocation = NULL;
+            gesture_queue_frees++;
         }
         free(ptr);
     }
@@ -167,6 +199,35 @@ static solar_os_input_key_event_t read_one_event(void)
 
 int main(void)
 {
+    uint8_t chord_key = 0U;
+    uint8_t chord_modifiers = 0U;
+    assert(solar_os_input_parse_key_chord("RIGHT",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_RIGHT);
+    assert(chord_modifiers == 0U);
+    assert(solar_os_input_parse_key_chord("ALT+RIGHT",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_RIGHT);
+    assert(chord_modifiers == SOLAR_OS_INPUT_MOD_LEFT_ALT);
+    assert(solar_os_input_parse_key_chord("CTRL+SHIFT+F1",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_F1);
+    assert(chord_modifiers == (SOLAR_OS_INPUT_MOD_LEFT_CTRL |
+                               SOLAR_OS_INPUT_MOD_LEFT_SHIFT));
+    assert(solar_os_input_parse_key_chord("ALTGR+ENTER",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_ENTER);
+    assert(chord_modifiers == SOLAR_OS_INPUT_MOD_RIGHT_ALT);
+    assert(!solar_os_input_parse_key_chord("ALT", &chord_key, &chord_modifiers));
+    assert(!solar_os_input_parse_key_chord("ALT+", &chord_key, &chord_modifiers));
+    assert(!solar_os_input_parse_key_chord("ALT+LEFT+RIGHT",
+                                           &chord_key,
+                                           &chord_modifiers));
+
     assert(solar_os_input_init() == ESP_OK);
     assert(solar_os_input_translate_hid_usage(0x04, 0, false) == 'a');
     assert(solar_os_input_translate_hid_usage(0x04,
@@ -293,6 +354,21 @@ int main(void)
     event = read_one_event();
     assert(event.action == SOLAR_OS_INPUT_KEY_RELEASE);
 
+    assert(solar_os_input_write_key_tap(keyboard,
+                                        0x182,
+                                        SOLAR_OS_INPUT_USAGE_NONE,
+                                        SOLAR_OS_KEY_RIGHT,
+                                        SOLAR_OS_INPUT_MOD_LEFT_ALT) == ESP_OK);
+    event = read_one_event();
+    assert(event.action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(event.key == SOLAR_OS_KEY_RIGHT);
+    assert(event.modifiers == SOLAR_OS_INPUT_MOD_LEFT_ALT);
+    event = read_one_event();
+    assert(event.action == SOLAR_OS_INPUT_KEY_RELEASE);
+    assert(event.key == SOLAR_OS_KEY_RIGHT);
+    assert(event.modifiers == 0U);
+    assert(solar_os_input_get_pressed(pressed, 2) == 0U);
+
     now_us = 1100000;
     assert(solar_os_input_write_key(keyboard,
                                     0x2b,
@@ -392,6 +468,16 @@ int main(void)
     assert(pointer_read.action == SOLAR_OS_INPUT_POINTER_PRESS);
     assert(pointer_read.x == 123 && pointer_read.y == 45);
     assert(strcmp(pointer_read.target, "display0") == 0);
+    assert(solar_os_input_pointer_filter_register(consume_pointer,
+                                                   &pointer_filter_calls) == ESP_OK);
+    assert(solar_os_input_pointer_filter_register(consume_pointer,
+                                                   &pointer_filter_calls) ==
+           ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_pointer_filter_event(&pointer_read));
+    assert(pointer_filter_calls == 1U);
+    solar_os_input_pointer_filter_unregister(consume_pointer,
+                                              &pointer_filter_calls);
+    assert(!solar_os_input_pointer_filter_event(&pointer_read));
 
     solar_os_input_pointer_event_t oriented = pointer_read;
     assert(solar_os_input_pointer_apply_orientation(
@@ -524,6 +610,84 @@ int main(void)
     solar_os_input_source_close(joystick);
     assert(solar_os_input_read_axis_events(&axis_read, 1) == 0);
     assert(axis_queue_frees == 1);
+
+    solar_os_input_source_t gesture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_source_open_typed(
+               "gesture0",
+               SOLAR_OS_INPUT_SOURCE_GESTURE,
+               SOLAR_OS_INPUT_CAP_GESTURE_EVENTS,
+               true,
+               &gesture_source) == ESP_OK);
+    assert(gesture_queue_allocations == 1);
+    solar_os_input_gesture_event_t gesture = {
+        .gesture = SOLAR_OS_INPUT_GESTURE_FLICK,
+        .direction = SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
+        .flags = SOLAR_OS_INPUT_GESTURE_FLAG_EDGE,
+        .raw = 65U,
+    };
+    solar_os_input_gesture_t parsed_gesture = SOLAR_OS_INPUT_GESTURE_COUNT;
+    solar_os_input_gesture_direction_t parsed_direction =
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT;
+    assert(solar_os_input_parse_gesture("FLICK", &parsed_gesture));
+    assert(parsed_gesture == SOLAR_OS_INPUT_GESTURE_FLICK);
+    assert(!solar_os_input_parse_gesture("shake", &parsed_gesture));
+    assert(solar_os_input_parse_gesture_direction("EAST", &parsed_direction));
+    assert(parsed_direction == SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    solar_os_input_source_info_t gesture_info;
+    assert(solar_os_input_source_get_info(gesture_source, &gesture_info));
+    assert(strcmp(gesture_info.name, "gesture0") == 0);
+    assert(gesture_info.source_class == SOLAR_OS_INPUT_SOURCE_GESTURE);
+    assert(gesture_info.gesture_mask == SOLAR_OS_INPUT_GESTURE_MASK_ALL);
+    assert(solar_os_input_source_set_gestures(
+               gesture_source,
+               SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
+                   SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP)) == ESP_OK);
+    assert(solar_os_input_source_get_info(gesture_source, &gesture_info));
+    assert(gesture_info.gesture_mask ==
+           (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP)));
+    assert(solar_os_input_source_get(solar_os_input_source_count() - 1U,
+                                     &gesture_info));
+    assert(gesture_info.source == gesture_source);
+    assert(gesture_info.gesture_mask ==
+           (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP)));
+    assert(strcmp(solar_os_input_source_class_name(gesture_info.source_class),
+                  "gesture") == 0);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[0]) == ESP_OK);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[1]) == ESP_OK);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[0]) ==
+           ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_gesture(buttons, &gesture) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_input_write_gesture(gesture_source, &gesture) == ESP_OK);
+    assert(gesture_observer_calls[0] == 1U);
+    assert(gesture_observer_calls[1] == 1U);
+    solar_os_input_gesture_event_t gesture_read = {0};
+    assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 1);
+    assert(gesture_read.source == gesture_source);
+    assert(gesture_read.gesture == SOLAR_OS_INPUT_GESTURE_FLICK);
+    assert(gesture_read.direction == SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    assert(gesture_read.flags == SOLAR_OS_INPUT_GESTURE_FLAG_EDGE);
+    assert(strcmp(solar_os_input_gesture_name(gesture_read.gesture), "flick") == 0);
+    assert(strcmp(solar_os_input_gesture_direction_name(gesture_read.direction),
+                  "east") == 0);
+    assert(solar_os_input_source_get_diagnostics(gesture_source, &diagnostics));
+    assert(diagnostics.gesture_events == 1);
+    assert(diagnostics.has_gesture);
+    assert(diagnostics.last_gesture.raw == 65U);
+    solar_os_input_gesture_observer_unregister(
+        observe_gesture, &gesture_observer_calls[0]);
+    assert(solar_os_input_write_gesture(gesture_source, &gesture) == ESP_OK);
+    assert(gesture_observer_calls[0] == 1U);
+    assert(gesture_observer_calls[1] == 2U);
+    solar_os_input_gesture_observer_unregister(
+        observe_gesture, &gesture_observer_calls[1]);
+    solar_os_input_source_close(gesture_source);
+    assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 0);
+    assert(gesture_queue_frees == 1);
     solar_os_input_source_close(buttons);
 
     assert(solar_os_input_get_pressed(pressed, 2) == 1);

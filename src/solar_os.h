@@ -32,6 +32,8 @@ typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
 #define SOLAR_OS_APP_FLAG_POINTER_EVENTS (1U << 3)
 /* Receive normalized analog axis events. */
 #define SOLAR_OS_APP_FLAG_AXIS_EVENTS (1U << 4)
+/* Receive recognized touchless and touch gesture events. */
+#define SOLAR_OS_APP_FLAG_GESTURE_EVENTS (1U << 5)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -103,6 +105,7 @@ typedef enum {
     SOLAR_OS_EVENT_KEY,
     SOLAR_OS_EVENT_POINTER,
     SOLAR_OS_EVENT_AXIS,
+    SOLAR_OS_EVENT_GESTURE,
     SOLAR_OS_EVENT_TICK,
     SOLAR_OS_EVENT_RESUME,
 } solar_os_event_type_t;
@@ -114,6 +117,7 @@ typedef struct {
         solar_os_input_key_event_t key;
         solar_os_input_pointer_event_t pointer;
         solar_os_input_axis_event_t axis;
+        solar_os_input_gesture_event_t gesture;
         uint32_t tick_ms;
     } data;
 } solar_os_event_t;

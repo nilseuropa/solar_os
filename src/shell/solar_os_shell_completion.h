@@ -9,6 +9,7 @@ extern "C" {
 
 size_t solar_os_shell_completion_common_prefix(const char *first,
                                                const char *second);
+bool solar_os_shell_completion_needs_trailing_space(const char *match);
 
 bool solar_os_shell_completion_parse(const char *input,
                                      size_t input_len,
