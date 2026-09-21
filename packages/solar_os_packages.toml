@@ -227,9 +227,9 @@ category = "Hardware tools"
 members = ["job_midi"]
 
 [groups.ssh]
-label = "SSH and SCP clients"
+label = "SSH file and terminal clients"
 category = "Networking"
-members = ["app_ssh", "app_scp"]
+members = ["app_ssh", "app_scp", "app_sftpsync"]
 
 [groups.http_client]
 label = "HTTP client and Curl"
@@ -891,6 +891,12 @@ sources = [
   "services/solar_os_ssh_transport.c",
 ]
 requires = ["esp-tls", "mbedtls"]
+capabilities = ["wifi"]
+
+[packages.service_sftpsync]
+label = "network.sftpsync"
+depends = ["service_ssh"]
+sources = ["services/solar_os_sftpsync.c"]
 capabilities = ["wifi"]
 
 [packages.service_mail]
@@ -1960,6 +1966,12 @@ capabilities = ["wifi"]
 label = "app.scp"
 depends = ["service_ssh"]
 sources = ["apps/solar_os_scp.c"]
+capabilities = ["wifi"]
+
+[packages.app_sftpsync]
+label = "app.sftpsync"
+depends = ["service_sftpsync"]
+sources = ["apps/solar_os_sftpsync.c"]
 capabilities = ["wifi"]
 
 [packages.app_curl]

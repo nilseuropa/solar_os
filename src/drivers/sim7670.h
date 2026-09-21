@@ -111,6 +111,8 @@ esp_err_t sim7670_set_pdp_active(sim7670_t *device, bool active);
 esp_err_t sim7670_enter_data_mode(sim7670_t *device);
 esp_err_t sim7670_unlock_sim(sim7670_t *device, const char *pin);
 esp_err_t sim7670_set_gnss_power(sim7670_t *device, bool enabled);
+esp_err_t sim7670_probe_gnss(sim7670_t *device);
+esp_err_t sim7670_configure_gnss(sim7670_t *device);
 esp_err_t sim7670_read_gnss_fix(sim7670_t *device,
                                 uint32_t timeout_ms,
                                 sim7670_gnss_fix_t *fix);

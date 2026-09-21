@@ -13,6 +13,7 @@
 #define SIM7670_CONFIG_TIMEOUT_MS 5000U
 #define SIM7670_BAUD_TIMEOUT_MS 5000U
 #define SIM7670_ACTIVATION_TIMEOUT_MS 45000U
+#define SIM7670_GNSS_POWER_TIMEOUT_MS 10000U
 #define SIM7670_CONTEXT_ID 1U
 
 typedef enum {
@@ -963,9 +964,39 @@ esp_err_t sim7670_set_gnss_power(sim7670_t *device, bool enabled)
     char response[192];
     return sim7670_command(device,
                            enabled ? "AT+CGNSSPWR=1" : "AT+CGNSSPWR=0",
-                           5000U,
+                           SIM7670_GNSS_POWER_TIMEOUT_MS,
                            response,
                            sizeof(response));
+}
+
+esp_err_t sim7670_probe_gnss(sim7670_t *device)
+{
+    char response[256];
+    const esp_err_t ret = sim7670_command(device,
+                                          "AT+CGPSINFO",
+                                          SIM7670_CONFIG_TIMEOUT_MS,
+                                          response,
+                                          sizeof(response));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    sim7670_gnss_fix_t fix;
+    return sim7670_parse_cgpsinfo(response, &fix)
+        ? ESP_OK
+        : ESP_ERR_INVALID_RESPONSE;
+}
+
+esp_err_t sim7670_configure_gnss(sim7670_t *device)
+{
+    const esp_err_t ret = run_config_command(device,
+                                              "AT+CGNSSMODE=15",
+                                              SIM7670_CONFIG_TIMEOUT_MS);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    return run_config_command(device,
+                              "AT+CGNSSTST=1",
+                              SIM7670_CONFIG_TIMEOUT_MS);
 }
 
 esp_err_t sim7670_read_gnss_fix(sim7670_t *device,

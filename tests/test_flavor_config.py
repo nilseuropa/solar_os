@@ -60,7 +60,7 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertNotIn("usb_hid", names)
         self.assertEqual(len(groups), len(names))
         self.assertEqual(self.catalog.group_defs["ssh"].members,
-                         ("app_ssh", "app_scp"))
+                         ("app_ssh", "app_scp", "app_sftpsync"))
         self.assertEqual(self.catalog.group_defs["ssh"].category, "Networking")
 
     def test_builder_preserves_input_metadata_without_overrides(self):
@@ -132,7 +132,9 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(model.group_state(ssh.members), 2)
         self.assertIn("app_ssh", model.selected)
         self.assertIn("app_scp", model.selected)
+        self.assertIn("app_sftpsync", model.selected)
         self.assertIn("service_ssh", model.selected)
+        self.assertIn("service_sftpsync", model.selected)
         self.assertIn("service_wifi", model.selected)
         model.toggle_group(ssh.members)
         self.assertNotIn("app_ssh", model.selected)

@@ -58,6 +58,13 @@ static esp_err_t fake_write(void *user,
             "\r\n+CGNSSINFO: 2,09,05,00,00,3113.330650,N,"
             "12121.262554,E,131117,091918.00,32.9,0.0,255.0,"
             "1.1,0.8,0.7,14\r\n\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGPSINFO\r\n") == 0) {
+        transport->response = "\r\n+CGPSINFO: ,,,,,,,,\r\n\r\nOK\r\n";
+    } else if (strcmp(transport->request, "AT+CGNSSPWR=1\r\n") == 0 ||
+               strcmp(transport->request, "AT+CGNSSPWR=0\r\n") == 0 ||
+               strcmp(transport->request, "AT+CGNSSMODE=15\r\n") == 0 ||
+               strcmp(transport->request, "AT+CGNSSTST=1\r\n") == 0) {
+        transport->response = "\r\nOK\r\n";
     } else if (strcmp(transport->request, "AT+IPR=460800\r\n") == 0) {
         transport->response = "\r\nOK\r\n";
     } else if (strncmp(transport->request, "AT+CGDCONT=", 11U) == 0 ||
@@ -216,6 +223,16 @@ int main(void)
     assert(sim7670_read_gnss_fix(&modem, 10000U, &fix) == ESP_OK);
     assert(strcmp(transport.requests[request++], "AT+CGNSSINFO\r\n") == 0);
     assert(fix.valid && fix.satellites == 14U);
+
+    assert(sim7670_set_gnss_power(&modem, true) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGNSSPWR=1\r\n") == 0);
+    assert(sim7670_probe_gnss(&modem) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGPSINFO\r\n") == 0);
+    assert(sim7670_configure_gnss(&modem) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGNSSMODE=15\r\n") == 0);
+    assert(strcmp(transport.requests[request++], "AT+CGNSSTST=1\r\n") == 0);
+    assert(sim7670_set_gnss_power(&modem, false) == ESP_OK);
+    assert(strcmp(transport.requests[request++], "AT+CGNSSPWR=0\r\n") == 0);
 
     char response[64];
     assert(sim7670_command(&modem,

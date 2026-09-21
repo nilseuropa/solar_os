@@ -14,12 +14,16 @@ PYTHON_BINDINGS = PYTHON_SOURCE + (
 ).read_text(encoding="utf-8") + (
     REPOSITORY / "src/apps/solar_os_python_ftp.inc"
 ).read_text(encoding="utf-8") + (
+    REPOSITORY / "src/apps/solar_os_python_sftpsync.inc"
+).read_text(encoding="utf-8") + (
     REPOSITORY / "src/apps/solar_os_python_ble.inc"
 ).read_text(encoding="utf-8")
 LUA_BINDINGS = LUA_SOURCE + (
     REPOSITORY / "src/apps/solar_os_lua_dsp.inc"
 ).read_text(encoding="utf-8") + (
     REPOSITORY / "src/apps/solar_os_lua_ftp.inc"
+).read_text(encoding="utf-8") + (
+    REPOSITORY / "src/apps/solar_os_lua_sftpsync.inc"
 ).read_text(encoding="utf-8") + (
     REPOSITORY / "src/apps/solar_os_lua_ble.inc"
 ).read_text(encoding="utf-8")
@@ -45,7 +49,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 47)
+        self.assertEqual(len(modules), 48)
         self.assertEqual(len(modules), len(set(modules)))
         self.assertNotRegex(PYTHON_SOURCE, r'python_new_submodule\(module,\s*"')
         self.assertNotRegex(LUA_SOURCE, r'solua_new_submodule\(L,\s*solaros,\s*"')
@@ -190,7 +194,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             + submodule_constant_count
             + subnested_count
             + hid_keycode_count * hid_keycode_include_count,
-            722,
+            723,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

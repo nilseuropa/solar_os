@@ -2,6 +2,16 @@
 
 ## 4.x
 
+- **4.13.3** — 2026-09-21 — Added `sftpsync`, a one-way incremental file and
+  directory updater over a standard SSH server's SFTP subsystem. It supports
+  recursive and dry-run modes, password and key authentication, Python and Lua
+  bindings, per-file progress bars, and cancellation with `Ctrl+C`; matching
+  size/modification-time pairs are skipped and destination-only files are
+  preserved. SIM7670 GNSS startup now waits for the receiver to become ready,
+  configures its positioning mode, and polls for a valid fix for the requested
+  timeout instead of immediately returning the first invalid result. MAX17048
+  battery readings now fetch voltage and state of charge in separate hardware
+  transactions, fixing devices that otherwise reported a constant 100% charge.
 - **4.13.2** — 2026-09-20 — Shell startup now defaults to `auto`: targets
   with board-owned SD storage use `/sdcard/.shell/startup` when the card mounts
   and fall back to flash when SD is unavailable. `setterm startup flash` and

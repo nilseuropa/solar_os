@@ -67,6 +67,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_FTP
 #include "solar_os_ftp.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
+#include "solar_os_sftpsync.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
 #endif
@@ -7534,6 +7537,9 @@ static void solua_new_submodule(lua_State *L, int parent, const char *name)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_FTP
 #include "solar_os_lua_ftp.inc"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
+#include "solar_os_lua_sftpsync.inc"
 #endif
 
 static int solua_require(lua_State *L)

@@ -2,8 +2,8 @@
 id = "python.network"
 title = "Python networking API"
 section = "api"
-summary = "Networking: wifi, mqtt, http, net, ftp, ssh_keys"
-keywords = "python solaros api network wifi mqtt http net ftp ssh_keys"
+summary = "Networking: wifi, mqtt, http, net, ftp, sftpsync, ssh_keys"
+keywords = "python solaros api network wifi mqtt http net ftp sftpsync ssh_keys"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -306,6 +306,30 @@ for item in solaros.ftp.list("fileserver", "/incoming"):
 solaros.ftp.upload("fileserver", "/notes/todo.txt", "/incoming/todo.txt")
 ```
 
+## `solaros.sftpsync`
+
+`sync(source, destination[, recursive[, dry_run[, port[, password]]]])`
+synchronizes one local path with one `[user@]host:path` endpoint through SFTP.
+The direction follows the operand order. Local paths use the SolarOS storage
+resolver. The username defaults to the SolarOS identity, the port defaults to
+`22`, and an empty password allows SSH key authentication.
+
+The call blocks while it transfers, but remains cancellation-aware. It skips
+regular files whose size and modification time match, never deletes
+destination-only files, and limits recursive traversal to eight directory
+levels. Set `recursive=True` for directories or `dry_run=True` to report what
+would change. The returned dictionary contains `files_changed`,
+`bytes_transferred`, and `dry_run`; failures raise `OSError`.
+
+```python
+import solaros
+
+result = solaros.sftpsync.sync(
+    "/notes", "backup@example.com:/srv/terminal/notes", True
+)
+print(result["files_changed"], result["bytes_transferred"])
+```
+
 ## `solaros.ssh_keys`
 
 SSH key functions manage the default SolarOS SSH key pair.
@@ -331,5 +355,5 @@ print(solaros.ssh_keys.public_key())
 
 ## Quick reference
 
-Use `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.ssh_keys` for networking.
+Use `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.sftpsync`, `solaros.ssh_keys` for networking.
 See `man python` for runtime conventions and service availability.

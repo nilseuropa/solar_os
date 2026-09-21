@@ -1355,6 +1355,34 @@ Controls:
 
 - App-exit key cancels an active transfer.
 
+## sftpsync
+
+Incremental file and directory synchronization over SSH. The SolarOS client
+uses the server's SFTP subsystem, so it works with a normal SSH server without
+requiring a matching remote program. It skips regular files whose size and
+modification time already match. It does not delete destination-only files.
+
+Usage:
+
+```text
+sftpsync [-r|-a] [-n] [-P port] local [user@]host:remote
+sftpsync [-r|-a] [-n] [-P port] [user@]host:remote local
+```
+
+`-r`, `-a`, or `--recursive` enables directory traversal. `-n` or `--dry-run`
+prints the changes without writing them. `-P` selects a non-default SSH port.
+Password and key authentication, known hosts, and aliases in `/.ssh/hosts` are
+shared with `ssh` and `scp`. A local or remote directory operand names the
+directory to synchronize; its contents are updated below that path. Traversal
+is limited to eight nested directory levels. Symbolic links and other special
+file types are skipped. Active transfers show an updating progress bar for each
+changed file, followed by the aggregate file and byte counts.
+
+Controls:
+
+- `Ctrl+C` or the app-exit key cancels the password prompt or an active
+  synchronization.
+
 ## sheet
 
 CSV viewer for small data tables. It is intended as a companion to `daq` logs

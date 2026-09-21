@@ -1568,9 +1568,14 @@ static const char * const logic_rate_values[] = {"10000", "100000", "500000", "1
 static const char * const logic_sample_values[] = {"1024", "4096", "16384", "32768"};
 static const char * const logic_trigger_options[] = {"trigger="};
 #endif
+#if SOLAR_OS_PACKAGE_APP_SCP || SOLAR_OS_PACKAGE_APP_SFTPSYNC
+static const char * const ssh_copy_port_values[] = {"22", "2222"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_SCP
 static const char * const scp_options[] = {"-P"};
-static const char * const scp_port_values[] = {"22", "2222"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+static const char * const sftpsync_options[] = {"-a", "-r", "-n", "-P", "--recursive", "--dry-run"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
 static const char * const telnet_options[] = {"-r"};
@@ -1668,6 +1673,10 @@ static const char * const path_logic_samples[] = {
 #if SOLAR_OS_PACKAGE_APP_SCP
 static const char * const path_scp[] = {"scp"};
 static const char * const path_scp_port[] = {"scp", "-P"};
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+static const char * const path_sftpsync[] = {"sftpsync"};
+static const char * const path_sftpsync_port[] = {"sftpsync", "-P"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
 static const char * const path_telnet[] = {"telnet"};
@@ -2895,7 +2904,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
     SHELL_COMPLETION_OPTIONS(path_scp, scp_options),
-    SHELL_COMPLETION_STATIC(path_scp_port, scp_port_values),
+    SHELL_COMPLETION_STATIC(path_scp_port, ssh_copy_port_values),
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+    SHELL_COMPLETION_OPTIONS(path_sftpsync, sftpsync_options),
+    SHELL_COMPLETION_STATIC(path_sftpsync_port, ssh_copy_port_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_TELNET
     SHELL_COMPLETION_OPTIONS(path_telnet, telnet_options),
@@ -5042,7 +5055,10 @@ static bool shell_is_path_command(const char *command)
            strcmp(command, "view") == 0 ||
 #endif
 #if SOLAR_OS_PACKAGE_APP_SCP
-           strcmp(command, "scp") == 0;
+           strcmp(command, "scp") == 0 ||
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+           strcmp(command, "sftpsync") == 0;
 #else
            false;
 #endif
@@ -6686,7 +6702,9 @@ static bool shell_completion_visit_ssh_host(const char *address,
     return true;
 }
 
-static bool shell_scp_host_position(const char * const *tokens, size_t token_count)
+static bool shell_ssh_copy_host_position(const char * const *tokens,
+                                         size_t token_count,
+                                         bool sftpsync_command)
 {
     size_t positional_count = 0U;
 
@@ -6696,6 +6714,9 @@ static bool shell_scp_host_position(const char * const *tokens, size_t token_cou
                 return false;
             }
             i++;
+            continue;
+        }
+        if (sftpsync_command && tokens[i][0] == '-') {
             continue;
         }
         positional_count++;
@@ -6724,11 +6745,18 @@ static bool SHELL_NOINLINE shell_complete_ssh_host_argument(
 #else
         false;
 #endif
-    if ((!ssh_command && !scp_command) || prefix == NULL) {
+    const bool sftpsync_command =
+#if SOLAR_OS_PACKAGE_APP_SFTPSYNC
+        strcmp(effective_command, "sftpsync") == 0;
+#else
+        false;
+#endif
+    if ((!ssh_command && !scp_command && !sftpsync_command) || prefix == NULL) {
         return false;
     }
     if ((ssh_command && token_count != 1U) ||
-        (scp_command && !shell_scp_host_position(tokens, token_count))) {
+        ((scp_command || sftpsync_command) &&
+         !shell_ssh_copy_host_position(tokens, token_count, sftpsync_command))) {
         return false;
     }
     if (prefix[0] == '-' || strchr(prefix, ':') != NULL ||
@@ -8036,7 +8064,8 @@ static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
         solar_os_memory_free(parse);
         return;
     }
-    if (strcmp(effective_command, "scp") == 0 &&
+    if ((strcmp(effective_command, "scp") == 0 ||
+         strcmp(effective_command, "sftpsync") == 0) &&
         memchr(&shell_session(ctx)->input[token_start], ':', shell_session(ctx)->input_len - token_start) != NULL) {
         solar_os_memory_free(parse);
         return;
@@ -8925,36 +8954,48 @@ int solar_os_shell_session_last_exit_code(
     return session != NULL ? session->last_exit_code : 0;
 }
 
-static bool shell_scp_arg_is_remote(const char *arg)
+static bool shell_ssh_copy_arg_is_remote(const char *arg)
 {
     const char *colon = arg != NULL ? strchr(arg, ':') : NULL;
     return colon != NULL && colon != arg;
 }
 
-static bool shell_prepare_scp_launch_args(solar_os_context_t *ctx,
-                                          int argc,
-                                          char **argv,
-                                          char **launch_argv,
-                                          char resolved_paths[2][SHELL_PATH_MAX])
+static bool shell_prepare_ssh_copy_launch_args(solar_os_context_t *ctx,
+                                               const char *command,
+                                               int argc,
+                                               char **argv,
+                                               char **launch_argv,
+                                               char resolved_paths[2][SHELL_PATH_MAX])
 {
-    int argi = 1;
+    int operands[2] = {0};
+    int operand_count = 0;
     int resolved_count = 0;
 
-    if (argc >= 4 && strcmp(argv[argi], "-P") == 0) {
-        argi += 2;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-P") == 0) {
+            i++;
+            continue;
+        }
+        if (strcmp(command, "sftpsync") == 0 && argv[i][0] == '-') {
+            continue;
+        }
+        if (operand_count >= 2) {
+            return true;
+        }
+        operands[operand_count++] = i;
     }
-    if (argc - argi != 2) {
+    if (operand_count != 2) {
         return true;
     }
 
     for (int i = 0; i < 2; i++) {
-        const int index = argi + i;
-        if (shell_scp_arg_is_remote(argv[index])) {
+        const int index = operands[i];
+        if (shell_ssh_copy_arg_is_remote(argv[index])) {
             continue;
         }
         if (!solar_os_shell_resolve_path_for_command(ctx,
                                                      terminal(ctx),
-                                                     "scp",
+                                                     command,
                                                      argv[index],
                                                      resolved_paths[resolved_count],
                                                      SHELL_PATH_MAX)) {
@@ -9013,12 +9054,13 @@ static bool shell_prepare_app_launch_args(
             return false;
         }
         launch_argv[path_arg] = storage->path;
-    } else if (strcmp(app->name, "scp") == 0) {
-        return shell_prepare_scp_launch_args(ctx,
-                                             argc,
-                                             argv,
-                                             launch_argv,
-                                             storage->scp_paths);
+    } else if (strcmp(app->name, "scp") == 0 || strcmp(app->name, "sftpsync") == 0) {
+        return shell_prepare_ssh_copy_launch_args(ctx,
+                                                  app->name,
+                                                  argc,
+                                                  argv,
+                                                  launch_argv,
+                                                  storage->scp_paths);
     }
 
     return true;
