@@ -566,6 +566,22 @@ esp_err_t solar_os_mgc3130_attach(
     if (ret != ESP_OK) {
         return ret;
     }
+    const uint32_t gesture_mask =
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_WAVE) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_PRESENCE) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) |
+        (candidate.airwheel_enabled
+             ? SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_AIRWHEEL)
+             : SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_CIRCLE));
+    ret = solar_os_input_source_set_gestures(candidate.input_source,
+                                             gesture_mask);
+    if (ret != ESP_OK) {
+        solar_os_input_source_close(candidate.input_source);
+        return ret;
+    }
     candidate.active = true;
     sensor = candidate;
     if (solar_os_task_create_pinned_internal(mgc3130_worker,

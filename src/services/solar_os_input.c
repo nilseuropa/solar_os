@@ -65,6 +65,7 @@ typedef struct {
     bool active;
     solar_os_input_source_class_t source_class;
     uint32_t capabilities;
+    uint32_t gesture_mask;
     bool ready;
     char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
 } input_source_slot_t;
@@ -632,6 +633,10 @@ static esp_err_t input_source_open_locked(const char *name,
         input_sources[i].active = true;
         input_sources[i].source_class = source_class;
         input_sources[i].capabilities = capabilities;
+        input_sources[i].gesture_mask =
+            (capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0U
+                ? SOLAR_OS_INPUT_GESTURE_MASK_ALL
+                : 0U;
         input_sources[i].ready = ready;
         strlcpy(input_sources[i].name, name, sizeof(input_sources[i].name));
         memset(&input_diagnostics[i], 0, sizeof(input_diagnostics[i]));
@@ -923,6 +928,7 @@ bool solar_os_input_source_get_info(solar_os_input_source_t source,
             .source = source,
             .source_class = input_sources[index].source_class,
             .capabilities = input_sources[index].capabilities,
+            .gesture_mask = input_sources[index].gesture_mask,
             .ready = input_sources[index].ready,
         };
         strlcpy(info->name, input_sources[index].name, sizeof(info->name));
@@ -946,6 +952,7 @@ bool solar_os_input_source_find(const char *name, solar_os_input_source_info_t *
             .source = (solar_os_input_source_t)(i + 1U),
             .source_class = input_sources[i].source_class,
             .capabilities = input_sources[i].capabilities,
+            .gesture_mask = input_sources[i].gesture_mask,
             .ready = input_sources[i].ready,
         };
         strlcpy(info->name, input_sources[i].name, sizeof(info->name));
@@ -1521,6 +1528,24 @@ esp_err_t solar_os_input_write_gesture(
         }
     }
     return result;
+}
+
+esp_err_t solar_os_input_source_set_gestures(solar_os_input_source_t source,
+                                             uint32_t gesture_mask)
+{
+    if ((gesture_mask & ~SOLAR_OS_INPUT_GESTURE_MASK_ALL) != 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities &
+         SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U) {
+        portEXIT_CRITICAL(&input_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    input_sources[source - 1U].gesture_mask = gesture_mask;
+    portEXIT_CRITICAL(&input_lock);
+    return ESP_OK;
 }
 
 esp_err_t solar_os_input_gesture_observer_register(

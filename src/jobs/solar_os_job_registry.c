@@ -28,6 +28,9 @@
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
 #include "solar_os_httpd_job.h"
 #endif
+#if SOLAR_OS_PACKAGE_JOB_GESTURE_LISTENER
+#include "solar_os_gesture_listener_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_FTPD
 #include "solar_os_ftpd_job.h"
 #endif
@@ -104,6 +107,9 @@ static const solar_os_job_registry_entry_t registered_jobs[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_HTTPD
     {"httpd", "static HTTP file server", &solar_os_httpd_job},
+#endif
+#if SOLAR_OS_PACKAGE_JOB_GESTURE_LISTENER
+    {"gesture-listener", "run gesture-to-command bindings", &solar_os_gesture_listener_job},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_FTPD
     {"ftpd", "FTP file server", &solar_os_ftpd_job},

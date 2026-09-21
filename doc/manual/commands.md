@@ -242,9 +242,10 @@ job for periodic polling.
 | `input` | `input test <source>` | Show event counters and the last key, pointer, axis, or gesture event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
 | `input` | `input emit <key>` | Emit a local key tap, such as `RIGHT`, `ENTER`, or one literal character, through the normal input-focus path. |
-| `input` | `input bind source=<name\|*> gesture=<name> [direction=<name\|*>] [cooldown=<ms>] -- <command> [args...]` | Bind matching gesture events to a serialized background shell command. |
-| `input` | `input bindings` | List volatile gesture bindings, trigger counts, queue drops, cooldowns, and commands. |
-| `input` | `input unbind <id\|all>` | Remove one volatile gesture binding or all of them. |
+| `gesture` | `gesture [status]` | List gesture-capable input sources, readiness, and the gesture kinds each source advertises. |
+| `gesture` | `gesture bind source=<name\|*> gesture=<name> [direction=<name\|*>] [cooldown=<ms>] -- <command> [args...]` | Configure a volatile gesture-to-command rule for the `gesture-listener` job. |
+| `gesture` | `gesture bindings` | Show listener state and list volatile gesture bindings, trigger counts, queue drops, cooldowns, and commands. |
+| `gesture` | `gesture unbind <id\|all>` | Remove one volatile gesture binding or all of them. |
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
@@ -293,8 +294,10 @@ job for periodic polling.
 
 Input completion lists every current source after `input test`, only absolute
 pointer sources after `input calibrate`, common named keys after `input emit`,
-`all` after `input unbind`, `status` after an input class, and
-`set` or `reset` after a calibration source.
+`status` after an input class, and `set` or `reset` after a calibration source.
+Gesture completion lists gesture-capable sources after `source=`, limits
+`gesture=` values to the selected source's advertised gestures, and offers
+`all` after `gesture unbind`.
 
 `power` usage:
 
@@ -574,6 +577,7 @@ job start bridge cdc0 vser0
 job start gpio-keys gpio17:UP gpio2:ENTER
 job start gpio-keys --config /flash/gpio-keys.conf
 job start graffiti
+job start gesture-listener
 job start httpd /www
 job start displayd [display-target]   # display0 by default, web0 when headless
 job start ntp-sync once

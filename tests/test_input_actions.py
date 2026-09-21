@@ -10,8 +10,13 @@ ACTIONS = (ROOT / "src/services/solar_os_input_actions.c").read_text(
 SHELL_INPUT = (ROOT / "src/shell/solar_os_shell_input.c").read_text(
     encoding="utf-8"
 )
+SHELL_APP = (ROOT / "src/apps/solar_os_shell.c").read_text(encoding="utf-8")
 MAIN = (ROOT / "src/main.c").read_text(encoding="utf-8")
 PACKAGES = (ROOT / "packages/solar_os_packages.toml").read_text(encoding="utf-8")
+JOB = (ROOT / "src/jobs/solar_os_gesture_listener_job.c").read_text(
+    encoding="utf-8"
+)
+REGISTRY = (ROOT / "src/jobs/solar_os_job_registry.c").read_text(encoding="utf-8")
 
 
 class InputActionsTest(unittest.TestCase):
@@ -38,12 +43,39 @@ class InputActionsTest(unittest.TestCase):
         self.assertIn("xQueueReceive", worker)
         self.assertIn("runner(command)", worker)
 
-    def test_shell_exposes_emit_and_transient_binding_crud(self):
-        for subcommand in ('"emit"', '"bind"', '"bindings"', '"unbind"'):
+    def test_queue_generation_prevents_reused_ids_from_running_stale_actions(self):
+        self.assertIn("item.generation == state.generation", ACTIONS)
+        clear = ACTIONS.split("size_t solar_os_input_actions_clear", 1)[1].split(
+            "esp_err_t solar_os_input_actions_emit_key", 1
+        )[0]
+        self.assertIn("state.next_id = 1U", clear)
+        self.assertIn("state.generation++", clear)
+
+    def test_shell_keeps_emit_under_input_and_moves_binding_crud_to_gesture(self):
+        self.assertIn('strcmp(argv[1], "emit")', SHELL_INPUT)
+        self.assertIn("solar_os_shell_cmd_gesture", SHELL_INPUT)
+        for subcommand in ('"bind"', '"bindings"', '"unbind"'):
             self.assertIn(subcommand, SHELL_INPUT)
         self.assertIn("solar_os_input_actions_emit_key", SHELL_INPUT)
         self.assertIn("solar_os_input_actions_bind", SHELL_INPUT)
         self.assertIn("solar_os_input_actions_clear", SHELL_INPUT)
+
+    def test_listener_uses_the_job_lifecycle(self):
+        self.assertIn('"gesture-listener"', JOB)
+        self.assertIn("solar_os_input_actions_start()", JOB)
+        self.assertIn("solar_os_input_actions_stop()", JOB)
+        self.assertIn(".worker_stack_bytes = SOLAR_OS_INPUT_ACTION_WORKER_STACK", JOB)
+        self.assertIn("solar_os_gesture_listener_job", REGISTRY)
+        self.assertIn('members = ["core_runtime", "core_shell", "job_gesture_listener"]',
+                      PACKAGES)
+
+    def test_gesture_command_discovers_sources_and_drives_completion(self):
+        self.assertIn("gesture_print_sources", SHELL_INPUT)
+        self.assertIn("source.gesture_mask", SHELL_INPUT)
+        self.assertIn("shell_complete_gesture_argument", SHELL_APP)
+        self.assertIn('"source=*"', SHELL_APP)
+        self.assertIn('"gesture=%s"', SHELL_APP)
+        self.assertIn("info.gesture_mask", SHELL_APP)
 
     def test_runtime_wires_background_runner_and_package_source(self):
         self.assertIn("solar_os_input_actions_init()", MAIN)

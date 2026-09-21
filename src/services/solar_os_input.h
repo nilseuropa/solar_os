@@ -71,6 +71,7 @@ typedef struct {
     char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
     solar_os_input_source_class_t source_class;
     uint32_t capabilities;
+    uint32_t gesture_mask;
     bool ready;
 } solar_os_input_source_info_t;
 
@@ -155,6 +156,10 @@ typedef enum {
     SOLAR_OS_INPUT_GESTURE_AIRWHEEL,
     SOLAR_OS_INPUT_GESTURE_COUNT,
 } solar_os_input_gesture_t;
+
+#define SOLAR_OS_INPUT_GESTURE_MASK(gesture) (1UL << (unsigned)(gesture))
+#define SOLAR_OS_INPUT_GESTURE_MASK_ALL \
+    ((1UL << (unsigned)SOLAR_OS_INPUT_GESTURE_COUNT) - 1UL)
 
 typedef enum {
     SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE,
@@ -280,6 +285,8 @@ esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
 esp_err_t solar_os_input_write_gesture(
     solar_os_input_source_t source,
     const solar_os_input_gesture_event_t *event);
+esp_err_t solar_os_input_source_set_gestures(solar_os_input_source_t source,
+                                             uint32_t gesture_mask);
 esp_err_t solar_os_input_gesture_observer_register(
     solar_os_input_gesture_observer_t observer,
     void *context);

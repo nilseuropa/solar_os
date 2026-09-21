@@ -15,17 +15,24 @@
 #include "solar_os_shell_io.h"
 
 static const char *const input_subcommands[] = {
-    "status", "test", "calibrate", "emit", "bind", "bindings", "unbind",
+    "status", "test", "calibrate", "emit",
     "keyboard", "touch", "mouse", "joystick", "dpad", "buttons", "gesture",
 };
 
 static const char *const input_usage =
     "input [status|test <source>|calibrate <source> [set ...|reset]|emit <key>|"
-    "bind source=<name|*> gesture=<name> [direction=<name|*>] [cooldown=<ms>] "
-    "-- <command>|bindings|unbind <id|all>|keyboard|touch|mouse|joystick|dpad|buttons|gesture]";
+    "keyboard|touch|mouse|joystick|dpad|buttons|gesture]";
 
-static const char *const input_bind_usage =
-    "input bind source=<name|*> gesture=<name> [direction=<name|*>] "
+static const char *const gesture_subcommands[] = {
+    "status", "bind", "bindings", "unbind",
+};
+
+static const char *const gesture_usage =
+    "gesture [status|bind source=<name|*> gesture=<name> "
+    "[direction=<name|*>] [cooldown=<ms>] -- <command>|bindings|unbind <id|all>]";
+
+static const char *const gesture_bind_usage =
+    "gesture bind source=<name|*> gesture=<name> [direction=<name|*>] "
     "[cooldown=<0..3600000>] -- <command> [args...]";
 
 static bool input_append_command_token(char *line,
@@ -423,7 +430,7 @@ static const char *input_option_value(const char *arg, const char *name)
         : NULL;
 }
 
-static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
+static void gesture_bind(solar_os_shell_io_t *io, int argc, char **argv)
 {
     const char *source = "*";
     solar_os_input_gesture_t gesture = SOLAR_OS_INPUT_GESTURE_FLICK;
@@ -448,11 +455,11 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
         if (value != NULL) {
             if (!solar_os_input_parse_gesture(value, &gesture)) {
                 solar_os_shell_diag_invalid(io,
-                                            "input bind",
+                                            "gesture bind",
                                             "gesture",
                                             value,
                                             "flick, circle, wave, hold, presence, tap, double-tap, or airwheel",
-                                            input_bind_usage,
+                                            gesture_bind_usage,
                                             false);
                 return;
             }
@@ -465,11 +472,11 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
             if (!any_direction &&
                 !solar_os_input_parse_gesture_direction(value, &direction)) {
                 solar_os_shell_diag_invalid(io,
-                                            "input bind",
+                                            "gesture bind",
                                             "direction",
                                             value,
                                             "*, none, west, east, north, south, center, clockwise, counterclockwise, horizontal, or vertical",
-                                            input_bind_usage,
+                                            gesture_bind_usage,
                                             false);
                 return;
             }
@@ -483,11 +490,11 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
                                   SOLAR_OS_INPUT_ACTION_COOLDOWN_MAX_MS,
                                   &parsed)) {
                 solar_os_shell_diag_invalid(io,
-                                            "input bind",
+                                            "gesture bind",
                                             "cooldown",
                                             value,
                                             "milliseconds from 0 to 3600000",
-                                            input_bind_usage,
+                                            gesture_bind_usage,
                                             false);
                 return;
             }
@@ -495,27 +502,27 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
             continue;
         }
         solar_os_shell_diag_invalid(io,
-                                    "input bind",
+                                    "gesture bind",
                                     "option",
                                     argv[i],
                                     "source=, gesture=, direction=, or cooldown=",
-                                    input_bind_usage,
+                                    gesture_bind_usage,
                                     false);
         return;
     }
 
     if (!gesture_set) {
         solar_os_shell_diag_missing(io,
-                                    "input bind",
+                                    "gesture bind",
                                     "gesture=<name>",
-                                    input_bind_usage);
+                                    gesture_bind_usage);
         return;
     }
     if (separator < 0 || separator + 1 >= argc) {
         solar_os_shell_diag_missing(io,
-                                    "input bind",
+                                    "gesture bind",
                                     "-- <command>",
-                                    input_bind_usage);
+                                    gesture_bind_usage);
         return;
     }
 
@@ -523,9 +530,9 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
     for (int i = separator + 1; i < argc; i++) {
         if (!input_append_command_token(command, sizeof(command), argv[i])) {
             solar_os_shell_diag_problem(io,
-                                        "input bind",
+                                        "gesture bind",
                                         "command is empty or too long",
-                                        input_bind_usage,
+                                        gesture_bind_usage,
                                         NULL);
             return;
         }
@@ -541,7 +548,7 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
                                                        &id);
     if (err != ESP_OK) {
         solar_os_shell_diag_esp(io,
-                                "create input binding",
+                                "create gesture binding",
                                 err,
                                 NULL,
                                 err == ESP_ERR_NO_MEM
@@ -549,14 +556,27 @@ static void input_bind_gesture(solar_os_shell_io_t *io, int argc, char **argv)
                                     : NULL);
         return;
     }
-    solar_os_shell_io_printf(io, "input binding %" PRIu32 " created\n", id);
+    if (solar_os_input_actions_running()) {
+        solar_os_shell_io_printf(io, "gesture binding %" PRIu32 " created\n", id);
+    } else {
+        solar_os_shell_io_printf(
+            io,
+            "gesture binding %" PRIu32
+            " created; start with: job start gesture-listener\n",
+            id);
+    }
 }
 
-static void input_list_bindings(solar_os_shell_io_t *io)
+static void gesture_list_bindings(solar_os_shell_io_t *io)
 {
+    solar_os_shell_io_printf(io,
+                             "listener: %s\n",
+                             solar_os_input_actions_running()
+                                 ? "running"
+                                 : "stopped");
     const size_t count = solar_os_input_actions_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "no input bindings");
+        solar_os_shell_io_writeln(io, "no gesture bindings");
         return;
     }
     solar_os_shell_io_writeln(
@@ -582,25 +602,63 @@ static void input_list_bindings(solar_os_shell_io_t *io)
     }
 }
 
-static void input_unbind(solar_os_shell_io_t *io, int argc, char **argv)
+static void gesture_print_sources(solar_os_shell_io_t *io)
+{
+    size_t shown = 0U;
+    solar_os_shell_io_writeln(io, "SOURCE           READY GESTURES");
+    for (size_t i = 0; i < solar_os_input_source_count(); i++) {
+        solar_os_input_source_info_t source;
+        if (!solar_os_input_source_get(i, &source) ||
+            (source.capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U) {
+            continue;
+        }
+        char gestures[96] = {0};
+        for (int value = SOLAR_OS_INPUT_GESTURE_FLICK;
+             value < SOLAR_OS_INPUT_GESTURE_COUNT;
+             value++) {
+            if ((source.gesture_mask &
+                 SOLAR_OS_INPUT_GESTURE_MASK(value)) == 0U) {
+                continue;
+            }
+            if (gestures[0] != '\0') {
+                strlcat(gestures, ",", sizeof(gestures));
+            }
+            strlcat(gestures,
+                    solar_os_input_gesture_name(
+                        (solar_os_input_gesture_t)value),
+                    sizeof(gestures));
+        }
+        solar_os_shell_io_printf(io,
+                                 "%-16s %-5s %s\n",
+                                 source.name,
+                                 source.ready ? "yes" : "no",
+                                 gestures[0] != '\0' ? gestures : "-");
+        shown++;
+    }
+    if (shown == 0U) {
+        solar_os_shell_io_writeln(io, "no gesture sources");
+    }
+}
+
+static void gesture_unbind(solar_os_shell_io_t *io, int argc, char **argv)
 {
     if (argc != 3) {
         if (argc < 3) {
             solar_os_shell_diag_missing(io,
-                                        "input unbind",
+                                        "gesture unbind",
                                         "binding ID or all",
-                                        "input unbind <id|all>");
+                                        "gesture unbind <id|all>");
         } else {
             solar_os_shell_diag_unexpected(io,
-                                           "input unbind",
+                                           "gesture unbind",
                                            argv[3],
-                                           "input unbind <id|all>");
+                                           "gesture unbind <id|all>");
         }
         return;
     }
     if (strcmp(argv[2], "all") == 0) {
         const size_t removed = solar_os_input_actions_clear();
-        solar_os_shell_io_printf(io, "removed %u input binding%s\n",
+        solar_os_shell_io_printf(io, "removed %u gesture binding%s\n",
                                  (unsigned)removed,
                                  removed == 1U ? "" : "s");
         return;
@@ -608,22 +666,22 @@ static void input_unbind(solar_os_shell_io_t *io, int argc, char **argv)
     long parsed = 0;
     if (!input_parse_long(argv[2], 1, LONG_MAX, &parsed)) {
         solar_os_shell_diag_invalid(io,
-                                    "input unbind",
+                                    "gesture unbind",
                                     "binding ID",
                                     argv[2],
                                     "positive integer or all",
-                                    "input unbind <id|all>",
+                                    "gesture unbind <id|all>",
                                     false);
         return;
     }
     const uint32_t id = (uint32_t)parsed;
     const esp_err_t err = solar_os_input_actions_unbind(id);
     if (err == ESP_ERR_NOT_FOUND) {
-        solar_os_shell_io_printf(io, "input unbind: no such binding: %" PRIu32 "\n", id);
+        solar_os_shell_io_printf(io, "gesture unbind: no such binding: %" PRIu32 "\n", id);
     } else if (err != ESP_OK) {
-        solar_os_shell_diag_esp(io, "remove input binding", err, argv[2], NULL);
+        solar_os_shell_diag_esp(io, "remove gesture binding", err, argv[2], NULL);
     } else {
-        solar_os_shell_io_printf(io, "input binding %" PRIu32 " removed\n", id);
+        solar_os_shell_io_printf(io, "gesture binding %" PRIu32 " removed\n", id);
     }
 }
 
@@ -648,19 +706,6 @@ void solar_os_shell_cmd_input(solar_os_context_t *ctx, int argc, char **argv)
         input_emit_key(io, argc, argv);
         return;
     }
-    if (argc >= 2 && strcmp(argv[1], "bind") == 0) {
-        input_bind_gesture(io, argc, argv);
-        return;
-    }
-    if (argc == 2 && strcmp(argv[1], "bindings") == 0) {
-        input_list_bindings(io);
-        return;
-    }
-    if (argc >= 2 && strcmp(argv[1], "unbind") == 0) {
-        input_unbind(io, argc, argv);
-        return;
-    }
-
     solar_os_input_source_class_t source_class;
     if (argc >= 2 && input_parse_class(argv[1], &source_class)) {
         if (argc == 2 || (argc == 3 && strcmp(argv[2], "status") == 0)) {
@@ -691,4 +736,35 @@ void solar_os_shell_cmd_input(solar_os_context_t *ctx, int argc, char **argv)
                                    input_subcommands,
                                    sizeof(input_subcommands) /
                                        sizeof(input_subcommands[0]));
+}
+
+void solar_os_shell_cmd_gesture(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
+
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
+        gesture_print_sources(io);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "bind") == 0) {
+        gesture_bind(io, argc, argv);
+        return;
+    }
+    if (argc == 2 && strcmp(argv[1], "bindings") == 0) {
+        gesture_list_bindings(io);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "unbind") == 0) {
+        gesture_unbind(io, argc, argv);
+        return;
+    }
+
+    solar_os_shell_diag_subcommand(io,
+                                   "gesture",
+                                   argc,
+                                   argv,
+                                   gesture_usage,
+                                   gesture_subcommands,
+                                   sizeof(gesture_subcommands) /
+                                       sizeof(gesture_subcommands[0]));
 }

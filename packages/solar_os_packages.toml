@@ -3,7 +3,7 @@ label = "SolarOS runtime"
 category = "System"
 hidden = true
 immutable = true
-members = ["core_runtime", "core_shell"]
+members = ["core_runtime", "core_shell", "job_gesture_listener"]
 
 [groups.hardware_shell]
 label = "Hardware shell commands"
@@ -2321,6 +2321,10 @@ sources = [
 label = "job.controls"
 depends = ["service_controls"]
 sources = ["jobs/solar_os_controls_job.c"]
+
+[packages.job_gesture_listener]
+label = "job.gesture-listener"
+sources = ["jobs/solar_os_gesture_listener_job.c"]
 
 [packages.service_unistroke]
 label = "service.unistroke"

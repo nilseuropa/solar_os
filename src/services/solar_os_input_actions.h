@@ -11,6 +11,7 @@
 #define SOLAR_OS_INPUT_ACTION_COMMAND_MAX 192U
 #define SOLAR_OS_INPUT_ACTION_COOLDOWN_DEFAULT_MS 250U
 #define SOLAR_OS_INPUT_ACTION_COOLDOWN_MAX_MS 3600000U
+#define SOLAR_OS_INPUT_ACTION_WORKER_STACK 6144U
 
 typedef esp_err_t (*solar_os_input_action_runner_t)(const char *command);
 
@@ -29,6 +30,9 @@ typedef struct {
 
 esp_err_t solar_os_input_actions_init(void);
 void solar_os_input_actions_set_runner(solar_os_input_action_runner_t runner);
+esp_err_t solar_os_input_actions_start(void);
+void solar_os_input_actions_stop(void);
+bool solar_os_input_actions_running(void);
 
 esp_err_t solar_os_input_actions_bind(
     const char *source,

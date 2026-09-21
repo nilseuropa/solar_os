@@ -65,6 +65,11 @@ class FlavorPackagesTest(unittest.TestCase):
                 self.catalog, packages, "unknown"
             )
 
+    def test_gesture_listener_job_is_part_of_the_core_runtime(self):
+        for flavor in ("core", "full", "netrunner", "rover", "writerdeck"):
+            _, _, _, packages = self.resolve(flavor)
+            self.assertTrue(packages["job_gesture_listener"], flavor)
+
     def test_sketch_is_media_without_pointer_or_psram_gates(self):
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["sketch"])

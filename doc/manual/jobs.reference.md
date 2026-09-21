@@ -428,6 +428,26 @@ Control definitions are runtime configuration. Put the `control create`,
 restore a hardware setup after reboot. See `man controls` for calibration,
 manual script inputs, MIDI examples, and inspection commands.
 
+## gesture-listener
+
+Gesture-to-command listener. Rules are configured independently with `gesture
+bind`, while this job owns observation and dispatch:
+
+```text
+gesture bind source=gesture0 gesture=flick direction=east -- input emit RIGHT
+gesture bind source=gesture0 gesture=flick direction=west -- input emit LEFT
+job start gesture-listener
+job status gesture-listener
+job stop gesture-listener
+```
+
+Stopping the job preserves the rules, prevents new gesture actions, and drops
+queued actions. A command already executing finishes normally. Use `gesture
+bindings` to inspect rules and counters, `gesture unbind <id>` to remove one, or
+`gesture unbind all` to clear the table and reset the next ID to 1. Rules and job
+state are volatile; recreate them in the startup script when persistence is
+needed.
+
 ## osc
 
 OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and

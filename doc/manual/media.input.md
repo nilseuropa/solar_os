@@ -3,7 +3,7 @@ id = "media.input"
 title = "Audio, input, and clipboard APIs"
 section = "hardware"
 summary = "Use installed media and generic input services"
-aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick", "gesture"]
+aliases = ["audio", "ble", "clipboard", "pointer", "mouse", "touch", "joystick"]
 keywords = "python lua audio speaker microphone wav tone ble bluetooth keyboard pointer mouse touch joystick gesture calibration clipboard"
 packages_any = []
 +++
@@ -120,20 +120,26 @@ background worker, so two gestures never execute shell commands concurrently.
 The cooldown suppresses repeated sensor reports; it defaults to 250 ms.
 
 ```text
-input bind source=gesture0 gesture=flick direction=east -- input emit RIGHT
-input bind source=gesture0 gesture=flick direction=west cooldown=400 -- input emit LEFT
-input bind source=* gesture=double-tap -- /flash/bin/toggle-light.sh
-input bindings
-input unbind 2
+gesture bind source=gesture0 gesture=flick direction=east -- input emit RIGHT
+gesture bind source=gesture0 gesture=flick direction=west cooldown=400 -- input emit LEFT
+gesture bind source=* gesture=double-tap -- /flash/bin/toggle-light.sh
+job start gesture-listener
+gesture bindings
+job stop gesture-listener
+gesture unbind 2
 ```
 
 `input emit` creates a virtual local keyboard on first use and injects a key
 tap into the normal input-focus path. It does not send USB or BLE HID reports.
-Bindings are deliberately volatile. Put the required `input bind` commands in
-the selected startup shell script to recreate them after boot. Background
-commands may use shell built-ins or invoke scripts, but they cannot launch a
-foreground application. Use an explicit display target for display actions,
-for example `setterm --display display0 orientation 90`.
+Bindings are deliberately volatile and remain configured when the
+`gesture-listener` job stops. Put the required `gesture bind` commands followed
+by `job start gesture-listener` in the selected startup shell script to recreate
+and activate them after boot. `gesture unbind all` removes every rule and resets
+the next binding ID to 1. Background commands may use shell built-ins or invoke
+scripts, but they cannot launch a foreground application. Stopping the job
+prevents new gesture actions and discards queued actions; a command already
+executing is allowed to finish. Use an explicit display target for display
+actions, for example `setterm --display display0 orientation 90`.
 
 Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute

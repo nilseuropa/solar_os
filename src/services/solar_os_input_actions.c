@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "solar_os_keys.h"
 #include "solar_os_queue.h"
 #include "solar_os_task.h"
@@ -24,12 +25,20 @@ typedef struct {
 } input_action_rule_t;
 
 typedef struct {
+    uint32_t id;
+    uint32_t generation;
+} input_action_queue_item_t;
+
+typedef struct {
     uint32_t next_id;
+    uint32_t generation;
     solar_os_input_action_runner_t runner;
     QueueHandle_t queue;
     TaskHandle_t worker;
     bool worker_starting;
+    volatile bool worker_done;
     bool initialized;
+    bool running;
     solar_os_input_source_t virtual_source;
     portMUX_TYPE lock;
 } input_action_state_t;
@@ -37,6 +46,7 @@ typedef struct {
 static const char *TAG = "input-actions";
 static input_action_state_t state = {
     .next_id = 1U,
+    .generation = 1U,
     .lock = portMUX_INITIALIZER_UNLOCKED,
 };
 static EXT_RAM_BSS_ATTR input_action_rule_t
@@ -62,16 +72,22 @@ static void input_action_worker(void *context)
 {
     (void)context;
     for (;;) {
-        uint32_t id = 0;
-        if (xQueueReceive(state.queue, &id, portMAX_DELAY) != pdTRUE) {
+        input_action_queue_item_t item = {0};
+        if (xQueueReceive(state.queue, &item, pdMS_TO_TICKS(50)) != pdTRUE) {
+            portENTER_CRITICAL(&state.lock);
+            const bool running = state.running;
+            portEXIT_CRITICAL(&state.lock);
+            if (!running) {
+                break;
+            }
             continue;
         }
 
         char command[SOLAR_OS_INPUT_ACTION_COMMAND_MAX] = {0};
         solar_os_input_action_runner_t runner = NULL;
         portENTER_CRITICAL(&state.lock);
-        input_action_rule_t *rule = input_action_find_locked(id);
-        if (rule != NULL) {
+        input_action_rule_t *rule = input_action_find_locked(item.id);
+        if (state.running && item.generation == state.generation && rule != NULL) {
             strlcpy(command, rule->binding.command, sizeof(command));
         }
         runner = state.runner;
@@ -81,17 +97,24 @@ static void input_action_worker(void *context)
             continue;
         }
         if (runner == NULL) {
-            ESP_LOGW(TAG, "binding %lu has no command runner", (unsigned long)id);
+            ESP_LOGW(TAG,
+                     "binding %lu has no command runner",
+                     (unsigned long)item.id);
             continue;
         }
         const esp_err_t err = runner(command);
         if (err != ESP_OK) {
             ESP_LOGW(TAG,
                      "binding %lu command failed: %s",
-                     (unsigned long)id,
+                     (unsigned long)item.id,
                      esp_err_to_name(err));
         }
     }
+    portENTER_CRITICAL(&state.lock);
+    state.worker = NULL;
+    state.worker_done = true;
+    portEXIT_CRITICAL(&state.lock);
+    solar_os_task_delete_internal(NULL);
 }
 
 static esp_err_t input_action_ensure_worker(void)
@@ -99,26 +122,37 @@ static esp_err_t input_action_ensure_worker(void)
     portENTER_CRITICAL(&state.lock);
     if (state.worker != NULL) {
         portEXIT_CRITICAL(&state.lock);
-        return ESP_OK;
+        return ESP_ERR_INVALID_STATE;
     }
     if (state.worker_starting) {
         portEXIT_CRITICAL(&state.lock);
         return ESP_ERR_INVALID_STATE;
     }
     state.worker_starting = true;
+    QueueHandle_t queue = state.queue;
     portEXIT_CRITICAL(&state.lock);
 
-    QueueHandle_t queue = solar_os_queue_create(INPUT_ACTION_QUEUE_DEPTH,
-                                                 sizeof(uint32_t));
     if (queue == NULL) {
+        queue = solar_os_queue_create(INPUT_ACTION_QUEUE_DEPTH,
+                                      sizeof(input_action_queue_item_t));
+        if (queue == NULL) {
+            portENTER_CRITICAL(&state.lock);
+            state.worker_starting = false;
+            portEXIT_CRITICAL(&state.lock);
+            return ESP_ERR_NO_MEM;
+        }
         portENTER_CRITICAL(&state.lock);
-        state.worker_starting = false;
+        state.queue = queue;
         portEXIT_CRITICAL(&state.lock);
-        return ESP_ERR_NO_MEM;
     }
 
     portENTER_CRITICAL(&state.lock);
-    state.queue = queue;
+    state.running = true;
+    state.worker_done = false;
+    state.generation++;
+    if (state.generation == 0U) {
+        state.generation = 1U;
+    }
     portEXIT_CRITICAL(&state.lock);
     TaskHandle_t worker = NULL;
     if (solar_os_task_create_pinned_internal(input_action_worker,
@@ -130,10 +164,9 @@ static esp_err_t input_action_ensure_worker(void)
                                              tskNO_AFFINITY,
                                              SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         portENTER_CRITICAL(&state.lock);
-        state.queue = NULL;
+        state.running = false;
         state.worker_starting = false;
         portEXIT_CRITICAL(&state.lock);
-        solar_os_queue_delete(queue);
         return ESP_ERR_NO_MEM;
     }
 
@@ -166,11 +199,15 @@ static void input_action_observe(const solar_os_input_gesture_event_t *event,
         return;
     }
 
-    uint32_t matches[SOLAR_OS_INPUT_ACTION_MAX_BINDINGS];
+    input_action_queue_item_t matches[SOLAR_OS_INPUT_ACTION_MAX_BINDINGS];
     size_t match_count = 0;
     const uint64_t now_ms = input_action_now_ms();
     QueueHandle_t queue = NULL;
     portENTER_CRITICAL(&state.lock);
+    if (!state.running) {
+        portEXIT_CRITICAL(&state.lock);
+        return;
+    }
     queue = state.queue;
     for (size_t i = 0; i < SOLAR_OS_INPUT_ACTION_MAX_BINDINGS; i++) {
         input_action_rule_t *rule = &input_action_rules[i];
@@ -189,13 +226,16 @@ static void input_action_observe(const solar_os_input_gesture_event_t *event,
         if (rule->binding.trigger_count != UINT32_MAX) {
             rule->binding.trigger_count++;
         }
-        matches[match_count++] = rule->binding.id;
+        matches[match_count++] = (input_action_queue_item_t) {
+            .id = rule->binding.id,
+            .generation = state.generation,
+        };
     }
     portEXIT_CRITICAL(&state.lock);
 
     for (size_t i = 0; i < match_count; i++) {
         if (queue == NULL || xQueueSend(queue, &matches[i], 0) != pdTRUE) {
-            input_action_note_drop(matches[i]);
+            input_action_note_drop(matches[i].id);
         }
     }
 }
@@ -209,11 +249,6 @@ esp_err_t solar_os_input_actions_init(void)
     }
     portEXIT_CRITICAL(&state.lock);
 
-    const esp_err_t err = solar_os_input_gesture_observer_register(
-        input_action_observe, NULL);
-    if (err != ESP_OK) {
-        return err;
-    }
     portENTER_CRITICAL(&state.lock);
     state.initialized = true;
     portEXIT_CRITICAL(&state.lock);
@@ -225,6 +260,68 @@ void solar_os_input_actions_set_runner(solar_os_input_action_runner_t runner)
     portENTER_CRITICAL(&state.lock);
     state.runner = runner;
     portEXIT_CRITICAL(&state.lock);
+}
+
+esp_err_t solar_os_input_actions_start(void)
+{
+    esp_err_t err = solar_os_input_actions_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    portENTER_CRITICAL(&state.lock);
+    const bool running = state.running;
+    portEXIT_CRITICAL(&state.lock);
+    if (running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    err = input_action_ensure_worker();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = solar_os_input_gesture_observer_register(input_action_observe, NULL);
+    if (err != ESP_OK) {
+        solar_os_input_actions_stop();
+        return err;
+    }
+    return ESP_OK;
+}
+
+void solar_os_input_actions_stop(void)
+{
+    QueueHandle_t queue = NULL;
+    TaskHandle_t worker = NULL;
+    portENTER_CRITICAL(&state.lock);
+    state.running = false;
+    state.generation++;
+    if (state.generation == 0U) {
+        state.generation = 1U;
+    }
+    queue = state.queue;
+    worker = state.worker;
+    portEXIT_CRITICAL(&state.lock);
+    solar_os_input_gesture_observer_unregister(input_action_observe, NULL);
+    if (queue != NULL) {
+        (void)xQueueReset(queue);
+    }
+    if (worker == xTaskGetCurrentTaskHandle()) {
+        return;
+    }
+    if (solar_os_task_wait_done(worker,
+                                &state.worker_done,
+                                SOLAR_OS_TASK_STOP_WAIT_MS)) {
+        portENTER_CRITICAL(&state.lock);
+        state.worker_done = false;
+        portEXIT_CRITICAL(&state.lock);
+    }
+}
+
+bool solar_os_input_actions_running(void)
+{
+    portENTER_CRITICAL(&state.lock);
+    const bool running = state.running;
+    portEXIT_CRITICAL(&state.lock);
+    return running;
 }
 
 esp_err_t solar_os_input_actions_bind(
@@ -252,11 +349,6 @@ esp_err_t solar_os_input_actions_bind(
             SOLAR_OS_INPUT_ACTION_COMMAND_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-    const esp_err_t worker_err = input_action_ensure_worker();
-    if (worker_err != ESP_OK) {
-        return worker_err;
-    }
-
     esp_err_t result = ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&state.lock);
     for (size_t i = 0; i < SOLAR_OS_INPUT_ACTION_MAX_BINDINGS; i++) {
@@ -344,6 +436,7 @@ esp_err_t solar_os_input_actions_unbind(uint32_t binding_id)
 size_t solar_os_input_actions_clear(void)
 {
     size_t count = 0;
+    QueueHandle_t queue = NULL;
     portENTER_CRITICAL(&state.lock);
     for (size_t i = 0; i < SOLAR_OS_INPUT_ACTION_MAX_BINDINGS; i++) {
         if (input_action_rules[i].active) {
@@ -351,7 +444,16 @@ size_t solar_os_input_actions_clear(void)
             count++;
         }
     }
+    state.next_id = 1U;
+    state.generation++;
+    if (state.generation == 0U) {
+        state.generation = 1U;
+    }
+    queue = state.queue;
     portEXIT_CRITICAL(&state.lock);
+    if (queue != NULL) {
+        (void)xQueueReset(queue);
+    }
     return count;
 }
 
