@@ -33,6 +33,7 @@ void solar_os_input_actions_set_runner(solar_os_input_action_runner_t runner);
 esp_err_t solar_os_input_actions_start(void);
 void solar_os_input_actions_stop(void);
 bool solar_os_input_actions_running(void);
+bool solar_os_input_actions_worker_active(void);
 
 esp_err_t solar_os_input_actions_bind(
     const char *source,

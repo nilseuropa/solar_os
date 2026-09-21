@@ -446,7 +446,8 @@ queued actions. A command already executing finishes normally. Use `gesture
 bindings` to inspect rules and counters, `gesture unbind <id>` to remove one, or
 `gesture unbind all` to clear the table and reset the next ID to 1. Rules and job
 state are volatile; recreate them in the startup script when persistence is
-needed.
+needed. The command worker is created on demand and releases its internal stack
+when its queue is idle.
 
 ## osc
 

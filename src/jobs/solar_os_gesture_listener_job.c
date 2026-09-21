@@ -71,10 +71,13 @@ static void gesture_listener_job_detail(solar_os_context_t *ctx)
     uint32_t dropped = 0U;
     gesture_listener_totals(&triggered, &dropped);
     solar_os_shell_io_printf(io,
-                             "  bindings: configured=%u triggered=%lu dropped=%lu\n",
+                             "  bindings: configured=%u triggered=%lu dropped=%lu worker=%s\n",
                              (unsigned)solar_os_input_actions_count(),
                              (unsigned long)triggered,
-                             (unsigned long)dropped);
+                             (unsigned long)dropped,
+                             solar_os_input_actions_worker_active()
+                                 ? "active"
+                                 : "idle");
 }
 
 const solar_os_job_t solar_os_gesture_listener_job = {

@@ -42,6 +42,19 @@ class InputActionsTest(unittest.TestCase):
         self.assertNotIn("runner(command)", observer)
         self.assertIn("xQueueReceive", worker)
         self.assertIn("runner(command)", worker)
+        self.assertIn("input_action_ensure_worker()", observer)
+
+    def test_listener_does_not_keep_worker_stack_while_idle(self):
+        start = ACTIONS.split("esp_err_t solar_os_input_actions_start", 1)[1].split(
+            "void solar_os_input_actions_stop", 1
+        )[0]
+        self.assertIn("input_action_ensure_queue()", start)
+        self.assertNotIn("input_action_ensure_worker()", start)
+        worker = ACTIONS.split("static void input_action_worker", 1)[1].split(
+            "static esp_err_t input_action_ensure_worker", 1
+        )[0]
+        self.assertIn("queue_empty", worker)
+        self.assertIn("solar_os_task_delete_internal(NULL)", worker)
 
     def test_queue_generation_prevents_reused_ids_from_running_stale_actions(self):
         self.assertIn("item.generation == state.generation", ACTIONS)

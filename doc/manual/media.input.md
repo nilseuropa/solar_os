@@ -116,8 +116,10 @@ Applications without the matching flag do not receive those structured events.
 Gesture bindings observe the same events without taking them away from the
 foreground application. A binding can match one source or every source, one
 gesture kind, and optionally one direction. Its command runs on a single
-background worker, so two gestures never execute shell commands concurrently.
-The cooldown suppresses repeated sensor reports; it defaults to 250 ms.
+on-demand background worker, so two gestures never execute shell commands
+concurrently. The worker releases its internal stack after the command queue
+becomes idle. The cooldown suppresses repeated sensor reports; it defaults to
+250 ms.
 
 ```text
 gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
