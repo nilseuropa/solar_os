@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define MAX17048_REG_VCELL 0x02U
+#define MAX17048_REG_SOC 0x04U
 #define MAX17048_REG_VERSION 0x08U
 
 static uint16_t read_be16(const uint8_t *data)
@@ -40,17 +41,26 @@ esp_err_t max17048_read_sample(max17048_t *device,
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t data[4];
-    const esp_err_t ret = device->io.read(device->io.user,
-                                          MAX17048_REG_VCELL,
-                                          data,
-                                          sizeof(data));
+    uint8_t vcell_data[2];
+    esp_err_t ret = device->io.read(device->io.user,
+                                    MAX17048_REG_VCELL,
+                                    vcell_data,
+                                    sizeof(vcell_data));
     if (ret != ESP_OK) {
         return ret;
     }
 
-    const uint16_t vcell_raw = read_be16(&data[0]);
-    const uint16_t soc_raw = read_be16(&data[2]);
+    uint8_t soc_data[2];
+    ret = device->io.read(device->io.user,
+                          MAX17048_REG_SOC,
+                          soc_data,
+                          sizeof(soc_data));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    const uint16_t vcell_raw = read_be16(vcell_data);
+    const uint16_t soc_raw = read_be16(soc_data);
     uint16_t percent = (uint16_t)((soc_raw + 128U) >> 8U);
     if (percent > 100U) {
         percent = 100U;
