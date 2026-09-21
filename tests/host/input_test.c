@@ -570,7 +570,7 @@ int main(void)
     solar_os_input_source_t gesture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
     assert(solar_os_input_source_open_typed(
                "gesture0",
-               SOLAR_OS_INPUT_SOURCE_TOUCH,
+               SOLAR_OS_INPUT_SOURCE_GESTURE,
                SOLAR_OS_INPUT_CAP_GESTURE_EVENTS,
                true,
                &gesture_source) == ESP_OK);
@@ -592,6 +592,9 @@ int main(void)
     solar_os_input_source_info_t gesture_info;
     assert(solar_os_input_source_get_info(gesture_source, &gesture_info));
     assert(strcmp(gesture_info.name, "gesture0") == 0);
+    assert(gesture_info.source_class == SOLAR_OS_INPUT_SOURCE_GESTURE);
+    assert(strcmp(solar_os_input_source_class_name(gesture_info.source_class),
+                  "gesture") == 0);
     assert(solar_os_input_gesture_observer_register(
                observe_gesture, &gesture_observer_calls[0]) == ESP_OK);
     assert(solar_os_input_gesture_observer_register(

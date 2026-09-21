@@ -132,6 +132,7 @@ static const char *const input_source_class_names[] = {
     [SOLAR_OS_INPUT_SOURCE_JOYSTICK] = "joystick",
     [SOLAR_OS_INPUT_SOURCE_DPAD] = "dpad",
     [SOLAR_OS_INPUT_SOURCE_BUTTONS] = "buttons",
+    [SOLAR_OS_INPUT_SOURCE_GESTURE] = "gesture",
 };
 
 static const char *const input_pointer_mode_names[] = {

@@ -16,13 +16,13 @@
 
 static const char *const input_subcommands[] = {
     "status", "test", "calibrate", "emit", "bind", "bindings", "unbind",
-    "keyboard", "touch", "mouse", "joystick", "dpad", "buttons",
+    "keyboard", "touch", "mouse", "joystick", "dpad", "buttons", "gesture",
 };
 
 static const char *const input_usage =
     "input [status|test <source>|calibrate <source> [set ...|reset]|emit <key>|"
     "bind source=<name|*> gesture=<name> [direction=<name|*>] [cooldown=<ms>] "
-    "-- <command>|bindings|unbind <id|all>|keyboard|touch|mouse|joystick|dpad|buttons]";
+    "-- <command>|bindings|unbind <id|all>|keyboard|touch|mouse|joystick|dpad|buttons|gesture]";
 
 static const char *const input_bind_usage =
     "input bind source=<name|*> gesture=<name> [direction=<name|*>] "

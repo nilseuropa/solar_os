@@ -138,7 +138,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
 
         self.assertIn("SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE", registration)
         self.assertNotIn("SOLAR_OS_INPUT_CAP_POINTER_BUTTONS", registration)
-        self.assertIn("SOLAR_OS_INPUT_SOURCE_OTHER", registration)
+        self.assertIn("SOLAR_OS_INPUT_SOURCE_GESTURE", registration)
         self.assertNotIn("SOLAR_OS_INPUT_SOURCE_TOUCH", registration)
         self.assertIn(".action = SOLAR_OS_INPUT_POINTER_MOVE", pointer)
         self.assertIn(".buttons = 0", pointer)

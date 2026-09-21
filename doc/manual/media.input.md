@@ -85,6 +85,7 @@ Use `input` to inspect semantic sources independently of their transport:
 input touch
 input mouse
 input joystick
+input gesture
 input test touch0
 ```
 

@@ -559,7 +559,7 @@ esp_err_t solar_os_mgc3130_attach(
         SOLAR_OS_INPUT_CAP_AXIS_EVENTS |
         SOLAR_OS_INPUT_CAP_GESTURE_EVENTS;
     esp_err_t ret = solar_os_input_source_open_typed(candidate.name,
-                                                     SOLAR_OS_INPUT_SOURCE_OTHER,
+                                                     SOLAR_OS_INPUT_SOURCE_GESTURE,
                                                      capabilities,
                                                      true,
                                                      &candidate.input_source);

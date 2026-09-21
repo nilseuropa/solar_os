@@ -238,7 +238,7 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
-| `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons]` | List all input sources or filter them by semantic class. |
+| `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons|gesture]` | List all input sources or filter them by semantic class. |
 | `input` | `input test <source>` | Show event counters and the last key, pointer, axis, or gesture event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
 | `input` | `input emit <key>` | Emit a local key tap, such as `RIGHT`, `ENTER`, or one literal character, through the normal input-focus path. |

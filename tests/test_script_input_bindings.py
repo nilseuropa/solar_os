@@ -74,6 +74,7 @@ class ScriptInputBindingsTest(unittest.TestCase):
     def test_input_constants_cover_discovery_pointer_axes_and_gestures(self):
         constants = (
             "SOURCE_TOUCH",
+            "SOURCE_GESTURE",
             "SOURCE_MOUSE",
             "CAP_POINTER_ABSOLUTE",
             "CAP_POINTER_RELATIVE",
