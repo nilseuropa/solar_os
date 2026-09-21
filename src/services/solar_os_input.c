@@ -904,6 +904,7 @@ bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info)
             .source = (solar_os_input_source_t)(i + 1U),
             .source_class = input_sources[i].source_class,
             .capabilities = input_sources[i].capabilities,
+            .gesture_mask = input_sources[i].gesture_mask,
             .ready = input_sources[i].ready,
         };
         strlcpy(info->name, input_sources[i].name, sizeof(info->name));

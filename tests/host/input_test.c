@@ -646,6 +646,12 @@ int main(void)
     assert(gesture_info.gesture_mask ==
            (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
             SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP)));
+    assert(solar_os_input_source_get(solar_os_input_source_count() - 1U,
+                                     &gesture_info));
+    assert(gesture_info.source == gesture_source);
+    assert(gesture_info.gesture_mask ==
+           (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FLICK) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP)));
     assert(strcmp(solar_os_input_source_class_name(gesture_info.source_class),
                   "gesture") == 0);
     assert(solar_os_input_gesture_observer_register(
