@@ -1956,6 +1956,106 @@ bool solar_os_input_parse_keyboard_layout(const char *name,
     return false;
 }
 
+typedef struct {
+    const char *name;
+    uint8_t modifier;
+} input_modifier_name_t;
+
+static const input_modifier_name_t input_modifier_names[] = {
+    {"CTRL", SOLAR_OS_INPUT_MOD_LEFT_CTRL},
+    {"SHIFT", SOLAR_OS_INPUT_MOD_LEFT_SHIFT},
+    {"ALT", SOLAR_OS_INPUT_MOD_LEFT_ALT},
+    {"GUI", SOLAR_OS_INPUT_MOD_LEFT_GUI},
+    {"LCTRL", SOLAR_OS_INPUT_MOD_LEFT_CTRL},
+    {"LSHIFT", SOLAR_OS_INPUT_MOD_LEFT_SHIFT},
+    {"LALT", SOLAR_OS_INPUT_MOD_LEFT_ALT},
+    {"LGUI", SOLAR_OS_INPUT_MOD_LEFT_GUI},
+    {"LEFT_CTRL", SOLAR_OS_INPUT_MOD_LEFT_CTRL},
+    {"LEFT_SHIFT", SOLAR_OS_INPUT_MOD_LEFT_SHIFT},
+    {"LEFT_ALT", SOLAR_OS_INPUT_MOD_LEFT_ALT},
+    {"LEFT_GUI", SOLAR_OS_INPUT_MOD_LEFT_GUI},
+    {"RCTRL", SOLAR_OS_INPUT_MOD_RIGHT_CTRL},
+    {"RSHIFT", SOLAR_OS_INPUT_MOD_RIGHT_SHIFT},
+    {"RALT", SOLAR_OS_INPUT_MOD_RIGHT_ALT},
+    {"RGUI", SOLAR_OS_INPUT_MOD_RIGHT_GUI},
+    {"RIGHT_CTRL", SOLAR_OS_INPUT_MOD_RIGHT_CTRL},
+    {"RIGHT_SHIFT", SOLAR_OS_INPUT_MOD_RIGHT_SHIFT},
+    {"RIGHT_ALT", SOLAR_OS_INPUT_MOD_RIGHT_ALT},
+    {"RIGHT_GUI", SOLAR_OS_INPUT_MOD_RIGHT_GUI},
+    {"ALTGR", SOLAR_OS_INPUT_MOD_RIGHT_ALT},
+};
+
+static bool input_parse_modifier(const char *name, uint8_t *modifier)
+{
+    for (size_t i = 0;
+         i < sizeof(input_modifier_names) / sizeof(input_modifier_names[0]);
+         i++) {
+        if (strcasecmp(name, input_modifier_names[i].name) == 0) {
+            *modifier = input_modifier_names[i].modifier;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool solar_os_input_parse_key_chord(const char *text,
+                                    uint8_t *key,
+                                    uint8_t *modifiers)
+{
+    if (text == NULL || key == NULL || modifiers == NULL) {
+        return false;
+    }
+
+    uint8_t parsed_key = 0U;
+    if (solar_os_key_parse(text, &parsed_key) && parsed_key != 0U) {
+        *key = parsed_key;
+        *modifiers = 0U;
+        return true;
+    }
+
+    char chord[64];
+    size_t length = 0U;
+    while (length < sizeof(chord) && text[length] != '\0') {
+        length++;
+    }
+    if (length == 0U || length >= sizeof(chord)) {
+        return false;
+    }
+    memcpy(chord, text, length + 1U);
+
+    uint8_t parsed_modifiers = 0U;
+    char *cursor = chord;
+    for (;;) {
+        char *separator = strchr(cursor, '+');
+        if (separator != NULL) {
+            *separator = '\0';
+        }
+        if (cursor[0] == '\0') {
+            return false;
+        }
+
+        uint8_t modifier = 0U;
+        if (input_parse_modifier(cursor, &modifier)) {
+            parsed_modifiers |= modifier;
+        } else if (parsed_key != 0U ||
+                   !solar_os_key_parse(cursor, &parsed_key) ||
+                   parsed_key == 0U) {
+            return false;
+        }
+
+        if (separator == NULL) {
+            break;
+        }
+        cursor = separator + 1U;
+    }
+    if (parsed_key == 0U || parsed_modifiers == 0U) {
+        return false;
+    }
+    *key = parsed_key;
+    *modifiers = parsed_modifiers;
+    return true;
+}
+
 static uint8_t input_shifted_digit(uint16_t usage)
 {
     static const uint8_t shifted[] = {'!', '@', '#', '$', '%', '^', '&', '*', '(', ')'};

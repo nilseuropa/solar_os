@@ -402,9 +402,9 @@ static void input_emit_key(solar_os_shell_io_t *io, int argc, char **argv)
 {
     if (argc != 3) {
         if (argc < 3) {
-            solar_os_shell_diag_missing(io, "input emit", "key", "input emit <key>");
+            solar_os_shell_diag_missing(io, "input emit", "key", "input emit <key|chord>");
         } else {
-            solar_os_shell_diag_unexpected(io, "input emit", argv[3], "input emit <key>");
+            solar_os_shell_diag_unexpected(io, "input emit", argv[3], "input emit <key|chord>");
         }
         return;
     }
@@ -414,8 +414,8 @@ static void input_emit_key(solar_os_shell_io_t *io, int argc, char **argv)
                                     "input emit",
                                     "key",
                                     argv[2],
-                                    "one character or a named key such as RIGHT or ENTER",
-                                    "input emit <key>",
+                                    "one character, a named key, or a chord such as ALT+RIGHT",
+                                    "input emit <key|chord>",
                                     false);
     } else if (err != ESP_OK) {
         solar_os_shell_diag_esp(io, "emit local key", err, argv[2], NULL);

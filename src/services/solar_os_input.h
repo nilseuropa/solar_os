@@ -328,6 +328,10 @@ esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t la
 const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout);
 bool solar_os_input_parse_keyboard_layout(const char *name,
                                           solar_os_input_keyboard_layout_t *layout);
+/* Parse KEY or a modifier chord such as ALT+RIGHT. */
+bool solar_os_input_parse_key_chord(const char *text,
+                                    uint8_t *key,
+                                    uint8_t *modifiers);
 /* Translate a canonical USB HID keyboard usage with the active keymap. */
 uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
                                            uint8_t modifiers,

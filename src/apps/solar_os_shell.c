@@ -787,6 +787,7 @@ static const char * const input_calibration_subcommands[] = {"set", "reset"};
 static const char * const input_emit_keys[] = {
     "UP", "DOWN", "LEFT", "RIGHT", "ENTER", "ESCAPE", "SPACE", "TAB",
     "BACKSPACE", "HOME", "END", "DELETE", "PAGE_UP", "PAGE_DOWN",
+    "ALT+LEFT", "ALT+RIGHT", "ALT+TAB",
 };
 static const char * const gesture_unbind_values[] = {"all"};
 

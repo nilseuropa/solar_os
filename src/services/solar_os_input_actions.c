@@ -8,7 +8,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "solar_os_keys.h"
 #include "solar_os_queue.h"
 #include "solar_os_task.h"
 
@@ -460,7 +459,8 @@ size_t solar_os_input_actions_clear(void)
 esp_err_t solar_os_input_actions_emit_key(const char *name)
 {
     uint8_t key = 0;
-    if (!solar_os_key_parse(name, &key) || key == 0U) {
+    uint8_t modifiers = 0;
+    if (!solar_os_input_parse_key_chord(name, &key, &modifiers)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -487,7 +487,7 @@ esp_err_t solar_os_input_actions_emit_key(const char *name)
                                              physical_key,
                                              SOLAR_OS_INPUT_USAGE_NONE,
                                              key,
-                                             0,
+                                             modifiers,
                                              SOLAR_OS_INPUT_KEY_PRESS);
     if (err != ESP_OK) {
         return err;
@@ -496,7 +496,7 @@ esp_err_t solar_os_input_actions_emit_key(const char *name)
                                    physical_key,
                                    SOLAR_OS_INPUT_USAGE_NONE,
                                    key,
-                                   0,
+                                   modifiers,
                                    SOLAR_OS_INPUT_KEY_RELEASE);
     if (err != ESP_OK) {
         solar_os_input_source_release_all(source);

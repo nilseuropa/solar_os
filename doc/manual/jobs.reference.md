@@ -434,8 +434,8 @@ Gesture-to-command listener. Rules are configured independently with `gesture
 bind`, while this job owns observation and dispatch:
 
 ```text
-gesture bind source=gesture0 gesture=flick direction=east -- input emit RIGHT
-gesture bind source=gesture0 gesture=flick direction=west -- input emit LEFT
+gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
+gesture bind source=gesture0 gesture=flick direction=west -- input emit ALT+LEFT
 job start gesture-listener
 job status gesture-listener
 job stop gesture-listener

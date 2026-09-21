@@ -199,6 +199,35 @@ static solar_os_input_key_event_t read_one_event(void)
 
 int main(void)
 {
+    uint8_t chord_key = 0U;
+    uint8_t chord_modifiers = 0U;
+    assert(solar_os_input_parse_key_chord("RIGHT",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_RIGHT);
+    assert(chord_modifiers == 0U);
+    assert(solar_os_input_parse_key_chord("ALT+RIGHT",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_RIGHT);
+    assert(chord_modifiers == SOLAR_OS_INPUT_MOD_LEFT_ALT);
+    assert(solar_os_input_parse_key_chord("CTRL+SHIFT+F1",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_F1);
+    assert(chord_modifiers == (SOLAR_OS_INPUT_MOD_LEFT_CTRL |
+                               SOLAR_OS_INPUT_MOD_LEFT_SHIFT));
+    assert(solar_os_input_parse_key_chord("ALTGR+ENTER",
+                                          &chord_key,
+                                          &chord_modifiers));
+    assert(chord_key == SOLAR_OS_KEY_ENTER);
+    assert(chord_modifiers == SOLAR_OS_INPUT_MOD_RIGHT_ALT);
+    assert(!solar_os_input_parse_key_chord("ALT", &chord_key, &chord_modifiers));
+    assert(!solar_os_input_parse_key_chord("ALT+", &chord_key, &chord_modifiers));
+    assert(!solar_os_input_parse_key_chord("ALT+LEFT+RIGHT",
+                                           &chord_key,
+                                           &chord_modifiers));
+
     assert(solar_os_input_init() == ESP_OK);
     assert(solar_os_input_translate_hid_usage(0x04, 0, false) == 'a');
     assert(solar_os_input_translate_hid_usage(0x04,
