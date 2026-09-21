@@ -2,6 +2,7 @@
 
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_completion.h"
+#include "solar_os_shell_gesture_completion.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_launch.h"
@@ -6125,29 +6126,19 @@ static void shell_completion_emit_input_sources(shell_completion_match_t *state,
     }
 }
 
-static uint32_t shell_completion_gesture_mask(
-    const shell_completion_parse_t *parse,
-    size_t current_index)
+static bool shell_completion_get_gesture_source(
+    size_t index,
+    solar_os_input_source_info_t *info,
+    void *context)
 {
-    const char *selected = NULL;
-    for (size_t i = 2U; i < current_index && i < parse->count; i++) {
-        if (starts_with(parse->tokens[i], "source=")) {
-            selected = &parse->tokens[i][sizeof("source=") - 1U];
-        }
-    }
+    (void)context;
+    return solar_os_input_source_get(index, info);
+}
 
-    uint32_t mask = 0U;
-    for (size_t i = 0; i < solar_os_input_source_count(); i++) {
-        solar_os_input_source_info_t info;
-        if (!solar_os_input_source_get(i, &info) ||
-            (info.capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U ||
-            (selected != NULL && strcmp(selected, "*") != 0 &&
-             strcmp(selected, info.name) != 0)) {
-            continue;
-        }
-        mask |= info.gesture_mask;
-    }
-    return mask;
+static void shell_completion_emit_gesture_candidate(const char *candidate,
+                                                     void *context)
+{
+    shell_completion_emit((shell_completion_match_t *)context, candidate);
 }
 
 static void shell_completion_emit_gesture_bind_arguments(
@@ -6162,59 +6153,20 @@ static void shell_completion_emit_gesture_bind_arguments(
     }
 
     const char *prefix = state->prefix != NULL ? state->prefix : "";
-    if (starts_with(prefix, "source=")) {
-        shell_completion_emit(state, "source=*");
-        for (size_t i = 0; i < solar_os_input_source_count(); i++) {
-            solar_os_input_source_info_t info;
-            if (!solar_os_input_source_get(i, &info) ||
-                (info.capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U) {
-                continue;
-            }
-            char value[sizeof("source=") + SOLAR_OS_INPUT_SOURCE_NAME_MAX];
-            snprintf(value, sizeof(value), "source=%s", info.name);
-            shell_completion_emit(state, value);
+    const char *selected_source = NULL;
+    for (size_t i = 2U; i < current_index && i < parse->count; i++) {
+        if (starts_with(parse->tokens[i], "source=")) {
+            selected_source = &parse->tokens[i][sizeof("source=") - 1U];
         }
-        return;
     }
-    if (starts_with(prefix, "gesture=")) {
-        const uint32_t mask = shell_completion_gesture_mask(parse,
-                                                             current_index);
-        for (int value = SOLAR_OS_INPUT_GESTURE_FLICK;
-             value < SOLAR_OS_INPUT_GESTURE_COUNT;
-             value++) {
-            if ((mask & SOLAR_OS_INPUT_GESTURE_MASK(value)) == 0U) {
-                continue;
-            }
-            char option[32];
-            snprintf(option,
-                     sizeof(option),
-                     "gesture=%s",
-                     solar_os_input_gesture_name(
-                         (solar_os_input_gesture_t)value));
-            shell_completion_emit(state, option);
-        }
-        return;
-    }
-    if (starts_with(prefix, "direction=")) {
-        static const char *const directions[] = {
-            "direction=*", "direction=none", "direction=west",
-            "direction=east", "direction=north", "direction=south",
-            "direction=center", "direction=clockwise",
-            "direction=counterclockwise", "direction=horizontal",
-            "direction=vertical",
-        };
-        for (size_t i = 0; i < SHELL_ARRAY_COUNT(directions); i++) {
-            shell_completion_emit(state, directions[i]);
-        }
-        return;
-    }
-
-    static const char *const options[] = {
-        "source=", "gesture=", "direction=", "cooldown=", "--",
-    };
-    for (size_t i = 0; i < SHELL_ARRAY_COUNT(options); i++) {
-        shell_completion_emit(state, options[i]);
-    }
+    solar_os_shell_gesture_completion_emit(
+        prefix,
+        selected_source,
+        solar_os_input_source_count(),
+        shell_completion_get_gesture_source,
+        NULL,
+        shell_completion_emit_gesture_candidate,
+        state);
 }
 
 static bool shell_completion_display_mode_seen(char values[][32],

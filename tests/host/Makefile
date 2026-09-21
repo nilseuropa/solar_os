@@ -11,6 +11,7 @@ MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
 .PHONY: all test clean
 
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test
+TARGETS += input_action_match_test gesture_completion_test
 
 all: $(TARGETS)
 
@@ -101,6 +102,10 @@ shell_completion_test: shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_
 		shell_completion_test.c $(ROOT)/src/shell/solar_os_shell_completion.c \
 		$(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
+gesture_completion_test: gesture_completion_test.c $(ROOT)/src/shell/solar_os_shell_gesture_completion.c $(ROOT)/src/shell/solar_os_shell_gesture_completion.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services -I$(ROOT)/src/shell \
+		gesture_completion_test.c $(ROOT)/src/shell/solar_os_shell_gesture_completion.c -o $@
+
 shell_diag_test: shell_diag_test.c $(ROOT)/src/shell/solar_os_shell_common.c $(ROOT)/src/shell/solar_os_shell_common.h $(ROOT)/src/shell/solar_os_shell_io.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
 		-include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
@@ -149,6 +154,10 @@ input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/servi
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		input_test.c $(ROOT)/src/services/solar_os_input.c \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
+
+input_action_match_test: input_action_match_test.c $(ROOT)/src/services/solar_os_input_action_match.c $(ROOT)/src/services/solar_os_input_action_match.h $(ROOT)/src/services/solar_os_input_actions.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		input_action_match_test.c $(ROOT)/src/services/solar_os_input_action_match.c -o $@
 
 unistroke_test: unistroke_test.c $(ROOT)/src/services/solar_os_unistroke.c $(ROOT)/src/services/solar_os_unistroke.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \

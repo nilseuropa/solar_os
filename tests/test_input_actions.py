@@ -11,6 +11,9 @@ SHELL_INPUT = (ROOT / "src/shell/solar_os_shell_input.c").read_text(
     encoding="utf-8"
 )
 SHELL_APP = (ROOT / "src/apps/solar_os_shell.c").read_text(encoding="utf-8")
+GESTURE_COMPLETION = (
+    ROOT / "src/shell/solar_os_shell_gesture_completion.c"
+).read_text(encoding="utf-8")
 MAIN = (ROOT / "src/main.c").read_text(encoding="utf-8")
 PACKAGES = (ROOT / "packages/solar_os_packages.toml").read_text(encoding="utf-8")
 JOB = (ROOT / "src/jobs/solar_os_gesture_listener_job.c").read_text(
@@ -43,6 +46,7 @@ class InputActionsTest(unittest.TestCase):
         self.assertIn("xQueueReceive", worker)
         self.assertIn("runner(command)", worker)
         self.assertIn("input_action_ensure_worker()", observer)
+        self.assertIn("solar_os_input_action_matches", observer)
 
     def test_listener_does_not_keep_worker_stack_while_idle(self):
         start = ACTIONS.split("esp_err_t solar_os_input_actions_start", 1)[1].split(
@@ -93,13 +97,11 @@ class InputActionsTest(unittest.TestCase):
         self.assertIn("gesture_print_sources", SHELL_INPUT)
         self.assertIn("source.gesture_mask", SHELL_INPUT)
         self.assertIn("shell_complete_gesture_argument", SHELL_APP)
-        self.assertIn('"source=*"', SHELL_APP)
-        self.assertIn('"gesture=%s"', SHELL_APP)
-        self.assertIn("info.gesture_mask", SHELL_APP)
-        completion = SHELL_APP.split(
-            "static bool shell_complete_gesture_argument", 1
-        )[1].split("static bool shell_completion_collect_matches", 1)[0]
-        self.assertIn("solar_os_shell_completion_needs_trailing_space", completion)
+        self.assertIn("solar_os_shell_gesture_completion_emit", SHELL_APP)
+        self.assertIn('"source=*"', GESTURE_COMPLETION)
+        self.assertIn('"gesture=%s"', GESTURE_COMPLETION)
+        self.assertIn('"shell/solar_os_shell_gesture_completion.c"', PACKAGES)
+        self.assertIn('"services/solar_os_input_action_match.c"', PACKAGES)
 
     def test_runtime_wires_background_runner_and_package_source(self):
         self.assertIn("solar_os_input_actions_init()", MAIN)

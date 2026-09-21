@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "solar_os_input_action_match.h"
 #include "solar_os_queue.h"
 #include "solar_os_task.h"
 
@@ -298,13 +299,12 @@ static void input_action_observe(const solar_os_input_gesture_event_t *event,
     for (size_t i = 0; i < SOLAR_OS_INPUT_ACTION_MAX_BINDINGS; i++) {
         input_action_rule_t *rule = &input_action_rules[i];
         if (!rule->active ||
-            rule->binding.gesture != event->gesture ||
-            (!rule->binding.any_source &&
-             strcmp(rule->binding.source, source.name) != 0) ||
-            (!rule->binding.any_direction &&
-             rule->binding.direction != event->direction) ||
-            (rule->triggered &&
-             now_ms - rule->last_trigger_ms < rule->binding.cooldown_ms)) {
+            !solar_os_input_action_matches(&rule->binding,
+                                           source.name,
+                                           event,
+                                           rule->triggered,
+                                           rule->last_trigger_ms,
+                                           now_ms)) {
             continue;
         }
         rule->triggered = true;
