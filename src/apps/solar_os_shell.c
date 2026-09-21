@@ -7737,10 +7737,13 @@ static bool shell_complete_gesture_argument(
         char completed[SHELL_INPUT_MAX];
         snprintf(completed,
                  sizeof(completed),
-                 "%.*s%s ",
+                 "%.*s%s%s",
                  (int)token_start,
                  shell_session(ctx)->input,
-                 state.match);
+                 state.match,
+                 solar_os_shell_completion_needs_trailing_space(state.match)
+                     ? " "
+                     : "");
         shell_replace_input(ctx, completed);
         return true;
     }

@@ -17,6 +17,14 @@ size_t solar_os_shell_completion_common_prefix(const char *first,
     return length;
 }
 
+bool solar_os_shell_completion_needs_trailing_space(const char *match)
+{
+    if (match == NULL || match[0] == '\0') {
+        return false;
+    }
+    return match[strlen(match) - 1U] != '=';
+}
+
 bool solar_os_shell_completion_parse(const char *input,
                                      size_t input_len,
                                      char *tokens,

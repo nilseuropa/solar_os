@@ -76,6 +76,10 @@ class InputActionsTest(unittest.TestCase):
         self.assertIn('"source=*"', SHELL_APP)
         self.assertIn('"gesture=%s"', SHELL_APP)
         self.assertIn("info.gesture_mask", SHELL_APP)
+        completion = SHELL_APP.split(
+            "static bool shell_complete_gesture_argument", 1
+        )[1].split("static bool shell_completion_collect_matches", 1)[0]
+        self.assertIn("solar_os_shell_completion_needs_trailing_space", completion)
 
     def test_runtime_wires_background_runner_and_package_source(self):
         self.assertIn("solar_os_input_actions_init()", MAIN)
