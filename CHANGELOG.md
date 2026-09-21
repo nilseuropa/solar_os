@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.13.4** — 2026-09-21 — Added a full-screen, overlay-free Palm Graffiti
+  keyboard job with alphanumeric templates, Palm editing gestures, and
+  automatic letter/number selection from the stroke's starting region. It
+  accepts absolute pointer devices attached at runtime without taking the
+  foreground application's pointer stream. Added the MGC3130/Skywriter
+  expansion driver with 3D position, absolute hover-pointer, and gesture input.
+  Gesture-capable devices now use a common source class and can bind advertised
+  gestures and directions to shell commands or scripts through the
+  `gesture-listener` job. `input emit` supports modifier chords such as
+  `ALT+RIGHT`, releases synthetic modifiers correctly, and gesture binding
+  completion now suggests live sources and their supported gestures. Idle
+  listeners release their worker stack while preserving bindings.
 - **4.13.3** — 2026-09-21 — Added `sftpsync`, a one-way incremental file and
   directory updater over a standard SSH server's SFTP subsystem. It supports
   recursive and dry-run modes, password and key authentication, Python and Lua
