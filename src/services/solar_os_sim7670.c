@@ -32,6 +32,10 @@
 #define SIM7670_UART_PROBE_ATTEMPTS 3U
 #define SIM7670_UART_PROBE_RETRY_MS 100U
 #define SIM7670_UART_SWITCH_SETTLE_MS 50U
+#define SIM7670_GNSS_QUERY_TIMEOUT_MS 1000U
+#define SIM7670_GNSS_POLL_INTERVAL_MS 1000U
+#define SIM7670_GNSS_READY_TIMEOUT_MS 30000U
+#define SIM7670_GNSS_READY_POLL_MS 2000U
 
 typedef struct {
     bool active;
@@ -1117,10 +1121,44 @@ static esp_err_t gnss_read_fix(void *ctx,
         xSemaphoreGive(device->mutex);
         return ESP_ERR_INVALID_STATE;
     }
-    sim7670_gnss_fix_t modem_fix;
-    const esp_err_t ret = sim7670_read_gnss_fix(&device->modem,
-                                                timeout_ms,
-                                                &modem_fix);
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms) > 0U
+        ? pdMS_TO_TICKS(timeout_ms)
+        : 1U;
+    const TickType_t started_at = xTaskGetTickCount();
+    sim7670_gnss_fix_t modem_fix = {0};
+    esp_err_t ret = ESP_OK;
+    for (;;) {
+        const TickType_t elapsed = xTaskGetTickCount() - started_at;
+        if (elapsed >= timeout_ticks) {
+            break;
+        }
+        const TickType_t remaining_ticks = timeout_ticks - elapsed;
+        uint32_t query_timeout_ms = (uint32_t)(remaining_ticks * portTICK_PERIOD_MS);
+        if (query_timeout_ms == 0U) {
+            query_timeout_ms = 1U;
+        } else if (query_timeout_ms > SIM7670_GNSS_QUERY_TIMEOUT_MS) {
+            query_timeout_ms = SIM7670_GNSS_QUERY_TIMEOUT_MS;
+        }
+        ret = sim7670_read_gnss_fix(&device->modem,
+                                    query_timeout_ms,
+                                    &modem_fix);
+        if (ret != ESP_OK || modem_fix.valid) {
+            break;
+        }
+
+        const TickType_t after_query = xTaskGetTickCount() - started_at;
+        if (after_query >= timeout_ticks) {
+            break;
+        }
+        TickType_t delay_ticks = pdMS_TO_TICKS(SIM7670_GNSS_POLL_INTERVAL_MS);
+        const TickType_t remaining_after_query = timeout_ticks - after_query;
+        if (delay_ticks > remaining_after_query) {
+            delay_ticks = remaining_after_query;
+        }
+        if (delay_ticks > 0U) {
+            vTaskDelay(delay_ticks);
+        }
+    }
     if (ret == ESP_OK) {
         *fix = (solar_os_gnss_fix_t) {
             .valid = modem_fix.valid,
@@ -1175,6 +1213,21 @@ static esp_err_t gnss_set_power(void *ctx, bool enabled)
     esp_err_t ret = ESP_OK;
     if (device->gnss_powered != enabled) {
         ret = sim7670_set_gnss_power(&device->modem, enabled);
+    }
+    if (ret == ESP_OK && enabled) {
+        const TickType_t ready_timeout =
+            pdMS_TO_TICKS(SIM7670_GNSS_READY_TIMEOUT_MS);
+        const TickType_t started_at = xTaskGetTickCount();
+        do {
+            ret = sim7670_probe_gnss(&device->modem);
+            if (ret == ESP_OK) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(SIM7670_GNSS_READY_POLL_MS));
+        } while ((xTaskGetTickCount() - started_at) < ready_timeout);
+        if (ret == ESP_OK) {
+            ret = sim7670_configure_gnss(&device->modem);
+        }
     }
     if (ret == ESP_OK) {
         device->gnss_powered = enabled;
