@@ -178,6 +178,11 @@ typedef struct {
     uint32_t raw;
 } solar_os_input_gesture_event_t;
 
+/* Gesture observers receive a copy without consuming the foreground event. */
+typedef void (*solar_os_input_gesture_observer_t)(
+    const solar_os_input_gesture_event_t *event,
+    void *context);
+
 typedef struct {
     int16_t min_x;
     int16_t max_x;
@@ -233,6 +238,8 @@ esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t sourc
 size_t solar_os_input_keyboard_count(void);
 size_t solar_os_input_source_count(void);
 bool solar_os_input_source_get(size_t index, solar_os_input_source_info_t *info);
+bool solar_os_input_source_get_info(solar_os_input_source_t source,
+                                    solar_os_input_source_info_t *info);
 bool solar_os_input_source_find(const char *name, solar_os_input_source_info_t *info);
 bool solar_os_input_source_get_diagnostics(
     solar_os_input_source_t source,
@@ -244,6 +251,11 @@ const char *solar_os_input_axis_name(solar_os_input_axis_t axis);
 const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture);
 const char *solar_os_input_gesture_direction_name(
     solar_os_input_gesture_direction_t direction);
+bool solar_os_input_parse_gesture(const char *name,
+                                  solar_os_input_gesture_t *gesture);
+bool solar_os_input_parse_gesture_direction(
+    const char *name,
+    solar_os_input_gesture_direction_t *direction);
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 
@@ -267,6 +279,12 @@ esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
 esp_err_t solar_os_input_write_gesture(
     solar_os_input_source_t source,
     const solar_os_input_gesture_event_t *event);
+esp_err_t solar_os_input_gesture_observer_register(
+    solar_os_input_gesture_observer_t observer,
+    void *context);
+void solar_os_input_gesture_observer_unregister(
+    solar_os_input_gesture_observer_t observer,
+    void *context);
 esp_err_t solar_os_input_pointer_calibration_get(
     solar_os_input_source_t source,
     bool *enabled,

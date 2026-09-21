@@ -775,11 +775,16 @@ static const char * const display_subcommands[] = {
     "mode",
 };
 static const char * const input_subcommands[] = {
-    "status", "test", "calibrate", "keyboard", "touch", "mouse", "joystick",
-    "dpad", "buttons",
+    "status", "test", "calibrate", "emit", "bind", "bindings", "unbind",
+    "keyboard", "touch", "mouse", "joystick", "dpad", "buttons",
 };
 static const char * const input_class_subcommands[] = {"status"};
 static const char * const input_calibration_subcommands[] = {"set", "reset"};
+static const char * const input_emit_keys[] = {
+    "UP", "DOWN", "LEFT", "RIGHT", "ENTER", "ESCAPE", "SPACE", "TAB",
+    "BACKSPACE", "HOME", "END", "DELETE", "PAGE_UP", "PAGE_DOWN",
+};
+static const char * const input_unbind_values[] = {"all"};
 
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
@@ -1789,6 +1794,8 @@ static const char * const path_display_mode_target[] = {"display", "mode", SHELL
 static const char * const path_input[] = {"input"};
 static const char * const path_input_test[] = {"input", "test"};
 static const char * const path_input_calibrate[] = {"input", "calibrate"};
+static const char * const path_input_emit[] = {"input", "emit"};
+static const char * const path_input_unbind[] = {"input", "unbind"};
 static const char * const path_input_keyboard[] = {"input", "keyboard"};
 static const char * const path_input_touch[] = {"input", "touch"};
 static const char * const path_input_mouse[] = {"input", "mouse"};
@@ -3000,6 +3007,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_input, input_subcommands),
     SHELL_COMPLETION_INPUT_SOURCES(path_input_test, false),
     SHELL_COMPLETION_INPUT_SOURCES(path_input_calibrate, true),
+    SHELL_COMPLETION_STATIC(path_input_emit, input_emit_keys),
+    SHELL_COMPLETION_STATIC(path_input_unbind, input_unbind_values),
     SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_touch, input_class_subcommands),
     SHELL_COMPLETION_STATIC(path_input_mouse, input_class_subcommands),
@@ -8183,6 +8192,34 @@ esp_err_t solar_os_shell_run_background_script(const char *path)
     if (err == ESP_OK) {
         session->watch_executing = true;
         (void)solar_os_shell_run_script(&ctx, path, path, false);
+        session->watch_executing = false;
+    }
+    solar_os_shell_session_destroy(session);
+    return err;
+}
+
+esp_err_t solar_os_shell_run_background_command(const char *command)
+{
+    if (command == NULL || command[0] == '\0' || strlen(command) >= SHELL_INPUT_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    solar_os_shell_session_t *session = solar_os_shell_session_create();
+    if (session == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    solar_os_context_t ctx;
+    solar_os_context_init(&ctx, NULL, NULL);
+    solar_os_shell_io_t *io = solar_os_shell_session_io(session);
+    solar_os_shell_io_init_terminal(io, NULL);
+    esp_err_t err = solar_os_shell_session_start(&ctx,
+                                                 session,
+                                                 io,
+                                                 false,
+                                                 false);
+    if (err == ESP_OK) {
+        session->watch_executing = true;
+        (void)shell_execute_line(&ctx, command, false, NULL, 0);
         session->watch_executing = false;
     }
     solar_os_shell_session_destroy(session);

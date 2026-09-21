@@ -23,6 +23,7 @@ static char nvs_blob_key[16];
 static uint8_t nvs_blob[64];
 static size_t nvs_blob_length;
 static unsigned pointer_filter_calls;
+static unsigned gesture_observer_calls[2];
 
 static bool consume_pointer(const solar_os_input_pointer_event_t *event,
                             void *context)
@@ -31,6 +32,16 @@ static bool consume_pointer(const solar_os_input_pointer_event_t *event,
     assert(context == &pointer_filter_calls);
     pointer_filter_calls++;
     return event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE;
+}
+
+static void observe_gesture(const solar_os_input_gesture_event_t *event,
+                            void *context)
+{
+    unsigned *calls = (unsigned *)context;
+    assert(event != NULL);
+    assert(event->gesture == SOLAR_OS_INPUT_GESTURE_FLICK);
+    assert(event->direction == SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    (*calls)++;
 }
 
 void *solar_os_memory_calloc(size_t count,
@@ -570,8 +581,28 @@ int main(void)
         .flags = SOLAR_OS_INPUT_GESTURE_FLAG_EDGE,
         .raw = 65U,
     };
+    solar_os_input_gesture_t parsed_gesture = SOLAR_OS_INPUT_GESTURE_COUNT;
+    solar_os_input_gesture_direction_t parsed_direction =
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT;
+    assert(solar_os_input_parse_gesture("FLICK", &parsed_gesture));
+    assert(parsed_gesture == SOLAR_OS_INPUT_GESTURE_FLICK);
+    assert(!solar_os_input_parse_gesture("shake", &parsed_gesture));
+    assert(solar_os_input_parse_gesture_direction("EAST", &parsed_direction));
+    assert(parsed_direction == SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    solar_os_input_source_info_t gesture_info;
+    assert(solar_os_input_source_get_info(gesture_source, &gesture_info));
+    assert(strcmp(gesture_info.name, "gesture0") == 0);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[0]) == ESP_OK);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[1]) == ESP_OK);
+    assert(solar_os_input_gesture_observer_register(
+               observe_gesture, &gesture_observer_calls[0]) ==
+           ESP_ERR_INVALID_STATE);
     assert(solar_os_input_write_gesture(buttons, &gesture) == ESP_ERR_INVALID_STATE);
     assert(solar_os_input_write_gesture(gesture_source, &gesture) == ESP_OK);
+    assert(gesture_observer_calls[0] == 1U);
+    assert(gesture_observer_calls[1] == 1U);
     solar_os_input_gesture_event_t gesture_read = {0};
     assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 1);
     assert(gesture_read.source == gesture_source);
@@ -585,7 +616,13 @@ int main(void)
     assert(diagnostics.gesture_events == 1);
     assert(diagnostics.has_gesture);
     assert(diagnostics.last_gesture.raw == 65U);
+    solar_os_input_gesture_observer_unregister(
+        observe_gesture, &gesture_observer_calls[0]);
     assert(solar_os_input_write_gesture(gesture_source, &gesture) == ESP_OK);
+    assert(gesture_observer_calls[0] == 1U);
+    assert(gesture_observer_calls[1] == 2U);
+    solar_os_input_gesture_observer_unregister(
+        observe_gesture, &gesture_observer_calls[1]);
     solar_os_input_source_close(gesture_source);
     assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 0);
     assert(gesture_queue_frees == 1);

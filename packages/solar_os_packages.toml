@@ -683,6 +683,7 @@ sources = [
   "services/solar_os_gfx_icons.c",
   "services/solar_os_identity.c",
   "services/solar_os_input.c",
+  "services/solar_os_input_actions.c",
   "services/solar_os_input_composition.c",
   "services/solar_os_keys.c",
   "services/solar_os_log.c",

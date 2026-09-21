@@ -112,6 +112,28 @@ Gesture events contain the recognized kind, direction, flags, optional value,
 and original sensor word and also follow local input focus.
 Applications without the matching flag do not receive those structured events.
 
+Gesture bindings observe the same events without taking them away from the
+foreground application. A binding can match one source or every source, one
+gesture kind, and optionally one direction. Its command runs on a single
+background worker, so two gestures never execute shell commands concurrently.
+The cooldown suppresses repeated sensor reports; it defaults to 250 ms.
+
+```text
+input bind source=gesture0 gesture=flick direction=east -- input emit RIGHT
+input bind source=gesture0 gesture=flick direction=west cooldown=400 -- input emit LEFT
+input bind source=* gesture=double-tap -- /flash/bin/toggle-light.sh
+input bindings
+input unbind 2
+```
+
+`input emit` creates a virtual local keyboard on first use and injects a key
+tap into the normal input-focus path. It does not send USB or BLE HID reports.
+Bindings are deliberately volatile. Put the required `input bind` commands in
+the selected startup shell script to recreate them after boot. Background
+commands may use shell built-ins or invoke scripts, but they cannot launch a
+foreground application. Use an explicit display target for display actions,
+for example `setterm --display display0 orientation 90`.
+
 Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute
 `x`/`y` coordinates and press/move/release actions; relative mice expose

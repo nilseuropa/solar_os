@@ -40,6 +40,7 @@
 #include "solar_os_gfx_internal.h"
 #include "solar_os_fonts.h"
 #include "solar_os_input.h"
+#include "solar_os_input_actions.h"
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
 #include "solar_os_inbox.h"
 #endif
@@ -1660,6 +1661,13 @@ void app_main(void)
     if (log_err != ESP_OK) {
         ESP_LOGW(TAG, "Log service unavailable: %s", esp_err_to_name(log_err));
     }
+    const esp_err_t input_actions_err = solar_os_input_actions_init();
+    if (input_actions_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Input actions unavailable: %s",
+                 esp_err_to_name(input_actions_err));
+    }
+    solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
 
