@@ -45,6 +45,7 @@ PICOTTS_HEADER = (
 PICOTTS_RUNTIME = (
     REPOSITORY / "components/picotts/picotts_runtime.c"
 ).read_text(encoding="utf-8")
+PICOTTS_VOICES = REPOSITORY / "picotts_voices"
 
 
 class SpeechServiceTest(unittest.TestCase):
@@ -94,13 +95,17 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("picotts_init_resources(", JOB_SOURCE)
         self.assertIn("speechd_release_voice_resources();", JOB_SOURCE)
 
-    def test_picotts_voice_blobs_are_external_build_artifacts(self):
+    def test_picotts_voice_blobs_are_versioned_external_assets(self):
         self.assertIn("picotts_init_resources", PICOTTS_HEADER)
         self.assertIn("solar_os_pico_load_resource(", PICOTTS_RUNTIME)
         self.assertNotIn("target_add_binary_data", PICOTTS_CMAKE)
         self.assertNotIn("picotts_ta.bin.S", PICOTTS_CMAKE)
         for locale in ("en-GB", "en-US", "de-DE", "es-ES", "fr-FR", "it-IT"):
-            self.assertIn(f"solar_os_picotts_voice({locale} ", PICOTTS_CMAKE)
+            self.assertIn(f"solar_os_picotts_voice({locale})", PICOTTS_CMAKE)
+            for resource in ("ta.bin", "sg.bin"):
+                path = PICOTTS_VOICES / locale / resource
+                self.assertTrue(path.is_file(), path)
+                self.assertGreater(path.stat().st_size, 100_000, path)
 
     def test_python_and_lua_share_speech_surface(self):
         for function in ("say", "cancel", "request_status", "queue_status"):

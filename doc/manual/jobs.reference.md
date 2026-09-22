@@ -1232,9 +1232,10 @@ job stop speechd
 ```
 
 The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
-compiled into `firmware.bin`. A SolarOS build writes ready-to-copy directories
-for `en-GB`, `en-US`, `de-DE`, `es-ES`, `fr-FR`, and `it-IT` below
-`.pio/build/<environment>/picotts_voices/`. Copy one or more complete
+compiled into `firmware.bin`. The repository's top-level `picotts_voices/`
+directory contains ready-to-copy voices for `en-GB`, `en-US`, `de-DE`, `es-ES`,
+`fr-FR`, and `it-IT`. Builds also mirror them below
+`.pio/build/<environment>/picotts_voices/`. Copy one or more complete locale
 directories to SD or flash storage, then select the language when starting the
 job:
 

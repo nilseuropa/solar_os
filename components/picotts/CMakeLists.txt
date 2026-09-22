@@ -8,6 +8,16 @@ if(NOT SOLAR_OS_PICOTTS_SOURCE_DIR OR
     message(FATAL_ERROR "Pinned PicoTTS source is unavailable")
 endif()
 
+if(NOT SOLAR_OS_PICOTTS_VOICE_DIR AND
+        DEFINED ENV{SOLAR_OS_PICOTTS_VOICE_DIR})
+    set(SOLAR_OS_PICOTTS_VOICE_DIR "$ENV{SOLAR_OS_PICOTTS_VOICE_DIR}")
+endif()
+
+if(NOT SOLAR_OS_PICOTTS_VOICE_DIR OR
+        NOT EXISTS "${SOLAR_OS_PICOTTS_VOICE_DIR}/README.md")
+    message(FATAL_ERROR "Versioned PicoTTS voice directory is unavailable")
+endif()
+
 set(PICOTTS_CORE_SRCS
     picopr.c
     picosa.c
@@ -67,24 +77,23 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 )
 
 set(PICOTTS_VOICE_OUTPUT "${CMAKE_BINARY_DIR}/picotts_voices")
-function(solar_os_picotts_voice locale ta_file sg_file)
+function(solar_os_picotts_voice locale)
     set(voice_dir "${PICOTTS_VOICE_OUTPUT}/${locale}")
     file(MAKE_DIRECTORY "${voice_dir}")
-    configure_file(
-        "${SOLAR_OS_PICOTTS_SOURCE_DIR}/pico/lang/${ta_file}"
-        "${voice_dir}/ta.bin"
-        COPYONLY
-    )
-    configure_file(
-        "${SOLAR_OS_PICOTTS_SOURCE_DIR}/pico/lang/${sg_file}"
-        "${voice_dir}/sg.bin"
-        COPYONLY
-    )
+    foreach(resource ta.bin sg.bin)
+        set(source "${SOLAR_OS_PICOTTS_VOICE_DIR}/${locale}/${resource}")
+        if(NOT EXISTS "${source}")
+            message(FATAL_ERROR
+                "Missing PicoTTS voice resource: ${source}"
+            )
+        endif()
+        configure_file("${source}" "${voice_dir}/${resource}" COPYONLY)
+    endforeach()
 endfunction()
 
-solar_os_picotts_voice(en-GB en-GB_ta.bin en-GB_kh0_sg.bin)
-solar_os_picotts_voice(en-US en-US_ta.bin en-US_lh0_sg.bin)
-solar_os_picotts_voice(de-DE de-DE_ta.bin de-DE_gl0_sg.bin)
-solar_os_picotts_voice(es-ES es-ES_ta.bin es-ES_zl0_sg.bin)
-solar_os_picotts_voice(fr-FR fr-FR_ta.bin fr-FR_nk0_sg.bin)
-solar_os_picotts_voice(it-IT it-IT_ta.bin it-IT_cm0_sg.bin)
+solar_os_picotts_voice(en-GB)
+solar_os_picotts_voice(en-US)
+solar_os_picotts_voice(de-DE)
+solar_os_picotts_voice(es-ES)
+solar_os_picotts_voice(fr-FR)
+solar_os_picotts_voice(it-IT)

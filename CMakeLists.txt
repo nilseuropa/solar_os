@@ -21,6 +21,11 @@ set(SOLAR_OS_PICOTTS_SOURCE_DIR
     CACHE INTERNAL "Pinned PicoTTS source used by the SolarOS component"
 )
 set(ENV{SOLAR_OS_PICOTTS_SOURCE_DIR} "${solar_os_picotts_source_SOURCE_DIR}")
+set(SOLAR_OS_PICOTTS_VOICE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/picotts_voices"
+    CACHE INTERNAL "Versioned PicoTTS runtime voice directory"
+)
+set(ENV{SOLAR_OS_PICOTTS_VOICE_DIR} "${SOLAR_OS_PICOTTS_VOICE_DIR}")
 
 include(patches/nimble/config_guard.cmake)
 solar_os_regenerate_stale_sdkconfig()
