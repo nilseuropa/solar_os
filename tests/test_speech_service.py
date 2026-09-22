@@ -269,6 +269,12 @@ class SpeechServiceTest(unittest.TestCase):
         )
         self.assertIn("SOLAR_OS_KEY_ESCAPE", SHELL_SOURCE)
         self.assertIn("ch == 0x03U", SHELL_SOURCE)
+        self.assertIn("say_file_playback.stopping = true", SHELL_SOURCE)
+        stop_handler = SHELL_SOURCE.split(
+            "if (ch == SOLAR_OS_KEY_ESCAPE", 1
+        )[1].split("if (event->type == SOLAR_OS_EVENT_TICK)", 1)[0]
+        self.assertNotIn("say_file_finish(ctx", stop_handler)
+        self.assertIn("if (say_file_playback.stopping)", SHELL_SOURCE)
         self.assertIn("solar_os_shell_speech_file_event", SHELL_SOURCE)
         self.assertIn("event->type == SOLAR_OS_EVENT_TICK", SHELL_SOURCE)
         self.assertIn("solar_os_shell_session_hold_prompt(ctx)", SHELL_SOURCE)

@@ -43,6 +43,7 @@ typedef struct {
     uint64_t bytes_submitted;
     uint32_t request_id;
     bool final_submitted;
+    bool stopping;
     say_progress_t progress;
     char path_arg[SOLAR_OS_STORAGE_PATH_MAX];
 } say_file_playback_t;
@@ -447,7 +448,9 @@ static void say_file_step(solar_os_context_t *ctx)
             say_file_playback.request_id, &status)) {
         if (status.state == SOLAR_OS_SPEECH_REQUEST_COMPLETE) {
             say_file_playback.request_id = 0U;
-            say_file_finish(ctx, false, ESP_OK);
+            say_file_finish(ctx,
+                            say_file_playback.stopping,
+                            say_file_playback.stopping ? ESP_ERR_TIMEOUT : ESP_OK);
             return;
         }
         if (status.state == SOLAR_OS_SPEECH_REQUEST_CANCELLED) {
@@ -462,9 +465,14 @@ static void say_file_step(solar_os_context_t *ctx)
         }
         if (status.state == SOLAR_OS_SPEECH_REQUEST_FAILED) {
             say_file_playback.request_id = 0U;
-            say_file_finish(ctx,
-                            false,
-                            status.error != ESP_OK ? status.error : ESP_FAIL);
+            if (say_file_playback.stopping) {
+                say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
+            } else {
+                say_file_finish(
+                    ctx,
+                    false,
+                    status.error != ESP_OK ? status.error : ESP_FAIL);
+            }
             return;
         }
     } else {
@@ -473,6 +481,9 @@ static void say_file_step(solar_os_context_t *ctx)
         if (!queue_status.running) {
             say_file_finish(ctx, false, ESP_ERR_INVALID_STATE);
         }
+        return;
+    }
+    if (say_file_playback.stopping) {
         return;
     }
     if (say_file_playback.final_submitted) {
@@ -544,10 +555,11 @@ bool solar_os_shell_speech_file_event(solar_os_context_t *ctx,
         const uint8_t ch = (uint8_t)event->data.ch;
         if (ch == SOLAR_OS_KEY_ESCAPE || ch == 0x03U ||
             ch == SOLAR_OS_KEY_APP_EXIT) {
-            if (say_file_playback.request_id != 0U) {
+            if (!say_file_playback.stopping &&
+                say_file_playback.request_id != 0U) {
                 (void)solar_os_speech_cancel(say_file_playback.request_id);
+                say_file_playback.stopping = true;
             }
-            say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
         }
         return true;
     }
