@@ -1934,6 +1934,11 @@ static const char * const path_job_start_bridge_link[] = {
 };
 #endif
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const path_job_start_speechd[] = {
+    "job", "start", "speechd"
+};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
 static const char * const path_job_start_displayd[] = {"job", "start", "displayd"};
 #endif
@@ -3079,6 +3084,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
                             link_destination_values),
 #endif
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    SHELL_COMPLETION_PATH(path_job_start_speechd, true),
+#endif
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
     SHELL_COMPLETION_DISPLAY_TARGETS(path_job_start_displayd),
 #endif

@@ -128,6 +128,16 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("job start speechd", SHELL_SOURCE)
         self.assertIn("SHELL_COMPLETION_OPTIONS(path_say, say_options)", SHELL_REGISTRY)
 
+    def test_speechd_voice_directory_completion_lists_directories(self):
+        self.assertIn(
+            'path_job_start_speechd[] = {\n    "job", "start", "speechd"',
+            SHELL_REGISTRY,
+        )
+        self.assertIn(
+            "SHELL_COMPLETION_PATH(path_job_start_speechd, true)",
+            SHELL_REGISTRY,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
