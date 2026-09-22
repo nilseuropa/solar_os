@@ -119,14 +119,24 @@ class SpeechServiceTest(unittest.TestCase):
     def test_say_command_queues_copied_text(self):
         speechd = self.catalog.package_defs["job_speechd"]
         self.assertIn("shell/solar_os_shell_speech.c", speechd.sources)
-        self.assertIn(
-            '{"say", "queue offline speech", solar_os_shell_cmd_say}',
-            SHELL_REGISTRY,
-        )
-        self.assertIn("solar_os_speech_enqueue(&request, &request_id)", SHELL_SOURCE)
+        self.assertIn('"say", "speak text or a text file"', SHELL_REGISTRY)
+        self.assertIn("solar_os_speech_enqueue(&request, request_id)", SHELL_SOURCE)
         self.assertIn("--drop-if-busy", SHELL_SOURCE)
         self.assertIn("job start speechd", SHELL_SOURCE)
         self.assertIn("SHELL_COMPLETION_OPTIONS(path_say, say_options)", SHELL_REGISTRY)
+
+    def test_say_reads_plain_text_files_with_progress_and_cancellation(self):
+        self.assertIn('strcmp(arg, "--file") == 0', SHELL_SOURCE)
+        self.assertIn("say_validate_plain_text(file)", SHELL_SOURCE)
+        self.assertIn("say_render_progress", SHELL_SOURCE)
+        self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
+        self.assertIn("solar_os_speech_cancel(request_id)", SHELL_SOURCE)
+        self.assertIn("SOLAR_OS_KEY_ESCAPE", SHELL_SOURCE)
+        self.assertIn("ch == 0x03U", SHELL_SOURCE)
+        self.assertIn(
+            "SHELL_COMPLETION_PATH(path_say_file, false)",
+            SHELL_REGISTRY,
+        )
 
     def test_speechd_voice_directory_completion_lists_directories(self):
         self.assertIn(

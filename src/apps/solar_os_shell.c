@@ -615,7 +615,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"audio", "audio codec tools", solar_os_shell_cmd_audio},
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SPEECHD
-    {"say", "queue offline speech", solar_os_shell_cmd_say},
+    {"say", "speak text or a text file", solar_os_shell_cmd_say},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     {"uart", "UART port tools", solar_os_shell_cmd_uart},
@@ -1496,7 +1496,7 @@ static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"}
 
 #if SOLAR_OS_PACKAGE_JOB_SPEECHD
 static const char * const say_options[] = {
-    "-v", "--volume", "--drop-if-busy", "--",
+    "-v", "--volume", "--drop-if-busy", "--file", "--",
 };
 #endif
 
@@ -2558,6 +2558,7 @@ static const char * const path_audio_loopback_ms[] = {"audio", "loopback", SHELL
 static const char * const path_say[] = {"say"};
 static const char * const path_say_volume[] = {"say", "-v"};
 static const char * const path_say_volume_long[] = {"say", "--volume"};
+static const char * const path_say_file[] = {"say", "--file"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const path_sshkey[] = {"sshkey"};
@@ -3511,6 +3512,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_say, say_options),
     SHELL_COMPLETION_STATIC(path_say_volume, audio_volume_values),
     SHELL_COMPLETION_STATIC(path_say_volume_long, audio_volume_values),
+    SHELL_COMPLETION_PATH(path_say_file, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
     SHELL_COMPLETION_STATIC(path_sshkey, sshkey_subcommands),

@@ -1227,9 +1227,16 @@ Python, and Lua.
 ```text
 job start speechd /voices/en-US
 say "Solar O S is ready"
+say --file /documents/announcement.txt
 job status speechd
 job stop speechd
 ```
+
+`say --file <path>` validates and reads a plain UTF-8 text file in bounded
+chunks. It displays speaking progress and remains in the foreground until the
+file completes; press `Esc` or `Ctrl+C` to cancel the current speech request and
+stop reading. Tab completion after `--file` lists filesystem paths. Ordinary
+`say <text...>` remains asynchronous and returns the queued request ID.
 
 The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
 compiled into `firmware.bin`. The repository's top-level `picotts_voices/`
