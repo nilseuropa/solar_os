@@ -5574,6 +5574,8 @@ static int solua_speech_request_status(lua_State *L)
         L, -1, "state", solar_os_speech_request_state_name(status.state));
     solua_set_int(L, -1, "error", status.error);
     solua_set_str(L, -1, "error_name", esp_err_to_name(status.error));
+    solua_set_int(L, -1, "progress_done", status.progress_done);
+    solua_set_int(L, -1, "progress_total", status.progress_total);
     return 1;
 }
 

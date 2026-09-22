@@ -14,6 +14,8 @@ extern "C" {
 typedef void (*picotts_output_fn)(int16_t *samples, unsigned count);
 typedef void (*picotts_error_notify_fn)(void);
 typedef void (*picotts_idle_notify_fn)(void);
+typedef void (*picotts_progress_notify_fn)(unsigned bytes_done,
+                                           unsigned bytes_total);
 
 /*
  * The resource buffers are read directly by PicoTTS. They must remain valid
@@ -34,6 +36,7 @@ bool picotts_add(const char *text,
 bool picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);
 void picotts_set_idle_notify(picotts_idle_notify_fn callback);
+void picotts_set_progress_notify(picotts_progress_notify_fn callback);
 
 #ifdef __cplusplus
 }

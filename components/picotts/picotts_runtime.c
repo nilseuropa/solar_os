@@ -23,11 +23,13 @@
 #define INPUT_QUEUE_WAIT_MS 20U
 #define EXIT_WAIT_MS 1000U
 #define INPUT_COOPERATIVE_BYTES 64U
+#define INPUT_PROGRESS_SLICE_BYTES 16U
 #define OUTPUT_COOPERATIVE_STEPS 8U
 
 static picotts_output_fn output_callback;
 static picotts_error_notify_fn error_callback;
 static picotts_idle_notify_fn idle_callback;
+static picotts_progress_notify_fn progress_callback;
 static SemaphoreHandle_t exit_lock;
 static QueueHandle_t text_queue;
 static TaskHandle_t pico_task;
@@ -38,6 +40,46 @@ static pico_Resource pico_sg_resource;
 static pico_Engine pico_engine;
 static const pico_Char voice_name[] = "PicoVoice";
 static const char *TAG = "picotts";
+static portMUX_TYPE progress_lock = portMUX_INITIALIZER_UNLOCKED;
+static unsigned progress_done;
+static unsigned progress_total;
+
+static void pico_progress_reset(const char *text, unsigned length)
+{
+    const unsigned total = length > 0U && text[length - 1U] == '\0' ?
+        length - 1U : length;
+    portENTER_CRITICAL(&progress_lock);
+    progress_done = 0U;
+    progress_total = total;
+    portEXIT_CRITICAL(&progress_lock);
+}
+
+static void pico_progress_accepted(uint8_t byte)
+{
+    if (byte == '\0') {
+        return;
+    }
+    portENTER_CRITICAL(&progress_lock);
+    if (progress_done < progress_total) {
+        progress_done++;
+    }
+    portEXIT_CRITICAL(&progress_lock);
+}
+
+static void pico_progress_report(void)
+{
+    unsigned done = 0U;
+    unsigned total = 0U;
+    picotts_progress_notify_fn callback = NULL;
+    portENTER_CRITICAL(&progress_lock);
+    done = progress_done;
+    total = progress_total;
+    callback = progress_callback;
+    portEXIT_CRITICAL(&progress_lock);
+    if (callback != NULL && total > 0U) {
+        callback(done, total);
+    }
+}
 
 static bool pico_exit_requested(void)
 {
@@ -76,6 +118,7 @@ static void pico_task_main(void *arg)
         }
 
         uint8_t byte = 0U;
+        unsigned input_slice = 0U;
         while (xQueuePeek(text_queue, &byte, 0) == pdPASS) {
             if (pico_exit_requested()) {
                 goto stopped;
@@ -90,7 +133,9 @@ static void pico_task_main(void *arg)
             }
             if (processed != 0) {
                 (void)xQueueReceive(text_queue, &byte, 0);
+                pico_progress_accepted(byte);
                 input_steps++;
+                input_slice++;
                 if (byte == '\0') {
                     utterance_end_seen = true;
                 }
@@ -100,6 +145,10 @@ static void pico_task_main(void *arg)
                 if (input_steps >= INPUT_COOPERATIVE_BYTES) {
                     input_steps = 0U;
                     vTaskDelay(1);
+                }
+                if (input_slice >= INPUT_PROGRESS_SLICE_BYTES) {
+                    state = WAITING_FOR_OUTPUT;
+                    break;
                 }
             } else {
                 /* Pico's input buffer is full. Generate output to make room
@@ -115,6 +164,7 @@ static void pico_task_main(void *arg)
         }
 
         int status = PICO_STEP_IDLE;
+        bool produced_output = false;
         do {
             if (pico_exit_requested()) {
                 goto stopped;
@@ -125,6 +175,7 @@ static void pico_task_main(void *arg)
             status = pico_getData(
                 pico_engine, output, sizeof(output), &bytes, &type);
             if (bytes > 0 && output_callback != NULL) {
+                produced_output = true;
                 output_callback(output, (unsigned)bytes / 2U);
             }
             output_steps++;
@@ -139,6 +190,9 @@ static void pico_task_main(void *arg)
             failed = true;
         } else {
             state = WAITING_FOR_BYTES;
+            if (produced_output || utterance_end_seen) {
+                pico_progress_report();
+            }
             if (utterance_end_seen) {
                 utterance_end_seen = false;
                 if (idle_callback != NULL) {
@@ -292,6 +346,7 @@ bool picotts_add(const char *text,
     if (text == NULL || text_queue == NULL) {
         return false;
     }
+    pico_progress_reset(text, length);
     while (length-- > 0U) {
         if (cancelled != NULL && *cancelled) {
             return false;
@@ -314,6 +369,7 @@ bool picotts_shutdown(void)
     output_callback = NULL;
     error_callback = NULL;
     idle_callback = NULL;
+    progress_callback = NULL;
     return stopped;
 }
 
@@ -325,4 +381,11 @@ void picotts_set_error_notify(picotts_error_notify_fn callback)
 void picotts_set_idle_notify(picotts_idle_notify_fn callback)
 {
     idle_callback = callback;
+}
+
+void picotts_set_progress_notify(picotts_progress_notify_fn callback)
+{
+    portENTER_CRITICAL(&progress_lock);
+    progress_callback = callback;
+    portEXIT_CRITICAL(&progress_lock);
 }

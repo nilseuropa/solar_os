@@ -91,6 +91,7 @@ static bool speechd_cleanup_stopped(void)
 {
     speechd.task = NULL;
     if (speechd.engine_initialized) {
+        picotts_set_progress_notify(NULL);
         picotts_set_idle_notify(NULL);
         picotts_set_error_notify(NULL);
         if (!picotts_shutdown()) {
@@ -302,6 +303,14 @@ static void speechd_idle(void)
     speechd.awaiting_idle = false;
     if (speechd.engine_event != NULL) {
         (void)xSemaphoreGive(speechd.engine_event);
+    }
+}
+
+static void speechd_progress(unsigned bytes_done, unsigned bytes_total)
+{
+    if (speechd.current_id != 0U) {
+        (void)solar_os_speech_worker_set_progress(
+            speechd.current_id, bytes_done, bytes_total);
     }
 }
 
@@ -529,6 +538,7 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
         return speechd.last_error;
     }
     speechd.engine_initialized = true;
+    picotts_set_progress_notify(speechd_progress);
     picotts_set_idle_notify(speechd_idle);
     picotts_set_error_notify(speechd_error);
 

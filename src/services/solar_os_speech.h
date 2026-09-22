@@ -33,6 +33,8 @@ typedef struct {
     uint32_t id;
     solar_os_speech_request_state_t state;
     esp_err_t error;
+    size_t progress_done;
+    size_t progress_total;
 } solar_os_speech_request_status_t;
 
 typedef struct {
@@ -70,6 +72,9 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
                                       uint32_t timeout_ms);
 esp_err_t solar_os_speech_worker_set_state(uint32_t request_id,
                                            solar_os_speech_request_state_t state);
+esp_err_t solar_os_speech_worker_set_progress(uint32_t request_id,
+                                              size_t bytes_done,
+                                              size_t bytes_total);
 esp_err_t solar_os_speech_worker_finish(uint32_t request_id,
                                         solar_os_speech_request_state_t state,
                                         esp_err_t error);

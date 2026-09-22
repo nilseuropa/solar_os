@@ -117,6 +117,14 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("OUTPUT_COOPERATIVE_STEPS", task)
         self.assertGreaterEqual(task.count("vTaskDelay(1);"), 2)
 
+    def test_picotts_reports_pcm_generation_progress(self):
+        self.assertIn("picotts_progress_notify_fn", PICOTTS_HEADER)
+        self.assertIn("INPUT_PROGRESS_SLICE_BYTES", PICOTTS_RUNTIME)
+        self.assertIn("if (produced_output || utterance_end_seen)", PICOTTS_RUNTIME)
+        self.assertIn("pico_progress_report();", PICOTTS_RUNTIME)
+        self.assertIn("picotts_set_progress_notify(speechd_progress)", JOB_SOURCE)
+        self.assertIn("solar_os_speech_worker_set_progress(", JOB_SOURCE)
+
     def test_picotts_shutdown_wait_is_bounded(self):
         cleanup = PICOTTS_RUNTIME.split("static bool pico_cleanup(", 1)[1]
         cleanup = cleanup.split("bool picotts_init_resources(", 1)[0]
@@ -158,6 +166,9 @@ class SpeechServiceTest(unittest.TestCase):
             )
             self.assertIn(f"solaros_speech_{function}", PYTHON_SOURCE)
             self.assertIn(f"solua_speech_{function}", LUA_SOURCE)
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn('"progress_done"', source)
+            self.assertIn('"progress_total"', source)
 
     def test_say_command_queues_copied_text(self):
         speechd = self.catalog.package_defs["job_speechd"]
@@ -175,8 +186,9 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("say_render_progress", SHELL_SOURCE)
         self.assertIn("bytes_done * 10000U", SHELL_SOURCE)
         self.assertIn('"] %3u.%02u%%"', SHELL_SOURCE)
-        self.assertIn("SAY_PROGRESS_ACTIVITY_MS", SHELL_SOURCE)
-        self.assertIn("progress->activity_phase % remaining", SHELL_SOURCE)
+        self.assertIn("status.progress_done", SHELL_SOURCE)
+        self.assertIn("status.progress_total", SHELL_SOURCE)
+        self.assertNotIn("activity_phase", SHELL_SOURCE)
         self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
         self.assertIn(
             "solar_os_speech_cancel(say_file_playback.request_id)", SHELL_SOURCE

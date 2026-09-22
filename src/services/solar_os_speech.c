@@ -26,6 +26,8 @@ typedef struct {
     uint32_t next_id;
     uint32_t current_id;
     solar_os_speech_request_state_t current_state;
+    size_t current_progress_done;
+    size_t current_progress_total;
     volatile bool cancel_current;
     uint32_t completed;
     uint32_t cancelled;
@@ -65,12 +67,16 @@ static void speech_unlock(void)
 
 static void speech_store_result_locked(uint32_t id,
                                        solar_os_speech_request_state_t state,
-                                       esp_err_t error)
+                                       esp_err_t error,
+                                       size_t progress_done,
+                                       size_t progress_total)
 {
     speech.results[speech.result_next] = (solar_os_speech_request_status_t){
         .id = id,
         .state = state,
         .error = error,
+        .progress_done = progress_done,
+        .progress_total = progress_total,
     };
     speech.result_next =
         (speech.result_next + 1U) % SOLAR_OS_SPEECH_RESULT_CAPACITY;
@@ -174,13 +180,16 @@ esp_err_t solar_os_speech_cancel(uint32_t request_id)
         if (speech.queue[i].id != request_id) {
             continue;
         }
+        const size_t progress_total = strlen(speech.queue[i].text);
         for (size_t next = i + 1U; next < speech.queue_count; next++) {
             speech.queue[next - 1U] = speech.queue[next];
         }
         speech.queue_count--;
         speech_store_result_locked(request_id,
                                    SOLAR_OS_SPEECH_REQUEST_CANCELLED,
-                                   ESP_ERR_TIMEOUT);
+                                   ESP_ERR_TIMEOUT,
+                                   0U,
+                                   progress_total);
         speech_unlock();
         return ESP_OK;
     }
@@ -202,6 +211,8 @@ bool solar_os_speech_request_status(uint32_t request_id,
             .id = request_id,
             .state = speech.current_state,
             .error = ESP_OK,
+            .progress_done = speech.current_progress_done,
+            .progress_total = speech.current_progress_total,
         };
         found = true;
     }
@@ -211,6 +222,8 @@ bool solar_os_speech_request_status(uint32_t request_id,
                 .id = request_id,
                 .state = SOLAR_OS_SPEECH_REQUEST_QUEUED,
                 .error = ESP_OK,
+                .progress_done = 0U,
+                .progress_total = strlen(speech.queue[i].text),
             };
             found = true;
         }
@@ -295,6 +308,8 @@ esp_err_t solar_os_speech_worker_start(TaskHandle_t task)
     speech.result_next = 0U;
     speech.current_id = 0U;
     speech.current_state = SOLAR_OS_SPEECH_REQUEST_QUEUED;
+    speech.current_progress_done = 0U;
+    speech.current_progress_total = 0U;
     speech.cancel_current = false;
     speech.completed = 0U;
     speech.cancelled = 0U;
@@ -316,7 +331,9 @@ void solar_os_speech_worker_stop(void)
     for (size_t i = 0U; i < speech.queue_count; i++) {
         speech_store_result_locked(speech.queue[i].id,
                                    SOLAR_OS_SPEECH_REQUEST_CANCELLED,
-                                   ESP_ERR_TIMEOUT);
+                                   ESP_ERR_TIMEOUT,
+                                   0U,
+                                   strlen(speech.queue[i].text));
     }
     speech.queue_count = 0U;
     worker = speech.worker;
@@ -345,6 +362,8 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
             speech.queue_count--;
             speech.current_id = entry.id;
             speech.current_state = SOLAR_OS_SPEECH_REQUEST_WAITING_AUDIO;
+            speech.current_progress_done = 0U;
+            speech.current_progress_total = strlen(entry.text);
             speech.cancel_current = false;
             *work = (solar_os_speech_work_t){
                 .id = entry.id,
@@ -386,6 +405,25 @@ esp_err_t solar_os_speech_worker_set_state(uint32_t request_id,
     return ESP_OK;
 }
 
+esp_err_t solar_os_speech_worker_set_progress(uint32_t request_id,
+                                              size_t bytes_done,
+                                              size_t bytes_total)
+{
+    if (request_id == 0U || bytes_done > bytes_total ||
+        speech_ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    speech_lock();
+    if (speech.current_id != request_id) {
+        speech_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    speech.current_progress_done = bytes_done;
+    speech.current_progress_total = bytes_total;
+    speech_unlock();
+    return ESP_OK;
+}
+
 esp_err_t solar_os_speech_worker_finish(uint32_t request_id,
                                         solar_os_speech_request_state_t state,
                                         esp_err_t error)
@@ -402,9 +440,18 @@ esp_err_t solar_os_speech_worker_finish(uint32_t request_id,
         state = SOLAR_OS_SPEECH_REQUEST_CANCELLED;
         error = ESP_ERR_TIMEOUT;
     }
-    speech_store_result_locked(request_id, state, error);
+    const size_t progress_total = speech.current_progress_total;
+    const size_t progress_done = state == SOLAR_OS_SPEECH_REQUEST_COMPLETE ?
+        progress_total : speech.current_progress_done;
+    speech_store_result_locked(request_id,
+                               state,
+                               error,
+                               progress_done,
+                               progress_total);
     speech.current_id = 0U;
     speech.current_state = SOLAR_OS_SPEECH_REQUEST_QUEUED;
+    speech.current_progress_done = 0U;
+    speech.current_progress_total = 0U;
     speech.cancel_current = false;
     speech_unlock();
     return ESP_OK;

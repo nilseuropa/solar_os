@@ -5925,12 +5925,14 @@ static mp_obj_t solaros_speech_request_status(mp_obj_t request_id_obj)
             python_u32_from_obj(request_id_obj), &status)) {
         return mp_const_none;
     }
-    mp_obj_t dict = mp_obj_new_dict(4);
+    mp_obj_t dict = mp_obj_new_dict(6);
     python_dict_store_uint(dict, "id", status.id);
     python_dict_store_cstr(
         dict, "state", solar_os_speech_request_state_name(status.state));
     python_dict_store_int(dict, "error", status.error);
     python_dict_store_cstr(dict, "error_name", esp_err_to_name(status.error));
+    python_dict_store_uint(dict, "progress_done", status.progress_done);
+    python_dict_store_uint(dict, "progress_total", status.progress_total);
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(
