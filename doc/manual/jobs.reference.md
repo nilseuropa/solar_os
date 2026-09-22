@@ -1234,10 +1234,11 @@ job stop speechd
 ```
 
 `say --file <path>` validates and reads a plain UTF-8 text file in bounded
-chunks. It displays speaking progress and remains in the foreground until the
-file completes; press `Esc` or `Ctrl+C` to cancel the current speech request and
-stop reading. Files larger than 64 KiB are rejected before audio starts unless
-`--force` is present. Tab completion after `--file` lists filesystem paths. Ordinary
+chunks. It keeps the shell in a foreground playback mode, but advances from
+shell events so the display and progress bar refresh while speech is running.
+Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
+Files larger than 64 KiB are rejected before audio starts unless `--force` is
+present. Tab completion after `--file` lists filesystem paths. Ordinary
 `say <text...>` remains asynchronous and returns the queued request ID.
 
 The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are

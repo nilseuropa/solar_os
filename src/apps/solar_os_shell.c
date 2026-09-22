@@ -9115,6 +9115,9 @@ solar_os_shell_session_t *solar_os_shell_session_create(void)
 
 void solar_os_shell_session_destroy(solar_os_shell_session_t *session)
 {
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    solar_os_shell_speech_file_session_destroyed(session);
+#endif
     if (session != NULL && session != &shell_display_session) {
         solar_os_memory_free(session);
     }
@@ -9821,6 +9824,11 @@ bool solar_os_shell_session_event(solar_os_context_t *ctx,
     solar_os_context_set_shell_session(ctx, session);
     solar_os_context_set_shell_io(ctx, &session->io);
 
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    if (solar_os_shell_speech_file_event(ctx, event)) {
+        return true;
+    }
+#endif
     if (shell_handle_log_follow_event(ctx, event)) {
         return true;
     }
@@ -9848,7 +9856,11 @@ esp_err_t solar_os_shell_session_submit_command(solar_os_context_t *ctx,
         return ESP_ERR_INVALID_SIZE;
     }
     if (session->input_len != 0 || session->watch_active ||
-        session->log_follow_active || session->watch_executing) {
+        session->log_follow_active || session->watch_executing
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+        || solar_os_shell_speech_file_active(session)
+#endif
+    ) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -9883,6 +9895,13 @@ void solar_os_shell_session_prompt(solar_os_context_t *ctx, solar_os_shell_sessi
     solar_os_context_set_shell_session(ctx, session);
     solar_os_context_set_shell_io(ctx, &session->io);
     shell_prompt(ctx);
+}
+
+void solar_os_shell_session_hold_prompt(solar_os_context_t *ctx)
+{
+    if (ctx != NULL && shell_session(ctx) != NULL) {
+        shell_session(ctx)->builtin_suppressed_prompt = true;
+    }
 }
 
 void solar_os_shell_session_prepare_foreground_launch(solar_os_context_t *ctx,

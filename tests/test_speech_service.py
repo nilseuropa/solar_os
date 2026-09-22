@@ -170,9 +170,22 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn('"] %3u.%02u%%"', SHELL_SOURCE)
         self.assertIn("i == filled ? '>' : '-'", SHELL_SOURCE)
         self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
-        self.assertIn("solar_os_speech_cancel(request_id)", SHELL_SOURCE)
+        self.assertIn(
+            "solar_os_speech_cancel(say_file_playback.request_id)", SHELL_SOURCE
+        )
         self.assertIn("SOLAR_OS_KEY_ESCAPE", SHELL_SOURCE)
         self.assertIn("ch == 0x03U", SHELL_SOURCE)
+        self.assertIn("solar_os_shell_speech_file_event", SHELL_SOURCE)
+        self.assertIn("event->type == SOLAR_OS_EVENT_TICK", SHELL_SOURCE)
+        self.assertIn("solar_os_shell_session_hold_prompt(ctx)", SHELL_SOURCE)
+        self.assertNotIn("say_wait_for_request", SHELL_SOURCE)
+        self.assertIn(
+            "solar_os_shell_speech_file_event(ctx, event)", SHELL_REGISTRY
+        )
+        self.assertIn(
+            "solar_os_shell_speech_file_session_destroyed(session)",
+            SHELL_REGISTRY,
+        )
         self.assertIn("SAY_FILE_DEFAULT_MAX_BYTES", SHELL_SOURCE)
         self.assertIn("use --force to read it anyway", SHELL_SOURCE)
         self.assertIn('strcmp(arg, "--force") == 0', SHELL_SOURCE)
