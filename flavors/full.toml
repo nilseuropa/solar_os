@@ -71,6 +71,7 @@ pocsag = true
 radio_link = true
 meshcore = true
 audio_commands = true
+speech = true
 player = true
 recorder = true
 synth = true

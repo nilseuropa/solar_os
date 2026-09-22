@@ -497,6 +497,15 @@ SOLAR_OS_SCRIPT_API_FUNCTION(audio, play_wav, play_wav);
 SOLAR_OS_SCRIPT_API_MODULE_END(audio);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(speech);
+SOLAR_OS_SCRIPT_API_FUNCTION(speech, say, say);
+SOLAR_OS_SCRIPT_API_FUNCTION(speech, cancel, cancel);
+SOLAR_OS_SCRIPT_API_FUNCTION(speech, request_status, request_status);
+SOLAR_OS_SCRIPT_API_FUNCTION(speech, queue_status, queue_status);
+SOLAR_OS_SCRIPT_API_MODULE_END(speech);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(synth);
 SOLAR_OS_SCRIPT_API_FUNCTION(synth, status, status);

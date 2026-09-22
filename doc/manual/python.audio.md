@@ -162,6 +162,32 @@ pcm, format = solaros.audio.capture(1024)
 print(len(pcm), format)
 ```
 
+## `solaros.speech`
+
+Available when the offline speech package is compiled. Start its background
+worker before submitting text:
+
+```python
+solaros.jobs.start("speechd")
+utterance = solaros.speech.say("Solar O S is ready")
+print(solaros.speech.request_status(utterance))
+```
+
+- `say(text[, volume[, drop_if_busy]])`: copy and queue up to 512 UTF-8 bytes,
+  return immediately, and return a request ID. Volume defaults to the global
+  speaker volume. With `drop_if_busy=True`, drop a request rather than wait
+  behind speech or another audio owner; use `request_status()` to observe a
+  later audio-ownership drop.
+- `cancel(request_id)`: remove queued speech or request cancellation of the
+  active utterance.
+- `request_status(request_id)`: return `id`, `state`, `error`, and
+  `error_name`, or `None` after the bounded result history expires.
+- `queue_status()`: return running/current state, queue depth and capacity,
+  and completion, cancellation, drop, and failure counters.
+
+Accepted text belongs to the native queue and remains valid if the submitting
+script exits. `job stop speechd` cancels the queue and frees the PicoTTS engine.
+
 ## `solaros.synth`
 
 Available when the firmware includes the synth service. The native engine has
@@ -207,5 +233,5 @@ limits, and examples.
 
 ## Quick reference
 
-Use `solaros.audio`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` for audio and control.
+Use `solaros.audio`, `solaros.speech`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` for audio and control.
 See `man python` for runtime conventions and service availability.

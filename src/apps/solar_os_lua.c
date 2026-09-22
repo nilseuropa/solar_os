@@ -40,6 +40,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+#include "solar_os_speech.h"
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #include "solar_os_synth_voice.h"
@@ -5531,6 +5534,68 @@ static int solua_audio_play_wav(lua_State *L)
                                                   &options,
                                                   &info));
     solua_push_wav_info(L, &info);
+    return 1;
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+static int solua_speech_say(lua_State *L)
+{
+    size_t text_len = 0U;
+    const char *text = luaL_checklstring(L, 1, &text_len);
+    const solar_os_speech_request_t request = {
+        .text = text,
+        .text_len = text_len,
+        .volume = lua_isnoneornil(L, 2) ?
+            SOLAR_OS_AUDIO_VOLUME_GLOBAL : solua_check_u8(L, 2),
+        .drop_if_busy = !lua_isnoneornil(L, 3) && lua_toboolean(L, 3),
+    };
+    uint32_t request_id = 0U;
+    (void)solua_check_esp(L, solar_os_speech_enqueue(&request, &request_id));
+    lua_pushinteger(L, request_id);
+    return 1;
+}
+
+static int solua_speech_cancel(lua_State *L)
+{
+    return solua_check_esp(L, solar_os_speech_cancel(solua_check_u32(L, 1)));
+}
+
+static int solua_speech_request_status(lua_State *L)
+{
+    solar_os_speech_request_status_t status;
+    if (!solar_os_speech_request_status(solua_check_u32(L, 1), &status)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    solua_set_int(L, -1, "id", status.id);
+    solua_set_str(
+        L, -1, "state", solar_os_speech_request_state_name(status.state));
+    solua_set_int(L, -1, "error", status.error);
+    solua_set_str(L, -1, "error_name", esp_err_to_name(status.error));
+    return 1;
+}
+
+static int solua_speech_queue_status(lua_State *L)
+{
+    solar_os_speech_queue_status_t status;
+    solar_os_speech_queue_get_status(&status);
+    lua_newtable(L);
+    solua_set_bool(L, -1, "running", status.running);
+    solua_set_int(L, -1, "queued", status.queued);
+    solua_set_int(L, -1, "current_id", status.current_id);
+    solua_set_str(
+        L,
+        -1,
+        "current_state",
+        status.current_id != 0U ?
+            solar_os_speech_request_state_name(status.current_state) : "idle");
+    solua_set_int(L, -1, "completed", status.completed);
+    solua_set_int(L, -1, "cancelled", status.cancelled);
+    solua_set_int(L, -1, "dropped", status.dropped);
+    solua_set_int(L, -1, "failed", status.failed);
+    solua_set_int(L, -1, "capacity", SOLAR_OS_SPEECH_QUEUE_CAPACITY);
     return 1;
 }
 #endif

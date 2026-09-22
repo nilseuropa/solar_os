@@ -40,7 +40,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Bluetooth](python.ble.md) | `solaros.ble` |
 | [GPIO and peripherals](python.hardware.md) | `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.sensors`, `solaros.gnss`, `solaros.nfc` |
 | [Buses and expansion](python.buses.md) | `solaros.buses`, `solaros.expansion` |
-| [Audio and control](python.audio.md) | `solaros.audio`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` |
+| [Audio and control](python.audio.md) | `solaros.audio`, `solaros.speech`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` |
 | [Input and clipboard](python.input.md) | `solaros.input`, `solaros.hid`, `solaros.clipboard` |
 | [Apps, jobs, and identity](python.system.md) | `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
 | [Contacts and messages](python.messaging.md) | `solaros.contacts`, `solaros.messages` |

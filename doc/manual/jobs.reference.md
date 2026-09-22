@@ -1218,6 +1218,29 @@ Use a compliant electrical interface: MIDI IN requires an optoisolated
 receiver and MIDI OUT requires a current-limited driver. Do not connect DIN
 MIDI pins directly to ESP32 GPIOs.
 
+## speechd
+
+Offline text-to-speech queue. The optional job loads its compiled PicoTTS voice
+into PSRAM and accepts asynchronous requests from native applications, Python,
+and Lua.
+
+```text
+job start speechd
+say "Solar O S is ready"
+job status speechd
+job stop speechd
+```
+
+Only one voice is compiled into a firmware image. The current default is
+English (UK). The job acquires the selected audio output only while
+an utterance is active and releases it between requests. Normal requests wait
+for another audio owner; callers can mark disposable notifications
+`drop_if_busy`.
+
+The queue holds eight requests of at most 512 UTF-8 bytes. Request IDs support
+polling and cancellation through `solaros.speech`. Stopping the job cancels
+pending speech and releases the roughly 1.1 MiB PicoTTS runtime allocation.
+
 ## sump
 
 SUMP-compatible logic analyzer server on `cdc0`. It claims the CDC port and

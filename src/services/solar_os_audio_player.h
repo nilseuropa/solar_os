@@ -29,6 +29,8 @@ typedef struct {
     size_t external_buffer_bytes;
     size_t internal_buffer_bytes;
     uint32_t target_ms;
+    /* Zero preserves the existing indefinite wait for audio ownership. */
+    uint32_t open_timeout_ms;
     solar_os_audio_player_state_cb_t state;
     solar_os_audio_player_samples_cb_t samples;
     void *user;

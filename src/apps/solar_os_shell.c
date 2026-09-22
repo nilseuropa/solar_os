@@ -614,6 +614,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     {"audio", "audio codec tools", solar_os_shell_cmd_audio},
 #endif
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    {"say", "queue offline speech", solar_os_shell_cmd_say},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     {"uart", "UART port tools", solar_os_shell_cmd_uart},
 #endif
@@ -1490,6 +1493,12 @@ static const char * const audio_subcommands[] = {
 static const char * const audio_hz_values[] = {"440", "880", "1000"};
 static const char * const audio_ms_values[] = {"100", "500", "1000", "3000"};
 static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"};
+
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const say_options[] = {
+    "-v", "--volume", "--drop-if-busy", "--",
+};
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const sshkey_subcommands[] = {
@@ -2540,6 +2549,11 @@ static const char * const path_audio_level[] = {"audio", "level"};
 static const char * const path_audio_mic[] = {"audio", "mic"};
 static const char * const path_audio_loopback[] = {"audio", "loopback"};
 static const char * const path_audio_loopback_ms[] = {"audio", "loopback", SHELL_COMPLETION_ANY};
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const path_say[] = {"say"};
+static const char * const path_say_volume[] = {"say", "-v"};
+static const char * const path_say_volume_long[] = {"say", "--volume"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
@@ -3485,6 +3499,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_audio_mic, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback_ms, audio_volume_values),
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    SHELL_COMPLETION_OPTIONS(path_say, say_options),
+    SHELL_COMPLETION_STATIC(path_say_volume, audio_volume_values),
+    SHELL_COMPLETION_STATIC(path_say_volume_long, audio_volume_values),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
     SHELL_COMPLETION_STATIC(path_sshkey, sshkey_subcommands),
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),

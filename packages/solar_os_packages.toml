@@ -361,6 +361,11 @@ label = "Audio playback and recording commands"
 category = "Audio"
 members = ["app_aplay", "app_arecord"]
 
+[groups.speech]
+label = "Offline speech synthesis"
+category = "Audio"
+members = ["job_speechd"]
+
 [groups.player]
 label = "Music player"
 category = "Audio"
@@ -2387,6 +2392,22 @@ label = "job.ntp-sync"
 depends = ["service_net"]
 sources = ["jobs/solar_os_ntp_sync_job.c"]
 capabilities = ["wifi"]
+
+[packages.service_speech]
+label = "service.speech"
+depends = ["service_audio"]
+sources = ["services/solar_os_speech.c"]
+capabilities = ["audio", "psram"]
+
+[packages.job_speechd]
+label = "job.speechd"
+depends = ["service_speech"]
+sources = [
+  "jobs/solar_os_speechd_job.c",
+  "shell/solar_os_shell_speech.c",
+]
+requires = ["picotts"]
+capabilities = ["audio", "psram"]
 
 [packages.job_osc]
 label = "job.osc"
