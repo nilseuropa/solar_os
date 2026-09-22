@@ -633,7 +633,13 @@ static mp_obj_t python_u64_to_obj(uint64_t value)
     if (value <= (uint64_t)MP_SMALL_INT_MAX) {
         return MP_OBJ_NEW_SMALL_INT((mp_int_t)value);
     }
-    return mp_obj_new_int_from_ull(value);
+    if (value <= (uint64_t)INT64_MAX) {
+        return mp_obj_new_int_from_ull(value);
+    }
+
+    char decimal[21];
+    snprintf(decimal, sizeof(decimal), "%" PRIu64, value);
+    return mp_obj_new_str_from_cstr(decimal);
 }
 
 static void python_dict_store_i64(mp_obj_t dict, const char *key, int64_t value)

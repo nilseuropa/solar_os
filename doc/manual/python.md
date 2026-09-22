@@ -58,6 +58,11 @@ importable runtime modules are `array`, `binascii`, `cmath`, `collections`,
 `errno`, `gc`, `hashlib`, `io`, `json`, `math`, `micropython`, `random`,
 `struct`, and `sys`.
 
+Python integers support the signed 64-bit range. SolarOS service values such as
+file sizes, timestamps, counters, and storage capacities use integers throughout
+that range. An unsigned native value above `9223372036854775807` is returned as
+a decimal string instead of losing precision.
+
 `input()`, `execfile()`, and upstream `extmod` modules outside this selected
 set remain disabled. Use the typed `solaros` service APIs instead.
 

@@ -5,6 +5,7 @@
 
 #include <port/mpconfigport_common.h>
 
+#define MP_SSIZE_MAX                           INTPTR_MAX
 #define MICROPY_CONFIG_ROM_LEVEL                (MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES)
 
 #define MICROPY_ENABLE_COMPILER                 (1)
@@ -13,6 +14,7 @@
 #define MICROPY_NLR_SETJMP                      (1)
 #define MICROPY_PERSISTENT_CODE_LOAD            (1)
 #define MICROPY_FLOAT_IMPL                      (MICROPY_FLOAT_IMPL_FLOAT)
+#define MICROPY_LONGINT_IMPL                    (MICROPY_LONGINT_IMPL_LONGLONG)
 #define MICROPY_GCREGS_SETJMP                  (1)
 #define MICROPY_STACK_CHECK_MARGIN              (1024U)
 
