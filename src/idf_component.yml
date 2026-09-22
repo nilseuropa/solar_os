@@ -11,6 +11,3 @@ dependencies:
     version: "~1.8.0"
   espressif/esp-serial-flasher:
     version: "~2.0.0"
-  picotts:
-    git: https://github.com/DiUS/esp-picotts.git
-    version: bf1a8df9d2be1e088a03a775d439ac66e18438dc

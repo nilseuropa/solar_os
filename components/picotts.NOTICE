@@ -1,8 +1,12 @@
 PicoTTS and SVOX Pico notice
 
-SolarOS obtains the optional PicoTTS ESP-IDF component from
+SolarOS obtains the PicoTTS source from
 https://github.com/DiUS/esp-picotts at commit
 bf1a8df9d2be1e088a03a775d439ac66e18438dc.
+
+The SolarOS adapter loads language resources from storage at runtime instead
+of embedding them in the application image. Its wrapper is derived from the
+upstream ESP-IDF integration under the same Apache-2.0 terms.
 
 The ESP-IDF integration is Copyright (C) 2024 DiUS Computing Pty Ltd.
 

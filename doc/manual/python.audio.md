@@ -168,7 +168,7 @@ Available when the offline speech package is compiled. Start its background
 worker before submitting text:
 
 ```python
-solaros.jobs.start("speechd")
+solaros.jobs.start("speechd", ["/voices/en-US"])
 utterance = solaros.speech.say("Solar O S is ready")
 print(solaros.speech.request_status(utterance))
 ```
@@ -185,8 +185,10 @@ print(solaros.speech.request_status(utterance))
 - `queue_status()`: return running/current state, queue depth and capacity,
   and completion, cancellation, drop, and failure counters.
 
-Accepted text belongs to the native queue and remains valid if the submitting
-script exits. `job stop speechd` cancels the queue and frees the PicoTTS engine.
+The selected directory must contain `ta.bin` and `sg.bin`; restarting the job
+with another voice directory changes the language. Accepted text belongs to
+the native queue and remains valid if the submitting script exits. `job stop
+speechd` cancels the queue and frees the PicoTTS engine and voice buffers.
 
 ## `solaros.synth`
 

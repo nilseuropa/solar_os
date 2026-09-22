@@ -43,13 +43,15 @@ agent_reference_sections = true
   returns a request ID.
 
 ```lua
-solaros.jobs.start("speechd")
+solaros.jobs.start("speechd", {"/voices/en-US"})
 local utterance = solaros.speech.say("Solar O S is ready")
 print(solaros.speech.request_status(utterance).state)
 ```
 
-Accepted requests survive interpreter exit. Stopping `speechd` cancels the
-queue and releases the PicoTTS engine.
+The selected directory must contain `ta.bin` and `sg.bin`; restarting the job
+with another voice directory changes the language. Accepted requests survive
+interpreter exit. Stopping `speechd` cancels the queue and releases the PicoTTS
+engine and voice buffers.
 
 ## `solaros.synth`
 

@@ -1220,26 +1220,41 @@ MIDI pins directly to ESP32 GPIOs.
 
 ## speechd
 
-Offline text-to-speech queue. The optional job loads its compiled PicoTTS voice
-into PSRAM and accepts asynchronous requests from native applications, Python,
-and Lua.
+Offline text-to-speech queue. The optional job loads a PicoTTS voice from
+storage into PSRAM and accepts asynchronous requests from native applications,
+Python, and Lua.
 
 ```text
-job start speechd
+job start speechd /voices/en-US
 say "Solar O S is ready"
 job status speechd
 job stop speechd
 ```
 
-Only one voice is compiled into a firmware image. The current default is
-English (UK). The job acquires the selected audio output only while
-an utterance is active and releases it between requests. Normal requests wait
-for another audio owner; callers can mark disposable notifications
-`drop_if_busy`.
+The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
+compiled into `firmware.bin`. A SolarOS build writes ready-to-copy directories
+for `en-GB`, `en-US`, `de-DE`, `es-ES`, `fr-FR`, and `it-IT` below
+`.pio/build/<environment>/picotts_voices/`. Copy one or more complete
+directories to SD or flash storage, then select the language when starting the
+job:
+
+```text
+job start speechd /voices/de-DE
+```
+
+Restarting `speechd` with another directory changes the language at runtime.
+The directory name is used as the voice label in `job status speechd`; PicoTTS
+validates the TA and SG resource contents while starting. Missing, truncated,
+or incompatible resources make the job fail instead of accepting requests.
+
+The job acquires the selected audio output only while an utterance is active
+and releases it between requests. Normal requests wait for another audio owner;
+callers can mark disposable notifications `drop_if_busy`.
 
 The queue holds eight requests of at most 512 UTF-8 bytes. Request IDs support
 polling and cancellation through `solaros.speech`. Stopping the job cancels
-pending speech and releases the roughly 1.1 MiB PicoTTS runtime allocation.
+pending speech and releases the roughly 1.1 MiB PicoTTS engine allocation plus
+the selected TA and SG buffers.
 
 ## sump
 

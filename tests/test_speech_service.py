@@ -36,6 +36,15 @@ PYTHON_SOURCE = (REPOSITORY / "src/apps/solar_os_python.c").read_text(
 LUA_SOURCE = (REPOSITORY / "src/apps/solar_os_lua.c").read_text(
     encoding="utf-8"
 )
+PICOTTS_CMAKE = (REPOSITORY / "components/picotts/CMakeLists.txt").read_text(
+    encoding="utf-8"
+)
+PICOTTS_HEADER = (
+    REPOSITORY / "components/picotts/include/picotts.h"
+).read_text(encoding="utf-8")
+PICOTTS_RUNTIME = (
+    REPOSITORY / "components/picotts/picotts_runtime.c"
+).read_text(encoding="utf-8")
 
 
 class SpeechServiceTest(unittest.TestCase):
@@ -76,6 +85,22 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("solar_os_audio_player_write(", JOB_SOURCE)
         self.assertIn("solar_os_audio_player_destroy(", JOB_SOURCE)
         self.assertIn("picotts_add(work->text", JOB_SOURCE)
+
+    def test_job_loads_runtime_voice_directory(self):
+        self.assertIn("usage: job start speechd <voice-directory>", JOB_SOURCE)
+        self.assertIn('SPEECHD_TA_FILENAME "ta.bin"', JOB_SOURCE)
+        self.assertIn('SPEECHD_SG_FILENAME "sg.bin"', JOB_SOURCE)
+        self.assertIn("SOLAR_OS_MEMORY_EXTERNAL_REQUIRED", JOB_SOURCE)
+        self.assertIn("picotts_init_resources(", JOB_SOURCE)
+        self.assertIn("speechd_release_voice_resources();", JOB_SOURCE)
+
+    def test_picotts_voice_blobs_are_external_build_artifacts(self):
+        self.assertIn("picotts_init_resources", PICOTTS_HEADER)
+        self.assertIn("solar_os_pico_load_resource(", PICOTTS_RUNTIME)
+        self.assertNotIn("target_add_binary_data", PICOTTS_CMAKE)
+        self.assertNotIn("picotts_ta.bin.S", PICOTTS_CMAKE)
+        for locale in ("en-GB", "en-US", "de-DE", "es-ES", "fr-FR", "it-IT"):
+            self.assertIn(f"solar_os_picotts_voice({locale} ", PICOTTS_CMAKE)
 
     def test_python_and_lua_share_speech_surface(self):
         for function in ("say", "cancel", "request_status", "queue_status"):

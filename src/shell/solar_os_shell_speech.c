@@ -119,7 +119,9 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_speech_queue_get_status(&status);
         if (!status.running) {
             solar_os_shell_io_writeln(
-                io, "say: speechd is not running; use 'job start speechd'");
+                io,
+                "say: speechd is not running; use "
+                "'job start speechd <voice-directory>'");
         } else {
             solar_os_shell_io_writeln(io, "say: busy; request dropped");
         }

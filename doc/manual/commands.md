@@ -882,7 +882,7 @@ available for the compiled board.
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
-| `say` | `say [-v <0..100>] [--volume <0..100>] [--drop-if-busy] [--] <text...>` | Queue offline speech and return its request ID. Start `speechd` first. Quote text to preserve intentional whitespace; unquoted words are joined with single spaces. |
+| `say` | `say [-v <0..100>] [--volume <0..100>] [--drop-if-busy] [--] <text...>` | Queue offline speech and return its request ID. Start `speechd` with a PicoTTS voice directory first. Quote text to preserve intentional whitespace; unquoted words are joined with single spaces. |
 | `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
 | `expansion` | `expansion status` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
