@@ -34,7 +34,7 @@ typedef struct {
 
 typedef struct {
     size_t row;
-    uint8_t percent;
+    uint16_t hundredths;
     bool row_valid;
     bool rendered;
 } say_progress_t;
@@ -255,12 +255,12 @@ static void say_render_progress(solar_os_shell_io_t *io,
                                 uint64_t bytes_total)
 {
     uint64_t calculated = bytes_total > 0U ?
-        (bytes_done * 100U) / bytes_total : 100U;
-    if (calculated > 100U) {
-        calculated = 100U;
+        (bytes_done * 10000U) / bytes_total : 10000U;
+    if (calculated > 10000U) {
+        calculated = 10000U;
     }
-    const uint8_t percent = (uint8_t)calculated;
-    if (progress->rendered && progress->percent == percent) {
+    const uint16_t hundredths = (uint16_t)calculated;
+    if (progress->rendered && progress->hundredths == hundredths) {
         return;
     }
     if (!progress->row_valid) {
@@ -278,19 +278,24 @@ static void say_render_progress(solar_os_shell_io_t *io,
     if (cols == 0U) {
         cols = 80U;
     }
-    const size_t fixed = strlen("say: [] 100%") + 1U;
+    const size_t fixed = strlen("say: [] 100.00%") + 1U;
     size_t width = cols > fixed ? cols - fixed : 1U;
     if (width > SAY_PROGRESS_BAR_MAX) {
         width = SAY_PROGRESS_BAR_MAX;
     }
-    const size_t filled = (percent * width) / 100U;
+    const size_t filled = (hundredths * width) / 10000U;
     solar_os_shell_io_write(io, "say: [");
     for (size_t i = 0U; i < width; i++) {
-        solar_os_shell_io_put_char(io, i < filled ? '#' : '-');
+        const char marker = i < filled ? '#' :
+            (bytes_done > 0U && hundredths < 10000U && i == filled ? '>' : '-');
+        solar_os_shell_io_put_char(io, marker);
     }
-    solar_os_shell_io_printf(io, "] %3u%%", (unsigned)percent);
+    solar_os_shell_io_printf(io,
+                             "] %3u.%02u%%",
+                             (unsigned)(hundredths / 100U),
+                             (unsigned)(hundredths % 100U));
     solar_os_shell_io_flush(io);
-    progress->percent = percent;
+    progress->hundredths = hundredths;
     progress->rendered = true;
 }
 
@@ -428,7 +433,7 @@ static void say_file(solar_os_context_t *ctx,
     const uint64_t bytes_total = (uint64_t)info.st_size;
     uint64_t bytes_done = 0U;
     bool stopped = false;
-    say_progress_t progress = {.percent = 255U};
+    say_progress_t progress = {.hundredths = UINT16_MAX};
     solar_os_shell_io_printf(
         io, "say: reading %s aloud; Esc or Ctrl+C stops\n", path_arg);
     say_render_progress(io, &progress, 0U, bytes_total);
