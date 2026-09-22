@@ -234,7 +234,7 @@ members = ["job_midi"]
 [groups.ssh]
 label = "SSH file and terminal clients"
 category = "Networking"
-members = ["app_ssh", "app_scp", "app_sftpsync"]
+members = ["app_ssh", "app_scp", "app_sftp", "app_sftpsync"]
 
 [groups.http_client]
 label = "HTTP client and Curl"
@@ -910,6 +910,12 @@ capabilities = ["wifi"]
 label = "network.sftpsync"
 depends = ["service_ssh"]
 sources = ["services/solar_os_sftpsync.c"]
+capabilities = ["wifi"]
+
+[packages.service_sftp]
+label = "network.sftp"
+depends = ["service_ssh"]
+sources = ["services/solar_os_sftp.c"]
 capabilities = ["wifi"]
 
 [packages.service_mail]
@@ -1998,6 +2004,12 @@ capabilities = ["wifi"]
 label = "app.sftpsync"
 depends = ["service_sftpsync"]
 sources = ["apps/solar_os_sftpsync.c"]
+capabilities = ["wifi"]
+
+[packages.app_sftp]
+label = "app.sftp"
+depends = ["service_sftp"]
+sources = ["apps/solar_os_sftp_app.c"]
 capabilities = ["wifi"]
 
 [packages.app_curl]

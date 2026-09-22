@@ -21,12 +21,22 @@ class FilesKeyPolicyTest(unittest.TestCase):
 
     def test_function_keys_remain_primary_and_help_shows_letter_mnemonics(self):
         self.assertIn(
-            "F3 V-iew F4 E-dit F5 C-opy F6 M-ove F7 mK-dir F8 D-elete F9 Z-ip",
+            "F3 View F4 Edit F5 Copy F6 Move F7 mKdir F8 Delete F9 Zip",
             self.draw_bottom,
         )
+        self.assertNotRegex(self.draw_bottom, r"[A-Za-z]-[A-Za-z]")
 
     def test_help_renders_letter_mnemonics_in_bold(self):
-        self.assertIn('strchr("VECMKDZ", help[col])', self.draw_bottom)
+        for label, offset in (
+            ("View", 0),
+            ("Edit", 0),
+            ("Copy", 0),
+            ("Move", 0),
+            ("mKdir", 1),
+            ("Delete", 0),
+            ("Zip", 0),
+        ):
+            self.assertIn(f'{{"{label}", {offset}U}}', self.draw_bottom)
         self.assertRegex(
             self.draw_bottom,
             re.compile(
@@ -41,7 +51,7 @@ class FilesKeyPolicyTest(unittest.TestCase):
             "F4": ("e", "E"),
             "F5": ("c", "C"),
             "F6": ("m", "M"),
-            "F7": ("K",),
+            "F7": ("k", "K"),
             "F8": ("d", "D"),
             "F9": ("z", "Z"),
         }
@@ -56,14 +66,21 @@ class FilesKeyPolicyTest(unittest.TestCase):
                     ),
                 )
 
-    def test_lowercase_k_remains_cursor_up(self):
-        self.assertRegex(
-            self.event_handler,
-            re.compile(
-                r"case SOLAR_OS_KEY_UP:\s*case 'k':\s*"
-                r"files_move_cursor\(pane, -1\);"
-            ),
-        )
+        mkdir_cases = self.event_handler.split(
+            "case SOLAR_OS_KEY_F7:", 1
+        )[1].split("case SOLAR_OS_KEY_F8:", 1)[0]
+        self.assertNotIn("case 'n':", mkdir_cases)
+        self.assertNotIn("case 'N':", mkdir_cases)
+
+    def test_j_and_k_do_not_navigate(self):
+        up_cases = self.event_handler.split(
+            "case SOLAR_OS_KEY_UP:", 1
+        )[1].split("case SOLAR_OS_KEY_DOWN:", 1)[0]
+        down_cases = self.event_handler.split(
+            "case SOLAR_OS_KEY_DOWN:", 1
+        )[1].split("case SOLAR_OS_KEY_PAGE_UP:", 1)[0]
+        self.assertNotIn("case 'k':", up_cases)
+        self.assertNotIn("case 'j':", down_cases)
 
 
 if __name__ == "__main__":

@@ -225,17 +225,48 @@ static esp_err_t ftp_expect_class(esp_err_t err, int code, int expected_class)
     return code / 100 == expected_class ? ESP_OK : ESP_FAIL;
 }
 
+static esp_err_t ftp_expect_authentication(esp_err_t err, int code)
+{
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (code == 430 || code == 530) {
+        return ESP_ERR_INVALID_CRC;
+    }
+    return ftp_expect_class(ESP_OK, code, 2);
+}
+
+static void ftp_set_connect_error(const solar_os_ftp_options_t *options,
+                                  const char *message)
+{
+    if (options != NULL && options->error != NULL && options->error_len > 0U) {
+        strlcpy(options->error, message != NULL ? message : "", options->error_len);
+    }
+}
+
 static esp_err_t ftp_connect_addr(const struct sockaddr_in *addr,
                                   uint32_t timeout_ms,
-                                  int *fd_out)
+                                  int *fd_out,
+                                  int *socket_error)
 {
+    if (socket_error != NULL) {
+        *socket_error = 0;
+    }
     int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) {
+        if (socket_error != NULL) {
+            *socket_error = errno;
+        }
         return ESP_FAIL;
     }
     esp_err_t err = ftp_socket_timeout(fd, timeout_ms);
     if (err == ESP_OK && connect(fd, (const struct sockaddr *)addr, sizeof(*addr)) != 0) {
-        err = errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT ?
+        const int connect_error = errno;
+        if (socket_error != NULL) {
+            *socket_error = connect_error;
+        }
+        err = connect_error == EAGAIN || connect_error == EWOULDBLOCK ||
+            connect_error == ETIMEDOUT ?
             ESP_ERR_TIMEOUT : ESP_FAIL;
     }
     if (err != ESP_OK) {
@@ -322,7 +353,7 @@ static esp_err_t ftp_open_data(solar_os_ftp_session_t *session, int *data_fd)
         }
         addr.sin_port = passive_addr.sin_port;
     }
-    return ftp_connect_addr(&addr, session->timeout_ms, data_fd);
+    return ftp_connect_addr(&addr, session->timeout_ms, data_fd, NULL);
 }
 
 static esp_err_t ftp_begin_data_command(solar_os_ftp_session_t *session,
@@ -374,10 +405,12 @@ esp_err_t solar_os_ftp_connect(const solar_os_ftp_options_t *options,
         session_out == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    ftp_set_connect_error(options, "");
     *session_out = NULL;
     char resolved[SOLAR_OS_NET_ADDR_MAX];
     esp_err_t err = solar_os_net_resolve_host(options->host, resolved, sizeof(resolved));
     if (err != ESP_OK) {
+        ftp_set_connect_error(options, "host lookup failed");
         return err;
     }
     solar_os_ftp_session_t *session = solar_os_memory_calloc(
@@ -397,7 +430,24 @@ esp_err_t solar_os_ftp_connect(const solar_os_ftp_options_t *options,
         solar_os_memory_free(session);
         return ESP_ERR_INVALID_RESPONSE;
     }
-    err = ftp_connect_addr(&session->peer, session->timeout_ms, &session->control_fd);
+    int connect_error = 0;
+    err = ftp_connect_addr(&session->peer,
+                           session->timeout_ms,
+                           &session->control_fd,
+                           &connect_error);
+    if (err != ESP_OK) {
+        const char *message = "server unavailable";
+        if (connect_error == ECONNREFUSED) {
+            message = "connection refused";
+        } else if (connect_error == EHOSTUNREACH) {
+            message = "host unreachable";
+        } else if (connect_error == ENETUNREACH) {
+            message = "network unreachable";
+        } else if (err == ESP_ERR_TIMEOUT) {
+            message = "connection timed out";
+        }
+        ftp_set_connect_error(options, message);
+    }
     int code = 0;
     if (err == ESP_OK) {
         err = ftp_read_reply(session, &code);
@@ -407,9 +457,9 @@ esp_err_t solar_os_ftp_connect(const solar_os_ftp_options_t *options,
         err = ftp_command(session, &code, "USER %s", options->username);
         if (err == ESP_OK && code == 331) {
             err = ftp_command(session, &code, "PASS %s", options->password);
-            err = ftp_expect_class(err, code, 2);
+            err = ftp_expect_authentication(err, code);
         } else {
-            err = ftp_expect_class(err, code, 2);
+            err = ftp_expect_authentication(err, code);
         }
     }
     if (err == ESP_OK) {
@@ -417,6 +467,10 @@ esp_err_t solar_os_ftp_connect(const solar_os_ftp_options_t *options,
         err = ftp_expect_class(err, code, 2);
     }
     if (err != ESP_OK) {
+        if (options->error != NULL && options->error_len > 0U &&
+            options->error[0] == '\0' && session->reply[0] != '\0') {
+            ftp_set_connect_error(options, session->reply);
+        }
         solar_os_ftp_disconnect(session);
         return err;
     }
