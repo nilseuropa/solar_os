@@ -1218,6 +1218,66 @@ Use a compliant electrical interface: MIDI IN requires an optoisolated
 receiver and MIDI OUT requires a current-limited driver. Do not connect DIN
 MIDI pins directly to ESP32 GPIOs.
 
+## speechd
+
+Offline text-to-speech queue. The optional job loads a PicoTTS voice from
+storage into PSRAM and accepts asynchronous requests from native applications,
+Python, and Lua.
+
+```text
+job start speechd /voices/en-US
+say "Solar O S is ready"
+say --pitch 85 --speed 120 "Solar O S is ready"
+say --file /documents/announcement.txt
+say --file /books/novel.txt
+job status speechd
+job stop speechd
+```
+
+`say --file <path>` validates and reads a plain UTF-8 text file in bounded
+chunks. It keeps the shell in a foreground playback mode, but advances from
+shell events so the display and progress bar refresh while speech is running.
+The percentage is submitted-file progress: it advances whenever the next
+bounded chunk is accepted by `speechd`. The complete file is one streaming
+speech request: PicoTTS and the audio player stay open between chunks, while a
+single bounded handoff slot prevents the file from being buffered in memory.
+Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
+The foreground command returns only after `speechd` confirms cancellation, so a
+new `say` request cannot race the previous stream's cleanup. Cancellation
+discards queued text and soft-resets PicoTTS instead of synthesizing the
+unspoken remainder of the file.
+There is no file-size limit because only one bounded chunk is held and submitted
+at a time. Tab completion after `--file` lists filesystem paths. Ordinary `say
+<text...>` remains asynchronous and returns the queued request ID.
+`--pitch 50..200` and `--speed 20..500` use PicoTTS's native controls; both
+default to 100 and apply to ordinary text and file playback.
+
+The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
+compiled into `firmware.bin`. The repository's top-level `picotts_voices/`
+directory contains ready-to-copy voices for `en-GB`, `en-US`, `de-DE`, `es-ES`,
+`fr-FR`, and `it-IT`. Builds also mirror them below
+`.pio/build/<environment>/picotts_voices/`. Copy one or more complete locale
+directories to SD or flash storage, then select the language when starting the
+job:
+
+```text
+job start speechd /voices/de-DE
+```
+
+Restarting `speechd` with another directory changes the language at runtime.
+The directory name is used as the voice label in `job status speechd`; PicoTTS
+validates the TA and SG resource contents while starting. Missing, truncated,
+or incompatible resources make the job fail instead of accepting requests.
+
+The job acquires the selected audio output only while an utterance is active
+and releases it between requests. Normal requests wait for another audio owner;
+callers can mark disposable notifications `drop_if_busy`.
+
+The queue holds eight requests of at most 512 UTF-8 bytes. Request IDs support
+polling and cancellation through `solaros.speech`. Stopping the job cancels
+pending speech and releases the roughly 1.1 MiB PicoTTS engine allocation plus
+the selected TA and SG buffers.
+
 ## sump
 
 SUMP-compatible logic analyzer server on `cdc0`. It claims the CDC port and

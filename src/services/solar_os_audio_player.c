@@ -148,7 +148,8 @@ static esp_err_t audio_player_open(solar_os_audio_player_t *player)
     player->stream = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
     const solar_os_stream_open_options_t open_options = {
         .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
-        .timeout_ms = UINT32_MAX,
+        .timeout_ms = player->options.open_timeout_ms == 0U ?
+            UINT32_MAX : player->options.open_timeout_ms,
         .requested_audio = player->options.requested_audio,
     };
     esp_err_t err = solar_os_audio_open_default(

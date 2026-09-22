@@ -118,6 +118,15 @@ void solar_os_shell_cmd_pwm(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_RADIO
 void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv);
+bool solar_os_shell_speech_file_event(solar_os_context_t *ctx,
+                                      const solar_os_event_t *event);
+bool solar_os_shell_speech_file_active(
+    const solar_os_shell_session_t *session);
+void solar_os_shell_speech_file_session_destroyed(
+    const solar_os_shell_session_t *session);
+#endif
 void solar_os_shell_cmd_rtc(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_schedule(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_SERVICE_LINK

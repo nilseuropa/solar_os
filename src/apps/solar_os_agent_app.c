@@ -26,6 +26,10 @@
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
 #include "solar_os_wifi.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+#include "solar_os_audio.h"
+#include "solar_os_speech.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_LUA
 #include "solar_os_lua.h"
 #endif
@@ -39,6 +43,10 @@
 #define AGENT_APP_SCRIPT_OUTPUT_MAX 4096U
 #define AGENT_APP_SCRIPT_TIMEOUT_MS 30000U
 #define AGENT_APP_CONFIRM_TIMEOUT_MS 30000U
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+#define AGENT_APP_TTS_TEXT_MAX \
+    (SOLAR_OS_SPEECH_TEXT_MAX * SOLAR_OS_SPEECH_QUEUE_CAPACITY)
+#endif
 
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AGENT_APP_TASK_STACK);
 
@@ -49,6 +57,11 @@ typedef enum {
     AGENT_APP_MODE_SCRIPT_LUA,
 } agent_app_mode_t;
 
+typedef enum {
+    AGENT_APP_TTS_OFF,
+    AGENT_APP_TTS_LOCAL,
+} agent_app_tts_mode_t;
+
 typedef struct {
     QueueHandle_t events;
     TaskHandle_t task;
@@ -58,6 +71,12 @@ typedef struct {
     agent_app_mode_t mode;
     solar_os_script_input_t script_input;
     int script_arg_start;
+    agent_app_tts_mode_t tts_mode;
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+    char tts_text[AGENT_APP_TTS_TEXT_MAX + 1U];
+    size_t tts_text_len;
+    bool tts_text_truncated;
+#endif
     volatile bool task_done;
     volatile bool stopping;
     volatile int confirm_decision;
@@ -145,6 +164,133 @@ static void agent_app_newline_printf(solar_os_shell_io_t *io,
     agent_app_vprintf(io, fmt, args);
     va_end(args);
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+static void agent_app_tts_reset(void)
+{
+    agent_app.tts_text[0] = '\0';
+    agent_app.tts_text_len = 0U;
+    agent_app.tts_text_truncated = false;
+}
+
+static void agent_app_tts_append(const char *text)
+{
+    if (agent_app.tts_mode != AGENT_APP_TTS_LOCAL || text == NULL ||
+        text[0] == '\0') {
+        return;
+    }
+    const size_t length = strlen(text);
+    const size_t available = AGENT_APP_TTS_TEXT_MAX - agent_app.tts_text_len;
+    size_t copy = length < available ? length : available;
+    if (copy < length) {
+        while (copy > 0U &&
+               ((unsigned char)text[copy] & 0xc0U) == 0x80U) {
+            copy--;
+        }
+    }
+    memcpy(agent_app.tts_text + agent_app.tts_text_len, text, copy);
+    agent_app.tts_text_len += copy;
+    agent_app.tts_text[agent_app.tts_text_len] = '\0';
+    if (copy < length) {
+        agent_app.tts_text_truncated = true;
+    }
+}
+
+static bool agent_app_tts_break_character(unsigned char value)
+{
+    return value == ' ' || value == '\t' || value == '\r' || value == '\n' ||
+        value == '.' || value == ',' || value == ';' || value == ':' ||
+        value == '!' || value == '?';
+}
+
+static size_t agent_app_tts_chunk_size(const char *text,
+                                       size_t remaining,
+                                       size_t chunks_remaining)
+{
+    if (remaining <= SOLAR_OS_SPEECH_TEXT_MAX) {
+        return remaining;
+    }
+    size_t chunk = SOLAR_OS_SPEECH_TEXT_MAX;
+    const size_t minimum =
+        (remaining + chunks_remaining - 1U) / chunks_remaining;
+    for (size_t i = chunk; i > minimum; i--) {
+        if (agent_app_tts_break_character((unsigned char)text[i - 1U])) {
+            return i;
+        }
+    }
+    while (chunk > 0U &&
+           ((unsigned char)text[chunk] & 0xc0U) == 0x80U) {
+        chunk--;
+    }
+    return chunk > 0U ? chunk : SOLAR_OS_SPEECH_TEXT_MAX;
+}
+
+static void agent_app_tts_speak(solar_os_shell_io_t *io)
+{
+    if (agent_app.tts_mode != AGENT_APP_TTS_LOCAL ||
+        agent_app.tts_text_len == 0U) {
+        return;
+    }
+
+    solar_os_speech_queue_status_t status = {0};
+    solar_os_speech_queue_get_status(&status);
+    if (!status.running) {
+        agent_app_writeln(io, "speechd stopped before the answer completed");
+        return;
+    }
+    size_t chunks_remaining = status.queued < SOLAR_OS_SPEECH_QUEUE_CAPACITY ?
+        SOLAR_OS_SPEECH_QUEUE_CAPACITY - status.queued : 0U;
+    if (chunks_remaining == 0U) {
+        agent_app_writeln(io, "speech queue is full");
+        return;
+    }
+
+    const size_t capacity = chunks_remaining * SOLAR_OS_SPEECH_TEXT_MAX;
+    size_t speak_len = agent_app.tts_text_len < capacity ?
+        agent_app.tts_text_len : capacity;
+    if (speak_len < agent_app.tts_text_len) {
+        while (speak_len > 0U &&
+               ((unsigned char)agent_app.tts_text[speak_len] & 0xc0U) ==
+                   0x80U) {
+            speak_len--;
+        }
+    }
+    size_t offset = 0U;
+    while (offset < speak_len && chunks_remaining > 0U) {
+        while (offset < speak_len &&
+               (agent_app.tts_text[offset] == ' ' ||
+                agent_app.tts_text[offset] == '\t' ||
+                agent_app.tts_text[offset] == '\r' ||
+                agent_app.tts_text[offset] == '\n')) {
+            offset++;
+        }
+        if (offset >= speak_len) {
+            break;
+        }
+        const size_t remaining = speak_len - offset;
+        const size_t chunk = agent_app_tts_chunk_size(
+            agent_app.tts_text + offset, remaining, chunks_remaining);
+        const solar_os_speech_request_t request = {
+            .text = agent_app.tts_text + offset,
+            .text_len = chunk,
+            .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+            .drop_if_busy = false,
+        };
+        const esp_err_t err = solar_os_speech_enqueue(&request, NULL);
+        if (err != ESP_OK) {
+            agent_app_printf(io,
+                             "could not queue spoken answer: %s\n",
+                             esp_err_to_name(err));
+            return;
+        }
+        offset += chunk;
+        chunks_remaining--;
+    }
+    if (agent_app.tts_text_truncated || offset < agent_app.tts_text_len) {
+        agent_app_writeln(io, "spoken answer truncated");
+    }
+}
+#endif
 
 static void agent_app_update_token_footer(solar_os_context_t *ctx)
 {
@@ -248,10 +394,11 @@ static void agent_app_print_status(solar_os_context_t *ctx)
     solar_os_shell_io_flush(io);
 }
 
-static esp_err_t agent_app_build_prompt(solar_os_context_t *ctx)
+static esp_err_t agent_app_build_prompt(solar_os_context_t *ctx,
+                                        int first_prompt_arg)
 {
     const int argc = solar_os_context_argc(ctx);
-    if (argc < 3) {
+    if (first_prompt_arg < 0 || first_prompt_arg >= argc) {
         return ESP_ERR_INVALID_ARG;
     }
     agent_app.prompt = solar_os_memory_calloc(1,
@@ -263,7 +410,7 @@ static esp_err_t agent_app_build_prompt(solar_os_context_t *ctx)
     }
 
     size_t used = 0;
-    for (int i = 2; i < argc; i++) {
+    for (int i = first_prompt_arg; i < argc; i++) {
         const char *arg = solar_os_context_argv(ctx, i);
         const size_t len = strlen(arg);
         const size_t separator = used > 0 ? 1U : 0U;
@@ -586,6 +733,9 @@ static void agent_app_cleanup_turn(void)
     agent_app.text_started = false;
     agent_app.text_segment_started = false;
     agent_app.turn_finished = false;
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+    agent_app_tts_reset();
+#endif
 }
 
 static void agent_app_cleanup(void)
@@ -717,8 +867,14 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
             agent_app.text_started = true;
             agent_app.text_segment_started = true;
             agent_app_print_delta(io, event.text);
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+            agent_app_tts_append(event.text);
+#endif
             break;
         case SOLAR_OS_AGENT_EVENT_TOOL_CALL:
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+            agent_app_tts_reset();
+#endif
             agent_app_newline_printf(io, "tool %s\n", event.tool_name);
             agent_app.text_segment_started = false;
             break;
@@ -779,6 +935,11 @@ static void agent_app_drain_events(solar_os_context_t *ctx)
                 agent_app_printf(io, "%s\n", event.text);
                 agent_app_print_status(ctx);
             }
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+            if (event.success) {
+                agent_app_tts_speak(io);
+            }
+#endif
             agent_app.running = false;
             agent_app.turn_finished = true;
             agent_app.turn_success = event.success;
@@ -802,6 +963,9 @@ static esp_err_t agent_app_start_worker(void)
     agent_app.turn_finished = false;
     agent_app.confirm_decision = 0;
     agent_app.confirmation_pending = false;
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+    agent_app_tts_reset();
+#endif
     agent_app.running = true;
     const BaseType_t created = solar_os_task_create_pinned_internal(
         agent_app_task,
@@ -885,14 +1049,17 @@ static esp_err_t agent_app_submit_chat(solar_os_context_t *ctx)
 static esp_err_t agent_app_start(solar_os_context_t *ctx)
 {
     const int argc = solar_os_context_argc(ctx);
-    const bool new_mode = argc == 2 &&
-        strcmp(solar_os_context_argv(ctx, 1), "new") == 0;
-    const bool resume_mode = argc == 3 &&
-        strcmp(solar_os_context_argv(ctx, 1), "resume") == 0;
-    const bool chat_mode = argc == 1 || new_mode || resume_mode;
-    const bool ask_mode = argc >= 3 &&
-        strcmp(solar_os_context_argv(ctx, 1), "ask") == 0;
-    const bool script_mode = argc >= 4 &&
+    const bool tts_requested = argc >= 2 &&
+        strcmp(solar_os_context_argv(ctx, 1), "--tts") == 0;
+    const int command_index = tts_requested ? 2 : 1;
+    const bool new_mode = argc == command_index + 1 &&
+        strcmp(solar_os_context_argv(ctx, command_index), "new") == 0;
+    const bool resume_mode = argc == command_index + 2 &&
+        strcmp(solar_os_context_argv(ctx, command_index), "resume") == 0;
+    const bool chat_mode = argc == command_index || new_mode || resume_mode;
+    const bool ask_mode = argc >= command_index + 2 &&
+        strcmp(solar_os_context_argv(ctx, command_index), "ask") == 0;
+    const bool script_mode = !tts_requested && argc >= 4 &&
         strcmp(solar_os_context_argv(ctx, 1), "script") == 0;
     if (ask_mode || script_mode || !chat_mode) {
         solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
@@ -918,11 +1085,36 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
 
     if (!chat_mode && !ask_mode && !script_mode) {
         agent_app_writeln(agent_app_io(ctx),
-                          "launch with agent, new, resume, ask, or script");
+                          "launch with agent [--tts], new, resume, ask, or script");
         solar_os_shell_io_flush(agent_app_io(ctx));
         agent_app_return_to_shell(
-            ctx, 2, "usage: agent [new|resume <id>|ask <prompt...>|script <file> [args...]]");
+            ctx,
+            2,
+            "usage: agent [--tts] [new|resume <id>|ask <prompt...>]");
         return ESP_OK;
+    }
+
+    if (tts_requested) {
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+        solar_os_speech_queue_status_t speech_status = {0};
+        solar_os_speech_queue_get_status(&speech_status);
+        if (!speech_status.running) {
+            agent_app_writeln(
+                agent_app_io(ctx),
+                "speechd is not running; use "
+                "'job start speechd <voice-directory>'");
+            solar_os_shell_io_flush(agent_app_io(ctx));
+            agent_app_return_to_shell(ctx, 1, "agent: speechd is not running");
+            return ESP_OK;
+        }
+        agent_app.tts_mode = AGENT_APP_TTS_LOCAL;
+#else
+        agent_app_writeln(agent_app_io(ctx),
+                          "TTS is unavailable in this firmware");
+        solar_os_shell_io_flush(agent_app_io(ctx));
+        agent_app_return_to_shell(ctx, 1, "agent: TTS is unavailable");
+        return ESP_OK;
+#endif
     }
 
     solar_os_agent_status_t status = {0};
@@ -949,7 +1141,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
             return ESP_OK;
         }
         if (resume_mode) {
-            const char *id = solar_os_context_argv(ctx, 2);
+            const char *id = solar_os_context_argv(ctx, command_index + 1);
             solar_os_agent_conversation_info_t info;
             err = solar_os_agent_conversation_get(id, &info);
             if (err != ESP_OK) {
@@ -969,7 +1161,8 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
                     info.id,
                     sizeof(agent_app.conversation_id));
         }
-        err = chat_mode ? ESP_OK : agent_app_build_prompt(ctx);
+        err = chat_mode ? ESP_OK :
+            agent_app_build_prompt(ctx, command_index + 1);
     } else {
         err = agent_app_build_script(ctx);
     }

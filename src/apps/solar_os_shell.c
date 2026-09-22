@@ -614,6 +614,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     {"audio", "audio codec tools", solar_os_shell_cmd_audio},
 #endif
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    {"say", "speak text or a text file", solar_os_shell_cmd_say},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_UART
     {"uart", "UART port tools", solar_os_shell_cmd_uart},
 #endif
@@ -1491,6 +1494,18 @@ static const char * const audio_hz_values[] = {"440", "880", "1000"};
 static const char * const audio_ms_values[] = {"100", "500", "1000", "3000"};
 static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"};
 
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const say_options[] = {
+    "-v", "--volume", "--pitch", "--speed", "--drop-if-busy", "--file", "--",
+};
+static const char * const say_pitch_values[] = {
+    "50", "75", "100", "125", "150", "175", "200",
+};
+static const char * const say_speed_values[] = {
+    "20", "50", "75", "100", "125", "150", "200", "300", "400", "500",
+};
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const sshkey_subcommands[] = {
     "status",
@@ -1925,6 +1940,11 @@ static const char * const path_job_start_bridge_link[] = {
 };
 #endif
 static const char * const path_job_start_httpd[] = {"job", "start", "httpd"};
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const path_job_start_speechd[] = {
+    "job", "start", "speechd"
+};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
 static const char * const path_job_start_displayd[] = {"job", "start", "displayd"};
 #endif
@@ -2540,6 +2560,14 @@ static const char * const path_audio_level[] = {"audio", "level"};
 static const char * const path_audio_mic[] = {"audio", "mic"};
 static const char * const path_audio_loopback[] = {"audio", "loopback"};
 static const char * const path_audio_loopback_ms[] = {"audio", "loopback", SHELL_COMPLETION_ANY};
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+static const char * const path_say[] = {"say"};
+static const char * const path_say_volume[] = {"say", "-v"};
+static const char * const path_say_volume_long[] = {"say", "--volume"};
+static const char * const path_say_pitch[] = {"say", "--pitch"};
+static const char * const path_say_speed[] = {"say", "--speed"};
+static const char * const path_say_file[] = {"say", "--file"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
 static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
@@ -3065,6 +3093,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
                             link_destination_values),
 #endif
     SHELL_COMPLETION_PATH(path_job_start_httpd, true),
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    SHELL_COMPLETION_PATH(path_job_start_speechd, true),
+#endif
 #if SOLAR_OS_PACKAGE_JOB_DISPLAYD
     SHELL_COMPLETION_DISPLAY_TARGETS(path_job_start_displayd),
 #endif
@@ -3485,6 +3516,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_audio_mic, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback, audio_ms_values),
     SHELL_COMPLETION_STATIC(path_audio_loopback_ms, audio_volume_values),
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    SHELL_COMPLETION_OPTIONS(path_say, say_options),
+    SHELL_COMPLETION_STATIC(path_say_volume, audio_volume_values),
+    SHELL_COMPLETION_STATIC(path_say_volume_long, audio_volume_values),
+    SHELL_COMPLETION_STATIC(path_say_pitch, say_pitch_values),
+    SHELL_COMPLETION_STATIC(path_say_speed, say_speed_values),
+    SHELL_COMPLETION_PATH(path_say_file, false),
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
     SHELL_COMPLETION_STATIC(path_sshkey, sshkey_subcommands),
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),
@@ -9086,6 +9125,9 @@ solar_os_shell_session_t *solar_os_shell_session_create(void)
 
 void solar_os_shell_session_destroy(solar_os_shell_session_t *session)
 {
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    solar_os_shell_speech_file_session_destroyed(session);
+#endif
     if (session != NULL && session != &shell_display_session) {
         solar_os_memory_free(session);
     }
@@ -9792,6 +9834,11 @@ bool solar_os_shell_session_event(solar_os_context_t *ctx,
     solar_os_context_set_shell_session(ctx, session);
     solar_os_context_set_shell_io(ctx, &session->io);
 
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+    if (solar_os_shell_speech_file_event(ctx, event)) {
+        return true;
+    }
+#endif
     if (shell_handle_log_follow_event(ctx, event)) {
         return true;
     }
@@ -9819,7 +9866,11 @@ esp_err_t solar_os_shell_session_submit_command(solar_os_context_t *ctx,
         return ESP_ERR_INVALID_SIZE;
     }
     if (session->input_len != 0 || session->watch_active ||
-        session->log_follow_active || session->watch_executing) {
+        session->log_follow_active || session->watch_executing
+#if SOLAR_OS_PACKAGE_JOB_SPEECHD
+        || solar_os_shell_speech_file_active(session)
+#endif
+    ) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -9854,6 +9905,13 @@ void solar_os_shell_session_prompt(solar_os_context_t *ctx, solar_os_shell_sessi
     solar_os_context_set_shell_session(ctx, session);
     solar_os_context_set_shell_io(ctx, &session->io);
     shell_prompt(ctx);
+}
+
+void solar_os_shell_session_hold_prompt(solar_os_context_t *ctx)
+{
+    if (ctx != NULL && shell_session(ctx) != NULL) {
+        shell_session(ctx)->builtin_suppressed_prompt = true;
+    }
 }
 
 void solar_os_shell_session_prepare_foreground_launch(solar_os_context_t *ctx,

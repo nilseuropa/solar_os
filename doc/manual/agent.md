@@ -38,6 +38,20 @@ bottom bar shows
 the latest input, output, and total token counts. Tool activity stays in the
 conversation, while usage does not.
 
+Use `agent --tts` for a spoken conversation, or add `--tts` before `new`,
+`resume`, or `ask`. Start `speechd` with the desired PicoTTS voice first:
+
+```text
+job start speechd /voices/en-US
+agent --tts
+agent --tts ask What is the battery status?
+```
+
+The answer remains written in the terminal. Speech is queued only after a
+successful final model answer. Connection status, retries, tool calls, tool
+results, confirmation prompts, and intermediate model text preceding a tool
+call remain silent. `--tts` currently selects the local PicoTTS speech service.
+
 Completed turns are saved. Inspect and resume them explicitly:
 
 ```text
@@ -87,12 +101,13 @@ actually starts.
 
 ## Quick reference
 
-Use `agent` or `agent new` for a new durable foreground conversation,
-`agent list` to inspect saved slots, `agent resume SLOT` to restore one, and
-`agent delete SLOT` to remove one. `agent ask PROMPT` makes an unsaved one-shot
-request. Configure endpoint, model, key, reasoning, tool policy, and maximum
-tools with `agent config`. `agent tools` reports the installed typed tools and
-their policy disposition. `jobs_list` is read-only and reports actual job
-admission and memory state; it does not start or stop jobs. The default
+Use `agent` or `agent new` for a new durable foreground conversation. Add
+`--tts` immediately after `agent` to speak final answers through a running
+local `speechd`. `agent list` inspects saved slots, `agent resume SLOT` restores
+one, and `agent delete SLOT` removes one. `agent ask PROMPT` makes an unsaved
+one-shot request. Configure endpoint, model, key, reasoning, tool policy, and
+maximum tools with `agent config`. `agent tools` reports the installed typed
+tools and their policy disposition. `jobs_list` is read-only and reports actual
+job admission and memory state; it does not start or stop jobs. The default
 `confirm` policy runs read-only tools and requires local approval for sensitive,
 mutating, or disruptive calls. `Esc` or the app-exit key returns to the shell.

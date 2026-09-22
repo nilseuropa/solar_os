@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.13.6** — 2026-09-22 — Added offline PicoTTS speech with runtime-loaded
+  voice directories, an asynchronous native/Python/Lua service, and the `say`
+  command for text or streaming plain-text files with progress, cancellation,
+  pitch, and speed controls. `agent --tts` can speak final model answers while
+  keeping tool activity and intermediate messages silent. PicoTTS voice assets
+  are included in the repository for copying to device storage but remain
+  outside the firmware image. Python and Lua apps can now discover native and
+  installed Playground apps, hand off to another app, and open supported files
+  or URLs. Their storage APIs add metadata, existence checks, bounded directory
+  enumeration, and recursive directory creation. MicroPython integers now
+  support the signed 64-bit range.
 - **4.13.5** — 2026-09-22 — FTP now starts as a disconnected file manager and
   opens connection setup with `F2`/`n`; its Copy, Move, Mkdir, and Delete
   function keys and letter mnemonics now match Files. Added a two-pane `sftp` file

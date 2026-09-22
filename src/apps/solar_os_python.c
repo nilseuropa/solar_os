@@ -51,6 +51,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+#include "solar_os_speech.h"
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
 #include "solar_os_synth_voice.h"
@@ -5886,6 +5889,109 @@ static mp_obj_t solaros_audio_play_wav(size_t n_args, const mp_obj_t *args)
     return python_wav_info_to_dict(&info);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_play_wav_obj, 1, 2, solaros_audio_play_wav);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+static uint16_t python_speech_parameter(size_t n_args,
+                                        const mp_obj_t *args,
+                                        size_t index,
+                                        uint16_t fallback,
+                                        uint16_t minimum,
+                                        uint16_t maximum,
+                                        const char *message)
+{
+    const uint32_t value = python_optional_u32(
+        n_args, args, index, fallback);
+    if (value < minimum || value > maximum) {
+        mp_raise_ValueError(message);
+    }
+    return (uint16_t)value;
+}
+
+static mp_obj_t solaros_speech_say(size_t n_args, const mp_obj_t *args)
+{
+    size_t text_len = 0U;
+    const char *text = mp_obj_str_get_data(args[0], &text_len);
+    const solar_os_speech_request_t request = {
+        .text = text,
+        .text_len = text_len,
+        .volume = python_optional_u8(
+            n_args, args, 1, SOLAR_OS_AUDIO_VOLUME_GLOBAL),
+        .drop_if_busy = n_args > 2U && mp_obj_is_true(args[2]),
+        .pitch = python_speech_parameter(
+            n_args,
+            args,
+            3U,
+            SOLAR_OS_SPEECH_PITCH_DEFAULT,
+            SOLAR_OS_SPEECH_PITCH_MIN,
+            SOLAR_OS_SPEECH_PITCH_MAX,
+            MP_ERROR_TEXT("pitch must be 50..200")),
+        .speed = python_speech_parameter(
+            n_args,
+            args,
+            4U,
+            SOLAR_OS_SPEECH_SPEED_DEFAULT,
+            SOLAR_OS_SPEECH_SPEED_MIN,
+            SOLAR_OS_SPEECH_SPEED_MAX,
+            MP_ERROR_TEXT("speed must be 20..500")),
+    };
+    uint32_t request_id = 0U;
+    python_check_esp(solar_os_speech_enqueue(&request, &request_id));
+    return mp_obj_new_int_from_uint(request_id);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    solaros_speech_say_obj, 1, 5, solaros_speech_say);
+
+static mp_obj_t solaros_speech_cancel(mp_obj_t request_id_obj)
+{
+    python_check_esp(solar_os_speech_cancel(
+        python_u32_from_obj(request_id_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_speech_cancel_obj, solaros_speech_cancel);
+
+static mp_obj_t solaros_speech_request_status(mp_obj_t request_id_obj)
+{
+    solar_os_speech_request_status_t status;
+    if (!solar_os_speech_request_status(
+            python_u32_from_obj(request_id_obj), &status)) {
+        return mp_const_none;
+    }
+    mp_obj_t dict = mp_obj_new_dict(6);
+    python_dict_store_uint(dict, "id", status.id);
+    python_dict_store_cstr(
+        dict, "state", solar_os_speech_request_state_name(status.state));
+    python_dict_store_int(dict, "error", status.error);
+    python_dict_store_cstr(dict, "error_name", esp_err_to_name(status.error));
+    python_dict_store_uint(dict, "progress_done", status.progress_done);
+    python_dict_store_uint(dict, "progress_total", status.progress_total);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(
+    solaros_speech_request_status_obj, solaros_speech_request_status);
+
+static mp_obj_t solaros_speech_queue_status(void)
+{
+    solar_os_speech_queue_status_t status;
+    solar_os_speech_queue_get_status(&status);
+    mp_obj_t dict = mp_obj_new_dict(9);
+    python_dict_store_bool(dict, "running", status.running);
+    python_dict_store_uint(dict, "queued", status.queued);
+    python_dict_store_uint(dict, "current_id", status.current_id);
+    python_dict_store_cstr(
+        dict,
+        "current_state",
+        status.current_id != 0U ?
+            solar_os_speech_request_state_name(status.current_state) : "idle");
+    python_dict_store_uint(dict, "completed", status.completed);
+    python_dict_store_uint(dict, "cancelled", status.cancelled);
+    python_dict_store_uint(dict, "dropped", status.dropped);
+    python_dict_store_uint(dict, "failed", status.failed);
+    python_dict_store_uint(dict, "capacity", SOLAR_OS_SPEECH_QUEUE_CAPACITY);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(
+    solaros_speech_queue_status_obj, solaros_speech_queue_status);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH

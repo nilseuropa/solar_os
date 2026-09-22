@@ -35,6 +35,25 @@ agent_reference_sections = true
 
 - `solaros.audio`: `status`, `deinit`, `off`, `set_volume`, `set_mic_gain`, `tone`, `tone_async`, `cancel`, `queue_status`, `level`, `capture`, `loopback`, `wav_info`, `record_wav`, `play_wav` when audio support is compiled. `capture(frames)` accepts 1 through 4096 frames and returns an interleaved little-endian signed-16 binary string plus a format table with `sample_format`, `sample_rate`, `channels`, and `bits_per_sample`.
 
+## `solaros.speech`
+
+- `solaros.speech`: `say`, `cancel`, `request_status`, and `queue_status` when
+  offline speech is compiled. Start `speechd` first. `say(text[, volume[,
+  drop_if_busy[, pitch[, speed]]]])` copies up to 512 UTF-8 bytes, returns
+  immediately, and returns a request ID. Pitch accepts 50 through 200 and
+  speed accepts 20 through 500; both default to 100.
+
+```lua
+solaros.jobs.start("speechd", {"/voices/en-US"})
+local utterance = solaros.speech.say("Solar O S is ready")
+print(solaros.speech.request_status(utterance).state)
+```
+
+The selected directory must contain `ta.bin` and `sg.bin`; restarting the job
+with another voice directory changes the language. Accepted requests survive
+interpreter exit. Stopping `speechd` cancels the queue and releases the PicoTTS
+engine and voice buffers.
+
 ## `solaros.synth`
 
 - `solaros.synth`: `status`, `configure`, `configure_oscillator2`, `configure_filter`, `configure_performance`, `note_on`, `note_off`, `all_notes_off`, `stop` when synth support is compiled. It provides eight native two-oscillator voices with polyphonic or monophonic last-note playback, portamento, per-note velocity, ADSR envelopes, and resonant low-pass filters; scripts retain the system's global speaker volume. Status includes DSP-derived `pcm_peak` and `pcm_rms` values for the captured scope block.
@@ -128,5 +147,5 @@ strings because ordinary Lua strings are immutable.
 
 ## Quick reference
 
-Use `solaros.audio`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` for audio and control.
+Use `solaros.audio`, `solaros.speech`, `solaros.synth`, `solaros.dsp`, `solaros.controls`, `solaros.parameters`, `solaros.midi`, `solaros.osc` for audio and control.
 See `man lua` for runtime conventions and service availability.

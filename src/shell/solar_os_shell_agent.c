@@ -11,7 +11,7 @@
 #include "solar_os_shell_io.h"
 
 static const char * const agent_commands[] = {
-    "help", "new", "list", "resume", "delete", "status", "tools",
+    "--tts", "help", "new", "list", "resume", "delete", "status", "tools",
     "config", "forget", "ask", "script",
 };
 static const char * const agent_config_fields[] = {
@@ -24,9 +24,12 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_newline(io);
     solar_os_shell_io_writeln(io, "usage:");
     solar_os_shell_io_writeln(io, "  agent");
+    solar_os_shell_io_writeln(io, "  agent --tts");
     solar_os_shell_io_writeln(io, "  agent new");
+    solar_os_shell_io_writeln(io, "  agent --tts new");
     solar_os_shell_io_writeln(io, "  agent list");
     solar_os_shell_io_writeln(io, "  agent resume SLOT");
+    solar_os_shell_io_writeln(io, "  agent --tts resume SLOT");
     solar_os_shell_io_writeln(io, "  agent delete SLOT");
     solar_os_shell_io_writeln(io, "  agent help");
     solar_os_shell_io_writeln(io, "  agent status");
@@ -43,6 +46,7 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  agent config max-tools 1..32");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
+    solar_os_shell_io_writeln(io, "  agent --tts ask PROMPT...");
     solar_os_shell_io_writeln(
         io,
         "  agent script python|lua (-c SOURCE | FILE) [ARGS...]");
@@ -303,6 +307,26 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (argc >= 2 && strcmp(argv[1], "--tts") == 0) {
+        const bool launch = argc == 2 ||
+            (argc == 3 && strcmp(argv[2], "new") == 0) ||
+            (argc == 4 && strcmp(argv[2], "resume") == 0) ||
+            (argc >= 4 && strcmp(argv[2], "ask") == 0);
+        if (launch) {
+            agent_launch(ctx, io, argc, argv);
+        } else if (argc == 3 && strcmp(argv[2], "help") == 0) {
+            agent_usage(io);
+        } else {
+            solar_os_shell_diag_problem(
+                io,
+                "agent --tts",
+                "unsupported command",
+                "agent --tts [new|resume SLOT|ask PROMPT...]",
+                NULL);
+        }
+        return;
+    }
+
     if (argc == 1) {
         agent_launch(ctx, io, argc, argv);
         return;
@@ -371,7 +395,7 @@ void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv)
                                    "agent",
                                    argc,
                                    argv,
-                                   "agent help|new|list|resume|delete|status|tools|config|forget|ask|script",
+                                   "agent [--tts]|help|new|list|resume|delete|status|tools|config|forget|ask|script",
                                    agent_commands,
                                    sizeof(agent_commands) / sizeof(agent_commands[0]));
 }
