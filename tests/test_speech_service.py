@@ -86,15 +86,35 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("solar_os_audio_player_write(", JOB_SOURCE)
         self.assertIn("solar_os_audio_player_destroy(", JOB_SOURCE)
         self.assertIn("picotts_add(", JOB_SOURCE)
+        run = JOB_SOURCE.split("static void speechd_run_request(", 1)[1]
+        run = run.split("static void speechd_task(", 1)[0]
+        self.assertLess(
+            run.index("speechd.awaiting_idle = true"),
+            run.index("picotts_add("),
+        )
 
     def test_picotts_input_wait_is_bounded_and_cancellable(self):
         self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=513", PICOTTS_CMAKE)
         self.assertIn("const volatile bool *cancelled", PICOTTS_HEADER)
         add = PICOTTS_RUNTIME.split("bool picotts_add(", 1)[1]
-        add = add.split("void picotts_shutdown(", 1)[0]
+        add = add.split("bool picotts_shutdown(", 1)[0]
         self.assertIn("INPUT_QUEUE_WAIT_MS", add)
         self.assertIn("*cancelled", add)
         self.assertNotIn("portMAX_DELAY", add)
+
+    def test_picotts_drains_output_when_its_input_buffer_is_full(self):
+        task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
+        task = task.split("static bool pico_cleanup(", 1)[0]
+        self.assertIn("if (pico_exit_requested())", task)
+        self.assertIn("Pico's input buffer is full", task)
+        self.assertIn("utterance_end_seen", task)
+        self.assertIn("idle_callback();", task)
+
+    def test_picotts_shutdown_wait_is_bounded(self):
+        cleanup = PICOTTS_RUNTIME.split("static bool pico_cleanup(", 1)[1]
+        cleanup = cleanup.split("bool picotts_init_resources(", 1)[0]
+        self.assertIn("EXIT_WAIT_MS", cleanup)
+        self.assertNotIn("portMAX_DELAY", cleanup)
 
     def test_speechd_stop_never_frees_a_running_engine(self):
         stop = JOB_SOURCE.split("static void speechd_stop(", 1)[1]
@@ -150,6 +170,10 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("solar_os_speech_cancel(request_id)", SHELL_SOURCE)
         self.assertIn("SOLAR_OS_KEY_ESCAPE", SHELL_SOURCE)
         self.assertIn("ch == 0x03U", SHELL_SOURCE)
+        self.assertIn("SAY_FILE_DEFAULT_MAX_BYTES", SHELL_SOURCE)
+        self.assertIn("use --force to read it anyway", SHELL_SOURCE)
+        self.assertIn('strcmp(arg, "--force") == 0', SHELL_SOURCE)
+        self.assertIn('"--force", "--file"', SHELL_REGISTRY)
         self.assertIn(
             "SHELL_COMPLETION_PATH(path_say_file, false)",
             SHELL_REGISTRY,

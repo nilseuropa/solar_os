@@ -1496,7 +1496,7 @@ static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"}
 
 #if SOLAR_OS_PACKAGE_JOB_SPEECHD
 static const char * const say_options[] = {
-    "-v", "--volume", "--drop-if-busy", "--file", "--",
+    "-v", "--volume", "--drop-if-busy", "--force", "--file", "--",
 };
 #endif
 

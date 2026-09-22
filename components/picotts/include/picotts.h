@@ -17,7 +17,8 @@ typedef void (*picotts_idle_notify_fn)(void);
 
 /*
  * The resource buffers are read directly by PicoTTS. They must remain valid
- * and unmodified until picotts_shutdown() returns.
+ * and unmodified until picotts_shutdown() returns true. A false return means
+ * the worker is still stopping and all engine resources must remain valid.
  */
 bool picotts_init_resources(unsigned priority,
                             picotts_output_fn output,
@@ -30,7 +31,7 @@ bool picotts_init_resources(unsigned priority,
 bool picotts_add(const char *text,
                  unsigned length,
                  const volatile bool *cancelled);
-void picotts_shutdown(void);
+bool picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);
 void picotts_set_idle_notify(picotts_idle_notify_fn callback);
 

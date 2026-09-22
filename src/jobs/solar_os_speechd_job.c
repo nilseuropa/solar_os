@@ -87,27 +87,33 @@ static void speechd_release_voice_resources(void)
     speechd.sg_size = 0U;
 }
 
-static void speechd_cleanup_stopped(void)
+static bool speechd_cleanup_stopped(void)
 {
     speechd.task = NULL;
     if (speechd.engine_initialized) {
         picotts_set_idle_notify(NULL);
         picotts_set_error_notify(NULL);
-        picotts_shutdown();
+        if (!picotts_shutdown()) {
+            return false;
+        }
         speechd.engine_initialized = false;
     }
     speechd_release_voice_resources();
     speechd.player = NULL;
     speechd.current_id = 0U;
+    return true;
 }
 
 static void speechd_reap_stopped(void)
 {
     if (speechd.task != NULL && speechd.done) {
-        if (solar_os_task_wait_done(
+        if (!solar_os_task_wait_done(
                 speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS)) {
-            speechd_cleanup_stopped();
+            return;
         }
+    }
+    if (speechd.task == NULL || speechd.done) {
+        (void)speechd_cleanup_stopped();
     }
 }
 
@@ -394,15 +400,17 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
         solar_os_speech_worker_cancel_flag(work->id);
     speechd_drain_engine_event();
     speechd.engine_idle = false;
-    speechd.awaiting_idle = false;
+    speechd.awaiting_idle = true;
     const bool queued = picotts_add(
         work->text, strlen(work->text) + 1U, cancelled);
-    speechd.awaiting_idle = true;
 
     if (!queued && !speechd.stop_requested &&
         (cancelled == NULL || !*cancelled)) {
         speechd.output_error = ESP_FAIL;
         speechd.engine_failed = true;
+    }
+    if (!queued) {
+        speechd.awaiting_idle = false;
     }
 
     while (queued && !speechd.engine_idle && !speechd.engine_failed &&
@@ -535,10 +543,8 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
             SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         speechd_set_error(
             ESP_ERR_NO_MEM, "cannot allocate the speechd dispatcher task");
-        picotts_shutdown();
-        speechd.engine_initialized = false;
-        speechd_release_voice_resources();
         speechd.task = NULL;
+        (void)speechd_cleanup_stopped();
         return ESP_ERR_NO_MEM;
     }
     while (!speechd.ready && !speechd.done) {
@@ -555,7 +561,7 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
                 "speech worker is still stopping; resources retained safely");
             return start_error;
         }
-        speechd_cleanup_stopped();
+        (void)speechd_cleanup_stopped();
         return start_error;
     }
 
@@ -586,7 +592,13 @@ static void speechd_stop(solar_os_context_t *ctx)
         SOLAR_OS_LOGE(TAG, "%s", speechd.last_error_detail);
         return;
     }
-    speechd_cleanup_stopped();
+    if (!speechd_cleanup_stopped()) {
+        speechd_set_error(
+            ESP_ERR_TIMEOUT,
+            "PicoTTS is still stopping; resources retained safely");
+        SOLAR_OS_LOGE(TAG, "%s", speechd.last_error_detail);
+        return;
+    }
     SOLAR_OS_LOGI(TAG, "stopped");
 }
 

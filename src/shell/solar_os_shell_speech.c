@@ -21,8 +21,9 @@
 
 #define SAY_USAGE \
     "say [-v <0..100>] [--volume <0..100>] [--drop-if-busy] " \
-    "(--file <path> | [--] <text...>)"
+    "([--force] --file <path> | [--] <text...>)"
 #define SAY_FILE_WAIT_MS 25U
+#define SAY_FILE_DEFAULT_MAX_BYTES (64U * 1024U)
 #define SAY_PROGRESS_BAR_MAX 32U
 
 typedef struct {
@@ -381,7 +382,8 @@ static void say_file(solar_os_context_t *ctx,
                      solar_os_shell_io_t *io,
                      const char *path_arg,
                      uint8_t volume,
-                     bool drop_if_busy)
+                     bool drop_if_busy,
+                     bool force)
 {
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     if (!solar_os_shell_resolve_path_for_command(
@@ -396,6 +398,16 @@ static void say_file(solar_os_context_t *ctx,
     }
     if (info.st_size <= 0) {
         solar_os_shell_io_printf(io, "say: empty file: %s\n", path_arg);
+        return;
+    }
+    if (!force && (uint64_t)info.st_size > SAY_FILE_DEFAULT_MAX_BYTES) {
+        solar_os_shell_io_printf(
+            io,
+            "say: file too large: %s (%" PRIu64
+            " bytes; default limit %u); use --force to read it anyway\n",
+            path_arg,
+            (uint64_t)info.st_size,
+            (unsigned)SAY_FILE_DEFAULT_MAX_BYTES);
         return;
     }
 
@@ -481,6 +493,7 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     uint8_t volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
     bool drop_if_busy = false;
+    bool force = false;
     const char *file_arg = NULL;
     int text_index = argc;
 
@@ -493,6 +506,11 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
         }
         if (strcmp(arg, "--drop-if-busy") == 0) {
             drop_if_busy = true;
+            index++;
+            continue;
+        }
+        if (strcmp(arg, "--force") == 0) {
+            force = true;
             index++;
             continue;
         }
@@ -541,7 +559,8 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
                                         "say",
                                         "option",
                                         arg,
-                                        "-v, --volume, --drop-if-busy, --file, or --",
+                                        "-v, --volume, --drop-if-busy, --force, "
+                                        "--file, or --",
                                         SAY_USAGE,
                                         false);
             return;
@@ -559,7 +578,15 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
                                         NULL);
             return;
         }
-        say_file(ctx, io, file_arg, volume, drop_if_busy);
+        say_file(ctx, io, file_arg, volume, drop_if_busy, force);
+        return;
+    }
+    if (force) {
+        solar_os_shell_diag_problem(io,
+                                    "say",
+                                    "--force requires --file",
+                                    SAY_USAGE,
+                                    NULL);
         return;
     }
     if (text_index >= argc) {

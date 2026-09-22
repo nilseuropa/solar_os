@@ -20,8 +20,8 @@
 
 #define PICO_MEM_SIZE 1100000U
 #define PICOTASK_EXIT 0x0000001U
-#define IDLE_WAIT_COUNT 5U
 #define INPUT_QUEUE_WAIT_MS 20U
+#define EXIT_WAIT_MS 1000U
 
 static picotts_output_fn output_callback;
 static picotts_error_notify_fn error_callback;
@@ -64,7 +64,7 @@ static void pico_task_main(void *arg)
         WAITING_FOR_BYTES,
         WAITING_FOR_OUTPUT,
     } state = WAITING_FOR_BYTES;
-    unsigned idle_count = 0U;
+    bool utterance_end_seen = false;
 
     while (!failed) {
         if (pico_exit_requested()) {
@@ -73,6 +73,9 @@ static void pico_task_main(void *arg)
 
         uint8_t byte = 0U;
         while (xQueuePeek(text_queue, &byte, 0) == pdPASS) {
+            if (pico_exit_requested()) {
+                goto stopped;
+            }
             int16_t processed = 0;
             const int result = pico_putTextUtf8(
                 pico_engine, &byte, 1, &processed);
@@ -83,18 +86,21 @@ static void pico_task_main(void *arg)
             }
             if (processed != 0) {
                 (void)xQueueReceive(text_queue, &byte, 0);
+                if (byte == '\0') {
+                    utterance_end_seen = true;
+                }
                 if (state == WAITING_FOR_BYTES) {
                     state = WAITING_FOR_OUTPUT;
                 }
+            } else {
+                /* Pico's input buffer is full. Generate output to make room
+                 * before trying the same queued byte again. */
+                state = WAITING_FOR_OUTPUT;
+                break;
             }
         }
 
         if (state == WAITING_FOR_BYTES) {
-            if (idle_count < IDLE_WAIT_COUNT &&
-                ++idle_count == IDLE_WAIT_COUNT &&
-                idle_callback != NULL) {
-                idle_callback();
-            }
             vTaskDelay(pdMS_TO_TICKS(100U));
             continue;
         }
@@ -119,7 +125,12 @@ static void pico_task_main(void *arg)
             failed = true;
         } else {
             state = WAITING_FOR_BYTES;
-            idle_count = 0U;
+            if (utterance_end_seen) {
+                utterance_end_seen = false;
+                if (idle_callback != NULL) {
+                    idle_callback();
+                }
+            }
         }
     }
 
@@ -132,11 +143,17 @@ stopped:
     vTaskDelete(NULL);
 }
 
-static void pico_cleanup(void)
+static bool pico_cleanup(void)
 {
     if (pico_task != NULL) {
-        (void)xTaskNotify(pico_task, PICOTASK_EXIT, eSetBits);
-        (void)xSemaphoreTake(exit_lock, portMAX_DELAY);
+        if (xSemaphoreTake(exit_lock, 0) != pdTRUE) {
+            (void)xTaskNotify(pico_task, PICOTASK_EXIT, eSetBits);
+            if (xSemaphoreTake(
+                    exit_lock, pdMS_TO_TICKS(EXIT_WAIT_MS)) != pdTRUE) {
+                ESP_LOGE(TAG, "task did not stop within %u ms", EXIT_WAIT_MS);
+                return false;
+            }
+        }
         pico_task = NULL;
     }
     if (pico_engine != NULL) {
@@ -162,6 +179,7 @@ static void pico_cleanup(void)
         vQueueDelete(text_queue);
         text_queue = NULL;
     }
+    return true;
 }
 
 bool picotts_init_resources(unsigned priority,
@@ -276,12 +294,13 @@ bool picotts_add(const char *text,
     return true;
 }
 
-void picotts_shutdown(void)
+bool picotts_shutdown(void)
 {
-    pico_cleanup();
+    const bool stopped = pico_cleanup();
     output_callback = NULL;
     error_callback = NULL;
     idle_callback = NULL;
+    return stopped;
 }
 
 void picotts_set_error_notify(picotts_error_notify_fn callback)

@@ -1228,6 +1228,7 @@ Python, and Lua.
 job start speechd /voices/en-US
 say "Solar O S is ready"
 say --file /documents/announcement.txt
+say --force --file /books/novel.txt
 job status speechd
 job stop speechd
 ```
@@ -1235,7 +1236,8 @@ job stop speechd
 `say --file <path>` validates and reads a plain UTF-8 text file in bounded
 chunks. It displays speaking progress and remains in the foreground until the
 file completes; press `Esc` or `Ctrl+C` to cancel the current speech request and
-stop reading. Tab completion after `--file` lists filesystem paths. Ordinary
+stop reading. Files larger than 64 KiB are rejected before audio starts unless
+`--force` is present. Tab completion after `--file` lists filesystem paths. Ordinary
 `say <text...>` remains asynchronous and returns the queued request ID.
 
 The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
