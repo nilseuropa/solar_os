@@ -43,6 +43,8 @@ bool picotts_stream_write(const char *text,
                           bool final,
                           const volatile bool *cancelled);
 bool picotts_stream_end(const volatile bool *cancelled);
+/* Discard queued text and reset the engine on its owning worker task. */
+bool picotts_abort(void);
 bool picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);
 void picotts_set_idle_notify(picotts_idle_notify_fn callback);

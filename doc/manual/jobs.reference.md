@@ -1243,7 +1243,9 @@ speech request: PicoTTS and the audio player stay open between chunks, while a
 single bounded handoff slot prevents the file from being buffered in memory.
 Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
 The foreground command returns only after `speechd` confirms cancellation, so a
-new `say` request cannot race the previous stream's cleanup.
+new `say` request cannot race the previous stream's cleanup. Cancellation
+discards queued text and soft-resets PicoTTS instead of synthesizing the
+unspoken remainder of the file.
 There is no file-size limit because only one bounded chunk is held and submitted
 at a time. Tab completion after `--file` lists filesystem paths. Ordinary `say
 <text...>` remains asynchronous and returns the queued request ID.

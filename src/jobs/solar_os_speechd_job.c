@@ -386,12 +386,29 @@ static void speechd_drain_engine_event(void)
     }
 }
 
-static void speechd_wait_engine_idle(void)
+static bool speechd_wait_engine_idle(const volatile bool *cancelled)
 {
     while (!speechd.engine_idle && !speechd.engine_failed &&
            !speechd.stop_requested) {
+        if (cancelled != NULL && *cancelled) {
+            return false;
+        }
         (void)xSemaphoreTake(speechd.engine_event, pdMS_TO_TICKS(50U));
     }
+    return speechd.engine_idle;
+}
+
+static bool speechd_abort_engine(void)
+{
+    speechd.awaiting_idle = false;
+    if (!picotts_abort()) {
+        speechd.output_error = ESP_FAIL;
+        speechd.engine_failed = true;
+        return false;
+    }
+    speechd.engine_idle = true;
+    speechd_drain_engine_event();
+    return true;
 }
 
 static void speechd_run_request(const solar_os_speech_work_t *work)
@@ -430,12 +447,10 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
         speechd.output_error = ESP_FAIL;
         speechd.engine_failed = true;
     }
-    if (!queued) {
-        speechd.awaiting_idle = false;
-    }
-
-    if (queued) {
-        speechd_wait_engine_idle();
+    const bool engine_idle = queued &&
+        speechd_wait_engine_idle(cancelled);
+    if (!engine_idle && !speechd.engine_failed) {
+        (void)speechd_abort_engine();
     }
 
     speechd_close_player(cancelled);
@@ -520,21 +535,12 @@ static void speechd_run_stream(const solar_os_speech_work_t *work)
         final_queued = final;
     }
 
-    if (stream_open && !final_queued && !speechd.engine_failed &&
-        !speechd.stop_requested) {
-        /* Close Pico's open utterance after cancellation so the persistent
-         * engine is clean for the next request. Audio output is suppressed by
-         * the request's cancellation flag while it drains. */
-        final_queued = picotts_stream_end(NULL);
-        if (!final_queued) {
-            speechd.output_error = ESP_FAIL;
-            speechd.engine_failed = true;
-        }
-    }
+    bool engine_idle = false;
     if (final_queued) {
-        speechd_wait_engine_idle();
-    } else {
-        speechd.awaiting_idle = false;
+        engine_idle = speechd_wait_engine_idle(cancelled);
+    }
+    if (!engine_idle && !speechd.engine_failed) {
+        (void)speechd_abort_engine();
     }
 
     speechd_close_player(cancelled);

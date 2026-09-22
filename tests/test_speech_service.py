@@ -140,10 +140,35 @@ class SpeechServiceTest(unittest.TestCase):
     def test_picotts_drains_output_when_its_input_buffer_is_full(self):
         task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
         task = task.split("static bool pico_cleanup(", 1)[0]
-        self.assertIn("if (pico_exit_requested())", task)
+        self.assertIn("pico_control_flags(", task)
+        self.assertIn("PICOTASK_EXIT", task)
         self.assertIn("Pico's input buffer is full", task)
         self.assertIn("utterance_end_seen", task)
         self.assertIn("idle_callback();", task)
+
+    def test_picotts_abort_resets_queued_and_internal_engine_state(self):
+        self.assertIn("bool picotts_abort(void)", PICOTTS_HEADER)
+        task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
+        task = task.split("static bool pico_cleanup(", 1)[0]
+        self.assertIn("PICOTASK_ABORT", task)
+        self.assertIn("xQueueReset(text_queue)", task)
+        self.assertIn(
+            "pico_resetEngine(pico_engine, PICO_RESET_SOFT)", task
+        )
+        abort = PICOTTS_RUNTIME.split("bool picotts_abort(void)", 1)[1]
+        abort = abort.split("bool picotts_shutdown(void)", 1)[0]
+        self.assertIn("ABORT_WAIT_MS", abort)
+        self.assertNotIn("portMAX_DELAY", abort)
+
+    def test_speechd_aborts_cancelled_synthesis_instead_of_draining_it(self):
+        abort = JOB_SOURCE.split("static bool speechd_abort_engine(", 1)[1]
+        abort = abort.split("static void speechd_run_request(", 1)[0]
+        self.assertIn("picotts_abort()", abort)
+        stream = JOB_SOURCE.split("static void speechd_run_stream(", 1)[1]
+        stream = stream.split("static void speechd_task(", 1)[0]
+        self.assertIn("speechd_wait_engine_idle(cancelled)", stream)
+        self.assertIn("speechd_abort_engine()", stream)
+        self.assertNotIn("picotts_stream_end(NULL)", stream)
 
     def test_picotts_yields_during_synthesis(self):
         task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]

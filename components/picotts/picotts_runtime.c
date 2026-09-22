@@ -21,8 +21,10 @@
 
 #define PICO_MEM_SIZE 1100000U
 #define PICOTASK_EXIT 0x0000001U
+#define PICOTASK_ABORT 0x0000002U
 #define INPUT_QUEUE_WAIT_MS 20U
 #define EXIT_WAIT_MS 1000U
+#define ABORT_WAIT_MS 1000U
 #define INPUT_COOPERATIVE_BYTES 64U
 #define OUTPUT_COOPERATIVE_STEPS 8U
 #define QUEUE_BYTE_MASK 0x00ffU
@@ -39,6 +41,7 @@ static picotts_error_notify_fn error_callback;
 static picotts_idle_notify_fn idle_callback;
 static picotts_progress_notify_fn progress_callback;
 static SemaphoreHandle_t exit_lock;
+static SemaphoreHandle_t abort_done;
 static QueueHandle_t text_queue;
 static TaskHandle_t pico_task;
 static void *pico_memory;
@@ -51,6 +54,7 @@ static const char *TAG = "picotts";
 static portMUX_TYPE progress_lock = portMUX_INITIALIZER_UNLOCKED;
 static unsigned progress_done;
 static unsigned progress_total;
+static volatile bool abort_succeeded;
 
 static void pico_progress_reset(unsigned total)
 {
@@ -87,11 +91,11 @@ static void pico_progress_report(void)
     }
 }
 
-static bool pico_exit_requested(void)
+static uint32_t pico_control_flags(TickType_t wait)
 {
     uint32_t flags = 0U;
-    return xTaskNotifyWait(0, UINT32_MAX, &flags, 0) == pdPASS &&
-           (flags & PICOTASK_EXIT) != 0U;
+    (void)xTaskNotifyWait(0, UINT32_MAX, &flags, wait);
+    return flags;
 }
 
 picoos_double picoos_quick_exp(const picoos_double value)
@@ -120,14 +124,22 @@ static void pico_task_main(void *arg)
     unsigned output_steps = 0U;
 
     while (!failed) {
-        if (pico_exit_requested()) {
-            break;
+        uint32_t control = pico_control_flags(0);
+        if ((control & PICOTASK_EXIT) != 0U) {
+            goto stopped;
+        }
+        if ((control & PICOTASK_ABORT) != 0U) {
+            goto aborted;
         }
 
         uint16_t item = 0U;
         while (xQueuePeek(text_queue, &item, 0) == pdPASS) {
-            if (pico_exit_requested()) {
+            control = pico_control_flags(0);
+            if ((control & PICOTASK_EXIT) != 0U) {
                 goto stopped;
+            }
+            if ((control & PICOTASK_ABORT) != 0U) {
+                goto aborted;
             }
             uint8_t byte = (uint8_t)(item & QUEUE_BYTE_MASK);
             int16_t processed = 0;
@@ -168,14 +180,24 @@ static void pico_task_main(void *arg)
         }
 
         if (state == WAITING_FOR_BYTES) {
-            vTaskDelay(pdMS_TO_TICKS(100U));
+            control = pico_control_flags(pdMS_TO_TICKS(100U));
+            if ((control & PICOTASK_EXIT) != 0U) {
+                goto stopped;
+            }
+            if ((control & PICOTASK_ABORT) != 0U) {
+                goto aborted;
+            }
             continue;
         }
 
         int status = PICO_STEP_IDLE;
         do {
-            if (pico_exit_requested()) {
+            control = pico_control_flags(0);
+            if ((control & PICOTASK_EXIT) != 0U) {
                 goto stopped;
+            }
+            if ((control & PICOTASK_ABORT) != 0U) {
+                goto aborted;
             }
             int16_t output[128];
             int16_t bytes = 0;
@@ -206,6 +228,30 @@ static void pico_task_main(void *arg)
                 if (idle_callback != NULL) {
                     idle_callback();
                 }
+            }
+        }
+        continue;
+
+aborted:
+        {
+            if (text_queue != NULL) {
+                (void)xQueueReset(text_queue);
+            }
+            const int reset_result =
+                pico_resetEngine(pico_engine, PICO_RESET_SOFT);
+            abort_succeeded = reset_result == 0;
+            if (!abort_succeeded) {
+                log_pico_error("engine abort failed", reset_result);
+                failed = true;
+            }
+            pico_progress_reset(0U);
+            state = WAITING_FOR_BYTES;
+            segment_end_seen = false;
+            utterance_end_seen = false;
+            input_steps = 0U;
+            output_steps = 0U;
+            if (abort_done != NULL) {
+                (void)xSemaphoreGive(abort_done);
             }
         }
     }
@@ -273,10 +319,15 @@ bool picotts_init_resources(unsigned priority,
     if (exit_lock == NULL) {
         exit_lock = xSemaphoreCreateBinary();
     }
-    if (exit_lock == NULL) {
+    if (abort_done == NULL) {
+        abort_done = xSemaphoreCreateBinary();
+    }
+    if (exit_lock == NULL || abort_done == NULL) {
         return false;
     }
     while (xSemaphoreTake(exit_lock, 0) == pdTRUE) {
+    }
+    while (xSemaphoreTake(abort_done, 0) == pdTRUE) {
     }
 
     output_callback = output;
@@ -472,6 +523,22 @@ bool picotts_stream_write(const char *text,
 bool picotts_stream_end(const volatile bool *cancelled)
 {
     return pico_stream_write(NULL, 0U, true, false, cancelled);
+}
+
+bool picotts_abort(void)
+{
+    if (pico_task == NULL || text_queue == NULL || abort_done == NULL) {
+        return false;
+    }
+    while (xSemaphoreTake(abort_done, 0) == pdTRUE) {
+    }
+    abort_succeeded = false;
+    if (xTaskNotify(pico_task, PICOTASK_ABORT, eSetBits) != pdPASS ||
+        xSemaphoreTake(abort_done, pdMS_TO_TICKS(ABORT_WAIT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "engine abort timed out after %u ms", ABORT_WAIT_MS);
+        return false;
+    }
+    return abort_succeeded;
 }
 
 bool picotts_shutdown(void)
