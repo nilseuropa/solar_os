@@ -22,6 +22,8 @@
 #define PICOTASK_EXIT 0x0000001U
 #define INPUT_QUEUE_WAIT_MS 20U
 #define EXIT_WAIT_MS 1000U
+#define INPUT_COOPERATIVE_BYTES 64U
+#define OUTPUT_COOPERATIVE_STEPS 8U
 
 static picotts_output_fn output_callback;
 static picotts_error_notify_fn error_callback;
@@ -65,6 +67,8 @@ static void pico_task_main(void *arg)
         WAITING_FOR_OUTPUT,
     } state = WAITING_FOR_BYTES;
     bool utterance_end_seen = false;
+    unsigned input_steps = 0U;
+    unsigned output_steps = 0U;
 
     while (!failed) {
         if (pico_exit_requested()) {
@@ -86,11 +90,16 @@ static void pico_task_main(void *arg)
             }
             if (processed != 0) {
                 (void)xQueueReceive(text_queue, &byte, 0);
+                input_steps++;
                 if (byte == '\0') {
                     utterance_end_seen = true;
                 }
                 if (state == WAITING_FOR_BYTES) {
                     state = WAITING_FOR_OUTPUT;
+                }
+                if (input_steps >= INPUT_COOPERATIVE_BYTES) {
+                    input_steps = 0U;
+                    vTaskDelay(1);
                 }
             } else {
                 /* Pico's input buffer is full. Generate output to make room
@@ -117,6 +126,11 @@ static void pico_task_main(void *arg)
                 pico_engine, output, sizeof(output), &bytes, &type);
             if (bytes > 0 && output_callback != NULL) {
                 output_callback(output, (unsigned)bytes / 2U);
+            }
+            output_steps++;
+            if (output_steps >= OUTPUT_COOPERATIVE_STEPS) {
+                output_steps = 0U;
+                vTaskDelay(1);
             }
         } while (status == PICO_STEP_BUSY);
 

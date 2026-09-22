@@ -18,6 +18,7 @@
     "([--force] --file <path> | [--] <text...>)"
 #define SAY_FILE_DEFAULT_MAX_BYTES (64U * 1024U)
 #define SAY_PROGRESS_BAR_MAX 32U
+#define SAY_PROGRESS_ACTIVITY_MS 250U
 
 typedef struct {
     uint32_t codepoint;
@@ -28,6 +29,7 @@ typedef struct {
 typedef struct {
     size_t row;
     uint16_t hundredths;
+    uint8_t activity_phase;
     bool row_valid;
     bool rendered;
 } say_progress_t;
@@ -41,6 +43,7 @@ typedef struct {
     uint64_t bytes_done;
     size_t pending_bytes;
     uint32_t request_id;
+    uint32_t next_activity_ms;
     uint8_t volume;
     bool drop_if_busy;
     say_progress_t progress;
@@ -219,7 +222,8 @@ static esp_err_t say_read_file_chunk(FILE *file,
 static void say_render_progress(solar_os_shell_io_t *io,
                                 say_progress_t *progress,
                                 uint64_t bytes_done,
-                                uint64_t bytes_total)
+                                uint64_t bytes_total,
+                                bool active)
 {
     uint64_t calculated = bytes_total > 0U ?
         (bytes_done * 10000U) / bytes_total : 10000U;
@@ -227,7 +231,7 @@ static void say_render_progress(solar_os_shell_io_t *io,
         calculated = 10000U;
     }
     const uint16_t hundredths = (uint16_t)calculated;
-    if (progress->rendered && progress->hundredths == hundredths) {
+    if (progress->rendered && progress->hundredths == hundredths && !active) {
         return;
     }
     if (!progress->row_valid) {
@@ -251,10 +255,12 @@ static void say_render_progress(solar_os_shell_io_t *io,
         width = SAY_PROGRESS_BAR_MAX;
     }
     const size_t filled = (hundredths * width) / 10000U;
+    const size_t remaining = width - filled;
+    const size_t activity = active && remaining > 0U ?
+        filled + (progress->activity_phase % remaining) : width;
     solar_os_shell_io_write(io, "say: [");
     for (size_t i = 0U; i < width; i++) {
-        const char marker = i < filled ? '#' :
-            (bytes_done > 0U && hundredths < 10000U && i == filled ? '>' : '-');
+        const char marker = i < filled ? '#' : (i == activity ? '>' : '-');
         solar_os_shell_io_put_char(io, marker);
     }
     solar_os_shell_io_printf(io,
@@ -263,6 +269,9 @@ static void say_render_progress(solar_os_shell_io_t *io,
                              (unsigned)(hundredths % 100U));
     solar_os_shell_io_flush(io);
     progress->hundredths = hundredths;
+    if (active) {
+        progress->activity_phase++;
+    }
     progress->rendered = true;
 }
 
@@ -385,7 +394,8 @@ static void say_file(solar_os_context_t *ctx,
     say_render_progress(io,
                         &say_file_playback.progress,
                         0U,
-                        say_file_playback.bytes_total);
+                        say_file_playback.bytes_total,
+                        true);
 }
 
 static void say_file_finish(solar_os_context_t *ctx,
@@ -423,7 +433,7 @@ static void say_file_finish(solar_os_context_t *ctx,
     memset(&say_file_playback, 0, sizeof(say_file_playback));
 }
 
-static void say_file_step(solar_os_context_t *ctx)
+static void say_file_step(solar_os_context_t *ctx, uint32_t now_ms)
 {
     if (say_file_playback.request_id != 0U) {
         solar_os_speech_request_status_t status;
@@ -436,7 +446,8 @@ static void say_file_step(solar_os_context_t *ctx)
                 say_render_progress(say_file_playback.io,
                                     &say_file_playback.progress,
                                     say_file_playback.bytes_done,
-                                    say_file_playback.bytes_total);
+                                    say_file_playback.bytes_total,
+                                    false);
             } else if (status.state == SOLAR_OS_SPEECH_REQUEST_CANCELLED) {
                 say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
             } else if (status.state == SOLAR_OS_SPEECH_REQUEST_DROPPED) {
@@ -445,6 +456,15 @@ static void say_file_step(solar_os_context_t *ctx)
                 say_file_finish(ctx,
                                 false,
                                 status.error != ESP_OK ? status.error : ESP_FAIL);
+            } else if ((int32_t)(now_ms -
+                                 say_file_playback.next_activity_ms) >= 0) {
+                say_file_playback.next_activity_ms =
+                    now_ms + SAY_PROGRESS_ACTIVITY_MS;
+                say_render_progress(say_file_playback.io,
+                                    &say_file_playback.progress,
+                                    say_file_playback.bytes_done,
+                                    say_file_playback.bytes_total,
+                                    true);
             }
             return;
         }
@@ -476,7 +496,8 @@ static void say_file_step(solar_os_context_t *ctx)
         say_render_progress(say_file_playback.io,
                             &say_file_playback.progress,
                             say_file_playback.bytes_done,
-                            say_file_playback.bytes_total);
+                            say_file_playback.bytes_total,
+                            false);
         return;
     }
 
@@ -493,6 +514,7 @@ static void say_file_step(solar_os_context_t *ctx)
     }
     say_file_playback.pending_bytes = bytes_consumed;
     say_file_playback.request_id = request_id;
+    say_file_playback.next_activity_ms = now_ms + SAY_PROGRESS_ACTIVITY_MS;
 }
 
 bool solar_os_shell_speech_file_event(solar_os_context_t *ctx,
@@ -514,7 +536,7 @@ bool solar_os_shell_speech_file_event(solar_os_context_t *ctx,
         return true;
     }
     if (event->type == SOLAR_OS_EVENT_TICK) {
-        say_file_step(ctx);
+        say_file_step(ctx, event->data.tick_ms);
     }
     return true;
 }

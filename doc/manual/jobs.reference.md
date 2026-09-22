@@ -1236,6 +1236,8 @@ job stop speechd
 `say --file <path>` validates and reads a plain UTF-8 text file in bounded
 chunks. It keeps the shell in a foreground playback mode, but advances from
 shell events so the display and progress bar refresh while speech is running.
+The moving marker shows active synthesis; the percentage advances after each
+bounded text chunk has finished playing.
 Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
 Files larger than 64 KiB are rejected before audio starts unless `--force` is
 present. Tab completion after `--file` lists filesystem paths. Ordinary

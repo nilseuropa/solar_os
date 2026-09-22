@@ -110,6 +110,13 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("utterance_end_seen", task)
         self.assertIn("idle_callback();", task)
 
+    def test_picotts_yields_during_synthesis(self):
+        task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
+        task = task.split("static bool pico_cleanup(", 1)[0]
+        self.assertIn("INPUT_COOPERATIVE_BYTES", task)
+        self.assertIn("OUTPUT_COOPERATIVE_STEPS", task)
+        self.assertGreaterEqual(task.count("vTaskDelay(1);"), 2)
+
     def test_picotts_shutdown_wait_is_bounded(self):
         cleanup = PICOTTS_RUNTIME.split("static bool pico_cleanup(", 1)[1]
         cleanup = cleanup.split("bool picotts_init_resources(", 1)[0]
@@ -168,7 +175,8 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("say_render_progress", SHELL_SOURCE)
         self.assertIn("bytes_done * 10000U", SHELL_SOURCE)
         self.assertIn('"] %3u.%02u%%"', SHELL_SOURCE)
-        self.assertIn("i == filled ? '>' : '-'", SHELL_SOURCE)
+        self.assertIn("SAY_PROGRESS_ACTIVITY_MS", SHELL_SOURCE)
+        self.assertIn("progress->activity_phase % remaining", SHELL_SOURCE)
         self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
         self.assertIn(
             "solar_os_speech_cancel(say_file_playback.request_id)", SHELL_SOURCE
