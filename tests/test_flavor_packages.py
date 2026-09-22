@@ -283,7 +283,7 @@ class FlavorPackagesTest(unittest.TestCase):
     def test_granular_group_ownership(self):
         self.assertEqual(
             self.catalog.group_defs["ssh"].members,
-            ("app_ssh", "app_scp", "app_sftpsync"),
+            ("app_ssh", "app_scp", "app_sftp", "app_sftpsync"),
         )
         self.assertEqual(
             self.catalog.group_defs["ftp"].members,

@@ -20,6 +20,8 @@ typedef struct {
     const char *username;
     const char *password;
     uint32_t timeout_ms;
+    char *error;
+    size_t error_len;
 } solar_os_ftp_options_t;
 
 typedef struct {

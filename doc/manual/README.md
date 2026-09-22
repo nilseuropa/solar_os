@@ -45,6 +45,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [expansion command](expansion.md) — Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the io app.
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
+- [gesture command](commands.md) — List gesture-capable input sources, readiness, and the gesture kinds each source advertises.
 - [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
 - [haptic command](commands.md) — List registered haptic devices, their concrete drivers, and supported effect range.
@@ -156,6 +157,8 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [reader application](apps.md#reader) — Graphical document reader for plain text, Markdown, and EPUB. It remembers reading position and zoom per opened file when storage is available.
 - [recorder application](apps.md#recorder) — Interactive GUI/TUI counterpart to arecord. Recorder writes PCM WAV files so the channel count, sample rate, and resolution travel with the recording and the result can be played immediately. It accepts any registered signed-16-bit PCM capture stream. On the Waveshare board it initially selects audio0.capture. Mono/stereo output, 8/16-bit file resolution, and sample rates from 8 kHz through 48 kHz are converted from the selected stream as necessary.
 - [scp application](apps.md#scp) — SCP file transfer over SSH. It supports password or key authentication through the shared SSH transport and host lookup/known-host storage. When user@ is omitted, SCP uses the NVS-backed SolarOS identity user. Tab completion reads aliases from /.ssh/hosts, preserves an explicit user@ prefix, and appends : after a unique host match.
+- [sftp application](apps.md#sftp) — Two-pane SFTP file manager with the same panes, file operations, progress, and key bindings as ftp. The left pane is local mounted storage and the right pane is a remote SSH server's SFTP subsystem. It uses the shared SSH transport, known-host policy, host aliases, and password or public-key authentication.
+- [sftpsync application](apps.md#sftpsync) — Incremental file and directory synchronization over SSH. The SolarOS client uses the server's SFTP subsystem, so it works with a normal SSH server without requiring a matching remote program. It skips regular files whose size and modification time already match. It does not delete destination-only files.
 - [sheet application](apps.md#sheet) — CSV viewer for small data tables. It is intended as a companion to daq logs and simple spreadsheet-like inspection.
 - [sketch application](apps.md#sketch) — Pointer-driven graphical paint application. Its layout follows classic desktop paint programs: Save, Open, Import, and the sidebar controls share one aligned, equal-sized button grid; color and pattern choices are in the bottom bar. Sketch uses a compact four-color canvas and stores finished documents as interoperable indexed-color PNG files. Color TFTs show the native palette; one-bit displays use the existing dithered rendering path.
 - [ssh application](apps.md#ssh) — Interactive SSH client. It supports password and key authentication, known hosts, hostname lookup through /.ssh/hosts, UTF-8 text, VT-style controls, and remote full-screen terminal applications. When user@ is omitted, SSH uses the NVS-backed SolarOS identity user. Tab completion reads aliases from /.ssh/hosts and preserves an explicit user@ prefix.
@@ -180,7 +183,9 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [espnow-link job](jobs.reference.md#espnow-link) — ESP-NOW adapter for the transport-independent SolarOS Link service.
 - [ftpd job](jobs.reference.md#ftpd) — Unencrypted FTP file server for one exported folder. The job supports one client at a time and passive IPv4 data connections.
 - [gateway-sync job](jobs.reference.md#gateway-sync) — Background synchronizer for the gateway messaging provider. Start and stop it explicitly, using the same lifecycle as email-sync:
+- [gesture-listener job](jobs.reference.md#gesture-listener) — Gesture-to-command listener. Rules are configured independently with `gesture bind`, while this job owns observation and dispatch:
 - [gpio-keys job](jobs.reference.md#gpio-keys) — Maps runtime-safe GPIO inputs to SolarOS keyboard presses. The job configures each pin as an input with its internal pull-up enabled, treats a low level as pressed, and applies the same 25 ms debounce used by fixed board buttons. Each debounced transition publishes a generic SolarOS key press or release. Held keys use the system repeat rate configured by setterm keyrate.
+- [graffiti job](jobs.reference.md#graffiti) — Full-screen Palm Graffiti handwriting input for boards with absolute touch and PSRAM. The job does not draw an overlay or change the active application.
 - [httpd job](jobs.reference.md#httpd) — Static HTTP file server for a folder on mounted storage.
 - [log job](jobs.reference.md#log) — Runtime SolarOS log follower. It mirrors log entries to a byte-stream port or appends them to a file.
 - [meshcore job](jobs.reference.md#meshcore) — Non-forwarding MeshCore companion provider for Contacts and Messages.
@@ -223,7 +228,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua input and clipboard API](lua.input.md) — Input and clipboard: input, hid, clipboard
-- [Lua networking API](lua.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys
+- [Lua networking API](lua.network.md) — Networking: wifi, mqtt, http, net, ftp, sftpsync, ssh_keys
 - [Lua storage and files API](lua.storage.md) — Storage and files: storage
 - [Lua text user-interface API](lua.tui.md) — Build terminal applications from Lua
 - [Lua time and scheduling API](lua.time.md) — Time and scheduling: time, rtc, schedule
@@ -237,7 +242,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python input and clipboard API](python.input.md) — Input and clipboard: input, hid, clipboard
-- [Python networking API](python.network.md) — Networking: wifi, mqtt, http, net, ftp, ssh_keys
+- [Python networking API](python.network.md) — Networking: wifi, mqtt, http, net, ftp, sftpsync, ssh_keys
 - [Python storage and files API](python.storage.md) — Storage and files: storage
 - [Python text user-interface API](python.tui.md) — Build terminal applications from MicroPython
 - [Python time and scheduling API](python.time.md) — Time and scheduling: time, rtc, schedule

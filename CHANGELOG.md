@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.13.5** — 2026-09-22 — FTP now starts as a disconnected file manager and
+  opens connection setup with `F2`/`n`; its Copy, Move, Mkdir, and Delete
+  function keys and letter mnemonics now match Files. Added a two-pane `sftp` file
+  manager with the same browsing, recursive copy/move/delete, mkdir, viewing,
+  progress, and cursor-retention behavior over the existing SSH transport and
+  SFTP subsystem. SFTP supports known hosts, host aliases, password or key
+  authentication, an `F2` connection form, and the compatible direct-connect
+  command-line form, including `user@host:path`. Connection forms keep a visible
+  cursor in the active field. FTP and SFTP reopen on the password field when
+  authentication fails instead of exposing a low-level error. FTP reports
+  refused, timed-out, and unreachable connections without a generic ESP error.
 - **4.13.4** — 2026-09-21 — Added a full-screen, overlay-free Palm Graffiti
   keyboard job with alphanumeric templates, Palm editing gestures, and
   automatic letter/number selection from the stroke's starting region. It

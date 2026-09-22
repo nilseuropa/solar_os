@@ -33,6 +33,9 @@
 #if SOLAR_OS_PACKAGE_APP_SFTPSYNC
 #include "solar_os_sftpsync_app.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_SFTP
+#include "solar_os_sftp_app.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_SSH
 #include "solar_os_ssh_app.h"
 #endif
@@ -172,6 +175,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #if SOLAR_OS_PACKAGE_APP_SFTPSYNC
     APP_ENTRY("sftpsync", "synchronize files over SSH", &solar_os_sftpsync_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sftpsync [-arn] [-P port] <source> <destination>", 3, 8),
 #endif
+#if SOLAR_OS_PACKAGE_APP_SFTP
+    APP_ENTRY("sftp", "two-pane SFTP file manager", &solar_os_sftp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "sftp [[user@]HOST[:PATH] [PORT] [--user USER] [--password PASSWORD] [--remote PATH] [--local PATH]]", 1, 11),
+#endif
 #if SOLAR_OS_PACKAGE_APP_SSH
     APP_ENTRY("ssh", "SSH client", &solar_os_ssh_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ssh [user@]host [port]", 2, 3),
 #endif
@@ -216,7 +222,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("launcher", "configurable graphical launcher", &solar_os_launcher_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "launcher [config.json]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FTP
-    APP_ENTRY("ftp", "two-pane FTP file manager", &solar_os_ftp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ftp HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]", 2, 11),
+    APP_ENTRY("ftp", "two-pane FTP file manager", &solar_os_ftp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ftp [HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]]", 1, 11),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FLASH
     APP_ENTRY("flash", "download and flash SolarOS onto another ESP board", &solar_os_flash_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "flash [refresh | list | download BOARD FLAVOR [VERSION] | BOARD FLAVOR [version=VERSION] [port=uart0] [boot=PIN] [reset=PIN] [baud=RATE]]", 1, 8),

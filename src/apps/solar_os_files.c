@@ -861,7 +861,19 @@ static void files_draw_pane(files_pane_t *pane,
 static void files_draw_bottom(size_t rows, size_t cols)
 {
     static const char help[] =
-        "F3 V-iew F4 E-dit F5 C-opy F6 M-ove F7 mK-dir F8 D-elete F9 Z-ip";
+        "F3 View F4 Edit F5 Copy F6 Move F7 mKdir F8 Delete F9 Zip";
+    static const struct {
+        const char *label;
+        size_t offset;
+    } mnemonics[] = {
+        {"View", 0U},
+        {"Edit", 0U},
+        {"Copy", 0U},
+        {"Move", 0U},
+        {"mKdir", 1U},
+        {"Delete", 0U},
+        {"Zip", 0U},
+    };
     const bool input_active = files.input_mode != FILES_INPUT_NONE;
     if (solar_os_tui_screen_fullscreen(&files.tui) && !input_active) {
         solar_os_tui_draw_footer(&files.tui, files.message, NULL);
@@ -885,8 +897,13 @@ static void files_draw_bottom(size_t rows, size_t cols)
     solar_os_tui_draw_help(&files.tui, help);
     if (!solar_os_tui_screen_fullscreen(&files.tui)) {
         const size_t help_row = solar_os_tui_rows(&files.tui) - 1U;
-        for (size_t col = 0; help[col] != '\0' && col < cols; col++) {
-            if (strchr("VECMKDZ", help[col]) != NULL) {
+        for (size_t index = 0;
+             index < sizeof(mnemonics) / sizeof(mnemonics[0]);
+             index++) {
+            const char *label = strstr(help, mnemonics[index].label);
+            const size_t col = label != NULL ?
+                (size_t)(label - help) + mnemonics[index].offset : cols;
+            if (col < cols) {
                 (void)solar_os_tui_putch(&files.tui,
                                          help_row,
                                          col,
@@ -2155,11 +2172,9 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         break;
     case SOLAR_OS_KEY_UP:
-    case 'k':
         files_move_cursor(pane, -1);
         break;
     case SOLAR_OS_KEY_DOWN:
-    case 'j':
         files_move_cursor(pane, 1);
         break;
     case SOLAR_OS_KEY_PAGE_UP:
@@ -2229,9 +2244,8 @@ static bool files_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         break;
     case SOLAR_OS_KEY_F7:
+    case 'k':
     case 'K':
-    case 'n':
-    case 'N':
         if (!files.launcher_mode) {
             files_begin_mkdir();
         }

@@ -754,7 +754,7 @@ Controls:
 - `Enter` opens directories or launches known files.
 - Returning to a parent directory restores the cursor to the directory that
   was just exited.
-- `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`K`, `F8`/`D`, and `F9`/`Z`
+- `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`k`/`K`, `F8`/`D`, and `F9`/`Z`
   view, edit, copy, move, create a directory, delete, and create a zip archive.
   The function keys remain the primary map; the help bar shows the letter
   mnemonics within the action names.
@@ -777,28 +777,38 @@ connections.
 Usage:
 
 ```text
+ftp
 ftp HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]
 ```
 
 Anonymous login is the default (`anonymous` with `solaros@` as its password).
 Specify both `--user` and `--password` for an authenticated server. Passwords
 are plaintext on the network and remain in shell history when entered on the
-command line. Use FTP only on a trusted network.
+command line. Use FTP only on a trusted network. Starting without arguments
+opens the disconnected file manager; `F2`/`n` opens the connection form. The
+command-line form remains available as a direct connection shortcut. If login
+is rejected, FTP reopens the form on the password field with the entered host,
+port, user, remote path, and masked password preserved. Connection failures are
+reported as refused, timed out, host unreachable, or network unreachable when
+the socket supplies that distinction, and as server unavailable otherwise.
 
 Controls:
 
 - Arrows navigate the active pane. `Tab`, Left, and Right switch panes.
+- `F2`/`n` opens the connection form. `Tab` or Up/Down selects a field, Enter
+  connects, and Esc cancels the form.
 - `Enter` opens a directory. `r` refreshes the remote and local listings.
-- `F3` views a local file. For a remote file, FTP downloads a temporary hidden
+- `F3`/`V` views a local file. For a remote file, FTP downloads a temporary hidden
   copy into the current local folder, opens its registered viewer, and removes
   the copy when control returns to FTP.
-- `F5` copies the current file or directory to the other pane. Directory
+- `F5`/`C` copies the current file or directory to the other pane. Directory
   transfers are recursive. Copy and move show the same preparing/transfer
   progress popup used by Files.
-- `F6` moves the current file or directory to the other pane by completing the
+- `F6`/`M` moves the current file or directory to the other pane by completing the
   copy before deleting the source.
-- `F7` creates a directory in the active pane.
-- `F8` recursively deletes the current item after confirmation.
+- `F7`/`k`/`K` creates a directory in the active pane.
+- `F8`/`D` recursively deletes the current item after confirmation. The help
+  bar emphasizes the same operation mnemonics used by Files and SFTP.
 - `q`, `F10`, or the app-exit key closes the connection and exits.
 - After an operation refreshes the current directories, both panes retain their
   cursor and scroll positions. Opening another directory starts at its top.
@@ -808,6 +818,38 @@ One operation runs at a time in its foreground worker. Existing destination
 files are replaced. A failed download removes its staging file and preserves an
 existing destination; a move does not delete its source unless the complete
 copy succeeds.
+
+## sftp
+
+Two-pane SFTP file manager with the same panes, file operations, progress, and
+key bindings as `ftp`. The left pane is local mounted storage and the right
+pane is a remote SSH server's SFTP subsystem. It uses the shared SSH transport,
+known-host policy, host aliases, and password or public-key authentication.
+
+Usage:
+
+```text
+sftp
+sftp [user@]HOST[:PATH] [PORT] [--user USER] [--password PASSWORD] [--remote PATH] [--local PATH]
+```
+
+Starting without arguments opens the disconnected file manager. Press `F2`/`n`
+to enter the host, port, user, optional password, and initial remote path. Leave
+the password empty to use the configured SSH key. When `user@` and `--user` are
+omitted from the command-line shortcut, SFTP uses the SolarOS identity user. A
+remote path can be appended to the host, for example
+`sftp nils@remote:/directory`; this form connects immediately and opens that
+directory. `--remote PATH` overrides an appended path. A command-line password
+remains in shell history; the connection form masks it. The active form field
+keeps a visible text cursor. If passwordless key authentication fails, SFTP
+reopens the form on the password field instead of showing a low-level error.
+
+Controls are identical to FTP: `F2`/`n` opens connection setup; `F3`/`V` views,
+`F5`/`C` copies, `F6`/`M` moves, `F7`/`k`/`K` creates a directory, and `F8`/`D`
+deletes after confirmation. Transfers are recursive, use the same progress
+popup, retain both pane positions after refresh, and stage downloaded and
+uploaded files before replacement. `q`, `F10`, or the app-exit key closes the
+SSH connection and exits.
 
 ## flash
 
