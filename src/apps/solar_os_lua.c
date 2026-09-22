@@ -6497,22 +6497,35 @@ static int solua_sessions_close(lua_State *L)
     return solua_check_esp(L, solar_os_sessions_close_any(solua_check_u8(L, 1), NULL));
 }
 
-static int solua_apps_list(lua_State *L)
+static void solua_push_app_discovery(lua_State *L,
+                                     const solar_os_app_discovery_info_t *info)
 {
     lua_newtable(L);
+    solua_set_str(L, -1, "name", info->name);
+    solua_set_str(L, -1, "id", info->id);
+    solua_set_str(L, -1, "title", info->title);
+    solua_set_str(L, -1, "summary", info->summary);
+    solua_set_str(L,
+                  -1,
+                  "kind",
+                  info->kind == SOLAR_OS_APP_DISCOVERY_PLAYGROUND ?
+                      "playground" : "native");
+    solua_set_str(L, -1, "runtime", info->runtime[0] != '\0' ? info->runtime : NULL);
+}
+
+static int solua_apps_list(lua_State *L)
+{
+    const bool include_playground = lua_isnoneornil(L, 1) || lua_toboolean(L, 1);
+    lua_newtable(L);
     const int list = lua_gettop(L);
-    const size_t count = solar_os_app_registry_count();
+    const size_t count = solar_os_app_discovery_count(include_playground);
     int out = 1;
     for (size_t i = 0; i < count; i++) {
-        const solar_os_app_registry_entry_t *entry = solar_os_app_registry_get(i);
-        if (entry == NULL) {
-            continue;
+        solar_os_app_discovery_info_t info;
+        if (solar_os_app_discovery_get(i, include_playground, &info)) {
+            solua_push_app_discovery(L, &info);
+            lua_rawseti(L, list, out++);
         }
-
-        lua_newtable(L);
-        solua_set_str(L, -1, "name", entry->name);
-        solua_set_str(L, -1, "summary", entry->summary);
-        lua_rawseti(L, list, out++);
     }
     return 1;
 }
@@ -6530,6 +6543,65 @@ static int solua_apps_find(lua_State *L)
     solua_set_str(L, -1, "name", entry->name);
     solua_set_str(L, -1, "summary", entry->summary);
     return 1;
+}
+
+static int solua_apps_handoff(lua_State *L)
+{
+    solua.exit_code = 0;
+    solua.repl_exit_requested = true;
+    return luaL_error(L, SOLUA_EXIT_MARKER);
+}
+
+static int solua_apps_launch(lua_State *L)
+{
+    if (solua.ctx == NULL) {
+        return solua_check_esp(L, ESP_ERR_INVALID_STATE);
+    }
+
+    const char *name = luaL_checkstring(L, 1);
+    size_t arg_count = 0U;
+    const char *launch_args[SOLAR_OS_APP_ARG_MAX - 1U] = {0};
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        arg_count = lua_rawlen(L, 2);
+        if (arg_count >= SOLAR_OS_APP_ARG_MAX) {
+            return luaL_error(L, "too many app arguments");
+        }
+        for (size_t i = 0U; i < arg_count; i++) {
+            lua_rawgeti(L, 2, (lua_Integer)i + 1);
+            launch_args[i] = luaL_checkstring(L, -1);
+            lua_pop(L, 1);
+        }
+    }
+
+    const esp_err_t err = solar_os_app_registry_request_launch(solua.ctx,
+                                                                name,
+                                                                arg_count,
+                                                                launch_args);
+    if (err != ESP_OK) {
+        return solua_check_esp(L, err);
+    }
+    return solua_apps_handoff(L);
+}
+
+static int solua_apps_can_open(lua_State *L)
+{
+    lua_pushboolean(L,
+                    solar_os_app_registry_can_open(luaL_checkstring(L, 1)));
+    return 1;
+}
+
+static int solua_apps_open(lua_State *L)
+{
+    if (solua.ctx == NULL) {
+        return solua_check_esp(L, ESP_ERR_INVALID_STATE);
+    }
+    const esp_err_t err = solar_os_app_registry_request_open(
+        solua.ctx, luaL_checkstring(L, 1));
+    if (err != ESP_OK) {
+        return solua_check_esp(L, err);
+    }
+    return solua_apps_handoff(L);
 }
 
 static bool solua_input_source_info(solar_os_input_source_t source,
@@ -8805,6 +8877,9 @@ static void solua_drain_events(solar_os_context_t *ctx)
             }
             solua_gfx_release_target();
             solar_os_context_set_graphics_active(ctx, false);
+            if (ctx->requested_app != NULL) {
+                break;
+            }
             if (solua.mode == SOLUA_MODE_SCRIPT || solua.repl_exit_requested) {
                 solua_finish_terminal_line(ctx, io);
                 solua_flush_io(ctx, io);

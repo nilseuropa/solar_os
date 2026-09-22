@@ -25,7 +25,16 @@ agent_reference_sections = true
 
 ## `solaros.apps`
 
-- `solaros.apps`: `list`, `find`
+- `solaros.apps`: `list`, `find`, `launch`, `open`, `can_open`
+
+`list([include_playground])` includes installed Playground apps by default and
+returns `name`, `id`, `title`, `summary`, `kind`, and `runtime`. Playground
+launch names use `playground:<id>`; pass `false` to list only native apps.
+
+`launch(name[, args])` and `open(path_or_url)` replace the current script app,
+so a successful handoff does not return. `args` is an array of strings without
+the app name. `can_open(path_or_url)` reports support for local file extensions
+and HTTP(S) URLs. `find(name)` continues to inspect the native registry.
 
 ## Identity
 

@@ -1,6 +1,7 @@
 #include "solar_os_app_registry.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_attr.h"
@@ -9,6 +10,10 @@
 #include "solar_os_config.h"
 #include "solar_os_task.h"
 #include "solar_os_app_file_types.h"
+#include "solar_os_storage.h"
+#if SOLAR_OS_PACKAGE_SERVICE_PLAYGROUND
+#include "solar_os_playground.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_APLAY || SOLAR_OS_PACKAGE_APP_ARECORD
 #include "solar_os_audio_apps.h"
 #endif
@@ -350,6 +355,251 @@ const solar_os_app_registry_entry_t *solar_os_app_registry_find_opener(const cha
         }
     }
     return NULL;
+}
+
+static void app_discovery_native_info(const solar_os_app_registry_entry_t *entry,
+                                      solar_os_app_discovery_info_t *info)
+{
+    memset(info, 0, sizeof(*info));
+    strlcpy(info->name, entry->name, sizeof(info->name));
+    strlcpy(info->id, entry->name, sizeof(info->id));
+    strlcpy(info->title, entry->name, sizeof(info->title));
+    strlcpy(info->summary, entry->summary, sizeof(info->summary));
+    info->kind = SOLAR_OS_APP_DISCOVERY_NATIVE;
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_PLAYGROUND
+static size_t app_discovery_playground_count(void)
+{
+    size_t installed = 0U;
+    const size_t count = solar_os_playground_app_count();
+    for (size_t i = 0U; i < count; i++) {
+        char id[SOLAR_OS_PLAYGROUND_ID_MAX];
+        if (solar_os_playground_get_installed_app_id(i, id, sizeof(id))) {
+            installed++;
+        }
+    }
+    return installed;
+}
+
+static bool app_discovery_playground_get(size_t index,
+                                         solar_os_app_discovery_info_t *info)
+{
+    size_t installed = 0U;
+    const size_t count = solar_os_playground_app_count();
+    for (size_t i = 0U; i < count; i++) {
+        char id[SOLAR_OS_PLAYGROUND_ID_MAX];
+        if (!solar_os_playground_get_installed_app_id(i, id, sizeof(id))) {
+            continue;
+        }
+        if (installed++ != index) {
+            continue;
+        }
+
+        solar_os_playground_app_info_t app;
+        if (!solar_os_playground_get_app(i, &app)) {
+            return false;
+        }
+        memset(info, 0, sizeof(*info));
+        const int written = snprintf(info->name,
+                                     sizeof(info->name),
+                                     "playground:%s",
+                                     app.id);
+        if (written < 0 || (size_t)written >= sizeof(info->name)) {
+            return false;
+        }
+        strlcpy(info->id, app.id, sizeof(info->id));
+        strlcpy(info->title, app.name, sizeof(info->title));
+        strlcpy(info->summary, app.description, sizeof(info->summary));
+        strlcpy(info->runtime,
+                solar_os_playground_runtime_name(app.runtime),
+                sizeof(info->runtime));
+        info->kind = SOLAR_OS_APP_DISCOVERY_PLAYGROUND;
+        return true;
+    }
+    return false;
+}
+#endif
+
+size_t solar_os_app_discovery_count(bool include_playground)
+{
+    size_t count = solar_os_app_registry_count();
+#if SOLAR_OS_PACKAGE_SERVICE_PLAYGROUND
+    if (include_playground) {
+        count += app_discovery_playground_count();
+    }
+#else
+    (void)include_playground;
+#endif
+    return count;
+}
+
+bool solar_os_app_discovery_get(size_t index,
+                                bool include_playground,
+                                solar_os_app_discovery_info_t *info)
+{
+    if (info == NULL) {
+        return false;
+    }
+    const size_t native_count = solar_os_app_registry_count();
+    if (index < native_count) {
+        const solar_os_app_registry_entry_t *entry =
+            solar_os_app_registry_get(index);
+        if (entry == NULL) {
+            return false;
+        }
+        app_discovery_native_info(entry, info);
+        return true;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_PLAYGROUND
+    return include_playground &&
+        app_discovery_playground_get(index - native_count, info);
+#else
+    (void)include_playground;
+    return false;
+#endif
+}
+
+static esp_err_t app_registry_request_native_launch(
+    solar_os_context_t *ctx,
+    const solar_os_app_registry_entry_t *entry,
+    size_t arg_count,
+    const char *const args[])
+{
+    if (ctx == NULL || entry == NULL || entry->app == NULL ||
+        arg_count >= SOLAR_OS_APP_ARG_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t argc = arg_count + 1U;
+    if (argc < entry->min_argc ||
+        (entry->max_argc != 0U && argc > entry->max_argc)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char storage[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
+    char *argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    if (strlcpy(storage[0], entry->name, sizeof(storage[0])) >= sizeof(storage[0])) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    argv[0] = storage[0];
+    for (size_t i = 0U; i < arg_count; i++) {
+        if (args == NULL || args[i] == NULL ||
+            strlcpy(storage[i + 1U], args[i], sizeof(storage[i + 1U])) >=
+                sizeof(storage[i + 1U])) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        argv[i + 1U] = storage[i + 1U];
+    }
+    return solar_os_context_request_launch(ctx, entry->app, (int)argc, argv);
+}
+
+esp_err_t solar_os_app_registry_request_launch(solar_os_context_t *ctx,
+                                               const char *name,
+                                               size_t arg_count,
+                                               const char *const args[])
+{
+    if (ctx == NULL || name == NULL || name[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    static const char playground_prefix[] = "playground:";
+    if (strncmp(name, playground_prefix, sizeof(playground_prefix) - 1U) != 0) {
+        const solar_os_app_registry_entry_t *entry =
+            solar_os_app_registry_find(name);
+        return entry != NULL ?
+            app_registry_request_native_launch(ctx, entry, arg_count, args) :
+            ESP_ERR_NOT_FOUND;
+    }
+
+#if SOLAR_OS_PACKAGE_SERVICE_PLAYGROUND
+    const char *id = name + sizeof(playground_prefix) - 1U;
+    solar_os_playground_app_info_t app;
+    if (id[0] == '\0' || !solar_os_playground_find_installed_app(id, &app)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (arg_count > SOLAR_OS_APP_ARG_MAX - 2U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *runtime_name = solar_os_playground_runtime_name(app.runtime);
+    const solar_os_app_registry_entry_t *runtime =
+        solar_os_app_registry_find(runtime_name);
+    if (runtime == NULL || runtime->app == NULL) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    char path[SOLAR_OS_APP_ARG_LEN];
+    esp_err_t err = solar_os_playground_entry_path(&app, path, sizeof(path));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const char *runtime_args[SOLAR_OS_APP_ARG_MAX - 1U] = {path};
+    for (size_t i = 0U; i < arg_count; i++) {
+        runtime_args[i + 1U] = args != NULL ? args[i] : NULL;
+    }
+    return app_registry_request_native_launch(ctx,
+                                              runtime,
+                                              arg_count + 1U,
+                                              runtime_args);
+#else
+    (void)arg_count;
+    (void)args;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+static bool app_registry_is_web_url(const char *target)
+{
+    return target != NULL &&
+        (strncmp(target, "http://", 7U) == 0 ||
+         strncmp(target, "https://", 8U) == 0);
+}
+
+static const solar_os_app_registry_entry_t *app_registry_find_target_opener(
+    const char *path_or_url,
+    char *resolved,
+    size_t resolved_len)
+{
+    if (path_or_url == NULL || path_or_url[0] == '\0' ||
+        resolved == NULL || resolved_len == 0U) {
+        return NULL;
+    }
+    if (app_registry_is_web_url(path_or_url)) {
+        if (strlcpy(resolved, path_or_url, resolved_len) >= resolved_len) {
+            return NULL;
+        }
+        return solar_os_app_registry_find("web");
+    }
+    if (solar_os_storage_resolve_path(path_or_url, resolved, resolved_len) != ESP_OK) {
+        return NULL;
+    }
+    return solar_os_app_registry_find_opener(resolved);
+}
+
+bool solar_os_app_registry_can_open(const char *path_or_url)
+{
+    char resolved[SOLAR_OS_APP_ARG_LEN];
+    const solar_os_app_registry_entry_t *entry =
+        app_registry_find_target_opener(path_or_url, resolved, sizeof(resolved));
+    return entry != NULL && entry->app != NULL;
+}
+
+esp_err_t solar_os_app_registry_request_open(solar_os_context_t *ctx,
+                                             const char *path_or_url)
+{
+    if (ctx == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char resolved[SOLAR_OS_APP_ARG_LEN];
+    const solar_os_app_registry_entry_t *entry =
+        app_registry_find_target_opener(path_or_url, resolved, sizeof(resolved));
+    if (entry == NULL || entry->app == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    const char *args[] = {resolved};
+    return app_registry_request_native_launch(ctx, entry, 1U, args);
 }
 
 bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t owner_len)
