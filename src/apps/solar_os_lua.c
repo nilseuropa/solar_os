@@ -803,6 +803,27 @@ static void solua_push_storage_usage(lua_State *L, const solar_os_storage_usage_
     solua_set_int(L, -1, "free_bytes", (lua_Integer)usage->free_bytes);
 }
 
+static void solua_push_storage_metadata(lua_State *L,
+                                        const solar_os_storage_metadata_t *metadata)
+{
+    lua_newtable(L);
+    solua_set_str(L, -1, "type", solar_os_storage_entry_type_name(metadata->type));
+    solua_set_bool(L, -1, "is_file", metadata->type == SOLAR_OS_STORAGE_ENTRY_FILE);
+    solua_set_bool(L,
+                   -1,
+                   "is_dir",
+                   metadata->type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+    solua_set_int(L, -1, "size", (lua_Integer)metadata->size_bytes);
+    solua_set_int(L, -1, "mtime", (lua_Integer)metadata->modified_seconds);
+    solua_set_int(L, -1, "mode", (lua_Integer)metadata->mode);
+}
+
+static void solua_push_storage_entry(lua_State *L, const solar_os_storage_entry_t *entry)
+{
+    solua_push_storage_metadata(L, &entry->metadata);
+    solua_set_str(L, -1, "name", entry->name);
+}
+
 static void solua_push_storage_block(lua_State *L, const solar_os_storage_block_t *block)
 {
     lua_newtable(L);
@@ -1343,6 +1364,83 @@ static int solua_storage_resolve(lua_State *L)
     return 1;
 }
 
+static int solua_storage_stat(lua_State *L)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+    solar_os_storage_metadata_t metadata;
+    (void)solua_check_esp(L, solar_os_storage_stat(path, &metadata));
+    solua_push_storage_metadata(L, &metadata);
+    return 1;
+}
+
+static int solua_storage_exists(lua_State *L)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+    bool exists = false;
+    (void)solua_check_esp(L, solar_os_storage_exists(path, &exists));
+    lua_pushboolean(L, exists);
+    return 1;
+}
+
+static int solua_storage_scandir(lua_State *L)
+{
+    size_t cursor = 0U;
+    if (!lua_isnoneornil(L, 2)) {
+        const lua_Integer value = luaL_checkinteger(L, 2);
+        if (value < 0) {
+            return luaL_error(L, "cursor must be non-negative");
+        }
+        cursor = (size_t)value;
+    }
+
+    const uint32_t limit = solua_optional_u32(L, 3, 32U);
+    if (limit == 0U || limit > SOLAR_OS_STORAGE_SCANDIR_MAX_LIMIT) {
+        return luaL_error(L, "limit must be 1..128");
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+    solar_os_storage_entry_t *entries = solar_os_memory_alloc(
+        sizeof(*entries) * limit,
+        SOLAR_OS_MEMORY_TRANSIENT,
+        "lua.scandir");
+    if (entries == NULL) {
+        return solua_check_esp(L, ESP_ERR_NO_MEM);
+    }
+
+    size_t entry_count = 0U;
+    size_t next_cursor = cursor;
+    bool has_more = false;
+    const esp_err_t err = solar_os_storage_scandir(path,
+                                                   cursor,
+                                                   limit,
+                                                   entries,
+                                                   &entry_count,
+                                                   &next_cursor,
+                                                   &has_more);
+    if (err != ESP_OK) {
+        solar_os_memory_free(entries);
+        return solua_check_esp(L, err);
+    }
+
+    lua_newtable(L);
+    const int result = lua_gettop(L);
+    lua_newtable(L);
+    const int list = lua_gettop(L);
+    for (size_t i = 0U; i < entry_count; i++) {
+        solua_push_storage_entry(L, &entries[i]);
+        lua_rawseti(L, list, (lua_Integer)i + 1);
+    }
+    solar_os_memory_free(entries);
+    lua_setfield(L, result, "entries");
+    if (has_more) {
+        solua_set_int(L, result, "next_cursor", (lua_Integer)next_cursor);
+    }
+    return 1;
+}
+
 static int solua_storage_read_file(lua_State *L)
 {
     const uint32_t max_bytes = solua_optional_u32(L, 2, 4096U);
@@ -1440,6 +1538,14 @@ static int solua_storage_mkdir(lua_State *L)
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     solua_resolve_path(L, 1, path, sizeof(path));
     return solua_check_esp(L, solar_os_storage_mkdir(path));
+}
+
+static int solua_storage_makedirs(lua_State *L)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+    const bool exist_ok = lua_isnoneornil(L, 2) || lua_toboolean(L, 2);
+    return solua_check_esp(L, solar_os_storage_makedirs(path, exist_ok));
 }
 
 static int solua_storage_rmdir(lua_State *L)

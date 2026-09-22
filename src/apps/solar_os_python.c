@@ -908,6 +908,31 @@ static mp_obj_t python_storage_usage_to_dict(const solar_os_storage_usage_t *usa
     return dict;
 }
 
+static mp_obj_t python_storage_metadata_to_dict(const solar_os_storage_metadata_t *metadata)
+{
+    mp_obj_t dict = mp_obj_new_dict(6);
+    python_dict_store_cstr(dict,
+                           "type",
+                           solar_os_storage_entry_type_name(metadata->type));
+    python_dict_store_bool(dict,
+                           "is_file",
+                           metadata->type == SOLAR_OS_STORAGE_ENTRY_FILE);
+    python_dict_store_bool(dict,
+                           "is_dir",
+                           metadata->type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+    python_dict_store_u64(dict, "size", metadata->size_bytes);
+    python_dict_store_i64(dict, "mtime", metadata->modified_seconds);
+    python_dict_store_uint(dict, "mode", metadata->mode);
+    return dict;
+}
+
+static mp_obj_t python_storage_entry_to_dict(const solar_os_storage_entry_t *entry)
+{
+    mp_obj_t dict = python_storage_metadata_to_dict(&entry->metadata);
+    python_dict_store_cstr(dict, "name", entry->name);
+    return dict;
+}
+
 static mp_obj_t python_storage_block_to_dict(const solar_os_storage_block_t *block)
 {
     mp_obj_t dict = mp_obj_new_dict(14);
@@ -1348,6 +1373,85 @@ static mp_obj_t solaros_storage_resolve(mp_obj_t path_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_resolve_obj, solaros_storage_resolve);
 
+static mp_obj_t solaros_storage_stat(mp_obj_t path_obj)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    solar_os_storage_metadata_t metadata;
+    python_check_esp(solar_os_storage_stat(path, &metadata));
+    return python_storage_metadata_to_dict(&metadata);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_stat_obj, solaros_storage_stat);
+
+static mp_obj_t solaros_storage_exists(mp_obj_t path_obj)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    bool exists = false;
+    python_check_esp(solar_os_storage_exists(path, &exists));
+    return mp_obj_new_bool(exists);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_exists_obj, solaros_storage_exists);
+
+static mp_obj_t solaros_storage_scandir(size_t n_args, const mp_obj_t *args)
+{
+    size_t cursor = 0U;
+    if (n_args >= 2 && args[1] != mp_const_none) {
+        const mp_int_t value = mp_obj_get_int(args[1]);
+        if (value < 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("cursor must be non-negative"));
+        }
+        cursor = (size_t)value;
+    }
+
+    const uint32_t limit = python_optional_u32(n_args, args, 2, 32U);
+    if (limit == 0U || limit > SOLAR_OS_STORAGE_SCANDIR_MAX_LIMIT) {
+        mp_raise_ValueError(MP_ERROR_TEXT("limit must be 1..128"));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+    solar_os_storage_entry_t *entries = solar_os_memory_alloc(
+        sizeof(*entries) * limit,
+        SOLAR_OS_MEMORY_TRANSIENT,
+        "python.scandir");
+    if (entries == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    size_t entry_count = 0U;
+    size_t next_cursor = cursor;
+    bool has_more = false;
+    const esp_err_t err = solar_os_storage_scandir(path,
+                                                   cursor,
+                                                   limit,
+                                                   entries,
+                                                   &entry_count,
+                                                   &next_cursor,
+                                                   &has_more);
+    if (err != ESP_OK) {
+        solar_os_memory_free(entries);
+        python_check_esp(err);
+    }
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0U; i < entry_count; i++) {
+        mp_obj_list_append(list, python_storage_entry_to_dict(&entries[i]));
+    }
+    solar_os_memory_free(entries);
+
+    mp_obj_t result = mp_obj_new_dict(2);
+    mp_obj_dict_store(result, python_key("entries"), list);
+    mp_obj_dict_store(result,
+                      python_key("next_cursor"),
+                      has_more ? mp_obj_new_int_from_uint(next_cursor) : mp_const_none);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_scandir_obj,
+                                    1,
+                                    3,
+                                    solaros_storage_scandir);
+
 static mp_obj_t solaros_storage_read_file(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t max_bytes = python_optional_u32(n_args, args, 1, 4096U);
@@ -1450,6 +1554,19 @@ static mp_obj_t solaros_storage_mkdir(mp_obj_t path_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_mkdir_obj, solaros_storage_mkdir);
+
+static mp_obj_t solaros_storage_makedirs(size_t n_args, const mp_obj_t *args)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+    const bool exist_ok = n_args < 2 || args[1] == mp_const_none || mp_obj_is_true(args[1]);
+    python_check_esp(solar_os_storage_makedirs(path, exist_ok));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_makedirs_obj,
+                                    1,
+                                    2,
+                                    solaros_storage_makedirs);
 
 static mp_obj_t solaros_storage_rmdir(mp_obj_t path_obj)
 {

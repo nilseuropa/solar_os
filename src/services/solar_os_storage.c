@@ -1,5 +1,6 @@
 #include "solar_os_storage.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -850,6 +851,162 @@ esp_err_t solar_os_storage_resolve_path(const char *arg, char *path, size_t path
     return solar_os_storage_resolve_path_at(NULL, arg, path, path_len);
 }
 
+static esp_err_t storage_errno_to_esp(int error)
+{
+    switch (error) {
+    case ENOENT:
+    case ENOTDIR:
+        return ESP_ERR_NOT_FOUND;
+    case ENOMEM:
+        return ESP_ERR_NO_MEM;
+    case ENAMETOOLONG:
+        return ESP_ERR_INVALID_SIZE;
+    case EINVAL:
+        return ESP_ERR_INVALID_ARG;
+    default:
+        return ESP_FAIL;
+    }
+}
+
+static void storage_metadata_from_stat(const struct stat *info,
+                                       solar_os_storage_metadata_t *metadata)
+{
+    metadata->type = S_ISREG(info->st_mode) ? SOLAR_OS_STORAGE_ENTRY_FILE :
+        S_ISDIR(info->st_mode) ? SOLAR_OS_STORAGE_ENTRY_DIRECTORY :
+        SOLAR_OS_STORAGE_ENTRY_OTHER;
+    metadata->size_bytes = info->st_size >= 0 ? (uint64_t)info->st_size : 0U;
+    metadata->modified_seconds = (int64_t)info->st_mtime;
+    metadata->mode = (uint32_t)info->st_mode;
+}
+
+const char *solar_os_storage_entry_type_name(solar_os_storage_entry_type_t type)
+{
+    switch (type) {
+    case SOLAR_OS_STORAGE_ENTRY_FILE:
+        return "file";
+    case SOLAR_OS_STORAGE_ENTRY_DIRECTORY:
+        return "directory";
+    default:
+        return "other";
+    }
+}
+
+esp_err_t solar_os_storage_stat(const char *path, solar_os_storage_metadata_t *metadata)
+{
+    if (path == NULL || path[0] == '\0' || metadata == NULL) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat info;
+    if (stat(path, &info) != 0) {
+        return storage_errno_to_esp(errno);
+    }
+    storage_metadata_from_stat(&info, metadata);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_storage_exists(const char *path, bool *exists)
+{
+    if (path == NULL || path[0] == '\0' || exists == NULL) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    struct stat info;
+    if (stat(path, &info) == 0) {
+        *exists = true;
+        return ESP_OK;
+    }
+    if (errno == ENOENT || errno == ENOTDIR) {
+        *exists = false;
+        return ESP_OK;
+    }
+    return storage_errno_to_esp(errno);
+}
+
+esp_err_t solar_os_storage_scandir(const char *path,
+                                   size_t cursor,
+                                   size_t limit,
+                                   solar_os_storage_entry_t *entries,
+                                   size_t *entry_count,
+                                   size_t *next_cursor,
+                                   bool *has_more)
+{
+    if (path == NULL || path[0] == '\0' || entries == NULL || entry_count == NULL ||
+        next_cursor == NULL || has_more == NULL || limit == 0U ||
+        limit > SOLAR_OS_STORAGE_SCANDIR_MAX_LIMIT) {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *entry_count = 0U;
+    *next_cursor = cursor;
+    *has_more = false;
+
+    DIR *directory = opendir(path);
+    if (directory == NULL) {
+        return storage_errno_to_esp(errno);
+    }
+
+    size_t visible_index = 0U;
+    esp_err_t result = ESP_OK;
+    errno = 0;
+    for (struct dirent *entry = readdir(directory);
+         entry != NULL;
+         entry = readdir(directory)) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        if (visible_index++ < cursor) {
+            continue;
+        }
+        if (*entry_count >= limit) {
+            *has_more = true;
+            break;
+        }
+
+        solar_os_storage_entry_t *output = &entries[*entry_count];
+        if (strlcpy(output->name, entry->d_name, sizeof(output->name)) >=
+            sizeof(output->name)) {
+            errno = ENAMETOOLONG;
+            result = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+
+        char child_path[SOLAR_OS_STORAGE_PATH_MAX];
+        const int written = strcmp(path, "/") == 0 ?
+            snprintf(child_path, sizeof(child_path), "/%s", entry->d_name) :
+            snprintf(child_path, sizeof(child_path), "%s/%s", path, entry->d_name);
+        if (written < 0 || (size_t)written >= sizeof(child_path)) {
+            errno = ENAMETOOLONG;
+            result = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+
+        struct stat info;
+        if (stat(child_path, &info) != 0) {
+            result = storage_errno_to_esp(errno);
+            break;
+        }
+        storage_metadata_from_stat(&info, &output->metadata);
+        (*entry_count)++;
+        *next_cursor = cursor + *entry_count;
+        errno = 0;
+    }
+
+    if (result == ESP_OK && !*has_more && errno != 0) {
+        result = storage_errno_to_esp(errno);
+    }
+    const int read_errno = errno;
+    if (closedir(directory) != 0 && result == ESP_OK) {
+        result = storage_errno_to_esp(errno);
+    } else {
+        errno = read_errno;
+    }
+    return result;
+}
+
 esp_err_t solar_os_storage_mkdir(const char *path)
 {
     if (path == NULL || path[0] == '\0') {
@@ -858,6 +1015,57 @@ esp_err_t solar_os_storage_mkdir(const char *path)
     }
 
     return mkdir(path, 0777) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t storage_ensure_directory(const char *path, bool exist_ok)
+{
+    if (mkdir(path, 0777) == 0) {
+        return ESP_OK;
+    }
+    if (errno != EEXIST) {
+        return storage_errno_to_esp(errno);
+    }
+
+    struct stat info;
+    if (stat(path, &info) != 0 || !S_ISDIR(info.st_mode)) {
+        errno = ENOTDIR;
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (!exist_ok) {
+        errno = EEXIST;
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_storage_makedirs(const char *path, bool exist_ok)
+{
+    if (path == NULL || path[0] == '\0') {
+        errno = EINVAL;
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char copy[SOLAR_OS_STORAGE_PATH_MAX];
+    if (strlcpy(copy, path, sizeof(copy)) >= sizeof(copy)) {
+        errno = ENAMETOOLONG;
+        return ESP_ERR_INVALID_SIZE;
+    }
+    size_t len = strlen(copy);
+    while (len > 1U && copy[len - 1U] == '/') {
+        copy[--len] = '\0';
+    }
+
+    for (char *separator = copy + (copy[0] == '/' ? 1 : 0);
+         (separator = strchr(separator, '/')) != NULL;
+         separator++) {
+        *separator = '\0';
+        const esp_err_t err = storage_ensure_directory(copy, true);
+        *separator = '/';
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    return storage_ensure_directory(copy, exist_ok);
 }
 
 esp_err_t solar_os_storage_rmdir(const char *path)

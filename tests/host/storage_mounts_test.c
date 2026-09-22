@@ -253,6 +253,104 @@ static void assert_replace_file(void)
         active, ".too-long", staged, 4U) == ESP_ERR_INVALID_SIZE);
 }
 
+static void assert_storage_discovery(void)
+{
+    char root[] = "/tmp/solaros-storage-scan-XXXXXX";
+    assert(mkdtemp(root) != NULL);
+
+    char alpha[SOLAR_OS_STORAGE_PATH_MAX];
+    char beta[SOLAR_OS_STORAGE_PATH_MAX];
+    char gamma[SOLAR_OS_STORAGE_PATH_MAX];
+    char nested[SOLAR_OS_STORAGE_PATH_MAX];
+    char nested_parent[SOLAR_OS_STORAGE_PATH_MAX];
+    assert(snprintf(alpha, sizeof(alpha), "%s/alpha.txt", root) > 0);
+    assert(snprintf(beta, sizeof(beta), "%s/beta", root) > 0);
+    assert(snprintf(gamma, sizeof(gamma), "%s/gamma.txt", root) > 0);
+    assert(snprintf(nested, sizeof(nested), "%s/one/two", root) > 0);
+    assert(snprintf(nested_parent, sizeof(nested_parent), "%s/one", root) > 0);
+
+    write_text(alpha, "abc");
+    write_text(gamma, "hello");
+    assert(solar_os_storage_mkdir(beta) == ESP_OK);
+    assert(solar_os_storage_makedirs(nested, true) == ESP_OK);
+    assert(solar_os_storage_makedirs(nested, true) == ESP_OK);
+    errno = 0;
+    assert(solar_os_storage_makedirs(nested, false) == ESP_ERR_INVALID_STATE);
+    assert(errno == EEXIST);
+
+    solar_os_storage_metadata_t metadata;
+    assert(solar_os_storage_stat(alpha, &metadata) == ESP_OK);
+    assert(metadata.type == SOLAR_OS_STORAGE_ENTRY_FILE);
+    assert(metadata.size_bytes == 3U);
+    assert(solar_os_storage_stat(beta, &metadata) == ESP_OK);
+    assert(metadata.type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+
+    bool exists = false;
+    assert(solar_os_storage_exists(alpha, &exists) == ESP_OK);
+    assert(exists);
+    char missing[SOLAR_OS_STORAGE_PATH_MAX];
+    assert(snprintf(missing, sizeof(missing), "%s/missing", root) > 0);
+    assert(solar_os_storage_exists(missing, &exists) == ESP_OK);
+    assert(!exists);
+
+    bool saw_alpha = false;
+    bool saw_beta = false;
+    bool saw_gamma = false;
+    bool saw_one = false;
+    size_t cursor = 0U;
+    size_t total = 0U;
+    bool has_more = false;
+    do {
+        solar_os_storage_entry_t entries[2];
+        size_t count = 0U;
+        size_t next_cursor = cursor;
+        assert(solar_os_storage_scandir(root,
+                                        cursor,
+                                        2U,
+                                        entries,
+                                        &count,
+                                        &next_cursor,
+                                        &has_more) == ESP_OK);
+        assert(count <= 2U);
+        for (size_t i = 0U; i < count; i++) {
+            if (strcmp(entries[i].name, "alpha.txt") == 0) {
+                assert(!saw_alpha);
+                saw_alpha = true;
+                assert(entries[i].metadata.type == SOLAR_OS_STORAGE_ENTRY_FILE);
+            } else if (strcmp(entries[i].name, "beta") == 0) {
+                assert(!saw_beta);
+                saw_beta = true;
+                assert(entries[i].metadata.type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+            } else if (strcmp(entries[i].name, "gamma.txt") == 0) {
+                assert(!saw_gamma);
+                saw_gamma = true;
+                assert(entries[i].metadata.type == SOLAR_OS_STORAGE_ENTRY_FILE);
+            } else if (strcmp(entries[i].name, "one") == 0) {
+                assert(!saw_one);
+                saw_one = true;
+                assert(entries[i].metadata.type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+            } else {
+                assert(false);
+            }
+        }
+        total += count;
+        if (has_more) {
+            assert(count == 2U);
+            assert(next_cursor == cursor + count);
+            cursor = next_cursor;
+        }
+    } while (has_more);
+    assert(total == 4U);
+    assert(saw_alpha && saw_beta && saw_gamma && saw_one);
+
+    assert(remove(alpha) == 0);
+    assert(remove(gamma) == 0);
+    assert(rmdir(nested) == 0);
+    assert(rmdir(nested_parent) == 0);
+    assert(rmdir(beta) == 0);
+    assert(rmdir(root) == 0);
+}
+
 int main(void)
 {
     assert(solar_os_storage_block_count() == 3);
@@ -271,6 +369,7 @@ int main(void)
     assert_copy_progress();
     assert_copy_cancel();
     assert_replace_file();
+    assert_storage_discovery();
 
     puts("storage mount tests: ok");
     return 0;
