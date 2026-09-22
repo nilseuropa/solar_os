@@ -68,6 +68,8 @@ agent config reasoning medium
 agent config tools confirm
 agent config max-tools 16
 agent
+job start speechd /voices/en-US
+agent --tts
 agent list
 agent resume SLOT
 agent ask How much memory is free on this device?
@@ -85,6 +87,13 @@ continuation ID; Chat Completions uses bounded local history. Slots are `1` to
 performs one unsaved request but likewise waits for `Esc` or the app-exit key
 after completion, so display-shell output is not immediately replaced by the
 shell screen.
+
+`agent --tts`, `agent --tts new`, `agent --tts resume SLOT`, and
+`agent --tts ask PROMPT` keep the written answer and also queue the successful
+final model response through the running local PicoTTS `speechd`. Start
+`speechd` with a voice directory first. Status and retry messages, tool calls,
+tool results, confirmations, and intermediate text before a tool call are not
+spoken.
 
 Use `agent config key clear` for an endpoint that does not require bearer
 authentication. `agent status` shows configuration, request counters, HTTP
