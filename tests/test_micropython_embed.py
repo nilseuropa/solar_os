@@ -64,6 +64,11 @@ class MicroPythonEmbedTest(unittest.TestCase):
             generate_micropython_embed.COMPONENT / "mpconfigport.h"
         ).read_text(encoding="utf-8")
         self.assertIn("MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES", config)
+        self.assertRegex(config, r"#define MP_SSIZE_MAX\s+INTPTR_MAX")
+        self.assertRegex(
+            config,
+            r"#define MICROPY_LONGINT_IMPL\s+\(MICROPY_LONGINT_IMPL_LONGLONG\)",
+        )
         for feature in (
             "MICROPY_PY_JSON",
             "MICROPY_PY_BINASCII",
@@ -159,6 +164,9 @@ class MicroPythonEmbedTest(unittest.TestCase):
         )
         self.assertEqual(source.count("mp_obj_new_int_from_ll("), 1)
         self.assertEqual(source.count("mp_obj_new_int_from_ull("), 1)
+        self.assertIn("value <= (uint64_t)INT64_MAX", source)
+        self.assertIn('snprintf(decimal, sizeof(decimal), "%" PRIu64, value);', source)
+        self.assertIn("return mp_obj_new_str_from_cstr(decimal);", source)
 
     def test_import_reader_uses_solaros_path_resolution(self):
         source = (

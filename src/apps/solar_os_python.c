@@ -633,7 +633,13 @@ static mp_obj_t python_u64_to_obj(uint64_t value)
     if (value <= (uint64_t)MP_SMALL_INT_MAX) {
         return MP_OBJ_NEW_SMALL_INT((mp_int_t)value);
     }
-    return mp_obj_new_int_from_ull(value);
+    if (value <= (uint64_t)INT64_MAX) {
+        return mp_obj_new_int_from_ull(value);
+    }
+
+    char decimal[21];
+    snprintf(decimal, sizeof(decimal), "%" PRIu64, value);
+    return mp_obj_new_str_from_cstr(decimal);
 }
 
 static void python_dict_store_i64(mp_obj_t dict, const char *key, int64_t value)
@@ -899,6 +905,31 @@ static mp_obj_t python_storage_usage_to_dict(const solar_os_storage_usage_t *usa
     python_dict_store_u64(dict, "total_bytes", usage->total_bytes);
     python_dict_store_u64(dict, "used_bytes", usage->used_bytes);
     python_dict_store_u64(dict, "free_bytes", usage->free_bytes);
+    return dict;
+}
+
+static mp_obj_t python_storage_metadata_to_dict(const solar_os_storage_metadata_t *metadata)
+{
+    mp_obj_t dict = mp_obj_new_dict(6);
+    python_dict_store_cstr(dict,
+                           "type",
+                           solar_os_storage_entry_type_name(metadata->type));
+    python_dict_store_bool(dict,
+                           "is_file",
+                           metadata->type == SOLAR_OS_STORAGE_ENTRY_FILE);
+    python_dict_store_bool(dict,
+                           "is_dir",
+                           metadata->type == SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+    python_dict_store_u64(dict, "size", metadata->size_bytes);
+    python_dict_store_i64(dict, "mtime", metadata->modified_seconds);
+    python_dict_store_uint(dict, "mode", metadata->mode);
+    return dict;
+}
+
+static mp_obj_t python_storage_entry_to_dict(const solar_os_storage_entry_t *entry)
+{
+    mp_obj_t dict = python_storage_metadata_to_dict(&entry->metadata);
+    python_dict_store_cstr(dict, "name", entry->name);
     return dict;
 }
 
@@ -1342,6 +1373,85 @@ static mp_obj_t solaros_storage_resolve(mp_obj_t path_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_resolve_obj, solaros_storage_resolve);
 
+static mp_obj_t solaros_storage_stat(mp_obj_t path_obj)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    solar_os_storage_metadata_t metadata;
+    python_check_esp(solar_os_storage_stat(path, &metadata));
+    return python_storage_metadata_to_dict(&metadata);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_stat_obj, solaros_storage_stat);
+
+static mp_obj_t solaros_storage_exists(mp_obj_t path_obj)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    bool exists = false;
+    python_check_esp(solar_os_storage_exists(path, &exists));
+    return mp_obj_new_bool(exists);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_exists_obj, solaros_storage_exists);
+
+static mp_obj_t solaros_storage_scandir(size_t n_args, const mp_obj_t *args)
+{
+    size_t cursor = 0U;
+    if (n_args >= 2 && args[1] != mp_const_none) {
+        const mp_int_t value = mp_obj_get_int(args[1]);
+        if (value < 0) {
+            mp_raise_ValueError(MP_ERROR_TEXT("cursor must be non-negative"));
+        }
+        cursor = (size_t)value;
+    }
+
+    const uint32_t limit = python_optional_u32(n_args, args, 2, 32U);
+    if (limit == 0U || limit > SOLAR_OS_STORAGE_SCANDIR_MAX_LIMIT) {
+        mp_raise_ValueError(MP_ERROR_TEXT("limit must be 1..128"));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+    solar_os_storage_entry_t *entries = solar_os_memory_alloc(
+        sizeof(*entries) * limit,
+        SOLAR_OS_MEMORY_TRANSIENT,
+        "python.scandir");
+    if (entries == NULL) {
+        python_raise_esp(ESP_ERR_NO_MEM);
+    }
+
+    size_t entry_count = 0U;
+    size_t next_cursor = cursor;
+    bool has_more = false;
+    const esp_err_t err = solar_os_storage_scandir(path,
+                                                   cursor,
+                                                   limit,
+                                                   entries,
+                                                   &entry_count,
+                                                   &next_cursor,
+                                                   &has_more);
+    if (err != ESP_OK) {
+        solar_os_memory_free(entries);
+        python_check_esp(err);
+    }
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (size_t i = 0U; i < entry_count; i++) {
+        mp_obj_list_append(list, python_storage_entry_to_dict(&entries[i]));
+    }
+    solar_os_memory_free(entries);
+
+    mp_obj_t result = mp_obj_new_dict(2);
+    mp_obj_dict_store(result, python_key("entries"), list);
+    mp_obj_dict_store(result,
+                      python_key("next_cursor"),
+                      has_more ? mp_obj_new_int_from_uint(next_cursor) : mp_const_none);
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_scandir_obj,
+                                    1,
+                                    3,
+                                    solaros_storage_scandir);
+
 static mp_obj_t solaros_storage_read_file(size_t n_args, const mp_obj_t *args)
 {
     const uint32_t max_bytes = python_optional_u32(n_args, args, 1, 4096U);
@@ -1444,6 +1554,19 @@ static mp_obj_t solaros_storage_mkdir(mp_obj_t path_obj)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_storage_mkdir_obj, solaros_storage_mkdir);
+
+static mp_obj_t solaros_storage_makedirs(size_t n_args, const mp_obj_t *args)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(args[0], path, sizeof(path));
+    const bool exist_ok = n_args < 2 || args[1] == mp_const_none || mp_obj_is_true(args[1]);
+    python_check_esp(solar_os_storage_makedirs(path, exist_ok));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_storage_makedirs_obj,
+                                    1,
+                                    2,
+                                    solaros_storage_makedirs);
 
 static mp_obj_t solaros_storage_rmdir(mp_obj_t path_obj)
 {
@@ -7133,24 +7256,52 @@ static mp_obj_t solaros_sessions_close(mp_obj_t session_id_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_sessions_close_obj, solaros_sessions_close);
 
-static mp_obj_t solaros_apps_list(void)
+static mp_obj_t python_app_discovery_to_dict(const solar_os_app_discovery_info_t *info)
 {
-    mp_obj_t list = mp_obj_new_list(0, NULL);
-    const size_t count = solar_os_app_registry_count();
-    for (size_t i = 0; i < count; i++) {
-        const solar_os_app_registry_entry_t *entry = solar_os_app_registry_get(i);
-        if (entry == NULL) {
-            continue;
-        }
+    mp_obj_t dict = mp_obj_new_dict(6);
+    python_dict_store_cstr(dict, "name", info->name);
+    python_dict_store_cstr(dict, "id", info->id);
+    python_dict_store_cstr(dict, "title", info->title);
+    python_dict_store_cstr(dict, "summary", info->summary);
+    python_dict_store_cstr(dict,
+                           "kind",
+                           info->kind == SOLAR_OS_APP_DISCOVERY_PLAYGROUND ?
+                               "playground" : "native");
+    python_dict_store_cstr(dict,
+                           "runtime",
+                           info->runtime[0] != '\0' ? info->runtime : NULL);
+    return dict;
+}
 
-        mp_obj_t dict = mp_obj_new_dict(2);
-        python_dict_store_cstr(dict, "name", entry->name);
-        python_dict_store_cstr(dict, "summary", entry->summary);
-        mp_obj_list_append(list, dict);
+static mp_obj_t solaros_apps_list(size_t n_args,
+                                  const mp_obj_t *args,
+                                  mp_map_t *kw_args)
+{
+    if (n_args > 1U) {
+        mp_raise_TypeError(MP_ERROR_TEXT("list accepts at most one argument"));
+    }
+    python_check_known_kwargs(kw_args, "include_playground", NULL, NULL, NULL);
+    mp_obj_t include_obj = n_args == 0 ? MP_OBJ_NULL : args[0];
+    const mp_obj_t keyword = python_kw_value(kw_args, "include_playground");
+    if (keyword != MP_OBJ_NULL) {
+        if (include_obj != MP_OBJ_NULL) {
+            mp_raise_TypeError(MP_ERROR_TEXT("multiple values for include_playground"));
+        }
+        include_obj = keyword;
+    }
+    const bool include_playground = include_obj == MP_OBJ_NULL ||
+        include_obj == mp_const_none || mp_obj_is_true(include_obj);
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    const size_t count = solar_os_app_discovery_count(include_playground);
+    for (size_t i = 0; i < count; i++) {
+        solar_os_app_discovery_info_t info;
+        if (solar_os_app_discovery_get(i, include_playground, &info)) {
+            mp_obj_list_append(list, python_app_discovery_to_dict(&info));
+        }
     }
     return list;
 }
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_apps_list_obj, solaros_apps_list);
+MP_DEFINE_CONST_FUN_OBJ_KW(solaros_apps_list_obj, 0, solaros_apps_list);
 
 static mp_obj_t solaros_apps_find(mp_obj_t name_obj)
 {
@@ -7166,6 +7317,75 @@ static mp_obj_t solaros_apps_find(mp_obj_t name_obj)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_apps_find_obj, solaros_apps_find);
+
+static void python_apps_handoff(void)
+{
+    python_app.exit_code = 0;
+    python_app.repl_exit_requested = true;
+    mp_raise_type(&mp_type_SystemExit);
+}
+
+static mp_obj_t solaros_apps_launch(size_t n_args,
+                                    const mp_obj_t *args,
+                                    mp_map_t *kw_args)
+{
+    if (n_args > 2U) {
+        mp_raise_TypeError(MP_ERROR_TEXT("launch accepts at most two arguments"));
+    }
+    if (python_app.ctx == NULL) {
+        python_raise_esp(ESP_ERR_INVALID_STATE);
+    }
+
+    const char *name = mp_obj_str_get_str(args[0]);
+    size_t arg_count = 0U;
+    mp_obj_t *items = NULL;
+    python_check_known_kwargs(kw_args, "args", NULL, NULL, NULL);
+    mp_obj_t args_obj = n_args >= 2 ? args[1] : MP_OBJ_NULL;
+    const mp_obj_t keyword = python_kw_value(kw_args, "args");
+    if (keyword != MP_OBJ_NULL) {
+        if (args_obj != MP_OBJ_NULL) {
+            mp_raise_TypeError(MP_ERROR_TEXT("multiple values for args"));
+        }
+        args_obj = keyword;
+    }
+    if (args_obj != MP_OBJ_NULL && args_obj != mp_const_none) {
+        mp_obj_get_array(args_obj, &arg_count, &items);
+    }
+    if (arg_count >= SOLAR_OS_APP_ARG_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("too many app arguments"));
+    }
+
+    const char *launch_args[SOLAR_OS_APP_ARG_MAX - 1U] = {0};
+    for (size_t i = 0U; i < arg_count; i++) {
+        launch_args[i] = mp_obj_str_get_str(items[i]);
+    }
+    python_check_esp(solar_os_app_registry_request_launch(python_app.ctx,
+                                                          name,
+                                                          arg_count,
+                                                          launch_args));
+    python_apps_handoff();
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_KW(solaros_apps_launch_obj, 1, solaros_apps_launch);
+
+static mp_obj_t solaros_apps_can_open(mp_obj_t target_obj)
+{
+    return mp_obj_new_bool(
+        solar_os_app_registry_can_open(mp_obj_str_get_str(target_obj)));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_apps_can_open_obj, solaros_apps_can_open);
+
+static mp_obj_t solaros_apps_open(mp_obj_t target_obj)
+{
+    if (python_app.ctx == NULL) {
+        python_raise_esp(ESP_ERR_INVALID_STATE);
+    }
+    python_check_esp(solar_os_app_registry_request_open(
+        python_app.ctx, mp_obj_str_get_str(target_obj)));
+    python_apps_handoff();
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_apps_open_obj, solaros_apps_open);
 
 static bool python_input_source_info(solar_os_input_source_t source,
                                      solar_os_input_source_info_t *info)
@@ -9441,6 +9661,9 @@ static void python_drain_events(solar_os_context_t *ctx)
             }
             python_gfx_release_target();
             solar_os_context_set_graphics_active(ctx, false);
+            if (ctx->requested_app != NULL) {
+                break;
+            }
             if (python_app.mode == PYTHON_MODE_SCRIPT) {
                 python_finish_terminal_line(ctx, io);
                 python_flush_io(ctx, io);

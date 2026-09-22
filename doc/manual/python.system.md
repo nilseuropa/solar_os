@@ -91,10 +91,21 @@ solaros.jobs.start("slip", ["uart0", "115200"])
 
 ## `solaros.apps`
 
-Application functions inspect the built-in foreground app registry.
+Application functions inspect the foreground app registry and hand control to
+another app.
 
-- `list()`: return registered apps with `name` and `summary`.
-- `find(name)`: return one app dictionary or `None`.
+- `list(include_playground=True)`: return built-in apps and installed Playground
+  apps. Playground apps are included by default; pass `False` for native apps
+  only. Entries include `name`, `id`, `title`, `summary`, `kind`, and `runtime`.
+  Playground launch names use the stable `playground:<id>` form.
+- `find(name)`: return one native app dictionary or `None`.
+- `launch(name, args=[])`: replace the current script app with a native or
+  installed Playground app. `args` is a list or tuple of strings and does not
+  include the app name. A successful handoff does not return to the script.
+- `can_open(path_or_url)`: return whether a registered app handles the local
+  file extension or an HTTP(S) URL.
+- `open(path_or_url)`: replace the current script app with the registered
+  handler. A successful handoff does not return.
 
 Example:
 
@@ -102,8 +113,16 @@ Example:
 import solaros
 
 for app in solaros.apps.list():
-    print(app["name"], "-", app["summary"])
+    print(app["name"], app["kind"], "-", app["summary"])
+
+if solaros.apps.can_open("/books/guide.epub"):
+    solaros.apps.open("/books/guide.epub")
 ```
+
+`open()` selects Web for `http://` and `https://` URLs and uses the native file
+association registry for local paths. For example, EPUB and Markdown reading
+targets select Reader when it is part of the current firmware. Unknown schemes
+and file types are not opened implicitly.
 
 ## Longer Example: Status Snapshot
 

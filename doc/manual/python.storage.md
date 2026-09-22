@@ -63,6 +63,13 @@ Storage functions expose SD mount and filesystem service operations.
   when mounted, otherwise internal flash).
 - `usage([path])`: return disk usage for the default volume or the volume containing `path`.
 - `resolve(path)`: return the internal resolved path.
+- `stat(path)`: return metadata with `type`, `is_file`, `is_dir`, `size`,
+  `mtime`, and `mode` fields. `type` is `file`, `directory`, or `other`.
+- `exists(path)`: return whether the path exists.
+- `scandir(path[, cursor[, limit]])`: return one bounded directory page as
+  `{"entries": [...], "next_cursor": ...}`. `cursor` defaults to the start and
+  `limit` defaults to 32; the maximum limit is 128. Each entry has a `name`
+  plus the `stat()` metadata fields. `next_cursor` is `None` at the end.
 - `read_file(path[, max_bytes])`: return up to `max_bytes` bytes from a regular
   file. The default is 4096 and the maximum is 65536.
 - `rescan()`: rescan SD block devices and partitions.
@@ -71,6 +78,9 @@ Storage functions expose SD mount and filesystem service operations.
 - `block(index)`: return one block dictionary.
 - `usage_for_block(index)`: return usage for one mounted block.
 - `mkdir(path)`: create a directory.
+- `makedirs(path[, exist_ok])`: create the directory and missing parents.
+  `exist_ok` defaults to `True`; pass `False` to fail when the final directory
+  already exists.
 - `rmdir(path)`: remove an empty directory.
 - `remove(path)`: remove a file.
 - `rename(old_path, new_path)`: rename or move a file or directory.
@@ -90,7 +100,20 @@ print(solaros.storage.usage("/"))
 print(solaros.storage.read_file("/notes/example.txt", 512))
 for block in solaros.storage.blocks():
     print(block["name"], block["type"], block["mounted"], block["mount_point"])
+
+cursor = None
+while True:
+    page = solaros.storage.scandir("/apps", cursor, 16)
+    for entry in page["entries"]:
+        print(entry["name"], entry["type"], entry["size"])
+    cursor = page["next_cursor"]
+    if cursor is None:
+        break
 ```
+
+Directory cursors are numeric offsets into the current enumeration. If files
+are added or removed between calls, restart at `None` to obtain a coherent
+view.
 
 ## Quick reference
 

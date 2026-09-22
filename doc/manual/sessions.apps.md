@@ -126,5 +126,6 @@ remains assigned to the display being controlled.
 solaros.sessions.create_shell(port, optional term, cols, rows, charset) returns
 a session id; close(id) closes it. The Lua options table and Python keyword
 form also accept `charset="utf8"` or `charset="ascii"`. Script-created port
-shells do not run /.shell/startup. solaros.apps.list() and find(name) inspect
-registered foreground apps.
+shells do not run /.shell/startup. `solaros.apps.list()` includes installed
+Playground apps, and `launch()`, `open()`, and `can_open()` provide replacement
+handoff from Python and Lua scripts.
