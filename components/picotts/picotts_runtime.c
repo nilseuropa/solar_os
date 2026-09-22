@@ -21,6 +21,7 @@
 #define PICO_MEM_SIZE 1100000U
 #define PICOTASK_EXIT 0x0000001U
 #define IDLE_WAIT_COUNT 5U
+#define INPUT_QUEUE_WAIT_MS 20U
 
 static picotts_output_fn output_callback;
 static picotts_error_notify_fn error_callback;
@@ -35,6 +36,13 @@ static pico_Resource pico_sg_resource;
 static pico_Engine pico_engine;
 static const pico_Char voice_name[] = "PicoVoice";
 static const char *TAG = "picotts";
+
+static bool pico_exit_requested(void)
+{
+    uint32_t flags = 0U;
+    return xTaskNotifyWait(0, UINT32_MAX, &flags, 0) == pdPASS &&
+           (flags & PICOTASK_EXIT) != 0U;
+}
 
 picoos_double picoos_quick_exp(const picoos_double value)
 {
@@ -59,9 +67,7 @@ static void pico_task_main(void *arg)
     unsigned idle_count = 0U;
 
     while (!failed) {
-        uint32_t flags = 0U;
-        if (xTaskNotifyWait(0, UINT32_MAX, &flags, 0) == pdPASS &&
-            (flags & PICOTASK_EXIT) != 0U) {
+        if (pico_exit_requested()) {
             break;
         }
 
@@ -95,6 +101,9 @@ static void pico_task_main(void *arg)
 
         int status = PICO_STEP_IDLE;
         do {
+            if (pico_exit_requested()) {
+                goto stopped;
+            }
             int16_t output[128];
             int16_t bytes = 0;
             int16_t type = 0;
@@ -114,6 +123,7 @@ static void pico_task_main(void *arg)
         }
     }
 
+stopped:
     if (failed && error_callback != NULL) {
         error_callback();
     }
@@ -243,14 +253,27 @@ bool picotts_init_resources(unsigned priority,
     return true;
 }
 
-void picotts_add(const char *text, unsigned length)
+bool picotts_add(const char *text,
+                 unsigned length,
+                 const volatile bool *cancelled)
 {
     if (text == NULL || text_queue == NULL) {
-        return;
+        return false;
     }
     while (length-- > 0U) {
-        (void)xQueueSendToBack(text_queue, text++, portMAX_DELAY);
+        if (cancelled != NULL && *cancelled) {
+            return false;
+        }
+        while (xQueueSendToBack(text_queue,
+                                text,
+                                pdMS_TO_TICKS(INPUT_QUEUE_WAIT_MS)) != pdPASS) {
+            if ((cancelled != NULL && *cancelled) || text_queue == NULL) {
+                return false;
+            }
+        }
+        ++text;
     }
+    return true;
 }
 
 void picotts_shutdown(void)

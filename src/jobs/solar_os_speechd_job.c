@@ -87,6 +87,30 @@ static void speechd_release_voice_resources(void)
     speechd.sg_size = 0U;
 }
 
+static void speechd_cleanup_stopped(void)
+{
+    speechd.task = NULL;
+    if (speechd.engine_initialized) {
+        picotts_set_idle_notify(NULL);
+        picotts_set_error_notify(NULL);
+        picotts_shutdown();
+        speechd.engine_initialized = false;
+    }
+    speechd_release_voice_resources();
+    speechd.player = NULL;
+    speechd.current_id = 0U;
+}
+
+static void speechd_reap_stopped(void)
+{
+    if (speechd.task != NULL && speechd.done) {
+        if (solar_os_task_wait_done(
+                speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS)) {
+            speechd_cleanup_stopped();
+        }
+    }
+}
+
 static esp_err_t speechd_load_resource(const char *path,
                                        const char *label,
                                        void **data,
@@ -366,19 +390,26 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
 
     (void)solar_os_speech_worker_set_state(
         work->id, SOLAR_OS_SPEECH_REQUEST_SPEAKING);
+    const volatile bool *cancelled =
+        solar_os_speech_worker_cancel_flag(work->id);
     speechd_drain_engine_event();
     speechd.engine_idle = false;
     speechd.awaiting_idle = false;
-    picotts_add(work->text, strlen(work->text) + 1U);
+    const bool queued = picotts_add(
+        work->text, strlen(work->text) + 1U, cancelled);
     speechd.awaiting_idle = true;
 
-    while (!speechd.engine_idle && !speechd.engine_failed &&
+    if (!queued && !speechd.stop_requested &&
+        (cancelled == NULL || !*cancelled)) {
+        speechd.output_error = ESP_FAIL;
+        speechd.engine_failed = true;
+    }
+
+    while (queued && !speechd.engine_idle && !speechd.engine_failed &&
            !speechd.stop_requested) {
         (void)xSemaphoreTake(speechd.engine_event, pdMS_TO_TICKS(50U));
     }
 
-    const volatile bool *cancelled =
-        solar_os_speech_worker_cancel_flag(work->id);
     speechd_close_player(cancelled);
 
     solar_os_speech_request_state_t state = SOLAR_OS_SPEECH_REQUEST_COMPLETE;
@@ -440,6 +471,7 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
         speechd_set_error(ESP_ERR_NOT_SUPPORTED, "audio output is unavailable");
         return ESP_ERR_NOT_SUPPORTED;
     }
+    speechd_reap_stopped();
     if (speechd.task != NULL || speechd.engine_initialized) {
         speechd_set_error(ESP_ERR_INVALID_STATE, "speechd is already running");
         return ESP_ERR_INVALID_STATE;
@@ -516,12 +548,14 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
         const esp_err_t start_error = speechd.last_error;
         speechd.stop_requested = true;
         solar_os_speech_worker_stop();
-        (void)solar_os_task_wait_done(
-            speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS);
-        speechd.task = NULL;
-        picotts_shutdown();
-        speechd.engine_initialized = false;
-        speechd_release_voice_resources();
+        if (!solar_os_task_wait_done(
+                speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS)) {
+            speechd_set_error(
+                ESP_ERR_TIMEOUT,
+                "speech worker is still stopping; resources retained safely");
+            return start_error;
+        }
+        speechd_cleanup_stopped();
         return start_error;
     }
 
@@ -543,36 +577,16 @@ static void speechd_stop(solar_os_context_t *ctx)
     speechd.stop_requested = true;
     solar_os_speech_worker_stop();
 
-    bool stopped = speechd.task == NULL || solar_os_task_wait_done(
+    const bool stopped = speechd.task == NULL || solar_os_task_wait_done(
         speechd.task, &speechd.done, SPEECHD_STOP_WAIT_MS);
-    if (!stopped && speechd.engine_initialized) {
-        SOLAR_OS_LOGW(TAG, "forcing PicoTTS shutdown after slow stop");
-        speechd.engine_failed = true;
-        picotts_shutdown();
-        speechd.engine_initialized = false;
-        if (speechd.engine_event != NULL) {
-            (void)xSemaphoreGive(speechd.engine_event);
-        }
-        stopped = solar_os_task_wait_done(
-            speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS);
-    }
     if (!stopped) {
-        SOLAR_OS_LOGW(TAG, "speech worker is slow to stop");
-        while (!speechd.done) {
-            vTaskDelay(pdMS_TO_TICKS(20U));
-        }
+        speechd_set_error(
+            ESP_ERR_TIMEOUT,
+            "speech worker is still stopping; resources retained safely");
+        SOLAR_OS_LOGE(TAG, "%s", speechd.last_error_detail);
+        return;
     }
-    speechd.task = NULL;
-
-    if (speechd.engine_initialized) {
-        picotts_set_idle_notify(NULL);
-        picotts_set_error_notify(NULL);
-        picotts_shutdown();
-        speechd.engine_initialized = false;
-    }
-    speechd_release_voice_resources();
-    speechd.player = NULL;
-    speechd.current_id = 0U;
+    speechd_cleanup_stopped();
     SOLAR_OS_LOGI(TAG, "stopped");
 }
 

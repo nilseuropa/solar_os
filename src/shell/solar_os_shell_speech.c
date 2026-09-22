@@ -105,26 +105,15 @@ static bool say_utf8_feed(say_utf8_state_t *state, uint8_t byte)
         say_plain_text_codepoint(state->codepoint);
 }
 
-static esp_err_t say_validate_plain_text(FILE *file)
+static esp_err_t say_validate_plain_text(const char *text, size_t text_len)
 {
-    uint8_t data[SOLAR_OS_SPEECH_TEXT_MAX];
     say_utf8_state_t utf8 = {0};
-    size_t count;
-    while ((count = fread(data, 1U, sizeof(data), file)) > 0U) {
-        for (size_t i = 0U; i < count; i++) {
-            if (!say_utf8_feed(&utf8, data[i])) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
+    for (size_t i = 0U; i < text_len; i++) {
+        if (!say_utf8_feed(&utf8, (uint8_t)text[i])) {
+            return ESP_ERR_INVALID_RESPONSE;
         }
     }
-    if (ferror(file)) {
-        return ESP_FAIL;
-    }
-    if (utf8.remaining != 0U) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    clearerr(file);
-    return fseek(file, 0L, SEEK_SET) == 0 ? ESP_OK : ESP_FAIL;
+    return utf8.remaining == 0U ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
 static bool say_chunk_break(uint8_t byte)
@@ -184,6 +173,10 @@ static esp_err_t say_read_file_chunk(FILE *file,
     }
     if (chunk == 0U) {
         return ESP_ERR_INVALID_RESPONSE;
+    }
+    const esp_err_t validation = say_validate_plain_text(text, chunk);
+    if (validation != ESP_OK) {
+        return validation;
     }
     if (chunk < count && fseek(file, -(long)(count - chunk), SEEK_CUR) != 0) {
         return ESP_FAIL;
@@ -418,17 +411,7 @@ static void say_file(solar_os_context_t *ctx,
         solar_os_shell_io_printf(io, "say: cannot open file: %s\n", path_arg);
         return;
     }
-    esp_err_t err = say_validate_plain_text(file);
-    if (err != ESP_OK) {
-        fclose(file);
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            solar_os_shell_io_printf(
-                io, "say: not a plain UTF-8 text file: %s\n", path_arg);
-        } else {
-            solar_os_shell_io_printf(io, "say: cannot read file: %s\n", path_arg);
-        }
-        return;
-    }
+    esp_err_t err = ESP_OK;
 
     const uint64_t bytes_total = (uint64_t)info.st_size;
     uint64_t bytes_done = 0U;
@@ -474,12 +457,16 @@ static void say_file(solar_os_context_t *ctx,
         }
         bytes_done += bytes_consumed;
         say_render_progress(io, &progress, bytes_done, bytes_total);
+        vTaskDelay(1);
     }
     const bool close_failed = fclose(file) != 0;
     say_finish_progress(io, &progress);
 
     if (stopped) {
         solar_os_shell_io_writeln(io, "say: stopped");
+    } else if (err == ESP_ERR_INVALID_RESPONSE) {
+        solar_os_shell_io_printf(
+            io, "say: not a plain UTF-8 text file: %s\n", path_arg);
     } else if (err != ESP_OK) {
         say_print_enqueue_error(io, err);
     } else if (close_failed || bytes_done != bytes_total) {

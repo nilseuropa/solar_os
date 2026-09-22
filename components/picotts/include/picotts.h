@@ -27,7 +27,9 @@ bool picotts_init_resources(unsigned priority,
                             const void *sg_data,
                             size_t sg_size);
 
-void picotts_add(const char *text, unsigned length);
+bool picotts_add(const char *text,
+                 unsigned length,
+                 const volatile bool *cancelled);
 void picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);
 void picotts_set_idle_notify(picotts_idle_notify_fn callback);

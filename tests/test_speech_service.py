@@ -85,7 +85,23 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("solar_os_audio_s16_convert(", JOB_SOURCE)
         self.assertIn("solar_os_audio_player_write(", JOB_SOURCE)
         self.assertIn("solar_os_audio_player_destroy(", JOB_SOURCE)
-        self.assertIn("picotts_add(work->text", JOB_SOURCE)
+        self.assertIn("picotts_add(", JOB_SOURCE)
+
+    def test_picotts_input_wait_is_bounded_and_cancellable(self):
+        self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=513", PICOTTS_CMAKE)
+        self.assertIn("const volatile bool *cancelled", PICOTTS_HEADER)
+        add = PICOTTS_RUNTIME.split("bool picotts_add(", 1)[1]
+        add = add.split("void picotts_shutdown(", 1)[0]
+        self.assertIn("INPUT_QUEUE_WAIT_MS", add)
+        self.assertIn("*cancelled", add)
+        self.assertNotIn("portMAX_DELAY", add)
+
+    def test_speechd_stop_never_frees_a_running_engine(self):
+        stop = JOB_SOURCE.split("static void speechd_stop(", 1)[1]
+        stop = stop.split("static void speechd_detail(", 1)[0]
+        self.assertIn("resources retained safely", stop)
+        self.assertNotIn("forcing PicoTTS shutdown", stop)
+        self.assertNotIn("while (!speechd.done)", stop)
 
     def test_job_loads_runtime_voice_directory(self):
         self.assertIn("usage: job start speechd <voice-directory>", JOB_SOURCE)
@@ -127,7 +143,8 @@ class SpeechServiceTest(unittest.TestCase):
 
     def test_say_reads_plain_text_files_with_progress_and_cancellation(self):
         self.assertIn('strcmp(arg, "--file") == 0', SHELL_SOURCE)
-        self.assertIn("say_validate_plain_text(file)", SHELL_SOURCE)
+        self.assertIn("say_validate_plain_text(text, chunk)", SHELL_SOURCE)
+        self.assertNotIn("say_validate_plain_text(file)", SHELL_SOURCE)
         self.assertIn("say_render_progress", SHELL_SOURCE)
         self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
         self.assertIn("solar_os_speech_cancel(request_id)", SHELL_SOURCE)
