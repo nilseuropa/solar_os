@@ -79,6 +79,19 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("speech.queue_count >= SOLAR_OS_SPEECH_QUEUE_CAPACITY", enqueue)
         self.assertIn("xTaskNotifyGive(worker)", enqueue)
 
+    def test_streaming_request_uses_one_bounded_chunk_slot(self):
+        self.assertIn("solar_os_speech_stream_begin", SERVICE_HEADER)
+        self.assertIn("solar_os_speech_stream_write", SERVICE_HEADER)
+        self.assertIn(
+            "char stream_chunk[SOLAR_OS_SPEECH_TEXT_MAX + 1U]", SERVICE_SOURCE
+        )
+        stream_write = SERVICE_SOURCE.split(
+            "esp_err_t solar_os_speech_stream_write(", 1
+        )[1].split("esp_err_t solar_os_speech_cancel(", 1)[0]
+        self.assertIn("speech.stream_chunk_ready", stream_write)
+        self.assertIn("speech.stream_final_submitted", stream_write)
+        self.assertIn("xTaskNotifyGive(worker)", stream_write)
+
     def test_job_uses_selected_audio_player_and_pcm_converter(self):
         self.assertIn('.owner = "job:speechd"', JOB_SOURCE)
         self.assertIn("solar_os_audio_player_create(", JOB_SOURCE)
@@ -91,6 +104,24 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertLess(
             run.index("speechd.awaiting_idle = true"),
             run.index("picotts_add("),
+        )
+
+    def test_speechd_keeps_one_player_open_for_a_stream(self):
+        run = JOB_SOURCE.split("static void speechd_run_stream(", 1)[1]
+        run = run.split("static void speechd_task(", 1)[0]
+        self.assertIn("solar_os_speech_worker_stream_take(", run)
+        self.assertIn("picotts_stream_begin(", run)
+        self.assertIn("picotts_stream_write(", run)
+        self.assertIn("picotts_stream_end(", run)
+        self.assertEqual(run.count("speechd_open_player(work)"), 1)
+        self.assertEqual(run.count("speechd_close_player(cancelled)"), 1)
+        self.assertLess(
+            run.index("speechd_open_player(work)"),
+            run.index("while (stream_open"),
+        )
+        self.assertLess(
+            run.index("while (stream_open"),
+            run.index("speechd_close_player(cancelled)"),
         )
 
     def test_picotts_input_wait_is_bounded_and_cancellable(self):
@@ -129,6 +160,15 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertNotIn("PROGRESS_SEGMENT_BYTES", PICOTTS_RUNTIME)
         self.assertIn("picotts_set_progress_notify(speechd_progress)", JOB_SOURCE)
         self.assertIn("solar_os_speech_worker_set_progress(", JOB_SOURCE)
+
+    def test_picotts_stream_only_terminates_on_final_chunk(self):
+        self.assertIn("picotts_stream_begin", PICOTTS_HEADER)
+        self.assertIn("picotts_stream_write", PICOTTS_HEADER)
+        stream_write = PICOTTS_RUNTIME.split(
+            "static bool pico_stream_write(", 1
+        )[1].split("bool picotts_add(", 1)[0]
+        self.assertIn("if (!final)", stream_write)
+        self.assertIn("QUEUE_SEGMENT_END | QUEUE_UTTERANCE_END", stream_write)
 
     def test_pitch_and_speed_flow_through_speech_api(self):
         self.assertIn("SOLAR_OS_SPEECH_PITCH_MIN 50U", SERVICE_HEADER)
@@ -214,12 +254,12 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("bytes_submitted", SHELL_SOURCE)
         self.assertNotIn("status.progress_done", SHELL_SOURCE)
         self.assertNotIn("status.progress_total", SHELL_SOURCE)
+        self.assertIn("solar_os_speech_stream_begin(", SHELL_SOURCE)
         enqueue = SHELL_SOURCE.split(
-            "const esp_err_t enqueue_err = say_enqueue_text(", 1
-        )[1]
-        enqueue = enqueue.split("bool solar_os_shell_speech_file_event", 1)[0]
+            "const esp_err_t write_err = solar_os_speech_stream_write(", 1
+        )[1].split("bool solar_os_shell_speech_file_event", 1)[0]
         self.assertLess(
-            enqueue.index("say_file_playback.request_id = request_id"),
+            enqueue.index("say_file_playback.bytes_submitted ="),
             enqueue.index("say_render_progress("),
         )
         self.assertNotIn("activity_phase", SHELL_SOURCE)
@@ -240,10 +280,12 @@ class SpeechServiceTest(unittest.TestCase):
             "solar_os_shell_speech_file_session_destroyed(session)",
             SHELL_REGISTRY,
         )
-        self.assertIn("SAY_FILE_DEFAULT_MAX_BYTES", SHELL_SOURCE)
-        self.assertIn("use --force to read it anyway", SHELL_SOURCE)
-        self.assertIn('strcmp(arg, "--force") == 0', SHELL_SOURCE)
-        self.assertIn('"--force"', SHELL_REGISTRY)
+        self.assertNotIn("SAY_FILE_DEFAULT_MAX_BYTES", SHELL_SOURCE)
+        self.assertNotIn('strcmp(arg, "--force") == 0', SHELL_SOURCE)
+        say_options = SHELL_REGISTRY.split(
+            "static const char * const say_options[]", 1
+        )[1].split("};", 1)[0]
+        self.assertNotIn('"--force"', say_options)
         self.assertIn('"--file"', SHELL_REGISTRY)
         self.assertIn(
             "SHELL_COMPLETION_PATH(path_say_file, false)",

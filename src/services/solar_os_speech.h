@@ -39,6 +39,14 @@ typedef struct {
 } solar_os_speech_request_t;
 
 typedef struct {
+    uint8_t volume;
+    /* Zero selects PicoTTS's default value of 100. */
+    uint16_t pitch;
+    uint16_t speed;
+    bool drop_if_busy;
+} solar_os_speech_stream_options_t;
+
+typedef struct {
     uint32_t id;
     solar_os_speech_request_state_t state;
     esp_err_t error;
@@ -60,6 +68,17 @@ typedef struct {
 /* Public producer API. Requests are copied before enqueue returns. */
 esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
                                   uint32_t *request_id);
+/*
+ * A stream is one speech request whose text arrives in bounded chunks. Only
+ * one stream may be active at a time. The final chunk may be empty.
+ */
+esp_err_t solar_os_speech_stream_begin(
+    const solar_os_speech_stream_options_t *options,
+    uint32_t *request_id);
+esp_err_t solar_os_speech_stream_write(uint32_t request_id,
+                                       const char *text,
+                                       size_t text_len,
+                                       bool final);
 esp_err_t solar_os_speech_cancel(uint32_t request_id);
 bool solar_os_speech_request_status(uint32_t request_id,
                                     solar_os_speech_request_status_t *status);
@@ -74,6 +93,7 @@ typedef struct {
     uint16_t pitch;
     uint16_t speed;
     bool drop_if_busy;
+    bool streaming;
     char text[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
 } solar_os_speech_work_t;
 
@@ -81,6 +101,12 @@ esp_err_t solar_os_speech_worker_start(TaskHandle_t task);
 void solar_os_speech_worker_stop(void);
 esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
                                       uint32_t timeout_ms);
+esp_err_t solar_os_speech_worker_stream_take(uint32_t request_id,
+                                             char *text,
+                                             size_t text_capacity,
+                                             size_t *text_len,
+                                             bool *final,
+                                             uint32_t timeout_ms);
 esp_err_t solar_os_speech_worker_set_state(uint32_t request_id,
                                            solar_os_speech_request_state_t state);
 esp_err_t solar_os_speech_worker_set_progress(uint32_t request_id,

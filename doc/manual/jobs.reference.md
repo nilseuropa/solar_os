@@ -1229,7 +1229,7 @@ job start speechd /voices/en-US
 say "Solar O S is ready"
 say --pitch 85 --speed 120 "Solar O S is ready"
 say --file /documents/announcement.txt
-say --force --file /books/novel.txt
+say --file /books/novel.txt
 job status speechd
 job stop speechd
 ```
@@ -1238,12 +1238,13 @@ job stop speechd
 chunks. It keeps the shell in a foreground playback mode, but advances from
 shell events so the display and progress bar refresh while speech is running.
 The percentage is submitted-file progress: it advances whenever the next
-bounded chunk is accepted by `speechd`. Only one file chunk is outstanding, so
-the next advance occurs after the preceding chunk finishes.
+bounded chunk is accepted by `speechd`. The complete file is one streaming
+speech request: PicoTTS and the audio player stay open between chunks, while a
+single bounded handoff slot prevents the file from being buffered in memory.
 Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
-Files larger than 64 KiB are rejected before audio starts unless `--force` is
-present. Tab completion after `--file` lists filesystem paths. Ordinary
-`say <text...>` remains asynchronous and returns the queued request ID.
+There is no file-size limit because only one bounded chunk is held and submitted
+at a time. Tab completion after `--file` lists filesystem paths. Ordinary `say
+<text...>` remains asynchronous and returns the queued request ID.
 `--pitch 50..200` and `--speed 20..500` use PicoTTS's native controls; both
 default to 100 and apply to ordinary text and file playback.
 

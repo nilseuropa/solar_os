@@ -386,6 +386,14 @@ static void speechd_drain_engine_event(void)
     }
 }
 
+static void speechd_wait_engine_idle(void)
+{
+    while (!speechd.engine_idle && !speechd.engine_failed &&
+           !speechd.stop_requested) {
+        (void)xSemaphoreTake(speechd.engine_event, pdMS_TO_TICKS(50U));
+    }
+}
+
 static void speechd_run_request(const solar_os_speech_work_t *work)
 {
     speechd.current_id = work->id;
@@ -426,9 +434,8 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
         speechd.awaiting_idle = false;
     }
 
-    while (queued && !speechd.engine_idle && !speechd.engine_failed &&
-           !speechd.stop_requested) {
-        (void)xSemaphoreTake(speechd.engine_event, pdMS_TO_TICKS(50U));
+    if (queued) {
+        speechd_wait_engine_idle();
     }
 
     speechd_close_player(cancelled);
@@ -439,6 +446,105 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
         state = SOLAR_OS_SPEECH_REQUEST_CANCELLED;
         err = ESP_ERR_TIMEOUT;
     } else if (speechd.engine_failed || err != ESP_OK) {
+        state = SOLAR_OS_SPEECH_REQUEST_FAILED;
+        if (err == ESP_OK) {
+            err = ESP_FAIL;
+        }
+    }
+    (void)solar_os_speech_worker_finish(work->id, state, err);
+    speechd.last_error = state == SOLAR_OS_SPEECH_REQUEST_FAILED ? err : ESP_OK;
+    speechd.current_id = 0U;
+}
+
+static void speechd_run_stream(const solar_os_speech_work_t *work)
+{
+    speechd.current_id = work->id;
+    speechd.output_error = ESP_OK;
+
+    esp_err_t err = speechd_open_player(work);
+    if (err != ESP_OK) {
+        const solar_os_speech_request_state_t state =
+            work->drop_if_busy && err == ESP_ERR_INVALID_STATE ?
+                SOLAR_OS_SPEECH_REQUEST_DROPPED :
+                (err == ESP_ERR_TIMEOUT ? SOLAR_OS_SPEECH_REQUEST_CANCELLED :
+                                          SOLAR_OS_SPEECH_REQUEST_FAILED);
+        (void)solar_os_speech_worker_finish(work->id, state, err);
+        speechd.current_id = 0U;
+        return;
+    }
+
+    (void)solar_os_speech_worker_set_state(
+        work->id, SOLAR_OS_SPEECH_REQUEST_SPEAKING);
+    const volatile bool *cancelled =
+        solar_os_speech_worker_cancel_flag(work->id);
+    speechd_drain_engine_event();
+    speechd.engine_idle = false;
+    speechd.awaiting_idle = true;
+    bool stream_open = picotts_stream_begin(
+        work->pitch, work->speed, cancelled);
+    bool final_queued = false;
+
+    while (stream_open && !final_queued && !speechd.engine_failed &&
+           !speechd.stop_requested &&
+           (cancelled == NULL || !*cancelled)) {
+        char text[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
+        size_t text_len = 0U;
+        bool final = false;
+        err = solar_os_speech_worker_stream_take(
+            work->id,
+            text,
+            sizeof(text),
+            &text_len,
+            &final,
+            UINT32_MAX);
+        if (err != ESP_OK) {
+            if (err != ESP_ERR_TIMEOUT && err != ESP_ERR_INVALID_STATE) {
+                speechd.output_error = err;
+            }
+            break;
+        }
+        const bool accepted = text_len > 0U ?
+            picotts_stream_write(text,
+                                 (unsigned)text_len,
+                                 final,
+                                 cancelled) :
+            picotts_stream_end(cancelled);
+        if (!accepted) {
+            if (!speechd.stop_requested &&
+                (cancelled == NULL || !*cancelled)) {
+                speechd.output_error = ESP_FAIL;
+                speechd.engine_failed = true;
+            }
+            break;
+        }
+        final_queued = final;
+    }
+
+    if (stream_open && !final_queued && !speechd.engine_failed &&
+        !speechd.stop_requested) {
+        /* Close Pico's open utterance after cancellation so the persistent
+         * engine is clean for the next request. Audio output is suppressed by
+         * the request's cancellation flag while it drains. */
+        final_queued = picotts_stream_end(NULL);
+        if (!final_queued) {
+            speechd.output_error = ESP_FAIL;
+            speechd.engine_failed = true;
+        }
+    }
+    if (final_queued) {
+        speechd_wait_engine_idle();
+    } else {
+        speechd.awaiting_idle = false;
+    }
+
+    speechd_close_player(cancelled);
+
+    solar_os_speech_request_state_t state = SOLAR_OS_SPEECH_REQUEST_COMPLETE;
+    err = speechd.output_error;
+    if (cancelled != NULL && *cancelled) {
+        state = SOLAR_OS_SPEECH_REQUEST_CANCELLED;
+        err = ESP_ERR_TIMEOUT;
+    } else if (speechd.engine_failed || err != ESP_OK || !final_queued) {
         state = SOLAR_OS_SPEECH_REQUEST_FAILED;
         if (err == ESP_OK) {
             err = ESP_FAIL;
@@ -461,7 +567,11 @@ static void speechd_task(void *arg)
             const esp_err_t err = solar_os_speech_worker_take(
                 &work, UINT32_MAX);
             if (err == ESP_OK) {
-                speechd_run_request(&work);
+                if (work.streaming) {
+                    speechd_run_stream(&work);
+                } else {
+                    speechd_run_request(&work);
+                }
             } else if (err != ESP_ERR_INVALID_STATE) {
                 speechd.last_error = err;
             }

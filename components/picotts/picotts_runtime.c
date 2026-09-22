@@ -382,19 +382,13 @@ static bool pico_queue_bytes(const char *text,
     return true;
 }
 
-bool picotts_add(const char *text,
-                 unsigned length,
-                 unsigned pitch,
-                 unsigned speed,
-                 const volatile bool *cancelled)
+static bool pico_stream_begin(unsigned pitch,
+                              unsigned speed,
+                              const volatile bool *cancelled)
 {
-    if (text == NULL || text_queue == NULL || length == 0U ||
+    if (text_queue == NULL ||
         pitch < PICOTTS_PITCH_MIN || pitch > PICOTTS_PITCH_MAX ||
         speed < PICOTTS_SPEED_MIN || speed > PICOTTS_SPEED_MAX) {
-        return false;
-    }
-    const unsigned text_length = text[length - 1U] == '\0' ? length - 1U : length;
-    if (text_length == 0U) {
         return false;
     }
 
@@ -404,29 +398,80 @@ bool picotts_add(const char *text,
                                        "<pitch level=\"%u\"><speed level=\"%u\">",
                                        pitch,
                                        speed);
-    static const char suffix[] = "</speed></pitch>";
     if (prefix_length <= 0 || (size_t)prefix_length >= sizeof(prefix)) {
         return false;
     }
+    return pico_queue_bytes(prefix,
+                            (unsigned)prefix_length,
+                            false,
+                            cancelled);
+}
 
-    pico_progress_reset(text_length);
-    if (!pico_queue_bytes(prefix,
-                          (unsigned)prefix_length,
-                          false,
-                          cancelled)) {
+static bool pico_stream_write(const char *text,
+                              unsigned length,
+                              bool final,
+                              bool counts_progress,
+                              const volatile bool *cancelled)
+{
+    if (text_queue == NULL || (length > 0U && text == NULL)) {
         return false;
     }
-
-    if (!pico_queue_bytes(text, text_length, true, cancelled) ||
-        !pico_queue_bytes(suffix,
-                          sizeof(suffix) - 1U,
-                          false,
-                          cancelled) ||
-        !pico_queue_item(QUEUE_SEGMENT_END | QUEUE_UTTERANCE_END,
-                         cancelled)) {
+    const unsigned text_length = length > 0U && text[length - 1U] == '\0' ?
+        length - 1U : length;
+    if (text_length == 0U && !final) {
         return false;
     }
-    return true;
+    if (counts_progress) {
+        pico_progress_reset(text_length);
+    }
+    if (text_length > 0U &&
+        !pico_queue_bytes(text, text_length, counts_progress, cancelled)) {
+        return false;
+    }
+    if (!final) {
+        return true;
+    }
+    static const char suffix[] = "</speed></pitch>";
+    return pico_queue_bytes(suffix,
+                            sizeof(suffix) - 1U,
+                            false,
+                            cancelled) &&
+        pico_queue_item(QUEUE_SEGMENT_END | QUEUE_UTTERANCE_END,
+                        cancelled);
+}
+
+bool picotts_add(const char *text,
+                 unsigned length,
+                 unsigned pitch,
+                 unsigned speed,
+                 const volatile bool *cancelled)
+{
+    if (text == NULL || length == 0U ||
+        !pico_stream_begin(pitch, speed, cancelled)) {
+        return false;
+    }
+    return pico_stream_write(text, length, true, true, cancelled);
+}
+
+bool picotts_stream_begin(unsigned pitch,
+                          unsigned speed,
+                          const volatile bool *cancelled)
+{
+    pico_progress_reset(0U);
+    return pico_stream_begin(pitch, speed, cancelled);
+}
+
+bool picotts_stream_write(const char *text,
+                          unsigned length,
+                          bool final,
+                          const volatile bool *cancelled)
+{
+    return pico_stream_write(text, length, final, false, cancelled);
+}
+
+bool picotts_stream_end(const volatile bool *cancelled)
+{
+    return pico_stream_write(NULL, 0U, true, false, cancelled);
 }
 
 bool picotts_shutdown(void)

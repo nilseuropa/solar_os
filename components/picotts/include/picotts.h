@@ -35,6 +35,14 @@ bool picotts_add(const char *text,
                  unsigned pitch,
                  unsigned speed,
                  const volatile bool *cancelled);
+bool picotts_stream_begin(unsigned pitch,
+                          unsigned speed,
+                          const volatile bool *cancelled);
+bool picotts_stream_write(const char *text,
+                          unsigned length,
+                          bool final,
+                          const volatile bool *cancelled);
+bool picotts_stream_end(const volatile bool *cancelled);
 bool picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);
 void picotts_set_idle_notify(picotts_idle_notify_fn callback);

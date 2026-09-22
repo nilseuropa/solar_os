@@ -12,6 +12,7 @@ typedef struct {
     uint16_t pitch;
     uint16_t speed;
     bool drop_if_busy;
+    bool streaming;
     char text[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
 } speech_queue_entry_t;
 
@@ -30,7 +31,14 @@ typedef struct {
     solar_os_speech_request_state_t current_state;
     size_t current_progress_done;
     size_t current_progress_total;
+    bool current_streaming;
     volatile bool cancel_current;
+    uint32_t stream_id;
+    bool stream_chunk_ready;
+    bool stream_chunk_final;
+    bool stream_final_submitted;
+    size_t stream_chunk_len;
+    char stream_chunk[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
     uint32_t completed;
     uint32_t cancelled;
     uint32_t dropped;
@@ -178,6 +186,113 @@ esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
     return ESP_OK;
 }
 
+esp_err_t solar_os_speech_stream_begin(
+    const solar_os_speech_stream_options_t *options,
+    uint32_t *request_id)
+{
+    if (request_id != NULL) {
+        *request_id = 0U;
+    }
+    if (options == NULL || !speech_volume_valid(options->volume) ||
+        !speech_pitch_valid(options->pitch) ||
+        !speech_speed_valid(options->speed)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = speech_ensure_mutex();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    TaskHandle_t worker = NULL;
+    speech_lock();
+    if (!speech.running || speech.worker == NULL) {
+        speech_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (speech.stream_id != 0U) {
+        speech_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (options->drop_if_busy &&
+        (speech.current_id != 0U || speech.queue_count > 0U)) {
+        speech.dropped++;
+        speech_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (speech.queue_count >= SOLAR_OS_SPEECH_QUEUE_CAPACITY) {
+        speech.dropped++;
+        speech_unlock();
+        return ESP_ERR_NO_MEM;
+    }
+
+    speech_queue_entry_t *entry = &speech.queue[speech.queue_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->id = speech.next_id++;
+    if (speech.next_id == 0U) {
+        speech.next_id = 1U;
+    }
+    entry->volume = options->volume;
+    entry->pitch = options->pitch != 0U ?
+        options->pitch : SOLAR_OS_SPEECH_PITCH_DEFAULT;
+    entry->speed = options->speed != 0U ?
+        options->speed : SOLAR_OS_SPEECH_SPEED_DEFAULT;
+    entry->drop_if_busy = options->drop_if_busy;
+    entry->streaming = true;
+    speech.stream_id = entry->id;
+    speech.stream_chunk_ready = false;
+    speech.stream_chunk_final = false;
+    speech.stream_final_submitted = false;
+    speech.stream_chunk_len = 0U;
+    if (request_id != NULL) {
+        *request_id = entry->id;
+    }
+    worker = speech.worker;
+    speech_unlock();
+    xTaskNotifyGive(worker);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_speech_stream_write(uint32_t request_id,
+                                       const char *text,
+                                       size_t text_len,
+                                       bool final)
+{
+    if (request_id == 0U || text_len > SOLAR_OS_SPEECH_TEXT_MAX ||
+        (text_len > 0U && text == NULL) ||
+        (text_len == 0U && !final) ||
+        (text_len > 0U && memchr(text, '\0', text_len) != NULL) ||
+        speech_ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    TaskHandle_t worker = NULL;
+    speech_lock();
+    if (!speech.running || speech.stream_id != request_id ||
+        speech.stream_final_submitted ||
+        (speech.current_id == request_id && speech.cancel_current)) {
+        speech_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (speech.stream_chunk_ready) {
+        speech_unlock();
+        return ESP_ERR_NO_MEM;
+    }
+    if (text_len > 0U) {
+        memcpy(speech.stream_chunk, text, text_len);
+    }
+    speech.stream_chunk[text_len] = '\0';
+    speech.stream_chunk_len = text_len;
+    speech.stream_chunk_final = final;
+    speech.stream_chunk_ready = true;
+    speech.stream_final_submitted = final;
+    worker = speech.worker;
+    speech_unlock();
+    if (worker != NULL) {
+        xTaskNotifyGive(worker);
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_speech_cancel(uint32_t request_id)
 {
     if (request_id == 0U) {
@@ -191,6 +306,10 @@ esp_err_t solar_os_speech_cancel(uint32_t request_id)
     speech_lock();
     if (speech.current_id == request_id) {
         speech.cancel_current = true;
+        if (speech.current_streaming) {
+            speech.stream_chunk_ready = false;
+            speech.stream_chunk_len = 0U;
+        }
         worker = speech.worker;
         speech_unlock();
         if (worker != NULL) {
@@ -203,10 +322,18 @@ esp_err_t solar_os_speech_cancel(uint32_t request_id)
             continue;
         }
         const size_t progress_total = strlen(speech.queue[i].text);
+        const bool streaming = speech.queue[i].streaming;
         for (size_t next = i + 1U; next < speech.queue_count; next++) {
             speech.queue[next - 1U] = speech.queue[next];
         }
         speech.queue_count--;
+        if (streaming || speech.stream_id == request_id) {
+            speech.stream_id = 0U;
+            speech.stream_chunk_ready = false;
+            speech.stream_chunk_final = false;
+            speech.stream_final_submitted = false;
+            speech.stream_chunk_len = 0U;
+        }
         speech_store_result_locked(request_id,
                                    SOLAR_OS_SPEECH_REQUEST_CANCELLED,
                                    ESP_ERR_TIMEOUT,
@@ -332,7 +459,13 @@ esp_err_t solar_os_speech_worker_start(TaskHandle_t task)
     speech.current_state = SOLAR_OS_SPEECH_REQUEST_QUEUED;
     speech.current_progress_done = 0U;
     speech.current_progress_total = 0U;
+    speech.current_streaming = false;
     speech.cancel_current = false;
+    speech.stream_id = 0U;
+    speech.stream_chunk_ready = false;
+    speech.stream_chunk_final = false;
+    speech.stream_final_submitted = false;
+    speech.stream_chunk_len = 0U;
     speech.completed = 0U;
     speech.cancelled = 0U;
     speech.dropped = 0U;
@@ -358,6 +491,11 @@ void solar_os_speech_worker_stop(void)
                                    strlen(speech.queue[i].text));
     }
     speech.queue_count = 0U;
+    speech.stream_id = 0U;
+    speech.stream_chunk_ready = false;
+    speech.stream_chunk_final = false;
+    speech.stream_final_submitted = false;
+    speech.stream_chunk_len = 0U;
     worker = speech.worker;
     speech_unlock();
     if (worker != NULL) {
@@ -385,7 +523,9 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
             speech.current_id = entry.id;
             speech.current_state = SOLAR_OS_SPEECH_REQUEST_WAITING_AUDIO;
             speech.current_progress_done = 0U;
-            speech.current_progress_total = strlen(entry.text);
+            speech.current_progress_total = entry.streaming ?
+                0U : strlen(entry.text);
+            speech.current_streaming = entry.streaming;
             speech.cancel_current = false;
             *work = (solar_os_speech_work_t){
                 .id = entry.id,
@@ -393,6 +533,7 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
                 .pitch = entry.pitch,
                 .speed = entry.speed,
                 .drop_if_busy = entry.drop_if_busy,
+                .streaming = entry.streaming,
             };
             strlcpy(work->text, entry.text, sizeof(work->text));
             speech_unlock();
@@ -404,6 +545,52 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
         if (!running) {
             return ESP_ERR_INVALID_STATE;
         }
+        if (worker != xTaskGetCurrentTaskHandle()) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (ulTaskNotifyTake(pdTRUE, wait) == 0U) {
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+}
+
+esp_err_t solar_os_speech_worker_stream_take(uint32_t request_id,
+                                             char *text,
+                                             size_t text_capacity,
+                                             size_t *text_len,
+                                             bool *final,
+                                             uint32_t timeout_ms)
+{
+    if (request_id == 0U || text == NULL ||
+        text_capacity < SOLAR_OS_SPEECH_TEXT_MAX + 1U ||
+        text_len == NULL || final == NULL ||
+        speech_ensure_mutex() != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const TickType_t wait = timeout_ms == UINT32_MAX ?
+        portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+
+    for (;;) {
+        speech_lock();
+        if (speech.current_id != request_id || !speech.current_streaming) {
+            speech_unlock();
+            return ESP_ERR_NOT_FOUND;
+        }
+        if (speech.cancel_current || !speech.running) {
+            speech_unlock();
+            return ESP_ERR_TIMEOUT;
+        }
+        if (speech.stream_chunk_ready) {
+            *text_len = speech.stream_chunk_len;
+            *final = speech.stream_chunk_final;
+            memcpy(text, speech.stream_chunk, speech.stream_chunk_len + 1U);
+            speech.stream_chunk_ready = false;
+            speech.stream_chunk_len = 0U;
+            speech_unlock();
+            return ESP_OK;
+        }
+        const TaskHandle_t worker = speech.worker;
+        speech_unlock();
         if (worker != xTaskGetCurrentTaskHandle()) {
             return ESP_ERR_INVALID_STATE;
         }
@@ -476,6 +663,14 @@ esp_err_t solar_os_speech_worker_finish(uint32_t request_id,
     speech.current_state = SOLAR_OS_SPEECH_REQUEST_QUEUED;
     speech.current_progress_done = 0U;
     speech.current_progress_total = 0U;
+    if (speech.current_streaming) {
+        speech.stream_id = 0U;
+        speech.stream_chunk_ready = false;
+        speech.stream_chunk_final = false;
+        speech.stream_final_submitted = false;
+        speech.stream_chunk_len = 0U;
+    }
+    speech.current_streaming = false;
     speech.cancel_current = false;
     speech_unlock();
     return ESP_OK;

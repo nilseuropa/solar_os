@@ -17,8 +17,7 @@
 #define SAY_USAGE \
     "say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] " \
     "[--speed <20..500>] [--drop-if-busy] " \
-    "([--force] --file <path> | [--] <text...>)"
-#define SAY_FILE_DEFAULT_MAX_BYTES (64U * 1024U)
+    "(--file <path> | [--] <text...>)"
 #define SAY_PROGRESS_BAR_MAX 32U
 
 typedef struct {
@@ -42,12 +41,8 @@ typedef struct {
     uint64_t bytes_total;
     uint64_t bytes_done;
     uint64_t bytes_submitted;
-    size_t pending_bytes;
     uint32_t request_id;
-    uint8_t volume;
-    uint16_t pitch;
-    uint16_t speed;
-    bool drop_if_busy;
+    bool final_submitted;
     say_progress_t progress;
     char path_arg[SOLAR_OS_STORAGE_PATH_MAX];
 } say_file_playback_t;
@@ -213,21 +208,12 @@ static esp_err_t say_read_file_chunk(FILE *file,
     }
     *bytes_consumed = chunk;
 
-    size_t start = bytes_done == 0U && chunk >= 3U &&
+    const size_t start = bytes_done == 0U && chunk >= 3U &&
             (uint8_t)text[0] == 0xefU &&
             (uint8_t)text[1] == 0xbbU &&
             (uint8_t)text[2] == 0xbfU ?
         3U : 0U;
-    size_t end = chunk;
-    while (start < end && (text[start] == ' ' || text[start] == '\t' ||
-                           text[start] == '\r' || text[start] == '\n')) {
-        start++;
-    }
-    while (end > start && (text[end - 1U] == ' ' || text[end - 1U] == '\t' ||
-                           text[end - 1U] == '\r' || text[end - 1U] == '\n')) {
-        end--;
-    }
-    *text_len = end - start;
+    *text_len = chunk - start;
     if (start > 0U && *text_len > 0U) {
         memmove(text, text + start, *text_len);
     }
@@ -338,8 +324,7 @@ static void say_file(solar_os_context_t *ctx,
                      uint8_t volume,
                      uint16_t pitch,
                      uint16_t speed,
-                     bool drop_if_busy,
-                     bool force)
+                     bool drop_if_busy)
 {
     if (say_file_playback.active) {
         solar_os_shell_io_writeln(io, "say: another file read is active");
@@ -368,17 +353,6 @@ static void say_file(solar_os_context_t *ctx,
         solar_os_shell_io_printf(io, "say: empty file: %s\n", path_arg);
         return;
     }
-    if (!force && (uint64_t)info.st_size > SAY_FILE_DEFAULT_MAX_BYTES) {
-        solar_os_shell_io_printf(
-            io,
-            "say: file too large: %s (%" PRIu64
-            " bytes; default limit %u); use --force to read it anyway\n",
-            path_arg,
-            (uint64_t)info.st_size,
-            (unsigned)SAY_FILE_DEFAULT_MAX_BYTES);
-        return;
-    }
-
     solar_os_speech_queue_status_t queue_status;
     solar_os_speech_queue_get_status(&queue_status);
     if (!queue_status.running) {
@@ -392,16 +366,28 @@ static void say_file(solar_os_context_t *ctx,
         return;
     }
 
+    const solar_os_speech_stream_options_t stream_options = {
+        .volume = volume,
+        .pitch = pitch,
+        .speed = speed,
+        .drop_if_busy = drop_if_busy,
+    };
+    uint32_t request_id = 0U;
+    const esp_err_t begin_err = solar_os_speech_stream_begin(
+        &stream_options, &request_id);
+    if (begin_err != ESP_OK) {
+        (void)fclose(file);
+        say_print_enqueue_error(io, begin_err);
+        return;
+    }
+
     memset(&say_file_playback, 0, sizeof(say_file_playback));
     say_file_playback.active = true;
     say_file_playback.file = file;
     say_file_playback.owner = owner;
     say_file_playback.io = io;
     say_file_playback.bytes_total = (uint64_t)info.st_size;
-    say_file_playback.volume = volume;
-    say_file_playback.pitch = pitch;
-    say_file_playback.speed = speed;
-    say_file_playback.drop_if_busy = drop_if_busy;
+    say_file_playback.request_id = request_id;
     say_file_playback.progress.hundredths = UINT16_MAX;
     strlcpy(say_file_playback.path_arg,
             path_arg,
@@ -421,6 +407,10 @@ static void say_file_finish(solar_os_context_t *ctx,
 {
     solar_os_shell_io_t *io = say_file_playback.io;
     solar_os_shell_session_t *owner = say_file_playback.owner;
+    if (say_file_playback.request_id != 0U &&
+        (stopped || err != ESP_OK || !say_file_playback.final_submitted)) {
+        (void)solar_os_speech_cancel(say_file_playback.request_id);
+    }
     const bool close_failed = say_file_playback.file != NULL &&
         fclose(say_file_playback.file) != 0;
     say_file_playback.file = NULL;
@@ -452,30 +442,40 @@ static void say_file_finish(solar_os_context_t *ctx,
 
 static void say_file_step(solar_os_context_t *ctx)
 {
-    if (say_file_playback.request_id != 0U) {
-        solar_os_speech_request_status_t status;
-        if (solar_os_speech_request_status(
-                say_file_playback.request_id, &status)) {
-            if (status.state == SOLAR_OS_SPEECH_REQUEST_COMPLETE) {
-                say_file_playback.request_id = 0U;
-                say_file_playback.bytes_done += say_file_playback.pending_bytes;
-                say_file_playback.pending_bytes = 0U;
-            } else if (status.state == SOLAR_OS_SPEECH_REQUEST_CANCELLED) {
-                say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
-            } else if (status.state == SOLAR_OS_SPEECH_REQUEST_DROPPED) {
-                say_file_finish(ctx, false, ESP_ERR_INVALID_STATE);
-            } else if (status.state == SOLAR_OS_SPEECH_REQUEST_FAILED) {
-                say_file_finish(ctx,
-                                false,
-                                status.error != ESP_OK ? status.error : ESP_FAIL);
-            }
+    solar_os_speech_request_status_t status;
+    if (solar_os_speech_request_status(
+            say_file_playback.request_id, &status)) {
+        if (status.state == SOLAR_OS_SPEECH_REQUEST_COMPLETE) {
+            say_file_playback.request_id = 0U;
+            say_file_finish(ctx, false, ESP_OK);
             return;
         }
+        if (status.state == SOLAR_OS_SPEECH_REQUEST_CANCELLED) {
+            say_file_playback.request_id = 0U;
+            say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
+            return;
+        }
+        if (status.state == SOLAR_OS_SPEECH_REQUEST_DROPPED) {
+            say_file_playback.request_id = 0U;
+            say_file_finish(ctx, false, ESP_ERR_INVALID_STATE);
+            return;
+        }
+        if (status.state == SOLAR_OS_SPEECH_REQUEST_FAILED) {
+            say_file_playback.request_id = 0U;
+            say_file_finish(ctx,
+                            false,
+                            status.error != ESP_OK ? status.error : ESP_FAIL);
+            return;
+        }
+    } else {
         solar_os_speech_queue_status_t queue_status;
         solar_os_speech_queue_get_status(&queue_status);
         if (!queue_status.running) {
             say_file_finish(ctx, false, ESP_ERR_INVALID_STATE);
         }
+        return;
+    }
+    if (say_file_playback.final_submitted) {
         return;
     }
 
@@ -491,10 +491,15 @@ static void say_file_step(solar_os_context_t *ctx)
                                                &bytes_consumed,
                                                &eof);
     if (err != ESP_OK || eof) {
-        say_file_finish(ctx, false, err);
+        say_file_finish(ctx,
+                        false,
+                        err != ESP_OK ? err : ESP_ERR_INVALID_SIZE);
         return;
     }
-    if (text_len == 0U) {
+    const bool final =
+        say_file_playback.bytes_done + bytes_consumed >=
+        say_file_playback.bytes_total;
+    if (text_len == 0U && !final) {
         say_file_playback.bytes_done += bytes_consumed;
         say_file_playback.bytes_submitted = say_file_playback.bytes_done;
         say_render_progress(say_file_playback.io,
@@ -504,23 +509,24 @@ static void say_file_step(solar_os_context_t *ctx)
         return;
     }
 
-    uint32_t request_id = 0U;
-    const esp_err_t enqueue_err = say_enqueue_text(
-        text,
+    const esp_err_t write_err = solar_os_speech_stream_write(
+        say_file_playback.request_id,
+        text_len > 0U ? text : NULL,
         text_len,
-        say_file_playback.volume,
-        say_file_playback.pitch,
-        say_file_playback.speed,
-        say_file_playback.drop_if_busy,
-        &request_id);
-    if (enqueue_err != ESP_OK) {
-        say_file_finish(ctx, false, enqueue_err);
+        final);
+    if (write_err == ESP_ERR_NO_MEM) {
+        if (fseek(say_file_playback.file, -(long)bytes_consumed, SEEK_CUR) != 0) {
+            say_file_finish(ctx, false, ESP_FAIL);
+        }
         return;
     }
-    say_file_playback.pending_bytes = bytes_consumed;
-    say_file_playback.request_id = request_id;
-    say_file_playback.bytes_submitted =
-        say_file_playback.bytes_done + bytes_consumed;
+    if (write_err != ESP_OK) {
+        say_file_finish(ctx, false, write_err);
+        return;
+    }
+    say_file_playback.bytes_done += bytes_consumed;
+    say_file_playback.bytes_submitted = say_file_playback.bytes_done;
+    say_file_playback.final_submitted = final;
     say_render_progress(say_file_playback.io,
                         &say_file_playback.progress,
                         say_file_playback.bytes_submitted,
@@ -580,7 +586,6 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
     uint16_t pitch = SOLAR_OS_SPEECH_PITCH_DEFAULT;
     uint16_t speed = SOLAR_OS_SPEECH_SPEED_DEFAULT;
     bool drop_if_busy = false;
-    bool force = false;
     const char *file_arg = NULL;
     int text_index = argc;
 
@@ -593,11 +598,6 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
         }
         if (strcmp(arg, "--drop-if-busy") == 0) {
             drop_if_busy = true;
-            index++;
-            continue;
-        }
-        if (strcmp(arg, "--force") == 0) {
-            force = true;
             index++;
             continue;
         }
@@ -691,7 +691,7 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
                                         "option",
                                         arg,
                                         "-v, --volume, --pitch, --speed, "
-                                        "--drop-if-busy, --force, --file, or --",
+                                        "--drop-if-busy, --file, or --",
                                         SAY_USAGE,
                                         false);
             return;
@@ -715,16 +715,7 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
                  volume,
                  pitch,
                  speed,
-                 drop_if_busy,
-                 force);
-        return;
-    }
-    if (force) {
-        solar_os_shell_diag_problem(io,
-                                    "say",
-                                    "--force requires --file",
-                                    SAY_USAGE,
-                                    NULL);
+                 drop_if_busy);
         return;
     }
     if (text_index >= argc) {
