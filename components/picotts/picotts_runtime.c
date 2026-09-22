@@ -7,6 +7,7 @@
 #include "picotts.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "esp_log.h"
@@ -23,8 +24,16 @@
 #define INPUT_QUEUE_WAIT_MS 20U
 #define EXIT_WAIT_MS 1000U
 #define INPUT_COOPERATIVE_BYTES 64U
-#define INPUT_PROGRESS_SLICE_BYTES 16U
 #define OUTPUT_COOPERATIVE_STEPS 8U
+#define PROGRESS_SEGMENT_BYTES 96U
+#define QUEUE_BYTE_MASK 0x00ffU
+#define QUEUE_COUNTS_PROGRESS 0x0100U
+#define QUEUE_SEGMENT_END 0x0200U
+#define QUEUE_UTTERANCE_END 0x0400U
+#define PICOTTS_PITCH_MIN 50U
+#define PICOTTS_PITCH_MAX 200U
+#define PICOTTS_SPEED_MIN 20U
+#define PICOTTS_SPEED_MAX 500U
 
 static picotts_output_fn output_callback;
 static picotts_error_notify_fn error_callback;
@@ -44,19 +53,17 @@ static portMUX_TYPE progress_lock = portMUX_INITIALIZER_UNLOCKED;
 static unsigned progress_done;
 static unsigned progress_total;
 
-static void pico_progress_reset(const char *text, unsigned length)
+static void pico_progress_reset(unsigned total)
 {
-    const unsigned total = length > 0U && text[length - 1U] == '\0' ?
-        length - 1U : length;
     portENTER_CRITICAL(&progress_lock);
     progress_done = 0U;
     progress_total = total;
     portEXIT_CRITICAL(&progress_lock);
 }
 
-static void pico_progress_accepted(uint8_t byte)
+static void pico_progress_accepted(bool counts_progress)
 {
-    if (byte == '\0') {
+    if (!counts_progress) {
         return;
     }
     portENTER_CRITICAL(&progress_lock);
@@ -108,6 +115,7 @@ static void pico_task_main(void *arg)
         WAITING_FOR_BYTES,
         WAITING_FOR_OUTPUT,
     } state = WAITING_FOR_BYTES;
+    bool segment_end_seen = false;
     bool utterance_end_seen = false;
     unsigned input_steps = 0U;
     unsigned output_steps = 0U;
@@ -117,12 +125,12 @@ static void pico_task_main(void *arg)
             break;
         }
 
-        uint8_t byte = 0U;
-        unsigned input_slice = 0U;
-        while (xQueuePeek(text_queue, &byte, 0) == pdPASS) {
+        uint16_t item = 0U;
+        while (xQueuePeek(text_queue, &item, 0) == pdPASS) {
             if (pico_exit_requested()) {
                 goto stopped;
             }
+            uint8_t byte = (uint8_t)(item & QUEUE_BYTE_MASK);
             int16_t processed = 0;
             const int result = pico_putTextUtf8(
                 pico_engine, &byte, 1, &processed);
@@ -132,12 +140,14 @@ static void pico_task_main(void *arg)
                 break;
             }
             if (processed != 0) {
-                (void)xQueueReceive(text_queue, &byte, 0);
-                pico_progress_accepted(byte);
+                (void)xQueueReceive(text_queue, &item, 0);
+                pico_progress_accepted(
+                    (item & QUEUE_COUNTS_PROGRESS) != 0U);
                 input_steps++;
-                input_slice++;
-                if (byte == '\0') {
-                    utterance_end_seen = true;
+                if ((item & QUEUE_SEGMENT_END) != 0U) {
+                    segment_end_seen = true;
+                    utterance_end_seen =
+                        (item & QUEUE_UTTERANCE_END) != 0U;
                 }
                 if (state == WAITING_FOR_BYTES) {
                     state = WAITING_FOR_OUTPUT;
@@ -146,7 +156,7 @@ static void pico_task_main(void *arg)
                     input_steps = 0U;
                     vTaskDelay(1);
                 }
-                if (input_slice >= INPUT_PROGRESS_SLICE_BYTES) {
+                if (segment_end_seen) {
                     state = WAITING_FOR_OUTPUT;
                     break;
                 }
@@ -164,7 +174,6 @@ static void pico_task_main(void *arg)
         }
 
         int status = PICO_STEP_IDLE;
-        bool produced_output = false;
         do {
             if (pico_exit_requested()) {
                 goto stopped;
@@ -175,7 +184,6 @@ static void pico_task_main(void *arg)
             status = pico_getData(
                 pico_engine, output, sizeof(output), &bytes, &type);
             if (bytes > 0 && output_callback != NULL) {
-                produced_output = true;
                 output_callback(output, (unsigned)bytes / 2U);
             }
             output_steps++;
@@ -190,8 +198,9 @@ static void pico_task_main(void *arg)
             failed = true;
         } else {
             state = WAITING_FOR_BYTES;
-            if (produced_output || utterance_end_seen) {
+            if (segment_end_seen) {
                 pico_progress_report();
+                segment_end_seen = false;
             }
             if (utterance_end_seen) {
                 utterance_end_seen = false;
@@ -319,7 +328,7 @@ bool picotts_init_resources(unsigned priority,
     PICO_INIT_CHECK("engine creation failed");
 #undef PICO_INIT_CHECK
 
-    text_queue = xQueueCreate(PICOTTS_INPUT_QUEUE_SIZE, sizeof(char));
+    text_queue = xQueueCreate(PICOTTS_INPUT_QUEUE_SIZE, sizeof(uint16_t));
     if (text_queue == NULL) {
         ESP_LOGE(TAG, "failed to create input queue");
         pico_cleanup();
@@ -339,26 +348,126 @@ bool picotts_init_resources(unsigned priority,
     return true;
 }
 
-bool picotts_add(const char *text,
-                 unsigned length,
-                 const volatile bool *cancelled)
+static bool pico_queue_item(uint16_t item,
+                            const volatile bool *cancelled)
 {
-    if (text == NULL || text_queue == NULL) {
+    if (text_queue == NULL) {
         return false;
     }
-    pico_progress_reset(text, length);
-    while (length-- > 0U) {
+    for (;;) {
         if (cancelled != NULL && *cancelled) {
             return false;
         }
         while (xQueueSendToBack(text_queue,
-                                text,
+                                &item,
                                 pdMS_TO_TICKS(INPUT_QUEUE_WAIT_MS)) != pdPASS) {
             if ((cancelled != NULL && *cancelled) || text_queue == NULL) {
                 return false;
             }
         }
-        ++text;
+        return true;
+    }
+}
+
+static bool pico_queue_bytes(const char *text,
+                             unsigned length,
+                             bool counts_progress,
+                             const volatile bool *cancelled)
+{
+    const uint16_t flags = counts_progress ? QUEUE_COUNTS_PROGRESS : 0U;
+    for (unsigned i = 0U; i < length; i++) {
+        if (!pico_queue_item(flags | (uint8_t)text[i], cancelled)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool pico_segment_break(uint8_t byte)
+{
+    return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n' ||
+        byte == '.' || byte == ',' || byte == ';' || byte == ':' ||
+        byte == '!' || byte == '?';
+}
+
+static unsigned pico_segment_length(const char *text, unsigned remaining)
+{
+    if (remaining <= PROGRESS_SEGMENT_BYTES) {
+        return remaining;
+    }
+    const unsigned minimum = PROGRESS_SEGMENT_BYTES / 2U;
+    for (unsigned i = PROGRESS_SEGMENT_BYTES; i > minimum; i--) {
+        if (pico_segment_break((uint8_t)text[i - 1U])) {
+            return i;
+        }
+    }
+
+    unsigned length = PROGRESS_SEGMENT_BYTES;
+    while (length > 0U &&
+           ((uint8_t)text[length] & 0xc0U) == 0x80U) {
+        length--;
+    }
+    return length > 0U ? length : PROGRESS_SEGMENT_BYTES;
+}
+
+bool picotts_add(const char *text,
+                 unsigned length,
+                 unsigned pitch,
+                 unsigned speed,
+                 const volatile bool *cancelled)
+{
+    if (text == NULL || text_queue == NULL || length == 0U ||
+        pitch < PICOTTS_PITCH_MIN || pitch > PICOTTS_PITCH_MAX ||
+        speed < PICOTTS_SPEED_MIN || speed > PICOTTS_SPEED_MAX) {
+        return false;
+    }
+    const unsigned text_length = text[length - 1U] == '\0' ? length - 1U : length;
+    if (text_length == 0U) {
+        return false;
+    }
+
+    char prefix[64];
+    const int prefix_length = snprintf(prefix,
+                                       sizeof(prefix),
+                                       "<pitch level=\"%u\"><speed level=\"%u\">",
+                                       pitch,
+                                       speed);
+    static const char suffix[] = "</speed></pitch>";
+    if (prefix_length <= 0 || (size_t)prefix_length >= sizeof(prefix)) {
+        return false;
+    }
+
+    pico_progress_reset(text_length);
+    if (!pico_queue_bytes(prefix,
+                          (unsigned)prefix_length,
+                          false,
+                          cancelled)) {
+        return false;
+    }
+
+    unsigned offset = 0U;
+    while (offset < text_length) {
+        const unsigned segment_length = pico_segment_length(
+            text + offset, text_length - offset);
+        if (!pico_queue_bytes(text + offset,
+                              segment_length,
+                              true,
+                              cancelled)) {
+            return false;
+        }
+        offset += segment_length;
+        const bool final = offset == text_length;
+        if (final && !pico_queue_bytes(suffix,
+                                       sizeof(suffix) - 1U,
+                                       false,
+                                       cancelled)) {
+            return false;
+        }
+        const uint16_t end = QUEUE_SEGMENT_END |
+            (final ? QUEUE_UTTERANCE_END : 0U);
+        if (!pico_queue_item(end, cancelled)) {
+            return false;
+        }
     }
     return true;
 }

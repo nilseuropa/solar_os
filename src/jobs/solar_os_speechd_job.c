@@ -411,7 +411,11 @@ static void speechd_run_request(const solar_os_speech_work_t *work)
     speechd.engine_idle = false;
     speechd.awaiting_idle = true;
     const bool queued = picotts_add(
-        work->text, strlen(work->text) + 1U, cancelled);
+        work->text,
+        strlen(work->text) + 1U,
+        work->pitch,
+        work->speed,
+        cancelled);
 
     if (!queued && !speechd.stop_requested &&
         (cancelled == NULL || !*cancelled)) {

@@ -173,15 +173,17 @@ utterance = solaros.speech.say("Solar O S is ready")
 print(solaros.speech.request_status(utterance))
 ```
 
-- `say(text[, volume[, drop_if_busy]])`: copy and queue up to 512 UTF-8 bytes,
+- `say(text[, volume[, drop_if_busy[, pitch[, speed]]]])`: copy and queue up to 512 UTF-8 bytes,
   return immediately, and return a request ID. Volume defaults to the global
   speaker volume. With `drop_if_busy=True`, drop a request rather than wait
-  behind speech or another audio owner; use `request_status()` to observe a
-  later audio-ownership drop.
+  behind speech or another audio owner. Pitch accepts 50 through 200 and speed
+  accepts 20 through 500; both default to 100. Use `request_status()` to
+  observe a later audio-ownership drop.
 - `cancel(request_id)`: remove queued speech or request cancellation of the
   active utterance.
-- `request_status(request_id)`: return `id`, `state`, `error`, and
-  `error_name`, or `None` after the bounded result history expires.
+- `request_status(request_id)`: return `id`, `state`, `error`, `error_name`,
+  `progress_done`, and `progress_total`, or `None` after the bounded result
+  history expires.
 - `queue_status()`: return running/current state, queue depth and capacity,
   and completion, cancellation, drop, and failure counters.
 

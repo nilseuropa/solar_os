@@ -11,6 +11,12 @@
 #define SOLAR_OS_SPEECH_TEXT_MAX 512U
 #define SOLAR_OS_SPEECH_QUEUE_CAPACITY 8U
 #define SOLAR_OS_SPEECH_RESULT_CAPACITY 8U
+#define SOLAR_OS_SPEECH_PITCH_MIN 50U
+#define SOLAR_OS_SPEECH_PITCH_MAX 200U
+#define SOLAR_OS_SPEECH_PITCH_DEFAULT 100U
+#define SOLAR_OS_SPEECH_SPEED_MIN 20U
+#define SOLAR_OS_SPEECH_SPEED_MAX 500U
+#define SOLAR_OS_SPEECH_SPEED_DEFAULT 100U
 
 typedef enum {
     SOLAR_OS_SPEECH_REQUEST_QUEUED,
@@ -26,6 +32,9 @@ typedef struct {
     const char *text;
     size_t text_len;
     uint8_t volume;
+    /* Zero selects PicoTTS's default value of 100. */
+    uint16_t pitch;
+    uint16_t speed;
     bool drop_if_busy;
 } solar_os_speech_request_t;
 
@@ -62,6 +71,8 @@ const char *solar_os_speech_request_state_name(
 typedef struct {
     uint32_t id;
     uint8_t volume;
+    uint16_t pitch;
+    uint16_t speed;
     bool drop_if_busy;
     char text[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
 } solar_os_speech_work_t;

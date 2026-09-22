@@ -32,6 +32,8 @@ bool picotts_init_resources(unsigned priority,
 
 bool picotts_add(const char *text,
                  unsigned length,
+                 unsigned pitch,
+                 unsigned speed,
                  const volatile bool *cancelled);
 bool picotts_shutdown(void);
 void picotts_set_error_notify(picotts_error_notify_fn callback);

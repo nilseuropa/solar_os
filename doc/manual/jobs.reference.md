@@ -1227,6 +1227,7 @@ Python, and Lua.
 ```text
 job start speechd /voices/en-US
 say "Solar O S is ready"
+say --pitch 85 --speed 120 "Solar O S is ready"
 say --file /documents/announcement.txt
 say --force --file /books/novel.txt
 job status speechd
@@ -1236,12 +1237,14 @@ job stop speechd
 `say --file <path>` validates and reads a plain UTF-8 text file in bounded
 chunks. It keeps the shell in a foreground playback mode, but advances from
 shell events so the display and progress bar refresh while speech is running.
-The moving marker shows active synthesis; the percentage advances after each
-bounded text chunk has finished playing.
+Within each file chunk, PicoTTS uses smaller word-safe synthesis segments so
+the percentage advances throughout speech without releasing the audio player.
 Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
 Files larger than 64 KiB are rejected before audio starts unless `--force` is
 present. Tab completion after `--file` lists filesystem paths. Ordinary
 `say <text...>` remains asynchronous and returns the queued request ID.
+`--pitch 50..200` and `--speed 20..500` use PicoTTS's native controls; both
+default to 100 and apply to ordinary text and file playback.
 
 The voice directory must contain `ta.bin` and `sg.bin`. No voice blobs are
 compiled into `firmware.bin`. The repository's top-level `picotts_voices/`

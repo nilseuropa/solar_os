@@ -1496,7 +1496,14 @@ static const char * const audio_volume_values[] = {"0", "25", "50", "75", "100"}
 
 #if SOLAR_OS_PACKAGE_JOB_SPEECHD
 static const char * const say_options[] = {
-    "-v", "--volume", "--drop-if-busy", "--force", "--file", "--",
+    "-v", "--volume", "--pitch", "--speed", "--drop-if-busy", "--force",
+    "--file", "--",
+};
+static const char * const say_pitch_values[] = {
+    "50", "75", "100", "125", "150", "175", "200",
+};
+static const char * const say_speed_values[] = {
+    "20", "50", "75", "100", "125", "150", "200", "300", "400", "500",
 };
 #endif
 
@@ -2558,6 +2565,8 @@ static const char * const path_audio_loopback_ms[] = {"audio", "loopback", SHELL
 static const char * const path_say[] = {"say"};
 static const char * const path_say_volume[] = {"say", "-v"};
 static const char * const path_say_volume_long[] = {"say", "--volume"};
+static const char * const path_say_pitch[] = {"say", "--pitch"};
+static const char * const path_say_speed[] = {"say", "--speed"};
 static const char * const path_say_file[] = {"say", "--file"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
@@ -3512,6 +3521,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_OPTIONS(path_say, say_options),
     SHELL_COMPLETION_STATIC(path_say_volume, audio_volume_values),
     SHELL_COMPLETION_STATIC(path_say_volume_long, audio_volume_values),
+    SHELL_COMPLETION_STATIC(path_say_pitch, say_pitch_values),
+    SHELL_COMPLETION_STATIC(path_say_speed, say_speed_values),
     SHELL_COMPLETION_PATH(path_say_file, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SSH

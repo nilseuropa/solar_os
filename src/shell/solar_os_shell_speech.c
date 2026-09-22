@@ -2,6 +2,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -14,7 +15,8 @@
 #include "solar_os_storage.h"
 
 #define SAY_USAGE \
-    "say [-v <0..100>] [--volume <0..100>] [--drop-if-busy] " \
+    "say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] " \
+    "[--speed <20..500>] [--drop-if-busy] " \
     "([--force] --file <path> | [--] <text...>)"
 #define SAY_FILE_DEFAULT_MAX_BYTES (64U * 1024U)
 #define SAY_PROGRESS_BAR_MAX 32U
@@ -42,6 +44,8 @@ typedef struct {
     size_t pending_bytes;
     uint32_t request_id;
     uint8_t volume;
+    uint16_t pitch;
+    uint16_t speed;
     bool drop_if_busy;
     say_progress_t progress;
     char path_arg[SOLAR_OS_STORAGE_PATH_MAX];
@@ -65,6 +69,20 @@ static bool say_append(char *text,
     memcpy(&text[*text_len], word, word_len);
     *text_len += word_len;
     text[*text_len] = '\0';
+    return true;
+}
+
+static bool say_parse_u16(const char *text, uint16_t *value)
+{
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+    char *end = NULL;
+    const unsigned long parsed = strtoul(text, &end, 10);
+    if (end == text || *end != '\0' || parsed > UINT16_MAX) {
+        return false;
+    }
+    *value = (uint16_t)parsed;
     return true;
 }
 
@@ -278,6 +296,8 @@ static void say_finish_progress(solar_os_shell_io_t *io,
 static esp_err_t say_enqueue_text(const char *text,
                                   size_t text_len,
                                   uint8_t volume,
+                                  uint16_t pitch,
+                                  uint16_t speed,
                                   bool drop_if_busy,
                                   uint32_t *request_id)
 {
@@ -285,6 +305,8 @@ static esp_err_t say_enqueue_text(const char *text,
         .text = text,
         .text_len = text_len,
         .volume = volume,
+        .pitch = pitch,
+        .speed = speed,
         .drop_if_busy = drop_if_busy,
     };
     return solar_os_speech_enqueue(&request, request_id);
@@ -313,6 +335,8 @@ static void say_file(solar_os_context_t *ctx,
                      solar_os_shell_io_t *io,
                      const char *path_arg,
                      uint8_t volume,
+                     uint16_t pitch,
+                     uint16_t speed,
                      bool drop_if_busy,
                      bool force)
 {
@@ -374,6 +398,8 @@ static void say_file(solar_os_context_t *ctx,
     say_file_playback.io = io;
     say_file_playback.bytes_total = (uint64_t)info.st_size;
     say_file_playback.volume = volume;
+    say_file_playback.pitch = pitch;
+    say_file_playback.speed = speed;
     say_file_playback.drop_if_busy = drop_if_busy;
     say_file_playback.progress.hundredths = UINT16_MAX;
     strlcpy(say_file_playback.path_arg,
@@ -501,6 +527,8 @@ static void say_file_step(solar_os_context_t *ctx)
         text,
         text_len,
         say_file_playback.volume,
+        say_file_playback.pitch,
+        say_file_playback.speed,
         say_file_playback.drop_if_busy,
         &request_id);
     if (enqueue_err != ESP_OK) {
@@ -561,6 +589,8 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     uint8_t volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
+    uint16_t pitch = SOLAR_OS_SPEECH_PITCH_DEFAULT;
+    uint16_t speed = SOLAR_OS_SPEECH_SPEED_DEFAULT;
     bool drop_if_busy = false;
     bool force = false;
     const char *file_arg = NULL;
@@ -623,13 +653,57 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
             index += 2;
             continue;
         }
+        if (strcmp(arg, "--pitch") == 0) {
+            if (index + 1 >= argc) {
+                solar_os_shell_diag_missing(io, "say", "pitch", SAY_USAGE);
+                return;
+            }
+            uint16_t parsed = 0U;
+            if (!say_parse_u16(argv[index + 1], &parsed) ||
+                parsed < SOLAR_OS_SPEECH_PITCH_MIN ||
+                parsed > SOLAR_OS_SPEECH_PITCH_MAX) {
+                solar_os_shell_diag_invalid(io,
+                                            "say",
+                                            "pitch",
+                                            argv[index + 1],
+                                            "50..200",
+                                            SAY_USAGE,
+                                            false);
+                return;
+            }
+            pitch = parsed;
+            index += 2;
+            continue;
+        }
+        if (strcmp(arg, "--speed") == 0) {
+            if (index + 1 >= argc) {
+                solar_os_shell_diag_missing(io, "say", "speed", SAY_USAGE);
+                return;
+            }
+            uint16_t parsed = 0U;
+            if (!say_parse_u16(argv[index + 1], &parsed) ||
+                parsed < SOLAR_OS_SPEECH_SPEED_MIN ||
+                parsed > SOLAR_OS_SPEECH_SPEED_MAX) {
+                solar_os_shell_diag_invalid(io,
+                                            "say",
+                                            "speed",
+                                            argv[index + 1],
+                                            "20..500",
+                                            SAY_USAGE,
+                                            false);
+                return;
+            }
+            speed = parsed;
+            index += 2;
+            continue;
+        }
         if (arg[0] == '-') {
             solar_os_shell_diag_invalid(io,
                                         "say",
                                         "option",
                                         arg,
-                                        "-v, --volume, --drop-if-busy, --force, "
-                                        "--file, or --",
+                                        "-v, --volume, --pitch, --speed, "
+                                        "--drop-if-busy, --force, --file, or --",
                                         SAY_USAGE,
                                         false);
             return;
@@ -647,7 +721,14 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
                                         NULL);
             return;
         }
-        say_file(ctx, io, file_arg, volume, drop_if_busy, force);
+        say_file(ctx,
+                 io,
+                 file_arg,
+                 volume,
+                 pitch,
+                 speed,
+                 drop_if_busy,
+                 force);
         return;
     }
     if (force) {
@@ -684,7 +765,13 @@ void solar_os_shell_cmd_say(solar_os_context_t *ctx, int argc, char **argv)
 
     uint32_t request_id = 0U;
     const esp_err_t err = say_enqueue_text(
-        text, text_len, volume, drop_if_busy, &request_id);
+        text,
+        text_len,
+        volume,
+        pitch,
+        speed,
+        drop_if_busy,
+        &request_id);
     if (err != ESP_OK) {
         say_print_enqueue_error(io, err);
         return;

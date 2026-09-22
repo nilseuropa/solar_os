@@ -5539,6 +5539,24 @@ static int solua_audio_play_wav(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+static uint16_t solua_speech_parameter(lua_State *L,
+                                       int index,
+                                       uint16_t fallback,
+                                       uint16_t minimum,
+                                       uint16_t maximum,
+                                       const char *name)
+{
+    const uint32_t value = solua_optional_u32(L, index, fallback);
+    if (value < minimum || value > maximum) {
+        luaL_error(L,
+                   "%s must be %u..%u",
+                   name,
+                   (unsigned)minimum,
+                   (unsigned)maximum);
+    }
+    return (uint16_t)value;
+}
+
 static int solua_speech_say(lua_State *L)
 {
     size_t text_len = 0U;
@@ -5549,6 +5567,18 @@ static int solua_speech_say(lua_State *L)
         .volume = lua_isnoneornil(L, 2) ?
             SOLAR_OS_AUDIO_VOLUME_GLOBAL : solua_check_u8(L, 2),
         .drop_if_busy = !lua_isnoneornil(L, 3) && lua_toboolean(L, 3),
+        .pitch = solua_speech_parameter(L,
+                                        4,
+                                        SOLAR_OS_SPEECH_PITCH_DEFAULT,
+                                        SOLAR_OS_SPEECH_PITCH_MIN,
+                                        SOLAR_OS_SPEECH_PITCH_MAX,
+                                        "pitch"),
+        .speed = solua_speech_parameter(L,
+                                        5,
+                                        SOLAR_OS_SPEECH_SPEED_DEFAULT,
+                                        SOLAR_OS_SPEECH_SPEED_MIN,
+                                        SOLAR_OS_SPEECH_SPEED_MAX,
+                                        "speed"),
     };
     uint32_t request_id = 0U;
     (void)solua_check_esp(L, solar_os_speech_enqueue(&request, &request_id));

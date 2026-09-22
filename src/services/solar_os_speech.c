@@ -9,6 +9,8 @@
 typedef struct {
     uint32_t id;
     uint8_t volume;
+    uint16_t pitch;
+    uint16_t speed;
     bool drop_if_busy;
     char text[SOLAR_OS_SPEECH_TEXT_MAX + 1U];
 } speech_queue_entry_t;
@@ -41,6 +43,20 @@ static portMUX_TYPE speech_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool speech_volume_valid(uint8_t volume)
 {
     return volume <= 100U || volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL;
+}
+
+static bool speech_pitch_valid(uint16_t pitch)
+{
+    return pitch == 0U ||
+        (pitch >= SOLAR_OS_SPEECH_PITCH_MIN &&
+         pitch <= SOLAR_OS_SPEECH_PITCH_MAX);
+}
+
+static bool speech_speed_valid(uint16_t speed)
+{
+    return speed == 0U ||
+        (speed >= SOLAR_OS_SPEECH_SPEED_MIN &&
+         speed <= SOLAR_OS_SPEECH_SPEED_MAX);
 }
 
 static esp_err_t speech_ensure_mutex(void)
@@ -111,7 +127,9 @@ esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
     if (request == NULL || request->text == NULL || request->text_len == 0U ||
         request->text_len > SOLAR_OS_SPEECH_TEXT_MAX ||
         memchr(request->text, '\0', request->text_len) != NULL ||
-        !speech_volume_valid(request->volume)) {
+        !speech_volume_valid(request->volume) ||
+        !speech_pitch_valid(request->pitch) ||
+        !speech_speed_valid(request->speed)) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t err = speech_ensure_mutex();
@@ -144,6 +162,10 @@ esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
         speech.next_id = 1U;
     }
     entry->volume = request->volume;
+    entry->pitch = request->pitch != 0U ?
+        request->pitch : SOLAR_OS_SPEECH_PITCH_DEFAULT;
+    entry->speed = request->speed != 0U ?
+        request->speed : SOLAR_OS_SPEECH_SPEED_DEFAULT;
     entry->drop_if_busy = request->drop_if_busy;
     memcpy(entry->text, request->text, request->text_len);
     entry->text[request->text_len] = '\0';
@@ -368,6 +390,8 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
             *work = (solar_os_speech_work_t){
                 .id = entry.id,
                 .volume = entry.volume,
+                .pitch = entry.pitch,
+                .speed = entry.speed,
                 .drop_if_busy = entry.drop_if_busy,
             };
             strlcpy(work->text, entry.text, sizeof(work->text));

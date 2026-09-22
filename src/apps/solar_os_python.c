@@ -5892,6 +5892,22 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_audio_play_wav_obj, 1, 2, solaros_au
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SPEECH
+static uint16_t python_speech_parameter(size_t n_args,
+                                        const mp_obj_t *args,
+                                        size_t index,
+                                        uint16_t fallback,
+                                        uint16_t minimum,
+                                        uint16_t maximum,
+                                        const char *message)
+{
+    const uint32_t value = python_optional_u32(
+        n_args, args, index, fallback);
+    if (value < minimum || value > maximum) {
+        mp_raise_ValueError(message);
+    }
+    return (uint16_t)value;
+}
+
 static mp_obj_t solaros_speech_say(size_t n_args, const mp_obj_t *args)
 {
     size_t text_len = 0U;
@@ -5902,13 +5918,29 @@ static mp_obj_t solaros_speech_say(size_t n_args, const mp_obj_t *args)
         .volume = python_optional_u8(
             n_args, args, 1, SOLAR_OS_AUDIO_VOLUME_GLOBAL),
         .drop_if_busy = n_args > 2U && mp_obj_is_true(args[2]),
+        .pitch = python_speech_parameter(
+            n_args,
+            args,
+            3U,
+            SOLAR_OS_SPEECH_PITCH_DEFAULT,
+            SOLAR_OS_SPEECH_PITCH_MIN,
+            SOLAR_OS_SPEECH_PITCH_MAX,
+            MP_ERROR_TEXT("pitch must be 50..200")),
+        .speed = python_speech_parameter(
+            n_args,
+            args,
+            4U,
+            SOLAR_OS_SPEECH_SPEED_DEFAULT,
+            SOLAR_OS_SPEECH_SPEED_MIN,
+            SOLAR_OS_SPEECH_SPEED_MAX,
+            MP_ERROR_TEXT("speed must be 20..500")),
     };
     uint32_t request_id = 0U;
     python_check_esp(solar_os_speech_enqueue(&request, &request_id));
     return mp_obj_new_int_from_uint(request_id);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
-    solaros_speech_say_obj, 1, 3, solaros_speech_say);
+    solaros_speech_say_obj, 1, 5, solaros_speech_say);
 
 static mp_obj_t solaros_speech_cancel(mp_obj_t request_id_obj)
 {

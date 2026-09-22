@@ -73,9 +73,9 @@ set_source_files_properties(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    # One complete 512-byte speech request plus its terminating NUL. This
-    # keeps request boundaries intact during normal cancellation.
-    PICOTTS_INPUT_QUEUE_SIZE=513
+    # One complete 512-byte request, pitch/speed markup, internal progress
+    # boundaries, and the final terminator.
+    PICOTTS_INPUT_QUEUE_SIZE=640
 )
 
 set(PICOTTS_VOICE_OUTPUT "${CMAKE_BINARY_DIR}/picotts_voices")

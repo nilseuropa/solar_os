@@ -39,8 +39,9 @@ agent_reference_sections = true
 
 - `solaros.speech`: `say`, `cancel`, `request_status`, and `queue_status` when
   offline speech is compiled. Start `speechd` first. `say(text[, volume[,
-  drop_if_busy]])` copies up to 512 UTF-8 bytes, returns immediately, and
-  returns a request ID.
+  drop_if_busy[, pitch[, speed]]]])` copies up to 512 UTF-8 bytes, returns
+  immediately, and returns a request ID. Pitch accepts 50 through 200 and
+  speed accepts 20 through 500; both default to 100.
 
 ```lua
 solaros.jobs.start("speechd", {"/voices/en-US"})

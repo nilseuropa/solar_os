@@ -94,13 +94,17 @@ class SpeechServiceTest(unittest.TestCase):
         )
 
     def test_picotts_input_wait_is_bounded_and_cancellable(self):
-        self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=513", PICOTTS_CMAKE)
+        self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=640", PICOTTS_CMAKE)
         self.assertIn("const volatile bool *cancelled", PICOTTS_HEADER)
-        add = PICOTTS_RUNTIME.split("bool picotts_add(", 1)[1]
-        add = add.split("bool picotts_shutdown(", 1)[0]
-        self.assertIn("INPUT_QUEUE_WAIT_MS", add)
-        self.assertIn("*cancelled", add)
-        self.assertNotIn("portMAX_DELAY", add)
+        self.assertIn(
+            "xQueueCreate(PICOTTS_INPUT_QUEUE_SIZE, sizeof(uint16_t))",
+            PICOTTS_RUNTIME,
+        )
+        enqueue = PICOTTS_RUNTIME.split("static bool pico_queue_item(", 1)[1]
+        enqueue = enqueue.split("static bool pico_queue_bytes(", 1)[0]
+        self.assertIn("INPUT_QUEUE_WAIT_MS", enqueue)
+        self.assertIn("*cancelled", enqueue)
+        self.assertNotIn("portMAX_DELAY", enqueue)
 
     def test_picotts_drains_output_when_its_input_buffer_is_full(self):
         task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
@@ -117,13 +121,30 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("OUTPUT_COOPERATIVE_STEPS", task)
         self.assertGreaterEqual(task.count("vTaskDelay(1);"), 2)
 
-    def test_picotts_reports_pcm_generation_progress(self):
+    def test_picotts_reports_completed_synthesis_segments(self):
         self.assertIn("picotts_progress_notify_fn", PICOTTS_HEADER)
-        self.assertIn("INPUT_PROGRESS_SLICE_BYTES", PICOTTS_RUNTIME)
-        self.assertIn("if (produced_output || utterance_end_seen)", PICOTTS_RUNTIME)
+        self.assertIn("PROGRESS_SEGMENT_BYTES", PICOTTS_RUNTIME)
+        self.assertIn("QUEUE_SEGMENT_END", PICOTTS_RUNTIME)
+        self.assertIn("if (segment_end_seen)", PICOTTS_RUNTIME)
         self.assertIn("pico_progress_report();", PICOTTS_RUNTIME)
         self.assertIn("picotts_set_progress_notify(speechd_progress)", JOB_SOURCE)
         self.assertIn("solar_os_speech_worker_set_progress(", JOB_SOURCE)
+
+    def test_pitch_and_speed_flow_through_speech_api(self):
+        self.assertIn("SOLAR_OS_SPEECH_PITCH_MIN 50U", SERVICE_HEADER)
+        self.assertIn("SOLAR_OS_SPEECH_PITCH_MAX 200U", SERVICE_HEADER)
+        self.assertIn("SOLAR_OS_SPEECH_SPEED_MIN 20U", SERVICE_HEADER)
+        self.assertIn("SOLAR_OS_SPEECH_SPEED_MAX 500U", SERVICE_HEADER)
+        self.assertIn("request->pitch", SERVICE_SOURCE)
+        self.assertIn("request->speed", SERVICE_SOURCE)
+        self.assertIn("work->pitch", JOB_SOURCE)
+        self.assertIn("work->speed", JOB_SOURCE)
+        self.assertIn('"<pitch level=', PICOTTS_RUNTIME)
+        self.assertIn('<speed level=', PICOTTS_RUNTIME)
+        self.assertIn("solaros_speech_say_obj, 1, 5", PYTHON_SOURCE)
+        for source in (PYTHON_SOURCE, LUA_SOURCE):
+            self.assertIn("SOLAR_OS_SPEECH_PITCH_DEFAULT", source)
+            self.assertIn("SOLAR_OS_SPEECH_SPEED_DEFAULT", source)
 
     def test_picotts_shutdown_wait_is_bounded(self):
         cleanup = PICOTTS_RUNTIME.split("static bool pico_cleanup(", 1)[1]
@@ -176,8 +197,12 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn('"say", "speak text or a text file"', SHELL_REGISTRY)
         self.assertIn("solar_os_speech_enqueue(&request, request_id)", SHELL_SOURCE)
         self.assertIn("--drop-if-busy", SHELL_SOURCE)
+        self.assertIn('strcmp(arg, "--pitch") == 0', SHELL_SOURCE)
+        self.assertIn('strcmp(arg, "--speed") == 0', SHELL_SOURCE)
         self.assertIn("job start speechd", SHELL_SOURCE)
         self.assertIn("SHELL_COMPLETION_OPTIONS(path_say, say_options)", SHELL_REGISTRY)
+        self.assertIn("SHELL_COMPLETION_STATIC(path_say_pitch", SHELL_REGISTRY)
+        self.assertIn("SHELL_COMPLETION_STATIC(path_say_speed", SHELL_REGISTRY)
 
     def test_say_reads_plain_text_files_with_progress_and_cancellation(self):
         self.assertIn('strcmp(arg, "--file") == 0', SHELL_SOURCE)
@@ -209,7 +234,8 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("SAY_FILE_DEFAULT_MAX_BYTES", SHELL_SOURCE)
         self.assertIn("use --force to read it anyway", SHELL_SOURCE)
         self.assertIn('strcmp(arg, "--force") == 0', SHELL_SOURCE)
-        self.assertIn('"--force", "--file"', SHELL_REGISTRY)
+        self.assertIn('"--force"', SHELL_REGISTRY)
+        self.assertIn('"--file"', SHELL_REGISTRY)
         self.assertIn(
             "SHELL_COMPLETION_PATH(path_say_file, false)",
             SHELL_REGISTRY,
