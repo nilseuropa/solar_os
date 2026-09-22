@@ -1237,8 +1237,9 @@ job stop speechd
 `say --file <path>` validates and reads a plain UTF-8 text file in bounded
 chunks. It keeps the shell in a foreground playback mode, but advances from
 shell events so the display and progress bar refresh while speech is running.
-Within each file chunk, PicoTTS uses smaller word-safe synthesis segments so
-the percentage advances throughout speech without releasing the audio player.
+The percentage is submitted-file progress: it advances whenever the next
+bounded chunk is accepted by `speechd`. Only one file chunk is outstanding, so
+the next advance occurs after the preceding chunk finishes.
 Press `Esc` or `Ctrl+C` to cancel the current speech request and stop reading.
 Files larger than 64 KiB are rejected before audio starts unless `--force` is
 present. Tab completion after `--file` lists filesystem paths. Ordinary

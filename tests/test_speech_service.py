@@ -94,7 +94,7 @@ class SpeechServiceTest(unittest.TestCase):
         )
 
     def test_picotts_input_wait_is_bounded_and_cancellable(self):
-        self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=640", PICOTTS_CMAKE)
+        self.assertIn("PICOTTS_INPUT_QUEUE_SIZE=576", PICOTTS_CMAKE)
         self.assertIn("const volatile bool *cancelled", PICOTTS_HEADER)
         self.assertIn(
             "xQueueCreate(PICOTTS_INPUT_QUEUE_SIZE, sizeof(uint16_t))",
@@ -121,12 +121,12 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("OUTPUT_COOPERATIVE_STEPS", task)
         self.assertGreaterEqual(task.count("vTaskDelay(1);"), 2)
 
-    def test_picotts_reports_completed_synthesis_segments(self):
+    def test_picotts_reports_completed_synthesis_input(self):
         self.assertIn("picotts_progress_notify_fn", PICOTTS_HEADER)
-        self.assertIn("PROGRESS_SEGMENT_BYTES", PICOTTS_RUNTIME)
         self.assertIn("QUEUE_SEGMENT_END", PICOTTS_RUNTIME)
         self.assertIn("if (segment_end_seen)", PICOTTS_RUNTIME)
         self.assertIn("pico_progress_report();", PICOTTS_RUNTIME)
+        self.assertNotIn("PROGRESS_SEGMENT_BYTES", PICOTTS_RUNTIME)
         self.assertIn("picotts_set_progress_notify(speechd_progress)", JOB_SOURCE)
         self.assertIn("solar_os_speech_worker_set_progress(", JOB_SOURCE)
 
@@ -211,8 +211,17 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn("say_render_progress", SHELL_SOURCE)
         self.assertIn("bytes_done * 10000U", SHELL_SOURCE)
         self.assertIn('"] %3u.%02u%%"', SHELL_SOURCE)
-        self.assertIn("status.progress_done", SHELL_SOURCE)
-        self.assertIn("status.progress_total", SHELL_SOURCE)
+        self.assertIn("bytes_submitted", SHELL_SOURCE)
+        self.assertNotIn("status.progress_done", SHELL_SOURCE)
+        self.assertNotIn("status.progress_total", SHELL_SOURCE)
+        enqueue = SHELL_SOURCE.split(
+            "const esp_err_t enqueue_err = say_enqueue_text(", 1
+        )[1]
+        enqueue = enqueue.split("bool solar_os_shell_speech_file_event", 1)[0]
+        self.assertLess(
+            enqueue.index("say_file_playback.request_id = request_id"),
+            enqueue.index("say_render_progress("),
+        )
         self.assertNotIn("activity_phase", SHELL_SOURCE)
         self.assertIn("solar_os_speech_request_status", SHELL_SOURCE)
         self.assertIn(

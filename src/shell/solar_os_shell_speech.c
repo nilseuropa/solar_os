@@ -41,6 +41,7 @@ typedef struct {
     solar_os_shell_io_t *io;
     uint64_t bytes_total;
     uint64_t bytes_done;
+    uint64_t bytes_submitted;
     size_t pending_bytes;
     uint32_t request_id;
     uint8_t volume;
@@ -459,10 +460,6 @@ static void say_file_step(solar_os_context_t *ctx)
                 say_file_playback.request_id = 0U;
                 say_file_playback.bytes_done += say_file_playback.pending_bytes;
                 say_file_playback.pending_bytes = 0U;
-                say_render_progress(say_file_playback.io,
-                                    &say_file_playback.progress,
-                                    say_file_playback.bytes_done,
-                                    say_file_playback.bytes_total);
             } else if (status.state == SOLAR_OS_SPEECH_REQUEST_CANCELLED) {
                 say_file_finish(ctx, true, ESP_ERR_TIMEOUT);
             } else if (status.state == SOLAR_OS_SPEECH_REQUEST_DROPPED) {
@@ -471,22 +468,6 @@ static void say_file_step(solar_os_context_t *ctx)
                 say_file_finish(ctx,
                                 false,
                                 status.error != ESP_OK ? status.error : ESP_FAIL);
-            } else if (status.progress_total > 0U) {
-                size_t request_done = status.progress_done;
-                if (request_done > status.progress_total) {
-                    request_done = status.progress_total;
-                }
-                uint64_t pending_done =
-                    ((uint64_t)say_file_playback.pending_bytes * request_done) /
-                    status.progress_total;
-                if (pending_done >= say_file_playback.pending_bytes &&
-                    say_file_playback.pending_bytes > 0U) {
-                    pending_done = say_file_playback.pending_bytes - 1U;
-                }
-                say_render_progress(say_file_playback.io,
-                                    &say_file_playback.progress,
-                                    say_file_playback.bytes_done + pending_done,
-                                    say_file_playback.bytes_total);
             }
             return;
         }
@@ -515,9 +496,10 @@ static void say_file_step(solar_os_context_t *ctx)
     }
     if (text_len == 0U) {
         say_file_playback.bytes_done += bytes_consumed;
+        say_file_playback.bytes_submitted = say_file_playback.bytes_done;
         say_render_progress(say_file_playback.io,
                             &say_file_playback.progress,
-                            say_file_playback.bytes_done,
+                            say_file_playback.bytes_submitted,
                             say_file_playback.bytes_total);
         return;
     }
@@ -537,6 +519,12 @@ static void say_file_step(solar_os_context_t *ctx)
     }
     say_file_playback.pending_bytes = bytes_consumed;
     say_file_playback.request_id = request_id;
+    say_file_playback.bytes_submitted =
+        say_file_playback.bytes_done + bytes_consumed;
+    say_render_progress(say_file_playback.io,
+                        &say_file_playback.progress,
+                        say_file_playback.bytes_submitted,
+                        say_file_playback.bytes_total);
 }
 
 bool solar_os_shell_speech_file_event(solar_os_context_t *ctx,

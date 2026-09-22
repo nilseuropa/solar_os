@@ -25,7 +25,6 @@
 #define EXIT_WAIT_MS 1000U
 #define INPUT_COOPERATIVE_BYTES 64U
 #define OUTPUT_COOPERATIVE_STEPS 8U
-#define PROGRESS_SEGMENT_BYTES 96U
 #define QUEUE_BYTE_MASK 0x00ffU
 #define QUEUE_COUNTS_PROGRESS 0x0100U
 #define QUEUE_SEGMENT_END 0x0200U
@@ -383,33 +382,6 @@ static bool pico_queue_bytes(const char *text,
     return true;
 }
 
-static bool pico_segment_break(uint8_t byte)
-{
-    return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n' ||
-        byte == '.' || byte == ',' || byte == ';' || byte == ':' ||
-        byte == '!' || byte == '?';
-}
-
-static unsigned pico_segment_length(const char *text, unsigned remaining)
-{
-    if (remaining <= PROGRESS_SEGMENT_BYTES) {
-        return remaining;
-    }
-    const unsigned minimum = PROGRESS_SEGMENT_BYTES / 2U;
-    for (unsigned i = PROGRESS_SEGMENT_BYTES; i > minimum; i--) {
-        if (pico_segment_break((uint8_t)text[i - 1U])) {
-            return i;
-        }
-    }
-
-    unsigned length = PROGRESS_SEGMENT_BYTES;
-    while (length > 0U &&
-           ((uint8_t)text[length] & 0xc0U) == 0x80U) {
-        length--;
-    }
-    return length > 0U ? length : PROGRESS_SEGMENT_BYTES;
-}
-
 bool picotts_add(const char *text,
                  unsigned length,
                  unsigned pitch,
@@ -445,29 +417,14 @@ bool picotts_add(const char *text,
         return false;
     }
 
-    unsigned offset = 0U;
-    while (offset < text_length) {
-        const unsigned segment_length = pico_segment_length(
-            text + offset, text_length - offset);
-        if (!pico_queue_bytes(text + offset,
-                              segment_length,
-                              true,
-                              cancelled)) {
-            return false;
-        }
-        offset += segment_length;
-        const bool final = offset == text_length;
-        if (final && !pico_queue_bytes(suffix,
-                                       sizeof(suffix) - 1U,
-                                       false,
-                                       cancelled)) {
-            return false;
-        }
-        const uint16_t end = QUEUE_SEGMENT_END |
-            (final ? QUEUE_UTTERANCE_END : 0U);
-        if (!pico_queue_item(end, cancelled)) {
-            return false;
-        }
+    if (!pico_queue_bytes(text, text_length, true, cancelled) ||
+        !pico_queue_bytes(suffix,
+                          sizeof(suffix) - 1U,
+                          false,
+                          cancelled) ||
+        !pico_queue_item(QUEUE_SEGMENT_END | QUEUE_UTTERANCE_END,
+                         cancelled)) {
+        return false;
     }
     return true;
 }
