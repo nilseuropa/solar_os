@@ -312,14 +312,15 @@ typedef struct {
 #endif
 } python_cold_state_t;
 
-static void *python_state;
-#define python_app (((python_cold_state_t *)python_state)->app)
-#define python_fallback_io (((python_cold_state_t *)python_state)->fallback_io)
+static void *python_app_state;
+static python_cold_state_t *python_runtime_state;
+#define python_app (python_runtime_state->app)
+#define python_fallback_io (python_runtime_state->fallback_io)
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
 #define python_midi_subscription \
-    (((python_cold_state_t *)python_state)->midi_subscription)
+    (python_runtime_state->midi_subscription)
 #define python_midi_subscribed \
-    (((python_cold_state_t *)python_state)->midi_subscribed)
+    (python_runtime_state->midi_subscribed)
 #endif
 static solar_os_script_run_control_t *python_runner_control;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("runtime ownership spinlock")
@@ -354,6 +355,7 @@ static void python_runtime_release(python_runtime_owner_t owner)
     portENTER_CRITICAL(&python_runtime_lock);
     if (python_runtime_owner == owner) {
         python_runtime_owner = PYTHON_RUNTIME_OWNER_NONE;
+        python_runtime_state = NULL;
         python_tick_interval_ms = 0;
     }
     portEXIT_CRITICAL(&python_runtime_lock);
@@ -8702,6 +8704,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
                               solar_os_script_run_result_t *result)
 {
     solar_os_script_run_control_t control;
+    python_cold_state_t *runner_state = NULL;
     esp_err_t err = solar_os_script_run_begin(request, result, &control);
     if (err != ESP_OK) {
         return err;
@@ -8714,6 +8717,18 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
     }
 
     uint8_t *loaded_source = NULL;
+    runner_state = solar_os_memory_calloc(
+        1,
+        sizeof(*runner_state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "python.runner-state");
+    if (runner_state == NULL) {
+        solar_os_script_run_error(&control,
+                                  ESP_ERR_NO_MEM,
+                                  "Python state allocation failed");
+        goto cleanup;
+    }
+    python_runtime_state = runner_state;
     memset(&python_app, 0, sizeof(python_app));
     python_app.ctx = request->context;
     python_app.argc = request->argc;
@@ -8820,6 +8835,7 @@ cleanup:
     python_runner_control = NULL;
     solar_os_memory_free(loaded_source);
     python_runtime_release(PYTHON_RUNTIME_OWNER_RUNNER);
+    solar_os_memory_free(runner_state);
     return result->status;
 }
 
@@ -9089,8 +9105,9 @@ static void python_return_to_shell(solar_os_context_t *ctx,
                                    int exit_code,
                                    const char *message)
 {
-    const bool shared_port = solar_os_shell_io_kind(python_io(ctx)) ==
-        SOLAR_OS_SHELL_IO_KIND_PORT;
+    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+    const bool shared_port = io != NULL &&
+        solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT;
     solar_os_context_finish(ctx,
                                          exit_code,
                                          shared_port ? NULL : message);
@@ -9224,20 +9241,24 @@ static esp_err_t python_start(solar_os_context_t *ctx)
     solar_os_context_set_app_class(
         ctx,
         repl_mode ? SOLAR_OS_APP_CLASS_TUI : SOLAR_OS_APP_CLASS_COMMAND);
-    solar_os_shell_io_t *io = python_io(ctx);
     if (!python_runtime_claim(PYTHON_RUNTIME_OWNER_APP)) {
-        solar_os_shell_io_writeln(io, "python: runtime is already in use");
-        solar_os_shell_io_flush(io);
+        solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+        if (io != NULL) {
+            solar_os_shell_io_writeln(io, "python: runtime is already in use");
+            solar_os_shell_io_flush(io);
+        }
         python_return_to_shell(ctx, 1, "python: runtime is already in use");
         return ESP_OK;
     }
+
+    python_runtime_state = (python_cold_state_t *)python_app_state;
 
     memset(&python_app, 0, sizeof(python_app));
     python_app.ctx = ctx;
     python_app.session_terminal = solar_os_context_terminal(ctx);
     python_app.session_gfx = solar_os_context_gfx(ctx);
 
-    io = python_io(ctx);
+    solar_os_shell_io_t *io = python_io(ctx);
     python_app.session_io = io;
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "python: too many arguments");
@@ -9955,7 +9976,7 @@ const solar_os_app_t solar_os_python_app = {
     .start = python_start,
     .stop = python_stop,
     .event = python_event,
-    .state_slot = &python_state,
+    .state_slot = &python_app_state,
     .state_size = sizeof(python_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = PYTHON_TASK_STACK,

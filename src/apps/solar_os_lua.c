@@ -300,13 +300,14 @@ typedef struct {
 #endif
 } solua_cold_state_t;
 
-static void *solua_state;
-#define solua (((solua_cold_state_t *)solua_state)->app)
+static void *solua_app_state;
+static solua_cold_state_t *solua_runtime_state;
+#define solua (solua_runtime_state->app)
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
 #define solua_midi_subscription \
-    (((solua_cold_state_t *)solua_state)->midi_subscription)
+    (solua_runtime_state->midi_subscription)
 #define solua_midi_subscribed \
-    (((solua_cold_state_t *)solua_state)->midi_subscribed)
+    (solua_runtime_state->midi_subscribed)
 #endif
 static solar_os_script_run_control_t *solua_runner_control;
 SOLAR_OS_APP_STATIC_SRAM_EXCEPTION("runtime ownership spinlock")
@@ -341,6 +342,7 @@ static void solua_runtime_release(solua_runtime_owner_t owner)
     portENTER_CRITICAL(&solua_runtime_lock);
     if (solua_runtime_owner == owner) {
         solua_runtime_owner = SOLUA_RUNTIME_OWNER_NONE;
+        solua_runtime_state = NULL;
         solua_tick_interval_ms = 0;
     }
     portEXIT_CRITICAL(&solua_runtime_lock);
@@ -394,8 +396,9 @@ static void solua_return_to_shell(solar_os_context_t *ctx,
                                   int exit_code,
                                   const char *message)
 {
-    const bool shared_port = solar_os_shell_io_kind(solua_io(ctx)) ==
-        SOLAR_OS_SHELL_IO_KIND_PORT;
+    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+    const bool shared_port = io != NULL &&
+        solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT;
     solar_os_context_finish(ctx,
                                          exit_code,
                                          shared_port ? NULL : message);
@@ -8060,6 +8063,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
                            solar_os_script_run_result_t *result)
 {
     solar_os_script_run_control_t control;
+    solua_cold_state_t *runner_state = NULL;
     esp_err_t err = solar_os_script_run_begin(request, result, &control);
     if (err != ESP_OK) {
         return err;
@@ -8071,6 +8075,18 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
         return result->status;
     }
 
+    runner_state = solar_os_memory_calloc(
+        1,
+        sizeof(*runner_state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "lua.runner-state");
+    if (runner_state == NULL) {
+        solar_os_script_run_error(&control,
+                                  ESP_ERR_NO_MEM,
+                                  "Lua state allocation failed");
+        goto cleanup;
+    }
+    solua_runtime_state = runner_state;
     memset(&solua, 0, sizeof(solua));
     solua.ctx = request->context;
     solua.argc = request->argc;
@@ -8187,6 +8203,7 @@ cleanup:
 #endif
     solua_runner_control = NULL;
     solua_runtime_release(SOLUA_RUNTIME_OWNER_RUNNER);
+    solar_os_memory_free(runner_state);
     return result->status;
 }
 
@@ -8344,20 +8361,24 @@ static esp_err_t solua_start(solar_os_context_t *ctx)
     solar_os_context_set_app_class(
         ctx,
         repl_mode ? SOLAR_OS_APP_CLASS_TUI : SOLAR_OS_APP_CLASS_COMMAND);
-    solar_os_shell_io_t *io = solua_io(ctx);
     if (!solua_runtime_claim(SOLUA_RUNTIME_OWNER_APP)) {
-        solar_os_shell_io_writeln(io, "lua: runtime is already in use");
-        solar_os_shell_io_flush(io);
+        solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
+        if (io != NULL) {
+            solar_os_shell_io_writeln(io, "lua: runtime is already in use");
+            solar_os_shell_io_flush(io);
+        }
         solua_return_to_shell(ctx, 1, "lua: runtime is already in use");
         return ESP_OK;
     }
+
+    solua_runtime_state = (solua_cold_state_t *)solua_app_state;
 
     memset(&solua, 0, sizeof(solua));
     solua.ctx = ctx;
     solua.session_terminal = solar_os_context_terminal(ctx);
     solua.session_gfx = solar_os_context_gfx(ctx);
 
-    io = solua_io(ctx);
+    solar_os_shell_io_t *io = solua_io(ctx);
     solua.session_io = io;
     if (argc > SOLAR_OS_APP_ARG_MAX) {
         solar_os_shell_io_writeln(io, "lua: too many arguments");
@@ -9146,7 +9167,7 @@ const solar_os_app_t solar_os_lua_app = {
     .start = solua_start,
     .stop = solua_stop,
     .event = solua_event,
-    .state_slot = &solua_state,
+    .state_slot = &solua_app_state,
     .state_size = sizeof(solua_cold_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .worker_stack_bytes = SOLUA_TASK_STACK,
