@@ -26,7 +26,7 @@
 #define EXIT_WAIT_MS 1000U
 #define ABORT_WAIT_MS 1000U
 #define INPUT_COOPERATIVE_BYTES 64U
-#define OUTPUT_COOPERATIVE_STEPS 8U
+#define OUTPUT_COOPERATIVE_INTERVAL_MS 8U
 #define QUEUE_BYTE_MASK 0x00ffU
 #define QUEUE_COUNTS_PROGRESS 0x0100U
 #define QUEUE_SEGMENT_END 0x0200U
@@ -121,7 +121,7 @@ static void pico_task_main(void *arg)
     bool segment_end_seen = false;
     bool utterance_end_seen = false;
     unsigned input_steps = 0U;
-    unsigned output_steps = 0U;
+    TickType_t last_output_yield = xTaskGetTickCount();
 
     while (!failed) {
         uint32_t control = pico_control_flags(0);
@@ -207,10 +207,11 @@ static void pico_task_main(void *arg)
             if (bytes > 0 && output_callback != NULL) {
                 output_callback(output, (unsigned)bytes / 2U);
             }
-            output_steps++;
-            if (output_steps >= OUTPUT_COOPERATIVE_STEPS) {
-                output_steps = 0U;
+            const TickType_t now = xTaskGetTickCount();
+            if (now - last_output_yield >=
+                pdMS_TO_TICKS(OUTPUT_COOPERATIVE_INTERVAL_MS)) {
                 vTaskDelay(1);
+                last_output_yield = xTaskGetTickCount();
             }
         } while (status == PICO_STEP_BUSY);
 
@@ -249,7 +250,7 @@ aborted:
             segment_end_seen = false;
             utterance_end_seen = false;
             input_steps = 0U;
-            output_steps = 0U;
+            last_output_yield = xTaskGetTickCount();
             if (abort_done != NULL) {
                 (void)xSemaphoreGive(abort_done);
             }

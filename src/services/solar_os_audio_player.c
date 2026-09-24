@@ -17,6 +17,7 @@
 #define AUDIO_PLAYER_BLOCK_BYTES 4096U
 #define AUDIO_PLAYER_POLL_MS 20U
 #define AUDIO_PLAYER_SINK_TIMEOUT_MS 1000U
+#define AUDIO_PLAYER_RAMP_FRAMES 64U
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(AUDIO_PLAYER_TASK_STACK);
 
 struct solar_os_audio_player {
@@ -32,6 +33,10 @@ struct solar_os_audio_player {
     SemaphoreHandle_t buffer_mutex;
     bool buffer_mutex_external;
     int16_t *sink;
+    int16_t *transition;
+    int16_t last_frame[2];
+    bool fade_in_pending;
+    uint32_t underruns;
     TaskHandle_t task;
     volatile bool ready;
     volatile bool done;
@@ -143,6 +148,101 @@ static size_t audio_player_target(const solar_os_audio_player_t *player)
     return target;
 }
 
+static void audio_player_wait_played(const solar_os_audio_player_t *player,
+                                     size_t bytes)
+{
+    const uint64_t bytes_per_second =
+        (uint64_t)player->stream.audio.sample_rate *
+        player->stream.audio.channels * sizeof(int16_t);
+    if (bytes_per_second == 0U || bytes == 0U) {
+        return;
+    }
+    const uint32_t duration_ms = (uint32_t)(
+        ((uint64_t)bytes * 1000U + bytes_per_second - 1U) /
+        bytes_per_second);
+    TickType_t ticks = pdMS_TO_TICKS(duration_ms);
+    if (ticks == 0U) {
+        ticks = 1U;
+    }
+    vTaskDelay(ticks);
+}
+
+static void audio_player_remember_tail(solar_os_audio_player_t *player,
+                                       const int16_t *samples,
+                                       size_t bytes)
+{
+    const uint8_t channels = player->stream.audio.channels;
+    const size_t frame_bytes = channels * sizeof(*samples);
+    if (samples == NULL || channels == 0U || channels > 2U ||
+        bytes < frame_bytes) {
+        return;
+    }
+    const size_t last = bytes / frame_bytes - 1U;
+    player->last_frame[0] = samples[last * channels];
+    player->last_frame[1] = channels > 1U ?
+        samples[last * channels + 1U] : player->last_frame[0];
+}
+
+static void audio_player_fade_in(solar_os_audio_player_t *player,
+                                 int16_t *samples,
+                                 size_t bytes)
+{
+    if (!player->fade_in_pending || samples == NULL) {
+        return;
+    }
+    const uint8_t channels = player->stream.audio.channels;
+    const size_t frame_bytes = channels * sizeof(*samples);
+    size_t frames = frame_bytes > 0U ? bytes / frame_bytes : 0U;
+    if (frames > AUDIO_PLAYER_RAMP_FRAMES) {
+        frames = AUDIO_PLAYER_RAMP_FRAMES;
+    }
+    for (size_t frame = 0U; frame < frames; frame++) {
+        for (uint8_t channel = 0U; channel < channels; channel++) {
+            const size_t index = frame * channels + channel;
+            samples[index] = (int16_t)(
+                ((int32_t)samples[index] * (int32_t)frame) /
+                (int32_t)AUDIO_PLAYER_RAMP_FRAMES);
+        }
+    }
+    player->fade_in_pending = false;
+}
+
+static esp_err_t audio_player_ramp_to_silence(
+    solar_os_audio_player_t *player)
+{
+    const uint8_t channels = player->stream.audio.channels;
+    const size_t frame_bytes = channels * sizeof(player->transition[0]);
+    if (player->transition == NULL || channels == 0U || channels > 2U ||
+        frame_bytes == 0U) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    memset(player->transition, 0, AUDIO_PLAYER_BLOCK_BYTES);
+    size_t frames = AUDIO_PLAYER_BLOCK_BYTES / frame_bytes;
+    if (frames > AUDIO_PLAYER_RAMP_FRAMES) {
+        frames = AUDIO_PLAYER_RAMP_FRAMES;
+    }
+    for (size_t frame = 0U; frame < frames; frame++) {
+        const int32_t remaining =
+            (int32_t)AUDIO_PLAYER_RAMP_FRAMES - (int32_t)frame;
+        for (uint8_t channel = 0U; channel < channels; channel++) {
+            player->transition[frame * channels + channel] = (int16_t)(
+                ((int32_t)player->last_frame[channel] * remaining) /
+                (int32_t)AUDIO_PLAYER_RAMP_FRAMES);
+        }
+    }
+    size_t written = 0U;
+    const esp_err_t err = solar_os_stream_write(
+        &player->stream, player->transition, AUDIO_PLAYER_BLOCK_BYTES,
+        AUDIO_PLAYER_SINK_TIMEOUT_MS, &written);
+    if (err != ESP_OK || written != AUDIO_PLAYER_BLOCK_BYTES) {
+        return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
+    }
+    player->last_frame[0] = 0;
+    player->last_frame[1] = 0;
+    player->fade_in_pending = true;
+    return ESP_OK;
+}
+
 static esp_err_t audio_player_open(solar_os_audio_player_t *player)
 {
     player->stream = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
@@ -181,13 +281,19 @@ static void audio_player_close(solar_os_audio_player_t *player, bool silence)
         return;
     }
     if (silence) {
-        memset(player->sink, 0, AUDIO_PLAYER_BLOCK_BYTES);
+        int16_t *tail = player->transition != NULL ?
+            player->transition : player->sink;
+        memset(tail, 0, AUDIO_PLAYER_BLOCK_BYTES);
         size_t written = 0U;
-        (void)solar_os_stream_write(&player->stream,
-                                    player->sink,
-                                    AUDIO_PLAYER_BLOCK_BYTES,
-                                    AUDIO_PLAYER_SINK_TIMEOUT_MS,
-                                    &written);
+        const esp_err_t err = solar_os_stream_write(
+            &player->stream, tail, AUDIO_PLAYER_BLOCK_BYTES,
+            AUDIO_PLAYER_SINK_TIMEOUT_MS, &written);
+        if (err == ESP_OK && written > 0U) {
+            /* Stream writes may return once data is queued. Keep the sink
+             * alive until the zero tail has reached the device before its
+             * clocks or amplifier are disabled. */
+            audio_player_wait_played(player, written);
+        }
     }
     solar_os_stream_close(&player->stream);
     player->stream_opened = false;
@@ -245,22 +351,34 @@ static void audio_player_task(void *arg)
                     }
                     memset((uint8_t *)player->sink + filled, 0, write_len - filled);
                     const size_t played_bytes = filled;
+                    audio_player_fade_in(player, player->sink, write_len);
                     size_t written = 0U;
                     err = solar_os_stream_write(
                         &player->stream, player->sink, write_len,
                         AUDIO_PLAYER_SINK_TIMEOUT_MS, &written);
                     if (err != ESP_OK || written != write_len) {
                         player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
-                    } else if (player->options.samples != NULL) {
-                        player->options.samples(player->sink,
-                                                played_bytes / sizeof(player->sink[0]),
-                                                player->stream.audio.channels,
-                                                player->options.user);
+                    } else {
+                        audio_player_remember_tail(
+                            player, player->sink, write_len);
+                        if (player->options.samples != NULL) {
+                            player->options.samples(
+                                player->sink,
+                                played_bytes / sizeof(player->sink[0]),
+                                player->stream.audio.channels,
+                                player->options.user);
+                        }
                     }
                     filled = 0U;
                     break;
                 }
                 if (received == 0U) {
+                    err = audio_player_ramp_to_silence(player);
+                    if (err != ESP_OK) {
+                        player->error = err;
+                        break;
+                    }
+                    player->underruns++;
                     primed = false;
                     audio_player_set_playing(player, false);
                     vTaskDelay(pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS));
@@ -269,6 +387,8 @@ static void audio_player_task(void *arg)
             }
 
             size_t written = 0U;
+            audio_player_fade_in(
+                player, player->sink, AUDIO_PLAYER_BLOCK_BYTES);
             err = solar_os_stream_write(&player->stream,
                                         player->sink,
                                         AUDIO_PLAYER_BLOCK_BYTES,
@@ -278,6 +398,8 @@ static void audio_player_task(void *arg)
                 player->error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
                 break;
             }
+            audio_player_remember_tail(
+                player, player->sink, AUDIO_PLAYER_BLOCK_BYTES);
             if (player->options.samples != NULL) {
                 player->options.samples(player->sink,
                                         written / sizeof(player->sink[0]),
@@ -287,6 +409,12 @@ static void audio_player_task(void *arg)
             filled = 0U;
         }
 
+    }
+    if (player->underruns > 0U) {
+        SOLAR_OS_LOGW(TAG,
+                      "buffer underruns: owner=%s count=%u",
+                      player->owner,
+                      (unsigned)player->underruns);
     }
     audio_player_close(player, true);
     player->done = true;
@@ -356,7 +484,12 @@ esp_err_t solar_os_audio_player_create(
         AUDIO_PLAYER_BLOCK_BYTES,
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
         "audio.player.sink");
-    if (player->sink == NULL ||
+    player->transition = solar_os_memory_alloc(
+        AUDIO_PLAYER_BLOCK_BYTES,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "audio.player.transition");
+    player->fade_in_pending = true;
+    if (player->sink == NULL || player->transition == NULL ||
         (player->options.buffered && !audio_player_create_buffer(player))) {
         solar_os_audio_player_destroy(player);
         return ESP_ERR_NO_MEM;
@@ -531,5 +664,6 @@ void solar_os_audio_player_destroy(solar_os_audio_player_t *player)
     }
     solar_os_memory_free(player->buffer);
     solar_os_memory_free(player->sink);
+    solar_os_memory_free(player->transition);
     solar_os_memory_free(player);
 }
