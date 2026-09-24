@@ -117,6 +117,61 @@ int solar_os_shell_launch_path_arg(const char *app_name,
     return -1;
 }
 
+bool solar_os_shell_launch_raw_remainder(
+    const char *line,
+    int prefix_argc,
+    const char *const prefix_argv[],
+    char *buffer,
+    size_t buffer_len)
+{
+    if (line == NULL || prefix_argc <= 0 || prefix_argv == NULL ||
+        buffer == NULL || buffer_len == 0U) {
+        return false;
+    }
+
+    const char *cursor = line;
+    for (int i = 0; i < prefix_argc; i++) {
+        while (isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        const char *start = cursor;
+        while (*cursor != '\0' && !isspace((unsigned char)*cursor)) {
+            cursor++;
+        }
+        const size_t length = (size_t)(cursor - start);
+        if (prefix_argv[i] == NULL || strlen(prefix_argv[i]) != length ||
+            strncmp(start, prefix_argv[i], length) != 0) {
+            return false;
+        }
+    }
+
+    while (isspace((unsigned char)*cursor)) {
+        cursor++;
+    }
+    const char *end = cursor + strlen(cursor);
+    while (end > cursor && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+    if (end == cursor) {
+        return false;
+    }
+
+    if (end - cursor >= 2 &&
+        (cursor[0] == '\'' || cursor[0] == '"') &&
+        end[-1] == cursor[0]) {
+        cursor++;
+        end--;
+    }
+
+    const size_t length = (size_t)(end - cursor);
+    if (length >= buffer_len) {
+        return false;
+    }
+    memcpy(buffer, cursor, length);
+    buffer[length] = '\0';
+    return true;
+}
+
 bool solar_os_shell_path_is_script(const char *path)
 {
     if (path == NULL) {
