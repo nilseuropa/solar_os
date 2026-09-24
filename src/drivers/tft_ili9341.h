@@ -28,6 +28,7 @@ typedef struct {
     uint8_t madctl;
     bool st7796;
     bool st7789;
+    bool invert_color;
     int power_pin;
     bool power_active_high;
     bool backlight_active_high;

@@ -1185,8 +1185,9 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   if (!ili9341_checked_cmd(display, 0x29)) {
     return display->last_error;
   }
-  /* The FNK0104S panel requires display inversion on for literal RGB colors. */
-  if (display->config.st7796 && !ili9341_checked_cmd(display, 0x21)) {
+  /* Some IPS panels require display inversion on for literal RGB colors. */
+  if ((display->config.st7796 || display->config.invert_color) &&
+      !ili9341_checked_cmd(display, 0x21)) {
     return display->last_error;
   }
   vTaskDelay(pdMS_TO_TICKS(20));
