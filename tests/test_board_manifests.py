@@ -66,6 +66,13 @@ class BoardManifestTest(unittest.TestCase):
         self.assertNotIn("pointer", board["build"]["capabilities"])
         self.assertNotIn("pointer_ft6336", board["build"]["drivers"])
         self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR"], "1")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH"], "240")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT"], "320")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_MADCTL"], "0x48")
+        self.assertEqual(
+            board["defines"]["SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION"],
+            "U8G2_R1",
+        )
         buses = {bus["name"]: bus for bus in board["buses"]}
         self.assertEqual(buses["spi0"]["miso"], 13)
         devices = {device["name"]: device for device in board["devices"]}
