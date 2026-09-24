@@ -77,6 +77,12 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PICOTTS_INPUT_QUEUE_SIZE=576
 )
 
+# Pico's signal-generation pipeline must stay comfortably ahead of real-time
+# playback even while the display and network stacks are active. The firmware
+# default optimizes for size; use the balanced performance profile only for
+# this CPU-bound component.
+target_compile_options(${COMPONENT_LIB} PRIVATE -O2)
+
 set(PICOTTS_VOICE_OUTPUT "${CMAKE_BINARY_DIR}/picotts_voices")
 function(solar_os_picotts_voice locale)
     set(voice_dir "${PICOTTS_VOICE_OUTPUT}/${locale}")

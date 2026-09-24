@@ -45,6 +45,9 @@ PICOTTS_HEADER = (
 PICOTTS_RUNTIME = (
     REPOSITORY / "components/picotts/picotts_runtime.c"
 ).read_text(encoding="utf-8")
+PLAYER_SOURCE = (
+    REPOSITORY / "src/services/solar_os_audio_player.c"
+).read_text(encoding="utf-8")
 PICOTTS_VOICES = REPOSITORY / "picotts_voices"
 
 
@@ -174,8 +177,27 @@ class SpeechServiceTest(unittest.TestCase):
         task = PICOTTS_RUNTIME.split("static void pico_task_main(", 1)[1]
         task = task.split("static bool pico_cleanup(", 1)[0]
         self.assertIn("INPUT_COOPERATIVE_BYTES", task)
-        self.assertIn("OUTPUT_COOPERATIVE_STEPS", task)
+        self.assertIn("OUTPUT_COOPERATIVE_INTERVAL_MS", task)
+        self.assertIn("xTaskGetTickCount()", task)
         self.assertGreaterEqual(task.count("vTaskDelay(1);"), 2)
+        self.assertIn("OUTPUT_COOPERATIVE_INTERVAL_MS 8U", PICOTTS_RUNTIME)
+
+    def test_speech_playback_has_headroom_and_smooth_underflow_boundaries(self):
+        self.assertIn("SPEECHD_AUDIO_BUFFER_BYTES (64U * 1024U)", JOB_SOURCE)
+        self.assertIn("SPEECHD_AUDIO_TARGET_MS 500U", JOB_SOURCE)
+        self.assertIn("target_compile_options(${COMPONENT_LIB} PRIVATE -O2)",
+                      PICOTTS_CMAKE)
+        self.assertIn("audio_player_ramp_to_silence(player)", PLAYER_SOURCE)
+        self.assertIn("audio_player_fade_in(", PLAYER_SOURCE)
+        self.assertIn('"buffer underruns: owner=%s count=%u"', PLAYER_SOURCE)
+
+    def test_audio_player_drains_zero_tail_before_stream_close(self):
+        close = PLAYER_SOURCE.split("static void audio_player_close(", 1)[1]
+        close = close.split("static void audio_player_task(", 1)[0]
+        self.assertIn("memset(tail, 0, AUDIO_PLAYER_BLOCK_BYTES)", close)
+        self.assertIn("audio_player_wait_played(player, written)", close)
+        self.assertLess(close.index("audio_player_wait_played"),
+                        close.index("solar_os_stream_close"))
 
     def test_picotts_reports_completed_synthesis_input(self):
         self.assertIn("picotts_progress_notify_fn", PICOTTS_HEADER)
