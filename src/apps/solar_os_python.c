@@ -71,6 +71,9 @@
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+#include "solar_os_raster_image.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
 #endif
@@ -178,6 +181,7 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PYTHON_TASK_STACK);
 #define PYTHON_EVENT_QUEUE_LEN 32
 #define PYTHON_EVENT_DATA_MAX 192
 #define PYTHON_GFX_BITMAP_MAX 128
+#define PYTHON_RASTER_IMAGE_MAX 16
 #define PYTHON_INPUT_QUEUE_LEN 4
 #define PYTHON_KEY_QUEUE_LEN 32
 #define PYTHON_DEVICE_INPUT_QUEUE_LEN 16
@@ -228,6 +232,7 @@ typedef enum {
     PYTHON_EVENT_GFX_FILL_CIRCLE,
     PYTHON_EVENT_GFX_ICON,
     PYTHON_EVENT_GFX_BITMAP,
+    PYTHON_EVENT_IMAGE_DRAW,
     PYTHON_EVENT_GFX_TEXT,
     PYTHON_EVENT_DONE,
 } python_event_type_t;
@@ -251,6 +256,7 @@ typedef struct {
     int32_t x1;
     int32_t y1;
     uint32_t attr;
+    uintptr_t object;
     char data[PYTHON_EVENT_DATA_MAX];
 } python_event_t;
 
@@ -291,6 +297,9 @@ typedef struct {
     solar_os_gfx_t *claimed_gfx;
     char gfx_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char gfx_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    solar_os_raster_image_t *images[PYTHON_RASTER_IMAGE_MAX];
+#endif
     int argc;
     char argv[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN];
 } python_app_state_t;
@@ -8459,6 +8468,125 @@ static mp_obj_t solaros_gfx_bitmap(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_bitmap_obj, 5, 5, solaros_gfx_bitmap);
 
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+static size_t python_image_slot_from_obj(mp_obj_t handle_obj)
+{
+    const mp_int_t handle = mp_obj_get_int(handle_obj);
+    if (handle < 1 || handle > PYTHON_RASTER_IMAGE_MAX ||
+        python_app.images[handle - 1] == NULL) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid image handle"));
+    }
+    return (size_t)(handle - 1);
+}
+
+static void python_image_close_all(void)
+{
+    for (size_t slot = 0; slot < PYTHON_RASTER_IMAGE_MAX; slot++) {
+        if (python_app.images[slot] != NULL) {
+            solar_os_raster_image_release(python_app.images[slot]);
+            python_app.images[slot] = NULL;
+        }
+    }
+}
+
+static void python_image_release_pending_events(QueueHandle_t events)
+{
+    if (events == NULL) {
+        return;
+    }
+    python_event_t event;
+    while (xQueueReceive(events, &event, 0) == pdPASS) {
+        if (event.type == PYTHON_EVENT_IMAGE_DRAW && event.object != 0U) {
+            solar_os_raster_image_release(
+                (solar_os_raster_image_t *)event.object);
+        }
+    }
+}
+
+static mp_obj_t solaros_image_open(mp_obj_t path_obj)
+{
+    size_t free_slot = PYTHON_RASTER_IMAGE_MAX;
+    for (size_t slot = 0; slot < PYTHON_RASTER_IMAGE_MAX; slot++) {
+        if (python_app.images[slot] == NULL) {
+            free_slot = slot;
+            break;
+        }
+    }
+    if (free_slot == PYTHON_RASTER_IMAGE_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("too many open images"));
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    solar_os_raster_image_t *image = NULL;
+    python_check_esp(solar_os_raster_image_open(path, &image));
+    python_app.images[free_slot] = image;
+    return mp_obj_new_int_from_uint(free_slot + 1U);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_image_open_obj, solaros_image_open);
+
+static mp_obj_t solaros_image_size(mp_obj_t handle_obj)
+{
+    const solar_os_raster_image_t *image =
+        python_app.images[python_image_slot_from_obj(handle_obj)];
+    mp_obj_t items[2] = {
+        mp_obj_new_int_from_uint(solar_os_raster_image_width(image)),
+        mp_obj_new_int_from_uint(solar_os_raster_image_height(image)),
+    };
+    return mp_obj_new_tuple(2U, items);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_image_size_obj, solaros_image_size);
+
+static mp_obj_t solaros_image_draw(size_t n_args, const mp_obj_t *args)
+{
+    if (n_args == 4U) {
+        mp_raise_ValueError(MP_ERROR_TEXT("width and height must be supplied together"));
+    }
+    solar_os_raster_image_t *image =
+        python_app.images[python_image_slot_from_obj(args[0])];
+    const uint16_t width = n_args >= 5U ?
+        python_u16_from_size(python_size_from_obj(args[3])) : 0U;
+    const uint16_t height = n_args >= 5U ?
+        python_u16_from_size(python_size_from_obj(args[4])) : 0U;
+    if (n_args >= 5U && (width == 0U || height == 0U)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("image dimensions must be positive"));
+    }
+
+    solar_os_raster_image_retain(image);
+    const python_event_t event = {
+        .type = PYTHON_EVENT_IMAGE_DRAW,
+        .x0 = python_i32_from_obj(args[1]),
+        .y0 = python_i32_from_obj(args[2]),
+        .width = width,
+        .height = height,
+        .object = (uintptr_t)image,
+    };
+    if (!python_send_event(&event)) {
+        solar_os_raster_image_release(image);
+        mp_raise_msg(&mp_type_RuntimeError,
+                     MP_ERROR_TEXT("ui event queue stopped"));
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_image_draw_obj, 3, 5, solaros_image_draw);
+
+static mp_obj_t solaros_image_close(mp_obj_t handle_obj)
+{
+    const size_t slot = python_image_slot_from_obj(handle_obj);
+    solar_os_raster_image_release(python_app.images[slot]);
+    python_app.images[slot] = NULL;
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_image_close_obj, solaros_image_close);
+
+static mp_obj_t solaros_image_close_all(void)
+{
+    python_image_close_all();
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_image_close_all_obj, solaros_image_close_all);
+#endif
+
 static mp_obj_t solaros_gfx_text(size_t n_args, const mp_obj_t *args)
 {
     (void)n_args;
@@ -8832,6 +8960,11 @@ cleanup:
 #if SOLAR_OS_PACKAGE_SERVICE_HID
     solar_os_hid_release_all();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    if (python_runtime_state != NULL) {
+        python_image_close_all();
+    }
+#endif
     python_runner_control = NULL;
     solar_os_memory_free(loaded_source);
     python_runtime_release(PYTHON_RUNTIME_OWNER_RUNNER);
@@ -9038,6 +9171,9 @@ static void python_task(void *arg)
     solar_os_memory_free(heap);
 
 done:
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    python_image_close_all();
+#endif
     stack_min_free =
         (uint32_t)uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
     SOLAR_OS_LOGI(TAG,
@@ -9491,6 +9627,9 @@ static void python_stop(solar_os_context_t *ctx)
         python_app.tui_active = false;
     }
     if (python_app.events != NULL) {
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+        python_image_release_pending_events(python_app.events);
+#endif
         solar_os_queue_delete(python_app.events);
         python_app.events = NULL;
     }
@@ -9525,6 +9664,9 @@ static void python_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
     python_http_session_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    python_image_close_all();
 #endif
     python_runtime_release(PYTHON_RUNTIME_OWNER_APP);
 }
@@ -9634,6 +9776,25 @@ static void python_apply_gfx_event(solar_os_context_t *ctx, const python_event_t
     }
 
     solar_os_gfx_t *gfx = python_current_gfx();
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    if (event->type == PYTHON_EVENT_IMAGE_DRAW) {
+        solar_os_raster_image_t *image =
+            (solar_os_raster_image_t *)event->object;
+        if (gfx != NULL && image != NULL) {
+            const esp_err_t err = solar_os_raster_image_draw(image,
+                                                              gfx,
+                                                              (int)event->x0,
+                                                              (int)event->y0,
+                                                              event->width,
+                                                              event->height);
+            if (err != ESP_OK) {
+                SOLAR_OS_LOGW(TAG, "image draw failed: %s", esp_err_to_name(err));
+            }
+        }
+        solar_os_raster_image_release(image);
+        return;
+    }
+#endif
     if (gfx == NULL) {
         return;
     }
@@ -9776,6 +9937,9 @@ static void python_drain_events(solar_os_context_t *ctx)
         case PYTHON_EVENT_GFX_FILL_CIRCLE:
         case PYTHON_EVENT_GFX_ICON:
         case PYTHON_EVENT_GFX_BITMAP:
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+        case PYTHON_EVENT_IMAGE_DRAW:
+#endif
         case PYTHON_EVENT_GFX_TEXT:
             python_apply_gfx_event(ctx, &event);
             break;

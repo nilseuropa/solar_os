@@ -77,6 +77,33 @@ person = bytes((0x18, 0x3C, 0x18, 0x7E, 0x18, 0x24, 0x42, 0x00))
 gfx.sprite(20, 20, 8, 8, person)
 ```
 
+## Raster images
+
+When the firmware includes `media.image`, `solaros.image` decodes static PNG,
+JPEG, GIF, and WebP files into native PSRAM-backed handles. This keeps map tiles
+and other large images outside the MicroPython heap. Up to 16 handles can be
+open at once.
+
+```python
+from solaros import gfx, image
+
+tile = image.open("/sdcard/maps/12/2200/1342.png")
+try:
+    source_width, source_height = image.size(tile)
+    image.draw(tile, -24, 32)
+    image.draw(tile, 240, 32, 128, 128)
+    gfx.present()
+finally:
+    image.close(tile)
+```
+
+`image.draw(handle, x, y)` uses the source size. Supplying both `width` and
+`height` applies nearest-neighbor scaling. Coordinates can be negative and the
+native renderer clips to the display. Drawing is queued with the other graphics
+operations. A queued draw keeps its own reference, so it is safe to close or
+replace a tile immediately after queuing it. `image.close_all()` releases every
+handle owned by the current runtime; interpreter cleanup also does this.
+
 ## Icons
 
 `gfx.icon(x, y, name, size)` draws an Open Iconic symbol in the current color.
@@ -155,6 +182,14 @@ Functions:
 - `refresh()`: present the graphics buffer.
 - `present()`: alias for `refresh()`.
 - `getch([timeout_ms])`: return a key code or `None`.
+
+When `media.image` is present, `solaros.image` provides:
+
+- `open(path)`, `load(path)`: decode a static raster and return a handle.
+- `size(handle)`: return `(width, height)`.
+- `draw(handle, x, y[, width, height])`: queue a clipped raster draw.
+- `close(handle)`: close one handle.
+- `close_all()`: close all handles owned by this Python runtime.
 
 Bitmap and sprite rows are packed least-significant bit first, with
 `(width + 7) // 8` bytes per row. Set bits draw in the current color and clear

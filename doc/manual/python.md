@@ -45,7 +45,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Apps, jobs, and identity](python.system.md) | `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
 | [Contacts and messages](python.messaging.md) | `solaros.contacts`, `solaros.messages` |
 | [Text user interfaces](python.tui.md) | `solaros.tui` |
-| [Graphics](python.gfx.md) | `solaros.gfx` |
+| [Graphics and raster images](python.gfx.md) | `solaros.gfx`, `solaros.image` |
 
 ## Conventions
 
@@ -104,6 +104,7 @@ Optional API groups follow these package gates:
 - `service.gnss` and `service.nfc`: `solaros.gnss` and `solaros.nfc`
 - `service.dsp`: `solaros.dsp` fixed-point block operations and caller-owned
   FIR, decimator, and FFT processors
+- `media.image`: `solaros.image` decoded raster handles and queued drawing
 
 ## Top-Level Helpers
 

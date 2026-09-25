@@ -60,6 +60,9 @@
 #include "solar_os_clipboard.h"
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+#include "solar_os_raster_image.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
 #endif
@@ -164,6 +167,7 @@
 #define SOLUA_INPUT_QUEUE_LEN 4
 #define SOLUA_KEY_QUEUE_LEN 32
 #define SOLUA_EVENT_DATA_MAX 128
+#define SOLUA_RASTER_IMAGE_MAX 16
 #define SOLUA_REPL_INPUT_MAX 256
 #define SOLUA_TASK_STACK 12288
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLUA_TASK_STACK);
@@ -215,6 +219,7 @@ typedef enum {
     SOLUA_EVENT_GFX_FILL_CIRCLE,
     SOLUA_EVENT_GFX_ICON,
     SOLUA_EVENT_GFX_BITMAP,
+    SOLUA_EVENT_IMAGE_DRAW,
     SOLUA_EVENT_GFX_TEXT,
     SOLUA_EVENT_DONE,
 } solua_event_type_t;
@@ -238,6 +243,7 @@ typedef struct {
     int32_t x1;
     int32_t y1;
     uint32_t attr;
+    uintptr_t object;
     char data[SOLUA_EVENT_DATA_MAX];
 } solua_event_t;
 
@@ -278,6 +284,9 @@ typedef struct {
     solar_os_gfx_t *claimed_gfx;
     char gfx_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char gfx_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    solar_os_raster_image_t *images[SOLUA_RASTER_IMAGE_MAX];
+#endif
     size_t repl_input_len;
     size_t repl_input_cursor;
     size_t repl_input_row;
@@ -7571,6 +7580,117 @@ static int solua_gfx_bitmap(lua_State *L)
     return 0;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+static size_t solua_image_slot(lua_State *L, int index)
+{
+    const lua_Integer handle = luaL_checkinteger(L, index);
+    if (handle < 1 || handle > SOLUA_RASTER_IMAGE_MAX ||
+        solua.images[handle - 1] == NULL) {
+        luaL_error(L, "invalid image handle");
+    }
+    return (size_t)(handle - 1);
+}
+
+static void solua_image_close_all_handles(void)
+{
+    for (size_t slot = 0; slot < SOLUA_RASTER_IMAGE_MAX; slot++) {
+        if (solua.images[slot] != NULL) {
+            solar_os_raster_image_release(solua.images[slot]);
+            solua.images[slot] = NULL;
+        }
+    }
+}
+
+static void solua_image_release_pending_events(QueueHandle_t events)
+{
+    if (events == NULL) {
+        return;
+    }
+    solua_event_t event;
+    while (xQueueReceive(events, &event, 0) == pdPASS) {
+        if (event.type == SOLUA_EVENT_IMAGE_DRAW && event.object != 0U) {
+            solar_os_raster_image_release(
+                (solar_os_raster_image_t *)event.object);
+        }
+    }
+}
+
+static int solua_image_open(lua_State *L)
+{
+    size_t free_slot = SOLUA_RASTER_IMAGE_MAX;
+    for (size_t slot = 0; slot < SOLUA_RASTER_IMAGE_MAX; slot++) {
+        if (solua.images[slot] == NULL) {
+            free_slot = slot;
+            break;
+        }
+    }
+    if (free_slot == SOLUA_RASTER_IMAGE_MAX) {
+        return luaL_error(L, "too many open images");
+    }
+
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    solua_resolve_path(L, 1, path, sizeof(path));
+    solar_os_raster_image_t *image = NULL;
+    (void)solua_check_esp(L, solar_os_raster_image_open(path, &image));
+    solua.images[free_slot] = image;
+    lua_pushinteger(L, (lua_Integer)free_slot + 1);
+    return 1;
+}
+
+static int solua_image_size(lua_State *L)
+{
+    const solar_os_raster_image_t *image =
+        solua.images[solua_image_slot(L, 1)];
+    lua_pushinteger(L, solar_os_raster_image_width(image));
+    lua_pushinteger(L, solar_os_raster_image_height(image));
+    return 2;
+}
+
+static int solua_image_draw(lua_State *L)
+{
+    const int count = lua_gettop(L);
+    if (count != 3 && count != 5) {
+        return luaL_error(L, "expected handle, x, y [, width, height]");
+    }
+    solar_os_raster_image_t *image = solua.images[solua_image_slot(L, 1)];
+    const uint16_t width = count == 5 ? solua_check_u16_size(L, 4) : 0U;
+    const uint16_t height = count == 5 ? solua_check_u16_size(L, 5) : 0U;
+    if (count == 5 && (width == 0U || height == 0U)) {
+        return luaL_error(L, "image dimensions must be positive");
+    }
+
+    solar_os_raster_image_retain(image);
+    const solua_event_t event = {
+        .type = SOLUA_EVENT_IMAGE_DRAW,
+        .x0 = (int32_t)luaL_checkinteger(L, 2),
+        .y0 = (int32_t)luaL_checkinteger(L, 3),
+        .width = width,
+        .height = height,
+        .object = (uintptr_t)image,
+    };
+    if (!solua_send_event(&event)) {
+        solar_os_raster_image_release(image);
+        return luaL_error(L, "ui event queue stopped");
+    }
+    return 0;
+}
+
+static int solua_image_close(lua_State *L)
+{
+    const size_t slot = solua_image_slot(L, 1);
+    solar_os_raster_image_release(solua.images[slot]);
+    solua.images[slot] = NULL;
+    return 0;
+}
+
+static int solua_image_close_all(lua_State *L)
+{
+    (void)L;
+    solua_image_close_all_handles();
+    return 0;
+}
+#endif
+
 static int solua_gfx_text(lua_State *L)
 {
     size_t len = 0;
@@ -8201,6 +8321,11 @@ cleanup:
 #if SOLAR_OS_PACKAGE_SERVICE_HID
     solar_os_hid_release_all();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    if (solua_runtime_state != NULL) {
+        solua_image_close_all_handles();
+    }
+#endif
     solua_runner_control = NULL;
     solua_runtime_release(SOLUA_RUNTIME_OWNER_RUNNER);
     solar_os_memory_free(runner_state);
@@ -8271,6 +8396,9 @@ static void solua_task(void *arg)
     }
 
 done:
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    solua_image_close_all_handles();
+#endif
     if (L != NULL) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         solar_os_hid_release_all();
@@ -8588,6 +8716,9 @@ static void solua_stop(solar_os_context_t *ctx)
         solua.tui_active = false;
     }
     if (solua.events != NULL) {
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+        solua_image_release_pending_events(solua.events);
+#endif
         solar_os_queue_delete(solua.events);
         solua.events = NULL;
     }
@@ -8622,6 +8753,9 @@ static void solua_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
     solua_http_session_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    solua_image_close_all_handles();
 #endif
     solua_runtime_release(SOLUA_RUNTIME_OWNER_APP);
 }
@@ -8845,6 +8979,25 @@ static void solua_apply_gfx_event(solar_os_context_t *ctx, const solua_event_t *
     }
 
     solar_os_gfx_t *gfx = solua_current_gfx();
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+    if (event->type == SOLUA_EVENT_IMAGE_DRAW) {
+        solar_os_raster_image_t *image =
+            (solar_os_raster_image_t *)event->object;
+        if (gfx != NULL && image != NULL) {
+            const esp_err_t err = solar_os_raster_image_draw(image,
+                                                              gfx,
+                                                              (int)event->x0,
+                                                              (int)event->y0,
+                                                              event->width,
+                                                              event->height);
+            if (err != ESP_OK) {
+                SOLAR_OS_LOGW(TAG, "image draw failed: %s", esp_err_to_name(err));
+            }
+        }
+        solar_os_raster_image_release(image);
+        return;
+    }
+#endif
     if (gfx == NULL) {
         return;
     }
@@ -8983,6 +9136,9 @@ static void solua_drain_events(solar_os_context_t *ctx)
         case SOLUA_EVENT_GFX_FILL_CIRCLE:
         case SOLUA_EVENT_GFX_ICON:
         case SOLUA_EVENT_GFX_BITMAP:
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
+        case SOLUA_EVENT_IMAGE_DRAW:
+#endif
         case SOLUA_EVENT_GFX_TEXT:
             solua_apply_gfx_event(ctx, &event);
             break;

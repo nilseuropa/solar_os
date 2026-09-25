@@ -66,6 +66,27 @@ typedef struct {
     int y;
 } solar_os_gfx_point_t;
 
+typedef enum {
+    SOLAR_OS_GFX_RASTER_GRAY8,
+    SOLAR_OS_GFX_RASTER_RGB888,
+} solar_os_gfx_raster_format_t;
+
+typedef struct {
+    const uint8_t *pixels;
+    size_t pixels_size;
+    uint32_t width;
+    uint32_t height;
+    size_t stride;
+    solar_os_gfx_raster_format_t format;
+} solar_os_gfx_raster_t;
+
+typedef struct {
+    int x;
+    int y;
+    int width;
+    int height;
+} solar_os_gfx_clip_t;
+
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx);
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx);
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx);
@@ -117,6 +138,15 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
                               const uint8_t *bitmap,
                               size_t bitmap_size,
                               const solar_os_gfx_color_t palette[4]);
+/* Draw an opaque grayscale or RGB raster with nearest-neighbour scaling.
+ * A NULL clip uses the full display bounds. */
+esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx,
+                                   const solar_os_gfx_raster_t *raster,
+                                   int x,
+                                   int y,
+                                   int width,
+                                   int height,
+                                   const solar_os_gfx_clip_t *clip);
 esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
                                         const uint8_t *bitmap,
                                         size_t bitmap_size,

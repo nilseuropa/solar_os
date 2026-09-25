@@ -1749,31 +1749,6 @@ static esp_err_t web_fetch_bytes(const char *url,
     return ESP_OK;
 }
 
-static solar_os_gfx_color_t web_gray_to_color(uint8_t gray)
-{
-    const uint8_t level = (uint8_t)(((uint16_t)gray * SOLAR_OS_GFX_GRAY_MAX + 127U) / 255U);
-    return solar_os_gfx_gray(level);
-}
-
-static uint8_t web_quantize_rgb_channel(uint8_t value)
-{
-    return (uint8_t)((((unsigned)value * 5U + 127U) / 255U) * 51U);
-}
-
-static solar_os_gfx_color_t web_image_pixel_color(const web_image_t *image,
-                                                  uint32_t x,
-                                                  uint32_t y)
-{
-    const size_t pixel = (size_t)y * image->width + x;
-    if (image->channels == 3U) {
-        const uint8_t *rgb = &image->pixels[pixel * 3U];
-        return solar_os_gfx_rgb(web_quantize_rgb_channel(rgb[0]),
-                                web_quantize_rgb_channel(rgb[1]),
-                                web_quantize_rgb_channel(rgb[2]));
-    }
-    return web_gray_to_color(image->pixels[pixel]);
-}
-
 static bool web_bytes_are_webp(const uint8_t *data, size_t len)
 {
     return data != NULL &&
@@ -2725,42 +2700,23 @@ static void web_draw_image(solar_os_gfx_t *gfx,
         return;
     }
 
-    for (int dy = 0; dy < draw_height; dy++) {
-        const uint32_t sy =
-            (uint32_t)(((uint64_t)dy * image->height) / (uint32_t)draw_height);
-        solar_os_gfx_color_t run_color = SOLAR_OS_GFX_COLOR_WHITE;
-        int run_start = 0;
-        bool run_active = false;
-
-        for (int dx = 0; dx < draw_width; dx++) {
-            const uint32_t sx =
-                (uint32_t)(((uint64_t)dx * image->width) / (uint32_t)draw_width);
-            const solar_os_gfx_color_t color = web_image_pixel_color(image, sx, sy);
-            if (!run_active) {
-                run_active = true;
-                run_color = color;
-                run_start = dx;
-            } else if (color != run_color) {
-                solar_os_gfx_set_color(gfx, run_color);
-                solar_os_gfx_fill_rect(gfx,
-                                       origin_x + run_start,
-                                       origin_y + dy,
-                                       dx - run_start,
-                                       1);
-                run_color = color;
-                run_start = dx;
-            }
-        }
-
-        if (run_active) {
-            solar_os_gfx_set_color(gfx, run_color);
-            solar_os_gfx_fill_rect(gfx,
-                                   origin_x + run_start,
-                                   origin_y + dy,
-                                   draw_width - run_start,
-                                   1);
-        }
-    }
+    const size_t stride = (size_t)image->width * image->channels;
+    const solar_os_gfx_raster_t raster = {
+        .pixels = image->pixels,
+        .pixels_size = stride * image->height,
+        .width = image->width,
+        .height = image->height,
+        .stride = stride,
+        .format = image->channels == 3U ?
+            SOLAR_OS_GFX_RASTER_RGB888 : SOLAR_OS_GFX_RASTER_GRAY8,
+    };
+    (void)solar_os_gfx_blit_raster(gfx,
+                                   &raster,
+                                   origin_x,
+                                   origin_y,
+                                   draw_width,
+                                   draw_height,
+                                   NULL);
 }
 
 static void web_draw_nav_button(solar_os_gfx_t *gfx,
