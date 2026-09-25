@@ -784,6 +784,19 @@ Battery Level notifications and reads the initial level when supported. `ble
 status`, the general `status` command, and the Python/Lua BLE status strings
 include the latest percentage while that keyboard remains connected.
 
+### BLE inspector TUI
+
+Run `ble` without arguments to open the BLE Inspector TUI. Its Devices,
+Services, Chars, and Settings tabs support scanning, connecting, service and
+characteristic inspection, characteristic reads and hexadecimal writes, and
+BLE keyboard settings. Press Tab to move between tabs. The inspector owns its
+GATT connection and disconnects it when the TUI closes. Existing `ble status`,
+`ble scan`, and `ble gatt ...` commands remain available for scripts and plain
+text use. On a BLE-disabled boot, the Settings tab remains available so BLE can
+be enabled for the next boot.
+
+### BLE keepalive and GATT
+
 `ble keepalive on` sends the standard HID Exit Suspend command every 30 seconds
 when the connected keyboard exposes a writable HID Control Point. It falls back
 to reading the HID Information characteristic when Exit Suspend is unavailable.

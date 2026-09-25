@@ -1,6 +1,7 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
+#include "solar_os_shell_tui_apps.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -31,6 +32,7 @@
 #include "solar_os_resources.h"
 #endif
 #include "solar_os_sensors.h"
+#include "solar_os_shell.h"
 #include "solar_os_status_led.h"
 #include "solar_os_storage.h"
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
@@ -1377,7 +1379,19 @@ void solar_os_shell_cmd_ble(solar_os_context_t *ctx, int argc, char **argv)
     const solar_os_ble_keyboard_boot_setting_t boot_setting =
         solar_os_ble_keyboard_boot_setting();
 
-    if (argc <= 1 || strcmp(argv[1], "status") == 0) {
+    if (argc == 1) {
+        const esp_err_t err = solar_os_shell_launch_ble_tui(ctx);
+        if (err != ESP_OK) {
+            solar_os_shell_io_printf(term,
+                                     "ble: launch failed: %s\n",
+                                     solar_os_shell_error_text(err));
+        } else {
+            solar_os_shell_session_prepare_foreground_launch(ctx, true);
+        }
+        return;
+    }
+
+    if (strcmp(argv[1], "status") == 0) {
         if (argc > 2) {
             solar_os_shell_diag_unexpected(term, "ble status", argv[2], "ble [status]");
             return;
