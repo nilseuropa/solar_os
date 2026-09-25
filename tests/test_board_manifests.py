@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -56,6 +57,37 @@ class BoardManifestTest(unittest.TestCase):
                 continue
             with self.subTest(path=path.name):
                 self.assertLessEqual(required, set(board["defines"]))
+
+    def test_qdtech_es3n28p_uses_non_touch_fixed_hardware(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "qdtech_es3n28p.toml",
+            self.manifest_dir,
+        )
+        self.assertNotIn("pointer", board["build"]["capabilities"])
+        self.assertNotIn("pointer_ft6336", board["build"]["drivers"])
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR"], "1")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH"], "240")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT"], "320")
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_MADCTL"], "0x48")
+        self.assertEqual(
+            board["defines"]["SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION"],
+            "U8G2_R1",
+        )
+        buses = {bus["name"]: bus for bus in board["buses"]}
+        self.assertEqual(buses["spi0"]["miso"], 13)
+        devices = {device["name"]: device for device in board["devices"]}
+        self.assertEqual(
+            set(devices),
+            {"display0", "battery0", "audio0", "storage0", "pixels0"},
+        )
+        self.assertEqual(devices["display0"]["driver"], "ili9341")
+        self.assertEqual(devices["pixels0"]["bindings"], {"data": 42, "count": 1})
+        hardware = json.loads(
+            (ROOT / "boards/qdtech_es3n28p.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(board["target"]["platformio_board"], "qdtech_es3n28p")
+        self.assertEqual(hardware["build"]["flash_mode"], "dio")
+        self.assertEqual(hardware["build"]["psram_type"], "opi")
 
     def test_native_display_geometry_must_match_logical_rotation(self) -> None:
         board = load_board_manifest(

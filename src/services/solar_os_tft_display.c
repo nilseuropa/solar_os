@@ -283,6 +283,11 @@ static esp_err_t attach_tft(const char *name,
         .row_offset = SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET,
         .st7796 = st7796,
         .st7789 = st7789,
+#ifdef SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR
+        .invert_color = SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR != 0,
+#else
+        .invert_color = false,
+#endif
         .power_pin = power,
         .power_active_high = true,
         .backlight_active_high = active_high,
