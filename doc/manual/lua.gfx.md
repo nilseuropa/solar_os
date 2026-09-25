@@ -72,6 +72,28 @@ Names are lowercase and hyphenated, such as `folder`, `tablet`, and
 gfx.icon(20, 20, "tablet", 32)
 ```
 
+## Raster images
+
+When the firmware includes `media.image`, `solaros.image` decodes static PNG,
+JPEG, GIF, and WebP files into native PSRAM-backed handles. This keeps offline
+map tiles and other large images outside the Lua heap. Up to 16 handles can be
+open at once.
+
+```lua
+local image = solaros.image
+local tile = image.open("/sdcard/maps/12/2200/1342.png")
+local source_width, source_height = image.size(tile)
+image.draw(tile, -24, 32)
+image.draw(tile, 240, 32, 128, 128)
+gfx.present()
+image.close(tile)
+```
+
+`image.draw(handle, x, y)` uses the source size. Supplying both `width` and
+`height` applies nearest-neighbor scaling. Coordinates can be negative and the
+native renderer clips to the display. A queued draw keeps its own reference, so
+closing or replacing a tile immediately after queuing it is safe.
+
 ## Colors
 
 Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
@@ -120,6 +142,10 @@ Functions:
 - `text(x, baseline_y, text)`
 - `refresh()`, `present()`
 - `getch([timeout_ms])`
+
+When `media.image` is present, `solaros.image` provides `open(path)` and its
+`load(path)` alias, `size(handle)`, `draw(handle, x, y[, width, height])`,
+`close(handle)`, and `close_all()`. Runtime cleanup closes remaining handles.
 
 Bitmap and sprite rows are packed least-significant bit first, with
 `(width + 7) // 8` bytes per row. Set bits draw in the current color and clear

@@ -2919,12 +2919,6 @@ static void doc_render_text_slice_clipped(solar_os_gfx_t *gfx,
     }
 }
 
-static solar_os_gfx_color_t doc_gray_to_color(uint8_t gray)
-{
-    const uint8_t level = (uint8_t)(((uint16_t)gray * SOLAR_OS_GFX_GRAY_MAX + 127U) / 255U);
-    return solar_os_gfx_gray(level);
-}
-
 static bool doc_layout_is_first_line_of_block(const solar_os_doc_layout_t *layout, size_t line_index)
 {
     if (layout == NULL || line_index >= layout->line_count) {
@@ -3016,48 +3010,27 @@ static void doc_draw_gray_scaled(solar_os_gfx_t *gfx,
         return;
     }
 
-    int y0 = origin_y < clip_y ? clip_y : origin_y;
-    int y1 = origin_y + draw_h;
-    const int clip_bottom = clip_y + clip_h;
-    const int clip_right = clip_x + clip_w;
-    if (y1 > clip_bottom) {
-        y1 = clip_bottom;
-    }
-    int x0 = origin_x < clip_x ? clip_x : origin_x;
-    int x1 = origin_x + draw_w;
-    if (x1 > clip_right) {
-        x1 = clip_right;
-    }
-    if (x0 >= x1 || y0 >= y1) {
-        return;
-    }
-
-    for (int dy = y0; dy < y1; dy++) {
-        const int sy = (int)(((int64_t)(dy - origin_y) * image_h) / draw_h);
-        solar_os_gfx_color_t run_color = SOLAR_OS_GFX_COLOR_WHITE;
-        int run_start = x0;
-        bool run_active = false;
-
-        for (int dx = x0; dx < x1; dx++) {
-            const int sx = (int)(((int64_t)(dx - origin_x) * image_w) / draw_w);
-            const uint8_t value = gray[(size_t)sy * (size_t)image_w + (size_t)sx];
-            const solar_os_gfx_color_t color = doc_gray_to_color(value);
-            if (!run_active) {
-                run_active = true;
-                run_color = color;
-                run_start = dx;
-            } else if (color != run_color) {
-                solar_os_gfx_set_color(gfx, run_color);
-                solar_os_gfx_fill_rect(gfx, run_start, dy, dx - run_start, 1);
-                run_color = color;
-                run_start = dx;
-            }
-        }
-        if (run_active) {
-            solar_os_gfx_set_color(gfx, run_color);
-            solar_os_gfx_fill_rect(gfx, run_start, dy, x1 - run_start, 1);
-        }
-    }
+    const solar_os_gfx_raster_t raster = {
+        .pixels = gray,
+        .pixels_size = (size_t)image_w * (size_t)image_h,
+        .width = (uint32_t)image_w,
+        .height = (uint32_t)image_h,
+        .stride = (size_t)image_w,
+        .format = SOLAR_OS_GFX_RASTER_GRAY8,
+    };
+    const solar_os_gfx_clip_t clip = {
+        .x = clip_x,
+        .y = clip_y,
+        .width = clip_w,
+        .height = clip_h,
+    };
+    (void)solar_os_gfx_blit_raster(gfx,
+                                   &raster,
+                                   origin_x,
+                                   origin_y,
+                                   draw_w,
+                                   draw_h,
+                                   &clip);
 }
 
 static void doc_render_table_grid(solar_os_gfx_t *gfx,

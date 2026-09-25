@@ -70,6 +70,8 @@ Built-in targets include:
   ESP32-S3-RLCD-4.2 board.
 - `freenove_esp32_s3_display_4_0`: integrated 480x320 capacitive-touch terminal
   with speaker, microphone, SD, and battery monitoring.
+- `qdtech_es3n28p`: non-touch 320x240 color terminal with speaker, microphone,
+  SD, battery monitoring, and one RGB LED.
 - `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 e-paper HMI with rotary
   controls and microSD.
 - `cl_32`: compact 384x168 reflective terminal with an integrated keyboard,

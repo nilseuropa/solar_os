@@ -207,32 +207,6 @@ static void view_store_pixel(uint8_t *destination,
     }
 }
 
-static solar_os_gfx_color_t view_gray_to_color(uint8_t gray)
-{
-    const uint8_t level = (uint8_t)(((uint16_t)gray * SOLAR_OS_GFX_GRAY_MAX + 127U) / 255U);
-    return solar_os_gfx_gray(level);
-}
-
-static uint8_t view_quantize_rgb_channel(uint8_t value)
-{
-    return (uint8_t)((((unsigned)value * 5U + 127U) / 255U) * 51U);
-}
-
-static solar_os_gfx_color_t view_image_pixel_color(const view_image_t *image,
-                                                   const uint8_t *pixels,
-                                                   uint32_t x,
-                                                   uint32_t y)
-{
-    const size_t pixel = (size_t)y * image->width + x;
-    if (image->channels == 3U) {
-        const uint8_t *rgb = &pixels[pixel * 3U];
-        return solar_os_gfx_rgb(view_quantize_rgb_channel(rgb[0]),
-                                view_quantize_rgb_channel(rgb[1]),
-                                view_quantize_rgb_channel(rgb[2]));
-    }
-    return view_gray_to_color(pixels[pixel]);
-}
-
 static bool view_read_exact(FILE *file, void *data, size_t len)
 {
     return file != NULL && data != NULL && fread(data, 1, len, file) == len;
@@ -987,51 +961,23 @@ static void view_draw_scaled(solar_os_gfx_t *gfx,
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
-    const int clip_x0 = origin_x < 0 ? 0 : origin_x;
-    const int clip_y0 = origin_y < 0 ? 0 : origin_y;
-    int clip_x1 = origin_x + draw_width;
-    int clip_y1 = origin_y + draw_height;
-    if (clip_x1 > screen_width) {
-        clip_x1 = screen_width;
-    }
-    if (clip_y1 > screen_height) {
-        clip_y1 = screen_height;
-    }
-    if (clip_x0 >= clip_x1 || clip_y0 >= clip_y1) {
-        return;
-    }
-
-    for (int dy = clip_y0; dy < clip_y1; dy++) {
-        const uint32_t sy =
-            (uint32_t)(((uint64_t)(dy - origin_y) * image->height) / (uint32_t)draw_height);
-        solar_os_gfx_color_t run_color = SOLAR_OS_GFX_COLOR_WHITE;
-        int run_start = clip_x0;
-        bool run_active = false;
-
-        for (int dx = clip_x0; dx < clip_x1; dx++) {
-            const uint32_t sx =
-                (uint32_t)(((uint64_t)(dx - origin_x) * image->width) / (uint32_t)draw_width);
-            const solar_os_gfx_color_t color =
-                view_image_pixel_color(image, pixels, sx, sy);
-            if (!run_active) {
-                run_active = true;
-                run_color = color;
-                run_start = dx;
-            } else if (color != run_color) {
-                solar_os_gfx_set_color(gfx, run_color);
-                solar_os_gfx_fill_rect(gfx, run_start, dy, dx - run_start, 1);
-                run_color = color;
-                run_start = dx;
-            }
-        }
-
-        if (run_active) {
-            solar_os_gfx_set_color(gfx, run_color);
-            solar_os_gfx_fill_rect(gfx, run_start, dy, clip_x1 - run_start, 1);
-        }
-    }
+    const size_t stride = (size_t)image->width * image->channels;
+    const solar_os_gfx_raster_t raster = {
+        .pixels = pixels,
+        .pixels_size = stride * image->height,
+        .width = image->width,
+        .height = image->height,
+        .stride = stride,
+        .format = image->channels == 3U ?
+            SOLAR_OS_GFX_RASTER_RGB888 : SOLAR_OS_GFX_RASTER_GRAY8,
+    };
+    (void)solar_os_gfx_blit_raster(gfx,
+                                   &raster,
+                                   origin_x,
+                                   origin_y,
+                                   draw_width,
+                                   draw_height,
+                                   NULL);
 }
 
 static void view_render(solar_os_context_t *ctx)

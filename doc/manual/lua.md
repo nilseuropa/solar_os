@@ -41,7 +41,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Apps, jobs, and identity](lua.system.md) | `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
 | [Contacts and messages](lua.messaging.md) | `solaros.contacts`, `solaros.messages` |
 | [Text user interfaces](lua.tui.md) | `solaros.tui` |
-| [Graphics](lua.gfx.md) | `solaros.gfx` |
+| [Graphics and raster images](lua.gfx.md) | `solaros.gfx`, `solaros.image` |
 
 ## Top-Level Helpers
 

@@ -203,6 +203,7 @@ The current tree includes these board targets:
 | --- | --- | --- | --- |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
+| `qdtech_es3n28p` | `qdtech_es3n28p` | [QDtech ES3N28P 2.8-inch ESP32-S3 Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Non-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `cl_32` | `cl_32` | CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
@@ -776,6 +777,32 @@ Build the target with:
 
 ```sh
 pio run -e freenove_esp32_s3_display_4_0
+```
+
+## QDtech ES3N28P 2.8-inch ESP32-S3 Display
+
+The `qdtech_es3n28p` target supports the non-touch ES3N28P SKU. SolarOS runs
+the native 240x320 ILI9341V panel as a 320x240 landscape primary display at
+40 MHz, enables the panel's required color inversion, and controls the
+active-high GPIO45 backlight with PWM. The touch-only ES3C28P hardware is not
+declared: GPIO17/GPIO18 remain reserved for the unpopulated touch footprint,
+and the target has no pointer capability or `touch0` device.
+
+The PlatformIO hardware definition selects the published 80 MHz DIO flash mode
+for the 16 MB external flash and OPI mode for the integrated 8 MB PSRAM.
+
+The fixed devices are the ILI9341V display, four-bit SDMMC card slot, ES8311
+duplex speaker/microphone path, GPIO9 battery ADC, and the GPIO42 WS2812B named
+`pixels0`. The shared `i2c0` bus is exposed on P4 and also controls the audio
+codec. P3 exposes runtime GPIO2, GPIO3, GPIO14, and GPIO21; GPIO2, GPIO3, and
+GPIO14 support ADC. P2 exposes the releasable `uart0` signals on GPIO43 and
+GPIO44. The LCD uses the internal `spi0` bus, including its wired GPIO13 MISO
+signal; it is not an expansion SPI connector.
+
+Build the standalone target with:
+
+```sh
+pio run -e qdtech_es3n28p
 ```
 
 ## Elecrow CrowPanel ESP32-S3 4.2-inch E-paper
