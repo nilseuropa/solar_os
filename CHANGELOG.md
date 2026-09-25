@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.13.8** — 2026-09-25 — Running `ble` without arguments now opens a
+  multi-tab BLE Inspector for scanning and connecting devices, browsing GATT
+  services and characteristics, reading values, and writing hexadecimal data.
+  The inspector exposes BLE keyboard and GATT operation settings, keeps key
+  mnemonics visible, reports scan and connection progress and failures through
+  standard TUI popups, and releases its connection when closed. Existing text
+  subcommands remain available.
 - **4.13.7** — 2026-09-25 — Improved offline PicoTTS playback with deeper
   buffering and smooth underrun recovery. Agent now preserves raw `ask` prompts,
   requests tool calls sequentially from Chat Completions-compatible providers,
