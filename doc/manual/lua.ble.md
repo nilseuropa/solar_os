@@ -19,6 +19,10 @@ agent_reference_sections = true
   peripheral functions under `solaros.ble.server`, and typed peripheral HID
   under `solaros.ble.hid` when BLE support is compiled
 
+`solaros.ble.pair()` forgets the remembered keyboard and its bond before it
+starts pairing a replacement. Pairing replaces a conflicting stale keyboard
+bond from an older SolarOS release.
+
 ## BLE scan
 
 `solaros.ble.scan()` returns a one-based array of device tables with the same

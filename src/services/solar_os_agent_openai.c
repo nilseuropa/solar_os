@@ -64,12 +64,14 @@ typedef struct {
     solar_os_agent_provider_result_t *result;
     agent_openai_api_t api;
     size_t output_bytes;
+    uint32_t tool_call_index;
     bool saw_done;
     bool saw_finish;
     bool saw_payload;
     bool parse_error;
     bool response_error;
     bool too_many_tools;
+    bool tool_call_index_set;
 } agent_openai_stream_t;
 
 static esp_err_t agent_openai_emit(agent_openai_stream_t *stream,
@@ -188,6 +190,18 @@ static esp_err_t agent_openai_parse_tool_delta(agent_openai_stream_t *stream,
     if (!solar_os_json_is_object(call)) {
         return ESP_ERR_INVALID_RESPONSE;
     }
+
+    uint32_t call_index = 0;
+    if (solar_os_json_get_path_uint32(call, "index", &call_index) != ESP_OK) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (stream->tool_call_index_set &&
+        stream->tool_call_index != call_index) {
+        stream->too_many_tools = true;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    stream->tool_call_index = call_index;
+    stream->tool_call_index_set = true;
 
     esp_err_t err =
         agent_openai_append_json_string(
@@ -879,7 +893,8 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"}"
             "%s,"
             "{\"role\":\"user\",\"content\":\"%s\"}],"
-            "\"tools\":%s,\"tool_choice\":\"auto\"}",
+            "\"tools\":%s,\"tool_choice\":\"auto\","
+            "\"parallel_tool_calls\":false}",
             model,
             reasoning_compat,
             history,
@@ -901,7 +916,8 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             "\"type\":\"function\",\"function\":{\"name\":\"%s\","
             "\"arguments\":\"%s\"}}]},"
             "{\"role\":\"tool\",\"tool_call_id\":\"%s\",\"content\":\"%s\"}],"
-            "\"tools\":%s,\"tool_choice\":\"auto\"}",
+            "\"tools\":%s,\"tool_choice\":\"auto\","
+            "\"parallel_tool_calls\":false}",
             model,
             reasoning_compat,
             history,

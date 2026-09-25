@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "solar_os_shell_launch.h"
 
@@ -80,6 +81,28 @@ int main(void)
     char *agent_source[] = {"agent", "script", "python", "-c", "print('ok')"};
     assert(path_arg(5, agent_file) == 3);
     assert(path_arg(5, agent_source) == -1);
+
+    const char *agent_ask_prefix[] = {"agent", "ask"};
+    char raw_prompt[192];
+    assert(solar_os_shell_launch_raw_remainder(
+        "  agent   ask list the root directory and inspect every matching file",
+        2,
+        agent_ask_prefix,
+        raw_prompt,
+        sizeof(raw_prompt)));
+    assert(strcmp(raw_prompt,
+                  "list the root directory and inspect every matching file") == 0);
+    assert(solar_os_shell_launch_raw_remainder(
+        "agent ask \"keep this quoted prompt together\"  ",
+        2,
+        agent_ask_prefix,
+        raw_prompt,
+        sizeof(raw_prompt)));
+    assert(strcmp(raw_prompt, "keep this quoted prompt together") == 0);
+    assert(!solar_os_shell_launch_raw_remainder(
+        "agent new", 2, agent_ask_prefix, raw_prompt, sizeof(raw_prompt)));
+    assert(!solar_os_shell_launch_raw_remainder(
+        "agent ask", 2, agent_ask_prefix, raw_prompt, sizeof(raw_prompt)));
 
     char *files[] = {"files", "projects"};
     char *launcher[] = {"files", "--launcher"};

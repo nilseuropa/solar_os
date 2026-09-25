@@ -19,7 +19,8 @@ characteristic I/O is separate, under `solaros.ble.gatt`.
 - `status()`: return human-readable BLE keyboard status, including the latest
   reported keyboard battery percentage when available.
 - `connected()`: return whether a keyboard is connected.
-- `pair()`: start keyboard pairing.
+- `pair()`: forget the remembered keyboard and its bond, then start pairing a
+  replacement. A conflicting stale keyboard bond is replaced during pairing.
 - `forget()`: remove remembered keyboard pairing.
 - `layout([name])`: get or set keyboard layout, currently `us` or `de`.
 - `read([max_bytes])`: read pending decoded keyboard bytes.

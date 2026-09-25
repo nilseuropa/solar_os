@@ -240,11 +240,15 @@ before normal service initialization.
 `ble forget` erases the remembered keyboard from SolarOS NVS and removes its BLE
 bond and cached GATT service database. This forces service rediscovery when the
 same keyboard address is paired again, including after keyboard firmware changes
-move its GATT handles. On boards with a system KEY, a long press performs that
-forget operation and then starts a new pairing scan. Pairing has no user
-cancellation path. The KEY short-press power action remains separately
-configurable with `setterm powerkey sleep|suspend`. Suspend is the default;
-another short press resumes the display and restores the prior power profile.
+move its GATT handles. `ble pair` performs that forget operation before it scans
+for a replacement, so switching keyboards does not retain the previous keyboard
+bond. If a keyboard still has an orphaned bond from an older SolarOS release,
+explicit pairing replaces that conflicting bond. On boards with a system KEY, a
+long press also forgets the remembered keyboard and starts a new pairing scan.
+Pairing has no user cancellation path. The KEY short-press power action remains
+separately configurable with `setterm powerkey sleep|suspend`. Suspend is the
+default; another short press resumes the display and restores the prior power
+profile.
 
 ## Clipboard
 

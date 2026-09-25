@@ -429,6 +429,37 @@ static esp_err_t agent_app_build_prompt(solar_os_context_t *ctx,
     return used > 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
+static esp_err_t agent_app_build_raw_prompt(solar_os_context_t *ctx,
+                                            int first_prompt_arg)
+{
+    const int argc = solar_os_context_argc(ctx);
+    if (first_prompt_arg < 0 || first_prompt_arg >= argc) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    agent_app.prompt = solar_os_memory_calloc(1,
+                                              SOLAR_OS_AGENT_PROMPT_MAX,
+                                              SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                              "agent.app.prompt");
+    if (agent_app.prompt == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t used = 0;
+    for (int i = first_prompt_arg; i < argc; i++) {
+        const char *chunk = solar_os_context_argv(ctx, i);
+        const size_t len = strlen(chunk);
+        if (used + len >= SOLAR_OS_AGENT_PROMPT_MAX) {
+            solar_os_memory_free(agent_app.prompt);
+            agent_app.prompt = NULL;
+            return ESP_ERR_INVALID_SIZE;
+        }
+        memcpy(agent_app.prompt + used, chunk, len);
+        used += len;
+        agent_app.prompt[used] = '\0';
+    }
+    return used > 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
 static esp_err_t agent_app_build_script(solar_os_context_t *ctx)
 {
     if (solar_os_context_argc(ctx) < 4) {
@@ -1059,9 +1090,12 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
     const bool chat_mode = argc == command_index || new_mode || resume_mode;
     const bool ask_mode = argc >= command_index + 2 &&
         strcmp(solar_os_context_argv(ctx, command_index), "ask") == 0;
+    const bool raw_ask_mode = argc >= command_index + 2 &&
+        strcmp(solar_os_context_argv(ctx, command_index),
+               SOLAR_OS_AGENT_APP_RAW_ASK_COMMAND) == 0;
     const bool script_mode = !tts_requested && argc >= 4 &&
         strcmp(solar_os_context_argv(ctx, 1), "script") == 0;
-    if (ask_mode || script_mode || !chat_mode) {
+    if (ask_mode || raw_ask_mode || script_mode || !chat_mode) {
         solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
     }
     if (agent_app.task != NULL && !agent_app.task_done) {
@@ -1083,7 +1117,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
                                sizeof(agent_app.username));
     (void)solar_os_agent_init();
 
-    if (!chat_mode && !ask_mode && !script_mode) {
+    if (!chat_mode && !ask_mode && !raw_ask_mode && !script_mode) {
         agent_app_writeln(agent_app_io(ctx),
                           "launch with agent [--tts], new, resume, ask, or script");
         solar_os_shell_io_flush(agent_app_io(ctx));
@@ -1119,7 +1153,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
 
     solar_os_agent_status_t status = {0};
     esp_err_t err;
-    if (chat_mode || ask_mode) {
+    if (chat_mode || ask_mode || raw_ask_mode) {
         agent_app.mode =
             chat_mode ? AGENT_APP_MODE_CHAT : AGENT_APP_MODE_ASK;
         solar_os_wifi_status_t wifi;
@@ -1162,7 +1196,9 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
                     sizeof(agent_app.conversation_id));
         }
         err = chat_mode ? ESP_OK :
-            agent_app_build_prompt(ctx, command_index + 1);
+            (raw_ask_mode ?
+                agent_app_build_raw_prompt(ctx, command_index + 1) :
+                agent_app_build_prompt(ctx, command_index + 1));
     } else {
         err = agent_app_build_script(ctx);
     }
@@ -1180,7 +1216,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
         agent_app_return_to_shell(ctx, 2, message);
         return ESP_OK;
     }
-    if (chat_mode || ask_mode) {
+    if (chat_mode || ask_mode || raw_ask_mode) {
         agent_app.events = solar_os_queue_create(AGENT_APP_EVENT_QUEUE_LEN,
                                                   sizeof(solar_os_agent_event_t));
         if (agent_app.events == NULL) {
@@ -1192,7 +1228,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
         }
     }
 
-    if (chat_mode || ask_mode) {
+    if (chat_mode || ask_mode || raw_ask_mode) {
         agent_app_update_token_footer(ctx);
         solar_os_shell_io_printf_bold(agent_app_io(ctx),
                                       "agent (%s)\n",

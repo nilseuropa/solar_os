@@ -30,6 +30,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
 #include "solar_os_agent.h"
+#include "solar_os_agent_app.h"
 #endif
 #include "solar_os_board_caps.h"
 #include "solar_os_clipboard.h"
@@ -9487,6 +9488,83 @@ static void SHELL_NOINLINE shell_report_unknown_command(
     solar_os_shell_diag_set_source(io, NULL, 0);
 }
 
+#if SOLAR_OS_PACKAGE_APP_AGENT
+static bool SHELL_NOINLINE shell_launch_raw_agent_ask(
+    solar_os_context_t *ctx,
+    const char *line,
+    bool add_history,
+    const char *source,
+    size_t line_number,
+    bool *matched)
+{
+    const char *const agent_ask_prefix[] = {"agent", "ask"};
+    const char *const agent_tts_ask_prefix[] = {"agent", "--tts", "ask"};
+    char raw_prompt[SHELL_INPUT_MAX];
+    bool tts_requested = false;
+    bool raw_agent_ask = solar_os_shell_launch_raw_remainder(
+        line,
+        (int)SHELL_ARRAY_COUNT(agent_ask_prefix),
+        agent_ask_prefix,
+        raw_prompt,
+        sizeof(raw_prompt));
+    if (!raw_agent_ask) {
+        raw_agent_ask = solar_os_shell_launch_raw_remainder(
+            line,
+            (int)SHELL_ARRAY_COUNT(agent_tts_ask_prefix),
+            agent_tts_ask_prefix,
+            raw_prompt,
+            sizeof(raw_prompt));
+        tts_requested = raw_agent_ask;
+    }
+    if (!raw_agent_ask) {
+        *matched = false;
+        return true;
+    }
+    *matched = true;
+    if (add_history) {
+        shell_history_add(ctx, line);
+    }
+
+    char chunks[SOLAR_OS_APP_ARG_MAX][SOLAR_OS_APP_ARG_LEN] = {{0}};
+    char *raw_argv[SOLAR_OS_APP_ARG_MAX] = {0};
+    int raw_argc = 0;
+    raw_argv[raw_argc++] = "agent";
+    if (tts_requested) {
+        raw_argv[raw_argc++] = "--tts";
+    }
+    raw_argv[raw_argc++] = SOLAR_OS_AGENT_APP_RAW_ASK_COMMAND;
+
+    const char *remaining = raw_prompt;
+    while (*remaining != '\0' && raw_argc < SOLAR_OS_APP_ARG_MAX) {
+        const size_t remaining_len = strlen(remaining);
+        const size_t chunk_len = remaining_len < SOLAR_OS_APP_ARG_LEN - 1U ?
+            remaining_len : SOLAR_OS_APP_ARG_LEN - 1U;
+        memcpy(chunks[raw_argc], remaining, chunk_len);
+        chunks[raw_argc][chunk_len] = '\0';
+        raw_argv[raw_argc] = chunks[raw_argc];
+        raw_argc++;
+        remaining += chunk_len;
+    }
+    if (*remaining != '\0') {
+        solar_os_shell_diag_problem(terminal(ctx),
+                                    "agent",
+                                    "prompt is too long",
+                                    NULL,
+                                    NULL);
+        return true;
+    }
+
+    const solar_os_app_registry_entry_t *agent =
+        solar_os_app_registry_find("agent");
+    return agent == NULL || shell_launch_registered_app(ctx,
+                                                        agent,
+                                                        raw_argc,
+                                                        raw_argv,
+                                                        source,
+                                                        line_number);
+}
+#endif
+
 static bool shell_execute_line(solar_os_context_t *ctx,
                                const char *line,
                                bool add_history,
@@ -9510,6 +9588,20 @@ static bool shell_execute_line(solar_os_context_t *ctx,
                                     NULL);
         return true;
     }
+
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    bool raw_agent_ask = false;
+    const bool raw_agent_should_prompt = shell_launch_raw_agent_ask(
+        ctx,
+        line,
+        add_history,
+        source,
+        line_number,
+        &raw_agent_ask);
+    if (raw_agent_ask) {
+        return raw_agent_should_prompt;
+    }
+#endif
 
     strlcpy(command, line, sizeof(command));
     const solar_os_shell_parse_result_t parsed =
