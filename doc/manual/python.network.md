@@ -146,10 +146,11 @@ next ordered event dictionary:
   duration, cancellation/deadline flags, and ESP error details
 
 Each runtime can open two streams, with four streams globally. Each stream has
-an eight-event queue. If a script does not drain it, SolarOS terminates the
-stream with `ESP_ERR_NO_MEM`; it never silently drops body bytes. Handles close
-automatically at interpreter teardown. Always close them explicitly in
-`finally` so a completed stream releases its queue and handle immediately.
+an eight-event queue. A full queue backpressures the native worker until the
+script drains it or cancels the stream; SolarOS never silently drops body
+bytes. Handles close automatically at interpreter teardown. Always close them
+explicitly in `finally` so a completed stream releases its queue and handle
+immediately.
 
 The data boundary is a transport chunk, not an application record. For SSE,
 retain an incomplete line across `data` events and dispatch a message only at

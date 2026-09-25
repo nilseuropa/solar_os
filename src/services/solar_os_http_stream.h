@@ -47,8 +47,8 @@ typedef struct {
  * released immediately. The session replaces event and cancellation callbacks
  * in the request options with its owned worker callbacks. Events are bounded
  * and preserve transport order.
- * If the consumer does not drain the queue, the worker stops with
- * ESP_ERR_NO_MEM rather than dropping bytes and corrupting the stream.
+ * A full queue backpressures the worker until the consumer drains it or the
+ * stream is cancelled. Body bytes are never dropped.
  */
 esp_err_t solar_os_http_stream_session_create(
     solar_os_http_stream_cancel_fn should_cancel,

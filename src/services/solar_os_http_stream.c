@@ -11,7 +11,7 @@
 #include "solar_os_task.h"
 
 #define HTTP_STREAM_QUEUE_LEN 8U
-#define HTTP_STREAM_QUEUE_WAIT_MS 100U
+#define HTTP_STREAM_QUEUE_POLL_MS 50U
 #define HTTP_STREAM_READ_POLL_MS 50U
 #define HTTP_STREAM_STOP_WAIT_MS 2000U
 #define HTTP_STREAM_TASK_STACK (12U * 1024U)
@@ -152,10 +152,14 @@ static esp_err_t http_stream_event(const solar_os_http_event_t *source,
         return ESP_ERR_INVALID_ARG;
     }
 
-    return xQueueSend(stream->events,
-                      &event,
-                      pdMS_TO_TICKS(HTTP_STREAM_QUEUE_WAIT_MS)) == pdPASS ?
-        ESP_OK : ESP_ERR_NO_MEM;
+    while (!http_stream_cancelled(stream)) {
+        if (xQueueSend(stream->events,
+                       &event,
+                       pdMS_TO_TICKS(HTTP_STREAM_QUEUE_POLL_MS)) == pdPASS) {
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_INVALID_STATE;
 }
 
 static void http_stream_task(void *arg)

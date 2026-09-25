@@ -50,6 +50,8 @@ class ScriptHttpBindingsTest(unittest.TestCase):
         ):
             self.assertIn(token, stream_header)
         self.assertIn("solar_os_queue_create(HTTP_STREAM_QUEUE_LEN", stream_source)
+        self.assertIn("while (!http_stream_cancelled(stream))", stream_source)
+        self.assertIn("HTTP_STREAM_QUEUE_POLL_MS", stream_source)
         self.assertIn("return ESP_ERR_NO_MEM", stream_source)
         self.assertIn("solar_os_task_create_pinned_internal", stream_source)
         for source in (PYTHON_SOURCE, LUA_SOURCE):

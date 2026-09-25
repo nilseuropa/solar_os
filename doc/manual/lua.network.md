@@ -131,10 +131,11 @@ ordered `header`, `response`, `data`, `complete`, or `error` event. Data events
 contain up to 1024 binary bytes. Terminal events include status, content
 length, received byte count, duration, cancellation flags, and ESP error
 details. The limits are two streams per runtime and four globally, with eight
-queued events per stream. A full queue terminates the stream instead of
-dropping bytes. Streams close at interpreter teardown; close them explicitly
-to release resources promptly. Protocol records such as SSE messages can cross
-data-event boundaries and must be reassembled by the script.
+queued events per stream. A full queue backpressures the native worker until
+the script drains it or cancels the stream; body bytes are never dropped.
+Streams close at interpreter teardown; close them explicitly to release
+resources promptly. Protocol records such as SSE messages can cross data-event
+boundaries and must be reassembled by the script.
 
 ```lua
 local response = solaros.http.get("https://example.com/")
