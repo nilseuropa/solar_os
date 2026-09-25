@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.13.9** — 2026-09-25 — Added the QDtech ES3N28P 2.8-inch target with
+  its 320x240 ILI9341 display, SDMMC storage, ES8311 audio, battery monitor,
+  status pixel, and expansion connectors. Python and Lua applications can now
+  open static PNG, JPEG, GIF, and WebP images as native PSRAM-backed handles
+  and draw them with clipping and nearest-neighbor scaling. View, Web, and
+  Reader now share the native raster blitter for direct color and monochrome
+  output. Full HTTP stream queues now backpressure the native worker until the
+  consumer drains or cancels them instead of terminating the stream.
 - **4.13.8** — 2026-09-25 — Running `ble` without arguments now opens a
   multi-tab BLE Inspector for scanning and connecting devices, browsing GATT
   services and characteristics, reading values, and writing hexadecimal data.
