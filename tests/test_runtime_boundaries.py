@@ -639,6 +639,42 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("open_keyboard(selected_candidate.bda", open_path)
         self.assertNotIn("open_keyboard(candidate.bda", open_path)
 
+    def test_ble_pairing_retires_the_remembered_keyboard_bond(self):
+        ble = (ROOT / "src/services/solar_os_ble_keyboard.c").read_text(
+            encoding="utf-8"
+        )
+        pairing_start = ble.index("esp_err_t solar_os_ble_keyboard_start_pairing(")
+        pairing_end = ble.index(
+            "esp_err_t solar_os_ble_backend_prepare_sleep(", pairing_start
+        )
+        pairing = ble[pairing_start:pairing_end]
+        finish_start = ble.index("static void finish_forget_operation(")
+        finish_end = ble.index("static esp_err_t complete_bond_forget(", finish_start)
+        finish = ble[finish_start:finish_end]
+
+        self.assertIn("if (remembered_peer_count() > 0U)", pairing)
+        self.assertIn("pairing_retry_pending = true;", pairing)
+        self.assertIn("return forget_remembered_keyboard();", pairing)
+        self.assertIn("pairing_retry_pending && result == ESP_OK", finish)
+        self.assertIn("pairing_retry_pending = false;", finish)
+
+    def test_ble_hid_replaces_a_conflicting_keyboard_bond(self):
+        hid = (ROOT / "src/services/solar_os_ble_hid.c").read_text(
+            encoding="utf-8"
+        )
+        replace_start = hid.index("static int replace_repeat_pairing_bond(")
+        replace_end = hid.index("static int gap_callback(", replace_start)
+        replace = hid[replace_start:replace_end]
+
+        self.assertIn("ble_gap_conn_find", replace)
+        self.assertIn("ble_store_util_delete_peer", replace)
+        self.assertIn("return BLE_GAP_REPEAT_PAIRING_RETRY;", replace)
+        self.assertIn(
+            "case BLE_GAP_EVENT_REPEAT_PAIRING:\n"
+            "        return replace_repeat_pairing_bond(event);",
+            hid,
+        )
+
     def test_audio_stream_direction_and_shell_capabilities(self):
         audio = (ROOT / "src/services/solar_os_audio.c").read_text(
             encoding="utf-8"

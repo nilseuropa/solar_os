@@ -739,7 +739,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `ble` | `ble default` | Clear the saved override and use the board default on the next boot. |
 | `ble` | `ble keepalive [on\|off]` | Show or save the best-effort BLE keyboard keepalive setting. |
 | `ble` | `ble scan` | Scan nearby BLE devices. |
-| `ble` | `ble pair` | Start keyboard pairing. |
+| `ble` | `ble pair` | Forget the remembered keyboard and its bond, then start pairing a replacement. |
 | `ble` | `ble forget` | Erase the remembered keyboard, its BLE bond, and its cached GATT service database. |
 | `ble gatt` | `ble gatt status` | Show the generic GATT connection state and discovered-service count. |
 | `ble gatt` | `ble gatt connect <aa:bb:cc:dd:ee:ff> <public\|random\|rpa_public\|rpa_random>` | Connect to a BLE peripheral by address and address type. |

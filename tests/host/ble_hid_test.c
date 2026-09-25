@@ -56,6 +56,17 @@ int main(void)
     assert(solar_os_ble_hid_idle());
     start(); nimble_test_connect(BLE_HS_ETIMEOUT); nimble_test_drain();
     assert(solar_os_ble_hid_idle()); /* Failed connect has no device lookup/deref. */
+    start(); nimble_test_connect(0);
+    struct ble_gap_event repeat_pairing={.type=BLE_GAP_EVENT_REPEAT_PAIRING,
+        .repeat_pairing={.conn_handle=7}};
+    assert(fake.gap(&repeat_pairing,fake.gap_arg)==BLE_GAP_REPEAT_PAIRING_RETRY);
+    assert(fake.store_delete_calls==1);
+    fake.store_delete_error=BLE_HS_EAPP;
+    assert(fake.gap(&repeat_pairing,fake.gap_arg)==BLE_GAP_REPEAT_PAIRING_IGNORE);
+    assert(fake.store_delete_calls==2);
+    solar_os_ble_hid_cancel_open(); nimble_test_drain();
+    nimble_test_disconnect(); drain_policy();
+    assert(solar_os_ble_hid_idle());
     start(); solar_os_ble_hid_cancel_open(); nimble_test_drain();
     assert(fake.cancel_calls==1); nimble_test_connect(BLE_HS_EAPP); nimble_test_drain();
     assert(solar_os_ble_hid_idle());

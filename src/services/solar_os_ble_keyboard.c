@@ -436,6 +436,7 @@ static void restore_status_after_scan(ble_keyboard_scan_mode_t mode);
 static esp_err_t run_keyboard_scan(ble_keyboard_scan_mode_t mode,
                                    ble_keyboard_candidate_t *selected_candidate);
 static esp_err_t start_pairing_scan_now(void);
+static esp_err_t forget_remembered_keyboard(void);
 static void request_pairing_after_pending_connect(const char *reason);
 static bool deferred_bond_forget_pending(void);
 static bool forget_operation_pending(void);
@@ -2297,13 +2298,15 @@ static void finish_forget_operation(esp_err_t result, bool bond_removed)
         SOLAR_OS_LOGW(TAG, "BLE keyboard forget failed: %s", esp_err_to_name(result));
     }
 
-    if (pairing_retry_pending) {
+    if (pairing_retry_pending && result == ESP_OK) {
         const esp_err_t pair_ret = start_pairing_scan_now();
         if (pair_ret != ESP_OK) {
             SOLAR_OS_LOGW(TAG,
                           "deferred pairing start after forget failed: %s",
                           esp_err_to_name(pair_ret));
         }
+    } else if (pairing_retry_pending) {
+        pairing_retry_pending = false;
     } else if (!bond_removed && remembered_peer_count() > 0U) {
         schedule_reconnect(BLE_KEYBOARD_RECONNECT_INITIAL_DELAY_MS);
     }
@@ -2541,6 +2544,12 @@ esp_err_t solar_os_ble_keyboard_start_pairing(void)
         set_status(BLE_KEYBOARD_PAIRING_PENDING, "pairing after forget");
         SOLAR_OS_LOGI(TAG, "pairing waits for keyboard forget completion");
         return ESP_OK;
+    }
+
+    if (remembered_peer_count() > 0U) {
+        pairing_retry_pending = true;
+        SOLAR_OS_LOGI(TAG, "pairing replaces the remembered keyboard");
+        return forget_remembered_keyboard();
     }
 
     const bool reconnect_stopped = stop_reconnect_task("pairing", 50U);

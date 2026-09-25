@@ -10,6 +10,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "host/ble_store.h"
 #include "nimble/nimble_port.h"
 
 #define HID_SERVICE_MAX 5
@@ -469,6 +470,22 @@ static int mtu_callback(uint16_t conn, const struct ble_gatt_error *error,
     return 0;
 }
 
+static int replace_repeat_pairing_bond(struct ble_gap_event *event)
+{
+    struct ble_gap_conn_desc desc = {0};
+    int rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+    if (rc) {
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    }
+
+    rc = ble_store_util_delete_peer(&desc.peer_id_addr);
+    if (rc) {
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    }
+
+    return BLE_GAP_REPEAT_PAIRING_RETRY;
+}
+
 static int gap_callback(struct ble_gap_event *event, void *arg)
 {
     if (!hid.active || hid.epoch != (uint32_t)(uintptr_t)arg) return 0;
@@ -514,6 +531,8 @@ static int gap_callback(struct ble_gap_event *event, void *arg)
         if (device.conn_id != event->disconnect.conn.conn_handle) break;
         disconnected(event->disconnect.reason);
         break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+        return replace_repeat_pairing_bond(event);
     case BLE_GAP_EVENT_NOTIFY_RX:
         if (!device.connected || hid.closing || device.conn_id != event->notify_rx.conn_handle) break;
         for (size_t i = 0; i < hid.report_count; ++i) {
