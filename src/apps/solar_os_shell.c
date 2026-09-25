@@ -591,7 +591,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"dpad", "ADC D-pad tools", solar_os_shell_cmd_dpad},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    {"ble", "BLE keyboard control", solar_os_shell_cmd_ble},
+    {"ble", "BLE inspector and keyboard control", solar_os_shell_cmd_ble},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NETWORK
     {"network", "network interfaces, routes, and router", solar_os_shell_cmd_network},
