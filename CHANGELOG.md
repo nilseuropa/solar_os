@@ -2,6 +2,13 @@
 
 ## 4.x
 
+- **4.13.7** — 2026-09-25 — Improved offline PicoTTS playback with deeper
+  buffering and smooth underrun recovery. Agent now preserves raw `ask` prompts,
+  requests tool calls sequentially from Chat Completions-compatible providers,
+  and isolates Python and Lua script runner state from foreground applications.
+  BLE keyboard replacement now removes the previous keyboard bond and recovers
+  conflicting stale bonds, so switching keyboards and pairing again after
+  `ble forget` work reliably.
 - **4.13.6** — 2026-09-22 — Added offline PicoTTS speech with runtime-loaded
   voice directories, an asynchronous native/Python/Lua service, and the `say`
   command for text or streaming plain-text files with progress, cancellation,
