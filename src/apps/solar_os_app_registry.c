@@ -101,6 +101,9 @@
 #if SOLAR_OS_PACKAGE_APP_LESS
 #include "solar_os_less.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_LTOP
+#include "solar_os_ltop.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
 #include "solar_os_notes.h"
 #endif
@@ -240,6 +243,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_LESS
     APP_ENTRY("less", "text file pager", &solar_os_less_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "less <file>", 2, 2),
+#endif
+#if SOLAR_OS_PACKAGE_APP_LTOP
+    APP_ENTRY("ltop", "live task and per-core CPU monitor", &solar_os_ltop_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "ltop", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_NOTES
     APP_ENTRY("notes", "Markdown checklist notes", &solar_os_notes_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "notes [file.md]", 1, 2),
