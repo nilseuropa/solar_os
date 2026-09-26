@@ -879,6 +879,18 @@ frames with Elecrow's non-flashing `0xDC` partial-update waveform; unchanged
 frames are skipped. Use `display mode display0 refresh=full` when an explicit
 full cleanup is needed.
 
+The wide panel can also run two independent side-by-side sessions:
+
+```text
+display split display0 --horizontal left0 right0
+session create shell right0
+```
+
+Session 0 moves to `left0` automatically. Use `Ctrl+Alt+Left/Right`, or
+`Ctrl+AltGr+Left/Right` on keyboards without a left Alt key, to move local
+input focus between the two viewports. `display unsplit display0` restores the
+single 792x272 target without discarding session 0 shell state.
+
 Build and flash the target with:
 
 ```sh

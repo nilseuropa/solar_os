@@ -33,6 +33,8 @@ than one fixed product shape.
 - Use Wi-Fi, BLE, USB CDC, UART, SD or flash storage, RTC time, GPIO, ADC, PWM,
   I2C, SPI, 1-Wire, audio, sensors, and board-specific display hardware through
   shared SolarOS services.
+- Join multiple physical displays into one logical canvas, or split a wide
+  display into independent session viewports with directional input focus.
 - Capture streams to CSV or raw files, transfer files over byte-stream ports,
   capture GPIO waveforms through SUMP or the on-device logic analyzer, and
   inspect runtime resource ownership.

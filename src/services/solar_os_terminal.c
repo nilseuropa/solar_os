@@ -559,11 +559,12 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
 
     const int footer_height = terminal->footer_enabled ? line_height : 0;
 
-    size_t cols = (size_t)((display_width - (TERM_MARGIN_X * 2)) / char_width);
-    if (cols < 1) {
+    size_t cols = solar_os_terminal_columns_compute(display_width,
+                                                    TERM_MARGIN_X,
+                                                    char_width,
+                                                    SOLAR_OS_TERMINAL_MAX_COLS);
+    if (cols == 0U) {
         cols = 1;
-    } else if (cols > SOLAR_OS_TERMINAL_MAX_COLS) {
-        cols = SOLAR_OS_TERMINAL_MAX_COLS;
     }
 
     solar_os_terminal_geometry_t geometry;
@@ -894,6 +895,21 @@ void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
     terminal_load_settings(terminal);
     terminal_apply_settings(terminal, false);
     terminal->dirty = true;
+}
+
+void solar_os_terminal_rebind_display(solar_os_terminal_t *terminal,
+                                      u8g2_t *u8g2,
+                                      const u8g2_cb_t *base_rotation)
+{
+    if (terminal == NULL || u8g2 == NULL || base_rotation == NULL) {
+        return;
+    }
+
+    terminal->u8g2 = u8g2;
+    terminal->base_rotation = base_rotation;
+    terminal->scrollback_offset = 0U;
+    terminal->render_valid = false;
+    terminal_apply_settings(terminal, false);
 }
 
 void solar_os_terminal_deinit(solar_os_terminal_t *terminal)

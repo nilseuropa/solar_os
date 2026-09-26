@@ -756,10 +756,46 @@ class RuntimeBoundaryTest(unittest.TestCase):
         end = main.index("static void dispatch_app_resume(", start)
         overlay_request = main[start:end]
 
-        self.assertIn("u8g2_ClearBuffer(display_u8g2);", overlay_request)
+        self.assertIn("u8g2_ClearBuffer(session_overlay_u8g2);", overlay_request)
         self.assertNotIn(
-            "solar_os_display_present(display_u8g2", overlay_request
+            "solar_os_display_present(session_overlay_u8g2", overlay_request
         )
+
+    def test_display_focus_shortcuts_are_global(self):
+        main = (ROOT / "src/main.c").read_text(encoding="utf-8")
+        sessions = (ROOT / "src/services/solar_os_sessions.c").read_text(
+            encoding="utf-8"
+        )
+        dispatch = main.split("static void dispatch_input_key", 1)[1].split(
+            "static void dispatch_input_pointer", 1
+        )[0]
+
+        ctrl_shortcut = dispatch.split(
+            "if (ctrl_active && alt_active", 1
+        )[1].split(
+            "if (alt_active && !ctrl_active", 1
+        )[0]
+        self.assertIn("solar_os_sessions_cycle_display_focus()", ctrl_shortcut)
+        self.assertIn(
+            "solar_os_sessions_cycle_display_focus_previous()", ctrl_shortcut
+        )
+        self.assertIn(
+            "solar_os_sessions_cycle_display_focus_down()", ctrl_shortcut
+        )
+        self.assertIn(
+            "solar_os_sessions_cycle_display_focus_up()", ctrl_shortcut
+        )
+        self.assertNotIn("dispatch_key_to_input_focus", ctrl_shortcut)
+        self.assertIn("SOLAR_OS_INPUT_MOD_CTRL", dispatch)
+        self.assertIn("SOLAR_OS_INPUT_MOD_ALT", dispatch)
+        self.assertIn("SOLAR_OS_KEY_CTRL_LEFT", dispatch)
+        self.assertIn("SOLAR_OS_KEY_CTRL_RIGHT", dispatch)
+        self.assertIn("SOLAR_OS_KEY_CTRL_UP", dispatch)
+        self.assertIn("SOLAR_OS_KEY_CTRL_DOWN", dispatch)
+        self.assertIn("if (alt_active && !ctrl_active", dispatch)
+        self.assertIn("session_split_focus_neighbor(", sessions)
+        self.assertIn("info.axis != axis", sessions)
+        self.assertIn("session_store_input_focus(targets[next_index]);", sessions)
 
     def test_gameboy_presents_clean_first_resume_frame(self):
         gameboy = (ROOT / "src/apps/solar_os_gameboy_presenter.c").read_text(
@@ -802,6 +838,32 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn(".width = u8g2_GetDisplayWidth(u8g2)", registered_geometry)
         self.assertIn(".height = u8g2_GetDisplayHeight(u8g2)", registered_geometry)
         self.assertNotIn("SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH", registered_geometry)
+
+    def test_builtin_shell_follows_display_layouts(self):
+        commands = (
+            ROOT / "src/shell/solar_os_shell_commands.c"
+        ).read_text(encoding="utf-8")
+        sessions = (
+            ROOT / "src/services/solar_os_sessions.c"
+        ).read_text(encoding="utf-8")
+        terminal = (
+            ROOT / "src/services/solar_os_terminal.c"
+        ).read_text(encoding="utf-8")
+
+        split = commands.split("static void display_cmd_split", 1)[1].split(
+            "static bool display_find_layout", 1
+        )[0]
+        destroy = commands.split(
+            "static void display_cmd_destroy_layout", 1
+        )[1].split("static void display_draw_test_pattern", 1)[0]
+        self.assertIn("solar_os_sessions_builtin_shell_uses_display", split)
+        self.assertIn("solar_os_sessions_rebind_builtin_shell_display", split)
+        self.assertIn("solar_os_display_layout_unsplit(argv[2])", split)
+        self.assertIn("solar_os_sessions_builtin_display_base", destroy)
+        self.assertIn("solar_os_sessions_rebind_builtin_shell_display", destroy)
+        self.assertIn("solar_os_terminal_rebind_display", sessions)
+        self.assertIn("session_state.builtin_display_target", sessions)
+        self.assertIn("terminal_apply_settings(terminal, false);", terminal)
 
     def test_runtime_displays_on_headless_boards_use_target_registry(self):
         display = (ROOT / "src/services/solar_os_display.c").read_text(

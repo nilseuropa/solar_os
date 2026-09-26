@@ -2,6 +2,20 @@
 
 ## 4.x
 
+- **4.14.1** — 2026-09-26 — Added runtime display layouts: two to four
+  physical displays can be joined into one logical canvas, while one physical
+  display can be split into two independent logical viewports with their own
+  sessions and frame exports. The built-in shell follows layout changes, and
+  `Ctrl+Alt+Arrow` or `Ctrl+AltGr+Arrow` moves local input focus between split
+  screens without interrupting either foreground application. Terminal geometry
+  now uses the full display width at every text size, including unusually wide
+  panels.
+- **4.14.0** — 2026-09-26 — Added the Elecrow CrowPanel ESP32-S3 5.79-inch
+  e-paper target with its 792x272 dual-SSD1683 display, non-flashing partial
+  refresh, microSD, rotary controls, status LED, and expansion interfaces. The
+  writerdeck flavor now focuses on file transfer, editing and reading, Python
+  and Playground, image viewing, audio, and offline speech while omitting
+  hardware-hacking and external-radio packages to fit the 8 MB OTA layout.
 - **4.13.10** — 2026-09-26 — Added `ltop`, a resumable live task monitor for
   display and port terminals. It shows interval-based CPU load for each core,
   aggregate CPU load, internal and external memory utilization, and a

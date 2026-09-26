@@ -35,7 +35,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [date command](commands.md) — Show or set the local date.
 - [df command](commands.md) — Show free space on mounted storage volumes.
 - [disk command](commands.md) — Show persistent-storage status.
-- [display command](commands.md) — List drawable display targets, draw a test pattern, or change driver-specific display settings.
+- [display command](commands.md) — List drawable targets, join or split display layouts, draw a test pattern, or change driver-specific settings.
 - [dpad command](commands.md) — Show ADC D-pad pins, raw values, zones, and calibration thresholds.
 - [echo command](commands.md) — Print the arguments separated by spaces, followed by a newline. Quotes preserve spaces and are not printed.
 - [email command](commands.md) — Open the receive-only email app.

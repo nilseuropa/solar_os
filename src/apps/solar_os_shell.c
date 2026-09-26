@@ -777,9 +777,15 @@ static const char * const setterm_startup_values[] = {"auto", "flash", "sd"};
 
 static const char * const display_subcommands[] = {
     "list",
+    "layouts",
     "test",
     "mode",
+    "join",
+    "unjoin",
+    "split",
+    "unsplit",
 };
+static const char * const display_layout_axes[] = {"--horizontal", "--vertical"};
 static const char * const input_subcommands[] = {
     "status", "test", "calibrate", "emit",
     "keyboard", "touch", "mouse", "joystick", "dpad", "buttons", "gesture",
@@ -793,6 +799,8 @@ static const char * const input_emit_keys[] = {
     "UP", "DOWN", "LEFT", "RIGHT", "ENTER", "ESCAPE", "SPACE", "TAB",
     "BACKSPACE", "HOME", "END", "DELETE", "PAGE_UP", "PAGE_DOWN",
     "ALT+LEFT", "ALT+RIGHT", "ALT+TAB",
+    "ALT+CTRL+LEFT", "ALT+CTRL+RIGHT", "ALT+CTRL+UP", "ALT+CTRL+DOWN",
+    "ALTGR+CTRL+LEFT", "ALTGR+CTRL+RIGHT", "ALTGR+CTRL+UP", "ALTGR+CTRL+DOWN",
 };
 static const char * const gesture_unbind_values[] = {"all"};
 
@@ -1813,6 +1821,28 @@ static const char * const path_display[] = {"display"};
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
+static const char * const path_display_join_name[] = {"display", "join", SHELL_COMPLETION_ANY};
+static const char * const path_display_join_target_1[] = {
+    "display", "join", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+};
+static const char * const path_display_join_target_2[] = {
+    "display", "join", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY,
+};
+static const char * const path_display_join_target_3[] = {
+    "display", "join", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+};
+static const char * const path_display_join_target_4[] = {
+    "display", "join", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+    SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY,
+};
+static const char * const path_display_unjoin[] = {"display", "unjoin"};
+static const char * const path_display_split[] = {"display", "split"};
+static const char * const path_display_split_target[] = {
+    "display", "split", SHELL_COMPLETION_ANY,
+};
+static const char * const path_display_unsplit[] = {"display", "unsplit"};
 static const char * const path_input[] = {"input"};
 static const char * const path_input_test[] = {"input", "test"};
 static const char * const path_input_calibrate[] = {"input", "calibrate"};
@@ -3058,6 +3088,15 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
+    SHELL_COMPLETION_STATIC(path_display_join_name, display_layout_axes),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_join_target_1),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_join_target_2),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_join_target_3),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_join_target_4),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_unjoin),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_split),
+    SHELL_COMPLETION_STATIC(path_display_split_target, display_layout_axes),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_unsplit),
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     SHELL_COMPLETION_STATIC(path_engine, engine_subcommands),
 #endif

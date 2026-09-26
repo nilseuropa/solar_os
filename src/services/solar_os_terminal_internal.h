@@ -73,6 +73,9 @@ void solar_os_terminal_init(solar_os_terminal_t *terminal, u8g2_t *u8g2);
 void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
                                           u8g2_t *u8g2,
                                           const u8g2_cb_t *base_rotation);
+void solar_os_terminal_rebind_display(solar_os_terminal_t *terminal,
+                                      u8g2_t *u8g2,
+                                      const u8g2_cb_t *base_rotation);
 void solar_os_terminal_deinit(solar_os_terminal_t *terminal);
 void solar_os_terminal_inherit_text_profile(solar_os_terminal_t *terminal,
                                             const solar_os_terminal_t *source);
