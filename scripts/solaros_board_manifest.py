@@ -12,6 +12,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
+EXPANSION_DEVICE_BINDING_MAX = 8
 BOARD_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 DEVICE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DEFINE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -473,6 +474,10 @@ def validate_board(board: dict[str, Any], drivers: dict[str, DriverDef]) -> None
         bindings = device.get("bindings")
         if not isinstance(bindings, dict):
             raise ManifestError(f"device {name}.bindings must be a table")
+        if len(bindings) > EXPANSION_DEVICE_BINDING_MAX:
+            raise ManifestError(
+                f"device {name} has more than {EXPANSION_DEVICE_BINDING_MAX} bindings"
+            )
         specs = {binding.key: binding for binding in driver.bindings}
         missing = [binding.key for binding in driver.bindings
                    if binding.required and binding.key not in bindings]

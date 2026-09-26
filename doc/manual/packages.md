@@ -62,7 +62,9 @@ implementations with driver-specific preprocessor branches.
 `expansion.ssd1683` uses a named SPI bus and claimed CS, D/C, reset, BUSY, and
 optional power pins. Runtime attachments register an auxiliary display target;
 Elecrow declares the same driver as its fixed primary display. Automatic mode
-uses changed-frame partial windows.
+uses changed-frame partial windows when the panel profile supports them; the
+dual-controller 792x272 profile transfers both RAM halves with the panel's
+partial-update waveform.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.

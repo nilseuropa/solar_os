@@ -315,7 +315,7 @@ min = 3840
 max = 4608
 
 [drivers.ssd1683]
-summary = "400x300 e-paper"
+summary = "SSD1683 e-paper"
 package = "expansion_ssd1683"
 targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
@@ -383,10 +383,10 @@ max = 3
 [[drivers.ssd1683.bindings]]
 key = "panel"
 kind = "parameter"
-hint = "0..3"
+hint = "0..4"
 role = "panel"
 min = 0
-max = 3
+max = 4
 
 [drivers.sdspi]
 summary = "SPI microSD"

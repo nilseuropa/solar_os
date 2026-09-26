@@ -74,6 +74,8 @@ Built-in targets include:
   SD, battery monitoring, and one RGB LED.
 - `elecrow_crowpanel_esp32_s3_4_2_epaper`: 400x300 e-paper HMI with rotary
   controls and microSD.
+- `elecrow_crowpanel_esp32_s3_5_79_epaper`: 792x272 dual-SSD1683 e-paper HMI
+  with rotary controls and microSD.
 - `cl_32`: compact 384x168 reflective terminal with an integrated keyboard,
   microSD, RTC, battery monitor, and PWM audio.
 - `t_lora_pager`: 480x222 pager with keyboard, rotary input, LoRa, GNSS, NFC,
