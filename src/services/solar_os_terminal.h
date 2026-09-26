@@ -7,7 +7,8 @@
 #include "esp_err.h"
 #include "solar_os.h"
 
-#define SOLAR_OS_TERMINAL_MAX_COLS 96
+/* 792 px at the narrowest 5 px cell fits 156 columns inside the margins. */
+#define SOLAR_OS_TERMINAL_MAX_COLS 160
 #define SOLAR_OS_TERMINAL_MAX_ROWS 64
 
 typedef enum {

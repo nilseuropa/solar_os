@@ -559,11 +559,12 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
 
     const int footer_height = terminal->footer_enabled ? line_height : 0;
 
-    size_t cols = (size_t)((display_width - (TERM_MARGIN_X * 2)) / char_width);
-    if (cols < 1) {
+    size_t cols = solar_os_terminal_columns_compute(display_width,
+                                                    TERM_MARGIN_X,
+                                                    char_width,
+                                                    SOLAR_OS_TERMINAL_MAX_COLS);
+    if (cols == 0U) {
         cols = 1;
-    } else if (cols > SOLAR_OS_TERMINAL_MAX_COLS) {
-        cols = SOLAR_OS_TERMINAL_MAX_COLS;
     }
 
     solar_os_terminal_geometry_t geometry;

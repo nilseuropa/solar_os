@@ -390,7 +390,7 @@ manual_external_metadata_test: manual_external_metadata_test.c $(MANUAL_GENERATE
 		$(ROOT)/src/services/solar_os_manual.c -Wl,--gc-sections -o $@
 
 terminal_geometry_test: terminal_geometry_test.c $(ROOT)/src/services/solar_os_terminal_geometry.c $(ROOT)/src/services/solar_os_terminal_geometry.h
-	$(CC) $(CFLAGS) -I$(ROOT)/src/services terminal_geometry_test.c \
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services terminal_geometry_test.c \
 		$(ROOT)/src/services/solar_os_terminal_geometry.c -o $@
 
 app_exit_result_test: app_exit_result_test.c $(ROOT)/src/solar_os.c $(ROOT)/src/solar_os.h $(ROOT)/src/shell/solar_os_shell_io.c $(ROOT)/src/shell/solar_os_shell_io.h
