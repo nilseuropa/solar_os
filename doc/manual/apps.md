@@ -42,6 +42,12 @@ Exit behavior:
   Either Alt key is accepted, including AltGr on compact keyboards.
   Switching back restores the retained terminal or graphics frame, including
   Python and Lua application screens.
+- `Alt+Ctrl+Right/Left` moves local keyboard and board-control focus across a
+  horizontal display split; `Alt+Ctrl+Down/Up` does the same across a vertical
+  split. These shortcuts do not change either display's running session and
+  remain global while a foreground application is active. Plain `Ctrl+Arrow`
+  chords remain available to the shell or foreground application. AltGr can
+  be used instead of Alt.
 - `Alt+Enter` toggles full-screen mode in applications that use the shared TUI.
   Either Alt key is accepted, including AltGr; on the CL-32 keyboard, use
   `File+OK`. Full-screen mode hides the system status bar and persistent TUI

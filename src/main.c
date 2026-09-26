@@ -125,6 +125,7 @@ static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx;
 static bool alt_prefix_pending;
 static uint32_t session_overlay_until_ms;
 static char session_overlay_title[SESSION_OVERLAY_TITLE_MAX];
+static u8g2_t *session_overlay_u8g2;
 static volatile bool key_irq_pending;
 static bool key_interrupt_ready;
 static bool key_pressed;
@@ -321,7 +322,7 @@ static void draw_terminal_if_needed(void)
 
 static void draw_session_overlay_if_needed(void)
 {
-    if (display_u8g2 == NULL || session_overlay_until_ms == 0) {
+    if (session_overlay_u8g2 == NULL || session_overlay_until_ms == 0) {
         return;
     }
 
@@ -333,7 +334,8 @@ static void draw_session_overlay_if_needed(void)
         last_session_overlay_draw_ms = 0U;
         session_overlay_persistent = false;
         session_overlay_after_next_frame = false;
-        (void)solar_os_display_set_overlay_active(display_u8g2, false);
+        (void)solar_os_display_set_overlay_active(session_overlay_u8g2, false);
+        session_overlay_u8g2 = NULL;
         if (solar_os_context_graphics_active(&os_ctx)) {
             solar_os_sessions_dispatch_resume(now_ms);
         } else {
@@ -347,7 +349,7 @@ static void draw_session_overlay_if_needed(void)
     }
     last_session_overlay_draw_ms = now_ms;
 
-    u8g2_t *u8g2 = display_u8g2;
+    u8g2_t *u8g2 = session_overlay_u8g2;
     const int display_width = (int)u8g2_GetDisplayWidth(u8g2);
     const int display_height = (int)u8g2_GetDisplayHeight(u8g2);
     u8g2_SetFont(u8g2, u8g2_font_solar_os_default_b_14_tf);
@@ -395,7 +397,8 @@ static void close_session_overlay(void)
     last_session_overlay_draw_ms = 0U;
     session_overlay_persistent = false;
     session_overlay_after_next_frame = false;
-    (void)solar_os_display_set_overlay_active(display_u8g2, false);
+    (void)solar_os_display_set_overlay_active(session_overlay_u8g2, false);
+    session_overlay_u8g2 = NULL;
     const uint32_t now_ms = millis_u32();
     if (solar_os_context_graphics_active(&os_ctx)) {
         solar_os_sessions_dispatch_resume(now_ms);
@@ -411,12 +414,22 @@ static void session_terminal_changed(solar_os_terminal_t *new_terminal, void *us
 }
 
 static void session_overlay_requested(const char *title,
+                                      const char *target_name,
                                       bool after_next_frame,
                                       void *user)
 {
     (void)user;
 
-    if (display_u8g2 == NULL) {
+    solar_os_display_target_t target;
+    u8g2_t *overlay_u8g2 = NULL;
+    if (target_name != NULL && target_name[0] != '\0' &&
+        solar_os_display_find_target(target_name, &target)) {
+        overlay_u8g2 = target.u8g2;
+    }
+    if (overlay_u8g2 == NULL) {
+        overlay_u8g2 = terminal != NULL ? terminal->u8g2 : display_u8g2;
+    }
+    if (overlay_u8g2 == NULL) {
         return;
     }
     if (title == NULL || title[0] == '\0') {
@@ -425,6 +438,11 @@ static void session_overlay_requested(const char *title,
     }
 
     const uint32_t now_ms = millis_u32();
+    if (session_overlay_u8g2 != NULL &&
+        session_overlay_u8g2 != overlay_u8g2) {
+        (void)solar_os_display_set_overlay_active(session_overlay_u8g2, false);
+    }
+    session_overlay_u8g2 = overlay_u8g2;
     strlcpy(session_overlay_title, title, sizeof(session_overlay_title));
     session_overlay_persistent = session_switch_alt_held;
     session_overlay_after_next_frame = after_next_frame;
@@ -432,12 +450,12 @@ static void session_overlay_requested(const char *title,
         now_ms + SESSION_OVERLAY_MS;
     last_session_overlay_draw_ms = 0U;
     if (after_next_frame) {
-        (void)solar_os_display_set_overlay_active(display_u8g2, false);
+        (void)solar_os_display_set_overlay_active(session_overlay_u8g2, false);
         /*
          * Discard the outgoing session's backing buffer without presenting an
          * empty frame. The incoming session supplies the next complete frame.
          */
-        u8g2_ClearBuffer(display_u8g2);
+        u8g2_ClearBuffer(session_overlay_u8g2);
     }
     draw_session_overlay_if_needed();
 }
@@ -510,7 +528,10 @@ static void enter_suspend(const char *reason)
     session_overlay_after_next_frame = false;
     session_switch_alt_held = false;
     session_switch_nav_held = 0U;
-    (void)solar_os_display_set_overlay_active(display_u8g2, false);
+    if (session_overlay_u8g2 != NULL) {
+        (void)solar_os_display_set_overlay_active(session_overlay_u8g2, false);
+        session_overlay_u8g2 = NULL;
+    }
     SOLAR_OS_LOGI(TAG,
                   "%s: suspended; profile=lowpower restore=%s",
                   reason,
@@ -1156,13 +1177,31 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     solar_os_power_note_activity(millis_u32());
     const bool alt_active =
         (event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0U;
+    const bool ctrl_active =
+        (event->modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0U;
+    const bool navigation_left =
+        event->key == SOLAR_OS_KEY_LEFT ||
+        event->key == SOLAR_OS_KEY_CTRL_LEFT;
+    const bool navigation_right =
+        event->key == SOLAR_OS_KEY_RIGHT ||
+        event->key == SOLAR_OS_KEY_CTRL_RIGHT;
+    const bool navigation_up =
+        event->key == SOLAR_OS_KEY_UP ||
+        event->key == SOLAR_OS_KEY_CTRL_UP;
+    const bool navigation_down =
+        event->key == SOLAR_OS_KEY_DOWN ||
+        event->key == SOLAR_OS_KEY_CTRL_DOWN;
     uint8_t navigation_bit = 0U;
-    if (event->key == SOLAR_OS_KEY_LEFT) {
+    if (navigation_left) {
         navigation_bit = 1U;
-    } else if (event->key == SOLAR_OS_KEY_RIGHT) {
+    } else if (navigation_right) {
         navigation_bit = 2U;
     } else if (event->key == '\t') {
         navigation_bit = 4U;
+    } else if (navigation_up) {
+        navigation_bit = 8U;
+    } else if (navigation_down) {
+        navigation_bit = 16U;
     }
 
     if (!session_switch_alt_held &&
@@ -1188,7 +1227,33 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         return;
     }
 
-    if (alt_active &&
+    if (ctrl_active && alt_active &&
+        (navigation_right || navigation_left ||
+         navigation_up || navigation_down)) {
+        if ((session_switch_nav_held & navigation_bit) != 0U) {
+            return;
+        }
+        if (event->action == SOLAR_OS_INPUT_KEY_PRESS) {
+            bool changed = false;
+            if (navigation_right) {
+                changed = solar_os_sessions_cycle_display_focus();
+            } else if (navigation_left) {
+                changed = solar_os_sessions_cycle_display_focus_previous();
+            } else if (navigation_down) {
+                changed = solar_os_sessions_cycle_display_focus_down();
+            } else {
+                changed = solar_os_sessions_cycle_display_focus_up();
+            }
+            if (changed) {
+                session_switch_nav_held |= navigation_bit;
+                solar_os_sessions_show_input_focus_overlay();
+                process_app_requests();
+            }
+        }
+        return;
+    }
+
+    if (alt_active && !ctrl_active &&
         (event->key == SOLAR_OS_KEY_RIGHT ||
          event->key == SOLAR_OS_KEY_LEFT)) {
         if (event->action != SOLAR_OS_INPUT_KEY_RELEASE) {

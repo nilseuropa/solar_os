@@ -13,6 +13,7 @@ typedef struct solar_os_tui solar_os_tui_t;
 
 typedef void (*solar_os_sessions_terminal_fn)(solar_os_terminal_t *terminal, void *user);
 typedef void (*solar_os_sessions_overlay_fn)(const char *title,
+                                             const char *target_name,
                                              bool after_next_frame,
                                              void *user);
 
@@ -51,6 +52,10 @@ bool solar_os_sessions_switch_to_app_with_policy(const solar_os_app_t *app,
 void solar_os_sessions_cycle_next(void);
 bool solar_os_sessions_cycle_input_focus(void);
 bool solar_os_sessions_cycle_input_focus_previous(void);
+bool solar_os_sessions_cycle_display_focus(void);
+bool solar_os_sessions_cycle_display_focus_previous(void);
+bool solar_os_sessions_cycle_display_focus_down(void);
+bool solar_os_sessions_cycle_display_focus_up(void);
 void solar_os_sessions_show_input_focus_overlay(void);
 void solar_os_sessions_mark_foreground_dirty(void);
 
@@ -84,6 +89,15 @@ bool solar_os_sessions_active_for_display(const char *target_name, uint8_t *sess
 bool solar_os_sessions_display_accepts_pointer_events(const char *target_name);
 bool solar_os_sessions_context_uses_display(solar_os_context_t *ctx,
                                             const char *target_name);
+bool solar_os_sessions_builtin_shell_uses_display(solar_os_context_t *ctx,
+                                                  const char *target_name);
+esp_err_t solar_os_sessions_rebind_builtin_shell_display(
+    solar_os_context_t *ctx,
+    const char *from_target,
+    const char *to_target);
+bool solar_os_sessions_builtin_display_base(solar_os_context_t *ctx,
+                                            char *target_name,
+                                            size_t target_name_len);
 bool solar_os_sessions_dispatch_session_event(uint8_t session_id,
                                               const solar_os_event_t *event);
 esp_err_t solar_os_sessions_send_command(uint8_t session_id,

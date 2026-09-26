@@ -603,35 +603,64 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
 
 esp_err_t solar_os_display_unregister_target(const char *name)
 {
-    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+    const char *names[] = {name};
+    return solar_os_display_unregister_targets(names, 1U);
+}
+
+esp_err_t solar_os_display_unregister_targets(const char *const *names,
+                                              size_t count)
+{
+    if (names == NULL || count == 0U || count > SOLAR_OS_DISPLAY_TARGET_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    size_t slot_indices[SOLAR_OS_DISPLAY_TARGET_MAX];
+    SemaphoreHandle_t present_mutexes[SOLAR_OS_DISPLAY_TARGET_MAX] = {0};
+    uint8_t *overlay_buffers[SOLAR_OS_DISPLAY_TARGET_MAX] = {0};
+
     portENTER_CRITICAL(&display_targets_lock);
-    const int slot_index = display_find_slot_locked(name);
-    if (slot_index < 0) {
-        portEXIT_CRITICAL(&display_targets_lock);
-        return ESP_ERR_NOT_FOUND;
-    }
-    display_target_slot_t *slot = &display_targets[slot_index];
-    if (slot->claim_refs != 0 ||
-        slot->refs != 0 ||
-        slot->target.owner[0] != '\0' ||
-        slot->export_buffer != NULL) {
-        portEXIT_CRITICAL(&display_targets_lock);
-        return ESP_ERR_INVALID_STATE;
+    for (size_t i = 0U; i < count; i++) {
+        if (!display_target_name_valid(names[i],
+                                       SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) {
+            portEXIT_CRITICAL(&display_targets_lock);
+            return ESP_ERR_INVALID_ARG;
+        }
+        const int slot_index = display_find_slot_locked(names[i]);
+        if (slot_index < 0) {
+            portEXIT_CRITICAL(&display_targets_lock);
+            return ESP_ERR_NOT_FOUND;
+        }
+        for (size_t previous = 0U; previous < i; previous++) {
+            if (slot_indices[previous] == (size_t)slot_index) {
+                portEXIT_CRITICAL(&display_targets_lock);
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+        display_target_slot_t *slot = &display_targets[slot_index];
+        if (slot->claim_refs != 0U || slot->refs != 0U ||
+            slot->target.owner[0] != '\0' || slot->export_buffer != NULL) {
+            portEXIT_CRITICAL(&display_targets_lock);
+            return ESP_ERR_INVALID_STATE;
+        }
+        slot_indices[i] = (size_t)slot_index;
     }
 
-    SemaphoreHandle_t present_mutex = slot->present_mutex;
-    uint8_t *overlay_buffer = slot->overlay_buffer;
-    const uint32_t generation = slot->generation;
-    memset(slot, 0, sizeof(*slot));
-    slot->generation = generation;
-    portEXIT_CRITICAL(&display_targets_lock);
-    if (present_mutex != NULL) {
-        vSemaphoreDelete(present_mutex);
+    for (size_t i = 0U; i < count; i++) {
+        display_target_slot_t *slot = &display_targets[slot_indices[i]];
+        present_mutexes[i] = slot->present_mutex;
+        overlay_buffers[i] = slot->overlay_buffer;
+        const uint32_t generation = slot->generation;
+        memset(slot, 0, sizeof(*slot));
+        slot->generation = generation;
     }
-    solar_os_memory_free(overlay_buffer);
+    portEXIT_CRITICAL(&display_targets_lock);
+
+    for (size_t i = 0U; i < count; i++) {
+        if (present_mutexes[i] != NULL) {
+            vSemaphoreDelete(present_mutexes[i]);
+        }
+        solar_os_memory_free(overlay_buffers[i]);
+    }
     return ESP_OK;
 }
 

@@ -237,7 +237,9 @@ job for periodic polling.
 | `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
-| `display` | `display [list]`; `display test <target>`; `display mode <target> [mode]` | List drawable display targets, draw a test pattern, or change driver-specific display settings. |
+| `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
+| `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
+| `display` | `display split <target> --horizontal\|--vertical <first> <second>`; `display unsplit <target>` | Split one physical target into two equal logical viewports, or remove the split. |
 | `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons|gesture]` | List all input sources or filter them by semantic class. |
 | `input` | `input test <source>` | Show event counters and the last key, pointer, axis, or gesture event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
@@ -1066,7 +1068,34 @@ after it is attached. The built-in board panel is not an expansion driver.
 test <target>` claims the target while it draws a visible frame/test pattern,
 then releases it. `display mode <target>` lists driver-specific display
 settings for supported display drivers; `display mode <target> <mode>` applies
-one setting. With `power=auto`, the built-in ST7305 path uses the normal power
+one setting.
+
+`display join wall0 --horizontal display0 lcd0` claims two to four backing
+targets and registers `wall0` as one logical target. Horizontal joins place
+targets from left to right; vertical joins place them from top to bottom. The
+largest cross-axis dimension defines the logical canvas and unused backing
+area is cleared. `display split display0 --horizontal left0 right0` claims one
+backing target and registers two equal logical viewports. On a 792x272
+CrowPanel this creates two 396x272 targets. Each viewport has its own display
+buffer, terminal profile, session ownership, and frame-export surface; updating
+one viewport preserves the other.
+
+Layouts are runtime-only and are shown by `display layouts`. Backing targets
+remain visible in `display list` with an owner such as
+`display-layout:display0`, while logical targets have source `layout` and role
+`joined` or `viewport`. Layout targets work with normal commands such as
+`session create shell left0` and `session create files right0`. A layout cannot
+use another layout as backing, does not scale content, and cannot be removed
+while any logical target is owned or exported. When the built-in display shell
+creates a split, session 0 automatically moves to the first viewport; when it
+creates a join containing its current display, it moves to the joined target.
+Removing that layout moves session 0 back to its original board display. Shell
+state and scrollback are preserved while terminal geometry is recalculated for
+the new target. Layout updates are coalesced and backing targets are refreshed
+sequentially, which is especially important for e-paper panels. `display
+unjoin wall0` and `display unsplit display0` release the backing targets.
+
+With `power=auto`, the built-in ST7305 path uses the normal power
 profile before writing changed frame content and switches to the paired `lpm`
 profile after the frame has been idle for the configured driver debounce, or
 immediately when a present pass finds no changed pixels. The default ST7305

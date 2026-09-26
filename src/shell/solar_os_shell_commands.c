@@ -1,7 +1,9 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 
-static const char * const display_commands[] = {"list", "test", "mode"};
+static const char * const display_commands[] = {
+    "list", "layouts", "test", "mode", "join", "unjoin", "split", "unsplit",
+};
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 static const char * const ota_commands[] = {"status", "check", "upgrade", "url", "flavor", "boot"};
 #endif
@@ -50,6 +52,7 @@ static const char * const sshkey_commands[] = {"status", "gen", "pub", "rm"};
 #endif
 #include "solar_os_config.h"
 #include "solar_os_display.h"
+#include "solar_os_display_layout.h"
 #include "solar_os_fonts.h"
 #include "solar_os_identity.h"
 #include "solar_os_input.h"
@@ -269,8 +272,15 @@ static void display_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  display [list]");
+    solar_os_shell_io_writeln(term, "  display layouts");
     solar_os_shell_io_writeln(term, "  display test <target>");
     solar_os_shell_io_writeln(term, "  display mode <target> [mode]");
+    solar_os_shell_io_writeln(term,
+                              "  display join <name> --horizontal|--vertical <target> <target> [target ...]");
+    solar_os_shell_io_writeln(term, "  display unjoin <name>");
+    solar_os_shell_io_writeln(term,
+                              "  display split <target> --horizontal|--vertical <first> <second>");
+    solar_os_shell_io_writeln(term, "  display unsplit <target>");
 }
 
 static void display_print_targets(solar_os_shell_io_t *term)
@@ -305,6 +315,257 @@ static void display_print_targets(solar_os_shell_io_t *term)
                                  target.brightness_supported ? "yes" : "no",
                                  target.owner[0] != '\0' ? target.owner : "-");
     }
+}
+
+static void display_print_layouts(solar_os_shell_io_t *term)
+{
+    const size_t count = solar_os_display_layout_count();
+    if (count == 0U) {
+        solar_os_shell_io_writeln(term, "no display layouts");
+        return;
+    }
+    solar_os_shell_io_writeln(term,
+                              "NAME       KIND  AXIS       SIZE      LOGICAL -> BACKING");
+    for (size_t i = 0U; i < count; i++) {
+        solar_os_display_layout_info_t info;
+        if (!solar_os_display_layout_get(i, &info)) {
+            continue;
+        }
+        solar_os_shell_io_printf(
+            term, "%-10s %-5s %-10s %ux%u ", info.name,
+            info.kind == SOLAR_OS_DISPLAY_LAYOUT_JOIN ? "join" : "split",
+            solar_os_display_layout_axis_name(info.axis),
+            (unsigned)info.width, (unsigned)info.height);
+        for (size_t logical = 0U; logical < info.logical_count; logical++) {
+            solar_os_shell_io_printf(term, "%s%s",
+                                     logical == 0U ? "" : ",",
+                                     info.logical[logical]);
+        }
+        solar_os_shell_io_write(term, " -> ");
+        for (size_t backing = 0U; backing < info.backing_count; backing++) {
+            solar_os_shell_io_printf(term, "%s%s",
+                                     backing == 0U ? "" : ",",
+                                     info.backing[backing]);
+        }
+        solar_os_shell_io_put_char(term, '\n');
+    }
+}
+
+static bool display_parse_layout_axis(const char *value,
+                                      solar_os_display_layout_axis_t *axis)
+{
+    if (value == NULL || axis == NULL) {
+        return false;
+    }
+    if (strcmp(value, "--horizontal") == 0) {
+        *axis = SOLAR_OS_DISPLAY_LAYOUT_HORIZONTAL;
+        return true;
+    }
+    if (strcmp(value, "--vertical") == 0) {
+        *axis = SOLAR_OS_DISPLAY_LAYOUT_VERTICAL;
+        return true;
+    }
+    return false;
+}
+
+static void display_print_layout_error(solar_os_shell_io_t *term,
+                                       const char *operation,
+                                       esp_err_t err,
+                                       const char *busy_owner)
+{
+    if (err == ESP_ERR_INVALID_STATE && busy_owner != NULL &&
+        busy_owner[0] != '\0') {
+        solar_os_shell_io_printf(term, "display %s: target owned by %s\n",
+                                 operation, busy_owner);
+        return;
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        solar_os_shell_io_printf(
+            term, "display %s: logical target is active or being exported\n",
+            operation);
+        return;
+    }
+    solar_os_shell_io_printf(term, "display %s failed: %s\n", operation,
+                             solar_os_shell_error_text(err));
+}
+
+static void display_cmd_join(solar_os_context_t *ctx,
+                             solar_os_shell_io_t *term,
+                             int argc,
+                             char **argv)
+{
+    if (argc < 6 || argc > 8) {
+        display_print_usage(term);
+        return;
+    }
+    solar_os_display_layout_axis_t axis;
+    if (!display_parse_layout_axis(argv[3], &axis)) {
+        solar_os_shell_diag_unexpected(
+            term, "display join", argv[3],
+            "display join <name> --horizontal|--vertical <target> <target> [target ...]");
+        return;
+    }
+    char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+    esp_err_t err = solar_os_display_layout_join(
+        argv[2], axis, (size_t)(argc - 4), (const char *const *)&argv[4],
+        busy_owner, sizeof(busy_owner));
+    if (err != ESP_OK) {
+        display_print_layout_error(term, "join", err, busy_owner);
+        return;
+    }
+    for (int i = 4; i < argc; i++) {
+        if (!solar_os_sessions_builtin_shell_uses_display(ctx, argv[i])) {
+            continue;
+        }
+        err = solar_os_sessions_rebind_builtin_shell_display(
+            ctx, argv[i], argv[2]);
+        if (err != ESP_OK) {
+            (void)solar_os_display_layout_unjoin(argv[2]);
+            display_print_layout_error(term, "join session handoff", err,
+                                       NULL);
+            return;
+        }
+        break;
+    }
+    solar_os_display_target_t target;
+    (void)solar_os_display_find_target(argv[2], &target);
+    solar_os_shell_io_printf(term, "display join: %s %ux%u\n", argv[2],
+                             (unsigned)target.width, (unsigned)target.height);
+}
+
+static void display_cmd_split(solar_os_context_t *ctx,
+                              solar_os_shell_io_t *term,
+                              int argc,
+                              char **argv)
+{
+    if (argc != 6) {
+        display_print_usage(term);
+        return;
+    }
+    solar_os_display_layout_axis_t axis;
+    if (!display_parse_layout_axis(argv[3], &axis)) {
+        solar_os_shell_diag_unexpected(
+            term, "display split", argv[3],
+            "display split <target> --horizontal|--vertical <first> <second>");
+        return;
+    }
+    char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
+    esp_err_t err = solar_os_display_layout_split(
+        argv[2], axis, argv[4], argv[5], busy_owner, sizeof(busy_owner));
+    if (err != ESP_OK) {
+        display_print_layout_error(term, "split", err, busy_owner);
+        return;
+    }
+    if (solar_os_sessions_builtin_shell_uses_display(ctx, argv[2])) {
+        err = solar_os_sessions_rebind_builtin_shell_display(
+            ctx, argv[2], argv[4]);
+        if (err != ESP_OK) {
+            (void)solar_os_display_layout_unsplit(argv[2]);
+            display_print_layout_error(term, "split session handoff", err,
+                                       NULL);
+            return;
+        }
+    }
+    solar_os_display_target_t first;
+    solar_os_display_target_t second;
+    (void)solar_os_display_find_target(argv[4], &first);
+    (void)solar_os_display_find_target(argv[5], &second);
+    solar_os_shell_io_printf(term,
+                             "display split: %s -> %s %ux%u, %s %ux%u\n",
+                             argv[2], argv[4], (unsigned)first.width,
+                             (unsigned)first.height, argv[5],
+                             (unsigned)second.width, (unsigned)second.height);
+}
+
+static bool display_find_layout(solar_os_display_layout_kind_t kind,
+                                const char *name,
+                                solar_os_display_layout_info_t *info)
+{
+    if (name == NULL || info == NULL) {
+        return false;
+    }
+    const size_t count = solar_os_display_layout_count();
+    for (size_t i = 0U; i < count; i++) {
+        if (solar_os_display_layout_get(i, info) && info->kind == kind &&
+            strcmp(info->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void display_cmd_destroy_layout(solar_os_context_t *ctx,
+                                       solar_os_shell_io_t *term,
+                                       int argc,
+                                       char **argv,
+                                       bool split)
+{
+    if (argc != 3) {
+        display_print_usage(term);
+        return;
+    }
+    solar_os_display_layout_info_t info;
+    const solar_os_display_layout_kind_t kind = split ?
+        SOLAR_OS_DISPLAY_LAYOUT_SPLIT : SOLAR_OS_DISPLAY_LAYOUT_JOIN;
+    const bool found = display_find_layout(kind, argv[2], &info);
+    const char *handoff_from = NULL;
+    if (found) {
+        for (size_t i = 0U; i < info.logical_count; i++) {
+            if (solar_os_sessions_builtin_shell_uses_display(
+                    ctx, info.logical[i])) {
+                handoff_from = info.logical[i];
+                break;
+            }
+        }
+    }
+
+    char handoff_to[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
+    if (handoff_from != NULL) {
+        (void)solar_os_sessions_builtin_display_base(
+            ctx, handoff_to, sizeof(handoff_to));
+        bool base_is_backing = false;
+        for (size_t i = 0U; i < info.backing_count; i++) {
+            if (strcmp(info.backing[i], handoff_to) == 0) {
+                base_is_backing = true;
+                break;
+            }
+        }
+        if (!base_is_backing && info.backing_count > 0U) {
+            strlcpy(handoff_to, info.backing[0], sizeof(handoff_to));
+        }
+        solar_os_display_target_t target;
+        if (handoff_to[0] == '\0' ||
+            !solar_os_display_find_target(handoff_to, &target) ||
+            !target.ready || target.u8g2 == NULL) {
+            display_print_layout_error(term,
+                                       split ? "unsplit" : "unjoin",
+                                       ESP_ERR_INVALID_STATE,
+                                       NULL);
+            return;
+        }
+    }
+
+    esp_err_t err = split ? solar_os_display_layout_unsplit(argv[2]) :
+        solar_os_display_layout_unjoin(argv[2]);
+    if (err != ESP_OK) {
+        display_print_layout_error(term, split ? "unsplit" : "unjoin", err,
+                                   NULL);
+        return;
+    }
+    if (handoff_from != NULL) {
+        err = solar_os_sessions_rebind_builtin_shell_display(
+            ctx, handoff_from, handoff_to);
+        if (err != ESP_OK) {
+            display_print_layout_error(term,
+                                       split ? "unsplit session handoff" :
+                                               "unjoin session handoff",
+                                       err,
+                                       NULL);
+            return;
+        }
+    }
+    solar_os_shell_io_printf(term, "display %s: %s removed\n",
+                             split ? "unsplit" : "unjoin", argv[2]);
 }
 
 static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
@@ -453,12 +714,32 @@ void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
         display_cmd_mode(term, argc, argv);
         return;
     }
+    if (argc == 2 && strcmp(argv[1], "layouts") == 0) {
+        display_print_layouts(term);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "join") == 0) {
+        display_cmd_join(ctx, term, argc, argv);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "split") == 0) {
+        display_cmd_split(ctx, term, argc, argv);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "unjoin") == 0) {
+        display_cmd_destroy_layout(ctx, term, argc, argv, false);
+        return;
+    }
+    if (argc >= 2 && strcmp(argv[1], "unsplit") == 0) {
+        display_cmd_destroy_layout(ctx, term, argc, argv, true);
+        return;
+    }
 
     solar_os_shell_diag_subcommand(term,
                                    "display",
                                    argc,
                                    argv,
-                                   "display list|test|mode",
+                                   "display list|layouts|test|mode|join|unjoin|split|unsplit",
                                    display_commands,
                                    sizeof(display_commands) / sizeof(display_commands[0]));
 }

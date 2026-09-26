@@ -86,6 +86,9 @@ typedef struct {
 esp_err_t solar_os_display_init(solar_os_board_display_t *display);
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *target);
 esp_err_t solar_os_display_unregister_target(const char *name);
+/* Atomically removes all named targets, or none when any target is busy. */
+esp_err_t solar_os_display_unregister_targets(const char *const *names,
+                                              size_t count);
 size_t solar_os_display_target_count(void);
 bool solar_os_display_get_target(size_t index, solar_os_display_target_t *target);
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target);

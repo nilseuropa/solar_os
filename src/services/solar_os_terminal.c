@@ -897,6 +897,21 @@ void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
     terminal->dirty = true;
 }
 
+void solar_os_terminal_rebind_display(solar_os_terminal_t *terminal,
+                                      u8g2_t *u8g2,
+                                      const u8g2_cb_t *base_rotation)
+{
+    if (terminal == NULL || u8g2 == NULL || base_rotation == NULL) {
+        return;
+    }
+
+    terminal->u8g2 = u8g2;
+    terminal->base_rotation = base_rotation;
+    terminal->scrollback_offset = 0U;
+    terminal->render_valid = false;
+    terminal_apply_settings(terminal, false);
+}
+
 void solar_os_terminal_deinit(solar_os_terminal_t *terminal)
 {
     if (terminal == NULL) {

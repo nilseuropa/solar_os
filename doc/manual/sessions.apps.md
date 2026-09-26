@@ -112,6 +112,17 @@ axes remain semantic axis input and are not converted to focus keys. The
 primary board display is selected at boot. On a headless board, the first
 display shell created becomes the default.
 
+`Alt+Ctrl+Right` and `Alt+Ctrl+Left` move local input focus across a horizontal
+split; `Alt+Ctrl+Down` and `Alt+Ctrl+Up` do the same across a vertical split.
+These are global shortcuts, so they remain available while a foreground
+application is running. They do not suspend, resume, or restart either
+display's active session. With independent displays that have no split
+topology, either directional pair cycles through active display targets in
+registry order. At a split edge, or when the pressed direction does not match
+the split axis, the shortcut does nothing. Plain `Ctrl+Arrow` chords remain
+available to the shell or foreground application. Either Alt key can be used,
+so `Ctrl+AltGr+Arrow` works on keyboards without a left Alt key.
+
 ```text
 session focus
 session focus oled0
