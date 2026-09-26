@@ -4,7 +4,7 @@ title = "Application reference"
 section = "app"
 summary = "Usage, controls, and examples for every foreground application"
 aliases = ["applications"]
-keywords = "apps applications foreground controls usage examples launcher graphical grid icons reader writer sketch paint pointer png markdown less files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
+keywords = "apps applications foreground controls usage examples launcher graphical grid icons reader writer sketch paint pointer png markdown less ltop cpu tasks monitor files edit hexedit binary agent calculator calc graph webradio radio mp3 function generator funcgen waveform sweep"
 packages_any = []
 +++
 # SolarOS Embedded Apps
@@ -1109,6 +1109,41 @@ Controls:
 - `Ctrl+F` or `/` opens Find. `F3` or `n` jumps to the next
   case-insensitive match; `N` jumps to the previous match. Search wraps.
 - `q`, `Esc`, or app-exit key exits.
+
+## ltop
+
+Live text task monitor for display and port terminals. Unlike the `top`
+command's cumulative snapshot, `ltop` samples the FreeRTOS runtime counters
+once per second and reports the interval deltas. One progress bar shows the
+busy share of each CPU core, derived from that core's idle-task delta. Each
+task percentage is its share of one core, so the task total can approach 200%
+on a dual-core target. The title shows the current aggregate CPU load instead
+of the fixed maximum capacity.
+
+The IRAM and ERAM progress bars show the currently used share of the internal
+and external heaps. ERAM is shown as unavailable on boards without external
+RAM.
+
+The task table is sorted by current CPU load and shows task state, priority,
+interval CPU percentage, and peak stack consumption since the task started.
+Peak stack consumption is the allocated stack size minus the minimum remaining
+stack reported by FreeRTOS. Idle tasks are omitted from the table because their
+counters drive the per-core progress bars. Columns expand across wide terminals
+and the priority column is hidden on narrow terminals.
+
+Usage:
+
+```text
+ltop
+```
+
+Controls:
+
+- `Up`/`Down` or `j`/`k` scroll one row.
+- `Page Up`/`Page Down`, `Home`/`End`, or `g`/`G` move through the
+  task list.
+- `r` resets the sampling baseline.
+- `q`, `Esc`, or the app-exit key exits.
 
 ## logic
 

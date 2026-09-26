@@ -90,7 +90,7 @@ class InputActionsTest(unittest.TestCase):
         self.assertIn("solar_os_input_actions_stop()", JOB)
         self.assertIn(".worker_stack_bytes = SOLAR_OS_INPUT_ACTION_WORKER_STACK", JOB)
         self.assertIn("solar_os_gesture_listener_job", REGISTRY)
-        self.assertIn('members = ["core_runtime", "core_shell", "job_gesture_listener"]',
+        self.assertIn('members = ["core_runtime", "core_shell", "app_ltop", "job_gesture_listener"]',
                       PACKAGES)
 
     def test_gesture_command_discovers_sources_and_drives_completion(self):

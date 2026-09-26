@@ -3,7 +3,7 @@ label = "SolarOS runtime"
 category = "System"
 hidden = true
 immutable = true
-members = ["core_runtime", "core_shell", "job_gesture_listener"]
+members = ["core_runtime", "core_shell", "app_ltop", "job_gesture_listener"]
 
 [groups.hardware_shell]
 label = "Hardware shell commands"
@@ -2170,6 +2170,10 @@ sources = [
 label = "app.less"
 depends = ["service_text_search"]
 sources = ["apps/solar_os_less.c"]
+
+[packages.app_ltop]
+label = "app.ltop"
+sources = ["apps/solar_os_ltop.c"]
 
 [packages.app_docs]
 label = "app.docs"
