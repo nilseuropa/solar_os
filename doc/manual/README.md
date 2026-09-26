@@ -105,7 +105,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [suspend command](commands.md) — Turn off the primary display and temporarily use the lowpower profile while services and jobs continue. Press KEY to resume.
 - [temperature command](commands.md) — List temperature providers or read the default or named sensor.
 - [time command](commands.md) — Show or set the local time.
-- [top command](commands.md) — Print FreeRTOS task resource information when available.
+- [top command](commands.md) — Print a one-shot cumulative FreeRTOS task snapshot. Use ltop for live interval CPU, memory, and stack monitoring.
 - [uart command](commands.md) — Show the default uart0 or a selected named UART bus.
 - [unzip command](commands.md) — List or extract a ZIP archive.
 - [uptime command](commands.md) — Print elapsed time since boot.
@@ -145,6 +145,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [io application](apps.md#io) — Interactive expansion I/O manager. Its default Layout view presents the board's connectors in their physical arrangement, followed by the existing pin, named-bus, and resource-claim views. It uses the same ownership and validation services as the gpio, i2c, spi, uart, midi, onewire, and expansion commands.
 - [launcher application](apps.md#launcher) — Configurable native graphical launcher for display shells. It draws the configured grid, centers one icon in each occupied cell, and shows the selected icon larger with its title centered underneath. Arrow keys move between occupied cells, Enter opens the selection, and a pointer selects and opens items by point and click. Esc or the app-exit key returns to the shell.
 - [less application](apps.md#less) — Terminal pager for text files. It preserves original text layout and is useful for quick file inspection.
+- [ltop application](apps.md#ltop) — Resumable live text task monitor with per-core and aggregate interval CPU load, internal and external memory bars, and a width-aware task table with peak stack consumption.
 - [logic application](apps.md#logic) — On-device logic analyzer waveform viewer. It displays the latest capture made by the shared logic analyzer service or the SUMP job. With pin arguments it makes a new local capture before opening the viewer.
 - [lua application](apps.md#lua) — Embedded Lua runtime. It can run an interactive REPL or execute .lua scripts from storage. Lua scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages. Foreground scripts can consume touch coordinates, relative mouse motion, buttons, and joystick axes through solaros.input.
 - [Native SolarOS agent](agent.md) — Configure and use the resumable LLM agent and its typed tools

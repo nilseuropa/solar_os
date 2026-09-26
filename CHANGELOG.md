@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.13.10** — 2026-09-26 — Added `ltop`, a resumable live task monitor for
+  display and port terminals. It shows interval-based CPU load for each core,
+  aggregate CPU load, internal and external memory utilization, and a
+  width-aware task table with current CPU use, state, priority, and peak stack
+  consumption.
 - **4.13.9** — 2026-09-25 — Added the QDtech ES3N28P 2.8-inch target with
   its 320x240 ILI9341 display, SDMMC storage, ES8311 audio, battery monitor,
   status pixel, and expansion connectors. Python and Lua applications can now
