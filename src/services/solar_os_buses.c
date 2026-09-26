@@ -691,7 +691,11 @@ static esp_err_t register_board_bus_locked(const solar_os_bus_definition_t *defi
         return ESP_OK;
     }
     if (!protocol_service_available(definition->protocol)) {
-        return ESP_ERR_NOT_SUPPORTED;
+        /* A board manifest may describe optional buses that a lean flavor does
+         * not expose. Fixed devices select their required protocol service via
+         * package dependencies, so an unavailable protocol here means this bus
+         * is unused and must not roll back unrelated board buses. */
+        return ESP_OK;
     }
     if (definition->origin != SOLAR_OS_BUS_ORIGIN_BOARD) {
         return ESP_ERR_INVALID_ARG;

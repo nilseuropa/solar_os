@@ -145,10 +145,15 @@ fixed-frequency emulator submits compact INDEX2 frames to the shared bounded-
 cadence presenter. When `service.synth` is present, Game Boy also uses the
 MiniGB APU through the shared synth and audio services.
 
-The `writerdeck` flavor targets the Elecrow e-paper board with the `reader`,
-`writer`, and `notes` groups plus selected system, maintenance, and network
-tools. It excludes general utilities and hardware-diagnostics jobs to stay
-focused and fit the board's smaller OTA slot.
+The `writerdeck` flavor targets the Elecrow e-paper boards with editing,
+pagination, Files, Reader, Writer, Notes, View, Python, Playground, audio
+playback, and offline speech synthesis. Its transfer tools include FTP/FTPD,
+SSH, SCP, SFTP, SFTP Sync, and Curl. PCM5102/I2S and PWM audio
+output remain available for boards such as CrowPanel that expose audio-capable
+expansion pins but have no built-in speaker path. Hardware diagnostics, broad
+expansion-driver collections, external radio stacks, messaging servers, the
+graphical Web browser and spectrum-heavy music player, VPN, MQTT, SLIP, PPP,
+and OSC are omitted to preserve the smaller OTA slot and suit e-paper refresh.
 
 The `rover` flavor targets the 4 MiB classic-ESP32 boards. It includes the
 expansion framework and drivers, networking, media viewing, writing and general

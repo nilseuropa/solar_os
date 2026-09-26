@@ -450,24 +450,96 @@ class FlavorPackagesTest(unittest.TestCase):
             (),
         )
 
-    def test_writerdeck_selects_writing_without_hardware_jobs_or_utils(self):
+    def test_writerdeck_selects_writing_media_scripting_and_file_transfer(self):
         name, _, groups, packages = self.resolve("writerdeck")
 
         self.assertEqual(name, "writerdeck")
-        self.assertTrue(groups["writer"])
-        self.assertTrue(groups["logging"])
-        self.assertFalse(groups["bridge"])
-        self.assertFalse(groups["clock"])
-        for package in ("app_reader", "app_writer", "app_files", "app_notes", "job_log"):
+        for group in (
+            "editor",
+            "pager",
+            "files",
+            "ssh",
+            "http_client",
+            "ftp",
+            "audio_commands",
+            "speech",
+            "reader",
+            "writer",
+            "notes",
+            "image_viewer",
+            "python",
+            "playground",
+            "audio_pwm",
+            "pcm5102",
+        ):
+            self.assertTrue(groups[group], group)
+        for package in (
+            "app_edit",
+            "app_less",
+            "app_reader",
+            "app_writer",
+            "app_files",
+            "app_notes",
+            "app_ssh",
+            "app_scp",
+            "app_sftp",
+            "app_sftpsync",
+            "app_ftp",
+            "job_ftpd",
+            "app_python",
+            "app_playground",
+            "app_aplay",
+            "job_speechd",
+            "app_view",
+            "expansion_audio_pwm",
+            "expansion_pcm5102",
+        ):
             self.assertTrue(packages[package], package)
         self.assertTrue(packages["job_controls"])
+        for group in (
+            "device_flasher",
+            "web_browser",
+            "player",
+            "uart",
+            "logic_analyzer",
+            "sump",
+            "bridge",
+            "daq",
+            "wireguard",
+            "mqtt",
+            "slip",
+            "ppp",
+            "osc",
+            "espnow",
+            "pocsag",
+            "radio_link",
+            "meshcore",
+            "rfm69",
+            "rfm95",
+            "sx1262",
+        ):
+            self.assertFalse(groups[group], group)
         for package in (
             "job_bridge",
             "job_daq",
             "job_sump",
-            "service_script_net",
-            "app_python",
+            "service_wireguard",
+            "service_mqtt",
+            "service_contacts",
+            "service_inbox",
+            "service_messaging",
+            "service_uart",
+            "job_slip",
+            "job_pppd",
+            "job_osc",
+            "job_espnow_link",
+            "job_pocsag",
+            "job_radio_link",
+            "job_meshcore",
             "app_lua",
+            "app_com",
+            "app_web",
+            "app_player",
             "app_clock",
             "app_calc",
             "app_plot",
@@ -475,6 +547,27 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_sheet",
         ):
             self.assertFalse(packages[package], package)
+
+    def test_speech_survives_with_attachable_audio_output(self):
+        _, _, groups, packages = self.resolve("writerdeck")
+        for capabilities in ({"psram", "expansion_i2s"},
+                             {"psram", "expansion_pwm"}):
+            _, pruned = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog,
+                groups,
+                packages,
+                capabilities,
+            )
+            self.assertTrue(pruned["service_speech"], capabilities)
+            self.assertTrue(pruned["job_speechd"], capabilities)
+
+    def test_script_runtimes_do_not_force_optional_protocol_services(self):
+        for runtime in ("app_python", "app_lua"):
+            dependencies = self.catalog.package_defs[runtime].depends
+            self.assertIn("service_script_net", dependencies)
+            self.assertIn("service_script_runner", dependencies)
+            self.assertNotIn("service_ftp", dependencies)
+            self.assertNotIn("service_messaging", dependencies)
 
     def test_audio_apps_and_codecs_survive_without_board_audio(self):
         _, _, groups, packages = self.resolve("full")

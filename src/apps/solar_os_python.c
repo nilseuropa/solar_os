@@ -32,13 +32,17 @@
 #include "py/runtime.h"
 #include "py/smallint.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_contacts.h"
+#endif
 #include "solar_os_memory.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_messaging.h"
+#endif
 #include "solar_os_task.h"
 #include "solar_os_rtc.h"
 #include "solar_os_schedule.h"
-#include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
 #include "solar_os_adc.h"
 #endif
@@ -7055,6 +7059,7 @@ static void python_check_known_kwargs(mp_map_t *kw_args,
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 static mp_obj_t python_contact_to_dict(const solar_os_contact_t *contact)
 {
     mp_obj_t dict = mp_obj_new_dict(7);
@@ -7281,6 +7286,7 @@ static mp_obj_t solaros_messages_cancel(mp_obj_t message_id_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_messages_cancel_obj,
                           solaros_messages_cancel);
+#endif
 
 static solar_os_shell_terminal_profile_t python_terminal_profile_from_obj(mp_obj_t obj)
 {

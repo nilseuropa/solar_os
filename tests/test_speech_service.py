@@ -70,7 +70,11 @@ class SpeechServiceTest(unittest.TestCase):
         )
         self.assertEqual(
             set(self.catalog.package_defs["job_speechd"].capabilities),
-            {"audio", "psram"},
+            {"psram"},
+        )
+        self.assertEqual(
+            set(self.catalog.package_defs["job_speechd"].any_capabilities),
+            {"audio", "expansion_i2s", "expansion_pwm"},
         )
 
     def test_queue_is_bounded_and_copies_text(self):

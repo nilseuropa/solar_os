@@ -22,9 +22,13 @@
 #include "lualib.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_contacts.h"
+#endif
 #include "solar_os_memory.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_messaging.h"
+#endif
 #include "solar_os_task.h"
 #include "solar_os_rtc.h"
 #include "solar_os_schedule.h"
@@ -7711,6 +7715,7 @@ static int solua_gfx_text(lua_State *L)
     return 0;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 static void solua_push_contact(lua_State *L,
                                const solar_os_contact_t *contact)
 {
@@ -7934,6 +7939,7 @@ static int solua_messages_cancel(lua_State *L)
     }
     return solua_check_esp(L, solar_os_messaging_cancel((uint64_t)key));
 }
+#endif
 
 static void solua_new_submodule(lua_State *L, int parent, const char *name)
 {
