@@ -62,7 +62,9 @@ implementations with driver-specific preprocessor branches.
 `expansion.ssd1683` uses a named SPI bus and claimed CS, D/C, reset, BUSY, and
 optional power pins. Runtime attachments register an auxiliary display target;
 Elecrow declares the same driver as its fixed primary display. Automatic mode
-uses changed-frame partial windows.
+uses changed-frame partial windows when the panel profile supports them; the
+dual-controller 792x272 profile transfers both RAM halves with the panel's
+partial-update waveform.
 `expansion.cardkb` polls the M5Stack Unit CardKB at its fixed I2C address and
 publishes its character taps and navigation keys through the shared input
 service used by shells and foreground apps.
@@ -143,10 +145,15 @@ fixed-frequency emulator submits compact INDEX2 frames to the shared bounded-
 cadence presenter. When `service.synth` is present, Game Boy also uses the
 MiniGB APU through the shared synth and audio services.
 
-The `writerdeck` flavor targets the Elecrow e-paper board with the `reader`,
-`writer`, and `notes` groups plus selected system, maintenance, and network
-tools. It excludes general utilities and hardware-diagnostics jobs to stay
-focused and fit the board's smaller OTA slot.
+The `writerdeck` flavor targets the Elecrow e-paper boards with editing,
+pagination, Files, Reader, Writer, Notes, View, Python, Playground, audio
+playback, and offline speech synthesis. Its transfer tools include FTP/FTPD,
+SSH, SCP, SFTP, SFTP Sync, and Curl. PCM5102/I2S and PWM audio
+output remain available for boards such as CrowPanel that expose audio-capable
+expansion pins but have no built-in speaker path. Hardware diagnostics, broad
+expansion-driver collections, external radio stacks, messaging servers, the
+graphical Web browser and spectrum-heavy music player, VPN, MQTT, SLIP, PPP,
+and OSC are omitted to preserve the smaller OTA slot and suit e-paper refresh.
 
 The `rover` flavor targets the 4 MiB classic-ESP32 boards. It includes the
 expansion framework and drivers, networking, media viewing, writing and general

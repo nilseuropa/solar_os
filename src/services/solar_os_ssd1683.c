@@ -172,7 +172,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     if (!have_spi || !have_cs || config->dc_pin < 0 || config->reset_pin < 0 ||
         config->busy_pin < 0 || config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
-        config->panel_variant > EPD_SSD1683_PANEL_WAVESHARE_V2 ||
+        config->panel_variant > EPD_SSD1683_PANEL_ELECROW_579_DUAL ||
         config->cs_pin == config->dc_pin || config->cs_pin == config->reset_pin ||
         config->cs_pin == config->busy_pin || config->dc_pin == config->reset_pin ||
         config->dc_pin == config->busy_pin || config->reset_pin == config->busy_pin ||
@@ -330,7 +330,7 @@ esp_err_t solar_os_ssd1683_attach(const char *name,
         .driver = &device->driver,
         .driver_name = "ssd1683",
         .u8g2 = u8g2,
-        .controller = "SSD1683",
+        .controller = epd_ssd1683_controller_name(&device->driver),
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
         .ready = true,

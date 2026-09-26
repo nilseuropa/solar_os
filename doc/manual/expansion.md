@@ -36,7 +36,7 @@ shell.
 
 Built-in displays follow the same rule and appear as fixed `display0`
 attachments: Waveshare uses `st7305`, Freenove uses `st7796`, ODROID-GO uses
-`ili9341`, Elecrow CrowPanel uses `ssd1683`, ESP32-WROVER v3.0 uses `cvbs-pal`,
+`ili9341`, Elecrow CrowPanel boards use `ssd1683`, ESP32-WROVER v3.0 uses `cvbs-pal`,
 T-LoRa-Pager uses `st7796`, T-Deck Plus uses `st7789`, and TTGO VGA32 uses
 `vga32`. They attach before the splash and primary display service start.
 
@@ -184,10 +184,11 @@ expansion detach epd0
 
 The runtime defaults are the Waveshare V2 panel profile, 2 MHz SPI, and
 rotation 0. Optional `power=<gpio>`, `clock=<khz>`, `rotation=<0..3>`, and
-`panel=<0..3>` bindings adapt the same driver to integrated panels. Panel 0
+`panel=<0..4>` bindings adapt the same driver to integrated panels. Panel 0
 selects Elecrow BUSY-based revision detection and defaults to rotation 2;
 panels 1, 2, and 3 select the legacy Elecrow, green-sticker Elecrow, and
-Waveshare V2 profiles.
+Waveshare V2 profiles. Panel 4 selects Elecrow's 792x272 cascaded dual-SSD1683
+profile and defaults to rotation 0.
 
 Use the module's eight-wire SPI connector and power it from the same 3.3 V
 logic domain as the ESP32. The module keeps its last image after detach.

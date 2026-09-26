@@ -2096,7 +2096,7 @@ capabilities = ["psram"]
 
 [packages.app_view]
 label = "app.view"
-depends = ["service_image"]
+depends = ["service_image", "service_vector"]
 sources = ["apps/solar_os_view.c"]
 capabilities = ["psram", "gfx"]
 
@@ -2128,14 +2128,14 @@ capabilities = ["gfx", "psram", "sd", "streaming_display"]
 
 [packages.app_python]
 label = "app.python"
-depends = ["service_ftp", "service_messaging", "service_script_net", "service_script_runner"]
+depends = ["service_script_net", "service_script_runner"]
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
 
 [packages.app_lua]
 label = "app.lua"
-depends = ["service_ftp", "service_messaging", "service_script_net", "service_script_runner"]
+depends = ["service_script_net", "service_script_runner"]
 sources = ["apps/solar_os_lua.c"]
 requires = ["lua"]
 capabilities = ["psram"]
@@ -2403,7 +2403,8 @@ capabilities = ["wifi"]
 label = "service.speech"
 depends = ["service_audio"]
 sources = ["services/solar_os_speech.c"]
-capabilities = ["audio", "psram"]
+capabilities = ["psram"]
+any_capabilities = ["audio", "expansion_i2s", "expansion_pwm"]
 
 [packages.job_speechd]
 label = "job.speechd"
@@ -2413,7 +2414,8 @@ sources = [
   "shell/solar_os_shell_speech.c",
 ]
 requires = ["picotts"]
-capabilities = ["audio", "psram"]
+capabilities = ["psram"]
+any_capabilities = ["audio", "expansion_i2s", "expansion_pwm"]
 
 [packages.job_osc]
 label = "job.osc"

@@ -731,6 +731,7 @@ SOLAR_OS_SCRIPT_API_FUNCTION(jobs, start, start);
 SOLAR_OS_SCRIPT_API_FUNCTION(jobs, stop, stop);
 SOLAR_OS_SCRIPT_API_MODULE_END(jobs);
 
+#if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(contacts);
 SOLAR_OS_SCRIPT_API_FUNCTION(contacts, list, list);
 SOLAR_OS_SCRIPT_API_FUNCTION(contacts, get, get);
@@ -743,6 +744,7 @@ SOLAR_OS_SCRIPT_API_FUNCTION(messages, send, send);
 SOLAR_OS_SCRIPT_API_FUNCTION(messages, mark_read, mark_read);
 SOLAR_OS_SCRIPT_API_FUNCTION(messages, cancel, cancel);
 SOLAR_OS_SCRIPT_API_MODULE_END(messages);
+#endif
 
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(sessions);
 SOLAR_OS_SCRIPT_API_FUNCTION(sessions, create_shell, create_shell);

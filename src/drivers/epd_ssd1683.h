@@ -23,6 +23,7 @@ typedef enum {
     EPD_SSD1683_PANEL_LEGACY,
     EPD_SSD1683_PANEL_GREEN_STICKER,
     EPD_SSD1683_PANEL_WAVESHARE_V2,
+    EPD_SSD1683_PANEL_ELECROW_579_DUAL,
 } epd_ssd1683_panel_variant_t;
 
 typedef struct {
@@ -75,6 +76,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
 esp_err_t epd_ssd1683_resume(epd_ssd1683_t *display);
 void epd_ssd1683_deinit(epd_ssd1683_t *display);
 u8g2_t *epd_ssd1683_get_u8g2(epd_ssd1683_t *display);
+const char *epd_ssd1683_controller_name(const epd_ssd1683_t *display);
 const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display);
 const char *epd_ssd1683_controller_mode_values(const epd_ssd1683_t *display);
 esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mode);

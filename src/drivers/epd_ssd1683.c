@@ -19,6 +19,18 @@
 #define SSD1683_BUFFER_ROW_BYTES (SSD1683_TILE_WIDTH * 8U)
 #define SSD1683_BUFFER_BYTES (SSD1683_BUFFER_ROW_BYTES * SSD1683_TILE_HEIGHT)
 #define SSD1683_PANEL_ROW_BYTES ((SSD1683_WIDTH + 7U) / 8U)
+#define SSD1683_DUAL_WIDTH 792U
+#define SSD1683_DUAL_HEIGHT 272U
+#define SSD1683_DUAL_PADDED_WIDTH 800U
+#define SSD1683_DUAL_SEAM_START 396U
+#define SSD1683_DUAL_SEAM_WIDTH 8U
+#define SSD1683_DUAL_TILE_WIDTH ((SSD1683_DUAL_WIDTH + 7U) / 8U)
+#define SSD1683_DUAL_TILE_HEIGHT ((SSD1683_DUAL_HEIGHT + 7U) / 8U)
+#define SSD1683_DUAL_BUFFER_ROW_BYTES (SSD1683_DUAL_TILE_WIDTH * 8U)
+#define SSD1683_DUAL_BUFFER_BYTES \
+    (SSD1683_DUAL_BUFFER_ROW_BYTES * SSD1683_DUAL_TILE_HEIGHT)
+#define SSD1683_DUAL_PADDED_ROW_BYTES (SSD1683_DUAL_PADDED_WIDTH / 8U)
+#define SSD1683_DUAL_CONTROLLER_ROW_BYTES (SSD1683_DUAL_PADDED_ROW_BYTES / 2U)
 #define SSD1683_BUSY_TIMEOUT_MS 30000U
 #define SSD1683_BUSY_ASSERT_TIMEOUT_MS 100U
 #define SSD1683_VARIANT_PROBE_MS 500U
@@ -29,6 +41,10 @@
 #define SSD1683_WAVESHARE_RESET_LOW_MS 2U
 #define SSD1683_RESET_RECOVERY_LOW_MS 1000U
 #define SSD1683_AUTO_FULL_INTERVAL 20U
+
+_Static_assert(SSD1683_DUAL_WIDTH + SSD1683_DUAL_SEAM_WIDTH ==
+                   SSD1683_DUAL_PADDED_WIDTH,
+               "dual SSD1683 transport width must include the center gap");
 
 static const char *TAG = "epd_ssd1683";
 
@@ -74,6 +90,38 @@ static const u8x8_display_info_t ssd1683_display_info = {
     .pixel_width = SSD1683_WIDTH,
     .pixel_height = SSD1683_HEIGHT,
 };
+
+static const u8x8_display_info_t ssd1683_dual_display_info = {
+    .chip_enable_level = 0,
+    .chip_disable_level = 1,
+    .post_chip_enable_wait_ns = 0,
+    .pre_chip_disable_wait_ns = 0,
+    .reset_pulse_width_ms = 10,
+    .post_reset_wait_ms = 10,
+    .sda_setup_time_ns = 0,
+    .sck_pulse_width_ns = 0,
+    .sck_clock_hz = 10000000,
+    .spi_mode = 0,
+    .i2c_bus_clock_100kHz = 4,
+    .data_setup_time_ns = 0,
+    .write_pulse_width_ns = 0,
+    .tile_width = SSD1683_DUAL_TILE_WIDTH,
+    .tile_height = SSD1683_DUAL_TILE_HEIGHT,
+    .default_x_offset = 0,
+    .flipmode_x_offset = 0,
+    .pixel_width = SSD1683_DUAL_WIDTH,
+    .pixel_height = SSD1683_DUAL_HEIGHT,
+};
+
+static bool ssd1683_is_dual(const epd_ssd1683_t *display)
+{
+    return display != NULL &&
+        display->panel_variant == EPD_SSD1683_PANEL_ELECROW_579_DUAL;
+}
+
+static esp_err_t ssd1683_trigger_update(epd_ssd1683_t *display,
+                                        bool full,
+                                        bool partial);
 
 static epd_ssd1683_t *ssd1683_from_u8x8(u8x8_t *u8x8)
 {
@@ -380,6 +428,64 @@ static esp_err_t ssd1683_green_init(epd_ssd1683_t *display)
     return ESP_OK;
 }
 
+static esp_err_t ssd1683_dual_init(epd_ssd1683_t *display)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_wait_ready(display), TAG, "dual panel reset wait failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x12), TAG, "dual software reset failed");
+    ESP_RETURN_ON_ERROR(ssd1683_wait_ready(display),
+                        TAG,
+                        "dual software reset wait failed");
+
+    const uint8_t internal_temperature[] = {0x80};
+    const uint8_t activate_temperature[] = {0xb1};
+    const uint8_t temperature[] = {0x64, 0x00};
+    const uint8_t load_temperature[] = {0x91};
+    const uint8_t border_waveform[] = {0x03};
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x18,
+                                         internal_temperature,
+                                         sizeof(internal_temperature)),
+                        TAG,
+                        "dual temperature source failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x22,
+                                         activate_temperature,
+                                         sizeof(activate_temperature)),
+                        TAG,
+                        "dual temperature activation failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x20),
+                        TAG,
+                        "dual temperature activation command failed");
+    ESP_RETURN_ON_ERROR(ssd1683_wait_ready(display),
+                        TAG,
+                        "dual temperature activation wait failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x1a,
+                                         temperature,
+                                         sizeof(temperature)),
+                        TAG,
+                        "dual temperature setup failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x22,
+                                         load_temperature,
+                                         sizeof(load_temperature)),
+                        TAG,
+                        "dual temperature load failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x20),
+                        TAG,
+                        "dual temperature load command failed");
+    ESP_RETURN_ON_ERROR(ssd1683_wait_ready(display),
+                        TAG,
+                        "dual temperature load wait failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x3c,
+                                         border_waveform,
+                                         sizeof(border_waveform)),
+                        TAG,
+                        "dual border waveform failed");
+    return ssd1683_wait_ready(display);
+}
+
 static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
 {
     const bool fixed_legacy_variant =
@@ -396,6 +502,14 @@ static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
                                SSD1683_RESET_PRE_HIGH_MS,
                            waveshare_v2 ? SSD1683_WAVESHARE_RESET_LOW_MS :
                                SSD1683_RESET_LOW_MS);
+    if (ssd1683_is_dual(display)) {
+        ESP_RETURN_ON_ERROR(ssd1683_dual_init(display), TAG, "dual panel init failed");
+        display->controller_ready = true;
+        display->shadow_valid = false;
+        display->partial_refresh_active = false;
+        display->fast_refresh_count = 0;
+        return ESP_OK;
+    }
     if (display->panel_variant == EPD_SSD1683_PANEL_UNKNOWN) {
         display->panel_variant = ssd1683_busy_cleared(display, SSD1683_VARIANT_PROBE_MS) ?
             EPD_SSD1683_PANEL_LEGACY : EPD_SSD1683_PANEL_GREEN_STICKER;
@@ -445,6 +559,216 @@ static void ssd1683_convert_row(epd_ssd1683_t *display,
         }
         display->line_buffer[byte] = panel_pixels;
     }
+}
+
+static uint8_t ssd1683_dual_convert_byte(const uint8_t *source,
+                                         uint16_t padded_x_byte,
+                                         uint16_t y)
+{
+    const uint8_t row_bit = (uint8_t)(1U << (y & 7U));
+    const uint8_t *tile_row = source +
+        (size_t)(y >> 3) * SSD1683_DUAL_BUFFER_ROW_BYTES;
+    uint8_t panel_pixels = 0;
+
+    for (uint16_t bit = 0; bit < 8U; bit++) {
+        const uint16_t padded_x = padded_x_byte * 8U + bit;
+        bool white = padded_x >= SSD1683_DUAL_SEAM_START &&
+            padded_x < SSD1683_DUAL_SEAM_START + SSD1683_DUAL_SEAM_WIDTH;
+        uint16_t x = padded_x;
+        if (padded_x >= SSD1683_DUAL_SEAM_START + SSD1683_DUAL_SEAM_WIDTH) {
+            x -= SSD1683_DUAL_SEAM_WIDTH;
+        }
+        if (!white && x < SSD1683_DUAL_WIDTH) {
+            white = (tile_row[x] & row_bit) != 0;
+        }
+        if (white) {
+            panel_pixels |= (uint8_t)(0x80U >> bit);
+        }
+    }
+    return panel_pixels;
+}
+
+static esp_err_t ssd1683_dual_set_master_address(epd_ssd1683_t *display)
+{
+    static const uint8_t data_entry_mode[] = {0x05};
+    static const uint8_t x_bounds[] = {0x00, 0x31};
+    static const uint8_t y_bounds[] = {0x0f, 0x01, 0x00, 0x00};
+    static const uint8_t x_cursor[] = {0x00};
+    static const uint8_t y_cursor[] = {0x0f, 0x01};
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x11,
+                                         data_entry_mode,
+                                         sizeof(data_entry_mode)),
+                        TAG,
+                        "dual master data entry mode failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x44, x_bounds, sizeof(x_bounds)),
+                        TAG, "dual master X bounds failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x45, y_bounds, sizeof(y_bounds)),
+                        TAG, "dual master Y bounds failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x4e, x_cursor, sizeof(x_cursor)),
+                        TAG, "dual master X cursor failed");
+    return ssd1683_cmd_data(display, 0x4f, y_cursor, sizeof(y_cursor));
+}
+
+static esp_err_t ssd1683_dual_set_slave_address(epd_ssd1683_t *display)
+{
+    static const uint8_t select_slave[] = {0x04};
+    static const uint8_t x_bounds[] = {0x31, 0x00};
+    static const uint8_t y_bounds[] = {0x0f, 0x01, 0x00, 0x00};
+    static const uint8_t x_cursor[] = {0x31};
+    static const uint8_t y_cursor[] = {0x0f, 0x01};
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display,
+                                         0x91,
+                                         select_slave,
+                                         sizeof(select_slave)),
+                        TAG,
+                        "dual slave select failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0xc4, x_bounds, sizeof(x_bounds)),
+                        TAG, "dual slave X bounds failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0xc5, y_bounds, sizeof(y_bounds)),
+                        TAG, "dual slave Y bounds failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0xce, x_cursor, sizeof(x_cursor)),
+                        TAG, "dual slave X cursor failed");
+    return ssd1683_cmd_data(display, 0xcf, y_cursor, sizeof(y_cursor));
+}
+
+static esp_err_t ssd1683_dual_write_half(epd_ssd1683_t *display,
+                                         uint8_t command,
+                                         uint16_t first_x_byte)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, command), TAG, "dual RAM write failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1),
+                        TAG,
+                        "dual D/C data failed");
+    for (uint16_t x_byte = first_x_byte;
+         x_byte < first_x_byte + SSD1683_DUAL_CONTROLLER_ROW_BYTES;
+         x_byte++) {
+        for (uint16_t y = 0; y < SSD1683_DUAL_HEIGHT; y++) {
+            display->line_buffer[y] =
+                ssd1683_dual_convert_byte(display->buffer, x_byte, y);
+        }
+        ESP_RETURN_ON_ERROR(ssd1683_tx_bytes(display,
+                                             display->line_buffer,
+                                             SSD1683_DUAL_HEIGHT),
+                            TAG,
+                            "dual frame transmit failed");
+    }
+    return ESP_OK;
+}
+
+static esp_err_t ssd1683_dual_write_constant_half(epd_ssd1683_t *display,
+                                                  uint8_t command,
+                                                  uint8_t value)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, command),
+                        TAG,
+                        "dual auxiliary RAM write failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1),
+                        TAG,
+                        "dual auxiliary D/C data failed");
+    memset(display->line_buffer, value, SSD1683_DUAL_HEIGHT);
+    for (uint16_t x_byte = 0;
+         x_byte < SSD1683_DUAL_CONTROLLER_ROW_BYTES;
+         x_byte++) {
+        ESP_RETURN_ON_ERROR(ssd1683_tx_bytes(display,
+                                             display->line_buffer,
+                                             SSD1683_DUAL_HEIGHT),
+                            TAG,
+                            "dual auxiliary frame transmit failed");
+    }
+    return ESP_OK;
+}
+
+static esp_err_t ssd1683_dual_write_frame(epd_ssd1683_t *display,
+                                          bool write_auxiliary_planes)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_dual_set_master_address(display),
+                        TAG,
+                        "dual master address failed");
+    ESP_RETURN_ON_ERROR(ssd1683_dual_write_half(display, 0x24, 0),
+                        TAG,
+                        "dual master frame failed");
+    if (write_auxiliary_planes) {
+        ESP_RETURN_ON_ERROR(ssd1683_dual_set_master_address(display),
+                            TAG,
+                            "dual master auxiliary address failed");
+        ESP_RETURN_ON_ERROR(ssd1683_dual_write_constant_half(display, 0x26, 0x00),
+                            TAG,
+                            "dual master auxiliary frame failed");
+    }
+    ESP_RETURN_ON_ERROR(ssd1683_dual_set_slave_address(display),
+                        TAG,
+                        "dual slave address failed");
+    ESP_RETURN_ON_ERROR(ssd1683_dual_write_half(
+                            display,
+                            0xa4,
+                            SSD1683_DUAL_CONTROLLER_ROW_BYTES),
+                        TAG,
+                        "dual slave frame failed");
+    if (!write_auxiliary_planes) {
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_ERROR(ssd1683_dual_set_slave_address(display),
+                        TAG,
+                        "dual slave auxiliary address failed");
+    return ssd1683_dual_write_constant_half(display, 0xa6, 0x00);
+}
+
+static esp_err_t ssd1683_dual_refresh(epd_ssd1683_t *display)
+{
+    if (display->shadow_valid && display->shadow != NULL &&
+        memcmp(display->buffer, display->shadow, display->buffer_size) == 0) {
+        return ESP_OK;
+    }
+
+    /*
+     * Elecrow's dual-controller partial-refresh path transfers both primary
+     * RAM halves and triggers update mode 0xDC.  Do not apply the generic
+     * periodic full-refresh cadence here: a terminal/status update would then
+     * flash the complete 5.79-inch panel every few seconds.
+     */
+    const bool full = display->refresh_mode == EPD_SSD1683_REFRESH_FULL ||
+        !display->shadow_valid;
+    const bool partial = display->refresh_mode == EPD_SSD1683_REFRESH_AUTO &&
+        !full;
+    const bool log_refresh = display->refresh_log_count < 4U;
+    if (log_refresh) {
+        ESP_LOGI(TAG,
+                 "dual panel refresh %u %s starting",
+                 (unsigned)(display->refresh_log_count + 1U),
+                 full ? "full" : (partial ? "partial" : "fast"));
+    }
+
+    if (partial && !display->partial_refresh_active) {
+        /* Elecrow resets once between the full cleanup and 0xDC partial mode. */
+        ssd1683_hardware_reset(display,
+                               SSD1683_RESET_PRE_HIGH_MS,
+                               SSD1683_RESET_LOW_MS);
+        ESP_RETURN_ON_ERROR(ssd1683_wait_ready(display),
+                            TAG,
+                            "dual partial reset wait failed");
+    }
+
+    ESP_RETURN_ON_ERROR(ssd1683_dual_write_frame(display, full),
+                        TAG,
+                        "dual frame write failed");
+    ESP_RETURN_ON_ERROR(ssd1683_trigger_update(display, full, partial),
+                        TAG,
+                        "dual panel refresh failed");
+
+    if (log_refresh) {
+        display->refresh_log_count++;
+        ESP_LOGI(TAG,
+                 "dual panel refresh %u complete",
+                 (unsigned)display->refresh_log_count);
+    }
+    if (display->shadow != NULL) {
+        memcpy(display->shadow, display->buffer, display->buffer_size);
+    }
+    display->shadow_valid = true;
+    display->partial_refresh_active = partial;
+    display->fast_refresh_count = 0;
+    return ESP_OK;
 }
 
 static bool ssd1683_find_change_window(const epd_ssd1683_t *display,
@@ -569,7 +893,10 @@ static esp_err_t ssd1683_trigger_update(epd_ssd1683_t *display,
         return ssd1683_wait_ready(display);
     }
 
-    const uint8_t update_mode[] = {partial ? 0xff : (full ? 0xf7 : 0xc7)};
+    const uint8_t update_mode[] = {
+        partial ? (ssd1683_is_dual(display) ? 0xdc : 0xff) :
+            (full ? 0xf7 : 0xc7)
+    };
     ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x22, update_mode, sizeof(update_mode)),
                         TAG,
                         "display update mode failed");
@@ -587,6 +914,9 @@ static esp_err_t ssd1683_refresh(epd_ssd1683_t *display)
 {
     if (!display->controller_ready) {
         ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "controller resume failed");
+    }
+    if (ssd1683_is_dual(display)) {
+        return ssd1683_dual_refresh(display);
     }
     if (display->shadow_valid &&
         display->shadow != NULL &&
@@ -800,12 +1130,15 @@ static uint8_t ssd1683_u8x8_display_cb(u8x8_t *u8x8,
                                        void *arg_ptr)
 {
     (void)arg_ptr;
+    epd_ssd1683_t *display = ssd1683_from_u8x8(u8x8);
     if (message == U8X8_MSG_DISPLAY_SETUP_MEMORY) {
-        u8x8_d_helper_display_setup_memory(u8x8, &ssd1683_display_info);
+        u8x8_d_helper_display_setup_memory(
+            u8x8,
+            ssd1683_is_dual(display) ? &ssd1683_dual_display_info :
+                &ssd1683_display_info);
         return 1;
     }
 
-    epd_ssd1683_t *display = ssd1683_from_u8x8(u8x8);
     if (display == NULL) {
         return 0;
     }
@@ -851,7 +1184,7 @@ static bool ssd1683_config_valid(const epd_ssd1683_config_t *config)
         config->rotation == NULL ||
         (config->busy_level != 0 && config->busy_level != 1) ||
         (config->power_active_level != 0 && config->power_active_level != 1) ||
-        config->panel_variant > EPD_SSD1683_PANEL_WAVESHARE_V2) {
+        config->panel_variant > EPD_SSD1683_PANEL_ELECROW_579_DUAL) {
         return false;
     }
     if (config->spi_bus == NULL || config->spi_bus[0] == '\0') {
@@ -920,7 +1253,8 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
             .sclk_io_num = config->sclk_pin,
             .quadwp_io_num = GPIO_NUM_NC,
             .quadhd_io_num = GPIO_NUM_NC,
-            .max_transfer_sz = SSD1683_PANEL_ROW_BYTES,
+            .max_transfer_sz = ssd1683_is_dual(display) ? SSD1683_DUAL_HEIGHT :
+                SSD1683_PANEL_ROW_BYTES,
         };
         ret = spi_bus_initialize(config->spi_host, &bus_config, SPI_DMA_CH_AUTO);
         if (ret == ESP_OK) {
@@ -933,7 +1267,8 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
         return ret;
     }
 
-    display->line_buffer_size = SSD1683_PANEL_ROW_BYTES;
+    display->line_buffer_size = ssd1683_is_dual(display) ? SSD1683_DUAL_HEIGHT :
+        SSD1683_PANEL_ROW_BYTES;
     /* SPI transmits directly from this line buffer, so it must be internal DMA memory. */
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -942,7 +1277,8 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
         return ESP_ERR_NO_MEM;
     }
 
-    display->buffer_size = SSD1683_BUFFER_BYTES;
+    display->buffer_size = ssd1683_is_dual(display) ? SSD1683_DUAL_BUFFER_BYTES :
+        SSD1683_BUFFER_BYTES;
     /* Driver framebuffer only requires byte-addressable memory. */
     display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
     if (display->buffer == NULL) {
@@ -950,7 +1286,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
         return ESP_ERR_NO_MEM;
     }
 
-    display->shadow_size = SSD1683_BUFFER_BYTES;
+    display->shadow_size = display->buffer_size;
     /* Full-frame shadow prefers PSRAM but remains optional without it. */
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -969,7 +1305,8 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
                       u8x8_dummy_cb);
     u8g2_SetupBuffer(&display->u8g2,
                      display->buffer,
-                     SSD1683_TILE_HEIGHT,
+                     ssd1683_is_dual(display) ? SSD1683_DUAL_TILE_HEIGHT :
+                         SSD1683_TILE_HEIGHT,
                      u8g2_ll_hvline_vertical_top_lsb,
                      config->rotation);
     u8g2_InitDisplay(&display->u8g2);
@@ -1046,6 +1383,11 @@ void epd_ssd1683_deinit(epd_ssd1683_t *display)
 u8g2_t *epd_ssd1683_get_u8g2(epd_ssd1683_t *display)
 {
     return display == NULL ? NULL : &display->u8g2;
+}
+
+const char *epd_ssd1683_controller_name(const epd_ssd1683_t *display)
+{
+    return ssd1683_is_dual(display) ? "SSD1683x2" : "SSD1683";
 }
 
 const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)

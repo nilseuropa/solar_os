@@ -290,6 +290,23 @@ bindings = { gpio = 7 }
         self.assertIn("#define SOLAR_OS_BOARD_BUTTONS", header)
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
+    def test_elecrow_579_uses_dual_controller_geometry(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "elecrow_crowpanel_esp32_s3_5_79_epaper.toml",
+            self.manifest_dir,
+        )
+        header = generate_header(board, self.drivers)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1683x2"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 792", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 272", header)
+        self.assertIn('.role = "panel", .value = 4', header)
+        self.assertIn(".miso_pin = GPIO_NUM_NC", header)
+
+        too_many_bindings = deepcopy(board)
+        too_many_bindings["devices"][0]["bindings"]["rotation"] = 0
+        with self.assertRaisesRegex(ManifestError, "more than 8 bindings"):
+            validate_board(too_many_bindings, self.drivers)
+
     def test_t_lora_exposes_a_real_spi_cs_and_claims_keyboard_pwm(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "t_lora_pager.toml",

@@ -205,6 +205,7 @@ The current tree includes these board targets:
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `qdtech_es3n28p` | `qdtech_es3n28p` | [QDtech ES3N28P 2.8-inch ESP32-S3 Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Non-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
+| `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `cl_32` | `cl_32` | CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
@@ -859,6 +860,37 @@ The default OTA layout uses `partitions_8mb.csv`, with two 0x3E0000-byte OTA
 application slots and a 0x20000-byte flash filesystem partition. The serial
 layout uses `partitions_8mb_single.csv`, with one 0x700000-byte factory slot and
 a 0xF0000-byte flash filesystem partition.
+
+## Elecrow CrowPanel ESP32-S3 5.79-inch E-paper
+
+The built-in `elecrow_crowpanel_esp32_s3_5_79_epaper` target covers Elecrow's
+DIS08792E 792x272 monochrome CrowPanel. It uses the same N8R8 module, console,
+microSD, controls, status LED, power gates, and expansion-header wiring as the
+4.2-inch board. The display is different: two cascaded SSD1683 controllers
+drive two 396x272 halves. Their 400-pixel RAM widths create an internal
+eight-pixel address gap, which the SolarOS driver keeps white while presenting
+one contiguous 792x272 graphics surface.
+
+The panel uses GPIO12 SCK, GPIO11 MOSI, GPIO47 reset, GPIO46 D/C, GPIO45 chip
+select, GPIO48 BUSY, and GPIO7 display-power enable. The driver follows
+Elecrow's master/slave RAM addressing and temperature-load sequence. Auto mode
+uses one full cleanup refresh after initialization, then transfers changed
+frames with Elecrow's non-flashing `0xDC` partial-update waveform; unchanged
+frames are skipped. Use `display mode display0 refresh=full` when an explicit
+full cleanup is needed.
+
+Build and flash the target with:
+
+```sh
+pio run -e elecrow_crowpanel_esp32_s3_5_79_epaper
+pio run -e elecrow_crowpanel_esp32_s3_5_79_epaper -t upload --upload-port /dev/ttyUSB0
+```
+
+The onboard CH340 normally enumerates as `/dev/ttyUSB*` on Linux; use the
+actual serial-device path reported by the host when it differs.
+
+The same 8 MB OTA and serial partition layouts documented for the 4.2-inch
+CrowPanel apply to this board.
 
 ## Headless Boards
 
