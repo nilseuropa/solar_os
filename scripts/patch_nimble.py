@@ -6,8 +6,8 @@ from pathlib import Path
 
 HOST = Path("components/bt/host/nimble/nimble/nimble/host/src")
 HASHES = {
-    "ble_gatts.c": "cca8a9358b701d3a69bc76c1c26d7532f6ce18e22f9aa393f69d410fd16ac5e8",
-    "ble_att_svr.c": "67977d622f956b879763f22f30f54b3468584e5c674758990d6c62a95d2678a0",
+    "ble_gatts.c": "6544a5839bb51a584dc563f01cfea220b9203790568c182a4cfe95ed89046096",
+    "ble_att_svr.c": "6a0c33d7c11a81fd022c13349a3da8b8da82993c41177568a8a5238cbf2c0799",
 }
 PATCH_DIR = Path(__file__).resolve().parents[1] / "patches/nimble"
 
@@ -20,7 +20,7 @@ def replace_once(source, old, new):
 
 def transform(name, original):
     if hashlib.sha256(original).hexdigest() != HASHES[name]:
-        raise ValueError(f"Unsupported NimBLE SDK source: {name}; expected ESP-IDF 5.5.4. "
+        raise ValueError(f"Unsupported NimBLE SDK source: {name}; expected ESP-IDF 5.5.5. "
                          "Review and retest the overlay; do not bypass the hash guard.")
     source = original.decode("utf-8")
     if name == "ble_gatts.c":

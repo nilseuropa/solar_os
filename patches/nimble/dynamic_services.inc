@@ -1,4 +1,4 @@
-/* SolarOS ESP-IDF 5.5.4 overlay. Included inside ble_gatts.c's dynamic gate.
+/* SolarOS ESP-IDF 5.5.5 overlay. Included inside ble_gatts.c's dynamic gate.
  * Runtime registration is a transaction under the host lock. No global startup
  * definition array is borrowed, and callbacks are published only after commit.
  */
@@ -169,11 +169,17 @@ ble_gatts_add_dynamic_svcs(const struct ble_gatt_svc_def *svcs)
         nimble_platform_mem_free(record);
     }
 #if MYNEWT_VAL(BLE_GATT_CACHING)
+#if MYNEWT_VAL(BLE_STATIC_TO_DYNAMIC)
+    if (ble_gatts_conn_aware_states != NULL) {
+#endif
     for (i = 0; i < MYNEWT_VAL(BLE_STORE_MAX_BONDS); i++) {
         ble_gatts_conn_aware_states[i].half_aware = 0;
         ble_gatts_conn_aware_states[i].aware = false;
     }
     ble_hs_conn_foreach(ble_gatts_conn_unaware, NULL);
+#if MYNEWT_VAL(BLE_STATIC_TO_DYNAMIC)
+    }
+#endif
 #endif
     ble_svc_gatt_changed(tx.checkpoint + 1, end_handle);
     ble_hs_unlock();

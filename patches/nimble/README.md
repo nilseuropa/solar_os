@@ -4,7 +4,7 @@ SolarOS enables `CONFIG_BT_NIMBLE_DYNAMIC_SERVICE` so applications can
 register GATT services without disconnecting keyboard or generic client links.
 The script contract is documented in [the application server API](../../doc/ble-server.md).
 
-The ESP-IDF 5.5.4 dynamic registration path requires additional failure handling.
+The ESP-IDF 5.5.5 dynamic registration path requires additional failure handling.
 `scripts/patch_nimble.py` validates SHA-256 hashes of `ble_gatts.c` and
 `ble_att_svr.c`, then generates patched copies under the target build directory.
 `overlay.cmake` replaces exactly those two sources on this project's `bt` target.
