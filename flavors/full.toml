@@ -126,6 +126,7 @@ ft6336 = true
 gt911 = true
 mgc3130 = true
 pcf85063 = true
+pcf8563 = true
 shtc3 = true
 battery_adc = true
 tca8418 = true

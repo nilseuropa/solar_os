@@ -657,6 +657,11 @@ label = "PCF85063 real-time clock"
 category = "Expansion hardware"
 members = ["driver_pcf85063"]
 
+[groups.pcf8563]
+label = "PCF8563 real-time clock"
+category = "Expansion hardware"
+members = ["driver_pcf8563"]
+
 [groups.shtc3]
 label = "SHTC3 environmental sensor"
 category = "Expansion hardware"
@@ -2020,6 +2025,18 @@ sources = [
   "drivers/rtc_pcf85063.c",
   "services/solar_os_pcf85063.c",
   "services/solar_os_pcf85063_driver.c",
+]
+capabilities = ["i2c"]
+
+[packages.driver_pcf8563]
+label = "driver.pcf8563"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_pcf8563_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_rtc"]
+sources = [
+  "drivers/rtc_pcf8563.c",
+  "services/solar_os_pcf8563.c",
+  "services/solar_os_pcf8563_driver.c",
 ]
 capabilities = ["i2c"]
 
