@@ -1,0 +1,19 @@
+schema = 1
+extends = "t_lora_pager"
+
+[board]
+id = "t_lora_pager_lr1121"
+name = "LilyGO T-LoRa-Pager (LR1121)"
+
+[defines]
+# The LR1121 module's antenna switch hangs off DIO5 and DIO6: DIO6 high selects
+# the receive port, DIO5 high the transmit path, high power included.
+SOLAR_OS_BOARD_LR11XX_RF_SWITCH = '{ .enable = LR11XX_RF_SWITCH_DIO5 | LR11XX_RF_SWITCH_DIO6, .rx = LR11XX_RF_SWITCH_DIO6, .tx = LR11XX_RF_SWITCH_DIO5, .tx_hp = LR11XX_RF_SWITCH_DIO5 }'
+
+# The module's band is a purchase-time SKU with nothing to read it back from;
+# this names the 915 MHz variant and an 868 MHz unit changes `freq`. The TCXO
+# is fed 3.0 V from DIO3, as the SX1262 module in the same slot is.
+[[devices]]
+driver = "lr11xx"
+name = "radio0"
+bindings = { freq = 915, tcxo = 3000 }
