@@ -142,6 +142,57 @@ esp_err_t i2c_bus_init_config(const i2c_bus_config_t *config)
     return ESP_OK;
 }
 
+bool i2c_bus_has_default(void)
+{
+    if (i2c_bus_ensure_mutex() != ESP_OK) {
+        return false;
+    }
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    const bool claimed = bus_handle != NULL;
+    xSemaphoreGive(bus_mutex);
+    return claimed;
+}
+
+esp_err_t i2c_bus_adopt_default(const i2c_bus_config_t *config,
+                                i2c_master_bus_handle_t handle)
+{
+    if (!i2c_bus_config_valid(config) || handle == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(i2c_bus_ensure_mutex(), TAG, "create I2C mutex failed");
+
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    if (bus_handle != NULL) {
+        const esp_err_t ret = bus_handle == handle ? ESP_OK
+                                                   : ESP_ERR_INVALID_STATE;
+        xSemaphoreGive(bus_mutex);
+        return ret;
+    }
+    bus_handle = handle;
+    active_config = *config;
+    ESP_LOGI(TAG,
+             "I2C default bus: port=%d SDA=%d SCL=%d speed=%" PRIu32,
+             config->port,
+             config->sda_pin,
+             config->scl_pin,
+             config->speed_hz);
+    xSemaphoreGive(bus_mutex);
+    return ESP_OK;
+}
+
+void i2c_bus_release_default(i2c_master_bus_handle_t handle)
+{
+    if (handle == NULL || i2c_bus_ensure_mutex() != ESP_OK) {
+        return;
+    }
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    if (bus_handle == handle) {
+        bus_handle = NULL;
+        active_config = (i2c_bus_config_t){0};
+    }
+    xSemaphoreGive(bus_mutex);
+}
+
 esp_err_t i2c_bus_start_config(const i2c_bus_config_t *config,
                                bool allow_existing,
                                i2c_master_bus_handle_t *handle,
