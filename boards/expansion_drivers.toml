@@ -40,6 +40,38 @@ hint = "0x55"
 required = true
 allowed = [0x55]
 
+[drivers.stc8h-keyboard]
+summary = "Elecrow STC8H companion-MCU keypad"
+package = "expansion_stc8h_keyboard"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c", "pwm"]
+default_name = "keyboard0"
+
+[[drivers.stc8h-keyboard.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.stc8h-keyboard.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6c"
+required = true
+allowed = [0x6c, 0x6d]
+
+[[drivers.stc8h-keyboard.bindings]]
+key = "alt_addr"
+kind = "i2c_address"
+hint = "0x6d"
+role = "alt_addr"
+allowed = [0x6c, 0x6d]
+
+[[drivers.stc8h-keyboard.bindings]]
+key = "backlight"
+kind = "pwm"
+hint = "gpio"
+
 [drivers.tca8418]
 summary = "4x10 matrix keyboard"
 package = "tca8418"
