@@ -1015,6 +1015,30 @@ key = "irq"
 kind = "gpio"
 hint = "gpio"
 
+[drivers.pcf8563]
+summary = "I2C real-time clock"
+package = "driver_pcf8563"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["rtc"]
+board_driver = "rtc_pcf8563"
+default_name = "rtc0"
+[[drivers.pcf8563.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.pcf8563.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x51"
+required = true
+allowed = [0x51]
+[[drivers.pcf8563.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
 [drivers.shtc3]
 summary = "temperature/humidity"
 package = "driver_shtc3"
