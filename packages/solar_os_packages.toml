@@ -512,6 +512,11 @@ label = "u-blox MIA-M10Q GNSS receiver"
 category = "Expansion hardware"
 members = ["ublox_mia_m10q"]
 
+[groups.nmea_gnss]
+label = "NMEA 0183 GNSS receiver"
+category = "Expansion hardware"
+members = ["nmea_gnss"]
+
 [groups.sim7670]
 label = "SIM7670 LTE modem and GNSS receiver"
 category = "Expansion hardware"
@@ -1555,6 +1560,19 @@ sources = [
   "drivers/ubx.c",
   "services/solar_os_ublox_mia_m10q.c",
   "services/solar_os_ublox_mia_m10q_driver.c",
+]
+requires = ["esp_timer"]
+capabilities = ["expansion_uart"]
+
+[packages.nmea_gnss]
+label = "expansion.nmea"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_nmea_gnss_expansion_driver"]
+depends = ["service_expansion", "service_gnss", "service_uart"]
+sources = [
+  "drivers/nmea.c",
+  "services/solar_os_nmea_gnss.c",
+  "services/solar_os_nmea_gnss_driver.c",
 ]
 requires = ["esp_timer"]
 capabilities = ["expansion_uart"]
