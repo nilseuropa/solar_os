@@ -2,6 +2,28 @@
 
 ## 4.x
 
+- **4.16.5** — 2026-10-10 — Added Elecrow ThinkNode M9 support with a
+  320x240 ST7789 display, backlit STC8H QWERTY keypad, microSD, PCF8563 RTC,
+  NMEA GNSS, battery ADC, PWM buzzer, USB/UART console, Wi-Fi, and BLE.
+  The keypad provides app-exit and function keys plus a compose layer for
+  missing shell characters, tab completion, and scrollback navigation.
+  Its I2C address identifies board revisions; revision 1.1 requires
+  `active = 1` for GNSS power in the manifest. GNSS starts powered off;
+  use `gnss power on` to enable it. Added reusable STC8H keyboard and
+  NMEA 0183 GNSS expansion drivers, with background RMC/GGA reception and
+  optional alternate-baud detection. Named I2C buses now use independent
+  controllers while retaining the board's primary bus for legacy drivers.
+  TFT displays support board-declared active-low power rails. ODROID-GO
+  gains runtime I2C buses on free GPIO4/GPIO15 through `expansion bus create`.
+- **4.16.4** — 2026-10-08 — Python and Lua BLE HID APIs gain saved-host
+  listing, explicit host selection, disconnect, and per-host pairing removal.
+  Manual mode offers reconnects only to the selected host and can pair a
+  new host while retaining existing pairings and the local input keyboard.
+  Connected host names are read asynchronously when available. Reconnects
+  use the saved bond's security settings, and the HID GATT database stays
+  stable across BLE restarts. Explicit pairing can replace an unused bond
+  when storage is full while preserving the remembered input keyboard and
+  connected peers.
 - **4.16.3** — 2026-10-08 — Added the reusable M5Stack Tab5 Keyboard
   expansion driver with named I2C bindings, an optional interrupt, physical
   press/release events, key repeat, held modifiers, and the printed Sym layer.
@@ -28,12 +50,6 @@
   with source-specific key presses, releases, HID usages, and modifiers for
   forwarding utilities. Capture bypasses local shortcuts and releases on
   runtime teardown; queue loss and source removal signal an input reset.
-- **4.16.1** — 2026-10-06 — Camera expansion attachments can use a
-  named I2C bus for SCCB control, including the board-owned bus wired to the
-  CL32 camera connector, or explicit SIOD/SIOC pins. Shared bus devices remain
-  available when the camera stops; the camera retains its bus lease until
-  detach. Corrected C++ exception configuration for ESP-DL builds, including
-  existing SDK configuration files.
 - **4.16.1** — 2026-10-06 — Camera expansion attachments can use a
   named I2C bus for SCCB control, including the board-owned bus wired to the
   CL32 camera connector, or explicit SIOD/SIOC pins. Shared bus devices remain
