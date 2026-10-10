@@ -31,6 +31,11 @@ esp_err_t i2c_bus_stop_config(const i2c_bus_config_t *config,
 esp_err_t i2c_bus_set_speed(i2c_master_bus_handle_t handle,
                             uint32_t speed_hz);
 i2c_master_bus_handle_t i2c_bus_get_handle(void);
+/* Create or borrow a matching controller and select it atomically. Successful
+ * owner shutdown clears the default; borrowed controllers stay alive. */
+esp_err_t i2c_bus_start_default_config(const i2c_bus_config_t *config,
+                                       i2c_master_bus_handle_t *handle,
+                                       bool *initialized_here);
 void i2c_bus_lock(void);
 void i2c_bus_unlock(void);
 uint32_t i2c_bus_get_speed_hz(void);

@@ -14,6 +14,10 @@ UART, and OneWire services. They are useful for simple scripts and existing
 code. New applications that need multiple or dynamically attached buses should
 prefer `solaros.buses`.
 
+The default I2C bus uses the board's primary controller and SDA/SCL pins.
+Starting another named I2C bus does not change this default. Board-defined
+buses on different controllers can operate independently through `solaros.buses`.
+
 ## Safe workflow
 
 1. Inspect `status()` or `allowed(pin)`.

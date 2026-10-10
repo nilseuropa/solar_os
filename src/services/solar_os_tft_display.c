@@ -30,6 +30,11 @@
 #ifndef SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET
 #define SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET 0U
 #endif
+/* Level that enables the display power rail; a board with an active-low
+ * rail overrides this from its manifest. */
+#ifndef SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL
+#define SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL 1
+#endif
 
 typedef struct {
     bool active;
@@ -289,7 +294,7 @@ static esp_err_t attach_tft(const char *name,
         .invert_color = false,
 #endif
         .power_pin = power,
-        .power_active_high = true,
+        .power_active_high = SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL != 0,
         .backlight_active_high = active_high,
         .backlight_pwm = pwm,
         .backlight_pulse_steps = SOLAR_OS_BOARD_LCD_BACKLIGHT_PULSE_STEPS,

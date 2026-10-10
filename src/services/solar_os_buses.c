@@ -752,19 +752,24 @@ static esp_err_t start_i2c_locked(size_t bus_index)
         .scl_pin = (gpio_num_t)config->scl_pin,
         .speed_hz = config->speed_hz,
     };
-    esp_err_t ret;
-    if (buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_BOARD) {
-        ret = i2c_bus_init_config(&driver_config);
-        if (ret == ESP_OK) {
-            buses_i2c_handles[bus_index] = i2c_bus_get_handle();
-            buses_initialized_here[bus_index] = false;
-        }
-    } else {
-        ret = i2c_bus_start_config(&driver_config,
-                                   false,
-                                   &buses_i2c_handles[bus_index],
-                                   &buses_initialized_here[bus_index]);
-    }
+    bool primary = false;
+    /* Legacy drivers always use the board's primary wiring, regardless
+     * of which named controller was acquired first. */
+#if defined(SOLAR_OS_BOARD_I2C_PORT) && \
+    defined(SOLAR_OS_BOARD_PIN_I2C_SDA) && defined(SOLAR_OS_BOARD_PIN_I2C_SCL)
+    primary = buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_BOARD &&
+        config->port == SOLAR_OS_BOARD_I2C_PORT &&
+        config->sda_pin == SOLAR_OS_BOARD_PIN_I2C_SDA &&
+        config->scl_pin == SOLAR_OS_BOARD_PIN_I2C_SCL;
+#endif
+    const esp_err_t ret = primary
+        ? i2c_bus_start_default_config(&driver_config,
+                                        &buses_i2c_handles[bus_index],
+                                        &buses_initialized_here[bus_index])
+        : i2c_bus_start_config(&driver_config,
+                                buses[bus_index].origin == SOLAR_OS_BUS_ORIGIN_BOARD,
+                                &buses_i2c_handles[bus_index],
+                                &buses_initialized_here[bus_index]);
     if (ret == ESP_OK) {
         buses[bus_index].ready = true;
     }

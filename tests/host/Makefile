@@ -38,9 +38,11 @@ TARGETS += tensor_image_lua_test
 TARGETS += vision_lua_bindings_test
 TARGETS += media_lua_bindings_test
 TARGETS += messaging_service_test
+TARGETS += nmea_test nmea_gnss_test
 TARGETS += cw2017_test
 TARGETS += rtc_pcf8563_test
 TARGETS += tab5_keyboard_test
+TARGETS += i2c_buses_test
 
 tab5_keyboard_test: tab5_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_os_tab5_keyboard*) \
         $(ROOT)/src/drivers/tab5_keyboard.c $(ROOT)/src/drivers/tab5_keyboard.h \
@@ -59,6 +61,19 @@ rtc_pcf8563_test: rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c \
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. \
 		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c $(ROOT)/src/services/solar_os_pcf8563.c -o $@
+
+i2c_buses_test: i2c_buses_test.c $(ROOT)/src/drivers/i2c_bus.c \
+        $(ROOT)/src/drivers/i2c_bus.h $(ROOT)/src/services/solar_os_buses.c \
+        $(ROOT)/src/services/solar_os_buses.h $(ROOT)/src/services/solar_os_resources.c \
+        $(ROOT)/include/solar_os_bus_types.h $(wildcard i2c_stubs/*.h) \
+        $(wildcard i2c_stubs/driver/*.h) $(wildcard i2c_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include i2c_stubs/compat.h \
+		-Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Ii2c_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		i2c_buses_test.c $(ROOT)/src/drivers/i2c_bus.c \
+		$(ROOT)/src/services/solar_os_buses.c $(ROOT)/src/services/solar_os_resources.c \
+		-Wl,--gc-sections -o $@
 
 cw2017_test: cw2017_test.c $(ROOT)/src/drivers/cw2017.c $(ROOT)/src/drivers/cw2017.h \
         $(ROOT)/src/services/solar_os_cw2017.c $(ROOT)/src/services/solar_os_cw2017.h
@@ -572,6 +587,17 @@ ubx_test: ubx_test.c $(ROOT)/src/drivers/ubx.c $(ROOT)/src/drivers/ubx.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
 		ubx_test.c $(ROOT)/src/drivers/ubx.c -o $@
 
+nmea_test: nmea_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/nmea.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
+		nmea_test.c $(ROOT)/src/drivers/nmea.c -o $@
+
+nmea_gnss_test: nmea_gnss_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/nmea.h \
+        $(ROOT)/src/services/solar_os_nmea_gnss.c $(ROOT)/src/services/solar_os_nmea_gnss.h \
+        $(ROOT)/src/services/solar_os_gnss.c $(ROOT)/src/services/solar_os_gnss.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		nmea_gnss_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/services/solar_os_gnss.c -o $@
+
 gnss_service_test: gnss_service_test.c $(ROOT)/src/services/solar_os_gnss.c $(ROOT)/src/services/solar_os_gnss.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		gnss_service_test.c $(ROOT)/src/services/solar_os_gnss.c -o $@
@@ -889,6 +915,7 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
 
 test: $(TARGETS)
+	./i2c_buses_test
 	./cw2017_test
 	./rtc_pcf8563_test
 	./axp2101_service_test
@@ -990,6 +1017,8 @@ test: $(TARGETS)
 	./rtc_service_test
 	./rtc_pcf85063_test
 	./ubx_test
+	./nmea_test
+	./nmea_gnss_test
 	./gnss_service_test
 	./modem_service_test
 	./haptic_service_test

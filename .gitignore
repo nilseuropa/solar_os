@@ -26,6 +26,8 @@ tests/host/ble_multi_peer_test
 tests/host/ble_hid_test
 tests/host/cw2017_test
 tests/host/rtc_pcf8563_test
+tests/host/nmea_test
+tests/host/nmea_gnss_test
 
 /tests/host/epd_uc8179_test
 /tests/host/uc8179_expansion_test
@@ -37,6 +39,7 @@ tests/host/rtc_pcf8563_test
 /tests/host/x4pro_expansion_test
 /tests/host/gt911_test
 /tests/host/sdmmc_expansion_test
+/tests/host/i2c_buses_test
 tests/host/vision_test
 tests/host/vision_lua_bindings_test
 tests/host/inference_test

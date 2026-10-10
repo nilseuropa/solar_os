@@ -15,6 +15,12 @@ static const char *TAG = "i2c_bus";
 static i2c_master_bus_handle_t bus_handle;
 static SemaphoreHandle_t bus_mutex;
 static i2c_bus_config_t active_config;
+/* Only controllers created here can be reused: IDF exposes no pin/config
+ * query for an independently created controller. */
+static struct {
+    i2c_master_bus_handle_t handle;
+    i2c_bus_config_t config;
+} controllers[I2C_NUM_MAX];
 
 static bool i2c_bus_config_valid(const i2c_bus_config_t *config)
 {
@@ -64,6 +70,15 @@ static esp_err_t i2c_bus_start_config_locked(const i2c_bus_config_t *config,
                                              i2c_master_bus_handle_t *handle,
                                              bool *initialized_here)
 {
+    if (controllers[config->port].handle != NULL) {
+        if (!allow_existing ||
+            !i2c_bus_config_equal(config, &controllers[config->port].config)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        *handle = controllers[config->port].handle;
+        *initialized_here = false;
+        return ESP_OK;
+    }
     i2c_master_bus_config_t bus_config = {
         .i2c_port = config->port,
         .sda_io_num = config->sda_pin,
@@ -74,16 +89,12 @@ static esp_err_t i2c_bus_start_config_locked(const i2c_bus_config_t *config,
     };
 
     esp_err_t ret = i2c_new_master_bus(&bus_config, handle);
-    if (ret == ESP_ERR_INVALID_STATE && allow_existing) {
-        ret = i2c_master_get_bus_handle(config->port, handle);
-        if (ret == ESP_OK) {
-            *initialized_here = false;
-        }
-        return ret;
-    }
     if (ret != ESP_OK) {
+        *handle = NULL;
         return ret;
     }
+    controllers[config->port].handle = *handle;
+    controllers[config->port].config = *config;
     *initialized_here = true;
     return ESP_OK;
 }
@@ -142,6 +153,31 @@ esp_err_t i2c_bus_init_config(const i2c_bus_config_t *config)
     return ESP_OK;
 }
 
+esp_err_t i2c_bus_start_default_config(const i2c_bus_config_t *config,
+                                       i2c_master_bus_handle_t *handle,
+                                       bool *initialized_here)
+{
+    if (!i2c_bus_config_valid(config) || handle == NULL || initialized_here == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(i2c_bus_ensure_mutex(), TAG, "create I2C mutex failed");
+
+    *handle = NULL;
+    *initialized_here = false;
+    xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    if (bus_handle != NULL && !i2c_bus_config_equal(config, &active_config)) {
+        xSemaphoreGive(bus_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t ret = i2c_bus_start_config_locked(config, true, handle, initialized_here);
+    if (ret == ESP_OK) {
+        bus_handle = *handle;
+        active_config = *config;
+    }
+    xSemaphoreGive(bus_mutex);
+    return ret;
+}
+
 esp_err_t i2c_bus_start_config(const i2c_bus_config_t *config,
                                bool allow_existing,
                                i2c_master_bus_handle_t *handle,
@@ -173,23 +209,34 @@ esp_err_t i2c_bus_stop_config(const i2c_bus_config_t *config,
     if (!i2c_bus_config_valid(config) || handle == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!initialized_here) {
-        return ESP_OK;
-    }
     esp_err_t ret = i2c_bus_ensure_mutex();
     if (ret != ESP_OK) {
         return ret;
     }
 
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
-    ret = i2c_del_master_bus(handle);
-    xSemaphoreGive(bus_mutex);
-    if (ret != ESP_OK) {
-        return ret;
+    if (controllers[config->port].handle != handle ||
+        !i2c_bus_config_equal(config, &controllers[config->port].config)) {
+        xSemaphoreGive(bus_mutex);
+        return ESP_ERR_INVALID_STATE;
     }
-    (void)gpio_reset_pin(config->sda_pin);
-    (void)gpio_reset_pin(config->scl_pin);
-    return ESP_OK;
+    if (!initialized_here) {
+        xSemaphoreGive(bus_mutex);
+        return ESP_OK;
+    }
+    ret = i2c_del_master_bus(handle);
+    if (ret == ESP_OK) {
+        controllers[config->port].handle = NULL;
+        controllers[config->port].config = (i2c_bus_config_t){0};
+        if (bus_handle == handle) {
+            bus_handle = NULL;
+            active_config = (i2c_bus_config_t){0};
+        }
+        (void)gpio_reset_pin(config->sda_pin);
+        (void)gpio_reset_pin(config->scl_pin);
+    }
+    xSemaphoreGive(bus_mutex);
+    return ret;
 }
 
 esp_err_t i2c_bus_set_speed(i2c_master_bus_handle_t handle,
@@ -206,6 +253,11 @@ esp_err_t i2c_bus_set_speed(i2c_master_bus_handle_t handle,
     /* ESP-IDF applies the clock to each device transaction. Keep the board
      * bus compatibility path in sync without invalidating the master handle. */
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
+    for (size_t port = 0; port < I2C_NUM_MAX; port++) {
+        if (controllers[port].handle == handle) {
+            controllers[port].config.speed_hz = speed_hz;
+        }
+    }
     if (handle == bus_handle) {
         active_config.speed_hz = speed_hz;
     }
@@ -261,15 +313,12 @@ gpio_num_t i2c_bus_get_scl_pin(void)
 #endif
 }
 
-esp_err_t i2c_bus_probe(uint8_t address)
+static esp_err_t i2c_bus_probe_impl(i2c_master_bus_handle_t handle,
+                                    uint8_t address,
+                                    bool default_bus)
 {
-    return i2c_bus_probe_handle(bus_handle, address);
-}
-
-esp_err_t i2c_bus_probe_handle(i2c_master_bus_handle_t handle, uint8_t address)
-{
-    if (handle == NULL || address > 0x7fU) {
-        return handle == NULL ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
+    if ((!default_bus && handle == NULL) || address > 0x7fU) {
+        return address > 0x7fU ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
     }
     esp_err_t ret = i2c_bus_ensure_mutex();
     if (ret != ESP_OK) {
@@ -277,27 +326,37 @@ esp_err_t i2c_bus_probe_handle(i2c_master_bus_handle_t handle, uint8_t address)
     }
 
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
+
+    if (default_bus) {
+        handle = bus_handle;
+        if (handle == NULL) {
+            xSemaphoreGive(bus_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
     ret = i2c_master_probe(handle, address, I2C_XFER_TIMEOUT_MS);
     xSemaphoreGive(bus_mutex);
     return ret;
 }
 
-esp_err_t i2c_bus_transmit(uint8_t address, const uint8_t *data, size_t len)
+esp_err_t i2c_bus_probe(uint8_t address)
 {
-    return i2c_bus_transmit_handle(bus_handle,
-                                   active_config.speed_hz,
-                                   address,
-                                   data,
-                                   len);
+    return i2c_bus_probe_impl(NULL, address, true);
 }
 
-esp_err_t i2c_bus_transmit_handle(i2c_master_bus_handle_t handle,
-                                  uint32_t speed_hz,
-                                  uint8_t address,
-                                  const uint8_t *data,
-                                  size_t len)
+esp_err_t i2c_bus_probe_handle(i2c_master_bus_handle_t handle, uint8_t address)
 {
-    if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
+    return i2c_bus_probe_impl(handle, address, false);
+}
+
+static esp_err_t i2c_bus_transmit_impl(i2c_master_bus_handle_t handle,
+                                       uint32_t speed_hz,
+                                       uint8_t address,
+                                       const uint8_t *data,
+                                       size_t len,
+                                       bool default_bus)
+{
+    if ((!default_bus && (handle == NULL || speed_hz == 0)) || address > 0x7fU ||
         data == NULL || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -306,6 +365,15 @@ esp_err_t i2c_bus_transmit_handle(i2c_master_bus_handle_t handle,
         return ret;
     }
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
+
+    if (default_bus) {
+        handle = bus_handle;
+        speed_hz = active_config.speed_hz;
+        if (handle == NULL) {
+            xSemaphoreGive(bus_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
     i2c_master_dev_handle_t dev_handle;
     ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
     if (ret == ESP_OK) {
@@ -319,38 +387,28 @@ esp_err_t i2c_bus_transmit_handle(i2c_master_bus_handle_t handle,
     return ret;
 }
 
-esp_err_t i2c_bus_receive(uint8_t address, uint8_t *data, size_t len)
+esp_err_t i2c_bus_transmit(uint8_t address, const uint8_t *data, size_t len)
 {
-    if (bus_handle == NULL || data == NULL || len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    xSemaphoreTake(bus_mutex, portMAX_DELAY);
-
-    i2c_master_dev_handle_t dev_handle;
-    esp_err_t ret = i2c_bus_device(bus_handle,
-                                   active_config.speed_hz,
-                                   address,
-                                   &dev_handle);
-    if (ret == ESP_OK) {
-        ret = i2c_master_receive(dev_handle, data, len, I2C_XFER_TIMEOUT_MS);
-        esp_err_t rm_ret = i2c_master_bus_rm_device(dev_handle);
-        if (ret == ESP_OK) {
-            ret = rm_ret;
-        }
-    }
-
-    xSemaphoreGive(bus_mutex);
-    return ret;
+    return i2c_bus_transmit_impl(NULL, 0, address, data, len, true);
 }
 
-esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
-                                 uint32_t speed_hz,
-                                 uint8_t address,
-                                 uint8_t *data,
-                                 size_t len)
+esp_err_t i2c_bus_transmit_handle(i2c_master_bus_handle_t handle,
+                                  uint32_t speed_hz,
+                                  uint8_t address,
+                                  const uint8_t *data,
+                                  size_t len)
 {
-    if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
+    return i2c_bus_transmit_impl(handle, speed_hz, address, data, len, false);
+}
+
+static esp_err_t i2c_bus_receive_impl(i2c_master_bus_handle_t handle,
+                                      uint32_t speed_hz,
+                                      uint8_t address,
+                                      uint8_t *data,
+                                      size_t len,
+                                      bool default_bus)
+{
+    if ((!default_bus && (handle == NULL || speed_hz == 0)) || address > 0x7fU ||
         data == NULL || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -360,6 +418,15 @@ esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
     }
 
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
+
+    if (default_bus) {
+        handle = bus_handle;
+        speed_hz = active_config.speed_hz;
+        if (handle == NULL) {
+            xSemaphoreGive(bus_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
 
     i2c_master_dev_handle_t dev_handle;
     ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
@@ -375,30 +442,30 @@ esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
     return ret;
 }
 
-esp_err_t i2c_bus_transmit_receive(uint8_t address,
-                                   const uint8_t *tx_data,
-                                   size_t tx_len,
-                                   uint8_t *rx_data,
-                                   size_t rx_len)
+esp_err_t i2c_bus_receive(uint8_t address, uint8_t *data, size_t len)
 {
-    return i2c_bus_transmit_receive_handle(bus_handle,
-                                           active_config.speed_hz,
-                                           address,
-                                           tx_data,
-                                           tx_len,
-                                           rx_data,
-                                           rx_len);
+    return i2c_bus_receive_impl(NULL, 0, address, data, len, true);
 }
 
-esp_err_t i2c_bus_transmit_receive_handle(i2c_master_bus_handle_t handle,
-                                          uint32_t speed_hz,
-                                          uint8_t address,
-                                          const uint8_t *tx_data,
-                                          size_t tx_len,
-                                          uint8_t *rx_data,
-                                          size_t rx_len)
+esp_err_t i2c_bus_receive_handle(i2c_master_bus_handle_t handle,
+                                 uint32_t speed_hz,
+                                 uint8_t address,
+                                 uint8_t *data,
+                                 size_t len)
 {
-    if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
+    return i2c_bus_receive_impl(handle, speed_hz, address, data, len, false);
+}
+
+static esp_err_t i2c_bus_transmit_receive_impl(i2c_master_bus_handle_t handle,
+                                               uint32_t speed_hz,
+                                               uint8_t address,
+                                               const uint8_t *tx_data,
+                                               size_t tx_len,
+                                               uint8_t *rx_data,
+                                               size_t rx_len,
+                                               bool default_bus)
+{
+    if ((!default_bus && (handle == NULL || speed_hz == 0)) || address > 0x7fU ||
         tx_data == NULL || tx_len == 0 || rx_data == NULL || rx_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -407,6 +474,15 @@ esp_err_t i2c_bus_transmit_receive_handle(i2c_master_bus_handle_t handle,
         return ret;
     }
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
+
+    if (default_bus) {
+        handle = bus_handle;
+        speed_hz = active_config.speed_hz;
+        if (handle == NULL) {
+            xSemaphoreGive(bus_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
     i2c_master_dev_handle_t dev_handle;
     ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
     if (ret == ESP_OK) {
@@ -425,14 +501,30 @@ esp_err_t i2c_bus_transmit_receive_handle(i2c_master_bus_handle_t handle,
     return ret;
 }
 
+esp_err_t i2c_bus_transmit_receive(uint8_t address,
+                                   const uint8_t *tx_data,
+                                   size_t tx_len,
+                                   uint8_t *rx_data,
+                                   size_t rx_len)
+{
+    return i2c_bus_transmit_receive_impl(NULL, 0, address, tx_data, tx_len, rx_data, rx_len, true);
+}
+
+esp_err_t i2c_bus_transmit_receive_handle(i2c_master_bus_handle_t handle,
+                                          uint32_t speed_hz,
+                                          uint8_t address,
+                                          const uint8_t *tx_data,
+                                          size_t tx_len,
+                                          uint8_t *rx_data,
+                                          size_t rx_len)
+{
+    return i2c_bus_transmit_receive_impl(handle, speed_hz, address,
+                                         tx_data, tx_len, rx_data, rx_len, false);
+}
+
 esp_err_t i2c_bus_read_reg(uint8_t address, uint8_t reg, uint8_t *data, size_t len)
 {
-    return i2c_bus_read_reg_handle(bus_handle,
-                                   active_config.speed_hz,
-                                   address,
-                                   reg,
-                                   data,
-                                   len);
+    return i2c_bus_transmit_receive(address, &reg, 1, data, len);
 }
 
 esp_err_t i2c_bus_read_reg_handle(i2c_master_bus_handle_t handle,
@@ -442,48 +534,18 @@ esp_err_t i2c_bus_read_reg_handle(i2c_master_bus_handle_t handle,
                                   uint8_t *data,
                                   size_t len)
 {
-    if (handle == NULL || speed_hz == 0 || address > 0x7fU || data == NULL || len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t ret = i2c_bus_ensure_mutex();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    xSemaphoreTake(bus_mutex, portMAX_DELAY);
-
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
-    if (ret == ESP_OK) {
-        ret = i2c_master_transmit_receive(dev_handle, &reg, 1, data, len, I2C_XFER_TIMEOUT_MS);
-        esp_err_t rm_ret = i2c_master_bus_rm_device(dev_handle);
-        if (ret == ESP_OK) {
-            ret = rm_ret;
-        }
-    }
-
-    xSemaphoreGive(bus_mutex);
-    return ret;
+    return i2c_bus_transmit_receive_handle(handle, speed_hz, address, &reg, 1, data, len);
 }
 
-esp_err_t i2c_bus_write_reg(uint8_t address, uint8_t reg, const uint8_t *data, size_t len)
+static esp_err_t i2c_bus_write_reg_impl(i2c_master_bus_handle_t handle,
+                                        uint32_t speed_hz,
+                                        uint8_t address,
+                                        uint8_t reg,
+                                        const uint8_t *data,
+                                        size_t len,
+                                        bool default_bus)
 {
-    return i2c_bus_write_reg_handle(bus_handle,
-                                    active_config.speed_hz,
-                                    address,
-                                    reg,
-                                    data,
-                                    len);
-}
-
-esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
-                                   uint32_t speed_hz,
-                                   uint8_t address,
-                                   uint8_t reg,
-                                   const uint8_t *data,
-                                   size_t len)
-{
-    if (handle == NULL || speed_hz == 0 || address > 0x7fU ||
+    if ((!default_bus && (handle == NULL || speed_hz == 0)) || address > 0x7fU ||
         data == NULL || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -505,6 +567,15 @@ esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
 
     xSemaphoreTake(bus_mutex, portMAX_DELAY);
 
+    if (default_bus) {
+        handle = bus_handle;
+        speed_hz = active_config.speed_hz;
+        if (handle == NULL) {
+            xSemaphoreGive(bus_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
     i2c_master_dev_handle_t dev_handle;
     ret = i2c_bus_device(handle, speed_hz, address, &dev_handle);
     if (ret == ESP_OK) {
@@ -520,4 +591,19 @@ esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
 
     xSemaphoreGive(bus_mutex);
     return ret;
+}
+
+esp_err_t i2c_bus_write_reg(uint8_t address, uint8_t reg, const uint8_t *data, size_t len)
+{
+    return i2c_bus_write_reg_impl(NULL, 0, address, reg, data, len, true);
+}
+
+esp_err_t i2c_bus_write_reg_handle(i2c_master_bus_handle_t handle,
+                                   uint32_t speed_hz,
+                                   uint8_t address,
+                                   uint8_t reg,
+                                   const uint8_t *data,
+                                   size_t len)
+{
+    return i2c_bus_write_reg_impl(handle, speed_hz, address, reg, data, len, false);
 }
