@@ -1828,6 +1828,57 @@ key = "irq"
 kind = "gpio"
 hint = "gpio"
 
+[drivers.lr11xx]
+summary = "LR11xx LoRa radio (LR1110/LR1120/LR1121)"
+package = "lr11xx"
+targets = ["esp32s3"]
+capabilities = ["spi"]
+default_name = "radio0"
+
+[[drivers.lr11xx.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.lr11xx.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.lr11xx.bindings]]
+key = "freq"
+kind = "parameter"
+hint = "150..960 MHz"
+role = "freq"
+min = 150
+max = 960
+
+[[drivers.lr11xx.bindings]]
+key = "tcxo"
+kind = "parameter"
+hint = "0|1600..3300 mV"
+role = "tcxo"
+min = 0
+max = 3300
+
 [drivers.rotary-encoder]
 summary = "Quadrature rotary encoder (Up/Down per detent)"
 package = "rotary_encoder"

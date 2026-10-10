@@ -13,6 +13,7 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 .PHONY: all test clean
 
+TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test
 TARGETS += input_action_match_test gesture_completion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
@@ -691,6 +692,21 @@ xl9555_test: xl9555_test.c $(ROOT)/src/drivers/xl9555.c \
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
 		xl9555_test.c $(ROOT)/src/drivers/xl9555.c -o $@
 
+lr11xx_test: lr11xx_test.c $(ROOT)/src/drivers/lr11xx.c \
+		$(ROOT)/src/drivers/lr11xx.h \
+		lr11xx_stubs/solar_os_buses.h lr11xx_stubs/esp_rom_sys.h \
+		lr11xx_stubs/driver/gpio.h esp_err.h esp_timer.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -Ilr11xx_stubs -I. -I$(ROOT)/include \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		lr11xx_test.c $(ROOT)/src/drivers/lr11xx.c -o $@
+
+lr11xx_service_test: lr11xx_service_test.c $(ROOT)/src/services/solar_os_lr11xx.c \
+		$(ROOT)/src/services/solar_os_lr11xx.h $(ROOT)/src/drivers/lr11xx.h \
+		lr11xx_stubs/driver/gpio.h esp_err.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ilr11xx_stubs -Iexpansion_stubs \
+		-I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		lr11xx_service_test.c -o $@
+
 st25r3916_test: st25r3916_test.c $(ROOT)/src/drivers/st25r3916.c \
 		$(ROOT)/src/drivers/st25r3916.h esp_err.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
@@ -1042,6 +1058,8 @@ test: $(TARGETS)
 	./sim7670_test
 	./st25r3916_test
 	./nfc_service_test
+	./lr11xx_test
+	./lr11xx_service_test
 
 clean:
 	$(RM) $(TARGETS) model_bundle_test inference_lua_json_test zoo_test

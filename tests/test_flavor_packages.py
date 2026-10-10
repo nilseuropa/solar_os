@@ -350,6 +350,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "tca8418": "tca8418",
             "lilygo_pager_keyboard": "expansion_lilygo_pager_keyboard",
             "sx1262": "sx1262",
+            "lr11xx": "lr11xx",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
             "bq25896": "bq25896",
@@ -379,6 +380,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_tca8418_expansion_driver",
             "solar_os_lilygo_pager_keyboard_expansion_driver",
             "solar_os_sx1262_expansion_driver",
+            "solar_os_lr11xx_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
             "solar_os_bq25896_expansion_driver",
@@ -773,6 +775,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "rfm69",
             "rfm95",
             "sx1262",
+            "lr11xx",
         ):
             self.assertFalse(groups[group], group)
         for package in (

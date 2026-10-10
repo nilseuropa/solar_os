@@ -268,7 +268,7 @@ static void radio_print_error(solar_os_shell_io_t *term, const char *prefix, esp
         solar_os_shell_io_printf(term, "%s: timeout\n", prefix);
         break;
     case ESP_ERR_INVALID_STATE:
-        solar_os_shell_io_printf(term, "%s: radio is owned by a job\n", prefix);
+        solar_os_shell_io_printf(term, "%s: radio is owned by a job, or has no settings\n", prefix);
         break;
     default:
         solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, solar_os_shell_error_text(err));

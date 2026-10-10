@@ -145,6 +145,7 @@ tca8418 = true
 lilygo_pager_keyboard = true
 xl9555 = true
 sx1262 = true
+lr11xx = true
 rotary_encoder = true
 bq27220 = true
 max17048 = true
