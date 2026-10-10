@@ -1,4 +1,5 @@
 #include "solar_os_rtsp_client.h"
+#include "solar_os_rtsp_auth.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -45,6 +46,9 @@ typedef struct {
 struct solar_os_rtsp_client {
     solar_os_rtsp_client_options_t options;
     char url[SOLAR_OS_RTSP_URI_MAX], session[SOLAR_OS_RTSP_CLIENT_SESSION_MAX];
+    char user[SOLAR_OS_RTSP_USER_MAX + 1U], password[SOLAR_OS_RTSP_PASSWORD_MAX + 1U];
+    solar_os_rtsp_auth_challenge_t auth;
+    bool auth_ready;
     solar_os_rtsp_url_t parsed;
     solar_os_rtsp_description_t description;
     solar_os_rtsp_response_t response;
@@ -127,48 +131,102 @@ static esp_err_t send_bytes(solar_os_rtsp_client_t *c, const char *text, size_t 
     return ESP_OK;
 }
 
+static void auth_request_uri(const solar_os_rtsp_client_t *c, const char *original, int form,
+                             char *uri, size_t capacity)
+{
+    const char *path = strstr(original, "://") ? strchr(original + 7, '/') : strchr(original, '/');
+    if (!path || !*path) path = "/";
+    /* Cameras disagree on the Digest uri. Try the public request-URI, then an
+     * explicit port, then the path alone. The request line uses the same form. */
+    if (form == 1)
+        snprintf(uri, capacity, "rtsp://%s:%u%s", c->parsed.host,
+                 c->parsed.port ? c->parsed.port : 554, path);
+    else if (form == 2)
+        snprintf(uri, capacity, "%s", path);
+    else
+        snprintf(uri, capacity, "%s", original);
+}
+
 static esp_err_t request(solar_os_rtsp_client_t *c, const char *method, const char *uri, const char *headers)
 {
-    int n = snprintf((char *)c->response_bytes, SOLAR_OS_RTSP_RESPONSE_MAX,
-        "%s %s RTSP/1.0\r\nCSeq: %lu\r\nUser-Agent: SolarOS-RTSP\r\n%s%s%s%s\r\n",
-        method, uri, (unsigned long)++c->cseq,
-        c->session[0] ? "Session: " : "", c->session,
-        c->session[0] ? "\r\n" : "", headers ? headers : "");
-    if (n < 0 || (size_t)n >= SOLAR_OS_RTSP_RESPONSE_MAX)
-        return fail(c, ESP_ERR_INVALID_SIZE, "%s: request exceeds control buffer", method);
-    esp_err_t err = send_bytes(c, (const char *)c->response_bytes, n, method);
-    if (err != ESP_OK) return err;
-    size_t used = 0; uint64_t deadline = now_us() + CLIENT_TIMEOUT_US;
+    int auth_tries = 0;
+    int uri_form = 0;
+    char uri_buf[SOLAR_OS_RTSP_URI_MAX];
+    snprintf(uri_buf, sizeof(uri_buf), "%s", uri);
     for (;;) {
-        err = wait_socket(c, c->control, false, deadline, method);
-        if (err != ESP_OK) return err;
-        n = recv(c->control, c->response_bytes + used, SOLAR_OS_RTSP_RESPONSE_MAX - used, 0);
-        if (n <= 0) {
-            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) continue;
-            if (!n) c->retryable = true;
-            return n == 0 ? fail(c, ESP_FAIL, "%s: server closed connection before response", method) :
-                socket_fail(c, method, errno);
+        char authorization[SOLAR_OS_RTSP_AUTH_HEADER_MAX];
+        authorization[0] = '\0';
+        if (c->auth_ready) {
+            c->auth.nc++;
+            esp_err_t err = solar_os_rtsp_authorization(&c->auth, method, uri_buf, c->user, c->password,
+                                                      authorization, sizeof(authorization));
+            if (err != ESP_OK)
+                return fail(c, err, "%s: cannot build RTSP Authorization header", method);
         }
-        used += n;
-        err = solar_os_rtsp_response_parse(c->response_bytes, used, &c->response);
-        if (err != ESP_ERR_TIMEOUT) break;
-        if (used == SOLAR_OS_RTSP_RESPONSE_MAX)
-            return fail(c, ESP_ERR_INVALID_SIZE, "%s: response exceeds control buffer", method);
+        int n = snprintf((char *)c->response_bytes, SOLAR_OS_RTSP_RESPONSE_MAX,
+            "%s %s RTSP/1.0\r\nCSeq: %lu\r\nUser-Agent: SolarOS-RTSP\r\n%s%s%s%s%s%s%s\r\n",
+            method, uri_buf, (unsigned long)++c->cseq,
+            c->session[0] ? "Session: " : "", c->session,
+            c->session[0] ? "\r\n" : "",
+            authorization[0] ? "Authorization: " : "", authorization,
+            authorization[0] ? "\r\n" : "", headers ? headers : "");
+        if (n < 0 || (size_t)n >= SOLAR_OS_RTSP_RESPONSE_MAX)
+            return fail(c, ESP_ERR_INVALID_SIZE, "%s: request exceeds control buffer", method);
+        esp_err_t err = send_bytes(c, (const char *)c->response_bytes, n, method);
+        if (err != ESP_OK) return err;
+        size_t used = 0; uint64_t deadline = now_us() + CLIENT_TIMEOUT_US;
+        for (;;) {
+            err = wait_socket(c, c->control, false, deadline, method);
+            if (err != ESP_OK) return err;
+            n = recv(c->control, c->response_bytes + used, SOLAR_OS_RTSP_RESPONSE_MAX - used, 0);
+            if (n <= 0) {
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) continue;
+                if (!n) c->retryable = true;
+                return n == 0 ? fail(c, ESP_FAIL, "%s: server closed connection before response", method) :
+                    socket_fail(c, method, errno);
+            }
+            used += n;
+            err = solar_os_rtsp_response_parse(c->response_bytes, used, &c->response);
+            if (err != ESP_ERR_TIMEOUT) break;
+            if (used == SOLAR_OS_RTSP_RESPONSE_MAX)
+                return fail(c, ESP_ERR_INVALID_SIZE, "%s: response exceeds control buffer", method);
+        }
+        if (err != ESP_OK) return fail(c, err, "%s: malformed RTSP response (%s)", method, esp_err_to_name(err));
+        if (c->response.cseq != c->cseq || used != c->response.header_length + c->response.body_length)
+            return fail(c, ESP_ERR_INVALID_RESPONSE, "%s: response CSeq or body length mismatch", method);
+        if (c->response.status == 401 && auth_tries < 2 && c->user[0]) {
+            err = solar_os_rtsp_auth_challenge(c->response.www_authenticate, &c->auth);
+            if (err != ESP_OK)
+                return fail(c, err, "%s: unsupported RTSP authentication challenge", method);
+            bool stale = c->auth.stale;
+            if (!c->auth.cnonce[0]) {
+                uint32_t nonce = esp_random();
+                snprintf(c->auth.cnonce, sizeof(c->auth.cnonce), "%08lx", (unsigned long)nonce);
+            }
+            c->auth.nc = 0;
+            c->auth_ready = true;
+            auth_tries++;
+            if (auth_tries == 1 || stale) continue;
+            if (uri_form < 2) {
+                auth_request_uri(c, uri, ++uri_form, uri_buf, sizeof(uri_buf));
+                c->auth.nc = 0;
+                auth_tries = 1;
+                continue;
+            }
+        }
+        if (c->response.status != 200) {
+            const unsigned status = c->response.status;
+            c->retryable = status == 404 || status == 453 || status == 454 || status >= 500;
+            const char *reason = status == 401 ? (c->user[0] ? "authentication failed" :
+                "authentication required; use rtsp://user:pass@host or rtsp-auth set") :
+                status == 403 ? "access denied" : status == 404 ? "stream/path not found" :
+                status == 453 ? "server receiver capacity exhausted" : status == 454 ? "session not found" :
+                status == 461 ? "server rejected UDP transport" : "server rejected request";
+            return fail(c, status == 401 || status == 461 ? ESP_ERR_NOT_SUPPORTED : ESP_ERR_INVALID_RESPONSE,
+                "%s: RTSP %u - %s", method, status, reason);
+        }
+        return ESP_OK;
     }
-    if (err != ESP_OK) return fail(c, err, "%s: malformed RTSP response (%s)", method, esp_err_to_name(err));
-    if (c->response.cseq != c->cseq || used != c->response.header_length + c->response.body_length)
-        return fail(c, ESP_ERR_INVALID_RESPONSE, "%s: response CSeq or body length mismatch", method);
-    if (c->response.status != 200) {
-        const unsigned status = c->response.status;
-        c->retryable = status == 404 || status == 453 || status == 454 || status >= 500;
-        const char *reason = status == 401 ? "authentication required; client authentication is not supported" :
-            status == 403 ? "access denied" : status == 404 ? "stream/path not found" :
-            status == 453 ? "server receiver capacity exhausted" : status == 454 ? "session not found" :
-            status == 461 ? "server rejected UDP transport" : "server rejected request";
-        return fail(c, status == 401 || status == 461 ? ESP_ERR_NOT_SUPPORTED : ESP_ERR_INVALID_RESPONSE,
-            "%s: RTSP %u - %s", method, status, reason);
-    }
-    return ESP_OK;
 }
 
 static void close_track(client_track_t *t)
@@ -446,9 +504,22 @@ esp_err_t solar_os_rtsp_client_create(const char *url, const solar_os_rtsp_clien
     solar_os_rtsp_url_t parsed;
     esp_err_t err = solar_os_rtsp_url_parse(url, &parsed);
     if (err != ESP_OK) return err;
+    char request_uri[SOLAR_OS_RTSP_URI_MAX];
+    err = solar_os_rtsp_url_request_uri(url, request_uri, sizeof(request_uri));
+    if (err != ESP_OK) return err;
+    if (!parsed.has_userinfo) {
+        err = solar_os_rtsp_auth_lookup(parsed.host, parsed.port, parsed.user, sizeof(parsed.user),
+                                       parsed.password, sizeof(parsed.password));
+        if (err == ESP_ERR_NOT_FOUND) err = ESP_OK;
+        if (err != ESP_OK) return err;
+    }
     solar_os_rtsp_client_t *c = solar_os_memory_calloc(1, sizeof(*c), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "rtsp.client");
     if (!c) return ESP_ERR_NO_MEM;
-    c->parsed = parsed; c->options = *options; strcpy(c->url, url);
+    c->parsed = parsed; c->options = *options; strcpy(c->url, request_uri);
+    snprintf(c->user, sizeof(c->user), "%s", parsed.user);
+    snprintf(c->password, sizeof(c->password), "%s", parsed.password);
+    solar_os_rtsp_auth_wipe(parsed.password, sizeof(parsed.password));
+    solar_os_rtsp_auth_wipe(c->parsed.password, sizeof(c->parsed.password));
     c->control = c->video.rtp = c->video.rtcp = c->audio.rtp = c->audio.rtcp = -1;
     c->audio_done = true;
     c->mutex = xSemaphoreCreateMutex();
@@ -497,9 +568,16 @@ static esp_err_t run_session(solar_os_rtsp_client_t *c)
     }
     /* Best-effort teardown is nonblocking even during cancellation. */
     if (c->control >= 0 && c->session[0]) {
+        char authorization[SOLAR_OS_RTSP_AUTH_HEADER_MAX];
+        authorization[0] = '\0';
+        if (c->auth_ready)
+            (void)solar_os_rtsp_authorization(&c->auth, "TEARDOWN", c->description.aggregate,
+                                             c->user, c->password, authorization, sizeof(authorization));
         int len = snprintf((char *)c->response_bytes, SOLAR_OS_RTSP_RESPONSE_MAX,
-            "TEARDOWN %s RTSP/1.0\r\nCSeq: %lu\r\nSession: %s\r\n\r\n",
-            c->description.aggregate, (unsigned long)++c->cseq, c->session);
+            "TEARDOWN %s RTSP/1.0\r\nCSeq: %lu\r\nSession: %s\r\n%s%s%s\r\n",
+            c->description.aggregate, (unsigned long)++c->cseq, c->session,
+            authorization[0] ? "Authorization: " : "", authorization,
+            authorization[0] ? "\r\n" : "");
         if (len > 0) (void)send(c->control, c->response_bytes, len, 0);
     }
     c->audio_stop = true;
@@ -567,6 +645,7 @@ esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
         c->video.ssrc_known = c->audio.ssrc_known = false;
         c->description = (solar_os_rtsp_description_t){0};
         c->session[0] = 0; c->cseq = 0;
+        c->auth_ready = false; c->auth.nc = 0; c->auth.stale = false;
         c->audio_played_us = c->frame_arrived_us = 0;
         c->play_started_us = 0; c->received_media = false;
         c->audio_timestamp = c->audio_frames = 0;
@@ -653,6 +732,8 @@ esp_err_t solar_os_rtsp_client_destroy(solar_os_rtsp_client_t *c)
     if (c->mutex) vSemaphoreDelete(c->mutex);
     solar_os_memory_free(c->jpeg); solar_os_memory_free(c->jitter);
     solar_os_memory_free(c->response_bytes); solar_os_memory_free(c->rx);
+    solar_os_rtsp_auth_wipe(c->password, sizeof(c->password));
+    solar_os_rtsp_auth_wipe(c->user, sizeof(c->user));
     solar_os_memory_free(c);
     return ESP_OK;
 }

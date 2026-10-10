@@ -27,28 +27,106 @@ static bool decimal(const char *text, uint32_t *number)
     return true;
 }
 
+static int hex_nibble(int c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static bool percent_decode(char *dst, size_t capacity, const char *src, size_t len)
+{
+    size_t o = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == '%') {
+            if (i + 2 >= len) return false;
+            int hi = hex_nibble(src[i + 1]), lo = hex_nibble(src[i + 2]);
+            if (hi < 0 || lo < 0) return false;
+            c = (unsigned char)((hi << 4) | lo);
+            i += 2;
+        }
+        if (c <= 32 || c == 127) return false;
+        if (o + 1 >= capacity) return false;
+        dst[o++] = (char)c;
+    }
+    if (!o) return false;
+    dst[o] = '\0';
+    return true;
+}
+
 esp_err_t solar_os_rtsp_url_parse(const char *url, solar_os_rtsp_url_t *parsed)
 {
     if (url == NULL || parsed == NULL || strncmp(url, "rtsp://", 7) != 0)
         return ESP_ERR_INVALID_ARG;
-    const char *start = url + 7, *end = strchr(start, '/');
-    if (end == NULL) end = start + strlen(start);
-    const char *colon = memchr(start, ':', (size_t)(end - start));
-    const char *host_end = colon != NULL ? colon : end;
-    if (host_end == start || !copy_text(parsed->host, sizeof(parsed->host),
-                                       start, (size_t)(host_end - start)))
-        return ESP_ERR_INVALID_ARG;
+    memset(parsed, 0, sizeof(*parsed));
     for (const char *p = url; *p; p++)
-        if ((unsigned char)*p <= 32 || *p == '@' || *p == '#' || *p == '[' || *p == ']')
+        if ((unsigned char)*p <= 32 || *p == '#' || *p == '[' || *p == ']')
             return ESP_ERR_NOT_SUPPORTED;
+    if (strlen(url) >= SOLAR_OS_RTSP_URL_MAX) return ESP_ERR_INVALID_SIZE;
+    const char *start = url + 7, *slash = strchr(start, '/');
+    const char *authority_end = slash != NULL ? slash : start + strlen(start);
+    const char *at = memchr(start, '@', (size_t)(authority_end - start));
+    const char *host_start = start;
+    if (at != NULL) {
+        const char *colon = memchr(start, ':', (size_t)(at - start));
+        const char *user_end = colon != NULL ? colon : at;
+        if (user_end == start ||
+            !percent_decode(parsed->user, sizeof(parsed->user), start, (size_t)(user_end - start)))
+            return ESP_ERR_INVALID_ARG;
+        if (colon != NULL && !percent_decode(parsed->password, sizeof(parsed->password),
+                                            colon + 1, (size_t)(at - colon - 1)) &&
+            at != colon + 1)
+            return ESP_ERR_INVALID_ARG;
+        parsed->has_userinfo = true;
+        host_start = at + 1;
+    }
+    const char *colon = memchr(host_start, ':', (size_t)(authority_end - host_start));
+    const char *host_end = colon != NULL ? colon : authority_end;
+    if (host_end == host_start || memchr(host_start, '@', (size_t)(authority_end - host_start)) ||
+        !copy_text(parsed->host, sizeof(parsed->host), host_start, (size_t)(host_end - host_start)))
+        return ESP_ERR_INVALID_ARG;
     parsed->port = 554;
     if (colon != NULL) {
         char port[6]; uint32_t n;
-        if (!copy_text(port, sizeof(port), colon + 1, (size_t)(end - colon - 1)) ||
+        if (!copy_text(port, sizeof(port), colon + 1, (size_t)(authority_end - colon - 1)) ||
             !decimal(port, &n) || n == 0 || n > 65535) return ESP_ERR_INVALID_ARG;
         parsed->port = (uint16_t)n;
     }
-    return strlen(url) < SOLAR_OS_RTSP_URI_MAX ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_rtsp_url_request_uri(const char *url, char *uri, size_t capacity)
+{
+    solar_os_rtsp_url_t parsed;
+    esp_err_t err = solar_os_rtsp_url_parse(url, &parsed);
+    if (err != ESP_OK) return err;
+    const char *slash = strchr(url + 7, '/');
+    const char *path = slash ? slash : "";
+    int n = parsed.port == 554 ? snprintf(uri, capacity, "rtsp://%s%s", parsed.host, path) :
+        snprintf(uri, capacity, "rtsp://%s:%u%s", parsed.host, parsed.port, path);
+    if (n < 0 || (size_t)n >= capacity || (size_t)n >= SOLAR_OS_RTSP_URI_MAX)
+        return ESP_ERR_INVALID_SIZE;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_rtsp_url_redact(const char *url, char *text, size_t capacity)
+{
+    solar_os_rtsp_url_t parsed;
+    esp_err_t err = solar_os_rtsp_url_parse(url, &parsed);
+    if (err != ESP_OK) return err;
+    const char *slash = strchr(url + 7, '/');
+    const char *path = slash ? slash : "";
+    int n;
+    if (parsed.has_userinfo && parsed.port != 554)
+        n = snprintf(text, capacity, "%s@%s:%u%s", parsed.user, parsed.host, parsed.port, path);
+    else if (parsed.has_userinfo)
+        n = snprintf(text, capacity, "%s@%s%s", parsed.user, parsed.host, path);
+    else if (parsed.port != 554)
+        n = snprintf(text, capacity, "%s:%u%s", parsed.host, parsed.port, path);
+    else n = snprintf(text, capacity, "%s%s", parsed.host, path);
+    return n > 0 && (size_t)n < capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
 esp_err_t solar_os_rtsp_url_normalize(const char *address, char *url, size_t capacity)
@@ -131,6 +209,11 @@ esp_err_t solar_os_rtsp_response_parse(const uint8_t *data, size_t length,
             if (!copy_text(r->content_base, sizeof(r->content_base), colon, len)) return ESP_ERR_INVALID_SIZE;
         } else if (!strcasecmp(line, "Transport")) {
             if (!copy_text(r->transport, sizeof(r->transport), colon, len)) return ESP_ERR_INVALID_SIZE;
+        } else if (!strcasecmp(line, "WWW-Authenticate")) {
+            if (!r->www_authenticate[0] || !strncasecmp(colon, "Digest", 6)) {
+                if (!copy_text(r->www_authenticate, sizeof(r->www_authenticate), colon, len))
+                    return ESP_ERR_INVALID_SIZE;
+            }
         }
     }
     if (!cseq) return ESP_ERR_INVALID_RESPONSE;

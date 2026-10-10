@@ -35,6 +35,9 @@ void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_EMAIL
 void solar_os_shell_cmd_email(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_APP_RTSP
+void solar_os_shell_cmd_rtsp_auth(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 void solar_os_shell_cmd_contacts(solar_os_context_t *ctx, int argc, char **argv);
 #endif

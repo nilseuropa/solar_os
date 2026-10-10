@@ -205,7 +205,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("webradio", "streaming internet radio", &solar_os_webradio_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "webradio [--tui] [URL] | webradio [--tui] <list | add NAME URL | remove NAME | reset>", 1, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_RTSP
-    APP_ENTRY("rtsp", "RTSP JPEG/L16 viewer", &solar_os_rtsp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "rtsp [--audio-only] [--stats] <[rtsp://]host[:port][/path]>", 2, 4),
+    APP_ENTRY("rtsp", "RTSP JPEG/L16 viewer", &solar_os_rtsp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "rtsp [--audio-only] [--stats] <[rtsp://][user[:pass]@]host[:port][/path]>", 2, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYER
     APP_FILE_ENTRY("player", "playlist audio player", &solar_os_player_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "player [--tui] [file.wav|file.mp3]", 1, 3, ".wav .mp3"),

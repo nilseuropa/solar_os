@@ -12,7 +12,11 @@ static void test_urls(void)
     assert(solar_os_rtsp_url_parse("http://cam/media", &u) != ESP_OK);
     assert(solar_os_rtsp_url_parse("rtsp://cam:0/media", &u) != ESP_OK);
     assert(solar_os_rtsp_url_parse("rtsp://cam:99999/media", &u) != ESP_OK);
-    assert(solar_os_rtsp_url_parse("rtsp://user:password@cam/media", &u) != ESP_OK);
+    assert(solar_os_rtsp_url_parse("rtsp://user:password@cam/media", &u) == ESP_OK);
+    assert(!strcmp(u.user, "user") && !strcmp(u.password, "password") && !strcmp(u.host, "cam"));
+    assert(solar_os_rtsp_url_parse("rtsp://user:p%40ss@cam:8554/media", &u) == ESP_OK);
+    assert(!strcmp(u.password, "p@ss") && u.port == 8554);
+    assert(solar_os_rtsp_url_parse("rtsp://@cam/media", &u) != ESP_OK);
     assert(solar_os_rtsp_url_parse("rtsp://cam/media\r\nBad: header", &u) != ESP_OK);
     char uri[192];
     assert(solar_os_rtsp_url_normalize("192.168.1.238", uri, sizeof(uri)) == ESP_OK);
@@ -30,7 +34,14 @@ static void test_urls(void)
     assert(solar_os_rtsp_url_normalize("http://192.168.1.238/media", uri, sizeof(uri)) != ESP_OK);
     assert(solar_os_rtsp_url_normalize("192.168.1.238:0/media", uri, sizeof(uri)) != ESP_OK);
     assert(solar_os_rtsp_url_normalize("192.168.1.238:65536/media", uri, sizeof(uri)) != ESP_OK);
-    assert(solar_os_rtsp_url_normalize("user:pass@192.168.1.238/media", uri, sizeof(uri)) != ESP_OK);
+    assert(solar_os_rtsp_url_normalize("user:pass@192.168.1.238/media", uri, sizeof(uri)) == ESP_OK);
+    assert(!strcmp(uri, "rtsp://user:pass@192.168.1.238/media"));
+    char request[192];
+    assert(solar_os_rtsp_url_request_uri(uri, request, sizeof(request)) == ESP_OK);
+    assert(!strcmp(request, "rtsp://192.168.1.238/media"));
+    char redacted[192];
+    assert(solar_os_rtsp_url_redact(uri, redacted, sizeof(redacted)) == ESP_OK);
+    assert(!strcmp(redacted, "user@192.168.1.238/media"));
     assert(solar_os_rtsp_url_normalize("192.168.1.238/media\r\nBad: header", uri, sizeof(uri)) != ESP_OK);
     assert(solar_os_rtsp_url_normalize("[::1]/media", uri, sizeof(uri)) != ESP_OK);
     assert(solar_os_rtsp_url_normalize("", uri, sizeof(uri)) != ESP_OK);

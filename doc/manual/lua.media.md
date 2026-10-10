@@ -149,8 +149,10 @@ and release the frame. RTSP frame metadata includes `rtp_timestamp` (90 kHz)
 and monotonic `arrived_us`; its `timestamp_us` is arrival time, not sender
 wall-clock time. Local camera timestamps are capture timestamps.
 
-Current RTSP restrictions are unchanged: trusted LAN, UDP media, JPEG/L16,
-IPv4/hostnames, and no URL credentials/authentication or TCP-interleaved media.
+Current RTSP restrictions: trusted LAN, UDP media, JPEG/L16, IPv4/hostnames,
+and no TCP-interleaved media. Inline `user:pass@` or a stored `rtsp-auth`
+account answers Basic or Digest MD5 on the control connection. The request URI
+and error text never include the password.
 Interpreters are never called from network/audio tasks.
 
 ## QR detection

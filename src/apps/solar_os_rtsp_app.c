@@ -63,7 +63,7 @@ typedef struct {
     int16_t pointer_x, pointer_y;
     solar_os_rtsp_client_status_t last_status;
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
-    char url[SOLAR_OS_RTSP_URI_MAX];
+    char url[SOLAR_OS_RTSP_URL_MAX];
     TaskHandle_t network_task, decode_task;
     volatile bool network_done, decode_done, stop;
     uint32_t last_port_ms;
@@ -247,8 +247,9 @@ static void draw_controls(solar_os_gfx_t *gfx, int w, int h,
     solar_os_gfx_fill_rect(gfx, 0, h - RTSP_CONTROLS_HEIGHT, w, RTSP_CONTROLS_HEIGHT);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_line(gfx, 0, h - RTSP_CONTROLS_HEIGHT, w - 1, h - RTSP_CONTROLS_HEIGHT);
-    char title[SOLAR_OS_RTSP_URI_MAX];
-    snprintf(title, sizeof(title), "%s", rtsp.url + strlen("rtsp://"));
+    char title[SOLAR_OS_RTSP_URL_MAX];
+    if (solar_os_rtsp_url_redact(rtsp.url, title, sizeof(title)) != ESP_OK)
+        snprintf(title, sizeof(title), "%s", rtsp.url + strlen("rtsp://"));
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
     centered_text(gfx, w, h - 68, title);
     char detail[96];
@@ -483,7 +484,7 @@ static esp_err_t start_playback(solar_os_context_t *ctx)
     if (err != ESP_OK) {
         solar_os_context_finish(ctx, 1, err == ESP_ERR_NO_MEM ?
             "RTSP: client allocation failed" :
-            "RTSP: malformed/unsupported URL; use rtsp://host[:port]/path (no credentials or IPv6)");
+            "RTSP: malformed/unsupported URL; use rtsp://[user[:pass]@]host[:port]/path (no IPv6)");
         return err;
     }
     rtsp.network_done = false;
@@ -561,7 +562,7 @@ static esp_err_t start(solar_os_context_t *ctx)
     esp_err_t err = solar_os_rtsp_url_normalize(url, rtsp.url, sizeof(rtsp.url));
     if (err != ESP_OK) {
         solar_os_context_finish(ctx, 1,
-            "RTSP: malformed/unsupported address; use [rtsp://]host[:port][/path] (no credentials or IPv6)");
+            "RTSP: malformed/unsupported address; use [rtsp://][user[:pass]@]host[:port][/path] (no IPv6)");
         return err;
     }
     rtsp.frame_diagnostics = rtsp.diagnostics;

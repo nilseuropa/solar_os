@@ -25,6 +25,7 @@ TARGETS += http_server_test
 TARGETS += rtspd_job_test rtspd_audio_only_test
 TARGETS += rtsp_receiver_test
 TARGETS += rtsp_client_test
+TARGETS += rtsp_auth_test
 TARGETS += gfx_mono_raster_test
 TARGETS += rgb565_raster_test
 TARGETS += rtspd_completion_test
@@ -280,9 +281,12 @@ rgb565_raster_test: rgb565_raster_test.c $(ROOT)/src/services/solar_os_rgb565.h 
 gfx_mono_raster_test: gfx_mono_raster_test.c $(ROOT)/src/services/solar_os_gfx_mono_raster.h $(ROOT)/src/services/solar_os_display_surface.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services $< -o $@
 
-RTSP_CLIENT_TEST_SOURCES := rtsp_client_test.c $(ROOT)/src/services/solar_os_rtsp_receiver.c $(ROOT)/src/services/solar_os_rtsp.c $(ROOT)/src/services/solar_os_rtp.c $(ROOT)/src/services/solar_os_rtp_jpeg.c $(ROOT)/src/services/solar_os_media.c $(ROOT)/src/services/solar_os_audio_pcm.c
+RTSP_CLIENT_TEST_SOURCES := rtsp_client_test.c $(ROOT)/src/services/solar_os_rtsp_receiver.c $(ROOT)/src/services/solar_os_rtsp.c $(ROOT)/src/services/solar_os_rtp.c $(ROOT)/src/services/solar_os_rtp_jpeg.c $(ROOT)/src/services/solar_os_media.c $(ROOT)/src/services/solar_os_audio_pcm.c $(ROOT)/src/services/solar_os_rtsp_auth.c
 rtsp_client_test: $(RTSP_CLIENT_TEST_SOURCES) $(ROOT)/src/services/solar_os_rtsp_client.c $(wildcard rtsp_stubs/*.h) $(wildcard rtsp_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -pthread -Irtsp_stubs -Irtspd_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $(RTSP_CLIENT_TEST_SOURCES) -o $@
+
+rtsp_auth_test: rtsp_auth_test.c $(ROOT)/src/services/solar_os_rtsp_auth.c $(ROOT)/src/services/solar_os_rtsp_receiver.c $(ROOT)/src/services/solar_os_rtsp.c $(ROOT)/src/services/solar_os_rtp.c $(ROOT)/src/services/solar_os_media.c
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -I. -I$(ROOT)/src/services $^ -o $@
 
 rtsp_receiver_test: rtsp_receiver_test.c $(ROOT)/src/services/solar_os_rtsp_receiver.c $(ROOT)/src/services/solar_os_rtsp.c $(ROOT)/src/services/solar_os_rtp.c $(ROOT)/src/services/solar_os_media.c
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -I. -I$(ROOT)/src/services $^ -o $@
@@ -982,6 +986,7 @@ test: $(TARGETS)
 	./rtspd_job_test
 	./rtspd_audio_only_test
 	./rtsp_receiver_test
+	./rtsp_auth_test
 	./rtsp_client_test
 	./gfx_mono_raster_test
 	./rgb565_raster_test

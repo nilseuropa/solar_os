@@ -2401,13 +2401,14 @@ capabilities = ["wifi"]
 [packages.service_rtsp_client]
 label = "service.rtsp-client"
 depends = ["service_media", "service_audio", "service_net"]
-sources = ["services/solar_os_rtsp_receiver.c", "services/solar_os_rtsp_client.c"]
+sources = ["services/solar_os_rtsp_receiver.c", "services/solar_os_rtsp_client.c", "services/solar_os_rtsp_auth.c"]
+requires = ["nvs_flash"]
 capabilities = ["wifi"]
 
 [packages.app_rtsp]
 label = "app.rtsp"
 depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets"]
-sources = ["apps/solar_os_rtsp_app.c"]
+sources = ["apps/solar_os_rtsp_app.c", "shell/solar_os_shell_rtsp_auth.c"]
 requires = ["stb_image"]
 capabilities = ["wifi"]
 

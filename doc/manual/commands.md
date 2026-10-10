@@ -146,6 +146,9 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `email` | `email configure <imaps://host[:port]> <user> <password> [mailbox]` | Save an IMAPS account; the default mailbox is `INBOX`. |
 | `email` | `email sync` | Start a one-shot mailbox synchronization. |
 | `email` | `email forget` | Remove the saved account and local email list. |
+| `rtsp-auth` | `rtsp-auth` | List stored RTSP client accounts (host, port, username; never the password). |
+| `rtsp-auth` | `rtsp-auth set <host[:port]> <user> <password>` | Save a Basic/Digest account used when an `rtsp` URL has no inline userinfo. Four accounts. |
+| `rtsp-auth` | `rtsp-auth clear [host[:port]]` | Remove one stored account, or every account when the host is omitted. |
 | `pocsag` | `pocsag status` | Show POCSAG receiver configuration, counters, correction statistics, and RSSI. |
 | `pocsag` | `pocsag send <radio> <frequency-hz> <baud> <ric> <message> [alpha\|numeric] [normal\|inverted] [function]` | Encode and transmit one POCSAG page. |
 

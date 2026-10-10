@@ -585,6 +585,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_APP_EMAIL
     {"email", "IMAP email client", solar_os_shell_cmd_email},
 #endif
+#if SOLAR_OS_PACKAGE_APP_RTSP
+    {"rtsp-auth", "stored RTSP client accounts", solar_os_shell_cmd_rtsp_auth},
+#endif
 #if SOLAR_OS_PACKAGE_JOB_MESHCORE
     {"meshcore", "MeshCore identity and radio messaging",
      solar_os_shell_cmd_meshcore},

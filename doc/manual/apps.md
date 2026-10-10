@@ -63,15 +63,27 @@ Play a trusted-LAN RTSP stream using UDP RTP/JPEG video and RTP/L16 audio.
 ```text
 rtsp rtsp://192.168.1.238/media
 rtsp 192.168.1.238/media
-rtsp 192.168.1.192:8554/youtube
+rtsp user:secret@192.168.1.192:8554/youtube
 rtsp --audio-only rtsp://192.168.1.113/media
 rtsp --stats rtsp://192.168.1.192:8554/youtube
 rtsp --audio-only --stats rtsp://192.168.1.192:8554/youtube
+rtsp-auth set 192.168.1.50 admin camera-password
+rtsp rtsp://192.168.1.50/media
 ```
 
 The `rtsp://` prefix is optional. The RTSP control connection uses TCP port 554
 unless a port is supplied; RTP media uses negotiated UDP ports. Addresses without
 a path are accepted; include the publisher's path when required.
+Inline credentials use `user:password@host`; percent-encoding is decoded for
+the username and password only. A stored account is used when the URL has no
+userinfo: `rtsp-auth set <host[:port]> <user> <password>` saves up to four
+accounts in NVS, `rtsp-auth` lists host, port, and username, and
+`rtsp-auth clear [host[:port]]` removes one or all. Passwords are not printed
+and are not sent in the request URI. On a 401 the client answers Basic or
+Digest MD5 (`qop=auth` or no qop) and retries that method. If the camera still
+returns 401, the same challenge is retried with an explicit port and then with
+the path alone, because cameras disagree on the Digest `uri`. The on-screen title
+shows `user@host`, never the password.
 
 Graphical sessions show aspect-fit JPEG video when a video track is selected.
 Audio-only sessions use the common audio GUI oscilloscope, fed by playback PCM,
@@ -172,10 +184,12 @@ External-preferred buffers can consume internal memory on non-PSRAM targets.
 Opening microphone capture while playback is active is not supported, including
 on the Freenove duplex codec.
 
-V1 supports unauthenticated IPv4 RTSP 1.0, one JPEG and one L16 track, and unicast
-UDP. JPEG uses the publisher's explicit 8-bit quantization tables (Q=255), types
-0/1 with optional restart markers. TCP interleaving, multicast, authentication,
-encrypted RTSP, compressed audio, and redirects are not supported. Five seconds
+V1 supports IPv4 RTSP 1.0, one JPEG and one L16 track, and unicast UDP.
+Control authentication is Basic or Digest MD5, from inline URL userinfo or a
+stored `rtsp-auth` account. The publisher (`rtspd`) remains unauthenticated.
+JPEG uses the publisher's explicit 8-bit quantization tables (Q=255), types
+0/1 with optional restart markers. TCP interleaving, multicast, encrypted RTSP,
+compressed audio, and redirects are not supported. Five seconds
 without media triggers the bounded reconnect policy; permanent failures or
 retry exhaustion return a diagnostic to the shell. The publisher must have a
 free receiver slot; `rtspd` is single-client.

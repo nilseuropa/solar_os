@@ -7,6 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "solar_os_rtsp_auth.h"
 #include "../../src/services/solar_os_rtsp_client.c"
 
 static atomic_uint allocations, allocation_calls, fail_allocation, live_tasks;
@@ -106,7 +107,7 @@ void solar_os_audio_player_destroy(solar_os_audio_player_t *p)
 typedef struct {
     int listen, control;
     uint16_t port, video_port, audio_port;
-    bool offer_video, offer_audio, reject, stall, relay, close_on_play;
+    bool offer_video, offer_audio, reject, stall, relay, close_on_play, require_auth;
     unsigned reject_status;
     atomic_bool stop, playing, teardown;
     unsigned setup_video, setup_audio;
@@ -121,9 +122,10 @@ typedef struct {
 static void send_response(test_server_t *s, uint32_t seq, const char *headers, const char *body)
 {
     char text[2048];
+    unsigned status = s->reject_status ? s->reject_status : s->reject ? 401U : 200U;
+    if (headers && strstr(headers, "WWW-Authenticate:")) status = 401;
     int len = snprintf(text, sizeof(text), "RTSP/1.0 %u Test\r\nCSeq: %lu\r\n%sContent-Length: %zu\r\n\r\n%s",
-        s->reject_status ? s->reject_status : s->reject ? 401U : 200U,
-        (unsigned long)seq, headers ? headers : "", body ? strlen(body) : 0, body ? body : "");
+        status, (unsigned long)seq, headers ? headers : "", body ? strlen(body) : 0, body ? body : "");
     assert(len > 0 && (size_t)len < sizeof(text));
     /* Deliberately fragmented headers and SDP exercise streaming framing. */
     for (int pos = 0; pos < len;) {
@@ -141,10 +143,9 @@ static esp_err_t send_jpeg_packet(const uint8_t *data, size_t len, void *user)
     return ESP_OK;
 }
 
-static void server_session(test_server_t *s)
+static bool server_session(test_server_t *s)
 {
     s->control = accept(s->listen, NULL, NULL); assert(s->control >= 0);
-    atomic_fetch_add(&s->accepted, 1);
     atomic_store(&s->playing, false);
     s->setup_video = s->setup_audio = 0;
     uint8_t input[2048]; size_t used = 0;
@@ -164,9 +165,25 @@ static void server_session(test_server_t *s)
             if (n <= 0) break;
             used += n;
             if (solar_os_rtsp_header_length(input, used)) {
+                if (used >= 4 && memcmp(input, "GET ", 4) == 0) {
+                    close(s->control); s->control = -1; return false;
+                }
                 solar_os_rtsp_request_t r;
-                assert(solar_os_rtsp_parse_request(input, used, &r) == ESP_OK); used = 0;
+                if (solar_os_rtsp_parse_request(input, used, &r) != ESP_OK) {
+                    fwrite(input, 1, used, stderr);
+                    assert(solar_os_rtsp_parse_request(input, used, &r) == ESP_OK);
+                }
+                bool authorized = false;
+                for (size_t i = 0; i + 14 <= used; i++)
+                    if (!memcmp(input + i, "Authorization:", 14)) authorized = true;
+                used = 0;
+                if (atomic_load(&s->accepted) == 0 || r.method == SOLAR_OS_RTSP_METHOD_DESCRIBE)
+                    atomic_fetch_add(&s->accepted, 1);
                 if (r.method == SOLAR_OS_RTSP_METHOD_TEARDOWN) { atomic_store(&s->teardown, true); break; }
+                if (s->require_auth && !authorized) {
+                    send_response(s, r.cseq, "WWW-Authenticate: Digest realm=\"cam\", nonce=\"nonce\", qop=\"auth\"\r\n", "");
+                    continue;
+                }
                 if (s->stall) continue;
                 char headers[512] = "", body[1024] = "";
                 if (r.method == SOLAR_OS_RTSP_METHOD_DESCRIBE) {
@@ -229,19 +246,22 @@ static void server_session(test_server_t *s)
         }
     }
     close(s->control);
+    s->control = -1;
+    return true;
 }
 
 static void *server_worker(void *arg)
 {
     test_server_t *s = arg;
-    for (unsigned session = 0; session < (s->sessions ? s->sessions : 1); session++) {
+    for (unsigned session = 0; session < (s->sessions ? s->sessions : 1);) {
         while (!atomic_load(&s->stop)) {
             fd_set set; FD_ZERO(&set); FD_SET(s->listen, &set);
             struct timeval timeout = {.tv_usec = 10000};
             if (select(s->listen + 1, &set, NULL, NULL, &timeout) > 0) break;
         }
         if (atomic_load(&s->stop)) break;
-        server_session(s);
+        if (!server_session(s)) continue;
+        session++;
     }
     return NULL;
 }
@@ -542,6 +562,43 @@ static int probe_stream(const char *url)
     return status.error == ESP_OK && frames > 0 && atomic_load(&samples_played) > 0 ? 0 : 1;
 }
 
+static void test_digest_auth(void)
+{
+    test_server_t server = {.offer_video = true, .require_auth = true};
+    server_start(&server);
+    char url[192];
+    snprintf(url, sizeof(url), "rtsp://user:secret@127.0.0.1:%u/media", server.port);
+    solar_os_rtsp_client_t *c;
+    solar_os_rtsp_client_options_t options = {.video = true};
+    assert(solar_os_rtsp_client_create(url, &options, &c) == ESP_OK);
+    assert(!strstr(c->url, "secret") && strstr(c->url, "127.0.0.1"));
+    pthread_t thread; assert(!pthread_create(&thread, NULL, run_client, c));
+    solar_os_rtsp_client_status_t status;
+    uint64_t deadline = now_us() + 2000000;
+    do { vTaskDelay(5); solar_os_rtsp_client_status(c, &status); }
+    while (!status.playing && !c->cancel && now_us() < deadline);
+    assert(status.playing);
+    solar_os_rtsp_client_cancel(c); pthread_join(thread, NULL);
+    assert(solar_os_rtsp_client_destroy(c) == ESP_OK); server_stop(&server);
+    assert(!atomic_load(&allocations) && !atomic_load(&live_tasks));
+
+    server = (test_server_t){.offer_video = true};
+    server_start(&server);
+    assert(solar_os_rtsp_auth_set("127.0.0.1", server.port, "user", "secret") == ESP_OK);
+    snprintf(url, sizeof(url), "rtsp://127.0.0.1:%u/media", server.port);
+    server.require_auth = true;
+    assert(solar_os_rtsp_client_create(url, &options, &c) == ESP_OK);
+    assert(!strcmp(c->user, "user"));
+    assert(!pthread_create(&thread, NULL, run_client, c));
+    deadline = now_us() + 2000000;
+    do { vTaskDelay(5); solar_os_rtsp_client_status(c, &status); }
+    while (!status.playing && !c->cancel && now_us() < deadline);
+    assert(status.playing);
+    solar_os_rtsp_client_cancel(c); pthread_join(thread, NULL);
+    assert(solar_os_rtsp_client_destroy(c) == ESP_OK); server_stop(&server);
+    assert(solar_os_rtsp_auth_clear(NULL, 0) == ESP_OK);
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2) return probe_stream(argv[1]);
@@ -563,6 +620,7 @@ int main(int argc, char **argv)
     test_failure(true, false, false, 0); test_failure(false, true, false, 0); test_failure(false, false, true, 0);
     for (unsigned i = 1; i <= 3; i++) test_failure(false, false, false, i);
     test_error_causes();
+    test_digest_auth();
     test_reconnect();
     puts("rtsp_client_test: OK"); return 0;
 }
