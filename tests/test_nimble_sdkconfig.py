@@ -10,7 +10,8 @@ REQUIRED = (
     "CONFIG_BT_NIMBLE_ROLE_OBSERVER", "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL",
     "CONFIG_BT_NIMBLE_GATT_SERVER", "CONFIG_BT_NIMBLE_DYNAMIC_SERVICE",
 )
-CURRENT = "CONFIG_BT_ENABLED=y\n" + "".join(f"{key}=y\n" for key in REQUIRED)
+CURRENT = ("CONFIG_BT_ENABLED=y\n" + "".join(f"{key}=y\n" for key in REQUIRED)
+           + "CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n")
 
 
 class NimbleSdkconfigTest(unittest.TestCase):
@@ -68,6 +69,26 @@ class NimbleSdkconfigTest(unittest.TestCase):
         result, remaining = self.run_guard("CONFIG_BT_ENABLED=y\n", "sdkconfig", False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(remaining)
+
+    def test_small_or_missing_host_stack_is_raised_once_preserving_local_settings(self):
+        for setting in ("", "CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=4096\n"):
+            with self.subTest(setting=setting):
+                content = CURRENT.replace("CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n", setting)
+                content += "CONFIG_LOCAL_SETTING=123\n"
+                result, remaining = self.run_guard(content)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr.count("increasing NimBLE host stack"), 1)
+                self.assertEqual(remaining.count("CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE="), 1)
+                self.assertIn("CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n", remaining)
+                self.assertIn("CONFIG_LOCAL_SETTING=123\n", remaining)
+                self.assertTrue(all(f"{key}=y\n" in remaining for key in REQUIRED))
+
+    def test_larger_local_host_stack_is_preserved(self):
+        content = CURRENT.replace("STACK_SIZE=8192", "STACK_SIZE=12288")
+        result, remaining = self.run_guard(content)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(remaining, content)
+        self.assertEqual(result.stderr, "")
 
     def test_defaults_are_never_removed(self):
         for name in ("sdkconfig.defaults", "sdkconfig.defaults.board"):

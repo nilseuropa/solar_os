@@ -1,4 +1,7 @@
 /* Interpreter conversion only; leases/workers belong to service.script-media. */
+#if SOLAR_OS_PACKAGE_SERVICE_VISION
+#include "solar_os_vision.h"
+#endif
 static solar_os_script_media_t *python_media_session;
 
 static solar_os_script_media_t *python_media_get(void)
@@ -420,4 +423,80 @@ static mp_obj_t solaros_image_present(size_t n, const mp_obj_t *args)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_image_present_obj, 3, 5, solaros_image_present);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_VISION
+static mp_obj_t python_vision_result(const solar_os_vision_qr_results_t *result)
+{
+    mp_obj_t d = mp_obj_new_dict(0);
+    python_dict_store_uint(d, "width", result->width);
+    python_dict_store_uint(d, "height", result->height);
+    python_dict_store_uint(d, "processed_width", result->processed_width);
+    python_dict_store_uint(d, "processed_height", result->processed_height);
+    python_dict_store_uint(d, "candidates", result->candidates);
+    python_dict_store_uint(d, "decode_failures", result->decode_failures);
+    python_dict_store_bool(d, "truncated", result->truncated);
+    python_dict_store_u64(d, "preprocess_us", result->preprocess_us);
+    python_dict_store_u64(d, "detect_us", result->detect_us);
+    python_dict_store_u64(d, "decode_us", result->decode_us);
+    python_dict_store_u64(d, "elapsed_us", result->elapsed_us);
+    mp_obj_t codes = mp_obj_new_list(0, NULL);
+    mp_obj_dict_store(d, mp_obj_new_str("codes", 5), codes);
+    for (size_t i = 0; i < result->count; ++i) {
+        const solar_os_vision_qr_code_t *code = &result->codes[i];
+        mp_obj_t entry = mp_obj_new_dict(0);
+        mp_obj_dict_store(entry, mp_obj_new_str("payload", 7),
+            mp_obj_new_bytes(code->payload ? code->payload : (const uint8_t *)"", code->length));
+        python_dict_store_uint(entry, "eci", code->eci);
+        python_dict_store_uint(entry, "version", code->version);
+        python_dict_store_uint(entry, "ecc_level", code->ecc_level);
+        python_dict_store_uint(entry, "data_type", code->data_type);
+        mp_obj_t points[4];
+        for (size_t j = 0; j < 4; ++j) {
+            mp_obj_t xy[] = {mp_obj_new_int(code->corners[j].x), mp_obj_new_int(code->corners[j].y)};
+            points[j] = mp_obj_new_tuple(2, xy);
+        }
+        mp_obj_dict_store(entry, mp_obj_new_str("corners", 7), mp_obj_new_tuple(4, points));
+        mp_obj_list_append(codes, entry);
+    }
+    return d;
+}
+
+static mp_obj_t solaros_vision_qrcodes(size_t n, const mp_obj_t *args)
+{
+    solar_os_raster_image_t *image = python_app.images[python_image_slot_from_obj(args[0])];
+    const mp_obj_t config = n > 1 ? args[1] : mp_const_none;
+    if (config != mp_const_none) {
+        if (!mp_obj_is_type(config, &mp_type_dict)) mp_raise_TypeError(MP_ERROR_TEXT("expected dict"));
+        mp_obj_dict_t *dict = MP_OBJ_TO_PTR(config);
+        for (size_t i = 0; i < dict->map.alloc; ++i) {
+            if (!mp_map_slot_is_filled(&dict->map, i)) continue;
+            const char *key = mp_obj_str_get_str(dict->map.table[i].key);
+            if (strcmp(key, "x") && strcmp(key, "y") && strcmp(key, "width") &&
+                strcmp(key, "height") && strcmp(key, "output_width") && strcmp(key, "output_height"))
+                mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("unsupported vision option %s"), key);
+        }
+    }
+    const solar_os_raster_image_convert_options_t options = {
+        .x = python_media_option(config, "x", 0, UINT32_MAX),
+        .y = python_media_option(config, "y", 0, UINT32_MAX),
+        .width = python_media_option(config, "width", 0, UINT32_MAX),
+        .height = python_media_option(config, "height", 0, UINT32_MAX),
+        .output_width = python_media_option(config, "output_width", 0, SOLAR_OS_VISION_MAX_WIDTH),
+        .output_height = python_media_option(config, "output_height", 0, SOLAR_OS_VISION_MAX_HEIGHT),
+    };
+    solar_os_vision_qr_results_t *result = NULL;
+    python_check_esp(solar_os_vision_qrcodes(image, &options, python_should_cancel, NULL, &result));
+    /* Interpreter allocation can throw; release native results in either path. */
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_obj_t value = python_vision_result(result);
+        nlr_pop();
+        solar_os_vision_qr_results_free(result);
+        return value;
+    }
+    solar_os_vision_qr_results_free(result);
+    nlr_jump(nlr.ret_val);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_vision_qrcodes_obj, 1, 2, solaros_vision_qrcodes);
 #endif

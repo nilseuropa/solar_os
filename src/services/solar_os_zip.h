@@ -24,6 +24,8 @@ typedef struct {
     uint32_t compressed_size;
     uint32_t uncompressed_size;
     uint16_t method;
+    uint16_t flags;
+    uint32_t external_attributes;
 } solar_os_zip_event_info_t;
 
 typedef void (*solar_os_zip_progress_cb_t)(const solar_os_zip_event_info_t *info, void *user);
@@ -37,6 +39,8 @@ typedef struct {
 typedef struct {
     solar_os_zip_progress_cb_t progress;
     void *user;
+    /* Checked between entries and between stored-file copy chunks. */
+    const volatile bool *cancel_flag;
 } solar_os_unzip_options_t;
 
 esp_err_t solar_os_zip_create(const char *archive_path,

@@ -271,6 +271,51 @@ if(NOT SOLAR_OS_FLAVOR_GENERATE_RESULT EQUAL 0)
     message(FATAL_ERROR "SolarOS flavor generation failed")
 endif()
 include("${SOLAR_OS_GENERATED_CMAKE}")
+
+# Compile profile defaults from the same descriptions used by the desktop CLI.
+# Empty options produce standard maps and remove overrides from previous builds.
+foreach(SOLAR_OS_KEYMAP_OPTION SOLAR_OS_KEYMAP_PROFILE SOLAR_OS_KEYMAP_FILE SOLAR_OS_KEYMAPS_FILE)
+    if(NOT DEFINED ${SOLAR_OS_KEYMAP_OPTION})
+        set(${SOLAR_OS_KEYMAP_OPTION} "$ENV{${SOLAR_OS_KEYMAP_OPTION}}")
+    endif()
+endforeach()
+set(SOLAR_OS_KEYMAP_GENERATOR "${SOLAR_OS_PROJECT_DIR}/scripts/generate_keymaps.py")
+file(GLOB SOLAR_OS_KEYMAP_PROFILES "${SOLAR_OS_PROJECT_DIR}/keymaps/profiles/*.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${SOLAR_OS_KEYMAP_GENERATOR}"
+    "${SOLAR_OS_PROJECT_DIR}/scripts/solaros_keymap.py"
+    "${SOLAR_OS_PROJECT_DIR}/scripts/solaros_keymap_build.py"
+    ${SOLAR_OS_KEYMAP_PROFILES}
+)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_KEYMAP_GENERATOR}"
+        "--root" "${SOLAR_OS_PROJECT_DIR}" "--output-dir" "${SOLAR_OS_GENERATED_DIR}"
+        "--profile" "${SOLAR_OS_KEYMAP_PROFILE}" "--file" "${SOLAR_OS_KEYMAP_FILE}"
+        "--index" "${SOLAR_OS_KEYMAPS_FILE}"
+        "--dependencies" "${SOLAR_OS_GENERATED_DIR}/solar_os_keymap_inputs.cmake"
+    RESULT_VARIABLE SOLAR_OS_KEYMAP_GENERATE_RESULT
+)
+if(NOT SOLAR_OS_KEYMAP_GENERATE_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS keymap generation failed")
+endif()
+include("${SOLAR_OS_GENERATED_DIR}/solar_os_keymap_inputs.cmake")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SOLAR_OS_KEYMAP_INPUTS})
+foreach(SOLAR_OS_KEYMAP_PACKAGE IN LISTS SOLAR_OS_KEYMAP_REQUIRED_PACKAGES)
+    if(NOT SOLAR_OS_PACKAGE_${SOLAR_OS_KEYMAP_PACKAGE})
+        message(FATAL_ERROR "Custom keymap requires package ${SOLAR_OS_KEYMAP_PACKAGE} in the selected flavor")
+    endif()
+endforeach()
+if(SOLAR_OS_PACKAGE_SERVICE_INFERENCE)
+    set(SOLAR_OS_ESPDL_DIR "${SOLAR_OS_PROJECT_DIR}/managed_components/espressif__esp-dl")
+    set(SOLAR_OS_ESPDL_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_espdl.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${SOLAR_OS_ESPDL_PATCH}" "${SOLAR_OS_PROJECT_DIR}/scripts/espdl/worker_runtime.inc")
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_ESPDL_PATCH}"
+        "${SOLAR_OS_ESPDL_DIR}" RESULT_VARIABLE SOLAR_OS_ESPDL_PATCH_RESULT)
+    if(NOT SOLAR_OS_ESPDL_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "SolarOS ESP-DL ownership/allocation overlay failed")
+    endif()
+endif()
 message(STATUS "SolarOS flavor: ${SOLAR_OS_FLAVOR_NAME} (${SOLAR_OS_FLAVOR_INPUT})")
 message(STATUS "SolarOS update layout: ${SOLAR_OS_LAYOUT}")
 

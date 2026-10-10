@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import tomllib
 import unittest
 
 
@@ -48,6 +49,51 @@ class FlavorPackagesTest(unittest.TestCase):
                              flavor)
             self.assertEqual(packages["app_gameboy"], expected,
                              flavor)
+
+    def test_odroid_runtime_i2c_survives_board_and_target_pruning(self):
+        board = tomllib.loads(
+            (REPOSITORY / "boards" / "manifests" / "odroid_go.toml").read_text()
+        )
+        capabilities = set(board["build"]["capabilities"])
+        for flavor in ("core", "full"):
+            with self.subTest(flavor=flavor):
+                _, _, groups, packages = self.resolve(flavor)
+                _, pruned = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, packages, capabilities
+                )
+                pruned = generate_flavor_config.apply_target_pruning(
+                    self.catalog, pruned, board["target"]["mcu"]
+                )
+                for package in ("service_resources", "service_i2c",
+                                "service_expansion", "expansion_cardkb"):
+                    self.assertTrue(pruned[package], package)
+                if flavor == "full":
+                    self.assertTrue(pruned["expansion_tab5_keyboard"])
+                    self.assertTrue(pruned["expansion_inputronic_keyboard"])
+
+    def test_native_image_pipeline_does_not_require_espdl(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["pipelines"])
+        self.assertTrue(packages["service_pipeline"])
+        classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
+        self.assertTrue(classic["service_pipeline"])
+        self.assertTrue(classic["service_vision"])
+        self.assertFalse(classic["service_inference"])
+        self.assertNotIn("service_inference", self.catalog.package_defs["service_pipeline"].depends)
+
+    def test_zoo_works_on_headless_s3_and_is_pruned_without_platform_requirements(self):
+        _, _, groups, packages = self.resolve("full")
+        _, headless = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"psram", "wifi"})
+        self.assertTrue(headless["app_zoo"])
+        self.assertTrue(headless["service_zoo"])
+        self.assertTrue(headless["service_inference"])
+        classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
+        self.assertFalse(classic["app_zoo"])
+        self.assertFalse(classic["service_zoo"])
+        for caps in ({"wifi"}, {"psram"}, set()):
+            _, pruned = generate_flavor_config.apply_board_capability_pruning(self.catalog, groups, packages, caps)
+            self.assertFalse(pruned["app_zoo"])
 
     def test_update_layout_adds_ota_without_exposing_it_in_flavor(self):
         _, _, _, packages = self.resolve("core")
@@ -243,11 +289,66 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(s3["job_rtspd"])
         self.assertTrue(classic["job_rtspd"])
 
+    def test_inputronic_keyboard_is_reusable_on_both_targets(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["inputronic_keyboard"])
+        self.assertEqual(self.catalog.group_defs["inputronic_keyboard"].category,
+                         "Expansion hardware")
+        for target in ("esp32", "esp32s3"):
+            with self.subTest(target=target):
+                pruned = generate_flavor_config.apply_target_pruning(
+                    self.catalog, packages, target)
+                self.assertTrue(pruned["expansion_inputronic_keyboard"])
+                self.assertIn("solar_os_inputronic_keyboard_expansion_driver",
+                              generate_flavor_config.collect_expansion_drivers(
+                                  self.catalog, pruned))
+
+    def test_tab5_keyboard_requires_expansion_i2c_on_both_targets(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["tab5_keyboard"])
+        for target in ("esp32", "esp32s3"):
+            for capabilities, expected in (({"i2c", "expansion_i2c"}, True), ({"i2c"}, False)):
+                with self.subTest(target=target, capabilities=capabilities):
+                    _, pruned = generate_flavor_config.apply_board_capability_pruning(
+                        self.catalog, groups, packages, capabilities)
+                    pruned = generate_flavor_config.apply_target_pruning(self.catalog, pruned, target)
+                    self.assertEqual(pruned["expansion_tab5_keyboard"], expected)
+                    drivers = generate_flavor_config.collect_expansion_drivers(self.catalog, pruned)
+                    self.assertEqual("solar_os_tab5_keyboard_expansion_driver" in drivers, expected)
+                    if expected:
+                        self.assertTrue(pruned["service_input_keymap"])
+
+    def test_tca8418_profiles_share_backend_without_generic_pwm_dependency(self):
+        _, _, _, packages = self.resolve("full")
+        backend = self.catalog.package_defs["service_tca8418"]
+        self.assertNotIn("service_pwm", backend.depends)
+        for package in ("tca8418", "expansion_inputronic_keyboard", "expansion_lilygo_pager_keyboard"):
+            self.assertIn("service_tca8418", self.catalog.package_defs[package].depends)
+            for target in ("esp32", "esp32s3"):
+                pruned = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+                self.assertTrue(pruned[package])
+                self.assertTrue(pruned["service_tca8418"])
+
+    def test_input_keymap_service_has_no_expansion_hardware_requirement(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["input_keymap"])
+        self.assertIn("service_input_keymap", self.catalog.package_defs["service_tca8418"].depends)
+        service = self.catalog.package_defs["service_input_keymap"]
+        self.assertEqual(service.capabilities, ())
+        self.assertEqual(service.depends, ("service_json",))
+        for target in ("esp32", "esp32s3"):
+            target_packages = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+            _, no_hardware = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, target_packages, set())
+            self.assertTrue(no_hardware["service_input_keymap"])
+            self.assertFalse(no_hardware["service_tca8418"])
+
     def test_full_exposes_reusable_t_lora_expansion_drivers(self):
         _, _, groups, packages = self.resolve("full")
         reusable = {
             "xl9555": "xl9555",
             "tca8418": "tca8418",
+            "lilygo_pager_keyboard": "expansion_lilygo_pager_keyboard",
             "sx1262": "sx1262",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
@@ -276,6 +377,7 @@ class FlavorPackagesTest(unittest.TestCase):
         for symbol in (
             "solar_os_xl9555_expansion_driver",
             "solar_os_tca8418_expansion_driver",
+            "solar_os_lilygo_pager_keyboard_expansion_driver",
             "solar_os_sx1262_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
@@ -601,6 +703,19 @@ class FlavorPackagesTest(unittest.TestCase):
             "playground",
             "audio_pwm",
             "pcm5102",
+            "web_browser",
+            "uart",
+            "bridge",
+            "daq",
+            "wireguard",
+            "espnow",
+            "contacts",
+            "inbox",
+            "chat",
+            "clock",
+            "calculator",
+            "plot",
+            "sheet",
         ):
             self.assertTrue(groups[group], group)
         self.assertFalse(groups["speech"])
@@ -625,24 +740,32 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_view",
             "expansion_audio_pwm",
             "expansion_pcm5102",
+            "job_bridge",
+            "job_daq",
+            "service_wireguard",
+            "service_contacts",
+            "service_inbox",
+            "service_messaging",
+            "service_uart",
+            "job_espnow_link",
+            "app_com",
+            "app_web",
+            "app_clock",
+            "app_calc",
+            "app_plot",
+            "app_sheet",
         ):
             self.assertTrue(packages[package], package)
         self.assertTrue(packages["job_controls"])
         for group in (
             "device_flasher",
-            "web_browser",
             "player",
-            "uart",
             "logic_analyzer",
             "sump",
-            "bridge",
-            "daq",
-            "wireguard",
             "mqtt",
             "slip",
             "ppp",
             "osc",
-            "espnow",
             "pocsag",
             "radio_link",
             "meshcore",
@@ -653,32 +776,18 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertFalse(groups[group], group)
         for package in (
-            "job_bridge",
-            "job_daq",
             "job_sump",
-            "service_wireguard",
             "service_mqtt",
-            "service_contacts",
-            "service_inbox",
-            "service_messaging",
-            "service_uart",
             "job_slip",
             "job_pppd",
             "job_osc",
-            "job_espnow_link",
             "job_pocsag",
             "job_radio_link",
             "job_meshcore",
             "job_meshcore_ble",
             "app_lua",
-            "app_com",
-            "app_web",
             "app_player",
-            "app_clock",
-            "app_calc",
-            "app_plot",
             "app_logic",
-            "app_sheet",
         ):
             self.assertFalse(packages[package], package)
 

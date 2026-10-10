@@ -413,7 +413,7 @@ static esp_err_t ble_hid_request(solar_os_ble_session_t session,
                                  solar_os_ble_hid_request_t *request)
 {
     if (!request || request->op < SOLAR_OS_BLE_HID_OP_START ||
-        request->op > SOLAR_OS_BLE_HID_OP_PAIR ||
+        request->op > SOLAR_OS_BLE_HID_OP_DISCONNECT ||
         !memchr(request->name, 0, sizeof(request->name))) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -455,6 +455,49 @@ esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session)
 {
     solar_os_ble_hid_request_t request = {.op = SOLAR_OS_BLE_HID_OP_STOP};
     return ble_hid_request(session, &request);
+}
+
+esp_err_t solar_os_ble_hid_device_start_managed(solar_os_ble_session_t session,
+                                               const char *name)
+{
+    if (!name || !strlen(name) || strlen(name) > 26) return ESP_ERR_INVALID_ARG;
+    solar_os_ble_hid_request_t r = {.op=SOLAR_OS_BLE_HID_OP_START,.manual=true};
+    memcpy(r.name, name, strlen(name)+1);
+    return ble_hid_request(session, &r);
+}
+
+esp_err_t solar_os_ble_hid_device_hosts(solar_os_ble_session_t session,
+    solar_os_ble_hid_host_t *hosts, size_t capacity, size_t *count)
+{
+    if (!hosts || !count || !capacity) return ESP_ERR_INVALID_ARG;
+    *count = 0;
+    solar_os_ble_hid_request_t r = {.op=SOLAR_OS_BLE_HID_OP_HOSTS};
+    esp_err_t result = ble_hid_request(session, &r);
+    if (result != ESP_OK) return result;
+    *count = r.host_count < capacity ? r.host_count : capacity;
+    memcpy(hosts, r.hosts, *count * sizeof(*hosts));
+    return ESP_OK;
+}
+
+static esp_err_t ble_hid_host_request(solar_os_ble_session_t session,
+    solar_os_ble_hid_operation_t op, const uint8_t bda[6], uint8_t addr_type)
+{
+    if (!bda || addr_type > 1) return ESP_ERR_INVALID_ARG;
+    solar_os_ble_hid_request_t r = {.op=op,.addr_type=addr_type};
+    memcpy(r.bda, bda, sizeof(r.bda));
+    return ble_hid_request(session, &r);
+}
+
+esp_err_t solar_os_ble_hid_device_connect(solar_os_ble_session_t session,
+                                          const uint8_t bda[6], uint8_t addr_type)
+{ return ble_hid_host_request(session, SOLAR_OS_BLE_HID_OP_CONNECT, bda, addr_type); }
+esp_err_t solar_os_ble_hid_device_forget(solar_os_ble_session_t session,
+                                         const uint8_t bda[6], uint8_t addr_type)
+{ return ble_hid_host_request(session, SOLAR_OS_BLE_HID_OP_FORGET, bda, addr_type); }
+esp_err_t solar_os_ble_hid_device_disconnect(solar_os_ble_session_t session)
+{
+    solar_os_ble_hid_request_t r = {.op=SOLAR_OS_BLE_HID_OP_DISCONNECT};
+    return ble_hid_request(session, &r);
 }
 
 esp_err_t solar_os_ble_hid_device_pair(solar_os_ble_session_t session)

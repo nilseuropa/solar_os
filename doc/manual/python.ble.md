@@ -59,17 +59,48 @@ while not solaros.should_exit():
         break
 ```
 
-- `start(name)`: acquire the application-peripheral lease and start connectable
-  advertising. The name is 1..26 bytes without an embedded NUL. One remote host
-  can connect at a time.
-- `pair()`: enter explicit new-host pairing mode. SolarOS removes the next
-  connecting peer's stored HID bond before starting security. Omit this on
-  normal startup so a remembered host reconnects without pairing again.
+- `start(name, manual=False)`: acquire the application-peripheral lease. The
+  default starts connectable advertising; `manual=True` starts idle for host
+  selection. The name is 1..26 bytes without an embedded NUL. One remote host
+  can connect at a time. A live lease cannot change its manual setting.
+- `hosts()`: list saved HID hosts as dictionaries with `address`, `addr_type`,
+  `connected`, and `name`. Addresses use the same format as BLE scan results. Host
+  encryption keys and identity metadata persist in NVS; the local input
+  keyboard is excluded from this list.
+  For manual leases, SolarOS asynchronously reads the connected host's GAP
+  Device Name after encryption and bonding. `name` is a UTF-8 prefix of at most
+  63 bytes, empty until available or if the host does not permit the read.
+  Lookup does not gate keyboard reports. Names live only for that connection;
+  applications can cache them on mounted storage. `status()["host_name"]`
+  exposes the same current name without rereading the saved host list.
+- `connect(address, addr_type=0)`: for a manual lease, advertise a connection
+  offer filtered to this saved host using the local identity stored during
+  pairing. Private host addresses are resolved using the bond. The host
+  initiates the BLE connection; SolarOS cannot dial a peripheral-to-host
+  connection. Other saved hosts cannot take this offer. Automatic reconnection
+  requires the host's Bluetooth to be enabled and its HID reconnect policy to
+  allow the connection. Reconnect requests use the saved bond's authentication
+  and Secure Connections settings; selecting a saved host does not require
+  enabling pairing again on the host.
+- `forget(address, addr_type=0)`: delete this HID host's pairing. If selected,
+  stop its connection offer and disconnect it. Local input bonds stay intact.
+- `disconnect()`: cancel a manual lease's host offer and disconnect its host,
+  keeping saved pairings. The service stays registered and idle.
+- `pair()`: enter explicit new-host pairing mode. A manual lease drops the
+  selected connection and uses a fresh static-random peripheral identity so
+  previously paired hosts cannot reconnect to that offer. Other saved host
+  pairings remain available; each host's local identity is restored by
+  `connect()`. Without manual mode, SolarOS removes the previous HID host bond
+  and resets pairing on the public identity. Omit `pair()` on normal startup
+  when using the default automatic-reconnect behavior.
+  If bond storage is full, explicit HID pairing may replace an unused bond.
+  The remembered input keyboard and all connected peers are preserved.
 - `stop()`: send best-effort neutral keyboard, mouse, and gamepad reports, stop
   advertising, disconnect the host, and retire the service.
 - `status()`: return `registered`, `advertising`, `closing`, `connected`,
   `encrypted`, `bonded`, `keyboard_subscribed`, `mouse_subscribed`,
-  `gamepad_subscribed`, `keyboard_leds`, and event queue counters.
+  `gamepad_subscribed`, `keyboard_leds`, `manual`, `pairing`, `host_selected`,
+  and event queue counters.
 - `poll()`: nonblocking; return `None` when empty or an event dictionary. Event
   types are `connected`, `secured`, `disconnected`, `keyboard-leds`, and
   `passkey`. Render a passkey as six digits and enter it on the remote host.

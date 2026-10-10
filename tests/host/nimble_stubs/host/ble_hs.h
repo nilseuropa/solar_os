@@ -24,12 +24,16 @@
 #define BLE_HS_IO_DISPLAY_ONLY 0
 #define BLE_HS_IO_KEYBOARD_ONLY 2
 #define BLE_HS_IO_KEYBOARD_DISPLAY 4
-struct ble_hs_cfg_stub { uint8_t sm_io_cap; };
+struct ble_hs_cfg_stub { uint8_t sm_io_cap, sm_mitm, sm_sc; };
 extern struct ble_hs_cfg_stub ble_hs_cfg;
 #define BLE_GAP_SUBSCRIBE_REASON_WRITE 1
 #define BLE_GAP_SUBSCRIBE_REASON_TERM 2
 #define BLE_GAP_SUBSCRIBE_REASON_RESTORE 3
 #define BLE_OWN_ADDR_PUBLIC 0
+#define BLE_OWN_ADDR_RANDOM 1
+#define BLE_HCI_ADV_FILT_CONN 2
+#define BLE_ADDR_PUBLIC 0
+#define BLE_ADDR_RANDOM 1
 #define BLE_UUID_TYPE_16 16
 #define BLE_UUID_TYPE_32 32
 #define BLE_UUID_TYPE_128 128
@@ -55,11 +59,12 @@ struct os_mbuf { size_t len; uint8_t *data; struct os_mbuf *next; };
 size_t nimble_test_mbuf_len(const struct os_mbuf *om);
 #define OS_MBUF_PKTLEN(om) nimble_test_mbuf_len(om)
 int os_mbuf_copydata(const struct os_mbuf *om, int offset, int len, void *out);
-struct ble_gatt_attr { uint16_t handle; struct os_mbuf *om; };
+struct ble_gatt_attr { uint16_t handle, offset; struct os_mbuf *om; };
 struct ble_gap_sec_state { unsigned encrypted:1, authenticated:1, bonded:1, key_size:5, authorize:1; };
 struct ble_gap_conn_desc { struct ble_gap_sec_state sec_state; ble_addr_t peer_id_addr; uint8_t role; };
 struct ble_sm_io { uint8_t action; uint32_t passkey; uint8_t numcmp_accept; };
 int ble_gap_conn_find(uint16_t conn, struct ble_gap_conn_desc *desc);
+int ble_gap_conn_find_by_addr(const ble_addr_t *address, struct ble_gap_conn_desc *desc);
 int ble_sm_inject_io(uint16_t conn, struct ble_sm_io *io);
 enum { BLE_GAP_EVENT_CONNECT, BLE_GAP_EVENT_DISCONNECT, BLE_GAP_EVENT_ENC_CHANGE, BLE_GAP_EVENT_NOTIFY_RX,
     BLE_GAP_EVENT_ADV_COMPLETE, BLE_GAP_EVENT_SUBSCRIBE, BLE_GAP_EVENT_NOTIFY_TX,
@@ -98,6 +103,7 @@ int ble_gattc_disc_all_dscs(uint16_t, uint16_t, uint16_t, ble_gatt_dsc_fn *, voi
 int ble_gattc_exchange_mtu(uint16_t, ble_gatt_mtu_fn *, void *);
 uint16_t ble_att_mtu(uint16_t);
 int ble_gattc_read(uint16_t, uint16_t, ble_gatt_attr_fn *, void *);
+int ble_gattc_read_by_uuid(uint16_t, uint16_t, uint16_t, const ble_uuid_t *, ble_gatt_attr_fn *, void *);
 int ble_gattc_read_long(uint16_t, uint16_t, uint16_t, ble_gatt_attr_fn *, void *);
 int ble_gattc_write_flat(uint16_t, uint16_t, const void *, uint16_t, ble_gatt_attr_fn *, void *);
 int ble_gattc_write_no_rsp_flat(uint16_t, uint16_t, const void *, uint16_t);
@@ -106,6 +112,8 @@ int ble_gattc_write_no_rsp_flat(uint16_t, uint16_t, const void *, uint16_t);
 #define BLE_HS_ADV_F_BREDR_UNSUP 4
 #define BLE_HS_FOREVER INT32_MAX
 #define BLE_GAP_CONN_MODE_UND 2
+#define BLE_GAP_CONN_MODE_DIR 1
+#define BLE_GAP_DISC_MODE_NON 0
 #define BLE_GAP_DISC_MODE_GEN 2
 #define BLE_GATT_ACCESS_OP_READ_CHR 0
 #define BLE_GATT_ACCESS_OP_WRITE_CHR 1
@@ -149,7 +157,11 @@ struct ble_hs_adv_fields {
     uint16_t appearance; bool appearance_is_present;
     bool uuids16_is_complete;
 };
-struct ble_gap_adv_params { uint8_t conn_mode, disc_mode; };
+struct ble_gap_adv_params { uint8_t conn_mode, disc_mode, filter_policy; uint16_t itvl_min, itvl_max; };
+int ble_gap_wl_set(const ble_addr_t *, uint8_t);
+int ble_gap_conn_active(void);
+int ble_gap_disc_active(void);
+int ble_gap_disc_cancel(void);
 int ble_uuid_from_str(ble_uuid_any_t *, const char *);
 int ble_uuid_cmp(const ble_uuid_t *, const ble_uuid_t *);
 int ble_gap_adv_stop(void);
@@ -157,6 +169,8 @@ int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *);
 int ble_gap_adv_rsp_set_fields(const struct ble_hs_adv_fields *);
 int ble_gap_adv_start(uint8_t, const ble_addr_t *, int32_t, const struct ble_gap_adv_params *, ble_gap_event_fn *, void *);
 int ble_gatts_add_dynamic_svcs(const struct ble_gatt_svc_def *);
+int ble_gatts_count_cfg(const struct ble_gatt_svc_def *);
+int ble_gatts_add_svcs(const struct ble_gatt_svc_def *);
 int ble_gatts_delete_svc(const ble_uuid_t *);
 int ble_gatts_find_svc(const ble_uuid_t *, uint16_t *);
 struct os_mbuf *ble_hs_mbuf_from_flat(const void *, uint16_t);

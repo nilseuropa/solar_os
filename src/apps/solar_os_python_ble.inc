@@ -413,17 +413,64 @@ static mp_obj_t solaros_ble_server_disconnect(mp_obj_t peer)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_server_disconnect_obj, solaros_ble_server_disconnect);
 
-static mp_obj_t solaros_ble_hid_start(mp_obj_t name_obj)
+static mp_obj_t solaros_ble_hid_start(size_t n_args, const mp_obj_t *args)
 {
     size_t len;
-    const char *name = mp_obj_str_get_data(name_obj, &len);
+    const char *name = mp_obj_str_get_data(args[0], &len);
     if (!len || len > 26 || memchr(name, 0, len))
         mp_raise_ValueError(MP_ERROR_TEXT("HID name must be 1..26 bytes"));
     char copied[27]; memcpy(copied, name, len); copied[len] = 0;
-    python_ble_check(solar_os_ble_hid_device_start(python_ble_get(), copied));
+    if (n_args > 1 && args[1] != mp_const_true && args[1] != mp_const_false)
+        mp_raise_ValueError(MP_ERROR_TEXT("manual must be boolean"));
+    python_ble_check(n_args > 1 && args[1] == mp_const_true
+        ? solar_os_ble_hid_device_start_managed(python_ble_get(), copied)
+        : solar_os_ble_hid_device_start(python_ble_get(), copied));
     return mp_const_none;
 }
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_hid_start_obj, solaros_ble_hid_start);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_start_obj, 1, 2, solaros_ble_hid_start);
+
+static mp_obj_t solaros_ble_hid_hosts(void)
+{
+    solar_os_ble_hid_host_t hosts[SOLAR_OS_BLE_HID_HOST_MAX]; size_t count;
+    python_ble_check(solar_os_ble_hid_device_hosts(python_ble_get(), hosts, SOLAR_OS_BLE_HID_HOST_MAX, &count));
+    mp_obj_t result = mp_obj_new_list(0, NULL);
+    for (size_t i=0; i<count; i++) {
+        mp_obj_t host = mp_obj_new_dict(4); char address[18];
+        snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
+            hosts[i].bda[0], hosts[i].bda[1], hosts[i].bda[2], hosts[i].bda[3], hosts[i].bda[4], hosts[i].bda[5]);
+        python_dict_store_cstr(host, "address", address);
+        python_dict_store_uint(host, "addr_type", hosts[i].addr_type);
+        python_dict_store_bool(host, "connected", hosts[i].connected);
+        python_dict_store_cstr(host, "name", hosts[i].name);
+        mp_obj_list_append(result, host);
+    }
+    return result;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_hosts_obj, solaros_ble_hid_hosts);
+static mp_obj_t python_ble_hid_host(size_t n_args, const mp_obj_t *args, bool forget)
+{
+    size_t len; uint8_t bda[6];
+    const char *address = mp_obj_str_get_data(args[0], &len);
+    if (!solar_os_ble_parse_address(address, len, bda))
+        mp_raise_ValueError(MP_ERROR_TEXT("expected aa:bb:cc:dd:ee:ff"));
+    uint32_t type = python_optional_u32(n_args, args, 1, 0);
+    if (type > 1) mp_raise_ValueError(MP_ERROR_TEXT("address type must be 0..1"));
+    python_ble_check(forget ? solar_os_ble_hid_device_forget(python_ble_get(), bda, type)
+        : solar_os_ble_hid_device_connect(python_ble_get(), bda, type));
+    return mp_const_none;
+}
+static mp_obj_t solaros_ble_hid_connect(size_t n, const mp_obj_t *args)
+{ return python_ble_hid_host(n, args, false); }
+static mp_obj_t solaros_ble_hid_forget(size_t n, const mp_obj_t *args)
+{ return python_ble_hid_host(n, args, true); }
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_connect_obj, 1, 2, solaros_ble_hid_connect);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_forget_obj, 1, 2, solaros_ble_hid_forget);
+static mp_obj_t solaros_ble_hid_disconnect(void)
+{
+    python_ble_check(solar_os_ble_hid_device_disconnect(python_ble_get()));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_disconnect_obj, solaros_ble_hid_disconnect);
 
 static mp_obj_t solaros_ble_hid_pair(void)
 {
@@ -443,7 +490,11 @@ static mp_obj_t solaros_ble_hid_status(void)
 {
     solar_os_ble_hid_info_t info;
     python_ble_check(solar_os_ble_hid_device_status(python_ble_get(), &info));
-    mp_obj_t result = mp_obj_new_dict(13);
+    mp_obj_t result = mp_obj_new_dict(17);
+    python_dict_store_cstr(result, "host_name", info.host_name);
+    python_dict_store_bool(result, "manual", info.manual);
+    python_dict_store_bool(result, "pairing", info.pairing);
+    python_dict_store_bool(result, "host_selected", info.host_selected);
     python_dict_store_bool(result, "registered", info.registered);
     python_dict_store_bool(result, "advertising", info.advertising);
     python_dict_store_bool(result, "closing", info.closing);

@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "id": "imagenet-mobilenetv2",
+  "version": "1.0.0",
+  "runtime": {
+    "backend": "espdl",
+    "version": "3.3.13",
+    "target": "esp32s3"
+  },
+  "model": {
+    "file": "imagenet_cls_mobilenetv2_s8_v1.espdl",
+    "sha256": "4945668ccd054baa6f52f541385dd59336c85f3b80bcae127cce41bab2e18871"
+  },
+  "assets": {
+    "labels.txt": "734ac9d9fdc5b3594443cca61021e5b9eb96e0473c607ed03d8810c63fe48291",
+    "LICENSE": "3513f1605ebcc227f7364956f6c30a303412597e232648cb3090e76697ca5aa3"
+  },
+  "inputs": {
+    "input.1": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        224,
+        224,
+        3
+      ],
+      "exponents": [
+        -6
+      ],
+      "adapter": {
+        "type": "image",
+        "options": {
+          "layout": "NHWC",
+          "color": "RGB",
+          "resize": "stretch",
+          "mean": [
+            123.675,
+            116.28,
+            103.53
+          ],
+          "std": [
+            58.395,
+            57.12,
+            57.375
+          ]
+        }
+      }
+    }
+  },
+  "outputs": {
+    "466": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        1000
+      ],
+      "exponents": [
+        -2
+      ]
+    }
+  },
+  "result": {
+    "type": "classification",
+    "options": {
+      "tensor": "466",
+      "labels": "labels.txt",
+      "activation": "softmax",
+      "top": 5
+    }
+  },
+  "license": {
+    "id": "MIT",
+    "file": "LICENSE"
+  }
+}

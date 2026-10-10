@@ -40,12 +40,24 @@ than one fixed product shape.
   inspect runtime resource ownership.
 - Carry ordinary SolarOS port shells and serial bridges over peer-bound,
   retransmitted Link virtual serial ports on packet radios.
+- Decode QR codes and process images from Python or Lua. On ESP32-S3 with
+  PSRAM, install model bundles through Zoo and use resident inference for
+  classification, PICO detection, or raw tensor results.
+- Process stored images, camera streams, and JPEG RTSP feeds in OS-owned
+  background pipelines, with latest results available to shell and script
+  clients after the configuring script exits.
 - Build focused or full firmware images through capability-aware package
   flavors.
 
 The result is a deliberately small runtime for turning inexpensive
 microcontroller hardware into useful field terminals, diagnostic tools,
 portable loggers, serial/network bridges, and scripting surfaces.
+
+For model installation and script examples, start with
+[Zoo](apps.md#zoo), [Computer vision](vision.md),
+[Model bundles](model-bundles.md), and [Native image pipelines](pipelines.md).
+The full flavor includes these optional services where the target supports
+them. A camera and display are optional for stored-image processing.
 
 ## Runtime model
 
@@ -109,7 +121,6 @@ Once SolarOS boots, these commands give a quick view of the installed system:
 
 ```text
 help
-help
 apps
 jobs
 sessions
@@ -126,6 +137,13 @@ device is authoritative: `help`, `apps`, `jobs`, `board`, and `pkg` show what
 was compiled and which hardware is exposed.
 
 ## Finding documentation
+
+Firmware includes a small setup and recovery guide and a searchable topic
+directory. Full guides and scripting API references require the signed
+downloadable manual. On devices with Wi-Fi, PSRAM, and SD storage, connect
+Wi-Fi, mount the SD card, and run `help update`. Use `man help` for setup
+instructions. The downloaded manual works offline while the SD card is mounted;
+the full manual is also available at [solar-os.eu](https://solar-os.eu/).
 
 Optional topics appear only when their package is part of the firmware. Open
 `help` for the foldable manual tree, or search by task:

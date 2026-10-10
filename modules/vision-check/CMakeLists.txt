@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(solaros_native_vision_check)
+include(elf_loader)
+project_elf(solaros_native_vision_check)

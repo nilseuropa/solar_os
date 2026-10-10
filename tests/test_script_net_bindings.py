@@ -95,6 +95,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
     def test_both_interpreters_close_channels_before_vm_teardown(self):
         self.assertIn(
             "python_net_destroy();\n#endif\n"
+            "    python_inference_destroy();\n"
             "    python_media_destroy();\n"
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    python_http_stream_destroy();\n"
@@ -105,6 +106,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
         )
         self.assertIn(
             "solua_net_destroy();\n#endif\n"
+            "    solua_inference_destroy();\n"
             "    solua_media_destroy();\n"
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    solua_http_stream_destroy();\n"

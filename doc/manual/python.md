@@ -47,6 +47,9 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Text user interfaces](python.tui.md) | `solaros.tui` |
 | [Graphics and raster images](python.gfx.md) | `solaros.gfx`, `solaros.image` |
 | [Camera, streams, and RTSP](python.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
+| [Computer vision](vision.md) | `solaros.vision` |
+| [Model inference](inference.md) | `solaros.inference` |
+| [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Conventions
 
@@ -109,6 +112,10 @@ Optional API groups follow these package gates:
 - `service.script-media`: `solaros.streams` local handles and leased JPEG frames
 - `service.camera`: `solaros.camera` snapshots and ownership status
 - `service.rtsp-client`: `solaros.rtsp` asynchronous receivers and native audio
+- `service.vision`: `solaros.vision` native QR recognition and decoding
+- `service.imlib`: `solaros.vision` statistics, segmentation, filters, morphology, difference, and blobs
+- `service.pipeline`: `solaros.pipeline` OS-owned native image processing jobs
+- `service.inference`: `solaros.inference` resident ESP-DL models and named tensors
 
 ## Top-Level Helpers
 

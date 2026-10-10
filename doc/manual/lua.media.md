@@ -19,6 +19,8 @@ agent_reference_sections = true
   or `capture(path[, size[, quality[, source]]])`.
 - Native decode/presentation: `solaros.image.from_frame(frame)`,
   `decode(data)`, `present(image, x, y[, width, height])`, and `close(image)`.
+- QR detection: `solaros.vision.qrcodes(image[, options])` when `service.vision`
+  is compiled; see [Computer vision](vision.md) for payloads, regions, and results.
 - Network receiver: `solaros.rtsp.open(url[, video[, audio]])`,
   `status(handle)`, `read_frame(handle[, timeout_ms])`,
   `lateness(handle, frame)`, and `close(handle)`.
@@ -95,6 +97,10 @@ When `media.image` is compiled:
 - `from_frame(frame)`: decode a leased camera or RTSP JPEG without copying its
   compressed bytes into the interpreter heap. The resulting image is independent
   of the frame and remains valid after frame release.
+- `to_rgb(image[, width, height])`: return an owned packed RGB888 binary string,
+  optionally resized with nearest-neighbor sampling. Supply both dimensions;
+  the copy remains valid after image closure and must fit the Lua heap.
+  This provides pixel buffers for model-specific normalization and quantization.
 - `draw(image, x, y[, width, height])`: existing clipped canvas drawing.
 - `present(image, x, y[, width, height])`: queue a native presentation.
   On RGB565-capable color displays this bypasses indexed palette conversion;
@@ -146,6 +152,37 @@ wall-clock time. Local camera timestamps are capture timestamps.
 Current RTSP restrictions are unchanged: trusted LAN, UDP media, JPEG/L16,
 IPv4/hostnames, and no URL credentials/authentication or TCP-interleaved media.
 Interpreters are never called from network/audio tasks.
+
+## QR detection
+
+`solaros.vision.qrcodes(image[, options])` processes an existing native image
+handle. Release a camera/RTSP frame after `image.from_frame` and before detection.
+Results contain binary string payloads and original-image corner coordinates;
+they remain valid after the image is closed. Processing is limited to 640 by
+480 and eight decoded codes. Use `pcall` to close the image on error. See
+[Computer vision](vision.md) for crop/resize options, result fields, and examples.
+
+## Image processing
+
+`service.imlib` adds native histogram/statistics, binary thresholding/inversion,
+mean/Gaussian/median filters, erosion/dilation/opening/closing, image difference,
+and grayscale/LAB blobs under `solaros.vision`. Transformations return new image
+handles; source pixels stay unchanged. See [Computer vision](vision.md).
+
+## Model inference and background pipelines
+
+`solaros.inference` loads resident models and checked bundles on ESP32-S3
+with PSRAM. Use `load_bundle` and `run_bundle` for native image preparation
+and built-in classification or PICO detection results. Raw models expose
+named tensor inputs and outputs. See [Model inference](inference.md) and
+[Model bundles](model-bundles.md) for the shared Python/Lua contract.
+
+`solaros.pipeline` runs QR or model processing as an OS-owned background job
+over stored images, camera streams, or JPEG RTSP feeds. Scripts can configure
+a job, exit, and read its latest structured result from another session.
+See [Native image pipelines](pipelines.md) for the positional Lua calls,
+installation, and camera ownership. Explicitly stop or destroy pipelines and
+unload models when finished; interpreter teardown leaves them resident.
 
 ## Cleanup
 

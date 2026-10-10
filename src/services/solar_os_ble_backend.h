@@ -54,6 +54,10 @@ typedef enum {
     SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
     SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND,
     SOLAR_OS_BLE_HID_OP_PAIR,
+    SOLAR_OS_BLE_HID_OP_HOSTS,
+    SOLAR_OS_BLE_HID_OP_CONNECT,
+    SOLAR_OS_BLE_HID_OP_FORGET,
+    SOLAR_OS_BLE_HID_OP_DISCONNECT,
 } solar_os_ble_hid_operation_t;
 
 typedef struct {
@@ -68,6 +72,10 @@ typedef struct {
     uint8_t button;
     uint8_t hat;
     bool pressed;
+    bool manual;
+    uint8_t bda[6], addr_type;
+    size_t host_count;
+    solar_os_ble_hid_host_t hosts[SOLAR_OS_BLE_HID_HOST_MAX];
     solar_os_ble_hid_info_t info;
     solar_os_ble_hid_device_event_t event;
 } solar_os_ble_hid_request_t;

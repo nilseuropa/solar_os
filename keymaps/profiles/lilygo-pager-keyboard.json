@@ -1,0 +1,329 @@
+{
+  "schema": 1,
+  "profile": "lilygo-pager-keyboard",
+  "label": "LilyGO T-LoRa-Pager keyboard",
+  "matrix": {
+    "rows": 4,
+    "cols": 10,
+    "first": 1,
+    "stride": 10
+  },
+  "keys": [
+    {
+      "physical": 1,
+      "name": "Q",
+      "usage": 20
+    },
+    {
+      "physical": 2,
+      "name": "W",
+      "usage": 26
+    },
+    {
+      "physical": 3,
+      "name": "E",
+      "usage": 8
+    },
+    {
+      "physical": 4,
+      "name": "R",
+      "usage": 21
+    },
+    {
+      "physical": 5,
+      "name": "T",
+      "usage": 23
+    },
+    {
+      "physical": 6,
+      "name": "Y",
+      "usage": 28
+    },
+    {
+      "physical": 7,
+      "name": "U",
+      "usage": 24
+    },
+    {
+      "physical": 8,
+      "name": "I",
+      "usage": 12
+    },
+    {
+      "physical": 9,
+      "name": "O",
+      "usage": 18
+    },
+    {
+      "physical": 10,
+      "name": "P",
+      "usage": 19
+    },
+    {
+      "physical": 11,
+      "name": "A",
+      "usage": 4
+    },
+    {
+      "physical": 12,
+      "name": "S",
+      "usage": 22
+    },
+    {
+      "physical": 13,
+      "name": "D",
+      "usage": 7
+    },
+    {
+      "physical": 14,
+      "name": "F",
+      "usage": 9
+    },
+    {
+      "physical": 15,
+      "name": "G",
+      "usage": 10
+    },
+    {
+      "physical": 16,
+      "name": "H",
+      "usage": 11
+    },
+    {
+      "physical": 17,
+      "name": "J",
+      "usage": 13
+    },
+    {
+      "physical": 18,
+      "name": "K",
+      "usage": 14
+    },
+    {
+      "physical": 19,
+      "name": "L",
+      "usage": 15
+    },
+    {
+      "physical": 20,
+      "name": "Enter",
+      "usage": 40
+    },
+    {
+      "physical": 21,
+      "name": "Alt",
+      "usage": 226
+    },
+    {
+      "physical": 22,
+      "name": "Z",
+      "usage": 29
+    },
+    {
+      "physical": 23,
+      "name": "X",
+      "usage": 27
+    },
+    {
+      "physical": 24,
+      "name": "C",
+      "usage": 6
+    },
+    {
+      "physical": 25,
+      "name": "V",
+      "usage": 25
+    },
+    {
+      "physical": 26,
+      "name": "B",
+      "usage": 5,
+      "alt_block": true
+    },
+    {
+      "physical": 27,
+      "name": "N",
+      "usage": 17
+    },
+    {
+      "physical": 28,
+      "name": "M",
+      "usage": 16
+    },
+    {
+      "physical": 29,
+      "name": "Caps",
+      "usage": 225
+    },
+    {
+      "physical": 30,
+      "name": "Backspace",
+      "usage": 42
+    },
+    {
+      "physical": 31,
+      "name": "Space",
+      "usage": 44,
+      "layer_tap": true
+    },
+    {
+      "physical": 32,
+      "name": "R3C1"
+    },
+    {
+      "physical": 33,
+      "name": "R3C2"
+    },
+    {
+      "physical": 34,
+      "name": "R3C3"
+    },
+    {
+      "physical": 35,
+      "name": "R3C4"
+    },
+    {
+      "physical": 36,
+      "name": "R3C5"
+    },
+    {
+      "physical": 37,
+      "name": "R3C6"
+    },
+    {
+      "physical": 38,
+      "name": "R3C7"
+    },
+    {
+      "physical": 39,
+      "name": "R3C8"
+    },
+    {
+      "physical": 40,
+      "name": "R3C9"
+    }
+  ],
+  "symbols": [
+    {
+      "physical": 1,
+      "key": 49
+    },
+    {
+      "physical": 2,
+      "key": 50
+    },
+    {
+      "physical": 3,
+      "key": 51
+    },
+    {
+      "physical": 4,
+      "key": 52
+    },
+    {
+      "physical": 5,
+      "key": 53
+    },
+    {
+      "physical": 6,
+      "key": 54
+    },
+    {
+      "physical": 7,
+      "key": 55
+    },
+    {
+      "physical": 8,
+      "key": 56
+    },
+    {
+      "physical": 9,
+      "key": 57
+    },
+    {
+      "physical": 10,
+      "key": 48
+    },
+    {
+      "physical": 11,
+      "key": 42
+    },
+    {
+      "physical": 12,
+      "key": 47
+    },
+    {
+      "physical": 13,
+      "key": 43
+    },
+    {
+      "physical": 14,
+      "key": 45
+    },
+    {
+      "physical": 15,
+      "key": 61
+    },
+    {
+      "physical": 16,
+      "key": 58
+    },
+    {
+      "physical": 17,
+      "key": 39
+    },
+    {
+      "physical": 18,
+      "key": 34
+    },
+    {
+      "physical": 19,
+      "key": 64
+    },
+    {
+      "physical": 20,
+      "key": 27
+    },
+    {
+      "physical": 21,
+      "usage": 226
+    },
+    {
+      "physical": 22,
+      "key": 95
+    },
+    {
+      "physical": 23,
+      "key": 36
+    },
+    {
+      "physical": 24,
+      "key": 59
+    },
+    {
+      "physical": 25,
+      "key": 63
+    },
+    {
+      "physical": 26,
+      "key": 33,
+      "alt_block": true
+    },
+    {
+      "physical": 27,
+      "key": 44
+    },
+    {
+      "physical": 28,
+      "key": 46
+    },
+    {
+      "physical": 29,
+      "usage": 225
+    },
+    {
+      "physical": 30,
+      "usage": 42
+    }
+  ]
+}

@@ -19,6 +19,7 @@
 typedef enum {
     RASTER_IMAGE_PIXELS_STB,
     RASTER_IMAGE_PIXELS_WEBP,
+    RASTER_IMAGE_PIXELS_NATIVE,
 } raster_image_pixels_owner_t;
 
 struct solar_os_raster_image {
@@ -151,6 +152,50 @@ void solar_os_raster_image_retain(solar_os_raster_image_t *image)
     }
 }
 
+esp_err_t solar_os_raster_image_from_pixels(const uint8_t *data, size_t length,
+    uint32_t width, uint32_t height, solar_os_raster_image_format_t format,
+    size_t stride, solar_os_raster_image_t **out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    *out = NULL;
+    if (!data || !width || !height ||
+        (uint64_t)width * height > RASTER_IMAGE_MAX_PIXELS)
+        return ESP_ERR_INVALID_SIZE;
+    const size_t channels = format == SOLAR_OS_RASTER_IMAGE_GRAY8 ? 1 :
+        format == SOLAR_OS_RASTER_IMAGE_RGB565_LE ? 2 :
+        format == SOLAR_OS_RASTER_IMAGE_RGB888 ? 3 : 0;
+    if (!channels) return ESP_ERR_INVALID_ARG;
+    const size_t row = (size_t)width * channels;
+    if (!stride) stride = row;
+    if (stride < row || (height > 1 && stride > (SIZE_MAX - row) / (height - 1)) ||
+        length < stride * (height - 1) + row) return ESP_ERR_INVALID_SIZE;
+    solar_os_raster_image_t *image = solar_os_memory_calloc(1, sizeof(*image),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "raster.image");
+    if (!image) return ESP_ERR_NO_MEM;
+    image->pixels = solar_os_memory_alloc((size_t)width * height * 3,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "raster.pixels");
+    if (!image->pixels) { solar_os_memory_free(image); return ESP_ERR_NO_MEM; }
+    image->width = width; image->height = height; image->references = 1;
+    image->pixels_owner = RASTER_IMAGE_PIXELS_NATIVE;
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t *src = data + y * stride;
+        uint8_t *dst = image->pixels + (size_t)y * width * 3;
+        if (channels == 3) { memcpy(dst, src, row); continue; }
+        for (uint32_t x = 0; x < width; ++x) {
+            if (channels == 1) dst[x*3] = dst[x*3+1] = dst[x*3+2] = src[x];
+            else {
+                uint16_t p = src[x*2] | ((uint16_t)src[x*2+1] << 8);
+                unsigned r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+                dst[x*3] = (r << 3) | (r >> 2);
+                dst[x*3+1] = (g << 2) | (g >> 4);
+                dst[x*3+2] = (b << 3) | (b >> 2);
+            }
+        }
+    }
+    *out = image;
+    return ESP_OK;
+}
+
 void solar_os_raster_image_release(solar_os_raster_image_t *image)
 {
     if (image == NULL ||
@@ -158,7 +203,9 @@ void solar_os_raster_image_release(solar_os_raster_image_t *image)
         return;
     }
 
-    if (image->pixels_owner == RASTER_IMAGE_PIXELS_WEBP) {
+    if (image->pixels_owner == RASTER_IMAGE_PIXELS_NATIVE) {
+        solar_os_memory_free(image->pixels);
+    } else if (image->pixels_owner == RASTER_IMAGE_PIXELS_WEBP) {
         solar_os_webp_free(image->pixels);
     } else {
         solar_os_stb_image_free(image->pixels);
@@ -176,6 +223,74 @@ uint32_t solar_os_raster_image_width(const solar_os_raster_image_t *image)
 uint32_t solar_os_raster_image_height(const solar_os_raster_image_t *image)
 {
     return image != NULL ? image->height : 0U;
+}
+
+esp_err_t solar_os_raster_image_pixels(const solar_os_raster_image_t *image,
+                                      solar_os_raster_image_pixels_t *pixels)
+{
+    if (!pixels) return ESP_ERR_INVALID_ARG;
+    *pixels = (solar_os_raster_image_pixels_t){0};
+    if (!image || !image->pixels) return ESP_ERR_INVALID_ARG;
+    *pixels = (solar_os_raster_image_pixels_t){
+        .data = image->pixels, .length = (size_t)image->width * image->height * 3U,
+        .stride = (size_t)image->width * 3U,
+        .width = image->width, .height = image->height,
+    };
+    return ESP_OK;
+}
+
+esp_err_t solar_os_raster_image_convert(const solar_os_raster_image_t *image,
+    const solar_os_raster_image_convert_options_t *options,
+    uint8_t *destination, size_t length, size_t stride)
+{
+    if (!image || !image->pixels || !options || !destination)
+        return ESP_ERR_INVALID_ARG;
+    const uint32_t x = options->x, y = options->y;
+    if (x >= image->width || y >= image->height) return ESP_ERR_INVALID_SIZE;
+    const uint32_t cw = options->width ? options->width : image->width - x;
+    const uint32_t ch = options->height ? options->height : image->height - y;
+    const uint32_t w = options->output_width ? options->output_width : cw;
+    const uint32_t h = options->output_height ? options->output_height : ch;
+    if (cw > image->width - x || ch > image->height - y ||
+        !w || !h || (uint64_t)w * h > RASTER_IMAGE_MAX_PIXELS)
+        return ESP_ERR_INVALID_SIZE;
+    size_t bytes;
+    switch (options->format) {
+    case SOLAR_OS_RASTER_IMAGE_GRAY8: bytes = 1; break;
+    case SOLAR_OS_RASTER_IMAGE_RGB565_LE: bytes = 2; break;
+    case SOLAR_OS_RASTER_IMAGE_RGB888: bytes = 3; break;
+    default: return ESP_ERR_NOT_SUPPORTED;
+    }
+    const size_t row_bytes = (size_t)w * bytes;
+    if (!stride) stride = row_bytes;
+    if (stride < row_bytes || row_bytes > length ||
+        (h > 1 && stride > (length - row_bytes) / (h - 1U)))
+        return ESP_ERR_INVALID_SIZE;
+    const size_t used = (size_t)(h - 1U) * stride + row_bytes;
+    const uintptr_t dst_start = (uintptr_t)destination;
+    const uintptr_t src_start = (uintptr_t)image->pixels;
+    const size_t src_length = (size_t)image->width * image->height * 3U;
+    if (used > UINTPTR_MAX - dst_start) return ESP_ERR_INVALID_SIZE;
+    if (dst_start < src_start + src_length && src_start < dst_start + used)
+        return ESP_ERR_INVALID_ARG;
+    for (uint32_t row = 0; row < h; ++row) {
+        const uint32_t sy = y + (uint64_t)row * ch / h;
+        uint8_t *dst = destination + (size_t)row * stride;
+        for (uint32_t col = 0; col < w; ++col) {
+            const uint32_t sx = x + (uint64_t)col * cw / w;
+            const uint8_t *rgb = image->pixels + ((size_t)sy * image->width + sx) * 3U;
+            if (options->format == SOLAR_OS_RASTER_IMAGE_GRAY8) {
+                *dst++ = ((uint32_t)rgb[0] * 77U + rgb[1] * 150U + rgb[2] * 29U) >> 8;
+            } else if (options->format == SOLAR_OS_RASTER_IMAGE_RGB565_LE) {
+                const uint16_t value = ((uint16_t)(rgb[0] & 0xf8U) << 8U) |
+                    ((uint16_t)(rgb[1] & 0xfcU) << 3U) | (rgb[2] >> 3U);
+                *dst++ = value; *dst++ = value >> 8U;
+            } else {
+                memcpy(dst, rgb, 3U); dst += 3U;
+            }
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t solar_os_raster_image_draw(const solar_os_raster_image_t *image,

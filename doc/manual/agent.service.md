@@ -126,19 +126,20 @@ starts with only three bootstrap tools:
 - `system_status`: board ID, SolarOS version, uptime, free and largest internal
   RAM blocks, and free PSRAM.
 - `solaros_reference`: search the same package-aware manual source exposed to
-  users by `man -k` and `man TOPIC`. Python and Lua manuals have a generated
-  section index, so the tool returns up to three focused, firmware-matched
-  excerpts instead of a vague page summary or an oversized full manual. It
+  users by `man -k` and `man TOPIC`. The tool returns up to three matching
+  topics' Quick references from the signed downloaded manual. Without that
+  manual, it returns the built-in setup references or download instructions. It
   accepts exactly one `query` field combining the language and
   task, such as `{"query":"lua gfx drawing"}`. Every result includes mandatory
   SolarOS coding guidance: use documented constants rather than guessed
   strings or numbers, discover hardware names, respect package gates, and
-  preserve cleanup patterns. Search considers section names and excerpt text,
-  requires task terms to match, prioritizes the requested language, and can
-  include the counterpart-language excerpt for a mirrored service when that
-  contains the more complete contract. Graphics matches include copyable Python and Lua
-  setup/cleanup skeletons using `gfx.WHITE`, `gfx.BLACK`, a verified target,
-  and the language-correct `gfx.end()` or `gfx["end"]()`.
+  preserve cleanup patterns. Search uses topic names, aliases, summaries,
+  keywords, and Quick references. Downloaded graphics references include
+  copyable Python and Lua setup/cleanup skeletons using `gfx.WHITE`, `gfx.BLACK`,
+  a verified target, and the language-correct `gfx.end()` or `gfx["end"]()`.
+  Install or refresh the manual with `help update` before using APIs whose
+  topics return download instructions. A retained manual from an earlier
+  firmware version is marked as potentially outdated by `help status`.
 - `tool_search`: find and activate up to five installed tools relevant to an
   exact task. A later search replaces the previous dynamic selection while
   retaining the three bootstrap tools, so no provider turn advertises more
@@ -258,13 +259,13 @@ the model.
   plus five discovered tool schemas are serialized per provider turn.
 - Tool arguments: 4095 bytes, held in PSRAM for a request.
 - Tool result: 4095 bytes, allocated in PSRAM.
-- API-reference matches: at most three excerpts of at most 900 bytes each per
-  lookup. Generated offsets point into the existing embedded manual body, so
-  the index does not duplicate that body in flash.
-- Manual search: fixed stack storage for at most 12 results. Embedded page text
-  remains in flash. A verified SD override is loaded into PSRAM only while a
-  `man` page or page-contract fallback is being consumed. Indexed scripting
-  excerpts always use the embedded manual that was built with the firmware.
+- API-reference matches: at most three topic Quick references per lookup,
+  subject to the 4095-byte tool-result limit. Firmware does not embed full
+  scripting guides or a scripting-section excerpt index.
+- Manual search: fixed stack storage for at most 12 results. Built-in setup
+  text and download notices remain in flash. Full verified SD pages are loaded
+  into PSRAM while being read; the signed catalog supplies Quick references
+  for the agent.
 - Storage read/write content: 3072 bytes.
 - Storage ranged read: 2048 requested bytes; JSON output may stop earlier when
   escaping would exhaust the bounded tool result.

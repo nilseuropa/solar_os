@@ -190,6 +190,10 @@ When `media.image` is present, `solaros.image` provides:
 
 - `open(path)`, `load(path)`: decode a static raster and return a handle.
 - `size(handle)`: return `(width, height)`.
+- `to_rgb(handle[, width, height])`: copy packed RGB888 pixels into an owned
+  `bytearray`. Supply both dimensions to resize with nearest-neighbor sampling;
+  otherwise use the source size. The copy remains valid after closing the image.
+  Output is limited to 2 million pixels and must fit the interpreter heap.
 - `draw(handle, x, y[, width, height])`: queue a clipped raster draw.
 - `close(handle)`: close one handle.
 - `close_all()`: close all handles owned by this Python runtime.

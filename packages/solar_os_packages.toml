@@ -51,6 +51,31 @@ label = "RTSP streaming"
 category = "Networking"
 members = ["job_rtspd", "app_rtsp"]
 
+[groups.vision]
+label = "Computer vision"
+category = "Media"
+members = ["service_vision", "service_imlib"]
+
+[groups.inference]
+label = "Model inference"
+category = "Media"
+members = ["service_inference"]
+
+[groups.zoo]
+label = "Model zoo"
+category = "Media"
+members = ["app_zoo"]
+
+[groups.pipelines]
+label = "Native image pipelines"
+category = "Media"
+members = ["service_pipeline"]
+
+[groups.input_keymap]
+label = "Source keymaps"
+category = "Hardware support"
+members = ["service_input_keymap"]
+
 [groups.control_bindings]
 label = "Control bindings"
 category = "System"
@@ -502,6 +527,16 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
+[groups.inputronic_keyboard]
+label = "Soldered Inputronic keyboard"
+category = "Expansion hardware"
+members = ["expansion_inputronic_keyboard"]
+
+[groups.tab5_keyboard]
+label = "M5Stack Tab5 keyboard"
+category = "Expansion hardware"
+members = ["expansion_tab5_keyboard"]
+
 [groups.tdeck_keyboard]
 label = "T-Deck keyboard"
 category = "Expansion hardware"
@@ -694,8 +729,13 @@ category = "Internal"
 hidden = true
 members = ["board_cl32_core"]
 
+[groups.lilygo_pager_keyboard]
+label = "LilyGO T-LoRa-Pager keyboard"
+category = "Expansion hardware"
+members = ["expansion_lilygo_pager_keyboard"]
+
 [groups.tca8418]
-label = "TCA8418 keyboard"
+label = "Generic TCA8418 keyboard"
 category = "Expansion hardware"
 members = ["tca8418"]
 
@@ -812,6 +852,7 @@ depends = [
 sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
+  "services/solar_os_native_media.c",
   "services/solar_os_native_elf.c",
   "shell/solar_os_shell_native.c",
   "shell/solar_os_shell_pkg_tui.c",
@@ -1109,6 +1150,35 @@ sources = [
   "services/solar_os_rtp_jpeg.c",
   "services/solar_os_rtsp.c",
 ]
+
+[packages.service_vision]
+label = "service.vision"
+depends = ["service_image"]
+sources = ["services/solar_os_vision.c"]
+requires = ["quirc"]
+capabilities = ["psram"]
+
+[packages.service_inference]
+label = "service.inference"
+depends = ["service_json", "service_crypto"]
+sources = ["services/solar_os_inference.c", "services/solar_os_inference_espdl.cpp", "services/solar_os_tensor_image.c", "services/solar_os_model_bundle.c", "shell/solar_os_shell_model.c"]
+requires = ["esp-dl", "espdl_schema", "esp_timer"]
+capabilities = ["psram"]
+targets = ["esp32s3"]
+
+[packages.service_imlib]
+label = "service.imlib"
+depends = ["service_image"]
+sources = ["services/solar_os_imlib.c"]
+requires = ["solaros_imlib", "esp_timer"]
+capabilities = ["psram"]
+
+[packages.service_pipeline]
+label = "service.pipeline"
+depends = ["service_image", "service_json", "service_script_media"]
+sources = ["services/solar_os_processor.c", "services/solar_os_pipeline.c", "shell/solar_os_shell_pipeline.c"]
+requires = ["esp_timer"]
+capabilities = ["psram"]
 
 [packages.service_document]
 label = "media.document"
@@ -1554,6 +1624,33 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_inputronic_keyboard]
+label = "expansion.inputronic-keyboard"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_inputronic_keyboard_expansion_driver"]
+depends = ["service_tca8418"]
+sources = [
+  "services/solar_os_inputronic_keyboard.c",
+  "services/solar_os_inputronic_keyboard_profile.c",
+  "services/solar_os_inputronic_keyboard_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["expansion_i2c"]
+
+[packages.expansion_tab5_keyboard]
+label = "expansion.tab5-keyboard"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_tab5_keyboard_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_input_keymap"]
+sources = [
+  "drivers/tab5_keyboard.c",
+  "services/solar_os_tab5_keyboard.c",
+  "services/solar_os_tab5_keyboard_profile.c",
+  "services/solar_os_tab5_keyboard_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["expansion_i2c"]
+
 [packages.expansion_tdeck_keyboard]
 label = "expansion.tdeck-keyboard"
 targets = ["esp32s3"]
@@ -1697,17 +1794,48 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 
-[packages.tca8418]
-label = "expansion.tca8418"
-targets = ["esp32s3"]
-expansion_drivers = ["solar_os_tca8418_expansion_driver"]
-depends = ["service_expansion", "service_i2c", "service_pwm"]
+[packages.service_input_keymap]
+label = "service.input-keymap"
+targets = ["esp32", "esp32s3"]
+depends = ["service_json"]
+sources = [
+  "services/solar_os_input_keymap.c",
+  "services/solar_os_input_keymap_mapper.c",
+  "services/solar_os_input_keymap_json.c",
+]
+requires = ["json"]
+
+[packages.service_tca8418]
+label = "service.tca8418"
+targets = ["esp32", "esp32s3"]
+depends = ["service_expansion", "service_i2c", "service_input_keymap"]
 sources = [
   "services/solar_os_tca8418.c",
-  "services/solar_os_tca8418_driver.c",
+  "services/solar_os_tca8418_keymap.c",
+  "services/solar_os_matrix_keyboard.c",
 ]
 requires = ["esp_driver_i2c", "esp_driver_gpio"]
-capabilities = ["i2c", "pwm"]
+capabilities = ["expansion_i2c"]
+
+[packages.tca8418]
+label = "expansion.tca8418"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_tca8418_expansion_driver"]
+depends = ["service_tca8418"]
+sources = ["services/solar_os_tca8418_driver.c"]
+capabilities = ["expansion_i2c"]
+
+[packages.expansion_lilygo_pager_keyboard]
+label = "expansion.lilygo-pager-keyboard"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_lilygo_pager_keyboard_expansion_driver"]
+depends = ["service_tca8418", "service_pwm"]
+sources = [
+  "services/solar_os_lilygo_pager_keyboard.c",
+  "services/solar_os_lilygo_pager_keyboard_driver.c",
+]
+requires = ["esp_driver_gpio"]
+capabilities = ["expansion_i2c"]
 
 [packages.sx1262]
 label = "expansion.sx1262"
@@ -2402,6 +2530,21 @@ label = "app.playground"
 depends = ["service_playground"]
 sources = ["apps/solar_os_playground_app.c"]
 capabilities = ["psram", "wifi"]
+
+[packages.service_zoo]
+label = "service.zoo"
+depends = ["service_inference", "service_http_client", "service_zip", "service_json", "service_crypto"]
+sources = ["services/solar_os_zoo.c"]
+requires = ["nvs_flash"]
+capabilities = ["psram", "wifi"]
+targets = ["esp32s3"]
+
+[packages.app_zoo]
+label = "app.zoo"
+depends = ["service_zoo"]
+sources = ["apps/solar_os_zoo_app.c"]
+capabilities = ["psram", "wifi"]
+targets = ["esp32s3"]
 
 [packages.app_clock]
 label = "app.clock"

@@ -89,18 +89,17 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertNotIn("portENTER_CRITICAL(&devices_lock)", source)
 
     def test_t_lora_devices_preserve_registered_resources_on_detach(self):
-        keyboard = (ROOT / "src/services/solar_os_tca8418.c").read_text(
+        keyboard = (ROOT / "src/services/solar_os_lilygo_pager_keyboard.c").read_text(
             encoding="utf-8"
         )
         radio = (ROOT / "src/services/solar_os_sx1262.c").read_text(
             encoding="utf-8"
         )
 
-        clear_keyboard = keyboard.split("static void clear_device", 1)[1].split(
-            "esp_err_t solar_os_tca8418_attach", 1
-        )[0]
-        self.assertIn("pwm_port_stop", clear_keyboard)
-        self.assertIn("backlight_active", clear_keyboard)
+        detach_keyboard = keyboard.split("static esp_err_t detach_pager_locked", 1)[1]
+        self.assertIn("pwm_port_stop", detach_keyboard)
+        self.assertLess(detach_keyboard.index("solar_os_tca8418_detach"),
+                        detach_keyboard.index("pwm_port_stop"))
 
         detach_radio = radio.split("esp_err_t solar_os_sx1262_detach", 1)[1]
         self.assertIn(
@@ -178,9 +177,9 @@ class RuntimeBoundaryTest(unittest.TestCase):
             ))
             if descriptor_count == 0:
                 continue
-            category_count = source.count(
-                ".category = SOLAR_OS_EXPANSION_CATEGORY_"
-            )
+            category_count = len(re.findall(
+                r"\.category\s*=\s*SOLAR_OS_EXPANSION_CATEGORY_", source
+            ))
             self.assertEqual(category_count, descriptor_count, path.name)
 
     def test_expansion_driver_command_orders_explicit_categories(self):

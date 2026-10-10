@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar-os.eu/schemas/solaros-model-bundle.schema.json",
+  "title": "SolarOS model bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "runtime", "model", "inputs", "outputs", "result"],
+  "properties": {
+    "schema": {"const": 1},
+    "id": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9._-]+$"},
+    "version": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9._-]+$"},
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "version", "target"],
+      "properties": {"backend": {"const": "espdl"}, "version": {"type": "string", "minLength": 1}, "target": {"const": "esp32s3"}}
+    },
+    "model": {
+      "type": "object", "additionalProperties": false, "required": ["file", "sha256"],
+      "properties": {"file": {"$ref": "#/$defs/file"}, "sha256": {"$ref": "#/$defs/hash"}}
+    },
+    "assets": {
+      "type": "object", "maxProperties": 32,
+      "propertyNames": {"$ref": "#/$defs/file"}, "additionalProperties": {"$ref": "#/$defs/hash"}
+    },
+    "license": {
+      "type": "object", "additionalProperties": false, "required": ["id", "file"],
+      "properties": {"id": {"type": "string", "minLength": 1}, "file": {"$ref": "#/$defs/file"}}
+    },
+    "inputs": {
+      "type": "object", "minProperties": 1, "maxProperties": 16,
+      "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/input"}
+    },
+    "outputs": {
+      "type": "object", "minProperties": 1, "maxProperties": 16,
+      "propertyNames": {"$ref": "#/$defs/name"}, "additionalProperties": {"$ref": "#/$defs/port"}
+    },
+    "result": {"$ref": "#/$defs/adapter"}
+  },
+  "$defs": {
+    "file": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\\\:\\u0000-\\u001f]+(?<!/)$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 127, "pattern": "^[^\\u0000]+$"},
+    "dtype": {"enum": ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64", "float16", "bool"]},
+    "shape": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "integer", "minimum": 1, "maximum": 4194304}},
+    "exponents": {"type": "array", "maxItems": 4194304, "items": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}},
+    "adapter": {
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {"type": {"type": "string", "minLength": 1}, "options": {"type": "object"}}
+    },
+    "port": {
+      "type": "object", "additionalProperties": false, "required": ["dtype", "shape", "exponents"],
+      "properties": {"dtype": {"$ref": "#/$defs/dtype"}, "shape": {"$ref": "#/$defs/shape"}, "exponents": {"$ref": "#/$defs/exponents"}}
+    },
+    "input": {
+      "type": "object", "additionalProperties": false, "required": ["dtype", "shape", "exponents", "adapter"],
+      "properties": {"dtype": {"$ref": "#/$defs/dtype"}, "shape": {"$ref": "#/$defs/shape"}, "exponents": {"$ref": "#/$defs/exponents"}, "adapter": {"$ref": "#/$defs/adapter"}}
+    }
+  }
+}

@@ -21,7 +21,7 @@ int main(int argc, char **argv)
     const solar_os_native_host_api_v1_t *host = solar_os_native_host_v1();
     if (host == NULL ||
         host->abi_version != SOLAR_OS_NATIVE_ABI_VERSION ||
-        host->struct_size < sizeof(*host) ||
+        host->struct_size < offsetof(solar_os_native_host_api_v1_t, get_service) ||
         host->write_utf8 == NULL) {
         return 1;
     }

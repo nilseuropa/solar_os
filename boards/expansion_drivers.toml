@@ -20,6 +20,38 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
+[drivers.inputronic-keyboard]
+summary = "Soldered Inputronic 8x10 keyboard"
+package = "expansion_inputronic_keyboard"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "keyboard0"
+
+[[drivers.inputronic-keyboard.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.inputronic-keyboard.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x34"
+required = true
+allowed = [0x34]
+
+[[drivers.inputronic-keyboard.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+
+[[drivers.inputronic-keyboard.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
 [drivers.tdeck-keyboard]
 summary = "LilyGO T-Deck raw-matrix keyboard"
 package = "expansion_tdeck_keyboard"
@@ -72,11 +104,35 @@ key = "backlight"
 kind = "pwm"
 hint = "gpio"
 
+[drivers.tab5-keyboard]
+summary = "M5Stack Tab5 70-key keyboard"
+package = "expansion_tab5_keyboard"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "keyboard0"
+[[drivers.tab5-keyboard.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.tab5-keyboard.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6d"
+required = true
+min = 0x08
+max = 0x77
+[[drivers.tab5-keyboard.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
 [drivers.tca8418]
-summary = "4x10 matrix keyboard"
+summary = "Generic TCA8418 matrix keyboard"
 package = "tca8418"
-targets = ["esp32s3"]
-capabilities = ["i2c", "pwm"]
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
 default_name = "keyboard0"
 
 [[drivers.tca8418.bindings]]
@@ -84,23 +140,69 @@ key = "i2c"
 kind = "i2c_bus"
 hint = "bus"
 required = true
-
 [[drivers.tca8418.bindings]]
 key = "addr"
 kind = "i2c_address"
 hint = "0x34"
 required = true
 allowed = [0x34]
-
+[[drivers.tca8418.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
 [[drivers.tca8418.bindings]]
 key = "irq"
 kind = "gpio"
 hint = "gpio"
-
+role = "irq"
 [[drivers.tca8418.bindings]]
+key = "rows"
+kind = "parameter"
+hint = "1..8"
+role = "rows"
+min = 1
+max = 8
+[[drivers.tca8418.bindings]]
+key = "cols"
+kind = "parameter"
+hint = "1..10"
+role = "cols"
+min = 1
+max = 10
+
+[drivers.lilygo-pager-keyboard]
+summary = "LilyGO T-LoRa-Pager 4x10 keyboard"
+package = "expansion_lilygo_pager_keyboard"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "keyboard0"
+[[drivers.lilygo-pager-keyboard.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.lilygo-pager-keyboard.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x34"
+required = true
+allowed = [0x34]
+[[drivers.lilygo-pager-keyboard.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+[[drivers.lilygo-pager-keyboard.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+[[drivers.lilygo-pager-keyboard.bindings]]
 key = "backlight"
 kind = "pwm"
 hint = "gpio"
+role = "backlight"
 
 [drivers.cl32-core]
 summary = "CL-32 board controller"
@@ -1483,12 +1585,12 @@ required = true
 key = "siod"
 kind = "gpio"
 hint = "gpio"
-required = true
+required = false
 [[drivers.esp32-camera.bindings]]
 key = "sioc"
 kind = "gpio"
 hint = "gpio"
-required = true
+required = false
 [[drivers.esp32-camera.bindings]]
 key = "vsync"
 kind = "gpio"
@@ -1518,6 +1620,11 @@ required = false
 key = "reset"
 kind = "gpio"
 hint = "gpio"
+required = false
+[[drivers.esp32-camera.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
 required = false
 
 [drivers.esp32-dac]

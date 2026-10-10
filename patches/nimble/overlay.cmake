@@ -9,6 +9,15 @@ if(CONFIG_BT_ENABLED)
     endforeach()
 endif()
 
+if(CONFIG_BT_NIMBLE_ENABLED)
+    # The SDK defaults to one security procedure even with multiple links.
+    # A host negotiating with our HID peripheral must not prevent the local
+    # input keyboard (or another central client) from restoring encryption.
+    idf_component_get_property(bt_target bt COMPONENT_LIB)
+    target_compile_definitions(${bt_target} PUBLIC
+        MYNEWT_VAL_BLE_SM_MAX_PROCS=CONFIG_BT_NIMBLE_MAX_CONNECTIONS)
+endif()
+
 if(CONFIG_BT_NIMBLE_ENABLED AND CONFIG_BT_NIMBLE_DYNAMIC_SERVICE)
     set(nimble_overlay "${CMAKE_BINARY_DIR}/solar_os_nimble")
     set(nimble_host "$ENV{IDF_PATH}/components/bt/host/nimble/nimble/nimble/host/src")

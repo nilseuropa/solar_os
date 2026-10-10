@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "id": "arithmetic-int8",
+  "version": "1.0.0",
+  "runtime": {
+    "backend": "espdl",
+    "version": "3.3.13",
+    "target": "esp32s3"
+  },
+  "model": {
+    "file": "arithmetic_int8.espdl",
+    "sha256": "541304ca9e780f7b6ebe9e7f1886aa08180344c617731db0d80a5000b897fcc2"
+  },
+  "assets": {},
+  "inputs": {
+    "a": {
+      "dtype": "int8",
+      "shape": [
+        2,
+        4
+      ],
+      "exponents": [
+        0
+      ],
+      "adapter": {
+        "type": "tensor"
+      }
+    },
+    "b": {
+      "dtype": "int8",
+      "shape": [
+        2,
+        4
+      ],
+      "exponents": [
+        0
+      ],
+      "adapter": {
+        "type": "tensor"
+      }
+    }
+  },
+  "outputs": {
+    "sum": {
+      "dtype": "int8",
+      "shape": [
+        2,
+        4
+      ],
+      "exponents": [
+        0
+      ]
+    },
+    "difference": {
+      "dtype": "int8",
+      "shape": [
+        2,
+        4
+      ],
+      "exponents": [
+        0
+      ]
+    }
+  },
+  "result": {
+    "type": "raw"
+  }
+}

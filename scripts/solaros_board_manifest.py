@@ -486,6 +486,14 @@ def validate_board(board: dict[str, Any], drivers: dict[str, DriverDef]) -> None
             raise ManifestError(f"device {name} is missing bindings: {', '.join(missing)}")
         if unknown:
             raise ManifestError(f"device {name} has unknown bindings: {', '.join(unknown)}")
+        if driver.name == "esp32-camera":
+            has_bus = "i2c" in bindings
+            has_siod, has_sioc = "siod" in bindings, "sioc" in bindings
+            if not ((has_bus and not has_siod and not has_sioc)
+                    or (not has_bus and has_siod and has_sioc)):
+                raise ManifestError(
+                    f"device {name} requires either i2c or both siod and sioc"
+                )
         for key, value in bindings.items():
             spec = specs[key]
             if spec.kind == "gpio_line":

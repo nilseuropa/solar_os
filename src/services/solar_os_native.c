@@ -14,6 +14,7 @@
 #include "solar_os_native_driver_abi.h"
 #include "solar_os_native_ble_abi.h"
 #include "solar_os_native_job_abi.h"
+#include "solar_os_native_media.h"
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble.h"
 #endif
@@ -84,6 +85,7 @@ static const solar_os_native_host_api_v1_t native_host_v1 = {
     .target = CONFIG_IDF_TARGET,
     .firmware_version = SOLAR_OS_VERSION,
     .write_utf8 = native_write_utf8,
+    .get_service = native_job_get_service,
 };
 
 const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)
@@ -347,6 +349,9 @@ static const void *native_job_get_service(const char *name,
                                           uint32_t abi_version,
                                           uint32_t minimum_struct_size)
 {
+    const void *service = solar_os_native_media_get_service(name, abi_version,
+                                                           minimum_struct_size);
+    if (service != NULL) return service;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     if (name != NULL &&
         strcmp(name, SOLAR_OS_NATIVE_BLE_CLIENT_SERVICE) == 0 &&
@@ -393,6 +398,13 @@ static const struct esp_elfsym native_symbols[] = {
     ESP_ELFSYM_EXPORT(solar_os_native_host_v1),
     ESP_ELFSYM_EXPORT(solar_os_native_job_host_v1),
     ESP_ELFSYM_EXPORT(solar_os_native_driver_host_v1),
+    /* Compilers emit these standard calls even for struct assignment and
+     * simple loops. Keep the native substrate independent of broad SDK exports. */
+    ESP_ELFSYM_EXPORT(memcpy),
+    ESP_ELFSYM_EXPORT(memset),
+    ESP_ELFSYM_EXPORT(memmove),
+    ESP_ELFSYM_EXPORT(memcmp),
+    ESP_ELFSYM_EXPORT(strlen),
     ESP_ELFSYM_END,
 };
 

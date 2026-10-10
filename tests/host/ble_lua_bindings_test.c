@@ -71,6 +71,8 @@ static lua_State *new_vm(void)
     const luaL_Reg hid_methods[] = {
         {"start", solua_ble_hid_start}, {"pair", solua_ble_hid_pair},
         {"stop", solua_ble_hid_stop},
+        {"hosts", solua_ble_hid_hosts}, {"connect", solua_ble_hid_connect},
+        {"forget", solua_ble_hid_forget}, {"disconnect", solua_ble_hid_disconnect},
         {"status", solua_ble_hid_status}, {"poll", solua_ble_hid_poll}, {NULL, NULL},
     };
     const luaL_Reg hid_keyboard_methods[] = {
@@ -259,7 +261,18 @@ int main(void)
     assert(solar_os_ble_server_request(solua_ble_session,&request)==ESP_ERR_INVALID_ARG);
     run(L, "assert(not pcall(hid.start,'')); assert(not pcall(hid.start,string.rep('x',27))); "
            "assert(not pcall(hid.start,'x'..string.char(0))); hid.start('Lua HID'); hid.pair(); "
-           "assert(hid.status().event_capacity==16 and hid.poll()==nil)");
+           "assert(hid.status().event_capacity==16 and hid.status().host_name=='Desktop' and hid.poll()==nil)");
+    run(L, "assert(not pcall(hid.start,'name',1)); hid.start('Lua HID',true)");
+    assert(fake_hid_request.manual);
+    run(L, "local h=hid.hosts()[1]; assert(h.name=='Desktop' and h.connected and h.addr_type==1 "
+           "and h.address=='01:02:03:04:05:06'); "
+           "assert(not pcall(hid.connect,'bad')); "
+           "assert(not pcall(hid.forget,'01:02:03:04:05:06',-1)); "
+           "assert(not pcall(hid.connect,'01:02:03:04:05:06',2)); "
+           "hid.connect('01:02:03:04:05:06',1)");
+    assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_CONNECT && fake_hid_request.addr_type==1 &&
+           !memcmp(fake_hid_request.bda, (uint8_t[]){1,2,3,4,5,6}, 6));
+    run(L, "hid.forget('01:02:03:04:05:06'); hid.disconnect(); hid.poll()");
     assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_POLL);
     assert(fake_hid_owner == solua_ble_session);
     fake_hid_event=(solar_os_ble_hid_device_event_t){

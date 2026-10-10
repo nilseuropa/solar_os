@@ -155,6 +155,9 @@ names to GPIO numbers. `cs` requires `spi`; `addr` and `alt_addr` require
 Camera DVP attachments also accept GPIO-number bindings `d0`..`d7`, `siod`,
 `sioc`, `vsync`, `href`, `pclk`, `xclk`, and optional `pwdn`/`reset`. The camera
 driver validates required pins and claims; board-owned cameras cannot be detached.
+For SCCB control, specify either `i2c="i2c0"` (or another existing named bus)
+or both `siod` and `sioc` GPIO numbers. These modes cannot be combined. A named
+bus retains its wiring and other attached devices when the camera stops.
 
 ```lua
 solaros.expansion.attach("pcd8544", "lcd0", {

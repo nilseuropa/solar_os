@@ -1,0 +1,429 @@
+{
+  "schema": 1,
+  "profile": "inputronic-keyboard",
+  "label": "Soldered Inputronic keyboard",
+  "matrix": {
+    "rows": 8,
+    "cols": 10,
+    "first": 1,
+    "stride": 10
+  },
+  "keys": [
+    {
+      "physical": 1,
+      "name": "R0C0"
+    },
+    {
+      "physical": 2,
+      "name": "R0C1"
+    },
+    {
+      "physical": 3,
+      "name": "R0C2"
+    },
+    {
+      "physical": 4,
+      "name": "R0C3"
+    },
+    {
+      "physical": 5,
+      "name": "R0C4"
+    },
+    {
+      "physical": 6,
+      "name": "R0C5"
+    },
+    {
+      "physical": 7,
+      "name": "Up",
+      "usage": 82
+    },
+    {
+      "physical": 8,
+      "name": "Left",
+      "usage": 80
+    },
+    {
+      "physical": 9,
+      "name": "Down",
+      "usage": 81
+    },
+    {
+      "physical": 10,
+      "name": "Right",
+      "usage": 79
+    },
+    {
+      "physical": 11,
+      "name": "R1C0"
+    },
+    {
+      "physical": 12,
+      "name": "R1C1"
+    },
+    {
+      "physical": 13,
+      "name": "R1C2"
+    },
+    {
+      "physical": 14,
+      "name": "Backspace",
+      "usage": 42
+    },
+    {
+      "physical": 15,
+      "name": "Enter",
+      "usage": 40
+    },
+    {
+      "physical": 16,
+      "name": "Delete",
+      "usage": 76
+    },
+    {
+      "physical": 17,
+      "name": "FN3",
+      "raw": true
+    },
+    {
+      "physical": 18,
+      "name": "FN4",
+      "raw": true
+    },
+    {
+      "physical": 19,
+      "name": "FN5",
+      "raw": true
+    },
+    {
+      "physical": 20,
+      "name": "FN6",
+      "raw": true
+    },
+    {
+      "physical": 21,
+      "name": "F1",
+      "usage": 58
+    },
+    {
+      "physical": 22,
+      "name": "F2",
+      "usage": 59
+    },
+    {
+      "physical": 23,
+      "name": "F3",
+      "usage": 60
+    },
+    {
+      "physical": 24,
+      "name": "F4",
+      "usage": 61
+    },
+    {
+      "physical": 25,
+      "name": "F5",
+      "usage": 62
+    },
+    {
+      "physical": 26,
+      "name": "F6",
+      "usage": 63
+    },
+    {
+      "physical": 27,
+      "name": "F7",
+      "usage": 64
+    },
+    {
+      "physical": 28,
+      "name": "F8",
+      "usage": 65
+    },
+    {
+      "physical": 29,
+      "name": "F9",
+      "usage": 66
+    },
+    {
+      "physical": 30,
+      "name": "F10",
+      "usage": 67
+    },
+    {
+      "physical": 31,
+      "name": "0",
+      "usage": 39,
+      "key": 48,
+      "shift_key": 61
+    },
+    {
+      "physical": 32,
+      "name": "1",
+      "usage": 30,
+      "key": 49,
+      "shift_key": 33
+    },
+    {
+      "physical": 33,
+      "name": "2",
+      "usage": 31,
+      "key": 50,
+      "shift_key": 34
+    },
+    {
+      "physical": 34,
+      "name": "3",
+      "usage": 32,
+      "key": 51,
+      "shift_key": 35
+    },
+    {
+      "physical": 35,
+      "name": "4",
+      "usage": 33,
+      "key": 52,
+      "shift_key": 36
+    },
+    {
+      "physical": 36,
+      "name": "5",
+      "usage": 34,
+      "key": 53,
+      "shift_key": 37
+    },
+    {
+      "physical": 37,
+      "name": "6",
+      "usage": 35,
+      "key": 54,
+      "shift_key": 38
+    },
+    {
+      "physical": 38,
+      "name": "7",
+      "usage": 36,
+      "key": 55,
+      "shift_key": 47
+    },
+    {
+      "physical": 39,
+      "name": "8",
+      "usage": 37,
+      "key": 56,
+      "shift_key": 40
+    },
+    {
+      "physical": 40,
+      "name": "9",
+      "usage": 38,
+      "key": 57,
+      "shift_key": 41
+    },
+    {
+      "physical": 41,
+      "name": "P",
+      "usage": 19
+    },
+    {
+      "physical": 42,
+      "name": "Q",
+      "usage": 20
+    },
+    {
+      "physical": 43,
+      "name": "W",
+      "usage": 26
+    },
+    {
+      "physical": 44,
+      "name": "E",
+      "usage": 8
+    },
+    {
+      "physical": 45,
+      "name": "R",
+      "usage": 21
+    },
+    {
+      "physical": 46,
+      "name": "T",
+      "usage": 23
+    },
+    {
+      "physical": 47,
+      "name": "Y",
+      "usage": 28
+    },
+    {
+      "physical": 48,
+      "name": "U",
+      "usage": 24
+    },
+    {
+      "physical": 49,
+      "name": "I",
+      "usage": 12
+    },
+    {
+      "physical": 50,
+      "name": "O",
+      "usage": 18
+    },
+    {
+      "physical": 51,
+      "name": "Semicolon",
+      "usage": 51,
+      "key": 59,
+      "shift_key": 58
+    },
+    {
+      "physical": 52,
+      "name": "A",
+      "usage": 4
+    },
+    {
+      "physical": 53,
+      "name": "S",
+      "usage": 22
+    },
+    {
+      "physical": 54,
+      "name": "D",
+      "usage": 7
+    },
+    {
+      "physical": 55,
+      "name": "F",
+      "usage": 9
+    },
+    {
+      "physical": 56,
+      "name": "G",
+      "usage": 10
+    },
+    {
+      "physical": 57,
+      "name": "H",
+      "usage": 11
+    },
+    {
+      "physical": 58,
+      "name": "J",
+      "usage": 13
+    },
+    {
+      "physical": 59,
+      "name": "K",
+      "usage": 14
+    },
+    {
+      "physical": 60,
+      "name": "L",
+      "usage": 15
+    },
+    {
+      "physical": 61,
+      "name": "R6C0"
+    },
+    {
+      "physical": 62,
+      "name": "Z",
+      "usage": 29
+    },
+    {
+      "physical": 63,
+      "name": "X",
+      "usage": 27
+    },
+    {
+      "physical": 64,
+      "name": "C",
+      "usage": 6
+    },
+    {
+      "physical": 65,
+      "name": "V",
+      "usage": 25
+    },
+    {
+      "physical": 66,
+      "name": "B",
+      "usage": 5
+    },
+    {
+      "physical": 67,
+      "name": "N",
+      "usage": 17
+    },
+    {
+      "physical": 68,
+      "name": "M",
+      "usage": 16
+    },
+    {
+      "physical": 69,
+      "name": "Comma",
+      "usage": 54,
+      "key": 44,
+      "shift_key": 59
+    },
+    {
+      "physical": 70,
+      "name": "Period",
+      "usage": 55,
+      "key": 46,
+      "shift_key": 58
+    },
+    {
+      "physical": 71,
+      "name": "R7C0"
+    },
+    {
+      "physical": 72,
+      "name": "Escape",
+      "usage": 41
+    },
+    {
+      "physical": 73,
+      "name": "Tab",
+      "usage": 43
+    },
+    {
+      "physical": 74,
+      "name": "CapsLock",
+      "usage": 57
+    },
+    {
+      "physical": 75,
+      "name": "Shift",
+      "usage": 225
+    },
+    {
+      "physical": 76,
+      "name": "Ctrl",
+      "usage": 224
+    },
+    {
+      "physical": 77,
+      "name": "Alt",
+      "usage": 226
+    },
+    {
+      "physical": 78,
+      "name": "FN1",
+      "raw": true
+    },
+    {
+      "physical": 79,
+      "name": "FN2",
+      "raw": true
+    },
+    {
+      "physical": 80,
+      "name": "Space",
+      "usage": 44
+    }
+  ],
+  "symbols": []
+}

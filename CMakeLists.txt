@@ -29,6 +29,8 @@ set(ENV{SOLAR_OS_PICOTTS_VOICE_DIR} "${SOLAR_OS_PICOTTS_VOICE_DIR}")
 
 include(patches/nimble/config_guard.cmake)
 solar_os_regenerate_stale_sdkconfig()
+include(scripts/cxx_sdkconfig.cmake)
+solar_os_enable_required_cxx_exceptions()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(
     COMPILE_DEFINITIONS

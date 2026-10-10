@@ -2,11 +2,14 @@ CC ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror
 
 ROOT := ../..
+override CFLAGS += -idirafter $(ROOT)/include
 WRITER_DIR := $(ROOT)/src/apps
-TARGETS := writer_buffer_test writer_files_test file_shortcuts_test sketch_canvas_test launcher_layout_test display_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test shell_startup_policy_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test native_elf_test keys_test input_test unistroke_test graffiti_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test cl32_keyboard_test battery_service_test battery_trend_test charger_service_test sensors_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test gpio_controller_test expansion_registry_test expansion_command_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test meshcore_ble_protocol_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test ubx_test gnss_service_test modem_service_test haptic_service_test imu_service_test bhi260ap_codec_test qmi8658_test drv2605_test bq25896_test axp2101_test max17048_test mgc3130_test sim7670_test xl9555_test st25r3916_test nfc_service_test
+TARGETS := writer_buffer_test writer_files_test file_shortcuts_test sketch_canvas_test launcher_layout_test display_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test shell_startup_policy_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test native_elf_test keys_test input_test unistroke_test graffiti_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test inputronic_keyboard_test matrix_keyboard_test input_keymap_service_test cl32_keyboard_test battery_service_test battery_trend_test charger_service_test sensors_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test gpio_controller_test expansion_registry_test expansion_command_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test meshcore_ble_protocol_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test ubx_test gnss_service_test modem_service_test haptic_service_test imu_service_test bhi260ap_codec_test qmi8658_test drv2605_test bq25896_test axp2101_test max17048_test mgc3130_test sim7670_test xl9555_test st25r3916_test nfc_service_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
+KEYMAP_GENERATED_HEADERS := $(addprefix $(MANUAL_GENERATED_DIR)/,solar_os_tca8418_keymap_generated.h solar_os_inputronic_keymap_generated.h solar_os_pager_keymap_generated.h)
+KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/generate_keymaps.py $(ROOT)/scripts/solaros_keymap.py $(ROOT)/scripts/solaros_keymap_build.py
 
 .PHONY: all test clean
 
@@ -27,12 +30,30 @@ TARGETS += rgb565_raster_test
 TARGETS += rtspd_completion_test
 TARGETS += script_media_test script_media_rtsp_test
 TARGETS += raster_image_test
+TARGETS += vision_test
+TARGETS += inference_test inference_lua_bindings_test inference_schema_test
+TARGETS += espdl_workers_test espdl_workers_single_test
+TARGETS += tensor_image_test
+TARGETS += tensor_image_lua_test
+TARGETS += vision_lua_bindings_test
 TARGETS += media_lua_bindings_test
 TARGETS += messaging_service_test
 TARGETS += nmea_test nmea_gnss_test
 TARGETS += cw2017_test
 TARGETS += rtc_pcf8563_test
+TARGETS += tab5_keyboard_test
 TARGETS += i2c_buses_test
+
+tab5_keyboard_test: tab5_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_os_tab5_keyboard*) \
+        $(ROOT)/src/drivers/tab5_keyboard.c $(ROOT)/src/drivers/tab5_keyboard.h \
+        $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) \
+        $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h inputronic_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -include compat.h -Iinputronic_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(CJSON_DIR) \
+		tab5_keyboard_test.c $(ROOT)/src/drivers/tab5_keyboard.c \
+		$(ROOT)/src/services/solar_os_tab5_keyboard_profile.c \
+		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
 rtc_pcf8563_test: rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c \
         $(ROOT)/src/drivers/rtc_pcf8563.h $(ROOT)/src/services/solar_os_pcf8563.c \
@@ -59,6 +80,27 @@ cw2017_test: cw2017_test.c $(ROOT)/src/drivers/cw2017.c $(ROOT)/src/drivers/cw20
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. \
 		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		cw2017_test.c $(ROOT)/src/drivers/cw2017.c $(ROOT)/src/services/solar_os_cw2017.c -o $@
+TARGETS += pipeline_test pipeline_lua_test
+TARGETS += jobs_admission_test
+
+jobs_admission_test: jobs_admission_test.c $(ROOT)/src/solar_os_jobs.c $(ROOT)/src/solar_os_scheduler.c
+	$(CC) $(CFLAGS) -DSOLAR_OS_JOBS_MAX=0 -include compat.h -ffunction-sections -fdata-sections \
+		-Ijobs_admission_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		$(filter-out $(ROOT)/src/solar_os_jobs.c,$^) -Wl,--gc-sections -o $@
+LUA_DIR := $(ROOT)/components/lua/lua/src
+LUA_TEST_SOURCES := $(filter-out $(LUA_DIR)/lua.c $(LUA_DIR)/luac.c \
+	$(LUA_DIR)/linit.c $(LUA_DIR)/liolib.c $(LUA_DIR)/loadlib.c $(LUA_DIR)/loslib.c, \
+	$(wildcard $(LUA_DIR)/*.c))
+
+pipeline_test: pipeline_test.c $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
+		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) $^ $(CJSON_DIR)/cJSON.c -lm -o $@
+
+pipeline_lua_test: pipeline_lua_test.c pipeline_test.c $(ROOT)/src/apps/solar_os_lua_pipeline.inc \
+        $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
+		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(LUA_DIR) -I$(CJSON_DIR) \
+		$(filter-out pipeline_test.c %.inc,$^) $(CJSON_DIR)/cJSON.c -lm -o $@
 
 axp2101_service_test: axp2101_service_test.c $(ROOT)/src/services/solar_os_axp2101.c \
 	$(ROOT)/src/services/solar_os_axp2101.h $(ROOT)/src/drivers/axp2101.c
@@ -144,6 +186,82 @@ raster_image_test: raster_image_test.c $(ROOT)/src/services/solar_os_raster_imag
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/components/stb_image/include -I$(ROOT)/components/webp_decoder/include $^ -o $@
 
+tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_image.c
+	$(CC) $(CFLAGS) -Iinference_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -lm -o $@
+
+# Uses the same cJSON source as ESP-IDF and OpenSSL only as a host SHA-256 adapter.
+# Override CJSON_DIR when the SDK is installed elsewhere.
+CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
+IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
+zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
+		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
+		-isystem $(IDF_HOST_DIR)/components/esp_rom/include -isystem $(IDF_HOST_DIR)/components/esp_rom/esp32s3 \
+		$^ $(CJSON_DIR)/cJSON.c -Wl,--gc-sections,--wrap=rename,--wrap=fwrite -lcrypto -lz -lm -o $@
+model_bundle_test: model_bundle_test.c inference_test.c $(ROOT)/src/services/solar_os_inference.c \
+        $(ROOT)/src/services/solar_os_model_bundle.c $(ROOT)/src/services/solar_os_tensor_image.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -pthread -Imodel_bundle_stubs -Iinference_stubs -Irtsp_stubs \
+		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
+		$(filter-out inference_test.c,$^) $(CJSON_DIR)/cJSON.c -lcrypto -lm -o $@
+
+QUIRC_DIR := $(ROOT)/components/quirc/lib
+QUIRC_HOST_OBJECTS := $(addprefix generated/vision/,$(notdir $(patsubst %.c,%.o,$(wildcard $(QUIRC_DIR)/*.c))))
+IMLIB_DIR := $(ROOT)/components/solaros_imlib
+IMLIB_SOURCES := $(wildcard $(IMLIB_DIR)/upstream/*.c)
+IMLIB_FLAGS := -DCMSIS_MCU_H=\"cmsis_compiler.h\" -I$(IMLIB_DIR)/include -I$(IMLIB_DIR)/upstream \
+    -ffunction-sections -fdata-sections -fno-strict-aliasing -Wno-error -Wno-sign-compare -Wno-unused-parameter
+TARGETS += native_image_api_test native_inference_api_test native_video_api_test native_video_rtsp_api_test
+native_image_api_test: native_image_api_test.c imlib_test.c vision_test.c \
+        $(ROOT)/src/services/solar_os_native_media.c $(ROOT)/src/services/solar_os_imlib.c \
+        $(ROOT)/src/services/solar_os_raster_image.c $(ROOT)/src/services/solar_os_vision.c $(IMLIB_SOURCES) $(QUIRC_HOST_OBJECTS)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -pthread $(IMLIB_FLAGS) -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 \
+		-DSOLAR_OS_PACKAGE_SERVICE_IMLIB=1 -DSOLAR_OS_PACKAGE_SERVICE_VISION=1 \
+		-I$(ROOT)/src -Irtsp_stubs -I. -I$(ROOT)/src/services \
+		-I$(ROOT)/components/stb_image/include -I$(ROOT)/components/webp_decoder/include -I$(QUIRC_DIR) \
+		$(filter-out imlib_test.c vision_test.c,$^) -Wl,--gc-sections -lm -o $@
+
+native_inference_api_test: native_inference_api_test.c inference_test.c \
+        $(ROOT)/src/services/solar_os_native_media.c $(ROOT)/src/services/solar_os_inference.c \
+        $(ROOT)/src/services/solar_os_tensor_image.c
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -DSOLAR_OS_PACKAGE_SERVICE_INFERENCE=1 \
+		-I$(ROOT)/src -Irtsp_stubs -I. -I$(ROOT)/src/services $(filter-out inference_test.c,$^) -lm -o $@
+
+native_video_api_test native_video_rtsp_api_test: native_video_api_test.c script_media_test.c \
+        $(ROOT)/src/services/solar_os_native_media.c $(ROOT)/src/services/solar_os_script_media.c \
+        $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_camera.c $(ROOT)/src/services/solar_os_camera_stream.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -pthread -DSOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA=1 \
+		$(if $(filter native_video_rtsp_api_test,$@),-DSOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT=1,) \
+		-Iscript_media_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		$(filter-out script_media_test.c,$^) -o $@
+
+TARGETS += imlib_test
+TARGETS += imlib_lua_test
+imlib_test: imlib_test.c vision_test.c $(ROOT)/src/services/solar_os_imlib.c \
+        $(ROOT)/src/services/solar_os_raster_image.c $(ROOT)/src/services/solar_os_vision.c $(IMLIB_SOURCES) $(QUIRC_HOST_OBJECTS)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -pthread $(IMLIB_FLAGS) -I$(ROOT)/src -Irtsp_stubs -I. -I$(ROOT)/src/services \
+		-I$(ROOT)/components/stb_image/include -I$(ROOT)/components/webp_decoder/include -I$(QUIRC_DIR) \
+		$(filter-out vision_test.c,$^) -Wl,--gc-sections -lm -o $@
+
+imlib_lua_test: imlib_lua_test.c imlib_test.c vision_test.c $(ROOT)/src/apps/solar_os_lua_imlib.inc \
+        $(ROOT)/src/services/solar_os_imlib.c $(ROOT)/src/services/solar_os_raster_image.c \
+        $(ROOT)/src/services/solar_os_vision.c $(IMLIB_SOURCES) $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -pthread $(IMLIB_FLAGS) -I$(ROOT)/src -Irtsp_stubs -I. -I$(ROOT)/src/services \
+		-I$(ROOT)/src/apps -I$(LUA_DIR) -I$(ROOT)/components/stb_image/include \
+		-I$(ROOT)/components/webp_decoder/include -I$(QUIRC_DIR) \
+		$(filter-out imlib_test.c vision_test.c %.inc,$^) -Wl,--gc-sections -lm -ldl -o $@
+generated/vision/%.o: $(QUIRC_DIR)/%.c $(QUIRC_DIR)/quirc.h $(QUIRC_DIR)/quirc_internal.h
+	@mkdir -p generated/vision
+	$(CC) $(CFLAGS) -Wno-sign-compare -Wno-unused-parameter \
+		-DQUIRC_FLOAT_TYPE=float -DQUIRC_USE_TGMATH=1 \
+		-Dmalloc=solar_os_quirc_malloc -Dcalloc=solar_os_quirc_calloc -Dfree=solar_os_quirc_free -c $< -o $@
+
+vision_test: vision_test.c $(ROOT)/src/services/solar_os_vision.c \
+		$(ROOT)/src/services/solar_os_raster_image.c $(QUIRC_HOST_OBJECTS)
+	$(CC) $(CFLAGS) -Wno-unused-function -D_POSIX_C_SOURCE=200809L -pthread \
+		-I$(ROOT)/src -Irtsp_stubs -I. -I$(ROOT)/src/services -I$(QUIRC_DIR) \
+		-I$(ROOT)/components/stb_image/include -I$(ROOT)/components/webp_decoder/include $^ -lm -o $@
+
 SCRIPT_MEDIA_TEST_SOURCES := script_media_test.c $(ROOT)/src/services/solar_os_script_media.c \
 	$(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_camera.c \
 	$(ROOT)/src/services/solar_os_camera_stream.c
@@ -187,7 +305,8 @@ ble_multi_peer_test: ble_multi_peer_test.c ble_test_support.c $(ROOT)/src/servic
 ble_nimble_test ble_hid_test ble_server_test: %: %.c nimble_test_support.c ble_test_support.c \
 		$(ROOT)/src/services/solar_os_ble_nimble.c $(ROOT)/src/services/solar_os_ble_hid.c \
 		$(ROOT)/src/services/solar_os_ble_hid_report_map.c \
-		$(ROOT)/src/services/solar_os_ble_nimble_server.inc \
+		$(ROOT)/src/services/solar_os_ble_nimble_server.inc $(ROOT)/src/services/solar_os_ble_hid_hosts.inc \
+		$(ROOT)/src/services/solar_os_ble_hid_name.inc \
 		$(wildcard $(ROOT)/src/services/solar_os_ble*.h) \
 		$(wildcard ble_stubs/freertos/*.h) \
 		$(wildcard nimble_stubs/*/*/*.h) $(wildcard nimble_stubs/*/*.h) \
@@ -196,10 +315,50 @@ ble_nimble_test ble_hid_test ble_server_test: %: %.c nimble_test_support.c ble_t
 		-Inimble_stubs -Ible_stubs -I. -I$(ROOT)/src/services \
 		$< nimble_test_support.c ble_test_support.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@
 
-LUA_DIR := $(ROOT)/components/lua/lua/src
-LUA_TEST_SOURCES := $(filter-out $(LUA_DIR)/lua.c $(LUA_DIR)/luac.c \
-	$(LUA_DIR)/linit.c $(LUA_DIR)/liolib.c $(LUA_DIR)/loadlib.c $(LUA_DIR)/loslib.c, \
-	$(wildcard $(LUA_DIR)/*.c))
+
+espdl_workers_test espdl_workers_single_test: espdl_workers_test.cpp $(ROOT)/scripts/espdl/worker_runtime.inc
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread \
+		$(if $(filter espdl_workers_single_test,$@),-DCONFIG_FREERTOS_NUMBER_OF_CORES=1,) $< -o $@
+
+tensor_image_lua_test: tensor_image_lua_test.c tensor_image_test.c \
+        $(ROOT)/src/apps/solar_os_lua_tensor_image.inc $(ROOT)/src/services/solar_os_tensor_image.c $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Iinference_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/apps -I$(LUA_DIR) $(filter-out tensor_image_test.c %.inc,$^) -lm -o $@
+
+inference_lua_json_test: inference_lua_bindings_test.c inference_test.c \
+        $(ROOT)/src/apps/solar_os_lua_inference.inc $(ROOT)/src/services/solar_os_inference.c $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Wno-unused-function -D_POSIX_C_SOURCE=200809L -pthread -DSOLAR_OS_PACKAGE_SERVICE_JSON=1 \
+		-Iinference_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/apps -I$(LUA_DIR) -I$(CJSON_DIR) \
+		$(filter-out inference_test.c %.inc,$^) $(CJSON_DIR)/cJSON.c -lm -o $@
+
+inference_test: inference_test.c $(ROOT)/src/services/solar_os_inference.c $(ROOT)/src/services/solar_os_inference.h
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread \
+		-Iinference_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		$(filter %.c,$^) -o $@
+
+inference_lua_bindings_test: inference_lua_bindings_test.c inference_test.c \
+		$(ROOT)/src/apps/solar_os_lua_inference.inc $(ROOT)/src/services/solar_os_inference.c $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Wno-unused-function -D_POSIX_C_SOURCE=200809L -pthread \
+		-Iinference_stubs -Irtsp_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/apps -I$(LUA_DIR) $(filter-out inference_test.c %.inc,$^) -lm -o $@
+
+inference_schema_test: inference_schema_test.cpp $(ROOT)/components/espdl_schema/solar_os_espdl_validate.cpp
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -Werror -idirafter $(ROOT)/include -I. -I$(ROOT)/src/services \
+		-I$(ROOT)/components/espdl_schema/include $^ -o $@
+
+generated/vision/solar_os_lua_vision.inc: $(WRITER_DIR)/solar_os_lua_media.inc
+	@mkdir -p generated/vision
+	python3 -c 'from pathlib import Path; s = Path("$<").read_text(); Path("$@").write_text(s[s.index("#if SOLAR_OS_PACKAGE_SERVICE_VISION"):])'
+
+vision_lua_bindings_test: vision_lua_bindings_test.c vision_test.c \
+		$(ROOT)/src/apps/solar_os_lua_image_rgb.inc \
+		$(ROOT)/src/services/solar_os_vision.c $(ROOT)/src/services/solar_os_raster_image.c \
+		generated/vision/solar_os_lua_vision.inc $(QUIRC_HOST_OBJECTS) $(LUA_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Wno-unused-function -D_POSIX_C_SOURCE=200809L -pthread \
+		-Igenerated/vision -I$(ROOT)/src -I$(ROOT)/src/apps -Irtsp_stubs -I. -I$(ROOT)/src/services -I$(QUIRC_DIR) -I$(LUA_DIR) \
+		-I$(ROOT)/components/stb_image/include -I$(ROOT)/components/webp_decoder/include \
+		$(filter-out vision_test.c %.inc,$^) -lm -o $@
 
 media_lua_bindings_test: media_lua_bindings_test.c $(SCRIPT_MEDIA_TEST_SOURCES) \
 		$(WRITER_DIR)/solar_os_lua_media.inc $(LUA_TEST_SOURCES)
@@ -395,6 +554,34 @@ ps2_mouse_test: ps2_mouse_test.c $(ROOT)/src/services/solar_os_ps2_mouse.c $(ROO
 cardkb_codec_test: cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_codec.c $(ROOT)/src/services/solar_os_cardkb_codec.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_codec.c -o $@
+
+$(KEYMAP_GENERATED_HEADERS) &: $(KEYMAP_INPUTS)
+	python3 $(ROOT)/scripts/generate_keymaps.py --output-dir $(MANUAL_GENERATED_DIR)
+
+inputronic_keyboard_test matrix_keyboard_test: $(KEYMAP_GENERATED_HEADERS)
+
+inputronic_keyboard_test: inputronic_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_os_inputronic_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_lilygo_pager_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_tca8418*) $(wildcard $(ROOT)/src/services/solar_os_matrix_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h inputronic_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -include compat.h -I$(MANUAL_GENERATED_DIR) -Iinputronic_stubs -Iexpansion_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
+		inputronic_keyboard_test.c $(ROOT)/src/services/solar_os_input_keymap.c \
+		$(ROOT)/src/services/solar_os_input_keymap_mapper.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm \
+		$(ROOT)/src/services/solar_os_matrix_keyboard.c \
+		$(ROOT)/src/services/solar_os_inputronic_keyboard_profile.c -o $@
+
+matrix_keyboard_test: matrix_keyboard_test.c keymap_memory_stub.c $(wildcard $(ROOT)/src/services/solar_os_matrix_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard $(ROOT)/src/services/solar_os_inputronic_keyboard_profile*) $(wildcard $(ROOT)/src/services/solar_os_lilygo_pager_keyboard*) $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -include compat.h \
+		-I$(MANUAL_GENERATED_DIR) -Iinputronic_stubs -Iexpansion_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
+		matrix_keyboard_test.c keymap_memory_stub.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c $(ROOT)/src/services/solar_os_matrix_keyboard.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c \
+		$(ROOT)/src/services/solar_os_inputronic_keyboard_profile.c \
+		$(ROOT)/src/services/solar_os_lilygo_pager_keyboard.c $(CJSON_DIR)/cJSON.c \
+		-Wl,--gc-sections -lm -o $@
+
+input_keymap_service_test: input_keymap_service_test.c $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard inputronic_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -include compat.h -Iinputronic_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) input_keymap_service_test.c \
+		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
 ubx_test: ubx_test.c $(ROOT)/src/drivers/ubx.c $(ROOT)/src/drivers/ubx.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
@@ -768,12 +955,27 @@ test: $(TARGETS)
 	./ps2_keyboard_test
 	./ps2_mouse_test
 	./cardkb_codec_test
+	./inputronic_keyboard_test
+	./tab5_keyboard_test
+	./matrix_keyboard_test
+	./input_keymap_service_test
 	./cl32_keyboard_test
 	./battery_service_test
 	./camera_service_test
 	./script_media_test
 	./script_media_rtsp_test
 	./raster_image_test
+	./vision_test
+	./imlib_test
+	./imlib_lua_test
+	./inference_test
+	./espdl_workers_test
+	./espdl_workers_single_test
+	./tensor_image_test
+	./tensor_image_lua_test
+	./inference_lua_bindings_test
+	./inference_schema_test
+	./vision_lua_bindings_test
 	./media_lua_bindings_test
 	./camera_expansion_test
 	./media_test
@@ -842,5 +1044,5 @@ test: $(TARGETS)
 	./nfc_service_test
 
 clean:
-	$(RM) $(TARGETS)
+	$(RM) $(TARGETS) model_bundle_test inference_lua_json_test zoo_test
 	$(RM) -r generated

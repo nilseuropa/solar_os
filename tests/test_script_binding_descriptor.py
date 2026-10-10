@@ -29,6 +29,9 @@ LUA_BINDINGS = LUA_SOURCE + (
 ).read_text(encoding="utf-8")
 PYTHON_BINDINGS += (REPOSITORY / "src/apps/solar_os_python_media.inc").read_text(encoding="utf-8")
 LUA_BINDINGS += (REPOSITORY / "src/apps/solar_os_lua_media.inc").read_text(encoding="utf-8")
+for stem in ("image_rgb", "tensor_image", "inference", "pipeline", "imlib"):
+    PYTHON_BINDINGS += (REPOSITORY / f"src/apps/solar_os_python_{stem}.inc").read_text(encoding="utf-8")
+    LUA_BINDINGS += (REPOSITORY / f"src/apps/solar_os_lua_{stem}.inc").read_text(encoding="utf-8")
 DESCRIPTOR = (REPOSITORY / "src/apps/solar_os_script_api.inc").read_text(
     encoding="utf-8"
 )
@@ -51,7 +54,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 53)
+        self.assertEqual(len(modules), 56)
         self.assertEqual(len(modules), len(set(modules)))
         self.assertNotRegex(PYTHON_SOURCE, r'python_new_submodule\(module,\s*"')
         self.assertNotRegex(LUA_SOURCE, r'solua_new_submodule\(L,\s*solaros,\s*"')
@@ -70,13 +73,15 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             self.assertTrue(
                 python_handler in PYTHON_BINDINGS
                 or f"PYTHON_{module.upper()}_BODY_METHOD({native_name},"
-                in PYTHON_BINDINGS,
+                in PYTHON_BINDINGS
+                or (module == "vision" and f"PYTHON_IMLIB_FUNCTION({native_name}," in PYTHON_BINDINGS),
                 python_handler,
             )
             self.assertTrue(
                 lua_handler in LUA_BINDINGS
                 or f"SOLUA_{module.upper()}_BODY_METHOD({native_name},"
-                in LUA_BINDINGS,
+                in LUA_BINDINGS
+                or (module == "vision" and f"SOLUA_IMLIB_FUNCTION({native_name}," in LUA_BINDINGS),
                 lua_handler,
             )
 
@@ -86,7 +91,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             r"(\w+),\s*(\w+),\s*(\w+),\s*(\w+)\);",
             DESCRIPTOR,
         )
-        self.assertEqual(len(named), 2)
+        self.assertEqual(len(named), 3)
         for _module, _public_name, python_native, lua_native in named:
             self.assertIn(python_native, PYTHON_BINDINGS)
             self.assertIn(lua_native, LUA_BINDINGS)
@@ -97,7 +102,9 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(nested), 38)
+        self.assertEqual(len(nested), 42)
+        self.assertTrue({("ble", "hid", name, name) for name in
+                         ("hosts", "connect", "forget", "disconnect")}.issubset(set(nested)))
         for module, submodule, _public_name, native_name in nested:
             python_handler = f"solaros_{module}_{submodule}_{native_name}_obj"
             lua_handler = f"solua_{module}_{submodule}_{native_name}"
@@ -196,7 +203,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             + submodule_constant_count
             + subnested_count
             + hid_keycode_count * hid_keycode_include_count,
-            792,
+            845,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

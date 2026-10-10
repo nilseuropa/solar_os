@@ -17,10 +17,11 @@ class CameraExpansionTest(unittest.TestCase):
     def test_binding_catalog_matches_reusable_driver(self):
         catalog = tomllib.loads((ROOT / "boards/expansion_drivers.toml").read_text())
         bindings = catalog["drivers"]["esp32-camera"]["bindings"]
-        expected = [f"d{i}" for i in range(8)] + ["siod", "sioc", "vsync", "href", "pclk", "xclk", "pwdn", "reset"]
+        expected = [f"d{i}" for i in range(8)] + ["siod", "sioc", "vsync", "href", "pclk", "xclk", "pwdn", "reset", "i2c"]
         self.assertEqual([entry["key"] for entry in bindings], expected)
-        self.assertTrue(all(entry["required"] for entry in bindings[:14]))
-        self.assertTrue(all(not entry["required"] for entry in bindings[14:]))
+        required = {entry["key"] for entry in bindings if entry["required"]}
+        self.assertEqual(required, {f"d{i}" for i in range(8)} |
+                         {"vsync", "href", "pclk", "xclk"})
         source = (ROOT / "src/drivers/solar_os_camera_esp32.c").read_text()
         self.assertNotIn("SOLAR_OS_BOARD_PIN_CAMERA_", source)
         self.assertIn("SOLAR_OS_MEMORY_EXTERNAL_PREFERRED", source)

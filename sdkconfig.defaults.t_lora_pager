@@ -2,6 +2,9 @@
 # Unlike the octal-PSRAM N16R8 modules, this board must NOT use SPIRAM_MODE_OCT.
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# Native model loading catches allocation failures from ESP-DL's C++ containers.
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+CONFIG_COMPILER_CXX_EXCEPTIONS_EMG_POOL_SIZE=1024
 # Native modules execute from S3 PSRAM and resolve only SolarOS's explicitly
 # registered, versioned host ABI.
 CONFIG_ELF_LOADER=y

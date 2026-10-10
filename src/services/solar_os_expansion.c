@@ -1058,6 +1058,15 @@ static esp_err_t validate_bindings(
         }
     }
 
+    if (driver_def->validate_bindings != NULL) {
+        const esp_err_t ret = driver_def->validate_bindings(bindings,
+                                                            binding_count,
+                                                            validation);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
     for (size_t i = 0; i < binding_count; i++) {
         if (!binding_valid(&bindings[i],
                            bindings,

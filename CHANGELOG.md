@@ -2,6 +2,89 @@
 
 ## 4.x
 
+- **4.16.5** — 2026-10-10 — Added Elecrow ThinkNode M9 support with a
+  320x240 ST7789 display, backlit STC8H QWERTY keypad, microSD, PCF8563 RTC,
+  NMEA GNSS, battery ADC, PWM buzzer, USB/UART console, Wi-Fi, and BLE.
+  The keypad provides app-exit and function keys plus a compose layer for
+  missing shell characters, tab completion, and scrollback navigation.
+  Its I2C address identifies board revisions; revision 1.1 requires
+  `active = 1` for GNSS power in the manifest. GNSS starts powered off;
+  use `gnss power on` to enable it. Added reusable STC8H keyboard and
+  NMEA 0183 GNSS expansion drivers, with background RMC/GGA reception and
+  optional alternate-baud detection. Named I2C buses now use independent
+  controllers while retaining the board's primary bus for legacy drivers.
+  TFT displays support board-declared active-low power rails. ODROID-GO
+  gains runtime I2C buses on free GPIO4/GPIO15 through `expansion bus create`.
+- **4.16.4** — 2026-10-08 — Python and Lua BLE HID APIs gain saved-host
+  listing, explicit host selection, disconnect, and per-host pairing removal.
+  Manual mode offers reconnects only to the selected host and can pair a
+  new host while retaining existing pairings and the local input keyboard.
+  Connected host names are read asynchronously when available. Reconnects
+  use the saved bond's security settings, and the HID GATT database stays
+  stable across BLE restarts. Explicit pairing can replace an unused bond
+  when storage is full while preserving the remembered input keyboard and
+  connected peers.
+- **4.16.3** — 2026-10-08 — Added the reusable M5Stack Tab5 Keyboard
+  expansion driver with named I2C bindings, an optional interrupt, physical
+  press/release events, key repeat, held modifiers, and the printed Sym layer.
+  Runtime keymaps can be inspected, loaded, and reset through `input keymap`.
+  The full flavor includes the driver on ESP32 and ESP32-S3 boards with
+  expansion I2C support. The Waveshare 4G/e-paper profile now uses Tab5 as
+  fixed `keyboard0` at `0x6d`, with INT on GPIO41, replacing its Inputronic
+  default and freeing GPIO40 for expansion.
+- **4.16.2** — 2026-10-06 — Added the reusable Soldered Inputronic
+  keyboard driver and enabled it on the custom Waveshare 4G/e-paper profile.
+  TCA8418 keyboards share one controller backend with separate generic,
+  Inputronic, and LilyGO Pager mapping profiles. The generic driver supports
+  configurable matrix geometry. All three support validated JSON keymaps,
+  inspection and reset through `input keymap`, and map loading and reset from
+  Python and Lua. Source mapping is owned by the reusable input-keymap
+  service, with source-local physical IDs, optional matrix selectors, and
+  capability discovery through the shell and both runtimes. Keyboard profiles
+  have shared descriptions for a desktop Python keymap CLI and
+  validated build-time custom defaults, selected per keyboard profile.
+  Runtime map loading and reset retain those compiled defaults. The Pager
+  profile retains its symbol layer and backlight;
+  custom Pager configurations should use `lilygo-pager-keyboard` in place of
+  `tca8418`. Python and Lua can exclusively capture a named local keyboard
+  with source-specific key presses, releases, HID usages, and modifiers for
+  forwarding utilities. Capture bypasses local shortcuts and releases on
+  runtime teardown; queue loss and source removal signal an input reset.
+- **4.16.1** — 2026-10-06 — Camera expansion attachments can use a
+  named I2C bus for SCCB control, including the board-owned bus wired to the
+  CL32 camera connector, or explicit SIOD/SIOC pins. Shared bus devices remain
+  available when the camera stops; the camera retains its bus lease until
+  detach. Corrected C++ exception configuration for ESP-DL builds, including
+  existing SDK configuration files.
+- **4.16.0** — 2026-10-05 — Added reusable computer vision and resident
+  ESP-DL inference for Python, Lua, shell commands, and native modules.
+  Scripts can decode QR codes and use image statistics, histograms,
+  thresholding, filters, morphology, image differences, and blob detection.
+  On ESP32-S3 with PSRAM, `model` loads shared resident models and checked
+  bundles with native image preparation, classification, and PICO detection;
+  single, automatic, and dual-core execution modes are available. OS-owned
+  `pipeline` jobs process pictures, camera streams, or JPEG RTSP feeds and
+  expose bounded latest results after the configuring script exits. The
+  `zoo` browser searches the hosted catalog and installs hash-verified model
+  bundles on SD or flash through staged replacement. Models remain resident
+  until explicitly unloaded or rebooted; local cameras retain exclusive
+  ownership. The full flavor enables these services where supported.
+- **4.15.19** — 2026-10-04 — Added Xteink X4 Pro support with an
+  800x480 e-paper display, GT911 touch and Home pad, fixed-mix warm/cool
+  frontlight brightness, one-bit SDMMC storage, BM8563-compatible RTC,
+  CW2017 battery gauge, navigation buttons, USB/UART consoles, Wi-Fi, and BLE.
+  One image identifies SSD1677, UC8179, or UC8279 displays on first use and
+  caches the controller only after successful initialization. Added reusable
+  UC8179 and UC8279 e-paper, PCF8563/BM8563 RTC, and CW2017 fuel-gauge
+  expansion drivers, plus optional GT911 reset, power, and Home-key bindings
+  and SDMMC rail power cycling.
+- **4.15.18** — 2026-10-02 — Reduced firmware-resident documentation to
+  a searchable topic directory and a small setup and recovery guide. Full
+  guides and scripting API references remain in the signed downloadable
+  manual and on the website. Run `help update` on devices with Wi-Fi, PSRAM,
+  and SD storage to install the exact-version manual; it remains readable
+  offline while its storage is mounted. The agent uses downloaded Quick
+  references or setup instructions when the manual is unavailable.
 - **4.15.17** — 2026-10-02 — Python and Lua gain
   `solaros.storage.write_file()` for creating, saving, and appending text or
   binary files through the storage service. Writes support up to 64 KiB per

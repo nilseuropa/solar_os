@@ -43,6 +43,9 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Text user interfaces](lua.tui.md) | `solaros.tui` |
 | [Graphics and raster images](lua.gfx.md) | `solaros.gfx`, `solaros.image` |
 | [Camera, streams, and RTSP](lua.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
+| [Computer vision](vision.md) | `solaros.vision` |
+| [Model inference](inference.md) | `solaros.inference` |
+| [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Top-Level Helpers
 
@@ -68,6 +71,11 @@ Lua mirrors the Python `solaros` module structure:
 `solaros.rtsp` are present only when their native services are compiled; see
 [Camera, streams, and RTSP](lua.media.md). Image decode and native presentation
 remain gated by `media.image`.
+`solaros.vision.qrcodes` requires `service.vision`. Statistics, segmentation,
+filters, morphology, difference, and blobs require `service.imlib`.
+See [Computer vision](vision.md).
+`solaros.inference` requires `service.inference`; see [Model inference](inference.md).
+`solaros.pipeline` requires `service.pipeline`; see [Native image pipelines](pipelines.md).
 
 The Lua runtime package requires PSRAM. Hardware and network tables are present
 only when the board/flavor includes the corresponding service package. For

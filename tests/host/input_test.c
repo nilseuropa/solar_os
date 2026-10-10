@@ -722,6 +722,67 @@ int main(void)
     assert(rate == 20);
     assert(delay == 300);
 
+    /* Capture owns only the selected source, preserves transitions and
+     * neutralizes after queue loss, release-all, readiness loss and detach. */
+    int capture_owner, other_owner;
+    solar_os_input_source_t capture_source;
+    assert(solar_os_input_keyboard_source_open("capture", true, &capture_source) == ESP_OK);
+    assert(solar_os_input_capture_keyboard(NULL, &capture_owner) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_input_capture_keyboard("missing", &capture_owner) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_input_capture_keyboard("capture", &capture_owner) == ESP_OK);
+    assert(solar_os_input_write_key(capture_source, 4, 4, 'a', 1,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_take_captured_activity());
+    assert(!solar_os_input_take_captured_activity());
+    solar_os_input_key_event_t direct_capture;
+    bool direct_reset;
+    assert(solar_os_input_read_captured_key(&capture_owner, &direct_capture, &direct_reset));
+    assert(!direct_reset && direct_capture.usage == 4 && direct_capture.modifiers == 1);
+    assert(solar_os_input_write_key(capture_source, 4, 4, 'a', 0,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+    assert(solar_os_input_read_captured_key(&capture_owner, &direct_capture, &direct_reset));
+    assert(!direct_reset && direct_capture.action == SOLAR_OS_INPUT_KEY_RELEASE);
+    assert(solar_os_input_capture_keyboard("capture", &other_owner) == ESP_ERR_INVALID_STATE);
+    solar_os_input_key_event_t captured = {
+        .source = capture_source, .usage = 4, .physical_key = 4,
+        .modifiers = SOLAR_OS_INPUT_MOD_LEFT_CTRL, .action = SOLAR_OS_INPUT_KEY_PRESS
+    };
+    solar_os_input_key_event_t capture_read;
+    bool reset;
+    assert(!solar_os_input_read_captured_key(&other_owner, &capture_read, &reset));
+    solar_os_input_release_keyboard(&other_owner);
+    assert(solar_os_input_capture_key_event(&captured));
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset));
+    assert(!reset && capture_read.usage == 4 && capture_read.modifiers == 1);
+    captured.action = SOLAR_OS_INPUT_KEY_RELEASE;
+    assert(solar_os_input_capture_key_event(&captured));
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset));
+    assert(!reset && capture_read.action == SOLAR_OS_INPUT_KEY_RELEASE);
+    captured.source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(!solar_os_input_capture_key_event(&captured));
+    captured.source = capture_source;
+    for (unsigned i = 0; i < 33; i++) {
+        assert(solar_os_input_capture_key_event(&captured));
+    }
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset) && reset);
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset) && !reset);
+    assert(!solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset));
+    solar_os_input_source_release_all(capture_source);
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset) && reset);
+    assert(solar_os_input_keyboard_source_set_ready(capture_source, false) == ESP_OK);
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset) && reset);
+    assert(solar_os_input_keyboard_source_set_ready(capture_source, true) == ESP_OK);
+    solar_os_input_source_close(capture_source);
+    assert(solar_os_input_read_captured_key(&capture_owner, &capture_read, &reset) && reset);
+    assert(!solar_os_input_capture_key_event(&captured));
+    assert(solar_os_input_keyboard_source_open("replacement", true, &capture_source) == ESP_OK);
+    captured.source = capture_source;
+    assert(!solar_os_input_capture_key_event(&captured));
+    solar_os_input_release_keyboard(&capture_owner);
+    assert(solar_os_input_capture_keyboard("replacement", &other_owner) == ESP_OK);
+    solar_os_input_release_keyboard(&other_owner);
+    solar_os_input_source_close(capture_source);
+
     puts("input_test: ok");
     return 0;
 }

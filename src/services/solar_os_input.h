@@ -329,6 +329,16 @@ size_t solar_os_input_read_source_chars(solar_os_input_source_t source,
                                         size_t buffer_len);
 size_t solar_os_input_get_pressed(solar_os_input_key_event_t *keys, size_t key_count);
 
+/* Exclusive source capture before desktop shortcuts/character decoding. */
+esp_err_t solar_os_input_capture_keyboard(const char *name, const void *owner);
+void solar_os_input_release_keyboard(const void *owner);
+bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event);
+/* Main-loop wake/idle accounting for events queued directly by drivers. */
+bool solar_os_input_take_captured_activity(void);
+/* reset is delivered before queued keys after overflow, release-all or detach. */
+bool solar_os_input_read_captured_key(const void *owner,
+    solar_os_input_key_event_t *event, bool *reset);
+
 solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void);
 esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout);
 const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout);

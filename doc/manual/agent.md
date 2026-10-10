@@ -94,8 +94,9 @@ actually starts.
   the last request used from its configured budget.
 - If a generated script guesses an API or display name, ask the agent to call
   `solaros_reference` with the language and exact task, then call the relevant
-  discovery tool. The reference lookup returns focused sections from the
-  firmware's Python and Lua manuals rather than only their page summaries.
+  discovery tool. The reference lookup returns Quick references from the
+  signed downloaded manual. If a topic directs you to install the manual,
+  run `help update` before using its APIs.
 - If a call is denied, the model receives a structured denial and can explain
   the result or choose another approach.
 

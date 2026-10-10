@@ -120,6 +120,41 @@ static input_gesture_observer_slot_t
     input_gesture_observers[INPUT_GESTURE_OBSERVER_MAX];
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
 
+#define INPUT_CAPTURE_QUEUE_MAX 32U
+static const void *input_capture_owner;
+static solar_os_input_source_t input_capture_source;
+static solar_os_input_key_event_t input_capture_queue[INPUT_CAPTURE_QUEUE_MAX];
+static size_t input_capture_head;
+static size_t input_capture_count;
+static bool input_capture_reset;
+static bool input_capture_activity;
+
+static void input_capture_reset_locked(solar_os_input_source_t source)
+{
+    if (input_capture_owner != NULL && input_capture_source == source) {
+        input_capture_head = input_capture_count = 0;
+        input_capture_reset = true;
+    }
+}
+
+static bool input_capture_push_locked(const solar_os_input_key_event_t *event)
+{
+    if (input_capture_owner == NULL ||
+        input_capture_source == SOLAR_OS_INPUT_SOURCE_INVALID ||
+        event->source != input_capture_source) {
+        return false;
+    }
+    if (input_capture_count == INPUT_CAPTURE_QUEUE_MAX) {
+        input_capture_reset_locked(event->source);
+    }
+    const size_t tail = (input_capture_head + input_capture_count) %
+        INPUT_CAPTURE_QUEUE_MAX;
+    input_capture_queue[tail] = *event;
+    input_capture_count++;
+    input_capture_activity = true;
+    return true;
+}
+
 static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
@@ -412,7 +447,13 @@ static input_pressed_slot_t *input_alloc_pressed_locked(void)
 
 static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
 {
+    if (event != NULL && input_capture_push_locked(event)) {
+        return true;
+    }
     if (event == NULL || input_queue_count >= INPUT_QUEUE_MAX) {
+        if (event != NULL) {
+            input_capture_reset_locked(event->source);
+        }
         return false;
     }
     const size_t index = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
@@ -849,6 +890,9 @@ esp_err_t solar_os_input_source_set_ready(solar_os_input_source_t source,
         result = ESP_ERR_INVALID_ARG;
     } else {
         input_sources[source - 1U].ready = ready;
+        if (!ready) {
+            input_capture_reset_locked(source);
+        }
     }
     portEXIT_CRITICAL(&input_lock);
     return result;
@@ -864,6 +908,9 @@ esp_err_t solar_os_input_keyboard_source_set_ready(solar_os_input_source_t sourc
         result = ESP_ERR_INVALID_ARG;
     } else {
         input_sources[source - 1U].ready = ready;
+        if (!ready) {
+            input_capture_reset_locked(source);
+        }
     }
     portEXIT_CRITICAL(&input_lock);
     return result;
@@ -1086,6 +1133,7 @@ bool solar_os_input_parse_gesture_direction(
 void solar_os_input_source_release_all(solar_os_input_source_t source)
 {
     portENTER_CRITICAL(&input_lock);
+    input_capture_reset_locked(source);
     if (!input_source_valid_locked(source)) {
         portEXIT_CRITICAL(&input_lock);
         return;
@@ -1097,6 +1145,7 @@ void solar_os_input_source_release_all(solar_os_input_source_t source)
         }
         solar_os_input_key_event_t release = input_pressed[i].event;
         release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+        release.modifiers = 0;
         if (input_queue_push_locked(&release)) {
             input_record_key_locked(&release);
         }
@@ -1118,6 +1167,10 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     solar_os_input_axis_event_t *axis_queue_to_free = NULL;
     solar_os_input_gesture_event_t *gesture_queue_to_free = NULL;
     portENTER_CRITICAL(&input_lock);
+    input_capture_reset_locked(source);
+    if (input_capture_source == source) {
+        input_capture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    }
     if (!input_source_valid_locked(source)) {
         portEXIT_CRITICAL(&input_lock);
         return;
@@ -1353,7 +1406,8 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0U) {
         result = ESP_ERR_INVALID_STATE;
-    } else if (input_queue_count > INPUT_QUEUE_MAX - 2U) {
+    } else if (input_queue_count > INPUT_QUEUE_MAX - 2U &&
+               !(input_capture_owner != NULL && input_capture_source == source)) {
         result = ESP_ERR_NO_MEM;
     } else {
         (void)input_queue_push_locked(&press);
@@ -1384,7 +1438,8 @@ esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0) {
         result = ESP_ERR_INVALID_STATE;
-    } else if (input_queue_count > INPUT_QUEUE_MAX - 2U) {
+    } else if (input_queue_count > INPUT_QUEUE_MAX - 2U &&
+               !(input_capture_owner != NULL && input_capture_source == source)) {
         result = ESP_ERR_NO_MEM;
     } else {
         (void)input_queue_push_locked(&press);
@@ -1758,6 +1813,101 @@ bool solar_os_input_pointer_filter_event(
     context = input_pointer_filter_context;
     portEXIT_CRITICAL(&input_lock);
     return filter != NULL && filter(event, context);
+}
+
+esp_err_t solar_os_input_capture_keyboard(const char *name, const void *owner)
+{
+    if (name == NULL || owner == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    portENTER_CRITICAL(&input_lock);
+    if (input_capture_owner != NULL) {
+        err = ESP_ERR_INVALID_STATE;
+    } else {
+        for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+            if (input_sources[i].active && input_sources[i].ready &&
+                (input_sources[i].capabilities & SOLAR_OS_INPUT_CAP_KEY_EVENTS) &&
+                strcmp(input_sources[i].name, name) == 0) {
+                input_capture_owner = owner;
+                input_capture_source = (solar_os_input_source_t)(i + 1U);
+                /* Discard selected-source input queued before the claim. */
+                const size_t queued = input_queue_count;
+                for (size_t n = 0; n < queued; n++) {
+                    const solar_os_input_key_event_t pending = input_queue[input_queue_head];
+                    input_queue_head = (input_queue_head + 1U) % INPUT_QUEUE_MAX;
+                    input_queue_count--;
+                    if (pending.source != input_capture_source) {
+                        const size_t tail = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
+                        input_queue[tail] = pending;
+                        input_queue_count++;
+                    }
+                }
+                input_capture_head = input_capture_count = 0;
+                input_capture_reset = false;
+                err = ESP_OK;
+                break;
+            }
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return err;
+}
+
+void solar_os_input_release_keyboard(const void *owner)
+{
+    portENTER_CRITICAL(&input_lock);
+    if (owner != NULL && input_capture_owner == owner) {
+        input_capture_owner = NULL;
+        input_capture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+        input_capture_head = input_capture_count = 0;
+        input_capture_reset = false;
+    }
+    portEXIT_CRITICAL(&input_lock);
+}
+
+bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event)
+{
+    if (event == NULL) {
+        return false;
+    }
+    portENTER_CRITICAL(&input_lock);
+    const bool captured = input_capture_push_locked(event);
+    portEXIT_CRITICAL(&input_lock);
+    return captured;
+}
+
+bool solar_os_input_read_captured_key(const void *owner,
+    solar_os_input_key_event_t *event, bool *reset)
+{
+    if (owner == NULL || event == NULL || reset == NULL) {
+        return false;
+    }
+    bool found = false;
+    *reset = false;
+    portENTER_CRITICAL(&input_lock);
+    if (input_capture_owner == owner) {
+        if (input_capture_reset) {
+            input_capture_reset = false;
+            *reset = found = true;
+        } else if (input_capture_count > 0) {
+            *event = input_capture_queue[input_capture_head];
+            input_capture_head = (input_capture_head + 1U) % INPUT_CAPTURE_QUEUE_MAX;
+            input_capture_count--;
+            found = true;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return found;
+}
+
+bool solar_os_input_take_captured_activity(void)
+{
+    portENTER_CRITICAL(&input_lock);
+    const bool active = input_capture_activity;
+    input_capture_activity = false;
+    portEXIT_CRITICAL(&input_lock);
+    return active;
 }
 
 size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t event_count)

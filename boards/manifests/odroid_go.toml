@@ -17,13 +17,14 @@ drivers = [
   "storage_expansion",
   "battery_adc",
   "audio_esp32_dac",
+  "i2c_esp_idf",
   "gpio_esp_idf",
   "pwm_esp_idf",
 ]
 capabilities = [
   "streaming_display",
-  "psram", "display", "gfx", "uart", "sd", "battery", "audio", "spi",
-  "gpio", "expansion_gpio", "expansion_spi", "expansion_uart",
+  "psram", "display", "gfx", "uart", "sd", "battery", "audio", "i2c", "spi",
+  "gpio", "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_pwm", "wifi", "ble", "key", "buttons", "adc_dpad", "adc",
   "status_led", "pwm", "display_brightness",
 ]

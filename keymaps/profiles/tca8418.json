@@ -1,0 +1,414 @@
+{
+  "schema": 1,
+  "profile": "tca8418",
+  "label": "Generic TCA8418 reference matrix",
+  "matrix": {
+    "rows": 8,
+    "cols": 10,
+    "first": 1,
+    "stride": 10
+  },
+  "keys": [
+    {
+      "physical": 1,
+      "name": "Q",
+      "usage": 20
+    },
+    {
+      "physical": 2,
+      "name": "W",
+      "usage": 26
+    },
+    {
+      "physical": 3,
+      "name": "E",
+      "usage": 8
+    },
+    {
+      "physical": 4,
+      "name": "R",
+      "usage": 21
+    },
+    {
+      "physical": 5,
+      "name": "T",
+      "usage": 23
+    },
+    {
+      "physical": 6,
+      "name": "Y",
+      "usage": 28
+    },
+    {
+      "physical": 7,
+      "name": "U",
+      "usage": 24
+    },
+    {
+      "physical": 8,
+      "name": "I",
+      "usage": 12
+    },
+    {
+      "physical": 9,
+      "name": "O",
+      "usage": 18
+    },
+    {
+      "physical": 10,
+      "name": "P",
+      "usage": 19
+    },
+    {
+      "physical": 11,
+      "name": "A",
+      "usage": 4
+    },
+    {
+      "physical": 12,
+      "name": "S",
+      "usage": 22
+    },
+    {
+      "physical": 13,
+      "name": "D",
+      "usage": 7
+    },
+    {
+      "physical": 14,
+      "name": "F",
+      "usage": 9
+    },
+    {
+      "physical": 15,
+      "name": "G",
+      "usage": 10
+    },
+    {
+      "physical": 16,
+      "name": "H",
+      "usage": 11
+    },
+    {
+      "physical": 17,
+      "name": "J",
+      "usage": 13
+    },
+    {
+      "physical": 18,
+      "name": "K",
+      "usage": 14
+    },
+    {
+      "physical": 19,
+      "name": "L",
+      "usage": 15
+    },
+    {
+      "physical": 20,
+      "name": "Enter",
+      "usage": 40
+    },
+    {
+      "physical": 21,
+      "name": "Shift",
+      "usage": 225
+    },
+    {
+      "physical": 22,
+      "name": "Z",
+      "usage": 29
+    },
+    {
+      "physical": 23,
+      "name": "X",
+      "usage": 27
+    },
+    {
+      "physical": 24,
+      "name": "C",
+      "usage": 6
+    },
+    {
+      "physical": 25,
+      "name": "V",
+      "usage": 25
+    },
+    {
+      "physical": 26,
+      "name": "B",
+      "usage": 5
+    },
+    {
+      "physical": 27,
+      "name": "N",
+      "usage": 17
+    },
+    {
+      "physical": 28,
+      "name": "M",
+      "usage": 16
+    },
+    {
+      "physical": 29,
+      "name": "Backspace",
+      "usage": 42
+    },
+    {
+      "physical": 30,
+      "name": "Ctrl",
+      "usage": 224
+    },
+    {
+      "physical": 31,
+      "name": "Space",
+      "usage": 44
+    },
+    {
+      "physical": 32,
+      "name": "Tab",
+      "usage": 43
+    },
+    {
+      "physical": 33,
+      "name": "Escape",
+      "usage": 41
+    },
+    {
+      "physical": 34,
+      "name": "CapsLock",
+      "usage": 57
+    },
+    {
+      "physical": 35,
+      "name": "Alt",
+      "usage": 226
+    },
+    {
+      "physical": 36,
+      "name": "Left",
+      "usage": 80
+    },
+    {
+      "physical": 37,
+      "name": "Down",
+      "usage": 81
+    },
+    {
+      "physical": 38,
+      "name": "Up",
+      "usage": 82
+    },
+    {
+      "physical": 39,
+      "name": "Right",
+      "usage": 79
+    },
+    {
+      "physical": 40,
+      "name": "Delete",
+      "usage": 76
+    },
+    {
+      "physical": 41,
+      "name": "1",
+      "usage": 30
+    },
+    {
+      "physical": 42,
+      "name": "2",
+      "usage": 31
+    },
+    {
+      "physical": 43,
+      "name": "3",
+      "usage": 32
+    },
+    {
+      "physical": 44,
+      "name": "4",
+      "usage": 33
+    },
+    {
+      "physical": 45,
+      "name": "5",
+      "usage": 34
+    },
+    {
+      "physical": 46,
+      "name": "6",
+      "usage": 35
+    },
+    {
+      "physical": 47,
+      "name": "7",
+      "usage": 36
+    },
+    {
+      "physical": 48,
+      "name": "8",
+      "usage": 37
+    },
+    {
+      "physical": 49,
+      "name": "9",
+      "usage": 38
+    },
+    {
+      "physical": 50,
+      "name": "0",
+      "usage": 39
+    },
+    {
+      "physical": 51,
+      "name": "F1",
+      "usage": 58
+    },
+    {
+      "physical": 52,
+      "name": "F2",
+      "usage": 59
+    },
+    {
+      "physical": 53,
+      "name": "F3",
+      "usage": 60
+    },
+    {
+      "physical": 54,
+      "name": "F4",
+      "usage": 61
+    },
+    {
+      "physical": 55,
+      "name": "F5",
+      "usage": 62
+    },
+    {
+      "physical": 56,
+      "name": "F6",
+      "usage": 63
+    },
+    {
+      "physical": 57,
+      "name": "F7",
+      "usage": 64
+    },
+    {
+      "physical": 58,
+      "name": "F8",
+      "usage": 65
+    },
+    {
+      "physical": 59,
+      "name": "F9",
+      "usage": 66
+    },
+    {
+      "physical": 60,
+      "name": "F10",
+      "usage": 67
+    },
+    {
+      "physical": 61,
+      "name": "Minus",
+      "usage": 45
+    },
+    {
+      "physical": 62,
+      "name": "Equal",
+      "usage": 46
+    },
+    {
+      "physical": 63,
+      "name": "LeftBracket",
+      "usage": 47
+    },
+    {
+      "physical": 64,
+      "name": "RightBracket",
+      "usage": 48
+    },
+    {
+      "physical": 65,
+      "name": "Backslash",
+      "usage": 49
+    },
+    {
+      "physical": 66,
+      "name": "Semicolon",
+      "usage": 51
+    },
+    {
+      "physical": 67,
+      "name": "Apostrophe",
+      "usage": 52
+    },
+    {
+      "physical": 68,
+      "name": "Grave",
+      "usage": 53
+    },
+    {
+      "physical": 69,
+      "name": "Comma",
+      "usage": 54
+    },
+    {
+      "physical": 70,
+      "name": "Period",
+      "usage": 55
+    },
+    {
+      "physical": 71,
+      "name": "Super",
+      "usage": 227
+    },
+    {
+      "physical": 72,
+      "name": "RightCtrl",
+      "usage": 228
+    },
+    {
+      "physical": 73,
+      "name": "RightShift",
+      "usage": 229
+    },
+    {
+      "physical": 74,
+      "name": "RightAlt",
+      "usage": 230
+    },
+    {
+      "physical": 75,
+      "name": "RightSuper",
+      "usage": 231
+    },
+    {
+      "physical": 76,
+      "name": "F11",
+      "usage": 68
+    },
+    {
+      "physical": 77,
+      "name": "F12",
+      "usage": 69
+    },
+    {
+      "physical": 78,
+      "name": "Insert",
+      "usage": 73
+    },
+    {
+      "physical": 79,
+      "name": "Home",
+      "usage": 74
+    },
+    {
+      "physical": 80,
+      "name": "End",
+      "usage": 77
+    }
+  ],
+  "symbols": []
+}

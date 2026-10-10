@@ -399,8 +399,43 @@ static int solua_ble_hid_start(lua_State *L)
     char copied[27];
     memcpy(copied, name, len);
     copied[len] = '\0';
-    return solua_ble_check(L, solar_os_ble_hid_device_start(solua_ble_get(L), copied));
+    if (!lua_isnoneornil(L, 2)) luaL_checktype(L, 2, LUA_TBOOLEAN);
+    return solua_ble_check(L, lua_toboolean(L, 2)
+        ? solar_os_ble_hid_device_start_managed(solua_ble_get(L), copied)
+        : solar_os_ble_hid_device_start(solua_ble_get(L), copied));
 }
+
+static int solua_ble_hid_hosts(lua_State *L)
+{
+    solar_os_ble_hid_host_t hosts[SOLAR_OS_BLE_HID_HOST_MAX]; size_t count;
+    solua_ble_check(L, solar_os_ble_hid_device_hosts(solua_ble_get(L), hosts, SOLAR_OS_BLE_HID_HOST_MAX, &count));
+    lua_createtable(L, count, 0);
+    for (size_t i=0; i<count; i++) {
+        char address[18]; snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
+            hosts[i].bda[0], hosts[i].bda[1], hosts[i].bda[2], hosts[i].bda[3], hosts[i].bda[4], hosts[i].bda[5]);
+        lua_createtable(L, 0, 4);
+        solua_set_str(L, -1, "address", address);
+        solua_set_int(L, -1, "addr_type", hosts[i].addr_type);
+        solua_set_bool(L, -1, "connected", hosts[i].connected);
+        solua_set_str(L, -1, "name", hosts[i].name);
+        lua_rawseti(L, -2, i+1);
+    }
+    return 1;
+}
+static int solua_ble_hid_host(lua_State *L, bool forget)
+{
+    size_t len; uint8_t bda[6]; luaL_checktype(L, 1, LUA_TSTRING);
+    const char *address = luaL_checklstring(L, 1, &len);
+    if (!solar_os_ble_parse_address(address, len, bda)) return luaL_error(L, "expected aa:bb:cc:dd:ee:ff");
+    lua_Integer type = luaL_optinteger(L, 2, 0);
+    if (type < 0 || type > 1) return luaL_error(L, "address type must be 0..1");
+    return solua_ble_check(L, forget ? solar_os_ble_hid_device_forget(solua_ble_get(L), bda, type)
+        : solar_os_ble_hid_device_connect(solua_ble_get(L), bda, type));
+}
+static int solua_ble_hid_connect(lua_State *L) { return solua_ble_hid_host(L, false); }
+static int solua_ble_hid_forget(lua_State *L) { return solua_ble_hid_host(L, true); }
+static int solua_ble_hid_disconnect(lua_State *L)
+{ return solua_ble_check(L, solar_os_ble_hid_device_disconnect(solua_ble_get(L))); }
 
 static int solua_ble_hid_stop(lua_State *L)
 {
@@ -416,7 +451,11 @@ static int solua_ble_hid_status(lua_State *L)
 {
     solar_os_ble_hid_info_t info;
     solua_ble_check(L, solar_os_ble_hid_device_status(solua_ble_get(L), &info));
-    lua_createtable(L, 0, 13);
+    lua_createtable(L, 0, 17);
+    solua_set_str(L, -1, "host_name", info.host_name);
+    solua_set_bool(L, -1, "manual", info.manual);
+    solua_set_bool(L, -1, "pairing", info.pairing);
+    solua_set_bool(L, -1, "host_selected", info.host_selected);
     solua_set_bool(L, -1, "registered", info.registered);
     solua_set_bool(L, -1, "advertising", info.advertising);
     solua_set_bool(L, -1, "closing", info.closing);

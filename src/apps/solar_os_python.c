@@ -33,6 +33,9 @@
 #include "py/smallint.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+#include "solar_os_input_keymap.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_contacts.h"
 #endif
@@ -7645,6 +7648,44 @@ static mp_obj_t python_input_event_to_dict(const solar_os_event_t *event)
     return dict;
 }
 
+static mp_obj_t solaros_input_capture_keyboard(mp_obj_t name_obj)
+{
+    if (python_app.device_input == NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("keyboard capture requires a foreground app"));
+    }
+    python_check_esp(solar_os_input_capture_keyboard(mp_obj_str_get_str(name_obj), &python_app));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_input_capture_keyboard_obj, solaros_input_capture_keyboard);
+
+static mp_obj_t solaros_input_release_keyboard(void)
+{
+    solar_os_input_release_keyboard(&python_app);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_release_keyboard_obj, solaros_input_release_keyboard);
+
+static mp_obj_t solaros_input_read_key(void)
+{
+    solar_os_input_key_event_t event;
+    bool reset;
+    if (!solar_os_input_read_captured_key(&python_app, &event, &reset)) {
+        return mp_const_none;
+    }
+    mp_obj_t dict = mp_obj_new_dict(10);
+    python_dict_store_cstr(dict, "type", reset ? "reset" : "key");
+    if (!reset) {
+        python_input_store_source(dict, event.source);
+        python_dict_store_uint(dict, "physical_key", event.physical_key);
+        python_dict_store_uint(dict, "usage", event.usage);
+        python_dict_store_uint(dict, "key", event.key);
+        python_dict_store_uint(dict, "modifiers", event.modifiers);
+        python_dict_store_int(dict, "action", event.action);
+    }
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_read_key_obj, solaros_input_read_key);
+
 static mp_obj_t solaros_input_sources(void)
 {
     mp_obj_t list = mp_obj_new_list(0, NULL);
@@ -7733,6 +7774,45 @@ static mp_obj_t solaros_input_status(void)
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_input_status_obj, solaros_input_status);
+
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+static mp_obj_t solaros_input_keymap_info(mp_obj_t name_obj)
+{
+    solar_os_input_keymap_info_t info;
+    python_check_esp(solar_os_input_keymap_info(mp_obj_str_get_str(name_obj), &info));
+    mp_obj_t dict = mp_obj_new_dict(12);
+    python_dict_store_uint(dict, "source", info.source);
+    python_dict_store_uint(dict, "capabilities", info.capabilities);
+    python_dict_store_uint(dict, "key_count", info.key_count);
+    python_dict_store_uint(dict, "rows", info.rows);
+    python_dict_store_uint(dict, "cols", info.cols);
+    python_dict_store_uint(dict, "first", info.first);
+    python_dict_store_uint(dict, "stride", info.stride);
+    python_dict_store_bool(dict, "supported", info.capabilities != 0U);
+    python_dict_store_bool(dict, "physical", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_PHYSICAL) != 0U);
+    python_dict_store_bool(dict, "modifiers", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_MODIFIERS) != 0U);
+    python_dict_store_bool(dict, "layers", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_LAYERS) != 0U);
+    python_dict_store_bool(dict, "tap_hold", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_TAP_HOLD) != 0U);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_input_keymap_info_obj, solaros_input_keymap_info);
+
+static mp_obj_t solaros_input_load_keymap(mp_obj_t name_obj, mp_obj_t path_obj)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    python_resolve_path_obj(path_obj, path, sizeof(path));
+    python_check_esp(solar_os_input_keymap_load(mp_obj_str_get_str(name_obj), path));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(solaros_input_load_keymap_obj, solaros_input_load_keymap);
+
+static mp_obj_t solaros_input_reset_keymap(mp_obj_t name_obj)
+{
+    python_check_esp(solar_os_input_keymap_reset(mp_obj_str_get_str(name_obj)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_input_reset_keymap_obj, solaros_input_reset_keymap);
+#endif
 
 static solar_os_terminal_t *python_current_terminal(void)
 {
@@ -8594,6 +8674,8 @@ static mp_obj_t solaros_image_size(mp_obj_t handle_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_image_size_obj, solaros_image_size);
 
+#include "solar_os_python_image_rgb.inc"
+
 static mp_obj_t solaros_image_draw(size_t n_args, const mp_obj_t *args)
 {
     if (n_args == 4U) {
@@ -8665,6 +8747,9 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #endif
 
 #include "solar_os_python_media.inc"
+#include "solar_os_python_imlib.inc"
+#include "solar_os_python_inference.inc"
+#include "solar_os_python_pipeline.inc"
 
 static void python_module_store(mp_obj_t module, const char *name, mp_obj_t value)
 {
@@ -9005,6 +9090,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();
 #endif
+    python_inference_destroy();
     python_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
@@ -9205,6 +9291,7 @@ static void python_task(void *arg)
     }
 
     if (python_app.vm_active) {
+        solar_os_input_release_keyboard(&python_app);
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         solar_os_hid_release_all();
 #endif
@@ -9220,6 +9307,7 @@ static void python_task(void *arg)
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         python_net_destroy();
 #endif
+        python_inference_destroy();
         python_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         python_http_stream_destroy();
@@ -9669,10 +9757,11 @@ static void python_stop(solar_os_context_t *ctx)
                                            NULL,
                                            PYTHON_STOP_WAIT_MS,
                                            20U)) {
-            /* A live media session can be inside a driver capture/release or
-             * joining its RTSP worker. Never delete that owner task mid-call.
+            /* Media or inference can be inside a driver or joining a native
+             * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
-            while (__atomic_load_n(&python_media_session, __ATOMIC_ACQUIRE) != NULL &&
+            while ((__atomic_load_n(&python_media_session, __ATOMIC_ACQUIRE) != NULL ||
+                    python_inference_active() || python_imlib_active()) &&
                    !python_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(python_task_stopped, NULL,
                     PYTHON_STOP_WAIT_MS, 20U);
@@ -9713,6 +9802,7 @@ static void python_stop(solar_os_context_t *ctx)
         python_app.key_input = NULL;
     }
     if (python_app.device_input != NULL) {
+        solar_os_input_release_keyboard(&python_app);
         solar_os_queue_delete(python_app.device_input);
         python_app.device_input = NULL;
     }
@@ -9732,6 +9822,7 @@ static void python_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();
 #endif
+    python_inference_destroy();
     python_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();

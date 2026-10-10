@@ -22,6 +22,9 @@
 #include "lualib.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+#include "solar_os_input_keymap.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 #include "solar_os_contacts.h"
 #endif
@@ -6833,6 +6836,41 @@ static void solua_push_input_event(lua_State *L,
     }
 }
 
+static int solua_input_capture_keyboard(lua_State *L)
+{
+    if (solua.device_input == NULL) {
+        return luaL_error(L, "keyboard capture requires a foreground app");
+    }
+    return solua_check_esp(L, solar_os_input_capture_keyboard(luaL_checkstring(L, 1), &solua));
+}
+
+static int solua_input_release_keyboard(lua_State *L)
+{
+    solar_os_input_release_keyboard(&solua);
+    return 0;
+}
+
+static int solua_input_read_key(lua_State *L)
+{
+    solar_os_input_key_event_t event;
+    bool reset;
+    if (!solar_os_input_read_captured_key(&solua, &event, &reset)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    solua_set_str(L, -1, "type", reset ? "reset" : "key");
+    if (!reset) {
+        solua_input_set_source(L, event.source);
+        solua_set_int(L, -1, "physical_key", event.physical_key);
+        solua_set_int(L, -1, "usage", event.usage);
+        solua_set_int(L, -1, "key", event.key);
+        solua_set_int(L, -1, "modifiers", event.modifiers);
+        solua_set_int(L, -1, "action", event.action);
+    }
+    return 1;
+}
+
 static int solua_input_sources(lua_State *L)
 {
     lua_newtable(L);
@@ -6923,6 +6961,43 @@ static int solua_input_status(lua_State *L)
     solua_set_int(L, -1, "dropped", dropped);
     return 1;
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+static int solua_input_keymap_info(lua_State *L)
+{
+    solar_os_input_keymap_info_t info;
+    (void)solua_check_esp(L, solar_os_input_keymap_info(luaL_checkstring(L, 1), &info));
+    lua_newtable(L);
+    solua_set_int(L, -1, "source", info.source);
+    solua_set_int(L, -1, "capabilities", info.capabilities);
+    solua_set_int(L, -1, "key_count", info.key_count);
+    solua_set_int(L, -1, "rows", info.rows);
+    solua_set_int(L, -1, "cols", info.cols);
+    solua_set_int(L, -1, "first", info.first);
+    solua_set_int(L, -1, "stride", info.stride);
+    solua_set_bool(L, -1, "supported", info.capabilities != 0U);
+    solua_set_bool(L, -1, "physical", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_PHYSICAL) != 0U);
+    solua_set_bool(L, -1, "modifiers", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_MODIFIERS) != 0U);
+    solua_set_bool(L, -1, "layers", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_LAYERS) != 0U);
+    solua_set_bool(L, -1, "tap_hold", (info.capabilities & SOLAR_OS_INPUT_KEYMAP_TAP_HOLD) != 0U);
+    return 1;
+}
+
+static int solua_input_load_keymap(lua_State *L)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    const char *name = luaL_checkstring(L, 1);
+    solua_resolve_path(L, 2, path, sizeof(path));
+    (void)solua_check_esp(L, solar_os_input_keymap_load(name, path));
+    return 0;
+}
+
+static int solua_input_reset_keymap(lua_State *L)
+{
+    (void)solua_check_esp(L, solar_os_input_keymap_reset(luaL_checkstring(L, 1)));
+    return 0;
+}
+#endif
 
 static solar_os_shell_io_t *solua_current_io(void)
 {
@@ -7686,6 +7761,8 @@ static int solua_image_size(lua_State *L)
     return 2;
 }
 
+#include "solar_os_lua_image_rgb.inc"
+
 static int solua_image_draw(lua_State *L)
 {
     const int count = lua_gettop(L);
@@ -7752,6 +7829,9 @@ static int solua_gfx_text(lua_State *L)
 }
 
 #include "solar_os_lua_media.inc"
+#include "solar_os_lua_imlib.inc"
+#include "solar_os_lua_inference.inc"
+#include "solar_os_lua_pipeline.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 static void solua_push_contact(lua_State *L,
@@ -8360,6 +8440,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
+    solua_inference_destroy();
     solua_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
@@ -8447,6 +8528,7 @@ static void solua_task(void *arg)
     }
 
 done:
+    solar_os_input_release_keyboard(&solua);
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
     solua_image_close_all_handles();
 #endif
@@ -8466,6 +8548,7 @@ done:
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         solua_net_destroy();
 #endif
+        solua_inference_destroy();
         solua_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
@@ -8755,10 +8838,11 @@ static void solua_stop(solar_os_context_t *ctx)
                                            NULL,
                                            SOLUA_STOP_WAIT_MS,
                                            20U)) {
-            /* A live media session can be inside a driver capture/release or
-             * joining its RTSP worker. Never delete that owner task mid-call.
+            /* Media or inference can be inside a driver or joining a native
+             * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
-            while (__atomic_load_n(&solua_media_session, __ATOMIC_ACQUIRE) != NULL &&
+            while ((__atomic_load_n(&solua_media_session, __ATOMIC_ACQUIRE) != NULL ||
+                    solua_inference_active() || solua_imlib_active()) &&
                    !solua_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(solua_task_stopped, NULL,
                     SOLUA_STOP_WAIT_MS, 20U);
@@ -8793,6 +8877,7 @@ static void solua_stop(solar_os_context_t *ctx)
         solua.key_input = NULL;
     }
     if (solua.device_input != NULL) {
+        solar_os_input_release_keyboard(&solua);
         solar_os_queue_delete(solua.device_input);
         solua.device_input = NULL;
     }
@@ -8812,6 +8897,7 @@ static void solua_stop(solar_os_context_t *ctx)
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
+    solua_inference_destroy();
     solua_media_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();

@@ -144,7 +144,7 @@ esp_err_t solar_os_script_media_close(solar_os_script_media_t *s, uint32_t id)
         solar_os_rtsp_client_cancel(s->rtsp);
         /* Do not delete a running network task or free buffers it still owns.
          * Cancel is checked by native networking; wait cooperatively to reap. */
-        while (!solar_os_task_wait_done(s->worker, &s->done, SOLAR_OS_TASK_STOP_WAIT_MS)) {}
+        while (!__atomic_load_n(&s->done, __ATOMIC_ACQUIRE)) vTaskDelay(1);
         solar_os_task_delete_external(s->worker);
         esp_err_t err = solar_os_rtsp_client_destroy(s->rtsp);
         if (err != ESP_OK) return err;

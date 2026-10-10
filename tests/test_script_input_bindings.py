@@ -13,8 +13,20 @@ DESCRIPTOR = (REPOSITORY / "src/apps/solar_os_script_api.inc").read_text(
 
 
 class ScriptInputBindingsTest(unittest.TestCase):
+    def test_capture_preserves_shortcut_bypass_and_idle_activity(self):
+        main = (REPOSITORY / "src/main.c").read_text(encoding="utf-8")
+        dispatch = main.split("static void dispatch_input_key(", 1)[1].split(
+            "static void dispatch_input_pointer(", 1)[0]
+        self.assertLess(dispatch.index("solar_os_input_capture_key_event"),
+                        dispatch.index("session_switch_alt_held"))
+        pump = main.split("static void dispatch_input_sources(void)", 1)[1].split(
+            "static uint32_t requested_tick_interval_ms", 1)[0]
+        self.assertIn("solar_os_input_take_captured_activity()", pump)
+        self.assertIn("solar_os_power_note_activity(millis_u32())", pump)
+
     def test_input_module_has_mirrored_bounded_read_api(self):
-        for function in ("sources", "read", "clear", "status"):
+        for function in ("sources", "read", "clear", "status", "capture_keyboard",
+                         "release_keyboard", "read_key"):
             self.assertIn(
                 f"SOLAR_OS_SCRIPT_API_FUNCTION(input, {function}, {function});",
                 DESCRIPTOR,
@@ -26,6 +38,14 @@ class ScriptInputBindingsTest(unittest.TestCase):
         self.assertIn("SOLUA_DEVICE_INPUT_QUEUE_LEN 16U", LUA_SOURCE)
         self.assertIn("input read limited to 60000 ms", PYTHON_SOURCE)
         self.assertIn("input read limited to 60000 ms", LUA_SOURCE)
+
+    def test_source_keymap_controls_have_runtime_parity(self):
+        for function in ("keymap_info", "load_keymap", "reset_keymap"):
+            self.assertIn(f"SOLAR_OS_SCRIPT_API_FUNCTION(input, {function}, {function});", DESCRIPTOR)
+            self.assertIn(f"solaros_input_{function}_obj", PYTHON_SOURCE)
+            self.assertIn(f"solua_input_{function}", LUA_SOURCE)
+        for source in (PYTHON_SOURCE, LUA_SOURCE, DESCRIPTOR):
+            self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP", source)
 
     def test_runtimes_opt_in_and_forward_pointer_axis_and_gesture_events(self):
         for source in (PYTHON_SOURCE, LUA_SOURCE):

@@ -8,7 +8,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_expansion_types.h"
 
-#define SOLAR_OS_EXPANSION_DRIVER_NAME_MAX 20
+#define SOLAR_OS_EXPANSION_DRIVER_NAME_MAX 32
 #define SOLAR_OS_EXPANSION_DEVICE_NAME_MAX 20
 #define SOLAR_OS_EXPANSION_ROLE_MAX 16
 #define SOLAR_OS_EXPANSION_TARGET_MAX 16
@@ -100,6 +100,10 @@ typedef struct {
                                   const solar_os_expansion_binding_t *bindings,
                                   size_t binding_count);
     esp_err_t (*detach_with_user)(void *user, const char *name);
+    /* Optional cross-binding checks, shared by CLI, scripts and board defaults. */
+    esp_err_t (*validate_bindings)(const solar_os_expansion_binding_t *bindings,
+                                   size_t binding_count,
+                                   solar_os_expansion_binding_validation_t *validation);
 } solar_os_expansion_driver_t;
 
 typedef enum {

@@ -422,3 +422,77 @@ static int solua_image_present(lua_State *L)
     return 0;
 }
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_VISION
+#include "solar_os_vision.h"
+
+static int solua_vision_result(lua_State *L)
+{
+    const solar_os_vision_qr_results_t *result = lua_touserdata(L, 1);
+    lua_newtable(L);
+    solua_set_int(L, -1, "width", result->width);
+    solua_set_int(L, -1, "height", result->height);
+    solua_set_int(L, -1, "processed_width", result->processed_width);
+    solua_set_int(L, -1, "processed_height", result->processed_height);
+    solua_set_int(L, -1, "candidates", result->candidates);
+    solua_set_int(L, -1, "decode_failures", result->decode_failures);
+    solua_set_bool(L, -1, "truncated", result->truncated);
+    solua_set_int(L, -1, "preprocess_us", result->preprocess_us);
+    solua_set_int(L, -1, "detect_us", result->detect_us);
+    solua_set_int(L, -1, "decode_us", result->decode_us);
+    solua_set_int(L, -1, "elapsed_us", result->elapsed_us);
+    lua_newtable(L);
+    for (size_t i = 0; i < result->count; ++i) {
+        const solar_os_vision_qr_code_t *code = &result->codes[i];
+        lua_newtable(L);
+        lua_pushlstring(L, code->payload ? (const char *)code->payload : "", code->length);
+        lua_setfield(L, -2, "payload");
+        solua_set_int(L, -1, "eci", code->eci);
+        solua_set_int(L, -1, "version", code->version);
+        solua_set_int(L, -1, "ecc_level", code->ecc_level);
+        solua_set_int(L, -1, "data_type", code->data_type);
+        lua_newtable(L);
+        for (size_t j = 0; j < 4; ++j) {
+            lua_newtable(L);
+            lua_pushinteger(L, code->corners[j].x); lua_rawseti(L, -2, 1);
+            lua_pushinteger(L, code->corners[j].y); lua_rawseti(L, -2, 2);
+            lua_rawseti(L, -2, j + 1);
+        }
+        lua_setfield(L, -2, "corners");
+        lua_rawseti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "codes");
+    return 1;
+}
+
+static int solua_vision_qrcodes(lua_State *L)
+{
+    solar_os_raster_image_t *image = solua.images[solua_image_slot(L, 1)];
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        lua_pushnil(L);
+        while (lua_next(L, 2)) {
+            if (lua_type(L, -2) != LUA_TSTRING) return luaL_error(L, "vision option keys must be strings");
+            const char *key = lua_tostring(L, -2);
+            if (strcmp(key, "x") && strcmp(key, "y") && strcmp(key, "width") &&
+                strcmp(key, "height") && strcmp(key, "output_width") && strcmp(key, "output_height"))
+                return luaL_error(L, "unsupported vision option %s", key);
+            lua_pop(L, 1);
+        }
+    }
+    const solar_os_raster_image_convert_options_t options = {
+        .x = solua_media_option(L, "x", 0, UINT32_MAX),
+        .y = solua_media_option(L, "y", 0, UINT32_MAX),
+        .width = solua_media_option(L, "width", 0, UINT32_MAX),
+        .height = solua_media_option(L, "height", 0, UINT32_MAX),
+        .output_width = solua_media_option(L, "output_width", 0, SOLAR_OS_VISION_MAX_WIDTH),
+        .output_height = solua_media_option(L, "output_height", 0, SOLAR_OS_VISION_MAX_HEIGHT),
+    };
+    solar_os_vision_qr_results_t *result = NULL;
+    (void)solua_check_esp(L, solar_os_vision_qrcodes(image, &options, solua_should_cancel, NULL, &result));
+    lua_pushcfunction(L, solua_vision_result);
+    lua_pushlightuserdata(L, result);
+    int status = lua_pcall(L, 1, 1, 0);
+    solar_os_vision_qr_results_free(result);
+    return status == LUA_OK ? 1 : lua_error(L);
+}
+#endif

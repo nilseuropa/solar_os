@@ -1246,6 +1246,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
 
     maybe_exit_suspend_for_ble_keyboard();
     solar_os_power_note_activity(millis_u32());
+    if (solar_os_input_capture_key_event(event)) {
+        return;
+    }
     const bool alt_active =
         (event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0U;
     const bool ctrl_active =
@@ -1495,6 +1498,10 @@ static void poll_local_input_sources(void)
 static void dispatch_input_sources(void)
 {
     poll_local_input_sources();
+    if (solar_os_input_take_captured_activity()) {
+        maybe_exit_suspend_for_ble_keyboard();
+        solar_os_power_note_activity(millis_u32());
+    }
     solar_os_input_key_event_t events[16];
     size_t count;
     while ((count = solar_os_input_read_events(events,

@@ -33,6 +33,16 @@ typedef uint32_t solar_os_ble_peer_t;
 #define SOLAR_OS_BLE_HID_KEYBOARD_LED_SCROLL_LOCK 0x04U
 #define SOLAR_OS_BLE_HID_KEYBOARD_LED_COMPOSE     0x08U
 #define SOLAR_OS_BLE_HID_KEYBOARD_LED_KANA        0x10U
+#define SOLAR_OS_BLE_HID_HOST_MAX 8U
+
+typedef struct {
+    uint8_t bda[6];
+    uint8_t addr_type;
+    bool connected;
+    /* Best-effort GAP Device Name of the current managed connection. RAM only;
+     * empty while unavailable. Apps own persistent friendly-name caches. */
+    char name[SOLAR_OS_BLE_NAME_MAX];
+} solar_os_ble_hid_host_t;
 
 typedef enum {
     SOLAR_OS_BLE_HID_CONNECTED,
@@ -66,12 +76,29 @@ typedef struct {
     size_t event_capacity;
     size_t event_count;
     uint32_t events_dropped;
+    bool manual;
+    bool pairing;
+    bool host_selected;
+    uint8_t host_bda[6];
+    uint8_t host_addr_type;
+    char host_name[SOLAR_OS_BLE_NAME_MAX];
 } solar_os_ble_hid_info_t;
 
 esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
                                         const char *name);
-/* Enter explicit pairing mode. The next connecting peer's stored bond is
- * removed before security starts; normal start keeps remembered bonds. */
+/* Managed leases start idle. Connect advertises only to the chosen host;
+ * fresh pairing uses a separate identity so old hosts cannot auto-reconnect. */
+esp_err_t solar_os_ble_hid_device_start_managed(solar_os_ble_session_t session,
+                                               const char *name);
+esp_err_t solar_os_ble_hid_device_hosts(solar_os_ble_session_t session,
+    solar_os_ble_hid_host_t *hosts, size_t capacity, size_t *count);
+esp_err_t solar_os_ble_hid_device_connect(solar_os_ble_session_t session,
+                                          const uint8_t bda[6], uint8_t addr_type);
+esp_err_t solar_os_ble_hid_device_forget(solar_os_ble_session_t session,
+                                         const uint8_t bda[6], uint8_t addr_type);
+esp_err_t solar_os_ble_hid_device_disconnect(solar_os_ble_session_t session);
+/* Managed pairing drops the active offer and advertises a fresh static-random
+ * identity; other saved hosts stay paired. Legacy leases reset the old host. */
 esp_err_t solar_os_ble_hid_device_pair(solar_os_ble_session_t session);
 esp_err_t solar_os_ble_hid_device_stop(solar_os_ble_session_t session);
 esp_err_t solar_os_ble_hid_device_status(solar_os_ble_session_t session,

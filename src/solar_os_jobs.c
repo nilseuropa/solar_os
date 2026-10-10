@@ -551,18 +551,29 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
         }
     }
 
+    /* Dynamic descriptors can be released by a concurrent unregister. Copy
+     * admission facts under the registry lock; no borrowed descriptor escapes
+     * into the memory preflight. Lifecycle ownership is acquired below. */
+    uint32_t admission_stack = 0;
+    bool admission_external = false;
+    portENTER_CRITICAL(&jobs_lock);
     const int admission_index = job_index_by_name(name);
+    if (admission_index >= 0 && job_runtimes[admission_index].entry != NULL) {
+        const solar_os_job_t *job = job_runtimes[admission_index].entry->job;
+        if (job != NULL) {
+            admission_stack = job->worker_stack_bytes;
+            admission_external = job->worker_stack_external;
+        }
+    }
+    portEXIT_CRITICAL(&jobs_lock);
     if (admission_index < 0) {
         return ESP_ERR_NOT_FOUND;
     }
-    const solar_os_job_t *admission_job = job_runtimes[admission_index].entry != NULL ?
-        job_runtimes[admission_index].entry->job : NULL;
     const bool wait_for_memory =
-        admission_job != NULL &&
-        admission_job->worker_stack_bytes > 0 &&
-        !solar_os_task_can_create(admission_job->worker_stack_bytes,
+        admission_stack > 0 &&
+        !solar_os_task_can_create(admission_stack,
                                   SOLAR_OS_TASK_ROLE_BACKGROUND,
-                                  admission_job->worker_stack_external);
+                                  admission_external);
     solar_os_job_pending_start_t *new_pending = NULL;
     if (wait_for_memory) {
         new_pending = job_pending_start_create(argc, argv);
@@ -578,6 +589,7 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
     const int index = job_index_by_name(name);
     if (index < 0) {
         portEXIT_CRITICAL(&jobs_lock);
+        solar_os_memory_free(new_pending);
         return ESP_ERR_NOT_FOUND;
     }
     solar_os_job_runtime_t *runtime = &job_runtimes[index];
@@ -635,7 +647,7 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
             SOLAR_OS_LOGI("solar_os_jobs",
                           "queued %s until %u-byte background stack is available",
                           name,
-                          (unsigned)admission_job->worker_stack_bytes);
+                          (unsigned)admission_stack);
             return ESP_OK;
         }
         solar_os_memory_free(new_pending);
@@ -654,8 +666,7 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
      * launches have the same wait-and-retry behavior.
      */
     if (ret == ESP_ERR_NO_MEM &&
-        admission_job != NULL &&
-        admission_job->worker_stack_bytes > 0) {
+        admission_stack > 0) {
         new_pending = job_pending_start_create(argc, argv);
     }
 
@@ -833,6 +844,8 @@ static void job_retry_pending_start(size_t index, solar_os_context_t *ctx)
     const solar_os_job_t *job = NULL;
     solar_os_job_pending_start_t *pending = NULL;
     uint32_t generation = 0;
+    uint32_t worker_stack = 0;
+    bool worker_external = false;
 
     portENTER_CRITICAL(&jobs_lock);
     if (index < job_runtime_count) {
@@ -842,17 +855,18 @@ static void job_retry_pending_start(size_t index, solar_os_context_t *ctx)
             runtime->pending_start != NULL &&
             runtime->entry != NULL &&
             runtime->entry->job != NULL) {
-            job = runtime->entry->job;
+            worker_stack = runtime->entry->job->worker_stack_bytes;
+            worker_external = runtime->entry->job->worker_stack_external;
             pending = runtime->pending_start;
             generation = runtime->generation;
         }
     }
     portEXIT_CRITICAL(&jobs_lock);
 
-    if (job == NULL || pending == NULL ||
-        !solar_os_task_can_create(job->worker_stack_bytes,
+    if (pending == NULL ||
+        !solar_os_task_can_create(worker_stack,
                                   SOLAR_OS_TASK_ROLE_BACKGROUND,
-                                  job->worker_stack_external)) {
+                                  worker_external)) {
         return;
     }
 
@@ -862,8 +876,10 @@ static void job_retry_pending_start(size_t index, solar_os_context_t *ctx)
     if (runtime->generation == generation &&
         runtime->state == SOLAR_OS_JOB_WAITING &&
         !runtime->lifecycle_busy &&
-        runtime->pending_start == pending) {
+        runtime->pending_start == pending &&
+        runtime->entry != NULL && runtime->entry->job != NULL) {
         runtime->lifecycle_busy = true;
+        job = runtime->entry->job;
         claimed = true;
     }
     portEXIT_CRITICAL(&jobs_lock);

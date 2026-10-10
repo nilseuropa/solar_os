@@ -33,7 +33,15 @@ esp_err_t solar_os_ble_backend_hid_request(solar_os_ble_session_t owner,
     if (r->op == SOLAR_OS_BLE_HID_OP_START) fake_hid_owner = owner;
     if (owner != fake_hid_owner) return ESP_ERR_INVALID_STATE;
     fake_hid_request = *r;
-    if (r->op == SOLAR_OS_BLE_HID_OP_STATUS) r->info.event_capacity = 16;
+    if (r->op == SOLAR_OS_BLE_HID_OP_STATUS) {
+        r->info.event_capacity = 16;
+        strcpy(r->info.host_name, "Desktop");
+    }
+    if (r->op == SOLAR_OS_BLE_HID_OP_HOSTS) {
+        r->host_count = 1;
+        r->hosts[0] = (solar_os_ble_hid_host_t){.bda={1,2,3,4,5,6},.addr_type=1,
+            .connected=true,.name="Desktop"};
+    }
     if (r->op == SOLAR_OS_BLE_HID_OP_POLL) {
         if (!fake_hid_event_ready) return ESP_ERR_NOT_FOUND;
         r->event = fake_hid_event;

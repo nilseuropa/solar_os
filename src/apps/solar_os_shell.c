@@ -556,6 +556,12 @@ static const shell_command_t shell_builtin_commands[] = {
     {"nvs", "inspect or erase persistent settings", solar_os_shell_cmd_nvs},
     {"ramfs", "PSRAM-backed volatile filesystem", solar_os_shell_cmd_ramfs},
     {"stream", "list data streams", solar_os_shell_cmd_stream},
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+    {"model", "manage resident inference models", solar_os_shell_cmd_model},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+    {"pipeline", "manage native image pipelines", solar_os_shell_cmd_pipeline},
+#endif
 #if SOLAR_OS_PACKAGE_JOB_DAQ
     {"daq", "capture data streams", solar_os_shell_cmd_daq},
 #endif
@@ -800,6 +806,7 @@ static const char * const display_subcommands[] = {
 };
 static const char * const display_layout_axes[] = {"--horizontal", "--vertical"};
 static const char * const input_subcommands[] = {
+    "keymap",
     "status", "test", "calibrate", "emit",
     "keyboard", "touch", "mouse", "joystick", "dpad", "buttons", "gesture",
 };
@@ -1654,6 +1661,11 @@ static const char * const playground_source_values[] = {"reset"};
 static const char * const playground_target_values[] = {"auto", "flash", "sd"};
 static const char * const playground_storage_values[] = {"flash", "sd"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_ZOO
+static const char * const zoo_subcommands[] = {"refresh", "source", "storage", "install"};
+static const char * const zoo_source_values[] = {"reset"};
+static const char * const zoo_storage_values[] = {"sd", "flash"};
+#endif
 #if SOLAR_OS_PACKAGE_MEDIA
 static const char * const view_options[] = {"-fit", "-actual"};
 #endif
@@ -1762,6 +1774,11 @@ static const char * const path_playground_install_target[] = {
 };
 #endif
 static const char * const path_zip[] = {"zip"};
+#if SOLAR_OS_PACKAGE_APP_ZOO
+static const char * const path_zoo[] = {"zoo"};
+static const char * const path_zoo_source[] = {"zoo", "source"};
+static const char * const path_zoo_storage[] = {"zoo", "storage"};
+#endif
 static const char * const path_zip_after_archive[] = {"zip", SHELL_COMPLETION_ANY};
 static const char * const path_zip_after_option[] = {"zip", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
 static const char * const path_unzip[] = {"unzip"};
@@ -1876,6 +1893,12 @@ static const char * const path_display_split_target[] = {
 static const char * const path_display_unsplit[] = {"display", "unsplit"};
 static const char * const path_input[] = {"input"};
 static const char * const path_input_test[] = {"input", "test"};
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+static const char * const input_keymap_subcommands[] = {"show", "load", "reset"};
+static const char * const path_input_keymap[] = {"input", "keymap"};
+static const char * const path_input_keymap_source[] = {"input", "keymap", SHELL_COMPLETION_ANY};
+static const char * const path_input_keymap_load[] = {"input", "keymap", SHELL_COMPLETION_ANY, "load"};
+#endif
 static const char * const path_input_calibrate[] = {"input", "calibrate"};
 static const char * const path_input_emit[] = {"input", "emit"};
 static const char * const path_input_keyboard[] = {"input", "keyboard"};
@@ -2489,6 +2512,22 @@ static const char * const path_haptic[] = {"haptic"};
 static const char * const path_charger[] = {"charger"};
 static const char * const path_charger_enable[] = {"charger", "enable"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+static const char * const model_subcommands[] = {"list", "load", "bundle", "info", "mode", "unload"};
+static const char * const model_modes[] = {"single", "auto", "dual"};
+static const char * const model_unload_values[] = {"all"};
+static const char * const path_model[] = {"model"};
+static const char * const path_model_load[] = {"model", "load"};
+static const char * const path_model_bundle[] = {"model", "bundle"};
+static const char * const path_model_mode_handle[] = {"model", "mode", SHELL_COMPLETION_ANY};
+static const char * const path_model_unload[] = {"model", "unload"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+static const char * const pipeline_subcommands[] = {"list", "start", "status", "result", "stop", "destroy"};
+static const char * const pipeline_processors[] = {"qr", "model"};
+static const char * const path_pipeline[] = {"pipeline"};
+static const char * const path_pipeline_start[] = {"pipeline", "start"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 static const char * const path_camera[] = {"camera"};
 static const char * const path_camera_capture[] = {"camera", "capture"};
@@ -3052,6 +3091,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_playground_install_target, playground_target_values),
 #endif
     SHELL_COMPLETION_OPTIONS(path_zip, zip_options),
+#if SOLAR_OS_PACKAGE_APP_ZOO
+    SHELL_COMPLETION_STATIC(path_zoo, zoo_subcommands),
+    SHELL_COMPLETION_STATIC(path_zoo_source, zoo_source_values),
+    SHELL_COMPLETION_STATIC(path_zoo_storage, zoo_storage_values),
+#endif
     SHELL_COMPLETION_PATH(path_zip_after_archive, false),
     SHELL_COMPLETION_PATH(path_zip_after_option, false),
     SHELL_COMPLETION_OPTIONS(path_unzip, unzip_options),
@@ -3132,6 +3176,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_display, display_subcommands),
     SHELL_COMPLETION_STATIC(path_input, input_subcommands),
     SHELL_COMPLETION_INPUT_SOURCES(path_input_test, false),
+#if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
+    SHELL_COMPLETION_INPUT_SOURCES(path_input_keymap, false),
+    SHELL_COMPLETION_STATIC(path_input_keymap_source, input_keymap_subcommands),
+    SHELL_COMPLETION_PATH(path_input_keymap_load, false),
+#endif
     SHELL_COMPLETION_INPUT_SOURCES(path_input_calibrate, true),
     SHELL_COMPLETION_STATIC(path_input_emit, input_emit_keys),
     SHELL_COMPLETION_STATIC(path_input_keyboard, input_class_subcommands),
@@ -3158,6 +3207,17 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_unsplit),
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     SHELL_COMPLETION_STATIC(path_engine, engine_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+    SHELL_COMPLETION_STATIC(path_model, model_subcommands),
+    SHELL_COMPLETION_PATH(path_model_load, false),
+    SHELL_COMPLETION_PATH(path_model_bundle, false),
+    SHELL_COMPLETION_STATIC(path_model_mode_handle, model_modes),
+    SHELL_COMPLETION_STATIC(path_model_unload, model_unload_values),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+    SHELL_COMPLETION_STATIC(path_pipeline, pipeline_subcommands),
+    SHELL_COMPLETION_STATIC(path_pipeline_start, pipeline_processors),
 #endif
     SHELL_COMPLETION_STATIC(path_mem, mem_subcommands),
     SHELL_COMPLETION_STATIC(path_pkg, pkg_subcommands),

@@ -21,7 +21,7 @@ typedef struct {
 } solar_os_script_media_frame_t;
 bool solar_os_script_media_option_valid(solar_os_stream_type_t type, const char *key);
 
-/* One interpreter task owns a session. IDs are never pointers, cannot cross
+/* One caller task (interpreter or native job) owns a session. IDs are never pointers, cannot cross
  * sessions, and do not become valid again after close/release. Native workers
  * never call interpreters. Session allocation is lazy and PSRAM-only. */
 esp_err_t solar_os_script_media_create(const char *owner,

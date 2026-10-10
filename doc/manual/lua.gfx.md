@@ -148,7 +148,11 @@ Functions:
 
 When `media.image` is present, `solaros.image` provides `open(path)` and its
 `load(path)` alias, `size(handle)`, `draw(handle, x, y[, width, height])`,
-`close(handle)`, and `close_all()`. Runtime cleanup closes remaining handles.
+`close(handle)`, and `close_all()`. `to_rgb(handle[, width, height])` copies
+packed RGB888 pixels into an owned binary string, optionally resized with
+nearest-neighbor sampling. Supply both dimensions; the copy remains valid after
+image closure. Output is limited to 2 million pixels and must fit the Lua heap.
+Runtime cleanup closes remaining handles.
 
 Bitmap and sprite rows are packed least-significant bit first, with
 `(width + 7) // 8` bytes per row. Set bits draw in the current color and clear

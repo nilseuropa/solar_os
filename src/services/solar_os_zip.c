@@ -65,6 +65,7 @@ typedef struct {
     uint32_t uncompressed_size;
     uint32_t local_offset;
     uint16_t flags;
+    uint32_t external_attributes;
     uint16_t method;
     bool directory;
 } zip_reader_entry_t;
@@ -804,6 +805,7 @@ static esp_err_t zip_reader_read_central_entry(FILE *file, zip_reader_entry_t *e
 
     memset(entry, 0, sizeof(*entry));
     entry->flags = zip_read_le16(&header[8]);
+    entry->external_attributes = zip_read_le32(&header[38]);
     entry->method = zip_read_le16(&header[10]);
     entry->crc32 = zip_read_le32(&header[16]);
     entry->compressed_size = zip_read_le32(&header[20]);
@@ -857,13 +859,15 @@ static esp_err_t zip_copy_stored(FILE *archive,
                                  const zip_reader_entry_t *entry,
                                  uint8_t *buffer,
                                  uint32_t *crc32,
-                                 uint32_t *bytes_written)
+                                 uint32_t *bytes_written,
+                                 const volatile bool *cancel)
 {
     uint32_t remaining = entry->compressed_size;
     *crc32 = MZ_CRC32_INIT;
     *bytes_written = 0;
 
     while (remaining > 0) {
+        if (cancel && *cancel) return ESP_ERR_TIMEOUT;
         const size_t request = remaining > ZIP_IO_BUFFER_SIZE ? ZIP_IO_BUFFER_SIZE : remaining;
         const size_t bytes_read = fread(buffer, 1, request, archive);
         if (bytes_read != request) {
@@ -1210,7 +1214,8 @@ static esp_err_t zip_extract_entry(zip_reader_t *reader,
     uint32_t crc32 = 0;
     uint32_t bytes_written = 0;
     ret = entry->method == ZIP_METHOD_STORE ?
-        zip_copy_stored(reader->file, output, entry, input, &crc32, &bytes_written) :
+        zip_copy_stored(reader->file, output, entry, input, &crc32, &bytes_written,
+                        options ? options->cancel_flag : NULL) :
         zip_inflate_file(reader->file, output, entry, input, dict, &crc32, &bytes_written);
 
     const int output_errno = errno;
@@ -1319,23 +1324,19 @@ esp_err_t solar_os_zip_list(const char *archive_path,
         return ESP_FAIL;
     }
 
-    const solar_os_unzip_options_t options = {
-        .progress = progress,
-        .user = user,
-    };
     for (uint16_t i = 0; i < reader.entry_count; i++) {
         zip_reader_entry_t entry;
         ret = zip_reader_read_central_entry(reader.file, &entry);
         if (ret != ESP_OK) {
             break;
         }
-        zip_report_read(&options,
-                        SOLAR_OS_ZIP_EVENT_LIST,
-                        entry.name,
-                        NULL,
-                        entry.method,
-                        entry.compressed_size,
-                        entry.uncompressed_size);
+        if (progress) {
+            solar_os_zip_event_info_t info = {.event = SOLAR_OS_ZIP_EVENT_LIST,
+                .archive_name = entry.name, .method = entry.method, .flags = entry.flags,
+                .external_attributes = entry.external_attributes,
+                .compressed_size = entry.compressed_size, .uncompressed_size = entry.uncompressed_size};
+            progress(&info, user);
+        }
         zip_yield();
     }
 
@@ -1378,6 +1379,7 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
     }
 
     for (uint16_t i = 0; ret == ESP_OK && i < reader.entry_count; i++) {
+        if (options && options->cancel_flag && *options->cancel_flag) { ret = ESP_ERR_TIMEOUT; break; }
         const long next_central = ftell(reader.file);
         zip_reader_entry_t entry;
         ret = zip_reader_read_central_entry(reader.file, &entry);

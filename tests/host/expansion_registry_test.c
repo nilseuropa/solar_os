@@ -280,6 +280,20 @@ const solar_os_expansion_driver_t test_flaky_expansion_driver = {
 };
 
 static const int test_i2c_addresses[] = {0x5d, 0x14};
+static bool reject_binding_combination;
+static esp_err_t test_i2c_validate(const solar_os_expansion_binding_t *bindings,
+                                   size_t count,
+                                   solar_os_expansion_binding_validation_t *validation)
+{
+    (void)bindings;
+    (void)count;
+    if (!reject_binding_combination) return ESP_OK;
+    if (validation != NULL) {
+        validation->reason = SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE;
+        strcpy(validation->key, "addr/alt_addr");
+    }
+    return ESP_ERR_INVALID_ARG;
+}
 static const solar_os_expansion_binding_spec_t test_i2c_specs[] = {
     {
         .key = "i2c",
@@ -312,6 +326,7 @@ const solar_os_expansion_driver_t test_i2c_expansion_driver = {
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2C,
     .binding_specs = test_i2c_specs,
     .binding_spec_count = sizeof(test_i2c_specs) / sizeof(test_i2c_specs[0]),
+    .validate_bindings = test_i2c_validate,
     .attach = test_i2c_attach,
     .detach = test_i2c_detach,
 };
@@ -431,6 +446,16 @@ int main(void)
         },
     };
     solar_os_expansion_binding_validation_t validation;
+    reject_binding_combination = true;
+    assert(solar_os_expansion_validate_bindings("test-i2c", dual_i2c, 3U,
+                                                &validation) == ESP_ERR_INVALID_ARG);
+    assert(validation.reason == SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE);
+    assert(strcmp(validation.key, "addr/alt_addr") == 0);
+    const size_t before_validation = live_allocations;
+    assert(solar_os_expansion_attach("test-i2c", "rejected", dual_i2c, 3U)
+           == ESP_ERR_INVALID_ARG);
+    assert(live_allocations == before_validation);
+    reject_binding_combination = false;
     assert(solar_os_expansion_validate_bindings("test-i2c",
                                                 dual_i2c,
                                                 3,

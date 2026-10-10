@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "id": "pedestrian-pico",
+  "version": "1.0.0",
+  "runtime": {
+    "backend": "espdl",
+    "version": "3.3.13",
+    "target": "esp32s3"
+  },
+  "model": {
+    "file": "pedestrian_detect_pico_s8_v1.espdl",
+    "sha256": "3eb5827e12322728fe99ea9c86d71ea38aa5a5b70064abf7d75bc90140b74015"
+  },
+  "assets": {
+    "LICENSE": "3513f1605ebcc227f7364956f6c30a303412597e232648cb3090e76697ca5aa3"
+  },
+  "inputs": {
+    "input": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        224,
+        224,
+        3
+      ],
+      "exponents": [
+        1
+      ],
+      "adapter": {
+        "type": "image",
+        "options": {
+          "layout": "NHWC",
+          "color": "RGB",
+          "resize": "stretch",
+          "mean": [
+            0
+          ],
+          "std": [
+            1
+          ]
+        }
+      }
+    }
+  },
+  "outputs": {
+    "bbox1": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        14,
+        14,
+        32
+      ],
+      "exponents": [
+        -3
+      ]
+    },
+    "bbox0": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        28,
+        28,
+        32
+      ],
+      "exponents": [
+        -3
+      ]
+    },
+    "score0": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        28,
+        28,
+        1
+      ],
+      "exponents": [
+        -8
+      ]
+    },
+    "score2": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        7,
+        7,
+        1
+      ],
+      "exponents": [
+        -7
+      ]
+    },
+    "score1": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        14,
+        14,
+        1
+      ],
+      "exponents": [
+        -7
+      ]
+    },
+    "bbox2": {
+      "dtype": "int8",
+      "shape": [
+        1,
+        7,
+        7,
+        32
+      ],
+      "exponents": [
+        -4
+      ]
+    }
+  },
+  "result": {
+    "type": "pico-detection",
+    "options": {
+      "input": "input",
+      "stages": [
+        {
+          "score": "score0",
+          "bbox": "bbox0",
+          "stride": 8,
+          "bins": 8
+        },
+        {
+          "score": "score1",
+          "bbox": "bbox1",
+          "stride": 16,
+          "bins": 8
+        },
+        {
+          "score": "score2",
+          "bbox": "bbox2",
+          "stride": 32,
+          "bins": 8
+        }
+      ],
+      "score_threshold": 0.7,
+      "iou_threshold": 0.5,
+      "limit": 10,
+      "candidate_limit": 128,
+      "label": "person"
+    }
+  },
+  "license": {
+    "id": "MIT",
+    "file": "LICENSE"
+  }
+}

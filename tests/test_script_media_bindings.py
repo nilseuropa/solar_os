@@ -42,9 +42,11 @@ class ScriptMediaBindingsTest(unittest.TestCase):
             main = (ROOT / f"src/apps/solar_os_{language}.c").read_text()
             self.assertEqual(main.count(f"{prefix}_media_destroy();"), 3)
             self.assertIn(f'#include "solar_os_{language}_media.inc"', main)
-            self.assertIn(f"while (__atomic_load_n(&{prefix}_media_session, __ATOMIC_ACQUIRE) != NULL", main)
+            self.assertIn(f"while ((__atomic_load_n(&{prefix}_media_session, __ATOMIC_ACQUIRE) != NULL", main)
+            self.assertIn(f"{prefix}_imlib_active()", main)
         self.assertIn("solar_os_script_media_close_all(s)", SERVICE)
-        self.assertIn("solar_os_task_wait_done", SERVICE)
+        self.assertIn("__atomic_load_n(&s->done, __ATOMIC_ACQUIRE)", SERVICE)
+        self.assertIn("solar_os_task_delete_external(s->worker)", SERVICE)
         self.assertIn("solar_os_rtsp_client_cancel", SERVICE)
         self.assertNotRegex(SERVICE, r"\b(?:mp|lua)_\w+")
 

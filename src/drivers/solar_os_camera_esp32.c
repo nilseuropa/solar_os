@@ -4,6 +4,12 @@
 
 #include "driver/ledc.h"
 #include "esp_camera.h"
+#include "sdkconfig.h"
+#include "solar_os_board.h"
+#if SOLAR_OS_BOARD_HAS_I2C
+#include "i2c_bus.h"
+#endif
+#include "solar_os_buses.h"
 #include "solar_os_camera.h"
 #include "solar_os_camera_stream.h"
 #include "solar_os_memory.h"
@@ -12,16 +18,36 @@
 #define CAMERA_XCLK_HZ 20000000
 #define CAMERA_LEDC_TIMER LEDC_TIMER_1
 #define CAMERA_LEDC_CHANNEL LEDC_CHANNEL_4
+#if CONFIG_SCCB_HARDWARE_I2C_PORT1
+#define CAMERA_SCCB_PORT 1
+#else
+#define CAMERA_SCCB_PORT 0
+#endif
 
 typedef struct {
     bool started;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
+    char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int pins[16];
 } camera_esp32_state_t;
 
 /* esp32-camera has one hardware instance; config lives in PSRAM only while
  * attached. Timer 1/channel 4 are separate from PWM (0/0..3) and audio (3/7). */
 static camera_esp32_state_t *camera_esp32;
+
+static void camera_sccb_lock(void)
+{
+#if SOLAR_OS_BOARD_HAS_I2C
+    i2c_bus_lock();
+#endif
+}
+
+static void camera_sccb_unlock(void)
+{
+#if SOLAR_OS_BOARD_HAS_I2C
+    i2c_bus_unlock();
+#endif
+}
 
 enum { PIN_D0, PIN_D1, PIN_D2, PIN_D3, PIN_D4, PIN_D5, PIN_D6, PIN_D7,
        PIN_SIOD, PIN_SIOC, PIN_VSYNC, PIN_HREF, PIN_PCLK, PIN_XCLK,
@@ -33,13 +59,33 @@ enum { PIN_D0, PIN_D1, PIN_D2, PIN_D3, PIN_D4, PIN_D5, PIN_D6, PIN_D7,
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
     CAMERA_PIN("d0", true), CAMERA_PIN("d1", true), CAMERA_PIN("d2", true),
     CAMERA_PIN("d3", true), CAMERA_PIN("d4", true), CAMERA_PIN("d5", true),
-    CAMERA_PIN("d6", true), CAMERA_PIN("d7", true), CAMERA_PIN("siod", true),
-    CAMERA_PIN("sioc", true), CAMERA_PIN("vsync", true), CAMERA_PIN("href", true),
+    CAMERA_PIN("d6", true), CAMERA_PIN("d7", true), CAMERA_PIN("siod", false),
+    CAMERA_PIN("sioc", false), CAMERA_PIN("vsync", true), CAMERA_PIN("href", true),
     CAMERA_PIN("pclk", true), CAMERA_PIN("xclk", true), CAMERA_PIN("pwdn", false),
     CAMERA_PIN("reset", false),
+    {.key = "i2c", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS},
 };
-_Static_assert(sizeof(binding_specs) / sizeof(binding_specs[0]) == 16U,
+_Static_assert(sizeof(binding_specs) / sizeof(binding_specs[0]) == 17U,
                "camera pin order must match binding specs");
+
+static esp_err_t camera_validate_bindings(
+    const solar_os_expansion_binding_t *bindings, size_t count,
+    solar_os_expansion_binding_validation_t *validation)
+{
+    bool bus = false, siod = false, sioc = false;
+    for (size_t i = 0U; i < count; i++) {
+        if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS) bus = true;
+        if (bindings[i].kind != SOLAR_OS_EXPANSION_BINDING_GPIO) continue;
+        if (strcmp(bindings[i].role, "siod") == 0) siod = true;
+        if (strcmp(bindings[i].role, "sioc") == 0) sioc = true;
+    }
+    if ((bus && !siod && !sioc) || (!bus && siod && sioc)) return ESP_OK;
+    if (validation != NULL) {
+        validation->reason = SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE;
+        strlcpy(validation->key, "i2c/siod/sioc", sizeof(validation->key));
+    }
+    return ESP_ERR_INVALID_ARG;
+}
 
 static framesize_t native_frame_size(solar_os_camera_frame_size_t frame_size)
 {
@@ -66,6 +112,15 @@ static esp_err_t camera_start(void *ctx,
         return ESP_ERR_INVALID_STATE;
     }
 
+    int sccb_port = -1;
+    if (state->i2c_bus[0] != '\0') {
+        i2c_master_bus_handle_t bus_handle;
+        /* The expansion registry holds this lease until camera detach. */
+        const esp_err_t error = solar_os_bus_i2c_get_handle(state->i2c_bus,
+                                                           &bus_handle,
+                                                           &sccb_port);
+        if (error != ESP_OK) return error;
+    }
     const camera_config_t native_config = {
         .pin_pwdn = state->pins[PIN_PWDN],
         .pin_reset = state->pins[PIN_RESET],
@@ -88,18 +143,25 @@ static esp_err_t camera_start(void *ctx,
         .fb_count = 1U,
         .fb_location = CAMERA_FB_IN_PSRAM,
         .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-        .sccb_i2c_port = -1,
+        .sccb_i2c_port = sccb_port,
     };
 
+    /* Shared SCCB adds/removes IDF devices outside SolarOS transfer helpers.
+     * Its bus lease guarantees that the I2C mutex has been initialized. */
+    const bool shared_sccb = state->i2c_bus[0] != '\0';
+    if (shared_sccb) camera_sccb_lock();
     const esp_err_t error = esp_camera_init(&native_config);
     if (error != ESP_OK) {
+        if (shared_sccb) camera_sccb_unlock();
         return error;
     }
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor == NULL) {
         (void)esp_camera_deinit();
+        if (shared_sccb) camera_sccb_unlock();
         return ESP_ERR_INVALID_RESPONSE;
     }
+    if (shared_sccb) camera_sccb_unlock();
 
     state->started = true;
     sensor_info->product_id = sensor->id.PID;
@@ -114,7 +176,10 @@ static esp_err_t camera_stop(void *ctx)
     if (!state->started) {
         return ESP_OK;
     }
+    const bool shared_sccb = state->i2c_bus[0] != '\0';
+    if (shared_sccb) camera_sccb_lock();
     const esp_err_t error = esp_camera_deinit();
+    if (shared_sccb) camera_sccb_unlock();
     if (error == ESP_OK) {
         state->started = false;
     }
@@ -173,21 +238,32 @@ static esp_err_t camera_attach(const char *name,
                                size_t count)
 {
     if (camera_esp32 != NULL) return ESP_ERR_INVALID_STATE;
+    if (camera_validate_bindings(bindings, count, NULL) != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
     camera_esp32_state_t *state = solar_os_memory_calloc(
         1U, sizeof(*state), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "camera.device");
     if (state == NULL) return ESP_ERR_NO_MEM;
     strlcpy(state->name, name, sizeof(state->name));
     for (size_t i = 0U; i < 16U; i++) state->pins[i] = -1;
     for (size_t i = 0U; i < count; i++) {
+        if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS) {
+            strlcpy(state->i2c_bus, bindings[i].target, sizeof(state->i2c_bus));
+            continue;
+        }
         for (size_t j = 0U; j < 16U; j++) {
             if (strcmp(bindings[i].role, binding_specs[j].role) == 0) {
                 state->pins[j] = bindings[i].value;
             }
         }
     }
-    /* Reserve the singleton DVP capture peripheral independently of GPIOs. */
-    esp_err_t error = solar_os_resource_claim(SOLAR_OS_RESOURCE_CAMERA_PORT,
-                                              0, -1, name, "DVP capture");
+    /* Direct-pin SCCB uses Espressif's Kconfig-selected controller. */
+    const solar_os_resource_request_t requests[] = {
+        {SOLAR_OS_RESOURCE_CAMERA_PORT, 0, -1, "DVP capture"},
+        {SOLAR_OS_RESOURCE_I2C_PORT, CAMERA_SCCB_PORT, -1, "camera SCCB"},
+    };
+    esp_err_t error = solar_os_resource_claim_bundle(requests,
+        state->i2c_bus[0] == '\0' ? 2U : 1U, name, NULL);
     if (error != ESP_OK) {
         solar_os_memory_free(state);
         return error;
@@ -208,6 +284,10 @@ static esp_err_t camera_attach(const char *name,
     error = solar_os_camera_register_backend(&backend);
     if (error != ESP_OK) {
         (void)solar_os_resource_release(SOLAR_OS_RESOURCE_CAMERA_PORT, 0, -1, name);
+        if (state->i2c_bus[0] == '\0') {
+            (void)solar_os_resource_release(SOLAR_OS_RESOURCE_I2C_PORT,
+                                             CAMERA_SCCB_PORT, -1, name);
+        }
         solar_os_memory_free(state);
         return error;
     }
@@ -234,5 +314,6 @@ const solar_os_expansion_driver_t solar_os_camera_esp32_expansion_driver = {
     .early = true,
     .binding_specs = binding_specs,
     .binding_spec_count = sizeof(binding_specs) / sizeof(binding_specs[0]),
+    .validate_bindings = camera_validate_bindings,
     .attach = camera_attach, .detach = camera_detach,
 };

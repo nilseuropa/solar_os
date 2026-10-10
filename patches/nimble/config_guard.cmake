@@ -26,5 +26,23 @@ function(solar_os_regenerate_stale_sdkconfig)
         message(NOTICE
             "SolarOS BLE configuration missing ${missing_config}; removing stale ${config} and regenerating from SDK configuration defaults")
         file(REMOVE "${config}")
+        return()
+    endif()
+    if(bluetooth_enabled)
+        # Defaults cannot raise the stack in an existing generated sdkconfig.
+        # Keep larger local stacks and all unrelated settings intact.
+        file(STRINGS "${config}" stack_setting
+            REGEX "^CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=[0-9]+$")
+        if(stack_setting MATCHES "=([0-9]+)$" AND CMAKE_MATCH_1 GREATER_EQUAL 8192)
+            return()
+        endif()
+        get_filename_component(config_name "${config}" NAME)
+        if(config_name MATCHES "^sdkconfig\\.defaults($|\\.)")
+            message(FATAL_ERROR "SDKCONFIG must select a generated configuration, not defaults: ${config}")
+        endif()
+        file(READ "${config}" contents)
+        string(REGEX REPLACE "(^|\n)CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=[^\n]*" "\\1" contents "${contents}")
+        file(WRITE "${config}" "${contents}\nCONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n")
+        message(NOTICE "SolarOS increasing NimBLE host stack to 8192 bytes in ${config}")
     endif()
 endfunction()

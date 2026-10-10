@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "vision-check"
+name = "Vision check"
+version = "1.0.0"
+description = "Exercise native image, QR, imlib, video and inference service interfaces."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_native_vision_check.app.elf"
