@@ -510,6 +510,12 @@ static void test_config_limits(void)
     config = lora_config();
     config.frequency_hz = 100000000U;
     assert(lr11xx_configure(&dev, &config) == ESP_ERR_NOT_SUPPORTED);
+    /* A LoRa sync word is one byte. A longer one is refused rather than cut
+     * to its first byte and reported whole. */
+    config = lora_config();
+    config.sync_word_len = 2U;
+    config.sync_word[1] = 0x34U;
+    assert(lr11xx_configure(&dev, &config) == ESP_ERR_INVALID_ARG);
     assert(chip.count == 0U);
 }
 

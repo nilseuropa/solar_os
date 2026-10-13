@@ -858,6 +858,12 @@ static esp_err_t lr11xx_resolve_config(const solar_os_radio_config_t *asked,
         config->sync_word_len = 1U;
         config->sync_word[0] = 0x12U;
     }
+    /* The LoRa sync word is one byte, and SetLoRaSyncWord takes exactly that.
+     * A longer one cannot be sent in part: the settings reported would say
+     * two bytes while the part was given one. */
+    if (config->sync_word_len != 1U) {
+        return ESP_ERR_INVALID_ARG;
+    }
     /* The payload length is one byte on the wire. */
     if (config->payload_length > LR11XX_MAX_PACKET_LEN ||
         config->tx_power_dbm < LR11XX_PA_MIN_DBM ||
