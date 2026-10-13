@@ -763,6 +763,78 @@ static void test_send(void)
     assert(lr11xx_send(&dev, &bad, 10U) == ESP_ERR_INVALID_ARG);
 }
 
+/* With an implicit header the receiver decodes the length it was configured
+ * with, so a send is that length or nothing: it is refused before the part
+ * is touched. A length left at zero is the longest the part carries under
+ * either header, and is reported as such. */
+static void test_implicit_length_send_must_match(void)
+{
+    lr11xx_t dev;
+    reset_chip();
+    assert(open_device(&dev, 0) == ESP_OK);
+    solar_os_radio_config_t config = lora_config();
+    config.variable_length = false;
+    config.payload_length = 20U;
+    assert(lr11xx_configure(&dev, &config) == ESP_OK);
+
+    solar_os_radio_packet_t packet = {0};
+    packet.len = 5U;
+    size_t before = chip.count;
+    chip.irq = IRQ_TX_DONE;
+    assert(lr11xx_send(&dev, &packet, 100U) == ESP_ERR_INVALID_SIZE);
+    assert(chip.count == before);
+    assert(dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
+
+    packet.len = 20U;
+    before = chip.count;
+    assert(lr11xx_send(&dev, &packet, 100U) == ESP_OK);
+    const window_t *params = NULL;
+    for (size_t i = before; i < chip.count; i++) {
+        if (chip.windows[i].opcode == LR11XX_OP_SET_PACKET_PARAMS) {
+            params = &chip.windows[i];
+        }
+    }
+    assert(params != NULL);
+    assert(params->params[2] == 0x01U); /* implicit header */
+    assert(params->params[3] == 20U);
+
+    reset_chip();
+    assert(open_device(&dev, 0) == ESP_OK);
+    config = lora_config();
+    config.variable_length = false;
+    config.payload_length = 0U;
+    assert(lr11xx_configure(&dev, &config) == ESP_OK);
+    solar_os_radio_status_t status;
+    assert(lr11xx_get_status(&dev, &status) == ESP_OK);
+    assert(status.config.payload_length == LR11XX_MAX_PACKET_LEN);
+    params = find_window(LR11XX_OP_SET_PACKET_PARAMS);
+    assert(params != NULL && params->params[3] == LR11XX_MAX_PACKET_LEN);
+    packet.len = 5U;
+    assert(lr11xx_send(&dev, &packet, 100U) == ESP_ERR_INVALID_SIZE);
+    packet.len = LR11XX_MAX_PACKET_LEN;
+    chip.irq = IRQ_TX_DONE;
+    assert(lr11xx_send(&dev, &packet, 100U) == ESP_OK);
+
+    /* Under an explicit header a length left at zero is the same longest
+     * length, reported and given to the part, and any send fits in it. */
+    reset_chip();
+    assert(open_device(&dev, 0) == ESP_OK);
+    config = lora_config();
+    config.variable_length = true;
+    config.payload_length = 0U;
+    assert(lr11xx_configure(&dev, &config) == ESP_OK);
+    assert(lr11xx_get_status(&dev, &status) == ESP_OK);
+    assert(status.config.payload_length == LR11XX_MAX_PACKET_LEN);
+    params = find_window(LR11XX_OP_SET_PACKET_PARAMS);
+    assert(params != NULL && params->params[2] == 0x00U); /* explicit header */
+    assert(params->params[3] == LR11XX_MAX_PACKET_LEN);
+    packet.len = 5U;
+    chip.irq = IRQ_TX_DONE;
+    assert(lr11xx_send(&dev, &packet, 100U) == ESP_OK);
+    assert(lr11xx_set_state(&dev, SOLAR_OS_RADIO_STATE_RX) == ESP_OK);
+    assert(chip.max_len == LR11XX_MAX_PACKET_LEN);
+}
+
 /*
  * The packet length the part is given for a transmit is also the longest
  * packet it will accept while listening. After a short send, entering
@@ -1643,6 +1715,7 @@ int main(void)
     test_status_read();
     test_2g4_refused();
     test_send();
+    test_implicit_length_send_must_match();
     test_rx_after_short_send();
     test_receive();
     test_pa_table();

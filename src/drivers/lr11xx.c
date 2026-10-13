@@ -693,11 +693,8 @@ static esp_err_t lr11xx_set_packet_params(lr11xx_t *dev,
  * allows whatever was transmitted last. */
 static esp_err_t lr11xx_start_rx(lr11xx_t *dev)
 {
-    esp_err_t err = lr11xx_set_packet_params(
-        dev, &dev->config,
-        (uint8_t)(dev->config.payload_length != 0U ? dev->config.payload_length
-                                                   : LR11XX_MAX_PACKET_LEN),
-        true);
+    esp_err_t err = lr11xx_set_packet_params(dev, &dev->config,
+                                             (uint8_t)dev->config.payload_length, true);
     if (err == ESP_OK) {
         err = lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
     }
@@ -864,6 +861,14 @@ static esp_err_t lr11xx_resolve_config(const solar_os_radio_config_t *asked,
     if (config->sync_word_len != 1U) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* A length left at zero is the longest the part can carry, whatever the
+     * header, as the RFM95 driver takes it. There is then one length in the
+     * settings, the one the part is given; and under an implicit header,
+     * where the receiver decodes the length it was configured with, a
+     * listener and a sender that both say nothing agree. */
+    if (config->payload_length == 0U) {
+        config->payload_length = LR11XX_MAX_PACKET_LEN;
+    }
     /* The payload length is one byte on the wire. */
     if (config->payload_length > LR11XX_MAX_PACKET_LEN ||
         config->tx_power_dbm < LR11XX_PA_MIN_DBM ||
@@ -961,9 +966,7 @@ esp_err_t lr11xx_configure(lr11xx_t *dev, const solar_os_radio_config_t *asked)
         err = lr11xx_command(dev, LR11XX_OP_SET_MODULATION_PARAMS, params, sizeof(params));
     }
     if (err == ESP_OK) {
-        err = lr11xx_set_packet_params(
-            dev, config, (uint8_t)(config->payload_length != 0U ? config->payload_length : 1U),
-            false);
+        err = lr11xx_set_packet_params(dev, config, (uint8_t)config->payload_length, false);
     }
     if (err == ESP_OK) {
         err = lr11xx_set_pa(dev, config->tx_power_dbm);
@@ -1137,6 +1140,15 @@ esp_err_t lr11xx_send(lr11xx_t *dev, const solar_os_radio_packet_t *packet, uint
     if (!dev->configured) {
         lr11xx_unlock(dev);
         return ESP_ERR_INVALID_STATE;
+    }
+    /* The packet parameters are re-sent for this packet's length, which is
+     * what the part transmits. With an implicit header the receiver cannot
+     * learn that length from the air and decodes the one it was configured
+     * with, so a packet of any other length is refused before the part is
+     * touched, as the RFM95 driver refuses it. */
+    if (!dev->config.variable_length && packet->len != dev->config.payload_length) {
+        lr11xx_unlock(dev);
+        return ESP_ERR_INVALID_SIZE;
     }
     if (dev->state == SOLAR_OS_RADIO_STATE_SLEEP) {
         err = lr11xx_wake(dev);
