@@ -99,11 +99,14 @@
 /* Bits 3:1 of the first status byte say how the last command went, and the
  * same bits of the second which mode the part is in. Neither field uses its
  * whole range, which is what tells a part answering from a bus nobody is
- * driving: that reads all ones. */
+ * driving: that reads all ones. A bus pulled low reads all zeros, which is
+ * a command that failed and a part asleep; a part asleep holds BUSY and
+ * never answers a read at all, so no read can come back saying so. */
 #define LR11XX_STAT1_COMMAND(stat1) (((stat1) >> 1) & 0x07U)
 #define LR11XX_COMMAND_PERR 0x01U
 #define LR11XX_COMMAND_LAST 0x03U
 #define LR11XX_STAT2_MODE(stat2) (((stat2) >> 1) & 0x07U)
+#define LR11XX_MODE_SLEEP 0x00U
 #define LR11XX_MODE_LAST 0x06U
 
 #define LR11XX_BUSY_TIMEOUT_US 1000000ULL
@@ -403,9 +406,13 @@ static esp_err_t lr11xx_get_irq_status(lr11xx_t *dev, uint32_t *irq)
     if (err != ESP_OK) {
         return err;
     }
-    /* Otherwise every interrupt reads as raised: a transmission that
-     * finished and a packet that arrived, from a part that is not there. */
+    /* All ones is every interrupt raised: a transmission that finished and
+     * a packet that arrived, from a part that is not there. All zeros is no
+     * interrupt at all, which a caller waiting for one takes for nothing
+     * heard until its own timeout runs out; the mode is what gives it away,
+     * since no part that answers a read is asleep. */
     if (LR11XX_STAT1_COMMAND(resp[0]) > LR11XX_COMMAND_LAST ||
+        LR11XX_STAT2_MODE(resp[1]) == LR11XX_MODE_SLEEP ||
         LR11XX_STAT2_MODE(resp[1]) > LR11XX_MODE_LAST) {
         return ESP_ERR_INVALID_RESPONSE;
     }

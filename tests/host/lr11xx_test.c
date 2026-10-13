@@ -210,6 +210,20 @@ static void record_command(const uint8_t *tx, size_t len)
     }
 }
 
+/* The mode the part reports in stat2, as the datasheet codes it. A part that
+ * answers at all is never asleep: that one holds BUSY and answers nothing. */
+static uint8_t chip_mode_code(void)
+{
+    switch (chip.mode) {
+    case SOLAR_OS_RADIO_STATE_RX: return 0x04U;
+    case SOLAR_OS_RADIO_STATE_TX: return 0x05U;
+    case SOLAR_OS_RADIO_STATE_SLEEP: return 0x00U;
+    case SOLAR_OS_RADIO_STATE_STANDBY:
+    case SOLAR_OS_RADIO_STATE_UNKNOWN:
+    default: return 0x01U; /* STBY_RC, as after a reset */
+    }
+}
+
 esp_err_t solar_os_bus_spi_transfer(const char *name,
                                     int cs_pin,
                                     uint8_t mode,
@@ -276,7 +290,8 @@ esp_err_t solar_os_bus_spi_transfer(const char *name,
          * and the 32-bit interrupt word. This is how status is fetched - there
          * is no GetIrqStatus opcode to send. */
         const uint8_t status[6] = {
-            (uint8_t)((chip.rejected ? 0x01U : 0x02U) << 1), 0x00U,
+            (uint8_t)((chip.rejected ? 0x01U : 0x02U) << 1),
+            (uint8_t)(chip_mode_code() << 1),
             (uint8_t)(chip.irq >> 24), (uint8_t)(chip.irq >> 16),
             (uint8_t)(chip.irq >> 8), (uint8_t)(chip.irq & 0xFFU),
         };
@@ -1392,28 +1407,37 @@ static void test_signal_readings_do_not_outlive_their_settings(void)
     assert(!status.has_rssi && !status.has_snr);
 }
 
-/* An absent part leaves the bus reading all ones or all zeros. Neither is a
- * transmission that finished or a packet that arrived. */
+/* An absent part leaves the bus reading all ones or all zeros. All ones is
+ * neither a transmission that finished nor a packet that arrived, and all
+ * zeros is not nothing heard: it is the part not answering, every time,
+ * and a part that is not answering is not known to be listening. */
 static void test_dead_bus(void)
 {
     static const uint8_t levels[] = {0xFFU, 0x00U};
     for (size_t i = 0; i < sizeof(levels); i++) {
         lr11xx_t dev;
+        solar_os_radio_packet_t heard;
         open_listening(&dev);
         chip.dead = true;
         chip.dead_byte = levels[i];
+        assert(lr11xx_receive(&dev, &heard, 50U) == ESP_ERR_INVALID_RESPONSE);
+        assert(heard.len == 0U);
+        assert(dev.state == SOLAR_OS_RADIO_STATE_UNKNOWN);
 
+        open_listening(&dev);
+        chip.dead = true;
+        chip.dead_byte = levels[i];
         solar_os_radio_packet_t packet = {0};
         packet.len = 5U;
         memcpy(packet.data, "hello", 5U);
-        assert(lr11xx_send(&dev, &packet, 50U) != ESP_OK);
+        assert(lr11xx_send(&dev, &packet, 50U) == ESP_ERR_INVALID_RESPONSE);
+        assert(dev.state == SOLAR_OS_RADIO_STATE_UNKNOWN);
 
-        solar_os_radio_packet_t heard;
-        assert(lr11xx_receive(&dev, &heard, 50U) != ESP_OK);
-        assert(heard.len == 0U);
-
+        open_listening(&dev);
+        chip.dead = true;
+        chip.dead_byte = levels[i];
         lr11xx_version_t version;
-        assert(lr11xx_probe(&dev, &version) != ESP_OK);
+        assert(lr11xx_probe(&dev, &version) == ESP_ERR_INVALID_RESPONSE);
     }
 }
 
