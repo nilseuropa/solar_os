@@ -1157,12 +1157,17 @@ esp_err_t lr11xx_send(lr11xx_t *dev, const solar_os_radio_packet_t *packet, uint
                 break;
             }
             if (irq & LR11XX_IRQ_TX_DONE) {
-                (void)lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
+                /* The packet went out; a clear the part then refuses is
+                 * still a part no longer answering, and the caller hears
+                 * that rather than that all went well. */
+                err = lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
                 break;
             }
             if (irq & LR11XX_IRQ_TIMEOUT) {
-                (void)lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
-                err = ESP_ERR_TIMEOUT;
+                err = lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
+                if (err == ESP_OK) {
+                    err = ESP_ERR_TIMEOUT;
+                }
                 break;
             }
             if ((uint32_t)((esp_timer_get_time() - start) / 1000) >= timeout_ms) {
@@ -1182,6 +1187,13 @@ esp_err_t lr11xx_send(lr11xx_t *dev, const solar_os_radio_packet_t *packet, uint
         if (err == ESP_OK) {
             err = standby;
         }
+    }
+    if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
+        /* A command refused or unanswered on the way is the part not
+         * answering, whether or not it then took the standby: it is no
+         * longer known to be on these settings. The caller's timeout and
+         * the part's own are a transmission not finished, nothing more. */
+        lr11xx_lose_track(dev);
     }
 
     lr11xx_unlock(dev);
@@ -1245,9 +1257,18 @@ esp_err_t lr11xx_receive(lr11xx_t *dev, solar_os_radio_packet_t *packet, uint32_
             break;
         }
         if (irq & LR11XX_IRQ_RX_DONE) {
+            /* Cleared before the buffer is read, so a packet arriving during
+             * the read raises the flag again for the next poll. A clear that
+             * fails leaves the flag up, and the next poll would hand back
+             * this same packet a second time; that is a part not answering,
+             * not a packet heard. */
+            err = lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
+            if (err != ESP_OK) {
+                lr11xx_lose_track(dev);
+                break;
+            }
             rx_done = true;
             packet->crc_ok = (irq & LR11XX_IRQ_CRC_ERROR) == 0UL;
-            (void)lr11xx_clear_irq(dev, LR11XX_IRQ_ALL);
             break;
         }
         if ((uint32_t)((esp_timer_get_time() - start) / 1000) >= timeout_ms) {
@@ -1292,6 +1313,12 @@ esp_err_t lr11xx_receive(lr11xx_t *dev, solar_os_radio_packet_t *packet, uint32_
                 dev->has_last_packet = true;
             }
         }
+    }
+    if (rx_done && err != ESP_OK) {
+        /* The flag is down and the packet could not be read out. A part that
+         * says it heard something and will not say what is no better known
+         * to be listening than one that answers no poll. */
+        lr11xx_lose_track(dev);
     }
 
     lr11xx_unlock(dev);

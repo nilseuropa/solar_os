@@ -333,6 +333,18 @@ static size_t index_of(uint16_t opcode)
     return 0;
 }
 
+static size_t last_index_of(uint16_t opcode)
+{
+    size_t found = chip.count;
+    for (size_t i = 0; i < chip.count; i++) {
+        if (chip.windows[i].opcode == opcode) {
+            found = i;
+        }
+    }
+    assert(found < chip.count);
+    return found;
+}
+
 static solar_os_radio_config_t lora_config(void)
 {
     solar_os_radio_config_t config = {0};
@@ -1471,8 +1483,10 @@ static void test_configure_recovers_a_lost_part(void)
     assert_state_true(&dev);
 }
 
-/* A send that fails at any transfer leaves the reported state true: either
- * the radio is listening for the longest packet, or it is not said to be. */
+/* A send that fails at any transfer fails, the clear after TX_DONE among
+ * them, and the part is no longer vouched for: the standby that ends every
+ * send still goes out, so a transmit in flight is stopped, and the state
+ * reads unknown. */
 static void test_send_fault_at_every_step(void)
 {
     lr11xx_t dev;
@@ -1490,9 +1504,67 @@ static void test_send_fault_at_every_step(void)
     for (unsigned step = 1U; step <= steps; step++) {
         open_listening(&dev);
         chip.irq = IRQ_TX_DONE;
+        const size_t standbys_before = count_windows(LR11XX_OP_SET_STANDBY);
         chip.fail_transfer = step;
-        (void)lr11xx_send(&dev, &packet, 100U);
+        assert(lr11xx_send(&dev, &packet, 100U) != ESP_OK);
+        assert(dev.state == SOLAR_OS_RADIO_STATE_UNKNOWN);
         assert_state_true(&dev);
+        /* The standby is sent whatever failed before it. The one transfer
+         * it cannot be sent past is its own first one. */
+        if (step != steps - 1U) {
+            assert(count_windows(LR11XX_OP_SET_STANDBY) == standbys_before + 1U);
+        }
+    }
+}
+
+/* A packet whose RX_DONE could not be cleared is not delivered: the flag
+ * would still be up at the next poll, and the same packet would be handed
+ * back a second time. A receive that fails at any transfer, before the flag
+ * is cleared or after, leaves the driver no longer knowing the part, and
+ * saying so. */
+static void test_receive_fault_at_every_step(void)
+{
+    lr11xx_t dev;
+    solar_os_radio_packet_t heard;
+
+    open_listening(&dev);
+    chip.irq = IRQ_RX_DONE;
+    chip.rx_len = 4U;
+    chip.reject_opcode = LR11XX_OP_CLEAR_IRQ;
+    assert(lr11xx_receive(&dev, &heard, 50U) == ESP_ERR_INVALID_RESPONSE);
+    assert(heard.len == 0U);
+    assert(dev.state == SOLAR_OS_RADIO_STATE_UNKNOWN);
+    assert(lr11xx_receive(&dev, &heard, 50U) == ESP_ERR_INVALID_STATE);
+
+    open_listening(&dev);
+    chip.irq = IRQ_RX_DONE;
+    chip.rx_len = 4U;
+    const unsigned before = chip.transfers;
+    assert(lr11xx_receive(&dev, &heard, 50U) == ESP_OK);
+    const unsigned steps = chip.transfers - before;
+    assert(steps > 3U);
+
+    for (unsigned step = 1U; step <= steps; step++) {
+        open_listening(&dev);
+        const size_t clears_before = count_windows(LR11XX_OP_CLEAR_IRQ);
+        chip.irq = IRQ_RX_DONE;
+        chip.rx_len = 4U;
+        chip.fail_transfer = step;
+        const esp_err_t err = lr11xx_receive(&dev, &heard, 50U);
+        assert_state_true(&dev);
+        if (err == ESP_OK) {
+            /* Delivered only once the flag is down: the receive's own clear
+             * went through, and before the buffer was read. Only the signal
+             * readings may fail without failing the receive. */
+            assert(count_windows(LR11XX_OP_CLEAR_IRQ) == clears_before + 1U);
+            assert(last_index_of(LR11XX_OP_CLEAR_IRQ) < last_index_of(LR11XX_OP_READ_BUFFER8));
+            assert(heard.len == 4U);
+        } else {
+            /* Whichever transfer failed, before the flag was cleared or
+             * after it, the part is no longer known to be listening. */
+            assert(dev.state == SOLAR_OS_RADIO_STATE_UNKNOWN);
+            assert(heard.len == 0U);
+        }
     }
 }
 
@@ -1560,6 +1632,7 @@ int main(void)
     test_bandwidth_reported_as_applied();
     test_listening_takes_any_preamble();
     test_uninitialised_device_is_refused();
+    test_receive_fault_at_every_step();
     test_receive_notices_a_part_that_stops_answering();
     puts("lr11xx tests: ok");
     return 0;
