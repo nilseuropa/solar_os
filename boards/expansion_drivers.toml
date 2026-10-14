@@ -1298,6 +1298,26 @@ hint = "0x70"
 required = true
 allowed = [0x70]
 
+[drivers.sht40]
+summary = "SHT40 temperature/humidity"
+package = "driver_sht40"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["temperature", "humidity"]
+board_driver = "sensors_sht40"
+default_name = "environment0"
+[[drivers.sht40.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.sht40.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x44"
+required = true
+allowed = [0x44]
+
 [drivers.battery-adc]
 summary = "ADC battery monitor"
 package = "driver_battery_adc"

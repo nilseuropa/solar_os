@@ -722,6 +722,11 @@ label = "SHTC3 environmental sensor"
 category = "Expansion hardware"
 members = ["driver_shtc3"]
 
+[groups.sht40]
+label = "SHT40 environmental sensor"
+category = "Expansion hardware"
+members = ["driver_sht40"]
+
 [groups.battery_adc]
 label = "ADC battery monitor"
 category = "Expansion hardware"
@@ -2298,6 +2303,18 @@ sources = [
   "drivers/shtc3.c",
   "services/solar_os_shtc3.c",
   "services/solar_os_shtc3_driver.c",
+]
+capabilities = ["i2c"]
+
+[packages.driver_sht40]
+label = "driver.sht40"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sht40_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_sensors"]
+sources = [
+  "drivers/sht40.c",
+  "services/solar_os_sht40.c",
+  "services/solar_os_sht40_driver.c",
 ]
 capabilities = ["i2c"]
 
