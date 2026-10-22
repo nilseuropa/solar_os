@@ -1,0 +1,19 @@
+schema = 1
+extends = "waveshare_esp32_s3_touch_lcd_7b_can"
+
+[board]
+id = "waveshare_esp32_s3_touch_lcd_7b"
+name = "Waveshare ESP32-S3-Touch-LCD-7B"
+
+[build]
+drivers = ["cdc_usb_serial_jtag"]
+capabilities = ["cdc"]
+
+[[devices]]
+name = "can0"
+remove = true
+
+[[devices]]
+name = "io0"
+# EXIO5 low selects native USB; other output/direction bits match the common profile.
+bindings = { output = 155 }

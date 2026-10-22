@@ -24,7 +24,9 @@ typedef struct {
     char bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address, alternate_address, rotation, pointer_id;
     int irq_pin;
-    int reset_pin, power_pin, power_active_level;
+    int power_active_level;
+    bool have_reset, have_power;
+    solar_os_gpio_line_ref_t reset_line, power_line;
     uint8_t home_key;
     uint16_t width, height;
     int16_t x, y;
@@ -43,7 +45,6 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
     bool bus=false, addr=false, alternate_addr=false, irq=false, rotation=false;
     if (!bindings || !device) return ESP_ERR_INVALID_ARG;
     device->irq_pin = -1;
-    device->reset_pin = device->power_pin = -1;
     device->power_active_level = 1;
     bool reset=false, power=false, active=false, home=false;
     for (size_t i=0; i<count; ++i) {
@@ -63,12 +64,18 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !irq &&
                    strcmp(b->role, "irq") == 0) {
             device->irq_pin=b->value; irq=true;
-        } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !reset &&
-                   strcmp(b->role, "reset") == 0) {
-            device->reset_pin=b->value; reset=true;
-        } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !power &&
-                   strcmp(b->role, "power") == 0) {
-            device->power_pin=b->value; power=true;
+        } else if ((b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE ||
+                    b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO) && !reset &&
+                   strcmp(b->role, "reset") == 0 && b->value >= 0 && b->value <= UINT8_MAX) {
+            strlcpy(device->reset_line.controller, b->target, sizeof(device->reset_line.controller));
+            device->reset_line.line=(uint8_t)b->value;
+            device->have_reset=reset=true;
+        } else if ((b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE ||
+                    b->kind == SOLAR_OS_EXPANSION_BINDING_GPIO) && !power &&
+                   strcmp(b->role, "power") == 0 && b->value >= 0 && b->value <= UINT8_MAX) {
+            strlcpy(device->power_line.controller, b->target, sizeof(device->power_line.controller));
+            device->power_line.line=(uint8_t)b->value;
+            device->have_power=power=true;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !active &&
                    strcmp(b->role, "active") == 0 && b->value >= 0 && b->value <= 1) {
             device->power_active_level=b->value; active=true;
@@ -104,11 +111,13 @@ esp_err_t solar_os_gt911_attach(const char *name,
     if (!solar_os_display_find_target(SOLAR_OS_DISPLAY_PRIMARY_TARGET, &target) ||
         !target.width || !target.height) return ESP_ERR_NOT_FOUND;
     candidate.width=target.width; candidate.height=target.height;
-    esp_err_t err = gt911_init_with_reset(candidate.bus,
+    esp_err_t err = gt911_init_with_lines(candidate.bus,
                                    candidate.address,
                                    candidate.alternate_address,
-                                   candidate.irq_pin, candidate.reset_pin,
-                                   candidate.power_pin, candidate.power_active_level);
+                                   candidate.irq_pin,
+                                   candidate.have_reset ? &candidate.reset_line : NULL,
+                                   candidate.have_power ? &candidate.power_line : NULL,
+                                   candidate.power_active_level);
     if (err != ESP_OK) { gt911_deinit(); return err; }
     strlcpy(candidate.name, name, sizeof(candidate.name));
     err=solar_os_input_source_open_typed(candidate.name, SOLAR_OS_INPUT_SOURCE_TOUCH,

@@ -1,0 +1,575 @@
+# Wiring and RGB timings: Waveshare ESP32-S3-Touch-LCD-7B schematic and
+# ESP-IDF examples, vendor commit c652c902db607f7ffb376257393cfd7657aa6428.
+# This profile selects CAN. The default USB profile inherits the common wiring.
+schema = 1
+
+[board]
+id = "waveshare_esp32_s3_touch_lcd_7b_can"
+name = "Waveshare ESP32-S3-Touch-LCD-7B (CAN)"
+vendor = "Waveshare"
+module = "ESP32-S3-WROOM-1-N16R8"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "waveshare_esp32_s3_touch_lcd_7b"
+
+[build]
+drivers = ["uart_esp_idf", "display_rgb", "pointer_gt911", "storage_expansion", "battery_expansion", "i2c_esp_idf", "gpio_esp_idf", "adc_esp_idf", "pwm_esp_idf"]
+capabilities = ["psram", "simd", "display", "gfx", "display_brightness", "streaming_display", "pointer", "uart", "sd", "i2c", "battery", "wifi", "ble", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c", "expansion_uart", "expansion_adc", "expansion_pwm"]
+required_packages = []
+psram_bytes = 8388608
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7262"'
+SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"rgb-lcd"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "1024"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "1024"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "600"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_8"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_13"
+
+[runtime]
+uart_ports = ["UART_NUM_2"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 8
+scl = 9
+speed_hz = 400000
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "uart1"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 16
+rx = 15
+baud_rate = 115200
+
+[[devices]]
+driver = "waveshare-io"
+name = "io0"
+# EXIO1 touch reset, EXIO2 backlight enable, EXIO3 panel reset,
+# EXIO4 SD D3 (held high for 1-bit SDMMC), EXIO5 USB/CAN, EXIO6 panel power.
+# Outputs are preloaded before enabling lines 1..6. Bit 5 selects CAN.
+bindings = { i2c = "i2c0", addr = 0x24, output = 187, direction = 126, battery = 1, backlight = 1, vref = 3300, divider = 3000 }
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 12, cmd = 11, d0 = 13 }
+
+[[devices]]
+driver = "rgb-lcd"
+name = "display0"
+bindings = { d0 = 14, d1 = 38, d2 = 18, d3 = 17, d4 = 10, d5 = 39, d6 = 0, d7 = 45, d8 = 48, d9 = 47, d10 = 21, d11 = 1, d12 = 2, d13 = 42, d14 = 41, d15 = 40, hsync = 46, vsync = 3, de = 5, clk = 7, width = 1024, height = 600, clock = 30000, hsw = 162, hbp = 152, hfp = 48, vsw = 45, vbp = 13, vfp = 3, flags = 8, reset = "io0:3", power = "io0:6", bl = "io0:2" }
+
+[[devices]]
+driver = "gt911"
+name = "touch0"
+bindings = { i2c = "i2c0", addr = 0x5d, alt_addr = 0x14, irq = 4, reset = "io0:1", rotation = 0 }
+
+[[devices]]
+driver = "twai-can"
+name = "can0"
+bindings = { tx = 20, rx = 19, bitrate = 500, listen = 0, select = "io0:5" }
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "LCD RGB565 D6"
+
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "LCD RGB565 D11"
+
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "LCD RGB565 D12"
+
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "LCD VSYNC"
+
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "Touch interrupt"
+
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "LCD DE"
+
+[[pins]]
+gpio = 6
+policy = "free"
+role = "Sensor GPIO"
+expansion = true
+user = true
+adc = true
+pwm = true
+
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "LCD PCLK"
+
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "I2C SDA"
+expansion = true
+
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "I2C SCL"
+expansion = true
+
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "LCD RGB565 D4"
+
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "SDMMC CMD"
+
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "SDMMC CLK"
+
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "SDMMC D0"
+
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "LCD RGB565 D0"
+
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "RS485 / selectable UART RX"
+expansion = true
+
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "RS485 / selectable UART TX"
+expansion = true
+
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "LCD RGB565 D3"
+
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "LCD RGB565 D2"
+
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "CAN RX / USB D-"
+
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "CAN TX / USB D+"
+
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "LCD RGB565 D10"
+
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "LCD RGB565 D1"
+
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "LCD RGB565 D5"
+
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "LCD RGB565 D15"
+
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "LCD RGB565 D14"
+
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "LCD RGB565 D13"
+
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "UART0 TX / CH343"
+expansion = true
+
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "UART0 RX / CH343"
+expansion = true
+
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "LCD RGB565 D7"
+
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "LCD HSYNC"
+
+[[pins]]
+gpio = 47
+policy = "fixed"
+role = "LCD RGB565 D9"
+
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "LCD RGB565 D8"
+
+[connector]
+title = "Onboard signals and expansion GPIO"
+view = "Logical signal map; physical connector pin order is not represented"
+rows = 9
+columns = 4
+
+[[connectors]]
+connector = "SIGNALS"
+position = 1
+row = 0
+column = 0
+gpio = 0
+kind = "gpio"
+label = "LCD RGB565 D6"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 2
+row = 0
+column = 1
+gpio = 1
+kind = "gpio"
+label = "LCD RGB565 D11"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 3
+row = 0
+column = 2
+gpio = 2
+kind = "gpio"
+label = "LCD RGB565 D12"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 4
+row = 0
+column = 3
+gpio = 3
+kind = "gpio"
+label = "LCD VSYNC"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 5
+row = 1
+column = 0
+gpio = 4
+kind = "gpio"
+label = "Touch interrupt"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 6
+row = 1
+column = 1
+gpio = 5
+kind = "gpio"
+label = "LCD DE"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 7
+row = 1
+column = 2
+gpio = 6
+kind = "gpio"
+label = "Sensor GPIO"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 8
+row = 1
+column = 3
+gpio = 7
+kind = "gpio"
+label = "LCD PCLK"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 9
+row = 2
+column = 0
+gpio = 8
+kind = "gpio"
+label = "I2C SDA"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 10
+row = 2
+column = 1
+gpio = 9
+kind = "gpio"
+label = "I2C SCL"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 11
+row = 2
+column = 2
+gpio = 10
+kind = "gpio"
+label = "LCD RGB565 D4"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 12
+row = 2
+column = 3
+gpio = 11
+kind = "gpio"
+label = "SDMMC CMD"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 13
+row = 3
+column = 0
+gpio = 12
+kind = "gpio"
+label = "SDMMC CLK"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 14
+row = 3
+column = 1
+gpio = 13
+kind = "gpio"
+label = "SDMMC D0"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 15
+row = 3
+column = 2
+gpio = 14
+kind = "gpio"
+label = "LCD RGB565 D0"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 16
+row = 3
+column = 3
+gpio = 15
+kind = "gpio"
+label = "RS485 / selectable UART RX"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 17
+row = 4
+column = 0
+gpio = 16
+kind = "gpio"
+label = "RS485 / selectable UART TX"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 18
+row = 4
+column = 1
+gpio = 17
+kind = "gpio"
+label = "LCD RGB565 D3"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 19
+row = 4
+column = 2
+gpio = 18
+kind = "gpio"
+label = "LCD RGB565 D2"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 20
+row = 4
+column = 3
+gpio = 19
+kind = "gpio"
+label = "CAN RX / USB D-"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 21
+row = 5
+column = 0
+gpio = 20
+kind = "gpio"
+label = "CAN TX / USB D+"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 22
+row = 5
+column = 1
+gpio = 21
+kind = "gpio"
+label = "LCD RGB565 D10"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 23
+row = 5
+column = 2
+gpio = 38
+kind = "gpio"
+label = "LCD RGB565 D1"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 24
+row = 5
+column = 3
+gpio = 39
+kind = "gpio"
+label = "LCD RGB565 D5"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 25
+row = 6
+column = 0
+gpio = 40
+kind = "gpio"
+label = "LCD RGB565 D15"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 26
+row = 6
+column = 1
+gpio = 41
+kind = "gpio"
+label = "LCD RGB565 D14"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 27
+row = 6
+column = 2
+gpio = 42
+kind = "gpio"
+label = "LCD RGB565 D13"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 28
+row = 6
+column = 3
+gpio = 43
+kind = "gpio"
+label = "UART0 TX / CH343"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 29
+row = 7
+column = 0
+gpio = 44
+kind = "gpio"
+label = "UART0 RX / CH343"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 30
+row = 7
+column = 1
+gpio = 45
+kind = "gpio"
+label = "LCD RGB565 D7"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 31
+row = 7
+column = 2
+gpio = 46
+kind = "gpio"
+label = "LCD HSYNC"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 32
+row = 7
+column = 3
+gpio = 47
+kind = "gpio"
+label = "LCD RGB565 D9"
+
+[[connectors]]
+connector = "SIGNALS"
+position = 33
+row = 8
+column = 0
+gpio = 48
+kind = "gpio"
+label = "LCD RGB565 D8"

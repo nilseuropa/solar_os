@@ -52,6 +52,17 @@ int main(void)
     assert(solar_os_resource_release_owner("adc:100") == 2U);
     assert(solar_os_resource_claim_count() == 31U);
 
+    /* A parallel RGB panel claims twenty GPIOs in one atomic bundle. */
+    solar_os_resource_request_t rgb[20];
+    for (int i = 0; i < 20; i++) rgb[i] = (solar_os_resource_request_t){
+        .kind=SOLAR_OS_RESOURCE_GPIO_PIN,.primary=100+i,.secondary=-1,.label="rgb",
+    };
+    assert(solar_os_resource_claim_bundle(rgb,20,"rgb0",NULL)==ESP_OK);
+    assert(solar_os_resource_claim_count()==51U);
+    assert(solar_os_resource_claim_bundle(rgb,20,"other",NULL)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_resource_release_owner("rgb0")==20U);
+    assert(solar_os_resource_claim_count()==31U);
+
     puts("resource registry tests: ok");
     return 0;
 }

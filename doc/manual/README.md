@@ -24,6 +24,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ble command](commands.md) — Show BLE keyboard state and the current/next boot setting.
 - [board command](commands.md) — Print board ID, name, and capabilities.
 - [camera command](commands.md) — Initialize the camera on first use and show the detected sensor, JPEG configuration, current owner and frame lease, capture count, and last error.
+- [can command](commands.md) — List the attached classic CAN controller and bitrate. See Classic CAN.
 - [cat command](commands.md) — Print a small text file.
 - [cd command](commands.md) — Change current shell directory.
 - [charger command](commands.md) — List registered battery chargers, concrete drivers, and valid configuration ranges.
@@ -237,6 +238,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Hardware and expansion
 
 - [Audio, input, and clipboard APIs](media.input.md) — Use installed media and generic input services
+- [Classic CAN](hardware.can.md) — Attach a TWAI CAN controller, exchange frames, and inspect bus errors
 - [Continuous controls](controls.md) — Map analog and other scalar inputs to app parameters or MIDI CC
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples

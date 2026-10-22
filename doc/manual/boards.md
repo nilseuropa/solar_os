@@ -19,6 +19,8 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
+| `waveshare_esp32_s3_touch_lcd_7b` | `waveshare_esp32_s3_touch_lcd_7b` | [Waveshare ESP32-S3-Touch-LCD-7B](https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B) | 1024x600 RGB565 ST7262 display, GT911 touch, 16 MB flash, 8 MB PSRAM, native USB CDC, CH343/UART0 console, one-bit SDMMC, backlight dimmer, nominal battery voltage, I2C, RS485/UART1, and GPIO6 expansion. |
+| `waveshare_esp32_s3_touch_lcd_7b_can` | `waveshare_esp32_s3_touch_lcd_7b_can` | Waveshare ESP32-S3-Touch-LCD-7B with CAN routing | Same display, touch, storage, and expansion hardware, with the USB/CAN multiplexer selecting classic CAN on GPIO20 TX / GPIO19 RX. Registers `can0` at 500 kbit/s in normal mode. Native USB CDC is absent; the CH343/UART0 connector remains available. |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, INMP441 microphone, shared PCM5102 line output and MAX98357 speaker output, LC709203F fuel gauge, DS3231 RTC, microSD, CH340/UART console, and GPIO21 reserved for jack detect. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
@@ -80,6 +82,53 @@ are changed in receiver RAM only, without changing sentence rates or baud.
 Software silencing does not guarantee that the receiver's TX pin becomes high
 impedance. An external transmitter on the same signal still needs electrical
 isolation unless the receiver's hardware specifies a suitable disconnected state.
+
+## Waveshare ESP32-S3-Touch-LCD-7B
+
+The touch target uses the 1024x600 ST7262 RGB panel with the vendor's 30 MHz
+timings. The `rgb-lcd`, `waveshare-io`, and `gt911` expansion drivers attach
+the onboard devices. The GT911 contributes an absolute pointer to the common
+input service; SolarOS currently consumes one contact. Battery voltage is a
+nominal reading from the I/O MCU's 10-bit ADC with a 3.3 V reference and 3:1
+divider. Charge-complete and charging LEDs are hardware indicators; their
+states are not reported as software charge telemetry. No RTC or audio codec
+is fitted.
+
+Build the default USB target with:
+
+```sh
+pio run -e waveshare_esp32_s3_touch_lcd_7b
+```
+
+This selects EXIO5 low for native USB and exposes `cdc0`. The separate
+USB TO UART connector uses the CH343 bridge and `uart0` on GPIO43 TX /
+GPIO44 RX. Both firmware variants keep the ESP-IDF console on UART0.
+GPIO0 is an RGB data line, so BOOT is a download control and is not exposed
+as a runtime power key. RESET remains a hardware reset.
+
+For the onboard CAN transceiver, build
+`pio run -e waveshare_esp32_s3_touch_lcd_7b_can`. This selects EXIO5 high,
+disables native USB CDC, and attaches `can0` in normal mode at 500 kbit/s.
+Use the USB TO UART connector for flashing and the console. Native USB and
+CAN share GPIO19/GPIO20 through a hardware multiplexer and cannot operate
+together. See [Classic CAN](hardware.can.md) for frame and recovery commands.
+Set the physical CAN termination switch for the board's position on the bus.
+
+The microSD socket uses one-bit SDMMC: GPIO12 CLK, GPIO11 CMD, GPIO13 D0.
+EXIO4 holds the unused D3/SPI-CS line high. The board's RS485 transceiver
+switches direction automatically and is exposed through `uart1`, with GPIO16
+TX / GPIO15 RX. It shares the selectable UART header path; use the UART
+selection switch for the intended connector. The RS485 termination switch
+is independent of the CAN termination switch.
+
+The external I2C connector shares `i2c0` on GPIO8 SDA / GPIO9 SCL with
+`io0` at `0x24` and the touch controller at `0x5d` or `0x14`. GPIO6 is the
+sensor header's runtime GPIO/ADC/PWM signal. LCD, SD, touch, USB/CAN, and
+console signals are reserved. Inspect `io`, `expansion devices`, and
+`expansion layout` before using external wiring.
+
+The non-touch ESP32-S3-LCD-7B SKU requires a profile without the GT911
+attachment; these targets describe the touch SKU.
 
 ## Define a custom board
 

@@ -637,6 +637,21 @@ label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
 
+[groups.waveshare_io]
+label = "Waveshare I/O extension"
+category = "Expansion hardware"
+members = ["waveshare_io"]
+
+[groups.can_twai]
+label = "TWAI classic CAN"
+category = "Expansion hardware"
+members = ["can_twai"]
+
+[groups.rgb_lcd]
+label = "RGB parallel LCD"
+category = "Expansion hardware"
+members = ["driver_display_rgb"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -1972,6 +1987,23 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 
+[packages.can_twai]
+label = "expansion.twai-can"
+targets = ["esp32", "esp32s3"]
+depends = ["service_expansion"]
+expansion_drivers = ["solar_os_twai_can_expansion_driver"]
+sources = ["drivers/can_twai.c", "services/solar_os_can.c", "services/solar_os_can_driver.c", "shell/solar_os_shell_can.c"]
+requires = ["driver", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
+
+[packages.waveshare_io]
+label = "expansion.waveshare-io"
+depends = ["service_expansion", "service_i2c", "service_battery"]
+expansion_drivers = ["solar_os_waveshare_io_expansion_driver"]
+sources = ["drivers/waveshare_io.c", "services/solar_os_waveshare_io.c", "services/solar_os_waveshare_io_driver.c"]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
 [packages.service_input_keymap]
 label = "service.input-keymap"
 targets = ["esp32", "esp32s3"]
@@ -2343,6 +2375,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_rgb]
+label = "driver.display-rgb"
+targets = ["esp32s3"]
+depends = ["service_expansion"]
+expansion_drivers = ["solar_os_rgb_lcd_expansion_driver"]
+sources = ["drivers/rgb_lcd.c", "drivers/rgb_lcd_raster.c", "board/solar_os_board_display_expansion.c", "services/solar_os_rgb_display.c", "services/solar_os_rgb_display_driver.c"]
+requires = ["esp_lcd", "esp_driver_gpio", "heap", "u8g2"]
+capabilities = ["gfx", "psram", "expansion_gpio"]
 
 [packages.driver_display_st7789]
 label = "driver.display-st7789"

@@ -295,7 +295,7 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `analog-joystick` | Two-axis analog joystick | `x=<scalar-stream> y=<scalar-stream> min=<value> center=<value> max=<value>`; optional `deadzone=<value>` | Normalizes two scalar streams into X/Y axis events without generating keys. |
 | `rotary-encoder` | Quadrature rotary encoder | `a=<pin> b=<pin>` | Publishes Up or Down input for each decoded detent. |
 | `ft6336` | Board-integrated FT6336 touch controller | Board-defined I2C, address, reset, and IRQ bindings | Publishes absolute pointer events as a default board attachment. |
-| `gt911` | GT911 capacitive touch controller | `i2c=<bus> addr=0x5d irq=<pin> rotation=<0..3>`; optional `alt_addr=0x14 reset=<pin> power=<pin> active=<0|1> home_key=<numeric-key>` | Polls absolute pointer events into the shared input service and retains state between fresh frames. Optional reset performs interrupt-pin address selection; optional power controls the touch rail (default active high). Both declared addresses are claimed. The Home pad can emit a key tap on release. |
+| `gt911` | GT911 capacitive touch controller | `i2c=<bus> addr=0x5d irq=<pin> rotation=<0..3>`; optional `alt_addr=0x14 reset=<gpio-or-controller:line> power=<gpio-or-controller:line> active=<0\|1> home_key=<numeric-key>` | Polls absolute pointer events into the shared input service and retains state between fresh frames. Reset and power accept native GPIOs or named controller lines. Reset performs interrupt-pin address selection; power controls the touch rail (default active high). Both declared addresses are claimed. The Home pad can emit a key tap on release. |
 | `mgc3130` | MGC3130/Skywriter 3D gesture sensor | `i2c=<bus> addr=0x42|0x43 transfer=<pin> reset=<pin> rotation=<0..3>`; optional `airwheel=0|1` | Registers in the `gesture` input class and uses the open-drain transfer handshake to publish normalized X/Y/Z axes, recognized gesture/tap/AirWheel events, and buttonless display-scaled absolute hover motion. It is not registered as a touch source, because the five electrode regions do not provide a continuous drawing surface. AirWheel defaults on; set it to 0 to make the mutually exclusive circle gestures available. Use `gesture bind` to map its generic gesture events to local keys, scripts, or other shell commands. |
 | `pcf85063` | PCF85063 real-time clock | `i2c=<bus> addr=0x51`; optional `irq=<pin>` | Registers an RTC provider with wall-clock, alarm, timer, and optional interrupt support. |
 | `pcf8563` | PCF8563 / BM8563 real-time clock | `i2c=<bus> addr=0x51`; optional `irq=<pin>` | Registers an RTC provider with calendar, minute-resolution alarms, countdown, and optional active-low interrupt support. Calendar dates use 2000–2099 with the century bit cleared. Low-voltage status marks the clock unreliable until the date is set. Nonzero alarm seconds are unsupported; countdown accepts 1–255 seconds or whole minutes up to 255 minutes. |
@@ -308,6 +308,7 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `cw2017` | CW2017 fuel gauge | `i2c=<bus> addr=0x63` | Registers a battery provider with cell voltage and state of charge. Preserves the resident cell-specific BATINFO profile. Without a loaded profile or valid SOC, battery percentage uses the service's voltage estimate. Charging and external-power state are not reported by the gauge. |
 | `bq25896` | BQ25896 battery charger | `i2c=<bus> addr=0x6b`; optional `charge_current=<0..3008>` and `charge_voltage=<3840..4608>` | Registers a charger provider; optional values configure milliamps and millivolts within the device's supported steps. |
 | `xl9555` | XL9555 16-line GPIO controller | `i2c=<bus> addr=<0x20..0x27>`; optional `output=<0..65535> direction=<0..65535>` | Registers named digital control lines such as `gpiox0:4`; initial output latches are applied before output directions. |
+| `waveshare-io` | Waveshare MCU I/O-extension firmware | `i2c=<bus> addr=0x24`; optional `output=<0..255> direction=<0..255> battery=<0\|1> backlight=<0\|1> vref=<1000..5000> divider=<1000..10000>` | Registers eight GPIO lines as `<name>:0..7`. A set direction bit means output; defaults are output latch 255 and all inputs. Optional battery readings use the firmware's 10-bit ADC, nominal reference in mV (default 3300), and divider in thousandths (default 3000). Optional dimming follows the backlight service. This register protocol is distinct from CH422G. |
 | `ublox-mia-m10q` | u-blox MIA-M10Q GNSS receiver | `uart=<bus>`; optional `power=<gpio-or-controller-line>` | Registers a GNSS provider and controls its optional power line around the UART-backed receiver. |
 | `nmea` | NMEA 0183 GNSS receiver | `uart=<bus>`; optional `power=<gpio-or-controller-line> active=0|1` (both or neither) and `alt_baud=<4800..921600>` | Parses streamed RMC/GGA in a background reader; `gnss fix` uses sentences at most 2.5 s old. Detection listens at the configured rate, then `alt_baud`, restoring the configured rate if neither works. Switched receivers require explicit power polarity. `gnss enable` / `gnss disable` use recognized UBX UART1 or CASIC UART0 configuration, read back the output setting, and observe 2.6 s without received bytes before reporting disabled. Binary control replies remain enabled; unexpected periodic output fails the disable check. Baud, sentence rates, power, and UART ownership remain unchanged. Muted receivers are restored on attachment. RMC/GGA provide no position accuracy or PDOP. Failed power-off retains registration for retry. |
 | `sim7670` | SIM7670 LTE modem and GNSS receiver | `uart=<bus>`; optional active-high `power=<gpio-or-controller-line>` and active-low `reset=<gpio-or-controller-line>` | Registers modem profile, power/reset, AT/status, GNSS, and a generic IPv4 PPP service bound to the exclusively claimed UART. Without a reset line, the driver can reset through the power line. PPP-enabled targets reserve the UART for network frames until disconnected. |
@@ -912,6 +913,40 @@ After an auxiliary display is attached, it can also host a shell session:
 ```text
 session create shell oled0
 ```
+
+## Classic CAN
+
+Classic CAN controllers attach through `twai-can`; see [Classic CAN](hardware.can.md)
+for transceiver wiring, bitrate, frame, and recovery controls.
+
+## RGB parallel LCD
+
+`rgb-lcd` drives a 16-bit RGB565 panel on ESP32-S3. The `rgb_lcd` package group
+enables runtime attachment; board manifests can require the driver directly.
+Configure it through the expansion manager, a board manifest, or a Python/Lua
+expansion binding table. It requires PSRAM and exclusive ownership of its
+twenty signal GPIOs.
+
+Required bindings are `d0` through `d15` (RGB565 least-significant bit first),
+`hsync`, `vsync`, `de`, `clk`, `width`, `height`, `clock` in kHz,
+`hsw`, `hbp`, `hfp`, `vsw`, `vbp`, and `vfp`. Horizontal timing values count
+pixel clocks; vertical values count lines. Dimensions must be multiples of
+eight, from 8 through 2040. Pixel clocks range from 1000 through 40000 kHz.
+Optional `flags` combines HSYNC idle low (1), VSYNC idle low (2), DE idle high
+(4), falling-edge pixel clock (8), and pixel-clock idle high (16).
+
+Optional `bl`, `reset`, and `power` accept native GPIOs or named controller
+lines. Backlight enable and panel power are active high; reset is active low.
+The backlight enable is off at zero brightness and on at nonzero brightness.
+An attached dimmer that follows the backlight service can provide intermediate
+levels. Shutdown stops scanout and releases its DMA buffers; resume recreates
+scanout while retaining the configured brightness.
+
+The display accepts monochrome, INDEX2, INDEX8, and RGB565 frames, with scaling
+and rotated surfaces. RGB565 input uses high byte first. Scanout uses one
+PSRAM framebuffer and internal DMA bounce buffers; presentation can overlap
+scanout and does not guarantee a tear-free update. One RGB panel can be
+attached at a time.
 
 ## Quick reference
 
