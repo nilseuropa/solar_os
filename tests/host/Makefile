@@ -17,6 +17,10 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += waveshare_io_test waveshare_io_service_test
 TARGETS += rgb_lcd_raster_test rgb_lcd_test
+TARGETS += can_twai_test
+
+can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ican_stubs -Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 rgb_lcd_raster_test: rgb_lcd_raster_test.c $(ROOT)/src/drivers/rgb_lcd_raster.c
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
@@ -1098,6 +1102,7 @@ test: $(TARGETS)
 	./waveshare_io_service_test
 	./rgb_lcd_raster_test
 	./rgb_lcd_test
+	./can_twai_test
 	./i2c_buses_test
 	./inmp441_test
 	./epd_pixel_budget_test

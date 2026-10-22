@@ -456,6 +456,52 @@ key = "power"
 kind = "gpio_line"
 hint = "gpio|controller:line"
 
+
+[drivers.twai-can]
+summary = "ESP32 TWAI classic CAN controller"
+package = "can_twai"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio"]
+default_name = "can0"
+
+[[drivers.twai-can.bindings]]
+key = "tx"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.twai-can.bindings]]
+key = "rx"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.twai-can.bindings]]
+key = "bitrate"
+kind = "parameter"
+hint = "25|50|100|125|250|500|800|1000 kbit/s"
+required = true
+allowed = [25,50,100,125,250,500,800,1000]
+
+[[drivers.twai-can.bindings]]
+key = "listen"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.twai-can.bindings]]
+key = "select"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.twai-can.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.xl9555]
 summary = "XL9555 16-line I2C GPIO controller"
 package = "xl9555"

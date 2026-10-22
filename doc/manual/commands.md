@@ -1310,6 +1310,11 @@ available for the compiled board.
 | `modem` | `modem connect\|disconnect [name]` | Bring the saved cellular network connection and PPP interface up or down. |
 | `modem` | `modem sim unlock <pin> [name]` | Enter a required SIM PIN without persisting it. |
 | `modem` | `modem at <quoted-command> [name] [timeout-ms]` | Send one validated AT command and print the complete response. |
+| `can` | `can [list]` | List the attached classic CAN controller and bitrate. See [Classic CAN](hardware.can.md). |
+| `can` | `can status <name>` | Show CAN state, queues, and error counters. |
+| `can` | `can send <name> <id> <hex-or-> [ext] [rtr]` | Queue a standard, extended, or remote CAN frame with up to eight bytes. |
+| `can` | `can recv <name> [timeout-ms]` | Read one CAN frame, waiting at most 1000 ms. |
+| `can` | `can recover <name>` / `can start <name>` | Start bus-off recovery, or restart after recovery reaches stopped state. |
 | `haptic` | `haptic [list]` | List registered haptic devices, their concrete drivers, and supported effect range. |
 | `haptic` | `haptic play <effect> [name]` | Play one numbered effect on a haptic device. |
 | `haptic` | `haptic stop [name]` | Stop the active haptic effect. |

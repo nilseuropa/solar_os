@@ -156,6 +156,7 @@ lilygo_pager_keyboard = true
 xl9555 = true
 waveshare_io = true
 rgb_lcd = true
+can_twai = true
 sx1262 = true
 lr11xx = true
 rotary_encoder = true

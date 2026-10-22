@@ -914,6 +914,11 @@ After an auxiliary display is attached, it can also host a shell session:
 session create shell oled0
 ```
 
+## Classic CAN
+
+Classic CAN controllers attach through `twai-can`; see [Classic CAN](hardware.can.md)
+for transceiver wiring, bitrate, frame, and recovery controls.
+
 ## RGB parallel LCD
 
 `rgb-lcd` drives a 16-bit RGB565 panel on ESP32-S3. The `rgb_lcd` package group

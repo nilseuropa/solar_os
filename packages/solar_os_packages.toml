@@ -642,6 +642,11 @@ label = "Waveshare I/O extension"
 category = "Expansion hardware"
 members = ["waveshare_io"]
 
+[groups.can_twai]
+label = "TWAI classic CAN"
+category = "Expansion hardware"
+members = ["can_twai"]
+
 [groups.rgb_lcd]
 label = "RGB parallel LCD"
 category = "Expansion hardware"
@@ -1981,6 +1986,15 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.can_twai]
+label = "expansion.twai-can"
+targets = ["esp32", "esp32s3"]
+depends = ["service_expansion"]
+expansion_drivers = ["solar_os_twai_can_expansion_driver"]
+sources = ["drivers/can_twai.c", "services/solar_os_can.c", "services/solar_os_can_driver.c", "shell/solar_os_shell_can.c"]
+requires = ["driver", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
 
 [packages.waveshare_io]
 label = "expansion.waveshare-io"

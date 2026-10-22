@@ -705,6 +705,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_MODEM
     {"modem", "cellular modem profiles and status", solar_os_shell_cmd_modem},
 #endif
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    {"can", "CAN controller and frames", solar_os_shell_cmd_can},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     {"haptic", "haptic feedback tools", solar_os_shell_cmd_haptic},
 #endif
@@ -1154,6 +1157,9 @@ static const char * const modem_subcommands[] = {
 };
 static const char * const modem_profile_subcommands[] = {"show", "set", "clear"};
 static const char * const modem_sim_subcommands[] = {"unlock"};
+#endif
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static const char * const can_subcommands[] = {"list", "status", "send", "recv", "recover", "start"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const haptic_subcommands[] = {"list", "play", "stop"};
@@ -2607,6 +2613,9 @@ static const char * const path_modem_power[] = {"modem", "power"};
 static const char * const path_modem_profile[] = {"modem", "profile"};
 static const char * const path_modem_sim[] = {"modem", "sim"};
 #endif
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static const char * const path_can[] = {"can"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static const char * const path_haptic[] = {"haptic"};
 #endif
@@ -3723,6 +3732,9 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_modem_power, on_off_values),
     SHELL_COMPLETION_STATIC(path_modem_profile, modem_profile_subcommands),
     SHELL_COMPLETION_STATIC(path_modem_sim, modem_sim_subcommands),
+#endif
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    SHELL_COMPLETION_STATIC(path_can, can_subcommands),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
     SHELL_COMPLETION_STATIC(path_haptic, haptic_subcommands),
