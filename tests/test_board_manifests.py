@@ -35,6 +35,36 @@ from solaros_board_manifest import (
 
 
 class BoardManifestTest(unittest.TestCase):
+    def test_waveshare_7b_usb_and_can_share_wiring_without_pin_conflicts(self) -> None:
+        profiles = {}
+        for suffix in ("", "_can"):
+            board = load_board_manifest(self.manifest_dir / f"waveshare_esp32_s3_touch_lcd_7b{suffix}.toml", self.manifest_dir)
+            validate_board(board, self.drivers)
+            profiles[suffix] = board
+            devices = {d["name"]: d for d in board["devices"]}
+            rgb = devices["display0"]["bindings"]
+            self.assertEqual([rgb[f"d{i}"] for i in range(16)],
+                             [14,38,18,17,10,39,0,45,48,47,21,1,2,42,41,40])
+            self.assertEqual((rgb["width"], rgb["height"], rgb["clock"]), (1024,600,30000))
+            self.assertEqual((rgb["hsw"],rgb["hbp"],rgb["hfp"],rgb["vsw"],rgb["vbp"],rgb["vfp"]), (162,152,48,45,13,3))
+            self.assertEqual(devices["touch0"]["bindings"]["reset"], "io0:1")
+            self.assertEqual(devices["storage0"]["bindings"], {"clk":12,"cmd":11,"d0":13})
+            self.assertEqual(devices["io0"]["bindings"]["direction"], 126)
+            pins = {p["gpio"]: p for p in board["pins"]}
+            self.assertEqual([p for p in pins if pins[p]["policy"] == "free"], [6])
+            self.assertNotIn("key", board["build"]["capabilities"])
+            self.assertNotIn("audio", board["build"]["capabilities"])
+            required = required_packages(board, self.drivers)
+            for package in ("waveshare_io", "driver_display_rgb", "driver_gt911", "expansion_sdmmc"):
+                self.assertIn(package, required)
+            self.assertEqual("can0" in devices, suffix == "_can")
+            self.assertEqual("cdc" in board["build"]["capabilities"], suffix == "")
+            self.assertEqual("can_twai" in required, suffix == "_can")
+            self.assertEqual(devices["io0"]["bindings"]["output"], 187 if suffix else 155)
+            header = generate_header(board,self.drivers)
+            self.assertIn('.role = "reset", .target = "io0", .value = 1',header)
+        self.assertEqual(profiles[""]["devices"][2]["bindings"],profiles["_can"]["devices"][2]["bindings"])
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.manifest_dir = ROOT / "boards" / "manifests"
