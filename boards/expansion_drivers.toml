@@ -1284,6 +1284,7 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["expansion_spi"]
 board_capabilities = ["sd"]
 board_driver = "storage_expansion"
+early = true
 default_name = "storage0"
 
 [[drivers.sdspi.bindings]]

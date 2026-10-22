@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sd_card.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_storage.h"
 
@@ -126,14 +127,18 @@ esp_err_t solar_os_sdspi_attach(const char *name,
         }
         return ret;
     }
-    ret = sd_card_init();
-    if (ret != ESP_OK) {
-        (void)sd_card_unmount();
-        (void)sd_card_clear_sdspi_config();
-        if (power_control) {
-            (void)solar_os_gpio_line_write(&power_line, false);
+    /* Built-in cards mount during normal storage initialization, which
+     * switches the board's SD rail first. */
+    if (!solar_os_board_has(SOLAR_OS_BOARD_CAP_SD)) {
+        ret = sd_card_init();
+        if (ret != ESP_OK) {
+            (void)sd_card_unmount();
+            (void)sd_card_clear_sdspi_config();
+            if (power_control) {
+                (void)solar_os_gpio_line_write(&power_line, false);
+            }
+            return ret;
         }
-        return ret;
     }
 
     memset(&sdspi, 0, sizeof(sdspi));
