@@ -20,6 +20,7 @@ from board_config import (
 )
 from solaros_expansion_manifest import load_expansion_manifest
 from solaros_board_manifest import (
+    EXPANSION_DEVICE_BINDING_MAX,
     DriverBinding,
     DriverDef,
     ManifestError,
@@ -624,9 +625,9 @@ bindings = { gpio = 7 }
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
         too_many_bindings = deepcopy(board)
-        for i in range(17):
+        for i in range(EXPANSION_DEVICE_BINDING_MAX + 1):
             too_many_bindings["devices"][0]["bindings"][f"extra{i}"] = 0
-        with self.assertRaisesRegex(ManifestError, "more than 16 bindings"):
+        with self.assertRaisesRegex(ManifestError, f"more than {EXPANSION_DEVICE_BINDING_MAX} bindings"):
             validate_board(too_many_bindings, self.drivers)
 
     def test_x4_pro_claims_fixed_peripherals_and_neutral_frontlight(self) -> None:

@@ -914,6 +914,35 @@ After an auxiliary display is attached, it can also host a shell session:
 session create shell oled0
 ```
 
+## RGB parallel LCD
+
+`rgb-lcd` drives a 16-bit RGB565 panel on ESP32-S3. The `rgb_lcd` package group
+enables runtime attachment; board manifests can require the driver directly.
+Configure it through the expansion manager, a board manifest, or a Python/Lua
+expansion binding table. It requires PSRAM and exclusive ownership of its
+twenty signal GPIOs.
+
+Required bindings are `d0` through `d15` (RGB565 least-significant bit first),
+`hsync`, `vsync`, `de`, `clk`, `width`, `height`, `clock` in kHz,
+`hsw`, `hbp`, `hfp`, `vsw`, `vbp`, and `vfp`. Horizontal timing values count
+pixel clocks; vertical values count lines. Dimensions must be multiples of
+eight, from 8 through 2040. Pixel clocks range from 1000 through 40000 kHz.
+Optional `flags` combines HSYNC idle low (1), VSYNC idle low (2), DE idle high
+(4), falling-edge pixel clock (8), and pixel-clock idle high (16).
+
+Optional `bl`, `reset`, and `power` accept native GPIOs or named controller
+lines. Backlight enable and panel power are active high; reset is active low.
+The backlight enable is off at zero brightness and on at nonzero brightness.
+An attached dimmer that follows the backlight service can provide intermediate
+levels. Shutdown stops scanout and releases its DMA buffers; resume recreates
+scanout while retaining the configured brightness.
+
+The display accepts monochrome, INDEX2, INDEX8, and RGB565 frames, with scaling
+and rotated surfaces. RGB565 input uses high byte first. Scanout uses one
+PSRAM framebuffer and internal DMA bounce buffers; presentation can overlap
+scanout and does not guarantee a tear-free update. One RGB panel can be
+attached at a time.
+
 ## Quick reference
 
 Inspect runtime-safe pins and buses before attaching hardware. Use the `io`

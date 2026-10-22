@@ -642,6 +642,11 @@ label = "Waveshare I/O extension"
 category = "Expansion hardware"
 members = ["waveshare_io"]
 
+[groups.rgb_lcd]
+label = "RGB parallel LCD"
+category = "Expansion hardware"
+members = ["driver_display_rgb"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -2356,6 +2361,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_rgb]
+label = "driver.display-rgb"
+targets = ["esp32s3"]
+depends = ["service_expansion"]
+expansion_drivers = ["solar_os_rgb_lcd_expansion_driver"]
+sources = ["drivers/rgb_lcd.c", "drivers/rgb_lcd_raster.c", "board/solar_os_board_display_expansion.c", "services/solar_os_rgb_display.c", "services/solar_os_rgb_display_driver.c"]
+requires = ["esp_lcd", "esp_driver_gpio", "heap", "u8g2"]
+capabilities = ["gfx", "psram", "expansion_gpio"]
 
 [packages.driver_display_st7789]
 label = "driver.display-st7789"

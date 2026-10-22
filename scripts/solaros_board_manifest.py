@@ -12,7 +12,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-EXPANSION_DEVICE_BINDING_MAX = 16
+EXPANSION_DEVICE_BINDING_MAX = 40
 BOARD_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 DEVICE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DEFINE_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")

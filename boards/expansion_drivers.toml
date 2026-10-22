@@ -232,6 +232,230 @@ hint = "0x08"
 required = true
 allowed = [0x08]
 
+
+[drivers.rgb-lcd]
+summary = "16-bit RGB parallel LCD"
+package = "driver_display_rgb"
+targets = ["esp32s3"]
+capabilities = ["gfx", "psram", "expansion_gpio"]
+early = true
+board_driver = "display_rgb"
+default_name = "display0"
+
+[[drivers.rgb-lcd.bindings]]
+key = "d0"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d1"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d2"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d3"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d4"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d5"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d6"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d7"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d8"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d9"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d10"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d11"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d12"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d13"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d14"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "d15"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "hsync"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "vsync"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "de"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "clk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.rgb-lcd.bindings]]
+key = "width"
+kind = "parameter"
+hint = "8..2040"
+required = true
+min = 8
+max = 2040
+
+[[drivers.rgb-lcd.bindings]]
+key = "height"
+kind = "parameter"
+hint = "8..2040"
+required = true
+min = 8
+max = 2040
+
+[[drivers.rgb-lcd.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "1000..40000 kHz"
+required = true
+min = 1000
+max = 40000
+
+[[drivers.rgb-lcd.bindings]]
+key = "hsw"
+kind = "parameter"
+hint = "1..1023"
+required = true
+min = 1
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "hbp"
+kind = "parameter"
+hint = "0..1023"
+required = true
+min = 0
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "hfp"
+kind = "parameter"
+hint = "0..1023"
+required = true
+min = 0
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "vsw"
+kind = "parameter"
+hint = "1..1023"
+required = true
+min = 1
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "vbp"
+kind = "parameter"
+hint = "0..1023"
+required = true
+min = 0
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "vfp"
+kind = "parameter"
+hint = "0..1023"
+required = true
+min = 0
+max = 1023
+
+[[drivers.rgb-lcd.bindings]]
+key = "flags"
+kind = "parameter"
+hint = "0..31"
+min = 0
+max = 31
+
+[[drivers.rgb-lcd.bindings]]
+key = "bl"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.rgb-lcd.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.rgb-lcd.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
 [drivers.xl9555]
 summary = "XL9555 16-line I2C GPIO controller"
 package = "xl9555"

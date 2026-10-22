@@ -16,6 +16,10 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += waveshare_io_test waveshare_io_service_test
+TARGETS += rgb_lcd_raster_test rgb_lcd_test
+
+rgb_lcd_raster_test: rgb_lcd_raster_test.c $(ROOT)/src/drivers/rgb_lcd_raster.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
 
 waveshare_io_service_test: waveshare_io_service_test.c $(ROOT)/src/drivers/waveshare_io.c $(ROOT)/src/services/solar_os_waveshare_io.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
@@ -253,6 +257,11 @@ x4pro_expansion_test: x4pro_expansion_test.c $(ROOT)/src/services/solar_os_x4pro
 EPD_U8G2_TEST_SOURCES := $(addprefix $(ROOT)/components/u8g2/src/clib/, \
         u8g2_setup.c u8g2_buffer.c u8g2_font.c u8g2_ll_hvline.c u8g2_hvline.c \
         u8g2_intersection.c u8x8_setup.c u8x8_display.c)
+
+rgb_lcd_test: rgb_lcd_test.c $(ROOT)/src/drivers/rgb_lcd.c $(ROOT)/src/drivers/rgb_lcd_raster.c $(EPD_U8G2_TEST_SOURCES) $(wildcard rgb_lcd_stubs/*.h)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Irgb_lcd_stubs -Iepd_stubs -I. -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		-I$(ROOT)/components/u8g2/src/clib rgb_lcd_test.c $(ROOT)/src/drivers/rgb_lcd_raster.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 epd_uc8279_test: epd_uc8279_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/src/drivers/epd_ultrachip.h \
         $(ROOT)/src/drivers/epd_uc8279.c $(ROOT)/src/drivers/epd_uc8279.h \
@@ -1087,6 +1096,8 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 test: $(TARGETS)
 	./waveshare_io_test
 	./waveshare_io_service_test
+	./rgb_lcd_raster_test
+	./rgb_lcd_test
 	./i2c_buses_test
 	./inmp441_test
 	./epd_pixel_budget_test
