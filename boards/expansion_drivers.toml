@@ -1359,12 +1359,12 @@ max = 3
 
 [[drivers.gt911.bindings]]
 key = "reset"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 [[drivers.gt911.bindings]]
 key = "power"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 [[drivers.gt911.bindings]]
 key = "active"
 kind = "parameter"

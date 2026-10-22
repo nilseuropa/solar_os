@@ -17,7 +17,8 @@ static char bus_name[SOLAR_OS_BUS_NAME_MAX];
 static uint8_t device_address;
 static uint8_t configured_address;
 static uint8_t configured_alternate_address;
-static int configured_reset = -1, configured_power = -1;
+static solar_os_gpio_line_ref_t configured_reset, configured_power;
+static bool have_reset, have_power;
 static int configured_irq = -1, configured_power_level;
 
 static bool valid_address(uint8_t address)
@@ -46,18 +47,19 @@ esp_err_t gt911_init(const char *i2c_bus,
     return gt911_init_with_reset(i2c_bus, address, alternate_address, irq_pin, -1, -1, 1);
 }
 
-static esp_err_t reset_controller(int irq_pin, int reset_pin, uint8_t address)
+static esp_err_t reset_controller(int irq_pin,
+    const solar_os_gpio_line_ref_t *reset, uint8_t address)
 {
-    if (reset_pin < 0) return ESP_OK;
+    if (reset == NULL) return ESP_OK;
     const gpio_config_t output = {
-        .pin_bit_mask = (1ULL << irq_pin) | (1ULL << reset_pin),
+        .pin_bit_mask = 1ULL << irq_pin,
         .mode = GPIO_MODE_OUTPUT,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&output), TAG, "reset pins failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 0), TAG, "reset low failed");
+    ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(reset, false), TAG, "reset low failed");
     ESP_RETURN_ON_ERROR(gpio_set_level(irq_pin, address == GT911_ALTERNATE_ADDRESS), TAG, "address select failed");
     vTaskDelay(pdMS_TO_TICKS(10));
-    ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 1), TAG, "reset high failed");
+    ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(reset, true), TAG, "reset high failed");
     vTaskDelay(pdMS_TO_TICKS(60));
     const gpio_config_t input = {.pin_bit_mask = 1ULL << irq_pin, .mode = GPIO_MODE_INPUT};
     ESP_RETURN_ON_ERROR(gpio_config(&input), TAG, "release irq failed");
@@ -69,31 +71,57 @@ esp_err_t gt911_init_with_reset(const char *i2c_bus, uint8_t address,
                                 uint8_t alternate_address, int irq_pin,
                                 int reset_pin, int power_pin, int power_active_level)
 {
+    if (reset_pin > UINT8_MAX || power_pin > UINT8_MAX) return ESP_ERR_INVALID_ARG;
+    const solar_os_gpio_line_ref_t reset = {.line = (uint8_t)reset_pin};
+    const solar_os_gpio_line_ref_t power = {.line = (uint8_t)power_pin};
+    return gt911_init_with_lines(i2c_bus, address, alternate_address, irq_pin,
+        reset_pin >= 0 ? &reset : NULL, power_pin >= 0 ? &power : NULL,
+        power_active_level);
+}
+
+static bool same_line(const solar_os_gpio_line_ref_t *a,
+                       const solar_os_gpio_line_ref_t *b)
+{
+    return a->line == b->line && strcmp(a->controller, b->controller) == 0;
+}
+
+static bool valid_output(const solar_os_gpio_line_ref_t *line, int irq)
+{
+    return !line || line->controller[0] ||
+        (GPIO_IS_VALID_OUTPUT_GPIO(line->line) && line->line != irq);
+}
+
+esp_err_t gt911_init_with_lines(const char *i2c_bus, uint8_t address,
+    uint8_t alternate_address, int irq_pin,
+    const solar_os_gpio_line_ref_t *reset, const solar_os_gpio_line_ref_t *power,
+    int power_active_level)
+{
     if (!i2c_bus || !i2c_bus[0] ||
         !valid_address(address) ||
         (alternate_address != 0U &&
          (!valid_address(alternate_address) || alternate_address == address)) ||
         !GPIO_IS_VALID_GPIO(irq_pin) ||
-        (reset_pin >= 0 && (!GPIO_IS_VALID_OUTPUT_GPIO(reset_pin) ||
-                           !GPIO_IS_VALID_OUTPUT_GPIO(irq_pin) || reset_pin == irq_pin)) ||
-        (power_pin >= 0 && (!GPIO_IS_VALID_OUTPUT_GPIO(power_pin) ||
-                           power_pin == irq_pin || power_pin == reset_pin)) ||
+        !valid_output(reset, irq_pin) || !valid_output(power, irq_pin) ||
+        (reset && !GPIO_IS_VALID_OUTPUT_GPIO(irq_pin)) ||
+        (reset && power && same_line(reset, power)) ||
         (power_active_level != 0 && power_active_level != 1)) return ESP_ERR_INVALID_ARG;
     if (ready) return strcmp(bus_name, i2c_bus) == 0 &&
         configured_address == address &&
         configured_alternate_address == alternate_address &&
-        configured_reset == reset_pin && configured_power == power_pin &&
+        have_reset == (reset != NULL) && have_power == (power != NULL) &&
+        (!reset || same_line(&configured_reset, reset)) &&
+        (!power || same_line(&configured_power, power)) &&
         configured_irq == irq_pin && configured_power_level == power_active_level
         ? ESP_OK : ESP_ERR_INVALID_STATE;
 
-    configured_reset = reset_pin;
-    configured_power = power_pin;
+    have_reset = reset != NULL;
+    have_power = power != NULL;
+    if (reset) configured_reset = *reset;
+    if (power) configured_power = *power;
     configured_irq = irq_pin;
     configured_power_level = power_active_level;
-    if (power_pin >= 0) {
-        const gpio_config_t output = {.pin_bit_mask = 1ULL << power_pin, .mode = GPIO_MODE_OUTPUT};
-        ESP_RETURN_ON_ERROR(gpio_config(&output), TAG, "power pin failed");
-        ESP_RETURN_ON_ERROR(gpio_set_level(power_pin, power_active_level), TAG, "power on failed");
+    if (power) {
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(power, power_active_level), TAG, "power on failed");
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
@@ -104,7 +132,7 @@ esp_err_t gt911_init_with_reset(const char *i2c_bus, uint8_t address,
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&input), TAG, "irq config failed");
-    ESP_RETURN_ON_ERROR(reset_controller(irq_pin, reset_pin, address), TAG, "reset failed");
+    ESP_RETURN_ON_ERROR(reset_controller(irq_pin, reset, address), TAG, "reset failed");
     strlcpy(bus_name, i2c_bus, sizeof(bus_name));
     configured_address = address;
     configured_alternate_address = alternate_address;
@@ -113,7 +141,7 @@ esp_err_t gt911_init_with_reset(const char *i2c_bus, uint8_t address,
     esp_err_t err = transfer(GT911_REG_PRODUCT_ID, product, sizeof(product));
     if (err != ESP_OK && alternate_address != 0U) {
         device_address = alternate_address;
-        err = reset_controller(irq_pin, reset_pin, alternate_address);
+        err = reset_controller(irq_pin, reset, alternate_address);
         if (err == ESP_OK) err = transfer(GT911_REG_PRODUCT_ID, product, sizeof(product));
     }
     if (err != ESP_OK) {
@@ -152,8 +180,9 @@ esp_err_t gt911_read(gt911_sample_t *sample)
 
 void gt911_deinit(void)
 {
-    if (configured_power >= 0) (void)gpio_set_level(configured_power, !configured_power_level);
-    configured_power = configured_reset = configured_irq = -1;
+    if (have_power) (void)solar_os_gpio_line_write(&configured_power, !configured_power_level);
+    have_power = have_reset = false;
+    configured_irq = -1;
     ready = false;
     bus_name[0] = '\0';
     device_address = 0;
