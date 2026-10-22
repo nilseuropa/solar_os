@@ -637,6 +637,11 @@ label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
 
+[groups.waveshare_io]
+label = "Waveshare I/O extension"
+category = "Expansion hardware"
+members = ["waveshare_io"]
+
 [groups.analog_joystick]
 label = "Analog joystick"
 category = "Expansion hardware"
@@ -1969,6 +1974,14 @@ sources = [
   "services/solar_os_xl9555.c",
   "services/solar_os_xl9555_driver.c",
 ]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.waveshare_io]
+label = "expansion.waveshare-io"
+depends = ["service_expansion", "service_i2c", "service_battery"]
+expansion_drivers = ["solar_os_waveshare_io_expansion_driver"]
+sources = ["drivers/waveshare_io.c", "services/solar_os_waveshare_io.c", "services/solar_os_waveshare_io_driver.c"]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 

@@ -154,6 +154,7 @@ battery_adc = true
 tca8418 = true
 lilygo_pager_keyboard = true
 xl9555 = true
+waveshare_io = true
 sx1262 = true
 lr11xx = true
 rotary_encoder = true

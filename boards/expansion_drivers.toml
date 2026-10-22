@@ -267,6 +267,70 @@ hint = "0..65535"
 min = 0
 max = 65535
 
+
+[drivers.waveshare-io]
+summary = "Waveshare MCU GPIO, dimmer and battery ADC"
+package = "waveshare_io"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+early = true
+default_name = "io0"
+
+[[drivers.waveshare-io.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.waveshare-io.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x24"
+required = true
+allowed = [0x24]
+
+[[drivers.waveshare-io.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..255"
+min = 0
+max = 255
+
+[[drivers.waveshare-io.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..255"
+min = 0
+max = 255
+
+[[drivers.waveshare-io.bindings]]
+key = "battery"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.waveshare-io.bindings]]
+key = "backlight"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.waveshare-io.bindings]]
+key = "vref"
+kind = "parameter"
+hint = "1000..5000 mV"
+min = 1000
+max = 5000
+
+[[drivers.waveshare-io.bindings]]
+key = "divider"
+kind = "parameter"
+hint = "1000..10000"
+min = 1000
+max = 10000
+
 [drivers.ublox-mia-m10q]
 summary = "u-blox MIA-M10Q GNSS receiver"
 package = "ublox_mia_m10q"

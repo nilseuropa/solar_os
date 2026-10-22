@@ -15,6 +15,13 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
+TARGETS += waveshare_io_test waveshare_io_service_test
+
+waveshare_io_service_test: waveshare_io_service_test.c $(ROOT)/src/drivers/waveshare_io.c $(ROOT)/src/services/solar_os_waveshare_io.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
+
+waveshare_io_test: waveshare_io_test.c $(ROOT)/src/drivers/waveshare_io.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $^ -o $@
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
 TARGETS += input_action_match_test gesture_completion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
@@ -1078,6 +1085,8 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
 
 test: $(TARGETS)
+	./waveshare_io_test
+	./waveshare_io_service_test
 	./i2c_buses_test
 	./inmp441_test
 	./epd_pixel_budget_test
