@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
 #include "freertos/FreeRTOS.h"
@@ -9,6 +10,15 @@
 #include "rgb_lcd_raster.h"
 
 static solar_os_rgb_lcd_t *active;
+
+static bool IRAM_ATTR fill_bounce(esp_lcd_panel_handle_t panel, void *buffer,
+                                int pos_px, int len_bytes, void *context)
+{
+    (void)panel;
+    const solar_os_rgb_lcd_t *d = context;
+    memcpy(buffer, d->pixels + pos_px, len_bytes);
+    return false;
+}
 
 static esp_err_t backlight(solar_os_rgb_lcd_t *d)
 {
@@ -19,8 +29,9 @@ static esp_err_t backlight(solar_os_rgb_lcd_t *d)
 static esp_err_t flush(solar_os_rgb_lcd_t *d)
 {
     if (!d || !d->panel || !d->pixels) return ESP_ERR_INVALID_STATE;
-    /* The pointer belongs to the IDF framebuffer. This call handles cache
-     * synchronization for direct-DMA mode; bounce mode reads through cache. */
+    /* Bounce scanout continuously copies the CPU-visible pixels through cache.
+     * Only the IDF-owned direct-DMA framebuffer needs draw/cache synchronization. */
+    if (d->config.panel.bounce_buffer_size_px) return ESP_OK;
     return esp_lcd_panel_draw_bitmap(d->panel, 0, 0,
         d->config.panel.timings.h_res, d->config.panel.timings.v_res, d->pixels);
 }
@@ -38,12 +49,28 @@ static esp_err_t start_panel(solar_os_rgb_lcd_t *d)
         if (err != ESP_OK) return err;
     }
     vTaskDelay(pdMS_TO_TICKS(120) + 1U);
-    err = esp_lcd_new_rgb_panel(&d->config.panel, &d->panel);
-    void *framebuffer = NULL;
-    if (err == ESP_OK) err = esp_lcd_rgb_panel_get_frame_buffer(d->panel, 1, &framebuffer);
-    d->pixels = framebuffer;
+    esp_lcd_rgb_panel_config_t panel = d->config.panel;
+    const size_t count = (size_t)panel.timings.h_res * panel.timings.v_res;
+    if (panel.bounce_buffer_size_px) {
+        /* CPU-only pixels belong in managed PSRAM. IDF 5.5.5 requests
+         * SPIRAM|DMA for its framebuffer, which S3's PSRAM heap cannot supply.
+         * no_fb lets IDF own only the internal DMA bounce buffers. */
+        d->pixels = heap_caps_calloc(count, sizeof(*d->pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!d->pixels) err = ESP_ERR_NO_MEM;
+        panel.num_fbs = 0;
+        panel.flags.no_fb = 1;
+        panel.flags.fb_in_psram = 0;
+    }
+    if (err == ESP_OK) err = esp_lcd_new_rgb_panel(&panel, &d->panel);
+    if (err == ESP_OK && panel.bounce_buffer_size_px) {
+        const esp_lcd_rgb_panel_event_callbacks_t callbacks = {.on_bounce_empty=fill_bounce};
+        err = esp_lcd_rgb_panel_register_event_callbacks(d->panel, &callbacks, d);
+    } else if (err == ESP_OK) {
+        void *framebuffer = NULL;
+        err = esp_lcd_rgb_panel_get_frame_buffer(d->panel, 1, &framebuffer);
+        d->pixels = framebuffer;
+    }
     if (err == ESP_OK) {
-        const size_t count = (size_t)d->config.panel.timings.h_res * d->config.panel.timings.v_res;
         for (size_t i = 0; i < count; i++) d->pixels[i] = d->background;
         err = esp_lcd_panel_reset(d->panel);
     }
@@ -57,6 +84,7 @@ static esp_err_t start_panel(solar_os_rgb_lcd_t *d)
         d->sleeping = true;
         (void)backlight(d);
         if (d->panel) (void)esp_lcd_panel_del(d->panel);
+        if (panel.bounce_buffer_size_px) heap_caps_free(d->pixels);
         d->panel = NULL; d->pixels = NULL;
         if (d->config.have_power) (void)solar_os_gpio_line_write(&d->config.power, false);
     }
@@ -105,6 +133,8 @@ esp_err_t solar_os_rgb_lcd_init(solar_os_rgb_lcd_t *d, const solar_os_rgb_lcd_co
         p->timings.h_res > 2040 || p->timings.v_res > 2040 ||
         p->timings.h_res % 8U || p->timings.v_res % 8U ||
         p->data_width != 16 || p->bits_per_pixel != 16 || p->num_fbs != 1 ||
+        (p->bounce_buffer_size_px &&
+         ((size_t)p->timings.h_res * p->timings.v_res) % p->bounce_buffer_size_px) ||
         !p->timings.pclk_hz || p->timings.pclk_hz > 40000000U)
         return ESP_ERR_INVALID_ARG;
     uint64_t pins = 0;
@@ -147,8 +177,10 @@ esp_err_t solar_os_rgb_lcd_shutdown(solar_os_rgb_lcd_t *d)
     if (d->panel) {
         err = esp_lcd_panel_del(d->panel);
         if (err != ESP_OK) return err;
-        d->panel = NULL; d->pixels = NULL;
+        d->panel = NULL;
     }
+    if (d->config.panel.bounce_buffer_size_px) heap_caps_free(d->pixels);
+    d->pixels = NULL;
     return d->config.have_power ? solar_os_gpio_line_write(&d->config.power, false) : ESP_OK;
 }
 

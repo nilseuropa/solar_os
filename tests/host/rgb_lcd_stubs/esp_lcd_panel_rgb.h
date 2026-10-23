@@ -15,7 +15,12 @@ typedef struct {
     esp_lcd_rgb_timing_t timings;
     size_t data_width,bits_per_pixel,num_fbs,dma_burst_size,bounce_buffer_size_px;
     int disp_gpio_num,hsync_gpio_num,vsync_gpio_num,de_gpio_num,pclk_gpio_num,data_gpio_nums[16];
-    struct { unsigned fb_in_psram:1; } flags;
+    struct { unsigned fb_in_psram:1,no_fb:1; } flags;
 } esp_lcd_rgb_panel_config_t;
+typedef struct {
+    bool (*on_bounce_empty)(esp_lcd_panel_handle_t,void *,int,int,void *);
+} esp_lcd_rgb_panel_event_callbacks_t;
+esp_err_t esp_lcd_rgb_panel_register_event_callbacks(esp_lcd_panel_handle_t,
+    const esp_lcd_rgb_panel_event_callbacks_t *,void *);
 esp_err_t esp_lcd_new_rgb_panel(const esp_lcd_rgb_panel_config_t *,esp_lcd_panel_handle_t *);
 esp_err_t esp_lcd_rgb_panel_get_frame_buffer(esp_lcd_panel_handle_t,uint32_t,void **,...);
