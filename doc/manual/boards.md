@@ -19,7 +19,7 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
-| `waveshare_esp32_s3_touch_lcd_7b` | `waveshare_esp32_s3_touch_lcd_7b` | [Waveshare ESP32-S3-Touch-LCD-7B](https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B) | 1024x600 RGB565 ST7262 display, GT911 touch, 16 MB flash, 8 MB PSRAM, native USB CDC, CH343/UART0 console, one-bit SDMMC, backlight dimmer, nominal battery voltage, I2C, RS485/UART1, and GPIO6 expansion. |
+| `waveshare_esp32_s3_touch_lcd_7b` | `waveshare_esp32_s3_touch_lcd_7b` | [Waveshare ESP32-S3-Touch-LCD-7B](https://docs.waveshare.com/ESP32-S3-Touch-LCD-7B) | 1024x600 RGB565 ST7262 display, GT911 touch, 16 MB flash, 8 MB PSRAM, native USB CDC, CH343/UART0 console, one-bit SDMMC, backlight dimmer, nominal battery voltage, I2C, RS485/UART1, and external KEY on GPIO6. |
 | `waveshare_esp32_s3_touch_lcd_7b_can` | `waveshare_esp32_s3_touch_lcd_7b_can` | Waveshare ESP32-S3-Touch-LCD-7B with CAN routing | Same display, touch, storage, and expansion hardware, with the USB/CAN multiplexer selecting classic CAN on GPIO20 TX / GPIO19 RX. Registers `can0` at 500 kbit/s in normal mode. Native USB CDC is absent; the CH343/UART0 connector remains available. |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, INMP441 microphone, shared PCM5102 line output and MAX98357 speaker output, LC709203F fuel gauge, DS3231 RTC, microSD, CH340/UART console, and GPIO21 reserved for jack detect. |
@@ -106,6 +106,13 @@ GPIO44 RX. Both firmware variants keep the ESP-IDF console on UART0.
 GPIO0 is an RGB data line, so BOOT is a download control and is not exposed
 as a runtime power key. RESET remains a hardware reset.
 
+Both variants use GPIO6 on the sensor header as the SolarOS KEY. Connect a
+normally open momentary button between GPIO6 and GND; the internal pull-up
+holds the input high when released. With default power settings, hold the
+button for 1.2 seconds to start BLE keyboard pairing. A short press
+suspends the device; pressing it again wakes the device. See
+[KEY settings](commands.md) for configurable KEY actions.
+
 For the onboard CAN transceiver, build
 `pio run -e waveshare_esp32_s3_touch_lcd_7b_can`. This selects EXIO5 high,
 disables native USB CDC, and attaches `can0` in normal mode at 500 kbit/s.
@@ -122,9 +129,9 @@ selection switch for the intended connector. The RS485 termination switch
 is independent of the CAN termination switch.
 
 The external I2C connector shares `i2c0` on GPIO8 SDA / GPIO9 SCL with
-`io0` at `0x24` and the touch controller at `0x5d` or `0x14`. GPIO6 is the
-sensor header's runtime GPIO/ADC/PWM signal. LCD, SD, touch, USB/CAN, and
-console signals are reserved. Inspect `io`, `expansion devices`, and
+`io0` at `0x24` and the touch controller at `0x5d` or `0x14`. GPIO6 is reserved
+for KEY and is unavailable for runtime GPIO, ADC, or PWM. LCD, SD, touch,
+USB/CAN, and console signals are reserved. Inspect `io`, `expansion devices`, and
 `expansion layout` before using external wiring.
 
 The non-touch ESP32-S3-LCD-7B SKU requires a profile without the GT911
@@ -366,7 +373,7 @@ The current capability flags are:
 | `EXPANSION_ADC` | Expansion connector has ADC-capable runtime pins. |
 | `EXPANSION_PWM` | Expansion connector has PWM-capable runtime pins. |
 | `EXPANSION_I2S` | Board has a spare I2S controller and at least three runtime-safe output GPIOs for an external three-wire I2S device. |
-| `KEY` | Built-in board key for sleep/pairing control. |
+| `KEY` | Board key input for sleep/pairing control; some profiles require an external button. |
 | `BUTTONS` | Built-in digital buttons are available for keyboard/app input. |
 | `JOYSTICK` | Built-in analog joystick axes are available as generic axis input. |
 | `ADC_DPAD` | Built-in ADC D-pad axes are available for keyboard/app input. |

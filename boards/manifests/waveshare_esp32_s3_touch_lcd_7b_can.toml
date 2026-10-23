@@ -14,12 +14,16 @@ mcu = "esp32s3"
 platformio_board = "waveshare_esp32_s3_touch_lcd_7b"
 
 [build]
-drivers = ["uart_esp_idf", "display_rgb", "pointer_gt911", "storage_expansion", "battery_expansion", "i2c_esp_idf", "gpio_esp_idf", "adc_esp_idf", "pwm_esp_idf"]
-capabilities = ["psram", "simd", "display", "gfx", "display_brightness", "streaming_display", "pointer", "uart", "sd", "i2c", "battery", "wifi", "ble", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c", "expansion_uart", "expansion_adc", "expansion_pwm"]
+drivers = ["uart_esp_idf", "display_rgb", "pointer_gt911", "storage_expansion", "battery_expansion", "i2c_esp_idf", "gpio_esp_idf"]
+capabilities = ["psram", "simd", "display", "gfx", "display_brightness", "streaming_display", "pointer", "uart", "sd", "i2c", "battery", "wifi", "ble", "key", "gpio", "expansion_gpio", "expansion_i2c", "expansion_uart"]
 required_packages = []
 psram_bytes = 8388608
 
 [defines]
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_6"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7262"'
 SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"rgb-lcd"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "1024"
@@ -128,12 +132,9 @@ role = "LCD DE"
 
 [[pins]]
 gpio = 6
-policy = "free"
-role = "Sensor GPIO"
+policy = "fixed"
+role = "External KEY (active low)"
 expansion = true
-user = true
-adc = true
-pwm = true
 
 [[pins]]
 gpio = 7
@@ -338,7 +339,7 @@ row = 1
 column = 2
 gpio = 6
 kind = "gpio"
-label = "Sensor GPIO"
+label = "GPIO6 / KEY"
 
 [[connectors]]
 connector = "SIGNALS"

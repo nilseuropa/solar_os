@@ -51,8 +51,18 @@ class BoardManifestTest(unittest.TestCase):
             self.assertEqual(devices["storage0"]["bindings"], {"clk":12,"cmd":11,"d0":13})
             self.assertEqual(devices["io0"]["bindings"]["direction"], 126)
             pins = {p["gpio"]: p for p in board["pins"]}
-            self.assertEqual([p for p in pins if pins[p]["policy"] == "free"], [6])
-            self.assertNotIn("key", board["build"]["capabilities"])
+            self.assertEqual([p for p in pins if pins[p]["policy"] == "free"], [])
+            self.assertEqual(pins[6]["policy"], "fixed")
+            self.assertTrue(pins[6]["expansion"])
+            for flag in ("user", "adc", "pwm"):
+                self.assertFalse(pins[6].get(flag, False))
+            self.assertIn("key", board["build"]["capabilities"])
+            for capability in ("adc", "pwm", "expansion_adc", "expansion_pwm"):
+                self.assertNotIn(capability, board["build"]["capabilities"])
+            self.assertEqual(board["defines"]["SOLAR_OS_BOARD_PIN_KEY"], "GPIO_NUM_6")
+            self.assertEqual(board["defines"]["SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL"], "0")
+            self.assertEqual(board["defines"]["SOLAR_OS_BOARD_KEY_PULL_UP"], "1")
+            self.assertEqual(board["defines"]["SOLAR_OS_BOARD_KEY_PULL_DOWN"], "0")
             self.assertNotIn("audio", board["build"]["capabilities"])
             required = required_packages(board, self.drivers)
             for package in ("waveshare_io", "driver_display_rgb", "driver_gt911", "expansion_sdmmc"):
