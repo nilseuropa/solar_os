@@ -31,6 +31,56 @@ esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *l,bool value)
 { assert(l->line==2); light=value; return ESP_OK; }
 void vTaskDelay(TickType_t ticks) { assert(ticks); }
 
+static void check_full_size_rendering(solar_os_rgb_lcd_t *d)
+{
+    const unsigned width=1024, height=600;
+    /* Each tile row differs, so a send offset wrapping at 64 KiB cannot
+     * silently repeat the status bar and shell in the bottom 88 rows. */
+    for(unsigned row=0;row<height/8;row++)
+        memset(d->mono+row*width,(int)(row+1),width);
+    u8g2_SendBuffer(&d->u8g2);
+    for(unsigned y=0;y<height;y++)
+        for(unsigned x=0;x<width;x++)
+            assert(d->pixels[y*width+x]==
+                (((y/8+1)&(1U<<(y%8))) ? 0 : 0xffff));
+
+    /* Exercise drawing offsets independently of sending. Include both sides
+     * of row 512 and a vertical line crossing that boundary. */
+    u8g2_ClearBuffer(&d->u8g2);
+    u8g2_DrawHLine(&d->u8g2,0,0,width);
+    u8g2_DrawHLine(&d->u8g2,0,511,width);
+    u8g2_DrawHLine(&d->u8g2,0,512,width);
+    u8g2_DrawHLine(&d->u8g2,0,599,width);
+    u8g2_DrawVLine(&d->u8g2,1023,500,100);
+    for(unsigned y=0;y<height;y++)
+        for(unsigned x=0;x<width;x++) {
+            const bool set=y==0 || y==511 || y==512 || y==599 || (x==1023 && y>=500);
+            assert(!!(d->mono[(y/8)*width+x]&(1U<<(y%8)))==set);
+        }
+    u8g2_SendBuffer(&d->u8g2);
+    for(unsigned y=0;y<height;y++)
+        for(unsigned x=0;x<width;x++) {
+            const bool set=y==0 || y==511 || y==512 || y==599 || (x==1023 && y>=500);
+            assert(d->pixels[y*width+x]==(set ? 0 : 0xffff));
+        }
+    u8g2_ClearBuffer(&d->u8g2);
+    u8g2_SendBuffer(&d->u8g2);
+    for(unsigned i=0;i<width*height;i++) assert(d->pixels[i]==0xffff);
+
+    /* The alternate U8g2 byte layout must address the same full buffer. */
+    u8g2_SetupBuffer(&d->u8g2,d->mono,height/8,
+        u8g2_ll_hvline_horizontal_right_lsb,U8G2_R0);
+    u8g2_DrawHLine(&d->u8g2,0,512,width);
+    u8g2_DrawVLine(&d->u8g2,1023,500,100);
+    for(unsigned y=0;y<height;y++)
+        for(unsigned x=0;x<width;x++) {
+            const bool set=y==512 || (x==1023 && y>=500);
+            assert(!!(d->mono[y*(width/8)+x/8]&(128U>>(x%8)))==set);
+        }
+    u8g2_SetupBuffer(&d->u8g2,d->mono,height/8,
+        u8g2_ll_hvline_vertical_top_lsb,U8G2_R0);
+}
+
 int main(void)
 {
     solar_os_rgb_lcd_config_t c={.panel={.timings={.h_res=16,.v_res=16,.pclk_hz=1000000},
@@ -96,6 +146,7 @@ int main(void)
     d.pixels[1024*600-1]=0x1234;
     assert(!callbacks.on_bounce_empty(d.panel,full_bounce,1024*590,sizeof(full_bounce),callback_context));
     assert(full_bounce[0]==0xffff && full_bounce[1024*10-1]==0x1234);
+    check_full_size_rendering(&d);
     solar_os_rgb_lcd_deinit(&d);
     assert(allocated==deleted && !active && !light);
     puts("RGB LCD: direct/bounce scanout, 1024x600 pixels, rollback, wake and brightness: ok");
