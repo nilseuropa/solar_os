@@ -102,6 +102,10 @@ const char *solar_os_storage_mount_point(void);
 // Explicit internal-flash state. Internal flash is mounted at /flash on
 // SD-capable boards and at / on boards without SD support.
 bool solar_os_storage_flash_is_mounted(void);
+void solar_os_storage_flash_get_status(char *buffer, size_t len);
+/* Internal flash is not erased and has no readable FAT volume (often another
+ * firmware's data); SolarOS leaves it until `disk format flash --force`. */
+bool solar_os_storage_flash_is_unrecognized(void);
 const char *solar_os_storage_flash_mount_point(void);
 
 // Explicit removable-media state. The generic helpers above select the

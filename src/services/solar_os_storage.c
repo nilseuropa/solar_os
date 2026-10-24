@@ -407,6 +407,16 @@ bool solar_os_storage_flash_is_mounted(void)
     return flash_storage_is_mounted();
 }
 
+void solar_os_storage_flash_get_status(char *buffer, size_t len)
+{
+    flash_storage_get_status(buffer, len);
+}
+
+bool solar_os_storage_flash_is_unrecognized(void)
+{
+    return flash_storage_is_unrecognized();
+}
+
 const char *solar_os_storage_flash_mount_point(void)
 {
     return flash_storage_is_mounted() ?
@@ -571,7 +581,8 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
     block->sector_size = 4096U;
     block->size_bytes = flash_storage_size_bytes();
     block->sector_count = block->size_bytes / block->sector_size;
-    strlcpy(block->fs, "FAT", sizeof(block->fs));
+    strlcpy(block->fs, flash_storage_is_unrecognized() ? "?" : "FAT",
+            sizeof(block->fs));
     strlcpy(block->type_name, "internal", sizeof(block->type_name));
     if (block->mounted) {
         strlcpy(block->mount_point,
