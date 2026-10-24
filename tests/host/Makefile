@@ -677,9 +677,9 @@ board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(
 		-DSOLAR_OS_BOARD_HAS_HUMIDITY=1 -DSOLAR_OS_BOARD_HAS_SIMD=1 \
 		board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c -o $@
 
-hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h
+hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h $(ROOT)/src/services/solar_os_ble_hid_report_map.c $(ROOT)/src/services/solar_os_ble_hid_report_map.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
-		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c -o $@
+		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@
 
 ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \

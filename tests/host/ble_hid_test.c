@@ -96,7 +96,10 @@ int main(void)
     fake.chr(7,&ok,&chr,fake.arg);
     chr=(struct ble_gatt_chr){.def_handle=10,.val_handle=11,.properties=BLE_GATT_CHR_PROP_READ,.uuid.u16={{16},0x2a4a}};
     fake.chr(7,&ok,&chr,fake.arg); fake.chr(7,&done,NULL,fake.arg);
-    uint8_t map[]={0x05,1,0x09,6,0xa1,1,0x85,1,0x81,2,0xc0};
+    uint8_t map[]={
+        0x05,1,0x09,6,0xa1,1,0x85,1,
+        0x05,7,0x19,0xe0,0x29,0xe7,0x75,1,0x95,8,0x81,2,
+        0x19,0,0x29,0x65,0x75,8,0x95,10,0x81,0,0xc0};
     nimble_test_value(0,3,map,sizeof(map)); nimble_test_value(BLE_HS_EDONE,3,NULL,0);
     assert(fake.last_start==5 && fake.last_end==7);
     struct ble_gatt_dsc dsc={.handle=6,.uuid.u16={{16},0x2902}};
@@ -104,6 +107,9 @@ int main(void)
     dsc.handle=7; dsc.uuid.u16.value=0x2908; fake.dsc(7,&ok,5,&dsc,fake.arg);
     fake.dsc(7,&done,5,NULL,fake.arg);
     uint8_t ref[]={1,1}; nimble_test_value(0,7,ref,2);
+    assert(hid_data.reports[0].layout.keys_offset==1);
+    assert(hid_data.reports[0].layout.key_count==10);
+    assert(hid_data.reports[0].layout.report_size==11);
     assert(fake.last_handle==6 && fake.written_len==2 && fake.written[0]==1);
     nimble_test_value(0,6,NULL,0);
     chr=(struct ble_gatt_chr){.def_handle=82,.val_handle=83,
@@ -162,13 +168,15 @@ int main(void)
     fake.gap(&battery_notify,fake.gap_arg);
     assert(xQueueReceive(events,&e,0)==pdTRUE && e.type==SOLAR_OS_BLE_HID_BATTERY);
     assert(e.event.battery.level==86);
-    uint8_t report[]={0,0,4,0,0,0,0,0};
-    struct os_mbuf mb={.len=8,.data=report};
+    uint8_t report[11]={0,4};
+    struct os_mbuf mb={.len=sizeof(report),.data=report};
     struct ble_gap_event notify={.type=BLE_GAP_EVENT_NOTIFY_RX,.notify_rx={.conn_handle=7,.attr_handle=5,.om=&mb}};
     fake.gap(&notify,fake.gap_arg);
     memset(report,0,sizeof(report));
-    assert(xQueueReceive(events,&e,0)==pdTRUE && e.event.input.data[2]==4);
+    assert(xQueueReceive(events,&e,0)==pdTRUE && e.event.input.data[1]==4);
     assert(e.event.input.report_id==1);
+    assert(e.event.input.length==11 && e.event.input.layout.keys_offset==1);
+    assert(e.event.input.layout.key_count==10 && e.event.input.layout.report_size==11);
     /* Queue pressure cannot drop CLOSE or leave pressed keys latched. */
     for(size_t i=0;i<HID_EVENT_MAX;++i)fake.gap(&notify,fake.gap_arg);
     assert(hid.closing && fake.terminate_calls==1);

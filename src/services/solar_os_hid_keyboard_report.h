@@ -25,6 +25,15 @@ typedef struct {
     uint8_t keys[SOLAR_OS_HID_KEYBOARD_REPORT_KEYS];
 } solar_os_hid_keyboard_report_state_t;
 
+/* Byte-aligned modifier bitmap and key array from a HID report descriptor.
+ * Offsets exclude the report ID, which HOGP carries in the Report Reference. */
+typedef struct {
+    uint8_t modifiers_offset;
+    uint8_t keys_offset;
+    uint8_t key_count;
+    uint8_t report_size;
+} solar_os_hid_keyboard_report_layout_t;
+
 void solar_os_hid_keyboard_report_reset(
     solar_os_hid_keyboard_report_tracker_t *tracker);
 
@@ -39,6 +48,16 @@ bool solar_os_hid_keyboard_report_update(
     uint16_t report_id,
     const uint8_t *data,
     size_t length,
+    solar_os_hid_keyboard_report_state_t *state);
+
+/* A NULL layout retains the legacy seven/eight-byte report interpretation. */
+bool solar_os_hid_keyboard_report_update_with_layout(
+    solar_os_hid_keyboard_report_tracker_t *tracker,
+    uint8_t map_index,
+    uint16_t report_id,
+    const uint8_t *data,
+    size_t length,
+    const solar_os_hid_keyboard_report_layout_t *layout,
     solar_os_hid_keyboard_report_state_t *state);
 
 /* Return true when the current union adds a modifier or nonzero key usage. */
