@@ -302,8 +302,11 @@ static esp_err_t writer_write_recovery(void)
             ret = ESP_ERR_INVALID_SIZE;
         } else {
             ret = writer_write_synced_file(temp, flat, len);
-            if (ret == ESP_OK && rename(temp, writer.recovery_path) != 0) {
-                ret = ESP_FAIL;
+            if (ret == ESP_OK) {
+                (void)remove(writer.recovery_path);
+                if (rename(temp, writer.recovery_path) != 0) {
+                    ret = ESP_FAIL;
+                }
             }
             if (ret != ESP_OK) {
                 (void)remove(temp);
