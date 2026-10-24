@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "solar_os_board_display.h"
@@ -1974,6 +1975,22 @@ static void maybe_enter_idle_sleep(void)
     }
 }
 
+/*
+ * Optional concurrent serial shell on UART/USB port.
+ * Allows interactive VT100 shell access over USB while a display session is active.
+ * Configurable via NVS namespace "uart", key "shell" (0 = disabled, 1 = enabled; defaults to enabled).
+ */
+static bool should_start_concurrent_serial_shell(void)
+{
+    nvs_handle_t nvs;
+    uint8_t enabled = 1U;
+    if (nvs_open("uart", NVS_READONLY, &nvs) == ESP_OK) {
+        (void)nvs_get_u8(nvs, "shell", &enabled);
+        nvs_close(nvs);
+    }
+    return enabled != 0U;
+}
+
 static void start_headless_shell_if_needed(void)
 {
     if (terminal != NULL) {
@@ -2168,6 +2185,13 @@ void app_main(void)
     if (terminal != NULL) {
         const bool shell_started = solar_os_sessions_switch_to_app(solar_os_shell_app());
         ESP_LOGI(TAG, "boot milestone: shell switch=%s", shell_started ? "ok" : "failed");
+        if (board_has(SOLAR_OS_BOARD_CAP_UART) && should_start_concurrent_serial_shell()) {
+            uint8_t serial_session_id = 0;
+            const esp_err_t err = solar_os_port_shell_start(&os_ctx, SOLAR_OS_UART_PORT_NAME, true, &serial_session_id);
+            if (err == ESP_OK) {
+                SOLAR_OS_LOGI(TAG, "Serial shell session %u started on %s", (unsigned)serial_session_id, SOLAR_OS_UART_PORT_NAME);
+            }
+        }
     } else {
         start_headless_shell_if_needed();
     }
