@@ -1,0 +1,177 @@
+/*
+ * Copyright (c) 2023 Chad Attermann
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ */
+
+#include "Token.h"
+
+#include "HMAC.h"
+#include "PKCS7.h"
+#include "AES.h"
+#include "../Log.h"
+
+#include <stdexcept>
+#include <time.h>
+
+using namespace RNS;
+using namespace RNS::Cryptography;
+using namespace RNS::Type::Cryptography::Token;
+
+Token::Token(const Bytes& key, token_mode mode /*= AES*/) {
+
+	if (!key) {
+		throw std::invalid_argument("Token key cannot be None");
+	}
+
+	if (mode == MODE_AES) {
+		if (key.size() == 32) {
+			_mode = MODE_AES_128_CBC;
+			//p self._signing_key = key[:16]
+			_signing_key = key.left(16);
+			//p self._encryption_key = key[16:]
+			_encryption_key = key.mid(16);
+		}
+		else if (key.size() == 64) {
+			_mode = MODE_AES_256_CBC;
+			//p self._signing_key = key[:32]
+			_signing_key = key.left(32);
+			//p self._encryption_key = key[32:]
+			_encryption_key = key.mid(32);
+		}
+		else {
+			throw std::invalid_argument("Token key must be 128 or 256 bits, not " + std::to_string(key.size()*8));
+		}
+	}
+	else {
+		throw std::invalid_argument("Invalid token mode: " + std::to_string(mode));
+	}
+
+	MEM("Token object created");
+}
+
+Token::~Token() {
+	MEM("Token object destroyed");
+}
+
+bool Token::verify_hmac(const Bytes& token) {
+
+	if (token.size() <= 32) {
+		throw std::invalid_argument("Cannot verify HMAC on token of only " + std::to_string(token.size()) + " bytes");
+	}
+
+	//received_hmac = token[-32:]
+	Bytes received_hmac = token.right(32);
+	DEBUGF("Token::verify_hmac: received_hmac: %s", received_hmac.toHex().c_str());
+	//expected_hmac = HMAC.new(self._signing_key, token[:-32]).digest()
+	Bytes expected_hmac = HMAC::generate(_signing_key, token.left(token.size()-32))->digest();
+	DEBUGF("Token::verify_hmac: expected_hmac: %s", expected_hmac.toHex().c_str());
+
+	return (received_hmac == expected_hmac);
+}
+
+const Bytes Token::encrypt(const Bytes& data) {
+
+	DEBUGF("Token::encrypt: plaintext length: %lu", data.size());
+	Bytes iv = random(16);
+	//double current_time = OS::time();
+	//TRACEF("Token::encrypt: iv:         %s", iv.toHex().c_str());
+
+	// CBA Note following doesn't use container allocator so could be an issue when using heap pool
+	//TRACEF("Token::encrypt: plaintext:  %s", data.toHex().c_str());
+	Bytes ciphertext;
+	if (_mode == MODE_AES_128_CBC) {
+		ciphertext = AES_128_CBC::encrypt(
+			PKCS7::pad(data),
+			_encryption_key,
+			iv
+		);
+	}
+	else if (_mode == MODE_AES_256_CBC) {
+		ciphertext = AES_256_CBC::encrypt(
+			PKCS7::pad(data),
+			_encryption_key,
+			iv
+		);
+	}
+	else {
+		throw std::invalid_argument("Invalid token mode "+std::to_string(_mode));
+	}
+	DEBUGF("Token::encrypt: padded ciphertext length: %lu", ciphertext.size());
+	// CBA Note following doesn't use container allocator so could be an issue when using heap pool
+	//TRACEF("Token::encrypt: ciphertext: %s", ciphertext.toHex().c_str());
+
+	Bytes signed_parts = iv + ciphertext;
+
+	//return signed_parts + HMAC::generate(_signing_key, signed_parts)->digest();
+	Bytes sig(HMAC::generate(_signing_key, signed_parts)->digest());
+	TRACEF("Token::encrypt: sig:        %s", sig.toHex().c_str());
+	Bytes token(signed_parts + sig);
+	DEBUGF("Token::encrypt: token length: %lu", token.size());
+	return token;
+}
+
+
+const Bytes Token::decrypt(const Bytes& token) {
+
+	DEBUGF("Token::decrypt: token length: %lu", token.size());
+	if (token.size() < 48) {
+		throw std::invalid_argument("Cannot decrypt token of only " + std::to_string(token.size()) + " bytes");
+	}
+
+	if (!verify_hmac(token)) {
+		throw std::invalid_argument("Token token HMAC was invalid");
+	}
+
+	//iv = token[:16]
+	Bytes iv = token.left(16);
+	TRACEF("Token::decrypt: iv:         %s", iv.toHex().c_str());
+
+	//ciphertext = token[16:-32]
+	Bytes ciphertext = token.mid(16, token.size()-48);
+	// CBA Note following doesn't use container allocator so could be an issue when using heap pool
+	//TRACEF("Token::decrypt: ciphertext: %s", ciphertext.toHex().c_str());
+
+	try {
+		Bytes plaintext;
+		if (_mode == MODE_AES_128_CBC) {
+			plaintext = PKCS7::unpad(
+				AES_128_CBC::decrypt(
+					ciphertext,
+					_encryption_key,
+					iv
+				)
+			);
+		}
+		else if (_mode == MODE_AES_256_CBC) {
+			plaintext = PKCS7::unpad(
+				AES_256_CBC::decrypt(
+					ciphertext,
+					_encryption_key,
+					iv
+				)
+			);
+		}
+		else {
+			throw std::invalid_argument("Invalid token mode "+std::to_string(_mode));
+		}
+		DEBUGF("Token::encrypt: unpadded plaintext length: %lu", plaintext.size());
+		// CBA Note following doesn't use container allocator so could be an issue when using heap pool
+		//TRACEF("Token::decrypt: plaintext:  %s", plaintext.toHex().c_str());
+
+		DEBUGF("Token::decrypt: plaintext length: %lu", plaintext.size());
+		return plaintext;
+	}
+	catch (const std::exception& e) {
+		WARNING("Could not decrypt Token token");
+		throw std::runtime_error("Could not decrypt Token token");
+	}
+}
