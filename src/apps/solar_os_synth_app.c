@@ -1,4 +1,6 @@
 #include "solar_os_synth_app.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <errno.h>
 #include <math.h>
@@ -407,7 +409,9 @@ static void synth_parameters_register(void) {
 
 static void synth_parameters_unregister(void) {
   if (synth_app.parameter_registration.token != 0U) {
-    (void)solar_os_parameters_unregister(&synth_app.parameter_registration);
+    /* Let an in-flight parameter callback finish before releasing its app. */
+    while (solar_os_parameters_unregister(&synth_app.parameter_registration) ==
+           ESP_ERR_INVALID_STATE) vTaskDelay(1);
   }
 }
 

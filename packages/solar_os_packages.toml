@@ -101,6 +101,11 @@ label = "Signal processing"
 category = "System"
 members = ["service_dsp"]
 
+[groups.controllers]
+label = "Feedback controllers"
+category = "System"
+members = ["job_controllers"]
+
 [groups.vector_math]
 label = "Vector math"
 category = "System"
@@ -1409,6 +1414,15 @@ label = "service.controls"
 sources = [
   "services/solar_os_controls.c",
   "shell/solar_os_shell_controls.c",
+]
+
+[packages.service_controllers]
+label = "service.controllers"
+depends = ["service_streams", "service_pwm"]
+sources = [
+  "services/solar_os_controller_math.c",
+  "services/solar_os_controllers.c",
+  "shell/solar_os_shell_controllers.c",
 ]
 
 [packages.service_streams]
@@ -3099,6 +3113,11 @@ sources = [
 label = "job.controls"
 depends = ["service_controls"]
 sources = ["jobs/solar_os_controls_job.c"]
+
+[packages.job_controllers]
+label = "job.controllers"
+depends = ["service_controllers"]
+sources = ["jobs/solar_os_controllers_job.c"]
 
 [packages.job_gesture_listener]
 label = "job.gesture-listener"

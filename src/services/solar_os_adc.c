@@ -8,6 +8,7 @@
 #include "solar_os_config.h"
 #include "solar_os_resources.h"
 #include "solar_os_stream.h"
+#include "solar_os_time.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -36,6 +37,14 @@ static esp_err_t adc_stream_read_scalar(
     return err;
 }
 
+static esp_err_t adc_stream_read_sample(void *user,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample)
+{
+    const esp_err_t err = adc_stream_read_scalar(user, options, &sample->value);
+    if (err == ESP_OK) sample->uptime_ms = solar_os_time_uptime_ms();
+    return err;
+}
+
 static esp_err_t adc_register_stream(int pin)
 {
     solar_os_stream_driver_t driver = {
@@ -45,6 +54,7 @@ static esp_err_t adc_register_stream(int pin)
             .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
         },
         .read_scalar = adc_stream_read_scalar,
+        .read_scalar_sample = adc_stream_read_sample,
         .user = (void *)(intptr_t)pin,
     };
     snprintf(driver.info.id, sizeof(driver.info.id), "adc%d", pin);

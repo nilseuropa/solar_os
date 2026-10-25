@@ -56,6 +56,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+#include "solar_os_controllers.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 #include "solar_os_dsp.h"
 #endif
@@ -2899,6 +2902,8 @@ static int solua_adc_read(lua_State *L)
     return 1;
 }
 #endif
+
+#include "solar_os_lua_controllers.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static void solua_push_control_info(lua_State *L,

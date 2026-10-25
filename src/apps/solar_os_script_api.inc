@@ -268,6 +268,24 @@ SOLAR_OS_SCRIPT_API_FUNCTION(adc, read, read);
 SOLAR_OS_SCRIPT_API_MODULE_END(adc);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(controllers);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, configure, configure);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, bind, bind);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, feed, feed);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, step, step);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, manual, manual);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, auto, auto);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, reset, reset);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, start, start);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, stop, stop);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, delete, delete);
+SOLAR_OS_SCRIPT_API_MODULE_END(controllers);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(controls);
 SOLAR_OS_SCRIPT_API_FUNCTION(controls, list, list);

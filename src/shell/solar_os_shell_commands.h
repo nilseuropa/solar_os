@@ -49,6 +49,9 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx, int argc, char **argv)
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 void solar_os_shell_cmd_control(solar_os_context_t *ctx, int argc, char **argv);
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **argv);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
 void solar_os_shell_cmd_osc(solar_os_context_t *ctx, int argc, char **argv);
 #endif

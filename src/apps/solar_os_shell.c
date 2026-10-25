@@ -42,6 +42,9 @@
 #include "solar_os_controls.h"
 #include "solar_os_parameters.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+#include "solar_os_controllers.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -215,6 +218,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_DLP_STREAMS,
     SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES,
     SHELL_COMPLETION_SOURCE_CONTROLS,
+    SHELL_COMPLETION_SOURCE_CONTROLLERS,
     SHELL_COMPLETION_SOURCE_PARAMETERS,
     SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
 } shell_completion_source_t;
@@ -680,6 +684,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
     {"control", "map continuous controls", solar_os_shell_cmd_control},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+    {"controller", "configure feedback controllers", solar_os_shell_cmd_controller},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
     {"osc", "configure OSC bindings", solar_os_shell_cmd_osc},
 #endif
@@ -1140,6 +1147,18 @@ static const char * const control_subcommands[] = {
 static const char * const control_source_values[] = {"manual"};
 static const char * const control_bind_targets[] = {"midi", "parameter"};
 static const char * const control_parameter_subcommands[] = {"get", "set"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+static const char * const controller_subcommands[] = {
+    "list", "status", "create", "delete", "configure", "bind", "feed", "step",
+    "manual", "auto", "reset", "start", "stop",
+};
+static const char * const controller_kinds[] = {"pid", "hysteresis"};
+static const char * const controller_keys[] = {
+    "setpoint", "setpoint_min", "setpoint_max", "kp", "ki", "kd", "tau", "output_min", "output_max",
+    "hysteresis", "max_dt", "reverse", "safe_output", "period_ms", "timeout_ms", "frequency_hz",
+};
+static const char * const controller_sources[] = {"manual"};
 #endif
 static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
@@ -3198,7 +3217,42 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
             ((only_dirs) ? SHELL_COMPLETION_FLAG_DIRS_ONLY : 0U), \
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+static const char * const path_controller[] = {"controller"};
+static const char * const path_controller_kind[] = {"controller", "create", SHELL_COMPLETION_ANY};
+static const char * const path_controller_key[] = {"controller", "configure", SHELL_COMPLETION_ANY};
+static const char * const path_controller_source[] = {"controller", "bind", SHELL_COMPLETION_ANY};
+static const char * const path_controller_status[] = {"controller", "status"};
+static const char * const path_controller_configure[] = {"controller", "configure"};
+static const char * const path_controller_bind[] = {"controller", "bind"};
+static const char * const path_controller_feed[] = {"controller", "feed"};
+static const char * const path_controller_step[] = {"controller", "step"};
+static const char * const path_controller_manual[] = {"controller", "manual"};
+static const char * const path_controller_auto[] = {"controller", "auto"};
+static const char * const path_controller_reset[] = {"controller", "reset"};
+static const char * const path_controller_start[] = {"controller", "start"};
+static const char * const path_controller_stop[] = {"controller", "stop"};
+static const char * const path_controller_delete[] = {"controller", "delete"};
+#endif
 static const shell_completion_rule_t shell_completion_rules[] = {
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+    SHELL_COMPLETION_STATIC(path_controller, controller_subcommands),
+    SHELL_COMPLETION_STATIC(path_controller_kind, controller_kinds),
+    SHELL_COMPLETION_STATIC(path_controller_key, controller_keys),
+    SHELL_COMPLETION_STATIC(path_controller_source, controller_sources),
+    SHELL_COMPLETION_SCALAR_STREAMS(path_controller_source),
+    {.path = path_controller_status, .path_count = SHELL_ARRAY_COUNT(path_controller_status), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_configure, .path_count = SHELL_ARRAY_COUNT(path_controller_configure), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_bind, .path_count = SHELL_ARRAY_COUNT(path_controller_bind), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_feed, .path_count = SHELL_ARRAY_COUNT(path_controller_feed), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_step, .path_count = SHELL_ARRAY_COUNT(path_controller_step), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_manual, .path_count = SHELL_ARRAY_COUNT(path_controller_manual), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_auto, .path_count = SHELL_ARRAY_COUNT(path_controller_auto), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_reset, .path_count = SHELL_ARRAY_COUNT(path_controller_reset), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_start, .path_count = SHELL_ARRAY_COUNT(path_controller_start), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_stop, .path_count = SHELL_ARRAY_COUNT(path_controller_stop), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+    {.path = path_controller_delete, .path_count = SHELL_ARRAY_COUNT(path_controller_delete), .source = SHELL_COMPLETION_SOURCE_CONTROLLERS},
+#endif
     SHELL_COMPLETION_MANUAL(path_man, man_options),
     SHELL_COMPLETION_MANUAL(path_help, help_subcommands),
     SHELL_COMPLETION_OPTIONS(path_ls, ls_options),
@@ -8757,6 +8811,15 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         case SHELL_COMPLETION_SOURCE_PARAMETERS:
             break;
 #endif
+        case SHELL_COMPLETION_SOURCE_CONTROLLERS:
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+            for (size_t i = 0; i < solar_os_controller_count(); i++) {
+                solar_os_controller_info_t info;
+                if (solar_os_controller_get_info(i, &info))
+                    shell_completion_emit(state, info.config.name);
+            }
+#endif
+            break;
         case SHELL_COMPLETION_SOURCE_WIFI_SSIDS:
             shell_completion_emit_wifi_ssids(state);
             break;

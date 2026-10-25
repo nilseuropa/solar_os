@@ -67,6 +67,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+#include "solar_os_controllers.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 #include "solar_os_dsp.h"
 #endif
@@ -3129,6 +3132,8 @@ static mp_obj_t solaros_adc_read(mp_obj_t pin_obj)
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_adc_read_obj, solaros_adc_read);
 #endif
+
+#include "solar_os_python_controllers.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static mp_obj_t python_control_info_to_dict(const solar_os_control_info_t *info)
