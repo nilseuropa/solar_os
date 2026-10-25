@@ -642,11 +642,13 @@ static void lr11xx_encode_lora_modulation(const solar_os_radio_config_t *config,
     uint8_t bw = 0x04U; /* 125 kHz */
     (void)lr11xx_lora_bandwidth(config->rx_bandwidth_hz, &bw, NULL);
     const uint8_t cr = (uint8_t)(config->coding_rate_denominator - 4U);
-    /* Low-data-rate optimize is on wherever a symbol lasts longer than 16 ms.
-     * Both ends have to agree, and this is the rule the modulation defines:
-     * SF11 and SF12 at 125 kHz, SF12 at 250 kHz, and more as it narrows. */
+    /* Unless the config says otherwise, low-data-rate optimize is on
+     * wherever a symbol lasts longer than 16 ms. Both ends have to agree,
+     * and this is the rule the modulation defines: SF11 and SF12 at 125 kHz,
+     * SF12 at 250 kHz, and more as it narrows. */
     const uint64_t symbol_us = ((uint64_t)1U << sf) * 1000000ULL / config->rx_bandwidth_hz;
-    const uint8_t ldro = symbol_us > 16000ULL ? 1U : 0U;
+    const uint8_t ldro =
+        solar_os_radio_low_data_rate(config, symbol_us > 16000ULL) ? 1U : 0U;
     out[0] = sf;
     out[1] = bw;
     out[2] = cr;

@@ -524,9 +524,10 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
                 config->rx_bandwidth_hz != 0 ? config->rx_bandwidth_hz : 125000U);
             const uint8_t cr = (config->coding_rate_denominator >= 5 && config->coding_rate_denominator <= 8)
                 ? (uint8_t)(config->coding_rate_denominator - 4U) : 1U;
-            const uint8_t low_dr_opt = (bw == 0x00U || bw == 0x08U ||
-                                        (bw == 0x01U && sf >= 11U) ||
-                                        (bw == 0x02U && sf == 12U)) ? 1U : 0U;
+            const uint8_t low_dr_opt = solar_os_radio_low_data_rate(
+                config, bw == 0x00U || bw == 0x08U ||
+                        (bw == 0x01U && sf >= 11U) ||
+                        (bw == 0x02U && sf == 12U)) ? 1U : 0U;
             const uint8_t params[4] = {sf, bw, cr, low_dr_opt};
             err = sx1262_transact(dev, SX1262_OP_SET_MODULATION_PARAMS, params, sizeof(params), NULL, 0);
         } else {

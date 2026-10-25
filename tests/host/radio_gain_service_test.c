@@ -244,6 +244,34 @@ int main(int argc, char **argv)
     assert(solar_os_radio_profile_apply("radio0", "legacy") == ESP_ERR_NOT_SUPPORTED);
     assert(fake_status.config.rx_gain == SOLAR_OS_RADIO_RX_GAIN_BOOSTED);
 
+    /* Low-data-rate optimize is auto, off or on; profiles saved before it
+     * (versions 1 and 2) read as auto whatever their padding held. */
+    config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_ON;
+    assert(solar_os_radio_configure("radio0", &config) == ESP_OK);
+    assert(fake_status.config.low_data_rate == SOLAR_OS_RADIO_LOW_DATA_RATE_ON);
+    const unsigned calls_before = configure_calls;
+    config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_ON + 1;
+    assert(solar_os_radio_configure("radio0", &config) == ESP_ERR_INVALID_ARG);
+    assert(configure_calls == calls_before);
+    config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_ON;
+    assert(solar_os_radio_profile_save("radio0", "ldro") == ESP_OK);
+    assert(solar_os_radio_profile_get("ldro", &profile) == ESP_OK);
+    assert(profile.config.low_data_rate == SOLAR_OS_RADIO_LOW_DATA_RATE_ON);
+    for (unsigned version = 1; version <= 2; version++) {
+        radio_profile_store_empty(&legacy);
+        legacy.version = version;
+        legacy.profiles[0].active = true;
+        strlcpy(legacy.profiles[0].name, "legacy", sizeof(legacy.profiles[0].name));
+        legacy.profiles[0].config = config;
+        legacy.profiles[0].config.low_data_rate = 0xa5; /* Former padding. */
+        assert(radio_profile_store_valid(&legacy, sizeof(legacy)));
+        assert(radio_profile_store_save(&legacy) == ESP_OK);
+        assert(solar_os_radio_profile_get("legacy", &profile) == ESP_OK);
+        assert(profile.config.low_data_rate == SOLAR_OS_RADIO_LOW_DATA_RATE_AUTO);
+    }
+    legacy.version = RADIO_PROFILE_VERSION;
+    assert(!radio_profile_store_valid(&legacy, sizeof(legacy)));
+
     /* Older or future drivers without gain support still accept zero-initialized configs. */
     registration.name = "no-gain";
     registration.rx_gain_modes = 0;
@@ -289,6 +317,6 @@ int main(int argc, char **argv)
     assert(fast.sweeps == 1 && fast.last_sweep_ms > 0);
     assert(configure_calls == configured + 1 && retunes == 5);
     assert(solar_os_radio_scan_stop(&fast) == ESP_OK && configure_calls == configured + 2);
-    puts("radio RX gain capabilities, ownership, profiles and v1 migration: ok");
+    puts("radio RX gain and low-data-rate settings, ownership, profiles and v1/v2 migration: ok");
     return 0;
 }
