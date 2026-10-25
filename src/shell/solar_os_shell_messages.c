@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "solar_os_contacts.h"
 #include "solar_os_memory.h"
 #include "solar_os_messages_app.h"
 #include "solar_os_messaging.h"
@@ -358,6 +359,18 @@ static void messages_list(solar_os_shell_io_t *io,
     }
 }
 
+static bool messages_direct_endpoint(solar_os_conversation_id_t conversation_id,
+                                     solar_os_endpoint_t *endpoint)
+{
+    solar_os_messaging_conversation_t conversation;
+    return solar_os_messaging_conversation_get(conversation_id,
+                                               &conversation) == ESP_OK &&
+        conversation.kind == SOLAR_OS_CONVERSATION_DIRECT &&
+        conversation.endpoint_id != 0 &&
+        solar_os_contacts_get_endpoint(conversation.endpoint_id,
+                                       endpoint) == ESP_OK;
+}
+
 static void messages_send(solar_os_shell_io_t *io,
                           int argc,
                           char **argv,
@@ -403,10 +416,31 @@ static void messages_send(solar_os_shell_io_t *io,
                                 allow_untrusted,
                                 &message_key);
     solar_os_memory_free(body);
+    solar_os_endpoint_t endpoint;
+    const bool refused =
+        error == ESP_ERR_INVALID_STATE &&
+        messages_direct_endpoint(conversation_id, &endpoint);
     if (error == ESP_OK) {
         solar_os_shell_io_printf(io,
                                  "messages: queued %016" PRIx64 "\n",
                                  message_key);
+    } else if (refused && !allow_untrusted &&
+               endpoint.trust == SOLAR_OS_CONTACT_TRUST_DISCOVERED) {
+        solar_os_shell_io_printf(io,
+                                 "messages: send failed: endpoint %" PRIu32
+                                 " of contact %" PRIu32 " is not trusted; "
+                                 "trust it with 'contacts trust %" PRIu32
+                                 " %" PRIu32 "', or resend with "
+                                 "--allow-untrusted\n",
+                                 endpoint.id,
+                                 endpoint.contact_id,
+                                 endpoint.contact_id,
+                                 endpoint.id);
+    } else if (refused && endpoint.trust == SOLAR_OS_CONTACT_TRUST_BLOCKED) {
+        solar_os_shell_io_printf(io,
+                                 "messages: send failed: contact %" PRIu32
+                                 " is blocked\n",
+                                 endpoint.contact_id);
     } else {
         solar_os_shell_io_printf(io,
                                  "messages: send failed: %s\n",
