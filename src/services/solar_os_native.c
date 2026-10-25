@@ -24,6 +24,7 @@
 #include "solar_os_native_ble_abi.h"
 #include "solar_os_native_job_abi.h"
 #include "solar_os_native_media.h"
+#include "solar_os_native_motion.h"
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble.h"
 #endif
@@ -567,6 +568,8 @@ static const void *native_job_get_service(const char *name,
             minimum_struct_size, scope->options.service_user);
         if (custom != NULL) return custom;
     }
+    const void *motion = solar_os_native_motion_get_service(name, abi_version, minimum_struct_size);
+    if (motion != NULL) return motion;
     const void *service = solar_os_native_media_get_service(name, abi_version,
                                                            minimum_struct_size);
     if (service != NULL) return service;

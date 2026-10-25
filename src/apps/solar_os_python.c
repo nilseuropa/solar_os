@@ -70,6 +70,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
 #include "solar_os_controllers.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+#include "solar_os_robot.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 #include "solar_os_dsp.h"
 #endif
@@ -3133,6 +3136,7 @@ static mp_obj_t solaros_adc_read(mp_obj_t pin_obj)
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_adc_read_obj, solaros_adc_read);
 #endif
 
+#include "solar_os_python_robot.inc"
 #include "solar_os_python_controllers.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
@@ -9536,6 +9540,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
     python_dlp_destroy();
     python_emotion_destroy();
     python_jet_destroy();
+    python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
     python_http_session_destroy();
@@ -9760,6 +9765,7 @@ static void python_task(void *arg)
         python_dlp_destroy();
         python_emotion_destroy();
         python_jet_destroy();
+        python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         python_http_stream_destroy();
         python_http_session_destroy();
@@ -10272,6 +10278,7 @@ static void python_stop(solar_os_context_t *ctx)
     }
     python_emotion_destroy();
     python_jet_destroy();
+    python_robot_destroy();
     python_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
     (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);

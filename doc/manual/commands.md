@@ -1277,6 +1277,13 @@ available for the compiled board.
 | `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
 | `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
+| `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
+| `robot` | `robot joint create <joint> velocity\|servo` | Create an inactive joint without claiming hardware. |
+| `robot` | `robot joint configure <joint> <key> <value>` | Configure PPR, gearbox ratio, polarities, limits, timing or control gains. |
+| `robot` | `robot joint motor <joint> <motor> <encoder>` | Bind named devices to a velocity joint. |
+| `robot` | `robot joint servo <joint> <provider> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz]` | Bind a calibrated input-shaft servo output. |
+| `robot` | `robot joint command <joint> <target>` | Refresh an joint target in radians/second or radians. |
+| `robot` | `robot joint enable\|disable\|close <joint>` | Activate, stop and release, or destroy an joint; see [Robot joints](robot.md). |
 | `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |

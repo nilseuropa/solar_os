@@ -25,6 +25,7 @@ tests/hil/__pycache__/
 modules/experimental/*/__pycache__/
 modules/espdl/__pycache__/
 modules/jet/__pycache__/
+modules/robot/__pycache__/
 tests/host/ble_nimble_test
 tests/host/ble_multi_peer_test
 tests/host/ble_hid_test
@@ -54,6 +55,8 @@ tests/host/power_key_custom_test
 /tests/host/controller_math_test
 /tests/host/controllers_test
 /tests/host/parameters_concurrency_test
+/tests/host/robot_joint_test
+/tests/host/robot_integration_test
 /tests/host/epd_xteink_identify_test
 /tests/host/x4pro_expansion_test
 /tests/host/gt911_test

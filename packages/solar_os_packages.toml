@@ -530,12 +530,12 @@ members = ["app_invaders"]
 [groups.python]
 label = "Python"
 category = "Scripting"
-members = ["app_python", "service_emotion", "service_jet"]
+members = ["app_python", "service_emotion", "service_jet", "service_robot"]
 
 [groups.lua]
 label = "Lua"
 category = "Scripting"
-members = ["app_lua", "service_emotion", "service_jet"]
+members = ["app_lua", "service_emotion", "service_jet", "service_robot"]
 
 [groups.playground]
 label = "Playground package manager"
@@ -962,6 +962,7 @@ sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
   "services/solar_os_native_media.c",
+  "services/solar_os_native_motion.c",
   "services/solar_os_native_foreground.c",
   "services/solar_os_native_elf.c",
   "shell/solar_os_shell_native.c",
@@ -1126,6 +1127,13 @@ label = "service.emotion"
 depends = ["service_native_modules"]
 sources = ["services/solar_os_emotion.c"]
 requires = ["esp_timer"]
+targets = ["esp32s3"]
+capabilities = ["psram"]
+
+[packages.service_robot]
+label = "service.robot"
+depends = ["service_native_modules"]
+sources = ["services/solar_os_robot.c", "shell/solar_os_shell_robot.c"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
 
@@ -1584,6 +1592,7 @@ sources = ["services/solar_os_motor.c", "shell/solar_os_shell_motor.c"]
 [packages.service_encoder]
 label = "service.encoder"
 sources = ["services/solar_os_encoder.c", "shell/solar_os_shell_encoder.c"]
+requires = ["esp_timer"]
 
 [packages.pcnt_encoder]
 label = "expansion.pcnt-encoder"

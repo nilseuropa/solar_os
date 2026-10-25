@@ -27,6 +27,8 @@ typedef struct {
 } solar_os_encoder_status_t;
 
 typedef struct {
+    /* Acquire a fresh count from the device; do not return a cached sample.
+     * sample_owned timestamps completion of this synchronous acquisition. */
     esp_err_t (*read)(void *ctx, int32_t *count);
     esp_err_t (*reset)(void *ctx); /* Optional; set the count to zero. */
     esp_err_t (*shutdown)(void *ctx); /* Optional; retain context on failure. */
@@ -40,6 +42,12 @@ typedef struct {
     void *ctx;
 } solar_os_encoder_registration_t;
 
+typedef struct {
+    int32_t count;
+    uint32_t decoding;
+    uint64_t timestamp_us; /* Monotonic acquisition time of a fresh count read. */
+} solar_os_encoder_sample_t;
+
 /* One named endpoint per encoder. Callbacks run outside the registry lock and
  * are serialized per endpoint. Do not re-enter operations on that endpoint.
  * The provider owns its context until unregister succeeds. */
@@ -50,3 +58,7 @@ bool solar_os_encoder_get(size_t index, solar_os_encoder_info_t *info);
 esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *status);
 esp_err_t solar_os_encoder_read(const char *name, int32_t *count);
 esp_err_t solar_os_encoder_reset(const char *name);
+/* A reference claim permits shared reads but excludes reset and detach. */
+esp_err_t solar_os_encoder_claim(const char *name, uint32_t *claim);
+esp_err_t solar_os_encoder_sample_owned(uint32_t claim, solar_os_encoder_sample_t *sample);
+esp_err_t solar_os_encoder_release(uint32_t claim);

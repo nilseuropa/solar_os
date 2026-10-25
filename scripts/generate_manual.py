@@ -76,6 +76,7 @@ DERIVED_ALIAS_OWNERS = {
     ("command.commands", "commands"): "commands",
     ("command.control", "control"): "controls",
     ("command.controller", "controller"): "controllers",
+    ("command.robot", "robot"): "robot",
     ("command.expansion", "expansion"): "expansion",
     ("command.encoder", "encoder"): "encoder",
     ("command.gpio", "gpio"): "gpio.analog",

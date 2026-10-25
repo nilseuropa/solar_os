@@ -45,6 +45,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
 #include "solar_os_controllers.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+#include "solar_os_robot.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -219,6 +222,7 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_SCHEDULE_ENTRIES,
     SHELL_COMPLETION_SOURCE_CONTROLS,
     SHELL_COMPLETION_SOURCE_CONTROLLERS,
+    SHELL_COMPLETION_SOURCE_ROBOT_JOINTS,
     SHELL_COMPLETION_SOURCE_PARAMETERS,
     SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
 } shell_completion_source_t;
@@ -686,6 +690,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
     {"controller", "configure feedback controllers", solar_os_shell_cmd_controller},
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+    {"robot", "access the external robot library", solar_os_shell_cmd_robot},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
     {"osc", "configure OSC bindings", solar_os_shell_cmd_osc},
@@ -1159,6 +1166,15 @@ static const char * const controller_keys[] = {
     "hysteresis", "max_dt", "reverse", "safe_output", "period_ms", "timeout_ms", "frequency_hz",
 };
 static const char * const controller_sources[] = {"manual"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+static const char * const robot_domains[] = {"joint"};
+static const char * const robot_joint_subcommands[] = {"list","status","create","configure","motor","servo","command","enable","disable","close"};
+static const char * const robot_kinds[] = {"velocity","servo"};
+static const char * const robot_keys[] = {"ppr","gear_ratio","motor_polarity","encoder_polarity","encoder_on_output",
+    "position_zero","position_min","position_max","velocity_limit","acceleration_limit","max_drive","velocity_tau",
+    "friction_bias_forward","friction_bias_reverse","velocity_deadband",
+    "kp","ki","kd","tau","period_ms","command_timeout_ms","feedback_timeout_ms","max_gap_ms","brake"};
 #endif
 static const char * const expansion_bus_protocols[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
@@ -3234,7 +3250,39 @@ static const char * const path_controller_start[] = {"controller", "start"};
 static const char * const path_controller_stop[] = {"controller", "stop"};
 static const char * const path_controller_delete[] = {"controller", "delete"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+static const char * const path_robot[] = {"robot"};
+static const char * const path_robot_joint[] = {"robot","joint"};
+static const char * const path_robot_kind[] = {"robot","joint","create",SHELL_COMPLETION_ANY};
+static const char * const path_robot_key[] = {"robot","joint","configure",SHELL_COMPLETION_ANY};
+static const char * const path_robot_motor_name[] = {"robot","joint","motor",SHELL_COMPLETION_ANY};
+static const char * const path_robot_encoder_name[] = {"robot","joint","motor",SHELL_COMPLETION_ANY,SHELL_COMPLETION_ANY};
+static const char * const path_robot_status[] = {"robot","joint","status"};
+static const char * const path_robot_configure[] = {"robot","joint","configure"};
+static const char * const path_robot_motor[] = {"robot","joint","motor"};
+static const char * const path_robot_servo[] = {"robot","joint","servo"};
+static const char * const path_robot_command[] = {"robot","joint","command"};
+static const char * const path_robot_enable[] = {"robot","joint","enable"};
+static const char * const path_robot_disable[] = {"robot","joint","disable"};
+static const char * const path_robot_close[] = {"robot","joint","close"};
+#endif
 static const shell_completion_rule_t shell_completion_rules[] = {
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+    SHELL_COMPLETION_STATIC(path_robot,robot_domains),
+    SHELL_COMPLETION_STATIC(path_robot_joint,robot_joint_subcommands),
+    SHELL_COMPLETION_STATIC(path_robot_kind,robot_kinds),
+    SHELL_COMPLETION_STATIC(path_robot_key,robot_keys),
+    SHELL_COMPLETION_MOTOR_NAMES(path_robot_motor_name),
+    SHELL_COMPLETION_ENCODER_NAMES(path_robot_encoder_name),
+    {.path=path_robot_status,.path_count=SHELL_ARRAY_COUNT(path_robot_status),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_configure,.path_count=SHELL_ARRAY_COUNT(path_robot_configure),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_motor,.path_count=SHELL_ARRAY_COUNT(path_robot_motor),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_servo,.path_count=SHELL_ARRAY_COUNT(path_robot_servo),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_command,.path_count=SHELL_ARRAY_COUNT(path_robot_command),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_enable,.path_count=SHELL_ARRAY_COUNT(path_robot_enable),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_disable,.path_count=SHELL_ARRAY_COUNT(path_robot_disable),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+    {.path=path_robot_close,.path_count=SHELL_ARRAY_COUNT(path_robot_close),.source=SHELL_COMPLETION_SOURCE_ROBOT_JOINTS},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
     SHELL_COMPLETION_STATIC(path_controller, controller_subcommands),
     SHELL_COMPLETION_STATIC(path_controller_kind, controller_kinds),
@@ -8811,6 +8859,14 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         case SHELL_COMPLETION_SOURCE_PARAMETERS:
             break;
 #endif
+        case SHELL_COMPLETION_SOURCE_ROBOT_JOINTS:
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+            for (size_t i=0;i<solar_os_robot_joint_count();i++) {
+                solar_os_robot_joint_info_v3_t info;
+                if (solar_os_robot_joint_get_info(i,&info)) shell_completion_emit(state,info.config.name);
+            }
+#endif
+            break;
         case SHELL_COMPLETION_SOURCE_CONTROLLERS:
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
             for (size_t i = 0; i < solar_os_controller_count(); i++) {
