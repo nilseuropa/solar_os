@@ -160,7 +160,7 @@ bindings = { i2c = "i2c0", addr = 0x55 }
 [[devices]]
 driver = "sdspi"
 name = "storage0"
-bindings = { spi = "spi0", cs = 8, power = 10 }
+bindings = { spi = "spi0", cs = 8 }
 
 [[pins]]
 gpio = 0

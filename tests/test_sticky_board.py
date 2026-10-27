@@ -223,6 +223,9 @@ esp_err_t solar_os_bus_i2c_receive(const char *, uint8_t, uint8_t *, size_t);
             binding = devices[name]["bindings"]
             self.assertEqual(binding["spi"], "spi0")
             self.assertIn(binding["cs"], buses["spi0"]["cs"])
+        self.assertNotIn("power", devices["storage0"]["bindings"])
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_PIN_SD_POWER"], "GPIO_NUM_10")
+        self.assertIn(".pin = GPIO_NUM_10, .level = 1", board["defines"]["SOLAR_OS_BOARD_BOOT_OUTPUTS"])
         self.assertNotIn("cdc", board["build"]["capabilities"])
         self.assertEqual((buses["uart0"]["tx"], buses["uart0"]["rx"]), (43, 44))
 
