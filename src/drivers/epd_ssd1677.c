@@ -783,6 +783,7 @@ static uint8_t ssd1677_u8x8_display_cb(u8x8_t *u8x8,
     if (display == NULL) {
         return 0;
     }
+    if (message == U8X8_MSG_DISPLAY_DRAW_TILE) return 1;
     esp_err_t err = ESP_OK;
     if (message == U8X8_MSG_DISPLAY_REFRESH) {
         err = ssd1677_refresh(display);
@@ -801,8 +802,6 @@ static uint8_t ssd1677_u8x8_display_cb(u8x8_t *u8x8,
             err = display->controller_ready ? ESP_OK : ssd1677_controller_init(display);
             if (err == ESP_OK) scan_accepting(display);
         }
-        break;
-    case U8X8_MSG_DISPLAY_DRAW_TILE:
         break;
     default:
         if (display->lock) xSemaphoreGive(display->lock);

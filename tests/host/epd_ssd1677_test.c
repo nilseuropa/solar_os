@@ -2,6 +2,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+static SemaphoreHandle_t busy_panel_lock;
+static int checked_semaphore_take(SemaphoreHandle_t semaphore, unsigned timeout)
+{
+    assert(semaphore != busy_panel_lock);
+    return xSemaphoreTake(semaphore, timeout);
+}
+#define xSemaphoreTake checked_semaphore_take
+
 /* Test the real command/refresh implementation with a captured SPI transport. */
 #include "../../src/drivers/epd_ssd1677.c"
 
@@ -433,6 +443,31 @@ static void test_pulse_relax_and_sleep(void)
 #define RELAX_WIRE find_command(0x24, 0)->data
 #include "epd_relax_contract.h"
 
+static void test_submit_during_scan(void)
+{
+    epd_ssd1677_t d = make_display();
+    pulse_display(&d, true);
+    const size_t previous_commands = command_count;
+    const uint32_t previous_submitted = d.scan_worker.stats.submitted;
+    frame[0] ^= 1U;
+    busy_panel_lock = d.lock;
+    for (unsigned row = 0; row < SSD1677_HEIGHT / 8U; ++row) {
+        u8x8_tile_t tile = {.x_pos = 0, .y_pos = row,
+            .cnt = SSD1677_WIDTH / 8U,
+            .tile_ptr = frame + row * SSD1677_WIDTH};
+        assert(ssd1677_u8x8_display_cb(&d.u8g2.u8x8,
+            U8X8_MSG_DISPLAY_DRAW_TILE, 1, &tile) == 1);
+    }
+    assert(ssd1677_u8x8_display_cb(&d.u8g2.u8x8,
+        U8X8_MSG_DISPLAY_REFRESH, 0, NULL) == 1);
+    busy_panel_lock = NULL;
+    assert(command_count == previous_commands);
+    assert(d.scan_worker.stats.submitted == previous_submitted + 1U);
+    assert(memcmp(d.scan_worker.latest, frame, sizeof(frame)) == 0);
+    assert(worker_tick(&d.scan_worker) == ESP_OK && worker_pending);
+    dispose_pulse(&d);
+}
+
 int main(void)
 {
     test_initial_full();
@@ -445,6 +480,7 @@ int main(void)
     test_async_retarget_failure_and_power();
     test_mode_limits_and_rollback();
     test_pulse_relax_and_sleep();
+    test_submit_during_scan();
     puts("epd_ssd1677_test: PASS");
     return 0;
 }
