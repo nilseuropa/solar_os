@@ -68,6 +68,9 @@ typedef struct {
     epd_scan_worker_t scan_worker;
     uint8_t *pulse_planes;
     size_t pulse_mask_pending;
+    uint8_t pulse_x_start, pulse_x_end;
+    uint16_t pulse_y_start, pulse_y_end;
+    bool pulse_window_valid;
     uint32_t pulse_updates, scan_submit_ready, pulse_spi_clock_hz;
     uint16_t scan_period_ms;
     int64_t pulse_last_frame_start;

@@ -468,6 +468,49 @@ static void test_submit_during_scan(void)
     dispose_pulse(&d);
 }
 
+static void test_pulse_window_clears_previous_mask(void)
+{
+    epd_ssd1677_t d;
+    pulse_display(&d, false);
+    frame[800 + 17] &= (uint8_t)~4U;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    assert(find_command(0x26, 0)->length == sizeof(frame));
+    command_count = 0;
+    frame[800 + 33] &= (uint8_t)~4U;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x44, (uint8_t[]){16, 0, 39, 0}, 4);
+    expect_data(0x45, (uint8_t[]){0xd5, 1, 0xd5, 1}, 4);
+    expect_data(0x26, (uint8_t[]){0, 0, 0x40}, 3);
+    expect_data(0x24, (uint8_t[]){0, 0, 0}, 3);
+    command_count = 0;
+    frame[800 + 33] |= 4;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x44, (uint8_t[]){32, 0, 39, 0}, 4);
+    expect_data(0x24, (uint8_t[]){0x40}, 1);
+    expect_data(0x26, (uint8_t[]){0}, 1);
+    dispose_pulse(&d);
+}
+
+static void test_pulse_byte_diff_coordinates(void)
+{
+    epd_ssd1677_t d;
+    pulse_display(&d, true);
+    for (size_t i = 0; i < sizeof(frame); i++) frame[i] = (uint8_t)(i * 73U);
+    bool baseline = true;
+    assert(pulse_prepare(&d, frame, true, &baseline) == ESP_OK && !baseline);
+    size_t pending = 0;
+    for (size_t p = 0; p < SSD1677_WIDTH * SSD1677_HEIGHT; p++) {
+        const size_t x = p % SSD1677_WIDTH, y = p / SSD1677_WIDTH;
+        const bool white = (frame[y / 8U * SSD1677_WIDTH + x] & (1U << (y % 8U))) != 0;
+        assert(epd_pixel_budget_drive(&d.pixel_budget, p) ==
+            (white ? EPD_PIXEL_HOLD : EPD_PIXEL_DRIVE_BLACK));
+        if (!white) pending++;
+    }
+    assert(d.pixel_budget.pending == pending);
+    assert(memcmp(d.shadow, frame, sizeof(frame)) == 0);
+    dispose_pulse(&d);
+}
+
 int main(void)
 {
     test_initial_full();
@@ -481,6 +524,8 @@ int main(void)
     test_mode_limits_and_rollback();
     test_pulse_relax_and_sleep();
     test_submit_during_scan();
+    test_pulse_window_clears_previous_mask();
+    test_pulse_byte_diff_coordinates();
     puts("epd_ssd1677_test: PASS");
     return 0;
 }

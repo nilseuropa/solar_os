@@ -254,6 +254,7 @@ static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
 {
     display->controller_ready = display->analog_on = display->fastwave_loaded = false;
     display->pulse_needs_cleanup = display->pulse_mask_dirty = true;
+    display->pulse_window_valid = false;
     ESP_RETURN_ON_ERROR(ssd1677_set_power(display, true), TAG, "panel power-on failed");
     ssd1677_hardware_reset(display);
     ESP_RETURN_ON_ERROR(ssd1677_wait_ready(display), TAG, "reset wait failed");
@@ -292,12 +293,12 @@ static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
 
 static void ssd1677_convert_row(epd_ssd1677_t *display,
                                 const uint8_t *source,
-                                uint16_t y)
+                                uint16_t y, size_t first_byte, size_t end_byte)
 {
     const uint8_t row_bit = (uint8_t)(1U << (y & 7U));
     const uint8_t *tile_row = source +
         (size_t)(y >> 3) * SSD1677_BUFFER_ROW_BYTES;
-    for (size_t byte = 0; byte < SSD1677_PANEL_ROW_BYTES; byte++) {
+    for (size_t byte = first_byte; byte <= end_byte; byte++) {
         uint8_t panel_pixels = 0;
         const uint8_t *columns = tile_row + byte * 8U;
         for (unsigned bit = 0; bit < 8U; bit++) {
@@ -381,7 +382,7 @@ static esp_err_t ssd1677_write_plane(epd_ssd1677_t *display,
                         TAG, "D/C frame data failed");
     const size_t row_bytes = window->x_end_byte - window->x_start_byte + 1U;
     for (uint16_t y = window->y_start; y <= window->y_end; y++) {
-        ssd1677_convert_row(display, source, y);
+        ssd1677_convert_row(display, source, y, window->x_start_byte, window->x_end_byte);
         if (invert) {
             for (size_t byte = window->x_start_byte; byte <= window->x_end_byte; byte++) {
                 display->line_buffer[byte] = (uint8_t)~display->line_buffer[byte];
@@ -529,6 +530,7 @@ static esp_err_t load_fastwave(epd_ssd1677_t *d)
 
 static void free_budget(epd_ssd1677_t *d)
 {
+    d->pulse_window_valid = false;
     heap_caps_free(d->pixel_budget.active);
     heap_caps_free(d->pixel_budget.drive_history);
     heap_caps_free(d->pixel_budget.pixels);
@@ -584,6 +586,7 @@ static esp_err_t pulse_prepare(epd_ssd1677_t *d, const uint8_t *source,
             epd_pixel_budget_seed(&d->pixel_budget, p, pixel_white(source, p));
         d->pulse_needs_cleanup = false;
         d->pulse_mask_dirty = true;
+        d->pulse_window_valid = false;
         d->pulse_updates = 0;
         d->pulse_last_frame_start = 0;
         *baseline = true;
@@ -595,9 +598,18 @@ static esp_err_t pulse_prepare(epd_ssd1677_t *d, const uint8_t *source,
             while (esp_timer_get_time() < due) delay_ms(1);
         }
         d->pulse_last_frame_start = esp_timer_get_time();
-        for (size_t p = 0; p < d->pixel_budget.count; ++p)
-            if (pixel_white(source, p) != pixel_white(d->shadow, p))
-                epd_pixel_budget_target(&d->pixel_budget, p, pixel_white(source, p), d->pulse_tuning.drive_cycles);
+        for (size_t i = 0; i < SSD1677_BUFFER_BYTES; ++i) {
+            const uint8_t changed = source[i] ^ d->shadow[i];
+            if (!changed) continue;
+            const size_t x = i % SSD1677_WIDTH, y = i / SSD1677_WIDTH * 8U;
+            for (unsigned bit = 0; bit < 8U; bit++) {
+                if (changed & (1U << bit)) {
+                    const size_t p = (y + bit) * SSD1677_WIDTH + x;
+                    epd_pixel_budget_target(&d->pixel_budget, p,
+                        (source[i] & (1U << bit)) != 0, d->pulse_tuning.drive_cycles);
+                }
+            }
+        }
         memcpy(d->shadow, source, SSD1677_BUFFER_BYTES);
         ++d->pulse_updates; /* changed targets, never physical settling scans */
         d->pulse_mask_dirty = true;
@@ -609,6 +621,8 @@ static esp_err_t pulse_cycle(epd_ssd1677_t *d)
 {
     TRY(load_fastwave(d));
     if (d->pulse_mask_dirty || d->pulse_mask_pending != d->pixel_budget.pending) {
+        ssd1677_window_t active = {SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U, 0};
+        bool changed = false;
         uint8_t *black = d->pulse_planes, *white = black + SSD1677_BUFFER_BYTES;
         memset(d->pulse_planes, 0, SSD1677_BUFFER_BYTES * 2U);
         for (size_t i = 0; i < d->pixel_budget.active_count; ++i) {
@@ -616,13 +630,33 @@ static esp_err_t pulse_cycle(epd_ssd1677_t *d)
             const epd_pixel_drive_t drive = epd_pixel_budget_drive(&d->pixel_budget, p);
             if (drive == EPD_PIXEL_HOLD) continue;
             const size_t x = p % SSD1677_WIDTH, y = p / SSD1677_WIDTH;
+            const unsigned byte = x / 8U;
+            if (byte < active.x_start_byte) active.x_start_byte = byte;
+            if (byte > active.x_end_byte) active.x_end_byte = byte;
+            if (y < active.y_start) active.y_start = y;
+            if (y > active.y_end) active.y_end = y;
+            changed = true;
             const size_t offset = (y / 8U) * SSD1677_WIDTH + x;
             (drive == EPD_PIXEL_DRIVE_BLACK ? black : white)[offset] |= (uint8_t)(1U << (y % 8U));
         }
-        const ssd1677_window_t window = {0, SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U};
+        if (!changed) return ESP_ERR_INVALID_STATE;
+        ssd1677_window_t window = {0, SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U};
+        if (d->pulse_window_valid) {
+            window = active;
+            /* Clear pixels from the preceding mask as they finish settling. */
+            if (d->pulse_x_start < window.x_start_byte) window.x_start_byte = d->pulse_x_start;
+            if (d->pulse_x_end > window.x_end_byte) window.x_end_byte = d->pulse_x_end;
+            if (d->pulse_y_start < window.y_start) window.y_start = d->pulse_y_start;
+            if (d->pulse_y_end > window.y_end) window.y_end = d->pulse_y_end;
+        }
         TRY(ssd1677_cmd_data(d, 0x21, (uint8_t[]){0}, 1));
         TRY(ssd1677_write_plane(d, 0x26, black, &window, false));
         TRY(ssd1677_write_plane(d, 0x24, white, &window, false));
+        d->pulse_x_start = active.x_start_byte;
+        d->pulse_x_end = active.x_end_byte;
+        d->pulse_y_start = active.y_start;
+        d->pulse_y_end = active.y_end;
+        d->pulse_window_valid = true;
         d->pulse_mask_dirty = false;
         d->pulse_mask_pending = d->pixel_budget.pending;
     }
