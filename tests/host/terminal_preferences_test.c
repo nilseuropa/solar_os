@@ -21,6 +21,8 @@ static stored_value_t stored_values[] = {
 };
 
 static unsigned commit_count;
+static uint8_t display_scales[2];
+static esp_err_t scale_write_error;
 
 static stored_value_t *find_value(const char *key)
 {
@@ -34,9 +36,9 @@ static stored_value_t *find_value(const char *key)
 
 esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
 {
-    assert(strcmp(name, "terminal") == 0);
+    assert(strcmp(name, "terminal") == 0 || strcmp(name, "display_scale") == 0);
     (void)mode;
-    *handle = 1;
+    *handle = strcmp(name, "terminal") == 0 ? 1 : 2;
     return ESP_OK;
 }
 
@@ -63,14 +65,29 @@ esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value)
 
 esp_err_t nvs_commit(nvs_handle_t handle)
 {
-    assert(handle == 1);
+    assert(handle == 1 || handle == 2);
     commit_count++;
     return ESP_OK;
 }
 
 void nvs_close(nvs_handle_t handle)
 {
-    assert(handle == 1);
+    assert(handle == 1 || handle == 2);
+}
+
+esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value)
+{
+    assert(handle == 2 && (!strcmp(key,"display0") || !strcmp(key,"oled0")));
+    uint8_t scale = display_scales[!strcmp(key,"oled0")];
+    if (scale == 0) return ESP_ERR_NVS_NOT_FOUND;
+    *value=scale; return ESP_OK;
+}
+
+esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value)
+{
+    assert(handle == 2);
+    if (scale_write_error != ESP_OK) return scale_write_error;
+    display_scales[!strcmp(key,"oled0")]=value; return ESP_OK;
 }
 
 int main(void)
@@ -82,6 +99,7 @@ int main(void)
     assert(profile.text_size == SOLAR_OS_TERMINAL_TEXT_SIZE_16);
     assert(!profile.palette_inverted);
     assert(profile.status_bar_visible);
+    assert(profile.scale == 1);
     assert(solar_os_terminal_profile_is_valid(&profile));
 
     assert(solar_os_terminal_profile_save_orientation(90) == ESP_OK);
@@ -122,5 +140,23 @@ int main(void)
            ESP_ERR_INVALID_ARG);
     assert(solar_os_terminal_profile_save_text_size(
                SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_load_scale("display0")==1);
+    assert(solar_os_terminal_profile_save_scale("display0",2)==ESP_OK);
+    assert(solar_os_terminal_profile_load_scale("display0")==2);
+    assert(solar_os_terminal_profile_load_scale("oled0")==1);
+    assert(solar_os_terminal_profile_save_scale("oled0",3)==ESP_OK);
+    assert(solar_os_terminal_profile_load_scale("display0")==2);
+    assert(solar_os_terminal_profile_load_scale("oled0")==3);
+    unsigned commits=commit_count;
+    assert(solar_os_terminal_profile_save_scale("oled0",3)==ESP_OK && commit_count==commits);
+    scale_write_error=ESP_FAIL;
+    assert(solar_os_terminal_profile_save_scale("display0",4)==ESP_FAIL);
+    assert(solar_os_terminal_profile_load_scale("display0")==2);
+    assert(solar_os_terminal_profile_save_scale("display0",0)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_save_scale("display0",5)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_save_scale("",2)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_save_scale("abcdefghijklmnop",2)==ESP_ERR_INVALID_ARG);
+    display_scales[0]=99;
+    assert(solar_os_terminal_profile_load_scale("display0")==1);
     return 0;
 }

@@ -1974,6 +1974,28 @@ bool solar_os_input_pointer_is_captured(solar_os_input_source_t source)
     return captured;
 }
 
+esp_err_t solar_os_input_pointer_apply_display_transform(
+    solar_os_input_pointer_event_t *event, uint16_t width, uint16_t height,
+    uint16_t orientation_degrees, uint8_t scale)
+{
+    if (event == NULL || scale == 0 || width / scale == 0 || height / scale == 0 ||
+        width / scale > INT16_MAX || height / scale > INT16_MAX ||
+        event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE ||
+        (orientation_degrees != 0 && orientation_degrees != 90 &&
+         orientation_degrees != 180 && orientation_degrees != 270)) return ESP_ERR_INVALID_ARG;
+    int previous_x = event->x - event->delta_x;
+    int previous_y = event->y - event->delta_y;
+    event->x /= scale; event->y /= scale;
+    const int logical_width = width / scale, logical_height = height / scale;
+    if (event->x < 0) event->x = 0;
+    if (event->y < 0) event->y = 0;
+    if (event->x >= logical_width) event->x = logical_width - 1;
+    if (event->y >= logical_height) event->y = logical_height - 1;
+    event->delta_x = event->x - previous_x / scale;
+    event->delta_y = event->y - previous_y / scale;
+    return solar_os_input_pointer_apply_orientation(event, logical_width, logical_height, orientation_degrees);
+}
+
 esp_err_t solar_os_input_pointer_apply_orientation(
     solar_os_input_pointer_event_t *event,
     uint16_t width,

@@ -103,7 +103,8 @@ esp_err_t solar_os_gt911_attach(const char *name,
     solar_os_display_target_t target;
     if (!solar_os_display_find_target(SOLAR_OS_DISPLAY_PRIMARY_TARGET, &target) ||
         !target.width || !target.height) return ESP_ERR_NOT_FOUND;
-    candidate.width=target.width; candidate.height=target.height;
+    candidate.width=target.native_width ? target.native_width : target.width;
+    candidate.height=target.native_height ? target.native_height : target.height;
     esp_err_t err = gt911_init_with_reset(candidate.bus,
                                    candidate.address,
                                    candidate.alternate_address,

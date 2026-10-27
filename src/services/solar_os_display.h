@@ -69,6 +69,8 @@ typedef struct {
     void *power_state_context;
     esp_err_t (*relax)(void *context, solar_os_display_relax_phase_t phase);
     void *relax_context;
+    uint16_t native_width;
+    uint16_t native_height;
 } solar_os_display_target_t;
 
 typedef struct {

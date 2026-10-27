@@ -32,6 +32,7 @@ bool solar_os_sessions_has_display_shell(void);
 void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status);
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
                                                      uint16_t degrees);
+esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, uint8_t scale);
 esp_err_t solar_os_sessions_set_terminal_font(solar_os_terminal_t *terminal,
                                               solar_os_terminal_font_t font);
 esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal,

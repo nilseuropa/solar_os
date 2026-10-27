@@ -482,6 +482,7 @@ static void terminal_load_settings(solar_os_terminal_t *terminal)
     solar_os_terminal_profile_t profile;
     solar_os_terminal_profile_load_preferences(&profile);
     terminal->orientation_degrees = profile.orientation_degrees;
+    terminal->scale = profile.scale;
     terminal->font = profile.font;
     terminal->text_size = profile.text_size;
     terminal->palette_inverted = profile.palette_inverted;
@@ -1833,11 +1834,30 @@ void solar_os_terminal_get_profile(const solar_os_terminal_t *terminal,
 
     *profile = (solar_os_terminal_profile_t) {
         .orientation_degrees = terminal->orientation_degrees,
+        .scale = terminal->scale ? terminal->scale : 1,
         .font = terminal->font,
         .text_size = terminal->text_size,
         .palette_inverted = terminal->palette_inverted,
         .status_bar_visible = terminal->status_bar_visible,
     };
+}
+
+static void terminal_apply_scale_geometry(solar_os_terminal_t *terminal)
+{
+    const size_t old_rows = terminal->rows;
+    const size_t cursor_row = terminal->cursor_row;
+    terminal_apply_settings(terminal, false);
+    const size_t new_rows = terminal->rows;
+    const size_t cursor_col = terminal->cursor_col;
+    if (cursor_row >= new_rows) {
+        terminal->rows = old_rows;
+        for (size_t i = 0; i < cursor_row - new_rows + 1U; i++) scroll_up(terminal);
+        terminal->rows = new_rows;
+        terminal->cursor_row = new_rows - 1U;
+        terminal->cursor_col = cursor_col;
+    }
+    for (size_t row = old_rows; row < new_rows; row++)
+        solar_os_terminal_clear_line_from(terminal, row, 0);
 }
 
 esp_err_t solar_os_terminal_apply_profile_transient(
@@ -1848,6 +1868,8 @@ esp_err_t solar_os_terminal_apply_profile_transient(
         return ESP_ERR_INVALID_ARG;
     }
 
+    const bool scale_changed = terminal->scale != (profile->scale ? profile->scale : 1);
+    terminal->scale = profile->scale ? profile->scale : 1;
     esp_err_t err = solar_os_terminal_set_orientation_transient(
         terminal, profile->orientation_degrees);
     if (err == ESP_OK) {
@@ -1864,6 +1886,7 @@ esp_err_t solar_os_terminal_apply_profile_transient(
         err = solar_os_terminal_set_status_bar_visible_transient(
             terminal, profile->status_bar_visible);
     }
+    if (err == ESP_OK && scale_changed) terminal_apply_scale_geometry(terminal);
     return err;
 }
 

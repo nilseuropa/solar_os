@@ -9,7 +9,7 @@ static const char * const ota_commands[] = {"status", "check", "upgrade", "url",
 #endif
 static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
-    "--display", "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
+    "--display", "orientation", "scale", "font", "textsize", "palette", "foreground", "background", "statusbar",
     "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -1968,7 +1968,8 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  setterm");
-    solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
+    solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]");
+    solar_os_shell_io_writeln(term, "  setterm scale [1..4]");
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [8|10|12|14|16|18|20]");
@@ -2063,6 +2064,7 @@ static bool setterm_display_setting(const char *setting)
 {
     return setting != NULL &&
         (strcmp(setting, "orientation") == 0 ||
+         strcmp(setting, "scale") == 0 ||
          strcmp(setting, "font") == 0 ||
          strcmp(setting, "textsize") == 0 ||
          strcmp(setting, "palette") == 0 ||
@@ -2077,6 +2079,7 @@ static void setterm_print_display_profile(
     solar_os_shell_io_printf(term, "display: %s\n", target_name);
     solar_os_shell_io_printf(term, "orientation: %u\n",
                              (unsigned)profile->orientation_degrees);
+    solar_os_shell_io_printf(term, "scale: %u\n", (unsigned)(profile->scale ? profile->scale : 1));
     solar_os_shell_io_printf(term, "font: %s\n",
                              solar_os_terminal_font_name(profile->font));
     solar_os_shell_io_printf(
@@ -2116,7 +2119,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_diag_missing(term,
                                         "setterm --display",
                                         "display target",
-                                        "setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
+                                        "setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]");
             return;
         }
         display_target = argv[2];
@@ -2147,7 +2150,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                 argv[1]);
             solar_os_shell_io_writeln(
                 term,
-                "values: orientation font textsize palette statusbar");
+                "values: orientation scale font textsize palette statusbar");
             return;
         }
     }
@@ -2159,6 +2162,38 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, true);
         }
+        return;
+    }
+
+    if (strcmp(argv[1], "scale") == 0) {
+        char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+        if (display_target == NULL) {
+            if (display == NULL) {
+                solar_os_shell_io_writeln(term, "setterm scale: select a display with --display");
+                return;
+            }
+            if (ctx->gfx == NULL || !solar_os_gfx_display_target_name(ctx->gfx, target, sizeof(target)))
+                strlcpy(target, SOLAR_OS_DISPLAY_PRIMARY_TARGET, sizeof(target));
+            display_target = target;
+            if (solar_os_display_get_terminal_profile(display_target, &display_profile) != ESP_OK) {
+                solar_os_shell_io_writeln(term, "setterm scale: select an available display with --display");
+                return;
+            }
+        }
+        if (argc == 2) {
+            solar_os_shell_io_printf(term, "scale: %u\n", (unsigned)(display_profile.scale ? display_profile.scale : 1));
+            solar_os_shell_io_writeln(term, "values: 1 2 3 4");
+            return;
+        }
+        size_t scale;
+        if (argc != 3 || !parse_size_arg(argv[2], 1, 4, &scale)) {
+            solar_os_shell_diag_invalid(term, "setterm scale", "scale", argc >= 3 ? argv[2] : "",
+                "an integer from 1 to 4", "setterm scale [1..4]", false);
+            return;
+        }
+        display_profile.scale = (uint8_t)scale;
+        const esp_err_t err = solar_os_sessions_set_display_terminal_profile(display_target, &display_profile);
+        setterm_print_display_result(term, display_target, "scale", argv[2], err);
         return;
     }
 
@@ -2863,7 +2898,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|ble|powerkey|keyrate|timezone|startup|otaurl",
+                                   "setterm orientation|scale|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|ble|powerkey|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }

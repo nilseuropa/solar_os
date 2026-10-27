@@ -332,7 +332,8 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm --display <target> [orientation\|font\|textsize\|palette\|statusbar] [value]` | Show or change the volatile terminal profile of a named display target. |
+| `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; scale is persistent, other targeted settings are volatile. |
+| `setterm` | `setterm scale [1..4]` | Set integer pixel scaling for the display, including text, graphics and touch coordinates. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Show or set primary-display orientation. |
 | `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
@@ -569,7 +570,8 @@ off.
 
 ```text
 setterm
-setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]
+setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
+setterm scale [1..4]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [8|10|12|14|16|18|20]
@@ -685,23 +687,36 @@ does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
 
-`setterm --display <target>` reads or changes the volatile terminal profile of
+`setterm --display <target>` reads or changes the profile of
 a named runtime display target, even when a TUI application rather than a shell
-owns that display. The target profile is initialized from the single global NVS
-parameter set when the display registers. Orientation is relative to the
+owns that display. The target profile uses global defaults and the scale saved
+for that display name. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
 mounting even when their drivers use different U8g2 rotations. Display-targeted
-absolute pointer coordinates follow this logical orientation. A targeted change
-applies to current and future sessions on that display until reboot or until the
-display target is unregistered; it does not create or update per-display NVS
-keys. Without a setting, the command prints the target's complete volatile
-profile. For example:
+absolute pointer coordinates follow this logical orientation. Except for
+`scale`, targeted changes apply to current and future sessions until reboot
+or display removal and do not change saved preferences. Without a setting,
+the command prints the target's complete profile. For example:
 
 ```text
 setterm --display oled0 statusbar hide
 setterm --display oled0 textsize 10
 setterm --display oled0 palette inverted
 ```
+
+`setterm scale` shows the display's integer pixel scale. Values `1` through
+`4` apply to the entire display canvas, including text, graphics, icons and
+spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
+a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
+uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
+Touch coordinates follow the same scale and orientation.
+
+Scale is saved separately for each display name, including changes made with
+`setterm --display display0 scale 2`. Close graphical applications, dismiss
+display overlays, and remove layouts using that target before changing scale.
+Text and graphical applications
+opened afterward use the new logical dimensions. Use `setterm scale 1` to
+return to native resolution. External VT100 terminal geometry is unchanged.
 
 Text size `8` selects a fixed bitmap face with 6×8 pixel cells for both font
 families. It uses the same upright glyphs for regular, bold, and italic text.

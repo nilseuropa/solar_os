@@ -564,6 +564,27 @@ int main(void)
                &oriented, 480, 320, 270) == ESP_OK);
     assert(oriented.x == 274 && oriented.y == 123);
     assert(oriented.delta_x == 2 && oriented.delta_y == 3);
+    for (unsigned scale=1; scale<=4; scale++) {
+        for (unsigned rotation=0; rotation<360; rotation+=90) {
+            solar_os_input_pointer_event_t transformed = pointer_read;
+            transformed.x = 797; transformed.y = 476;
+            transformed.delta_x = 5; transformed.delta_y = -3;
+            solar_os_input_pointer_event_t expected = transformed;
+            expected.x /= scale; expected.y /= scale;
+            expected.delta_x = expected.x - 792 / (int)scale;
+            expected.delta_y = expected.y - 479 / (int)scale;
+            assert(solar_os_input_pointer_apply_orientation(&expected, 800/scale,480/scale,rotation)==ESP_OK);
+            assert(solar_os_input_pointer_apply_display_transform(&transformed,800,480,rotation,scale)==ESP_OK);
+            assert(transformed.x==expected.x && transformed.y==expected.y);
+            assert(transformed.delta_x==expected.delta_x && transformed.delta_y==expected.delta_y);
+        }
+    }
+    oriented = pointer_read;
+    oriented.x=799; oriented.y=479;
+    assert(solar_os_input_pointer_apply_display_transform(&oriented,800,480,180,3)==ESP_OK);
+    assert(oriented.x==0 && oriented.y==0);
+    assert(solar_os_input_pointer_apply_display_transform(&oriented,800,480,0,0)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_input_pointer_apply_display_transform(&oriented,65535,480,0,1)==ESP_ERR_INVALID_ARG);
     oriented.mode = SOLAR_OS_INPUT_POINTER_RELATIVE;
     assert(solar_os_input_pointer_apply_orientation(
                &oriented, 480, 320, 90) == ESP_ERR_INVALID_ARG);

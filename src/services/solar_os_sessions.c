@@ -2375,6 +2375,7 @@ static bool session_terminal_layout_changed(
 {
     return before != NULL && after != NULL &&
         (before->orientation_degrees != after->orientation_degrees ||
+         before->scale != after->scale ||
          before->font != after->font ||
          before->text_size != after->text_size ||
          before->status_bar_visible != after->status_bar_visible);
@@ -2384,6 +2385,17 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
     const char *target_name,
     const solar_os_terminal_profile_t *profile)
 {
+    solar_os_terminal_profile_t current;
+    if (profile != NULL && solar_os_display_get_terminal_profile(target_name, &current) == ESP_OK &&
+        (profile->scale ? profile->scale : 1) != (current.scale ? current.scale : 1)) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            const solar_os_session_entry_t *session = &session_state.sessions[i];
+            char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+            if (session->used && session->graphics_active && !session->suspended &&
+                session_terminal_target_name(session, session->terminal, target, sizeof(target)) &&
+                strcmp(target, target_name) == 0) return ESP_ERR_INVALID_STATE;
+        }
+    }
     esp_err_t err = solar_os_display_set_terminal_profile(target_name, profile);
     if (err != ESP_OK) {
         return err;
@@ -2431,6 +2443,18 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
         }
     }
     return err;
+}
+
+esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, uint8_t scale)
+{
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
+    solar_os_terminal_profile_t profile;
+    esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
+    if (err != ESP_OK) return err;
+    profile.scale = scale;
+    return solar_os_sessions_set_display_terminal_profile(target, &profile);
 }
 
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,

@@ -313,6 +313,9 @@ void solar_os_input_release_pointer(solar_os_input_source_t source, const void *
 bool solar_os_input_pointer_is_captured(solar_os_input_source_t source);
 esp_err_t solar_os_input_read_captured_pointer(solar_os_input_source_t source,
     const void *owner, solar_os_input_pointer_sample_t *sample, bool *reset);
+esp_err_t solar_os_input_pointer_apply_display_transform(
+    solar_os_input_pointer_event_t *event, uint16_t width, uint16_t height,
+    uint16_t orientation_degrees, uint8_t scale);
 esp_err_t solar_os_input_pointer_apply_orientation(
     solar_os_input_pointer_event_t *event,
     uint16_t width,

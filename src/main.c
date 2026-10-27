@@ -1723,11 +1723,11 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         solar_os_terminal_profile_t profile;
         if (solar_os_display_find_target(pointer->target, &target) &&
             solar_os_display_get_terminal_profile(pointer->target, &profile) == ESP_OK) {
-            (void)solar_os_input_pointer_apply_orientation(
+            (void)solar_os_input_pointer_apply_display_transform(
                 &oriented_pointer,
-                target.width,
-                target.height,
-                profile.orientation_degrees);
+                target.native_width ? target.native_width : target.width,
+                target.native_height ? target.native_height : target.height,
+                profile.orientation_degrees, profile.scale ? profile.scale : 1);
         }
     }
 

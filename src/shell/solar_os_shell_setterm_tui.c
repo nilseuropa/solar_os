@@ -43,6 +43,7 @@ static bool parse_size_arg(const char *text, size_t min, size_t max, size_t *val
 
 typedef enum {
     SETTERM_TUI_ORIENTATION,
+    SETTERM_TUI_SCALE,
     SETTERM_TUI_FONT,
     SETTERM_TUI_TEXTSIZE,
     SETTERM_TUI_PALETTE,
@@ -88,6 +89,7 @@ static void *setterm_tui_state;
 
 static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_ORIENTATION] = {.label = "orientation"},
+    [SETTERM_TUI_SCALE] = {.label = "scale"},
     [SETTERM_TUI_FONT] = {.label = "font"},
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
@@ -124,6 +126,12 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
     }
 
     switch (item) {
+    case SETTERM_TUI_SCALE: {
+        solar_os_terminal_profile_t profile;
+        solar_os_terminal_get_profile(term, &profile);
+        snprintf(buffer, buffer_len, "%u", (unsigned)(profile.scale ? profile.scale : 1));
+        break;
+    }
     case SETTERM_TUI_ORIENTATION:
         snprintf(buffer, buffer_len, "%u", (unsigned)solar_os_terminal_orientation(term));
         break;
@@ -371,6 +379,7 @@ static bool setterm_tui_cycle_value(const char * const *values,
 static bool setterm_tui_cycle_selected(int direction)
 {
     static const char * const orientation_values[] = {"0", "90", "180", "270"};
+    static const char * const scale_values[] = {"1", "2", "3", "4"};
     static const char * const font_values[] = {"mono", "compact"};
     static const char * const textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
@@ -391,6 +400,8 @@ static bool setterm_tui_cycle_selected(int direction)
         return setterm_tui_cycle_value(orientation_values,
                                        sizeof(orientation_values) / sizeof(orientation_values[0]),
                                        direction);
+    case SETTERM_TUI_SCALE:
+        return setterm_tui_cycle_value(scale_values, sizeof(scale_values) / sizeof(scale_values[0]), direction);
     case SETTERM_TUI_FONT:
         return setterm_tui_cycle_value(font_values,
                                        sizeof(font_values) / sizeof(font_values[0]),
@@ -507,6 +518,11 @@ static bool setterm_tui_apply_selected(void)
     solar_os_terminal_t *term = display_terminal(setterm_tui.ctx);
 
     switch ((setterm_tui_item_t)setterm_tui.selected) {
+    case SETTERM_TUI_SCALE: {
+        size_t scale;
+        return parse_size_arg(setterm_tui.edit_text, 1, 4, &scale) &&
+            solar_os_sessions_set_terminal_scale(term, (uint8_t)scale) == ESP_OK;
+    }
     case SETTERM_TUI_ORIENTATION: {
         size_t degrees = 0;
         if (!parse_size_arg(setterm_tui.edit_text, 0, 270, &degrees) ||
