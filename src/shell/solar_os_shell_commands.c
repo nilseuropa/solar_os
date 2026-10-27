@@ -1984,7 +1984,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
     solar_os_shell_io_writeln(term, "  setterm ble [default|on|off]");
 #endif
-    solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]");
+    solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]");
     solar_os_shell_io_writeln(term, "  setterm startup [auto|flash|sd]");
@@ -2637,8 +2637,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
     if (strcmp(argv[1], "powerkey") == 0 || strcmp(argv[1], "key") == 0) {
-        const char *usage = "setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]";
-        const char *values = "default off enter app-exit sleep suspend deepsleep ble-pair";
+        const char *usage = "setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]";
+        const char *values = "default off enter app-exit sleep suspend deepsleep shutdown ble-pair";
         const bool long_press = argc >= 3 && strcmp(argv[2], "long") == 0;
         const bool qualified = long_press || (argc >= 3 && strcmp(argv[2], "short") == 0);
         const int value_index = qualified ? 3 : 2;

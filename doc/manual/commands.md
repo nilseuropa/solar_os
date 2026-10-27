@@ -582,7 +582,7 @@ setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
 setterm keyboard [us|de]
-setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]
+setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
 setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
@@ -632,18 +632,20 @@ setterm powerkey short enter
 setterm powerkey long suspend
 setterm powerkey long sleep
 setterm powerkey long deepsleep
+setterm powerkey long shutdown
 setterm powerkey long ble-pair
 setterm powerkey long default
 ```
 
 The action choices are `default`, `off`, `enter`, `app-exit`, `sleep`, `suspend`,
-`deepsleep`, and `ble-pair`. `off` disables the awake action; it does not cut
-power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
+`deepsleep`, `shutdown`, and `ble-pair`. `off` disables the awake action; it
+does not cut power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
 turns off the display while jobs and services continue. `deepsleep` enters deep
-sleep and starts a fresh boot on wake. `ble-pair` forgets the remembered BLE
-keyboard and starts pairing when BLE is enabled for the current boot.
+sleep and starts a fresh boot on wake. `shutdown` performs cleanup and powers
+off where supported. `ble-pair` forgets the remembered BLE keyboard and starts
+pairing when BLE is enabled for the current boot.
 
-A hold is recognized after 1.2 seconds; light and deep sleep begin after KEY is
+A hold is recognized after 1.2 seconds; sleep and shutdown begin after KEY is
 released. Any KEY press resumes suspend or wakes sleep,
 regardless of its duration. The wake press is consumed until release, so it
 cannot also type Enter, start pairing, or put the device back to sleep.
@@ -652,6 +654,7 @@ cannot also type Enter, start pairing, or put the device back to sleep.
 suspend for a hold. Other boards retain their normal short-press mapping; holds
 default to suspend on targets with a board-owned wired keyboard and BLE pairing
 on targets without one. Connecting a BLE keyboard does not change these defaults.
+Sticky defaults to light sleep for a tap and shutdown for a hold.
 Valid saved choices take precedence over defaults, including older short-press
 settings. Changes persist and apply immediately. `setterm powerkey sleep` remains
 shorthand for `setterm powerkey short sleep`; `setterm key` is also accepted.

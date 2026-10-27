@@ -32,6 +32,7 @@ typedef enum {
     SOLAR_OS_POWER_KEY_ACTION_ENTER,
     SOLAR_OS_POWER_KEY_ACTION_APP_EXIT,
     SOLAR_OS_POWER_KEY_ACTION_DEFAULT,
+    SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN,
 } solar_os_power_key_action_t;
 
 typedef struct {

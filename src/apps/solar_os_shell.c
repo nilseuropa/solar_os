@@ -846,10 +846,10 @@ static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_ble_values[] = {"default", "on", "off"};
 #endif
 static const char * const powerkey_action_values[] = {
-    "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+    "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
 };
 static const char * const setterm_powerkey_values[] = {
-    "short", "long", "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+    "short", "long", "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
 };
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};

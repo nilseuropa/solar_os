@@ -1279,6 +1279,16 @@ static void handle_key_pairing(void)
 #endif
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
+static bool board_button_long_press(gpio_num_t pin, void *user)
+{
+    (void)user;
+    if (pin != SOLAR_OS_BOARD_PIN_BLE_PAIR) return false;
+    handle_key_pairing();
+    return true;
+}
+#endif
+
 static void handle_key_input(uint8_t key)
 {
     const esp_err_t err = solar_os_input_write_char(key_input_source, (char)key);
@@ -1316,6 +1326,11 @@ static void handle_key_action(solar_os_power_key_action_t action, const char *re
     case SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR:
         handle_key_pairing();
         break;
+    case SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN: {
+        const esp_err_t err = solar_os_shutdown_request();
+        if (err != ESP_OK) SOLAR_OS_LOGW(TAG, "KEY shutdown request failed: %s", esp_err_to_name(err));
+        break;
+    }
     default:
         SOLAR_OS_LOGW(TAG, "KEY action invalid");
         break;
@@ -1433,7 +1448,8 @@ static void poll_key_button(void)
     solar_os_power_status_t status;
     solar_os_power_get_status(&status);
     if (status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SLEEP ||
-        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP) {
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP ||
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN) {
         /* RTC wake is level-triggered. Wait for release without blocking the
          * runtime or expiring the sleep path's stable-release timeout. */
         key_release_action = status.key_long_action;
@@ -1793,23 +1809,6 @@ static void poll_local_input_sources(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
     if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
         solar_os_buttons_poll();
-#if SOLAR_OS_PACKAGE_SERVICE_BLE && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
-        static uint32_t ble_pair_hold_start;
-        static bool ble_pair_fired;
-        const int level = gpio_get_level(SOLAR_OS_BOARD_PIN_BLE_PAIR);
-        const bool ble_pair_pressed = (level == 0);
-        if (ble_pair_pressed) {
-            if (ble_pair_hold_start == 0) ble_pair_hold_start = millis_u32();
-            else if (!ble_pair_fired && (millis_u32() - ble_pair_hold_start) >= 2000U) {
-                ble_pair_fired = true;
-                (void)solar_os_ble_keyboard_start_pairing();
-                ESP_LOGI(TAG, "BLE pair button held: pairing started");
-            }
-        } else {
-            ble_pair_hold_start = 0;
-            ble_pair_fired = false;
-        }
-#endif
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
@@ -2153,6 +2152,9 @@ void app_main(void)
     solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
+    solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
+#endif
 
     const bool reserve_port_shell =
         !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);

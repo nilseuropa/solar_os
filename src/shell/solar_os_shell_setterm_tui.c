@@ -378,7 +378,7 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
     static const char * const powerkey_values[] = {
-        "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+        "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
     };
     static const char * const startup_values[] = {"auto", "flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE

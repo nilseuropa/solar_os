@@ -11,6 +11,150 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StickyBoardTest(unittest.TestCase):
+    def test_up_hold_consumes_release_and_down_stays_an_arrow(self):
+        board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
+        source = (ROOT / "tests/host/buttons_test.c").read_text().split("int main(void)", 1)[0]
+        source += r'''
+static unsigned pairings;
+static bool pair_button(gpio_num_t pin, void *user) {
+    assert(pin == 5 && user == &pairings); pairings++; return true;
+}
+static void poll_after(unsigned ms) { now_us += ms * 1000ULL; solar_os_buttons_poll(); }
+static void press(int pin) { levels[pin] = 0; poll_after(1); poll_after(25); }
+static void release(int pin) { levels[pin] = 1; poll_after(1); poll_after(25); }
+static void expect_arrow(uint8_t key) {
+    solar_os_input_key_event_t events[2];
+    assert(solar_os_input_read_events(events, 2) == 2);
+    assert(events[0].key == key && events[0].action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(events[1].key == key && events[1].action == SOLAR_OS_INPUT_KEY_RELEASE);
+}
+int main(void) {
+    assert(solar_os_input_init() == ESP_OK);
+    levels[5] = 0; levels[6] = 1;
+    solar_os_buttons_set_long_press_handler(pair_button, &pairings);
+    assert(solar_os_buttons_init() == ESP_OK);
+    poll_after(5000); expect_no_events(); assert(pairings == 0);
+    release(5); expect_no_events();
+    press(5); poll_after(100); release(5);
+    expect_arrow(SOLAR_OS_KEY_UP); assert(pairings == 0);
+    press(5); poll_after(1999); expect_no_events(); assert(pairings == 0);
+    poll_after(1); expect_no_events(); assert(pairings == 1);
+    poll_after(5000); assert(pairings == 1);
+    release(5); expect_no_events();
+    press(6); poll_after(100); release(6); expect_arrow(SOLAR_OS_KEY_DOWN);
+    press(5); poll_after(100); release(5); expect_arrow(SOLAR_OS_KEY_UP);
+    assert(pairings == 1);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            definitions = re.sub(r"GPIO_NUM_(\d+)", r"\1", board["defines"]["SOLAR_OS_BOARD_BUTTONS"])
+            Path(tmp, "solar_os_board.h").write_text('#pragma once\n#include "solar_os_keys.h"\n'
+                '#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n#define SOLAR_OS_BOARD_BUTTONS ' + definitions + '\n')
+            path, binary = Path(tmp, "buttons.c"), Path(tmp, "buttons")
+            path.write_text(source)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-include", str(ROOT / "tests/host/compat.h"), "-I", tmp,
+                "-I", str(ROOT / "tests/host/gpio_controller_stubs"), "-I", str(ROOT / "tests/host"),
+                "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"), "-idirafter", str(ROOT / "include"),
+                str(path), *[str(ROOT / "src/services" / name) for name in (
+                    "solar_os_input.c", "solar_os_keys.c", "solar_os_input_composition.c", "solar_os_buttons.c")],
+                "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_latch_stays_on_until_power_off(self):
+        board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
+        source = '#include <assert.h>\n#include <stddef.h>\n#include <string.h>\n#include "solar_os_power.h"\n'
+        source += 'typedef int gpio_num_t;\n#define GPIO_MODE_OUTPUT 1\n'
+        for name in ("SOLAR_OS_BOARD_BOOT_OUTPUTS", "SOLAR_OS_BOARD_POWER_LATCH_PINS", "SOLAR_OS_BOARD_POWEROFF_PROVIDER"):
+            value = re.sub(r"GPIO_NUM_(\d+)", r"\1", board["defines"][name])
+            source += f'#define {name} {value}\n'
+        source += r'''
+static bool held[64], deep_hold;
+static int levels[64], calls, fail_at = -1;
+static solar_os_power_off_fn_t power_off;
+static void *power_user;
+static esp_err_t result(void) { return calls++ == fail_at ? ESP_FAIL : ESP_OK; }
+esp_err_t gpio_hold_dis(int pin) { esp_err_t err=result(); if (!err) held[pin]=false; return err; }
+esp_err_t gpio_hold_en(int pin) { esp_err_t err=result(); if (!err) held[pin]=true; return err; }
+esp_err_t gpio_reset_pin(int pin) { assert(!held[pin]); return result(); }
+esp_err_t gpio_sleep_sel_dis(int pin) { (void)pin; return result(); }
+esp_err_t gpio_set_level(int pin, int level) { assert(!held[pin]); esp_err_t err=result(); if (!err) levels[pin]=level; return err; }
+esp_err_t gpio_set_direction(int pin, int mode) { (void)pin; assert(mode == GPIO_MODE_OUTPUT); return result(); }
+void gpio_deep_sleep_hold_en(void) { deep_hold=true; }
+esp_err_t solar_os_power_register_off_provider(const char *name, solar_os_power_off_fn_t off, void *user) {
+    assert(strcmp(name, "board-power") == 0 && off && user); power_off=off; power_user=user; return ESP_OK;
+}
+static gpio_num_t power_latch_pins[] = SOLAR_OS_BOARD_POWER_LATCH_PINS;
+'''
+        source += production_functions((ROOT / "src/services/solar_os_board_boot.c").read_text(),
+                                       ("board_power_off", "solar_os_board_boot_init"))
+        source += r'''
+int main(void) {
+    assert(solar_os_board_boot_init() == ESP_OK);
+    assert(!deep_hold && !held[45] && !held[46] && levels[45] == 1 && levels[46] == 1);
+    assert(!held[47] && !held[10] && !held[42]);
+    assert(power_off(NULL) == ESP_ERR_INVALID_ARG);
+    for (int step=0; step<6; step++) {
+        fail_at=-1; assert(solar_os_board_boot_init() == ESP_OK);
+        calls=0; fail_at=step;
+        assert(power_off(power_user) == ESP_FAIL && calls == step+1);
+    }
+    fail_at=-1; assert(solar_os_board_boot_init() == ESP_OK);
+    assert(power_off(power_user) == ESP_OK);
+    assert(deep_hold && levels[45] == 0 && levels[46] == 0 && held[45] && held[46]);
+    assert(solar_os_board_boot_init() == ESP_OK);
+    assert(levels[45] == 1 && levels[46] == 1 && !held[45] && !held[46]);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            path, binary = Path(tmp, "latch.c"), Path(tmp, "latch")
+            path.write_text(source)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                            "-I", str(ROOT / "include"), str(path), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_power_key_defaults_and_reserved_buttons(self):
+        from solaros_board_manifest import generate_header, load_board_manifest, load_driver_catalog
+
+        board = load_board_manifest(ROOT / "boards/manifests/seeed_reterminal_sticky.toml",
+                                    ROOT / "boards/manifests")
+        header = generate_header(board, load_driver_catalog(ROOT / "boards/expansion_drivers.toml"))
+        self.assertIn("key", board["build"]["capabilities"])
+        self.assertIn("buttons", board["build"]["capabilities"])
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_PIN_BLE_PAIR"], "GPIO_NUM_5")
+        self.assertNotIn("GPIO_NUM_4", board["defines"]["SOLAR_OS_BOARD_BUTTONS"])
+        macros = []
+        for name in ("SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD", "SOLAR_OS_BOARD_USER_GPIO_MASK"):
+            macros.append(re.search(r"^#define " + name + r" .+$", header, re.M).group(0))
+        for name, value in board["defines"].items():
+            if name.startswith("SOLAR_OS_BOARD_KEY_"):
+                macros.append(f"#define {name} {value}")
+        source = '#include <assert.h>\n#include "solar_os_power.h"\n#include "solar_os_keys.h"\n'
+        source += re.sub(r"GPIO_NUM_(\d+)", r"\1", "\n".join(macros)) + "\n"
+        source += production_functions((ROOT / "src/services/solar_os_power.c").read_text(),
+                                       ("default_key_action",))
+        source += r'''
+int main(void) {
+    assert(default_key_action(false) == SOLAR_OS_POWER_KEY_ACTION_SLEEP);
+    assert(default_key_action(true) == SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN);
+    assert(!(SOLAR_OS_BOARD_USER_GPIO_MASK & (1ULL << 5)));
+    assert(!(SOLAR_OS_BOARD_USER_GPIO_MASK & (1ULL << 6)));
+    assert(!(SOLAR_OS_BOARD_USER_GPIO_MASK & (1ULL << 4)));
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "keys.c")
+            path.write_text(source)
+            binary = Path(tmp, "keys")
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                            "-I", str(ROOT / "include"), str(path), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_sht40_measurements_reject_corruption_and_bus_errors(self):
         source = r'''
 #include <assert.h>

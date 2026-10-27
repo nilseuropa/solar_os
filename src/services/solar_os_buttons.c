@@ -33,12 +33,17 @@ typedef struct {
     uint32_t raw_transitions;
     uint32_t stable_transitions;
     uint32_t dropped_edges;
+    uint32_t pressed_ms;
+    bool long_press_fired;
+    bool suppress_release;
 } button_state_t;
 
 static const char *TAG = "solar_os_buttons";
 static const solar_os_button_def_t button_defs[] = SOLAR_OS_BOARD_BUTTONS;
 static button_state_t button_states[sizeof(button_defs) / sizeof(button_defs[0])];
 static bool buttons_initialized;
+static solar_os_button_long_press_fn_t long_press_handler;
+static void *long_press_user;
 static solar_os_input_source_t buttons_input_source;
 static portMUX_TYPE buttons_edge_lock = portMUX_INITIALIZER_UNLOCKED;
 static button_edge_t buttons_edges[BUTTON_EDGE_QUEUE_SIZE];
@@ -185,6 +190,7 @@ esp_err_t solar_os_buttons_init(void)
     for (size_t i = 0; i < sizeof(button_defs) / sizeof(button_defs[0]); i++) {
         const solar_os_button_def_t *def = &button_defs[i];
         if (!GPIO_IS_VALID_GPIO(def->pin) ||
+            (def->long_press_ms && (!def->emit_on_release || def->track_motion)) ||
             (def->track_motion && (def->emit_on_release ||
                 (def->key != SOLAR_OS_KEY_LEFT && def->key != SOLAR_OS_KEY_RIGHT &&
                  def->key != SOLAR_OS_KEY_UP && def->key != SOLAR_OS_KEY_DOWN)))) {
@@ -209,6 +215,8 @@ esp_err_t solar_os_buttons_init(void)
             .last_raw_pressed = pressed,
             .stable_pressed = pressed,
             .raw_changed_ms = buttons_millis(),
+            .long_press_fired = pressed,
+            .suppress_release = pressed && def->long_press_ms != 0U,
         };
     }
 
@@ -323,6 +331,14 @@ void solar_os_buttons_poll(void)
             continue;
         }
 
+        if (pressed && state->stable_pressed && def->long_press_ms &&
+            !state->long_press_fired &&
+            (uint32_t)(now_ms - state->pressed_ms) >= def->long_press_ms) {
+            state->long_press_fired = true;
+            state->suppress_release = long_press_handler != NULL &&
+                long_press_handler(def->pin, long_press_user);
+        }
+
         if (pressed == state->stable_pressed ||
             (uint32_t)(now_ms - state->raw_changed_ms) < BUTTON_DEBOUNCE_MS) {
             continue;
@@ -330,11 +346,16 @@ void solar_os_buttons_poll(void)
 
         state->stable_pressed = pressed;
         state->stable_transitions++;
+        if (pressed) {
+            state->pressed_ms = now_ms;
+            state->long_press_fired = false;
+            state->suppress_release = false;
+        }
         if (def->key == 0) {
             continue;
         }
         if (def->emit_on_release) {
-            if (!pressed) {
+            if (!pressed && !state->suppress_release) {
                 (void)button_write_tap(def, solar_os_input_composition_modifiers());
             }
             continue;
@@ -347,6 +368,17 @@ void solar_os_buttons_poll(void)
                                        pressed ? SOLAR_OS_INPUT_KEY_PRESS :
                                            SOLAR_OS_INPUT_KEY_RELEASE);
     }
+#endif
+}
+
+void solar_os_buttons_set_long_press_handler(solar_os_button_long_press_fn_t handler, void *user)
+{
+#if SOLAR_OS_BOARD_HAS_BUTTONS
+    long_press_handler = handler;
+    long_press_user = user;
+#else
+    (void)handler;
+    (void)user;
 #endif
 }
 

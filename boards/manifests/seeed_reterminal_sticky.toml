@@ -25,7 +25,7 @@ drivers = [
 ]
 capabilities = [
   "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
-  "rtc", "battery", "wifi", "ble", "gpio", "buttons", "pointer",
+  "rtc", "battery", "wifi", "ble", "gpio", "key", "buttons", "pointer",
   "temperature", "humidity",
   "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio",
 ]
@@ -36,6 +36,8 @@ psram_bytes = 8388608
 includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 
 [defines]
+SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"board-power"'
+SOLAR_OS_BOARD_POWER_LATCH_PINS = '{GPIO_NUM_45, GPIO_NUM_46}'
 # Assert the latch and peripheral rails before display or storage access.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}}'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
@@ -71,8 +73,13 @@ SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_21"
 SOLAR_OS_BOARD_PIN_TOUCH_RST = "GPIO_NUM_41"
 SOLAR_OS_BOARD_PIN_TOUCH_EN = "GPIO_NUM_42"
 SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_4"
+SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SLEEP"
+SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN"
 SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_5"
-SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_4, .name = "AI-PWR", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_PIN_PWR_HOLD = "GPIO_NUM_45"
 SOLAR_OS_BOARD_PIN_PWR_LOCK = "GPIO_NUM_46"
 SOLAR_OS_BOARD_PIN_CHG_EN = "GPIO_NUM_39"
@@ -178,11 +185,11 @@ role = "AI / power button"
 [[pins]]
 gpio = 5
 policy = "fixed"
-role = "up button (hold = BLE pair)"
+role = "UP button / hold for BLE pairing"
 [[pins]]
 gpio = 6
 policy = "fixed"
-role = "down button"
+role = "DOWN button"
 [[pins]]
 gpio = 8
 policy = "fixed"

@@ -170,19 +170,23 @@ static bool profile_valid(solar_os_power_profile_t profile)
 static bool key_action_valid(solar_os_power_key_action_t action)
 {
     return action >= SOLAR_OS_POWER_KEY_ACTION_OFF &&
-        action <= SOLAR_OS_POWER_KEY_ACTION_DEFAULT;
+        action <= SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN;
 }
 
 static solar_os_power_key_action_t default_key_action(bool long_press)
 {
     if (long_press) {
-#if SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD
+#ifdef SOLAR_OS_BOARD_KEY_LONG_ACTION
+        return SOLAR_OS_BOARD_KEY_LONG_ACTION;
+#elif SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD
         return SOLAR_OS_POWER_KEY_ACTION_SUSPEND;
 #else
         return SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR;
 #endif
     }
-#ifdef SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY
+#ifdef SOLAR_OS_BOARD_KEY_SHORT_ACTION
+    return SOLAR_OS_BOARD_KEY_SHORT_ACTION;
+#elif defined(SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY)
     if (SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY == SOLAR_OS_KEY_ENTER) {
         return SOLAR_OS_POWER_KEY_ACTION_ENTER;
     }
@@ -600,6 +604,8 @@ const char *solar_os_power_key_action_name(solar_os_power_key_action_t action)
         return "app-exit";
     case SOLAR_OS_POWER_KEY_ACTION_DEFAULT:
         return "default";
+    case SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN:
+        return "shutdown";
     default:
         return "unknown";
     }
@@ -616,6 +622,7 @@ bool solar_os_power_parse_key_action(const char *name, solar_os_power_key_action
         SOLAR_OS_POWER_KEY_ACTION_ENTER,
         SOLAR_OS_POWER_KEY_ACTION_APP_EXIT,
         SOLAR_OS_POWER_KEY_ACTION_DEFAULT,
+        SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN,
     };
 
     if (name == NULL) {
