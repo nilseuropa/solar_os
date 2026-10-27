@@ -15,6 +15,7 @@ drivers = [
   "uart_esp_idf",
   "display_ssd1677",
   "battery_expansion",
+  "audio_expansion",
   "storage_expansion",
   "pointer_gt911",
   "i2c_esp_idf",
@@ -22,12 +23,13 @@ drivers = [
   "rtc_pcf8563",
   "sensors_sht40",
   "gpio_esp_idf",
+  "pwm_esp_idf",
 ]
 capabilities = [
   "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
   "rtc", "battery", "wifi", "ble", "gpio", "key", "buttons", "pointer",
-  "temperature", "humidity",
-  "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio",
+  "temperature", "humidity", "audio", "pwm",
+  "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio", "expansion_pwm",
 ]
 required_packages = []
 psram_bytes = 8388608
@@ -140,7 +142,7 @@ bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, 
 [[devices]]
 driver = "gt911"
 name = "touch0"
-bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 0 }
+bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 2 }
 
 [[devices]]
 driver = "pcf8563"
@@ -161,6 +163,11 @@ bindings = { i2c = "i2c0", addr = 0x55 }
 driver = "sdspi"
 name = "storage0"
 bindings = { spi = "spi0", cs = 8 }
+
+[[devices]]
+driver = "audio-pwm"
+name = "audio0"
+bindings = { pwm = 48 }
 
 [[pins]]
 gpio = 0

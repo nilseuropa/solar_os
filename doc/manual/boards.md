@@ -1361,29 +1361,31 @@ pio run -e waveshare_esp32_s3_epaper_3_97
 ## Seeed Studio reTerminal Sticky
 
 The `seeed_reterminal_sticky` target uses an ESP32-S3R8 with 32 MB flash and
-8 MB PSRAM. Its 3.97-inch 800x480 SSD1677 e-paper panel defaults to native
-landscape orientation. This target selects SSD1677; SSD2677 panels require a
-separate display driver. Pins follow the Seeed hardware overview:
+8 MB PSRAM. It defaults to the `full` flavor. Its 3.97-inch 800x480 SSD1677
+e-paper panel defaults to native landscape orientation. This target selects
+SSD1677; SSD2677 panels require a separate display driver. Pins follow the
+Seeed hardware overview:
 
 - E-paper: SCK GPIO13, MOSI GPIO14, CS GPIO15, DC GPIO16, RST GPIO17, BUSY GPIO18, EN GPIO47
-- Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42
+- Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42; 180-degree panel alignment before display rotation.
 - Buttons: AI/Power GPIO4 (tap: light sleep/wake, hold: shutdown), Up GPIO5 (tap: Up arrow, hold for two seconds: BLE pairing), Down GPIO6 (tap: Down arrow); all active-low.
 - Power: PWR_HOLD GPIO45, PWR_LOCK GPIO46
 - Console: UART0 GPIO43/44 (CH343 USB-C bridge), DIO flash
 - Sensor I2C: SCL GPIO0, SDA GPIO1; PCF8563 RTC at `0x51`, SHT40 at `0x44`, BQ27220 at `0x55`
 - microSD: shared display SPI bus, MISO GPIO12, CS GPIO8, power GPIO10
+- Buzzer: PWM GPIO48, attached as `audio0` through `audio-pwm`.
 
 The default devices are `display0`, `touch0`, `rtc0`, `environment0`,
-`battery0`, and `storage0`. The console uses the USB-UART bridge; GPIO19/20
-are reserved for the PDM microphone. The standard partition table uses the
-first 16 MB of the 32 MB flash.
+`battery0`, `storage0`, and `audio0`. The console uses the USB-UART bridge;
+GPIO19/20 are reserved for the PDM microphone. The standard partition table
+uses the first 16 MB of the 32 MB flash.
 
 The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
 or recover its mounted card.
 
-IMU, microphone capture, buzzer output, native four-level grayscale, and
-full peripheral power optimization are not implemented for this target.
+IMU, microphone capture, native four-level grayscale, and full peripheral
+power optimization are not implemented for this target.
 Battery charging state is inferred from the fuel gauge discharge flag.
 
 Power-key shutdown runs after release and releases the hardware power latch
