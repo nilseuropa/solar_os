@@ -2139,7 +2139,7 @@ static void synth_draw_mode_editor(solar_os_gfx_t *gfx, int width, int height) {
 }
 
 static bool synth_use_compact_layout(int width, int height) {
-  return width < 240 || height < 200;
+  return width < 320 || height < 280;
 }
 
 static bool synth_use_micro_layout(int width, int height) {
