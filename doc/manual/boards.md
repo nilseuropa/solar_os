@@ -1396,6 +1396,7 @@ Pulse buffers are allocated in PSRAM when enabled (about 2.75 MiB including
 worker snapshots). Optical contrast and ghosting depend on the panel.
 Returning to a native mode releases the pulse buffers, snapshots, and worker.
 `pulse-scan=sync` releases the asynchronous worker and its snapshots.
+The native framebuffer prefers PSRAM; SPI DMA staging stays in internal SRAM.
 
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
 `imu0`, sampled at 104 Hz with data-ready polling. It does not provide fused orientation.

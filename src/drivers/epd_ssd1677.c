@@ -910,7 +910,10 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     display->buffer_size = SSD1677_BUFFER_BYTES;
-    display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
+    display->buffer = heap_caps_calloc(1, display->buffer_size,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (display->buffer == NULL)
+        display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
     display->shadow_size = display->buffer_size;
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
