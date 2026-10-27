@@ -1532,12 +1532,24 @@ factory `refresh=auto|partial|full` modes. In auto mode,
 cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 `refresh=fast` is an alias for it.
 
+SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
+`refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
+It starts in native auto mode. Its adapter uses the controller's 105-byte LUT,
+nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
+are asynchronous, 100 ms between new images, three drive cycles, eight scan
+frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup
+with baseline 64. `waveform-fr=<1..8>` selects a nibble repeated across its
+five frame-rate bytes. It supports `pulse-period=<67..1000>`,
+`pulse-spi-khz=<100..20000>`, `pulse-power=<cycle,hold>`, and
+`invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
+restores native auto. Pulse memory is allocated in PSRAM on demand.
+
 The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker,
-Waveshare 4.2-inch V2/revision-2.2, and SSD1685 GDEY029T71H profiles provide the
+Waveshare 4.2-inch V2/revision-2.2, SSD1677, and SSD1685 GDEY029T71H profiles provide the
 `refresh=pulse` monochrome mode. `display mode <target> drive-cycles=<1..32>`
 sets the per-pixel budget, `pulse-frames=<1..32>` sets each drive phase's scan
 duration, `waveform-fr=<1..12>` selects a raw frame-rate code (the dual SSD1683
-accepts only 1–5 or 9–12), and
+accepts only 1–5 or 9–12; SSD1677 accepts 1–8), and
 `cleanup-every=<1..128>` sets the cleanup baseline.
 `cleanup-policy=adaptive` tracks actual successful drives per pixel.
 It cleans up when the most-driven pixel reaches `cleanup-every * drive-cycles`
@@ -1555,7 +1567,7 @@ also controlling its native auto-mode cleanup interval. They are listed by
 cycles before returning. `pulse-scan=async` runs one cycle per scan in a
 persistent worker and accepts new targets while earlier pixels settle.
 `pulse-period=<10..1000>` requests the minimum new-image interval in milliseconds;
-the dual-SSD1683, Elecrow green-sticker, and SSD1685 profiles instead accept 67–1000 ms.
+the dual-SSD1683, Elecrow green-sticker, SSD1677, and SSD1685 profiles instead accept 67–1000 ms.
 Settling drives run as BUSY permits without consuming new-image slots. A new
 target can replace the current target between drives when its image slot is due;
 unchanged pixels keep their remaining budgets. Identical submissions do not

@@ -258,6 +258,16 @@ static esp_err_t display_relax(solar_os_board_display_t *display, solar_os_displ
     return display && display->driver ? target_relax(display->driver, phase) : ESP_ERR_INVALID_STATE;
 }
 
+static esp_err_t target_present_power_state(void *context)
+{
+    return epd_ssd1677_present_power_state(context);
+}
+
+static esp_err_t display_present_power_state(solar_os_board_display_t *display)
+{
+    return display ? target_present_power_state(display->driver) : ESP_ERR_INVALID_STATE;
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = display_runtime_ready,
     .resume = display_resume,
@@ -267,6 +277,7 @@ static const solar_os_board_display_ops_t display_ops = {
     .controller_mode_values = display_controller_mode_values,
     .set_controller_mode = display_set_controller_mode,
     .relax = display_relax,
+    .present_power_state = display_present_power_state,
 };
 
 static const char *target_controller_mode(const void *context)
@@ -302,6 +313,8 @@ static esp_err_t register_auxiliary(solar_os_ssd1677_device_t *device)
     target.set_controller_mode = target_set_controller_mode;
     target.relax = target_relax;
     target.relax_context = &device->driver;
+    target.present_power_state = target_present_power_state;
+    target.power_state_context = &device->driver;
     return solar_os_display_register_target(&target);
 }
 

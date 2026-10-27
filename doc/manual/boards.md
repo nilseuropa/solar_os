@@ -1384,6 +1384,15 @@ The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
 or recover its mounted card.
 
+The display starts with native `refresh=auto`. Use
+`display mode display0 waveform=fastwave` (alias `refresh=pulse`) for short
+monochrome drives with per-pixel settling budgets. Defaults are asynchronous,
+100 ms between new images, three drive cycles, eight scan frames, frame-rate
+code 8, retained supplies during settling, and adaptive cleanup with baseline 64.
+`refresh=fast` aliases native `refresh=partial`; `waveform=otp` restores auto.
+Pulse buffers are allocated in PSRAM when enabled (about 2.75 MiB including
+worker snapshots). Optical contrast and ghosting depend on the panel.
+
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
 `imu0`, sampled at 104 Hz with data-ready polling. It does not provide fused orientation.
 The microphone provides `mic0.capture`: 16 kHz, signed 16-bit mono PCM through

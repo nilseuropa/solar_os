@@ -18,3 +18,8 @@ SolarOS also adapts the short drive/settle phases for SSD1685 in
 epd_ssd1685_waveform.c. This experimental adapter uses the SSD1685 mode-1
 four-block/eight-group LUT layout, synthetic hold/white/black RAM masks,
 and the panel's factory source and gate voltages.
+
+SolarOS adapts the SSD1677 drive/settle phases from
+ports/ssd1677-seeed-426/firmware/wave1677.cpp at the same commit in
+epd_ssd1677_waveform.c. It bounds tuning, uses the SSD1677 RP=0 encoding for
+one group execution, and retains nominal vendor voltages.
