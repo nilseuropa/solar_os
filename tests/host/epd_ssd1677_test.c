@@ -359,6 +359,8 @@ static void test_async_retarget_failure_and_power(void)
     assert(d.refresh_mode == EPD_SSD1677_REFRESH_AUTO && !d.scan_worker.enabled);
     assert(d.shadow_valid && shadow[0] == frame[0]); /* native recovery */
     assert(d.pixel_budget.pending == 1); /* failed waveform consumed no budget */
+    assert(epd_ssd1677_set_controller_mode(&d, "waveform=otp") == ESP_OK);
+    assert(!d.pixel_budget.pixels && !d.scan_worker.task);
     dispose_pulse(&d);
 }
 
@@ -381,6 +383,14 @@ static void test_mode_limits_and_rollback(void)
     assert(strstr(epd_ssd1677_controller_mode(&d), "waveform=fastwave"));
     assert(epd_ssd1677_set_controller_mode(&d, "waveform=otp") == ESP_OK);
     assert(!d.pixel_budget.pixels && !d.scan_worker.enabled);
+    assert(!d.scan_worker.task && !d.scan_worker.latest && !d.scan_worker.snapshot);
+    assert(epd_ssd1677_set_controller_mode(&d, "waveform=fastwave") == ESP_OK);
+    assert(d.scan_worker.task && d.scan_worker.latest && d.scan_worker.snapshot);
+    assert(epd_ssd1677_set_controller_mode(&d, "pulse-scan=sync") == ESP_OK);
+    assert(!d.scan_worker.task && !d.scan_worker.latest && !d.scan_worker.snapshot);
+    assert(d.pixel_budget.pixels);
+    assert(epd_ssd1677_set_controller_mode(&d, "pulse-scan=async") == ESP_OK);
+    assert(d.scan_worker.task && d.scan_worker.latest && d.scan_worker.snapshot);
     dispose_pulse(&d);
 }
 

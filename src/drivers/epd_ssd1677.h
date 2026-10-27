@@ -61,6 +61,8 @@ typedef struct {
     epd_relax_t relax;
     StaticSemaphore_t lock_storage;
     SemaphoreHandle_t lock;
+    StaticSemaphore_t mode_lock_storage;
+    SemaphoreHandle_t mode_lock;
     epd_pulse_tuning_t pulse_tuning;
     epd_pixel_budget_t pixel_budget;
     epd_scan_worker_t scan_worker;

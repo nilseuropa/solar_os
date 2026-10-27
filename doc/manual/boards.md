@@ -1394,6 +1394,8 @@ code 8, retained supplies during settling, and adaptive cleanup with baseline 64
 `refresh=fast` aliases native `refresh=partial`; `waveform=otp` restores auto.
 Pulse buffers are allocated in PSRAM when enabled (about 2.75 MiB including
 worker snapshots). Optical contrast and ghosting depend on the panel.
+Returning to a native mode releases the pulse buffers, snapshots, and worker.
+`pulse-scan=sync` releases the asynchronous worker and its snapshots.
 
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
 `imu0`, sampled at 104 Hz with data-ready polling. It does not provide fused orientation.

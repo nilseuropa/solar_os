@@ -858,7 +858,8 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     display->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
     display->panel = config->panel;
     display->lock = xSemaphoreCreateMutexStatic(&display->lock_storage);
-    if (!display->lock) return ESP_ERR_NO_MEM;
+    display->mode_lock = xSemaphoreCreateMutexStatic(&display->mode_lock_storage);
+    if (!display->lock || !display->mode_lock) return ESP_ERR_NO_MEM;
     display->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=3, .pulse_frames=8,
         .waveform_fr=8, .cleanup_every=64, .cleanup_adaptive=true};
     display->scan_async = true;
@@ -1153,7 +1154,7 @@ static esp_err_t set_controller_mode(epd_ssd1677_t *d, const char *mode)
     }
     if (restart || (before == EPD_SSD1677_REFRESH_PULSE && before != d->refresh_mode))
         d->pulse_needs_cleanup = true;
-    if (before == EPD_SSD1677_REFRESH_PULSE && d->refresh_mode != before) {
+    if (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE && d->pixel_budget.pixels) {
         scan_disable(d);
         TRY(pulse_powerdown(d));
         d->controller_ready = d->shadow_valid = false;
@@ -1168,8 +1169,15 @@ static esp_err_t set_controller_mode(epd_ssd1677_t *d, const char *mode)
 esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *d, const char *mode)
 {
     if (!d || !mode) return ESP_ERR_INVALID_ARG;
+    if (d->mode_lock) xSemaphoreTake(d->mode_lock, portMAX_DELAY);
     if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
     const esp_err_t err = set_controller_mode(d, mode);
+    const bool stop_worker = err == ESP_OK &&
+        (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE || !d->scan_async);
+    if (stop_worker) scan_disable(d);
     if (d->lock) xSemaphoreGive(d->lock);
+    /* Joining under the panel lock would deadlock an in-flight scan. */
+    if (stop_worker) epd_scan_worker_deinit(&d->scan_worker);
+    if (d->mode_lock) xSemaphoreGive(d->mode_lock);
     return err;
 }
