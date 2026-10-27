@@ -1376,7 +1376,7 @@ Seeed hardware overview:
 - Buzzer: PWM GPIO48, attached as `audio0` through `audio-pwm`.
 
 The default devices are `display0`, `touch0`, `rtc0`, `environment0`,
-`battery0`, `storage0`, and `audio0`. The console uses the USB-UART bridge;
+`battery0`, `imu0`, `storage0`, and `audio0`. The console uses the USB-UART bridge;
 GPIO19/20 are reserved for the PDM microphone. The standard partition table
 uses the first 16 MB of the 32 MB flash.
 
@@ -1384,7 +1384,9 @@ The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
 or recover its mounted card.
 
-IMU, microphone capture, native four-level grayscale, and full peripheral
+The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
+`imu0`, sampled at 104 Hz with data-ready polling. It does not provide fused orientation.
+Microphone capture, native four-level grayscale, and full peripheral
 power optimization are not implemented for this target.
 Battery percentage comes from the BQ27220 state-of-charge register; charging
 state is inferred from its discharge flag.

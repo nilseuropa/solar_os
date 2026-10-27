@@ -160,6 +160,11 @@ name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x55 }
 
 [[devices]]
+driver = "lsm6ds3tr-c"
+name = "imu0"
+bindings = { i2c = "i2c0", addr = 0x6a }
+
+[[devices]]
 driver = "sdspi"
 name = "storage0"
 bindings = { spi = "spi0", cs = 8 }

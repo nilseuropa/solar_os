@@ -637,6 +637,11 @@ label = "QMI8658 IMU"
 category = "Expansion hardware"
 members = ["qmi8658"]
 
+[groups.lsm6ds3trc]
+label = "LSM6DS3TR-C IMU"
+category = "Expansion hardware"
+members = ["lsm6ds3trc"]
+
 [groups.drv2605]
 label = "DRV2605 haptic controller"
 category = "Expansion hardware"
@@ -1967,6 +1972,19 @@ sources = [
   "drivers/qmi8658.c",
   "services/solar_os_qmi8658.c",
   "services/solar_os_qmi8658_driver.c",
+]
+requires = ["esp_timer"]
+capabilities = ["i2c"]
+
+[packages.lsm6ds3trc]
+label = "expansion.lsm6ds3trc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_lsm6ds3trc_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = [
+  "drivers/lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc_driver.c",
 ]
 requires = ["esp_timer"]
 capabilities = ["i2c"]

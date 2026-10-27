@@ -439,6 +439,26 @@ hint = "0x6a|0x6b"
 required = true
 allowed = [0x6a, 0x6b]
 
+[drivers.lsm6ds3tr-c]
+summary = "LSM6DS3TR-C six-axis IMU"
+package = "lsm6ds3trc"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+default_name = "imu0"
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6a|0x6b"
+required = true
+allowed = [0x6a, 0x6b]
+
 [drivers.mgc3130]
 summary = "MGC3130 3D gesture and hover sensor"
 package = "driver_mgc3130"
