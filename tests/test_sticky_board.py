@@ -241,7 +241,7 @@ esp_err_t solar_os_bus_i2c_receive(const char *, uint8_t, uint8_t *, size_t);
 typedef int gpio_num_t;
 #define GPIO_MODE_OUTPUT 1
 static int calls, fail_at = -1;
-static const int expected_pins[] = {45, 46, 47, 10, 42};
+static const int expected_pins[] = {45, 46, 47, 10, 42, 38};
 static esp_err_t record(int operation, int pin) {
     assert(operation == calls % 5);
     assert(pin == expected_pins[calls / 5]);
@@ -250,15 +250,16 @@ static esp_err_t record(int operation, int pin) {
 esp_err_t gpio_hold_dis(int pin) { return record(0, pin); }
 esp_err_t gpio_reset_pin(int pin) { return record(1, pin); }
 esp_err_t gpio_sleep_sel_dis(int pin) { return record(2, pin); }
-esp_err_t gpio_set_level(int pin, int level) { assert(level == 1); return record(3, pin); }
+esp_err_t gpio_set_level(int pin, int level) { assert(level == (pin == 38 ? 0 : 1)); return record(3, pin); }
 esp_err_t gpio_set_direction(int pin, int mode) { assert(mode == GPIO_MODE_OUTPUT); return record(4, pin); }
 '''
         source += function + r'''
 int main(void) {
     assert(solar_os_board_boot_init() == ESP_OK);
 #ifdef SOLAR_OS_BOARD_BOOT_OUTPUTS
-    assert(calls == 25);
-    for (int step = 0; step < 25; step++) {
+    const int operations = (int)(sizeof(expected_pins) / sizeof(expected_pins[0])) * 5;
+    assert(calls == operations);
+    for (int step = 0; step < operations; step++) {
         calls = 0; fail_at = step;
         assert(solar_os_board_boot_init() == ESP_FAIL);
         assert(calls == step + 1);

@@ -727,6 +727,11 @@ label = "PCM1808 audio input"
 category = "Expansion hardware"
 members = ["expansion_pcm1808"]
 
+[groups.audio_pdm]
+label = "PDM microphone"
+category = "Expansion hardware"
+members = ["expansion_audio_pdm"]
+
 [groups.inmp441]
 label = "INMP441 microphone and shared I2S playback"
 category = "Expansion hardware"
@@ -2337,6 +2342,19 @@ sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
   "services/solar_os_pcm5102_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
+
+[packages.expansion_audio_pdm]
+label = "expansion.audio_pdm"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_audio_pdm_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_pdm.c",
+  "services/solar_os_audio_pdm.c",
+  "services/solar_os_audio_pdm_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]

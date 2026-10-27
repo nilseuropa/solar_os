@@ -1880,6 +1880,42 @@ kind = "gpio"
 hint = "gpio"
 required = true
 
+[drivers.audio-pdm]
+summary = "PDM mono microphone capture"
+package = "expansion_audio_pdm"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "mic0"
+
+[[drivers.audio-pdm.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0"
+required = true
+allowed = [0]
+[[drivers.audio-pdm.bindings]]
+key = "clk"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.audio-pdm.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.audio-pdm.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.audio-pdm.bindings]]
+key = "slot"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.pcm1808]
 summary = "I2S stereo audio input"
 package = "expansion_pcm1808"
