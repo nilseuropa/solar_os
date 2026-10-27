@@ -824,6 +824,15 @@ static void scan_partitions(void)
     update_block_mount_state();
 }
 
+bool sd_card_needs_reinit(void)
+{
+    if (!card_ready || card == NULL) return false;
+    uint8_t sector[SD_CARD_SECTOR_BYTES];
+    if (card->csd.sector_size > sizeof(sector)) return true;
+    /* CMD13 can succeed on an idle SPI card that still needs initialization. */
+    return sd_card_read_sector(0, sector) != ESP_OK;
+}
+
 static esp_err_t ensure_card_ready(void)
 {
     if (card_ready) {

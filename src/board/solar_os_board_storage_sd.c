@@ -109,6 +109,11 @@ bool solar_os_board_storage_available(void)
     return sd_card_configured();
 }
 
+bool solar_os_board_storage_needs_reinit(void)
+{
+    return sd_card_needs_reinit();
+}
+
 esp_err_t solar_os_board_storage_mount(void)
 {
     const esp_err_t err = storage_power_on();

@@ -1378,9 +1378,9 @@ The default devices are `display0`, `touch0`, `rtc0`, `environment0`,
 are reserved for the PDM microphone. The standard partition table uses the
 first 16 MB of the 32 MB flash.
 
-The SD rail stays powered while the shared display SPI bus is active. After
-inserting a card into an empty slot, use `expansion attach storage0` if the
-startup attachment retries have ended.
+The SD rail stays powered while the shared display SPI bus is active. Use
+`expansion attach storage0` after insertion or reinsertion to attach the slot
+or recover its mounted card.
 
 IMU, microphone capture, buzzer output, native four-level grayscale, and
 full peripheral power optimization are not implemented for this target.

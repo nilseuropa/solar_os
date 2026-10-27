@@ -254,6 +254,7 @@ esp_err_t solar_os_ssd1677_detach(const char *name)
 }
 
 static unsigned flaky_attach_failures = 1U;
+static bool check_refresh_reservation;
 
 static esp_err_t test_flaky_attach(const char *name,
                                    const solar_os_expansion_binding_t *bindings,
@@ -262,6 +263,10 @@ static esp_err_t test_flaky_attach(const char *name,
     (void)name;
     (void)bindings;
     (void)binding_count;
+    if (check_refresh_reservation) {
+        assert(strcmp(name, "board8") == 0);
+        assert(solar_os_expansion_detach(name) == ESP_ERR_INVALID_STATE);
+    }
     if (flaky_attach_failures > 0U) {
         flaky_attach_failures--;
         return ESP_ERR_TIMEOUT;
@@ -272,7 +277,7 @@ static esp_err_t test_flaky_attach(const char *name,
 const solar_os_expansion_driver_t test_flaky_expansion_driver = {
     .name = "test-flaky",
     .summary = "test delayed board device",
-    .category = SOLAR_OS_EXPANSION_CATEGORY_UTILITY,
+    .category = SOLAR_OS_EXPANSION_CATEGORY_STORAGE,
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
     .allow_unlisted_bindings = true,
     .attach = test_flaky_attach,
@@ -410,6 +415,17 @@ int main(void)
     assert_device(8, "board0", SOLAR_OS_EXPANSION_ORIGIN_BOARD, true, true);
     assert(solar_os_expansion_attach_board_device("board0") == ESP_ERR_INVALID_STATE);
     assert(solar_os_expansion_device_count() == 9 && live_allocations == 9);
+    size_t allocations_before_refresh = allocation_requests;
+    check_refresh_reservation = true;
+    flaky_attach_failures = 1;
+    assert(solar_os_expansion_attach_board_device("board8") == ESP_ERR_TIMEOUT);
+    solar_os_expansion_device_t refreshed;
+    assert(solar_os_expansion_get_device(7, &refreshed));
+    assert(!strcmp(refreshed.name, "board8") && refreshed.active && !refreshed.ready);
+    assert(solar_os_expansion_attach_board_device("board8") == ESP_OK);
+    assert(solar_os_expansion_get_device(7, &refreshed) && refreshed.ready);
+    assert(allocation_requests == allocations_before_refresh && live_allocations == 9);
+    check_refresh_reservation = false;
 
     solar_os_expansion_binding_t native_line = {
         .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE,

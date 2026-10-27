@@ -9,6 +9,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SdspiLifecycleTest(unittest.TestCase):
+    def test_cached_card_is_probed_before_explicit_recovery(self):
+        source = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "esp_err.h"
+#define SD_CARD_SECTOR_BYTES 512U
+static bool card_ready;
+static int probes;
+static struct { struct { unsigned sector_size; } csd; } storage = {{512}}, *card;
+static esp_err_t probe_error;
+esp_err_t sd_card_read_sector(uint64_t sector, uint8_t *buffer) {
+    assert(card == &storage && sector == 0 && buffer != NULL);
+    probes++; return probe_error;
+}
+'''
+        source += production_functions((ROOT / "src/drivers/sd_card.c").read_text(),
+                                       ("sd_card_needs_reinit",))
+        source += r'''
+int main(void) {
+    assert(!sd_card_needs_reinit() && probes == 0);
+    card = &storage;
+    assert(!sd_card_needs_reinit() && probes == 0);
+    card_ready = true;
+    assert(!sd_card_needs_reinit() && probes == 1);
+    probe_error = ESP_ERR_TIMEOUT;
+    assert(sd_card_needs_reinit() && probes == 2);
+    assert(card_ready && card == &storage);
+    storage.csd.sector_size = 1024;
+    assert(sd_card_needs_reinit() && probes == 2);
+    card = NULL;
+    assert(!sd_card_needs_reinit() && probes == 2);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            path, binary = Path(tmp, "probe.c"), Path(tmp, "probe")
+            path.write_text(source)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-I", str(ROOT / "tests/host"), str(path), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_teardown_keeps_card_deselected_on_a_shared_bus(self):
         source = r'''
 #include <assert.h>

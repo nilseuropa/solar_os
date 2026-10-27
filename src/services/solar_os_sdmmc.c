@@ -5,6 +5,7 @@
 
 #include "sd_card.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_storage.h"
 
 typedef struct {
     bool active;
@@ -70,8 +71,12 @@ esp_err_t solar_os_sdmmc_attach(const char *name,
 {
     int pins[6];
     int power, active;
-    if (name == NULL || name[0] == '\0' || sdmmc.active) {
+    if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (sdmmc.active) {
+        return strcmp(sdmmc.name, name) == 0 ?
+            solar_os_storage_mount() : ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = parse_bindings(bindings, binding_count, pins, &power, &active);
     if (ret != ESP_OK) {
