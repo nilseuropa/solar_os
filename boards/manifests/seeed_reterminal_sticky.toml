@@ -12,10 +12,11 @@ platformio_board = "seeed_reterminal_sticky"
 
 [build]
 drivers = [
-  "cdc_usb_serial_jtag",
   "uart_esp_idf",
   "display_ssd1677",
   "battery_expansion",
+  "storage_expansion",
+  "pointer_gt911",
   "i2c_esp_idf",
   "spi_esp_idf",
   "rtc_pcf8563",
@@ -23,18 +24,20 @@ drivers = [
   "gpio_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "gfx", "cdc", "uart", "i2c", "spi",
-  "rtc", "battery", "wifi", "ble", "gpio", "buttons", "touch",
-  "temperature", "humidity", "imu", "mic",
+  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
+  "rtc", "battery", "wifi", "ble", "gpio", "buttons", "pointer",
+  "temperature", "humidity",
   "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio",
 ]
-required_packages = ["expansion_ssd1677"]
+required_packages = []
 psram_bytes = 8388608
 
 [header]
 includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 
 [defines]
+# Assert the latch and peripheral rails before display or storage access.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}}'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480"
@@ -81,9 +84,7 @@ SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 
 [runtime]
-spi_hosts = ["SPI2_HOST"]
-uart_ports = ["UART_NUM_0"]
-i2c_ports = ["I2C_NUM_0"]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
 
 
 [[buses]]
@@ -96,6 +97,24 @@ scl = 0
 speed_hz = "400000"
 
 [[buses]]
+name = "i2c1"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_1"
+sda = 3
+scl = 2
+speed_hz = "400000"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
 name = "spi0"
 protocol = "spi"
 sharing = "shared"
@@ -103,13 +122,38 @@ host = "SPI2_HOST"
 sclk = 13
 mosi = 14
 miso = 12
-cs = [15]
+cs = [15, 8]
 max_transfer_size = 4096
 
 [[devices]]
 driver = "ssd1677"
 name = "display0"
-bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, rotation = 0 }
+bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 10000, rotation = 0 }
+
+[[devices]]
+driver = "gt911"
+name = "touch0"
+bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 0 }
+
+[[devices]]
+driver = "pcf8563"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x51 }
+
+[[devices]]
+driver = "sht40"
+name = "environment0"
+bindings = { i2c = "i2c0", addr = 0x44 }
+
+[[devices]]
+driver = "bq27220"
+name = "battery0"
+bindings = { i2c = "i2c0", addr = 0x55 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 8, power = 10 }
 
 [[pins]]
 gpio = 0
@@ -215,3 +259,28 @@ role = "power lock"
 gpio = 47
 policy = "fixed"
 role = "EPD power enable"
+
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "IMU interrupt"
+
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "RTC interrupt"
+
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "USB-UART TX"
+
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "USB-UART RX"
+
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "buzzer PWM"

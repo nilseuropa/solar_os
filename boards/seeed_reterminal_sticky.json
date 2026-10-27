@@ -15,23 +15,30 @@
     "f_cpu": "240000000L",
     "f_flash": "40000000L",
     "flash_mode": "dio",
-    "hwids": [["0x303A", "0x1001"]],
     "mcu": "esp32s3",
     "psram_type": "opi",
     "variant": "esp32s3"
   },
-  "connectivity": ["bluetooth", "wifi"],
+  "connectivity": [
+    "bluetooth",
+    "wifi"
+  ],
   "debug": {
     "default_tool": "esp-builtin",
-    "onboard_tools": ["esp-builtin"],
+    "onboard_tools": [
+      "esp-builtin"
+    ],
     "openocd_target": "esp32s3.cfg"
   },
-  "frameworks": ["arduino", "espidf"],
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
   "name": "Seeed Studio reTerminal Sticky (ESP32-S3R8 32MB)",
   "upload": {
-    "flash_size": "16MB",
+    "flash_size": "32MB",
     "maximum_ram_size": 327680,
-    "maximum_size": 16777216,
+    "maximum_size": 33554432,
     "require_upload_port": true,
     "speed": 460800
   },

@@ -27,7 +27,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `waveshare_esp32_s3_epaper_3_97` | `waveshare_esp32_s3_epaper_3_97` | [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97) | ESP32-S3-WROOM-1-N16R8 target with an SSD1677 e-paper display that defaults to 800x480 landscape, AXP2101 battery/charger monitoring, QMI8658 six-axis IMU, four-bit SDMMC, native USB CDC, UART, PCF85063 RTC, SHTC3 temperature/humidity sensor, ES8311 speaker/microphone audio, rotary navigation, Wi-Fi, BLE, and expansion I2C/UART. |
-| `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 SSD1677 monochrome e-paper (4 gray levels), GT911 capacitive touch, three physical buttons (AI/Power=Enter, Up, Down), Wi-Fi, and BLE. Hold Up enters BLE pairing mode. Console is UART0 (CH343). |
+| `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 SSD1677 monochrome e-paper, GT911 capacitive touch, three physical buttons (AI/Power=Enter, Up, Down), Wi-Fi, and BLE. Hold Up enters BLE pairing mode. Console is UART0 (CH343). |
 | `xteink_x4_pro` | `xteink_x4_pro` | Xteink X4 Pro | ESP32-S3 target with 16 MB flash, 8 MB OPI PSRAM, an 800x480 landscape e-paper display with cached SSD1677/UC8179/UC8279 identification, fixed-mix frontlight brightness, GT911 touch and Home pad, one-bit SDMMC, BM8563-compatible RTC, CW2017 gauge, native USB CDC, UART0, navigation buttons, Wi-Fi, and BLE. |
 | `cl_32` | `cl_32` | Pi0cket CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
 | `cl32_epd` | `cl32_epd` | Pi0cket CL-32 EPD | CL-32 with a 384x168 SSD1685 GDEY029T71H e-paper display. Keyboard, battery monitor, storage, audio, RTC, connectivity, and expansion wiring are shared with `cl_32`. |
@@ -1362,14 +1362,25 @@ pio run -e waveshare_esp32_s3_epaper_3_97
 
 The `seeed_reterminal_sticky` target uses an ESP32-S3R8 with 32 MB flash and
 8 MB PSRAM. Its 3.97-inch 800x480 SSD1677 e-paper panel defaults to native
-landscape orientation. Pins follow the Seeed hardware overview and the
-hardware-validated CrossPoint / freeink-sdk Sticky profile:
+landscape orientation. This target selects SSD1677; SSD2677 panels require a
+separate display driver. Pins follow the Seeed hardware overview:
 
 - E-paper: SCK GPIO13, MOSI GPIO14, CS GPIO15, DC GPIO16, RST GPIO17, BUSY GPIO18, EN GPIO47
 - Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42
 - Buttons: AI/Power GPIO4 (Enter), Up GPIO5, Down GPIO6 (active-low). Hold Up enters BLE pairing mode.
 - Power: PWR_HOLD GPIO45, PWR_LOCK GPIO46
 - Console: UART0 GPIO43/44 (CH343 USB-C bridge), DIO flash
+- Sensor I2C: SCL GPIO0, SDA GPIO1; PCF8563 RTC at `0x51`, SHT40 at `0x44`, BQ27220 at `0x55`
+- microSD: shared display SPI bus, MISO GPIO12, CS GPIO8, power GPIO10
+
+The default devices are `display0`, `touch0`, `rtc0`, `environment0`,
+`battery0`, and `storage0`. The console uses the USB-UART bridge; GPIO19/20
+are reserved for the PDM microphone. The standard partition table uses the
+first 16 MB of the 32 MB flash.
+
+IMU, microphone capture, buzzer output, native four-level grayscale, and
+complete power-button/sleep behavior are not implemented for this target.
+Battery charging state is inferred from the fuel gauge discharge flag.
 
 Build and flash:
 

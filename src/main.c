@@ -1793,6 +1793,23 @@ static void poll_local_input_sources(void)
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS
     if (board_has(SOLAR_OS_BOARD_CAP_BUTTONS)) {
         solar_os_buttons_poll();
+#if SOLAR_OS_PACKAGE_SERVICE_BLE && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
+        static uint32_t ble_pair_hold_start;
+        static bool ble_pair_fired;
+        const int level = gpio_get_level(SOLAR_OS_BOARD_PIN_BLE_PAIR);
+        const bool ble_pair_pressed = (level == 0);
+        if (ble_pair_pressed) {
+            if (ble_pair_hold_start == 0) ble_pair_hold_start = millis_u32();
+            else if (!ble_pair_fired && (millis_u32() - ble_pair_hold_start) >= 2000U) {
+                ble_pair_fired = true;
+                (void)solar_os_ble_keyboard_start_pairing();
+                ESP_LOGI(TAG, "BLE pair button held: pairing started");
+            }
+        } else {
+            ble_pair_hold_start = 0;
+            ble_pair_fired = false;
+        }
+#endif
     }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC_DPAD
@@ -2106,6 +2123,7 @@ static void start_headless_shell_if_needed(void)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(solar_os_board_boot_init());
     solar_os_memory_init();
     ESP_ERROR_CHECK(init_nvs());
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
