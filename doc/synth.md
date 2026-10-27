@@ -109,7 +109,7 @@ tab expands its knobs, graphs, panels, or preset list into the freed space.
 `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
 Number keys `1` through `6` select them in that order.
 
-Logical canvases smaller than 320 pixels wide or 280 pixels high automatically
+Display targets smaller than 240 pixels wide or 200 pixels high automatically
 use the Synth parameter HUD instead of the full editor. It shows the selected
 control as a large value and level bar, gives waveforms and the wavetable their
 own graph, and shows one preset slot at a time. Targets smaller than 112 by 56
