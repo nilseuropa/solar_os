@@ -1386,7 +1386,8 @@ or recover its mounted card.
 
 IMU, microphone capture, native four-level grayscale, and full peripheral
 power optimization are not implemented for this target.
-Battery charging state is inferred from the fuel gauge discharge flag.
+Battery percentage comes from the BQ27220 state-of-charge register; charging
+state is inferred from its discharge flag.
 
 Power-key shutdown runs after release and releases the hardware power latch
 after jobs, storage, and display shut down. With USB power connected, the
