@@ -941,6 +941,14 @@ role = "rotation"
 min = 0
 max = 3
 
+[[drivers.ssd1677.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "0=generic,1=Sticky"
+role = "panel"
+min = 0
+max = 1
+
 [drivers.sdspi]
 summary = "SPI microSD"
 package = "expansion_sdspi"

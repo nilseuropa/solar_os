@@ -24,6 +24,9 @@ typedef enum {
 
 typedef esp_err_t (*epd_ssd1677_power_fn_t)(void *context, bool on);
 
+#define EPD_SSD1677_PANEL_GENERIC 0U
+#define EPD_SSD1677_PANEL_STICKY 1U
+
 typedef struct {
     const char *spi_bus;
     spi_host_device_t spi_host;
@@ -37,6 +40,7 @@ typedef struct {
     int spi_clock_hz;
     int busy_level;
     int power_active_level;
+    unsigned panel;
     const u8g2_cb_t *rotation;
     epd_ssd1677_power_fn_t set_power;
     void *power_context;
@@ -44,6 +48,7 @@ typedef struct {
 
 typedef struct {
     spi_device_handle_t spi;
+    unsigned panel;
     u8g2_t u8g2;
     uint8_t *buffer;
     uint8_t *shadow;

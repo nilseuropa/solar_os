@@ -1534,7 +1534,10 @@ cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 
 SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
 `refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
-It starts in native auto mode. Its adapter uses the controller's 105-byte LUT,
+It starts in native auto mode. The Sticky panel profile (`panel=1`) uses the
+manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
+planes for full cleanup. Generic profiles retain their differential full-frame
+sequence. Pulse mode uses the controller's 105-byte LUT,
 nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
 are asynchronous, 100 ms between new images, three drive cycles, eight scan
 frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup

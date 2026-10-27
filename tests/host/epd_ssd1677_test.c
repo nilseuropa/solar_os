@@ -130,6 +130,7 @@ static epd_ssd1677_t make_display(void)
     command_count = 0;
     return (epd_ssd1677_t) {
         .spi = (void *)1, .buffer = frame, .shadow = shadow, .line_buffer = line,
+        .panel = EPD_SSD1677_PANEL_STICKY,
         .lock = &panel_lock,
         .buffer_size = sizeof(frame), .shadow_size = sizeof(shadow),
         .line_buffer_size = sizeof(line), .dc_pin = 9, .reset_pin = 46,
@@ -172,15 +173,16 @@ static void test_initial_full(void)
     expect_data(0x46, (uint8_t[]){0xf7}, 1);
     expect_data(0x47, (uint8_t[]){0xf7}, 1);
     expect_data(0x21, (uint8_t[]){0}, 1);
-    expect_data(0x22, (uint8_t[]){0xfc}, 1);
-    assert(find_command(0x3c, 1)->data[0] == 0xc0);
+    expect_data(0x22, (uint8_t[]){0xf7}, 1);
+    assert(find_command(0x3c, 1)->data[0] == 0x01);
+    assert(!display.analog_on);
     const captured_command_t *current = find_command(0x24, 0);
     const captured_command_t *baseline = find_command(0x26, 0);
     assert(current->length == sizeof(frame) && baseline->length == sizeof(frame));
     assert(current->data[0] == 0x7f && current->data[99] == 0xfe);
     assert(current->data[sizeof(frame) - 1U] == 0xfe);
     for (size_t i = 0; i < sizeof(frame); i++) {
-        assert((current->data[i] ^ baseline->data[i]) == 0xff);
+        assert(current->data[i] == baseline->data[i]);
     }
     assert(memcmp(find_command(0x24, 1)->data, current->data, sizeof(frame)) == 0);
     assert(memcmp(find_command(0x26, 1)->data, current->data, sizeof(frame)) == 0);
@@ -207,6 +209,8 @@ static void test_partial_and_cleanup(void)
     expect_data(0x26, (uint8_t[]){0xff}, 1);
     assert(find_command(0x26, 1)->data[0] == 0xbf);
     assert(display.partial_refresh_count == 1);
+    expect_data(0x22, (uint8_t[]){0xfc}, 1);
+    assert(display.analog_on);
 
     /* Periodic cleanup must force a full transition without resetting RAM. */
     display.partial_refresh_count = SSD1677_AUTO_FULL_INTERVAL - 1U;
@@ -214,8 +218,19 @@ static void test_partial_and_cleanup(void)
     command_count = 0;
     assert(ssd1677_refresh(&display) == ESP_OK);
     assert(find_command(0x24, 0)->length == sizeof(frame));
-    assert(find_command(0x26, 0)->data[0] == 0x80);
+    assert(find_command(0x26, 0)->data[0] == 0x7f);
+    expect_data(0x22, (uint8_t[]){0xf7}, 1);
     assert(display.partial_refresh_count == 0 && reset_count == resets_before);
+}
+
+static void test_generic_preserves_native_sequence(void)
+{
+    epd_ssd1677_t d = make_display();
+    d.panel = EPD_SSD1677_PANEL_GENERIC;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xfc}, 1);
+    assert(find_command(0x26, 0)->data[0] == 0);
+    assert(d.analog_on);
 }
 
 static void test_failure_and_no_shadow(void)
@@ -237,7 +252,7 @@ static void test_failure_and_no_shadow(void)
     display.shadow_valid = true;
     assert(ssd1677_refresh(&display) == ESP_OK);
     assert(find_command(0x24, 0)->length == sizeof(frame));
-    assert(find_command(0x26, 0)->data[0] == 0);
+    assert(find_command(0x26, 0)->data[0] == 0xff);
 }
 
 
@@ -412,6 +427,7 @@ int main(void)
 {
     test_initial_full();
     test_partial_and_cleanup();
+    test_generic_preserves_native_sequence();
     test_failure_and_no_shadow();
     test_relax_transaction();
     test_fastwave_layout();

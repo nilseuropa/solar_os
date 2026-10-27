@@ -395,12 +395,13 @@ static esp_err_t ssd1677_write_plane(epd_ssd1677_t *display,
     return ESP_OK;
 }
 
-static esp_err_t ssd1677_activate(epd_ssd1677_t *display)
+static esp_err_t ssd1677_activate(epd_ssd1677_t *display, bool full)
 {
-    /* SSD1677 differential update: 0x24 is new, 0x26 is the baseline. */
+    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
+    /* Sticky's full OTP waveform uses matching monochrome bitplanes. */
     static const uint8_t control[] = {0x00};
-    static const uint8_t border[] = {0xc0};
-    static const uint8_t update_mode[] = {0xfc};
+    const uint8_t border[] = {mode1 ? 0x01 : 0xc0};
+    const uint8_t update_mode[] = {mode1 ? 0xf7 : 0xfc};
     ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x21, control, sizeof(control)),
                         TAG, "update control failed");
     ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x3c, border, sizeof(border)),
@@ -410,7 +411,7 @@ static esp_err_t ssd1677_activate(epd_ssd1677_t *display)
                                          sizeof(update_mode)),
                         TAG, "update mode failed");
     ESP_RETURN_ON_ERROR(ssd1677_cmd(display, 0x20), TAG, "update activation failed");
-    display->analog_on = true;
+    display->analog_on = !mode1;
     return ssd1677_wait_ready(display);
 }
 
@@ -432,6 +433,7 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     const bool partial = !full && display->shadow != NULL &&
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO ||
          display->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL);
+    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
     if (partial && !ssd1677_find_change_window(display, &window)) {
         memcpy(display->shadow, source, display->buffer_size);
         return ESP_OK;
@@ -461,12 +463,11 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     }
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, source, &window, false),
                         TAG, "current frame write failed");
-    /* A complemented baseline forces every pixel to transition on full updates. */
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x26,
                                            partial ? display->shadow : source,
-                                           &window, !partial),
+                                           &window, !partial && !mode1),
                         TAG, "previous frame write failed");
-    esp_err_t ret = ssd1677_activate(display);
+    esp_err_t ret = ssd1677_activate(display, full);
     if (ret == ESP_OK) {
         /* Keep both controller planes aligned with the displayed frame. */
         ret = ssd1677_write_plane(display, 0x24, source, &window, false);
@@ -822,7 +823,8 @@ static bool ssd1677_config_valid(const epd_ssd1677_config_t *config)
     if (config == NULL || !ssd1677_pin_valid(config->cs_pin) ||
         !ssd1677_pin_valid(config->dc_pin) || !ssd1677_pin_valid(config->reset_pin) ||
         !ssd1677_pin_valid(config->busy_pin) || config->spi_clock_hz <= 0 ||
-        config->rotation == NULL || (config->busy_level != 0 && config->busy_level != 1) ||
+        config->rotation == NULL || config->panel > EPD_SSD1677_PANEL_STICKY ||
+        (config->busy_level != 0 && config->busy_level != 1) ||
         (config->power_active_level != 0 && config->power_active_level != 1)) {
         return false;
     }
@@ -854,6 +856,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     memset(display, 0, sizeof(*display));
     display->last_error = ESP_OK;
     display->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
+    display->panel = config->panel;
     display->lock = xSemaphoreCreateMutexStatic(&display->lock_storage);
     if (!display->lock) return ESP_ERR_NO_MEM;
     display->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=3, .pulse_frames=8,

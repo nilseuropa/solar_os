@@ -1384,8 +1384,10 @@ The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
 or recover its mounted card.
 
-The display starts with native `refresh=auto`. Use
-`display mode display0 waveform=fastwave` (alias `refresh=pulse`) for short
+The display starts with native `refresh=auto`.
+The Sticky panel profile (`panel=1`) uses matching black/white data in both RAM
+planes for its factory full-refresh waveform.
+Use `display mode display0 waveform=fastwave` (alias `refresh=pulse`) for short
 monochrome drives with per-pixel settling budgets. Defaults are asynchronous,
 100 ms between new images, three drive cycles, eight scan frames, frame-rate
 code 8, retained supplies during settling, and adaptive cleanup with baseline 64.

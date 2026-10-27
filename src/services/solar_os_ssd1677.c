@@ -25,6 +25,7 @@ typedef struct {
     int power_pin;
     int spi_clock_khz;
     int rotation;
+    int panel;
     int power_i2c_address;
 } ssd1677_binding_config_t;
 
@@ -110,6 +111,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     bool have_cs = false;
     bool have_power_i2c = false;
     bool have_power_address = false;
+    bool have_panel = false;
     if (bindings == NULL || config == NULL) return ESP_ERR_INVALID_ARG;
     *config = (ssd1677_binding_config_t) {
         .cs_pin = -1,
@@ -169,6 +171,9 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                 config->spi_clock_khz = binding->value;
             } else if (role_is(binding, "rotation")) {
                 config->rotation = binding->value;
+            } else if (role_is(binding, "panel") && !have_panel) {
+                config->panel = binding->value;
+                have_panel = true;
             } else if (role_is(binding, "power_addr") && !have_power_address) {
                 config->power_i2c_address = binding->value;
                 have_power_address = true;
@@ -183,6 +188,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     if (!have_spi || !have_cs || config->dc_pin < 0 || config->reset_pin < 0 ||
         config->busy_pin < 0 || config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
+        config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_STICKY ||
         config->cs_pin == config->dc_pin || config->cs_pin == config->reset_pin ||
         config->cs_pin == config->busy_pin || config->dc_pin == config->reset_pin ||
         config->dc_pin == config->busy_pin || config->reset_pin == config->busy_pin ||
@@ -359,6 +365,7 @@ esp_err_t solar_os_ssd1677_attach(const char *name,
         .spi_clock_hz = binding_config.spi_clock_khz * 1000,
         .busy_level = 1,
         .power_active_level = 1,
+        .panel = (unsigned)binding_config.panel,
         .rotation = rotation_callback(binding_config.rotation),
         .set_power = binding_config.power_i2c_address >= 0 ?
             axp2101_set_epaper_power : NULL,
