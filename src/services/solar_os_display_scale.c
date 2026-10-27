@@ -102,21 +102,57 @@ void solar_os_display_scale_apply(solar_os_display_scale_t *state, uint8_t facto
     }
 }
 
+static uint32_t expand_byte(uint8_t value, unsigned factor)
+{
+    uint32_t bits = value;
+    if (factor == 2U) {
+        bits = (bits | (bits << 4U)) & 0x0f0fU;
+        bits = (bits | (bits << 2U)) & 0x3333U;
+        bits = (bits | (bits << 1U)) & 0x5555U;
+        return bits * 3U;
+    }
+    if (factor == 3U) {
+        bits = (bits | (bits << 8U)) & 0x00f00fU;
+        bits = (bits | (bits << 4U)) & 0x0c30c3U;
+        bits = (bits | (bits << 2U)) & 0x249249U;
+        return bits * 7U;
+    }
+    bits = (bits | (bits << 12U)) & 0x000f000fU;
+    bits = (bits | (bits << 6U)) & 0x03030303U;
+    bits = (bits | (bits << 3U)) & 0x11111111U;
+    return bits * 15U;
+}
+
 static void expand_rectangle(solar_os_display_scale_t *state,
     unsigned x0, unsigned y0, unsigned x1, unsigned y1)
 {
     const unsigned stride = state->physical_info->tile_width * 8U;
     const unsigned source_stride = state->logical_info.tile_width * 8U;
-    for (unsigned y = y0; y < y1; y++) {
-        const unsigned sy = y / state->factor;
-        for (unsigned x = x0; x < x1; x++) {
-            const unsigned sx = x / state->factor;
-            uint8_t *destination = &state->physical_buffer[(y / 8U) * stride + x];
-            const uint8_t bit = (uint8_t)(1U << (y & 7U));
-            if (sx < state->logical_info.pixel_width && sy < state->logical_info.pixel_height &&
-                (state->logical_buffer[(sy / 8U) * source_stride + sx] & (1U << (sy & 7U))))
-                *destination |= bit;
-            else *destination &= (uint8_t)~bit;
+    const unsigned factor = state->factor;
+    for (unsigned row = y0 / 8U; row < (y1 + 7U) / 8U; row++) {
+        const unsigned source_y = row / factor * 8U;
+        const unsigned shift = row % factor * 8U;
+        const unsigned available = source_y < state->logical_info.pixel_height ?
+            state->logical_info.pixel_height - source_y : 0U;
+        const uint8_t source_mask = available >= 8U ? 0xffU : (1U << available) - 1U;
+        const unsigned top = row * 8U < y0 ? y0 - row * 8U : 0U;
+        const unsigned bottom = (row + 1U) * 8U > y1 ? (row + 1U) * 8U - y1 : 0U;
+        const uint8_t mask = (0xffU << top) & (0xffU >> bottom);
+        uint8_t *destination = state->physical_buffer + row * stride;
+        for (unsigned x = x0; x < x1;) {
+            const unsigned sx = x / factor;
+            unsigned end = (sx + 1U) * factor;
+            if (end > x1) end = x1;
+            const uint8_t source = available && sx < state->logical_info.pixel_width ?
+                state->logical_buffer[(row / factor) * source_stride + sx] & source_mask : 0U;
+            const uint8_t value = expand_byte(source, factor) >> shift;
+            if (mask == 0xffU) {
+                memset(destination + x, value, end - x);
+                x = end;
+            } else while (x < end) {
+                destination[x] = (destination[x] & (uint8_t)~mask) | (value & mask);
+                x++;
+            }
         }
     }
 }

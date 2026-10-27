@@ -67,6 +67,8 @@ static void exercise(unsigned width, unsigned height)
             u8g2_DrawPixel(&canvas, u8g2_GetDisplayWidth(&canvas)-1, u8g2_GetDisplayHeight(&canvas)-1);
             unsigned stride=info.tile_width*8U, source_stride=canvas.u8x8.display_info->tile_width*8U;
             uint8_t *logical=u8g2_GetBufferPtr(&canvas);
+            const size_t logical_bytes = (size_t)source_stride * u8g2_GetBufferTileHeight(&canvas);
+            for (size_t i = 0; i < logical_bytes; i++) logical[i] = (uint8_t)(i * 73U + factor);
             unsigned before=refreshes;
             solar_os_display_scale_sync_native(&state);
             assert(refreshes==before);
