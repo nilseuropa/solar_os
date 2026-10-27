@@ -23,11 +23,16 @@ typedef uint32_t solar_os_credential_id_t;
 #define SOLAR_OS_MESSAGE_KEY_NONE ((solar_os_message_key_t)0U)
 #define SOLAR_OS_CREDENTIAL_ID_NONE ((solar_os_credential_id_t)0U)
 
-typedef enum {
+/* Persistent instance IDs. 1..3 retain the original default instances.
+ * The byte-sized limit preserves Contacts/Credentials disk compatibility;
+ * it is an identity-space bound, not a list of supported protocols. */
+typedef uint32_t solar_os_messaging_provider_id_t;
+#define SOLAR_OS_MESSAGING_INSTANCE_ID_MAX UINT8_MAX
+enum {
     SOLAR_OS_MESSAGING_PROVIDER_GATEWAY = 1,
     SOLAR_OS_MESSAGING_PROVIDER_MESHCORE = 2,
     SOLAR_OS_MESSAGING_PROVIDER_LINK = 3,
-} solar_os_messaging_provider_id_t;
+};
 
 typedef enum {
     SOLAR_OS_CONTACT_TRUST_DISCOVERED = 0,
@@ -72,6 +77,12 @@ typedef enum {
     SOLAR_OS_SECURITY_SHARED_KEY = 1U << 3,
     SOLAR_OS_SECURITY_SENDER_UNVERIFIED = 1U << 4,
     SOLAR_OS_SECURITY_TRANSPORT_SECURED = 1U << 5,
+    /* Readable by anyone who can reach the room, but each message carries a
+     * sender signature that was checked (e.g. SC2 public rooms). */
+    SOLAR_OS_SECURITY_PUBLIC_SIGNED = 1U << 6,
+    /* Legacy protocol without end-to-end protection or sender authentication;
+     * the server sees and can alter content (gateway v1). */
+    SOLAR_OS_SECURITY_LEGACY_INSECURE = 1U << 7,
 } solar_os_message_security_flag_t;
 
 typedef enum {

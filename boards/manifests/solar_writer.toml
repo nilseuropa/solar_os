@@ -10,8 +10,8 @@ vendor = "nilseuropa"
 platformio_board = "solar_writer"
 
 [build]
-drivers = ["audio_expansion", "battery_expansion"]
-capabilities = ["audio", "audio_input", "battery"]
+drivers = ["audio_expansion", "battery_expansion", "rtc_ds3231"]
+capabilities = ["audio", "audio_input", "battery", "rtc"]
 
 [defines]
 SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
@@ -41,17 +41,22 @@ driver = "lc709203f"
 name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x0b, capacity = 3000, profile = 1, temp = 250 }
 
+[[devices]]
+driver = "ds3231"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x68 }
+
 [[pins]]
 gpio = 8
 policy = "fixed"
-role = "fuel gauge I2C SDA"
+role = "fuel gauge / RTC I2C SDA"
 user = false
 adc = false
 pwm = false
 [[pins]]
 gpio = 9
 policy = "fixed"
-role = "fuel gauge I2C SCL"
+role = "fuel gauge / RTC I2C SCL"
 user = false
 adc = false
 pwm = false

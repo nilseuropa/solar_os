@@ -220,7 +220,7 @@ static void note_transmit(const solar_os_link_frame_t *frame,
                           uint32_t now_ms)
 {
     if (espnow_link.status.chat_enabled) {
-        solar_os_link_messaging_note_transmit(frame, result, now_ms);
+        solar_os_link_messaging_note_transmit(espnow_link.status.link, frame, result, now_ms);
     }
     espnow_link.status.last_error = result;
     if (result == ESP_OK) {
@@ -338,7 +338,7 @@ static void process_receive(uint32_t now_ms)
     }
     if (espnow_link.status.chat_enabled) {
         const esp_err_t chat_error =
-            solar_os_link_messaging_note_ingest(&result, now_ms);
+            solar_os_link_messaging_note_ingest(espnow_link.status.link, &result, now_ms);
         if (chat_error != ESP_OK) {
             espnow_link.status.chat_errors++;
             SOLAR_OS_LOGW(TAG,
@@ -358,7 +358,7 @@ static void espnow_link_task(void *arg)
     while (!espnow_link.stop_requested) {
         const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
         if (espnow_link.status.chat_enabled) {
-            solar_os_link_messaging_process(now_ms);
+            solar_os_link_messaging_process(espnow_link.status.link, now_ms);
         }
         solar_os_link_stream_process(espnow_link.status.link, now_ms);
         process_pending_send(now_ms);
@@ -377,7 +377,7 @@ static void cleanup_started_services(bool chat_started,
                                      bool espnow_started)
 {
     if (chat_started) {
-        solar_os_link_messaging_stop();
+        solar_os_link_messaging_stop(espnow_link.status.link);
     }
     if (link_created) {
         solar_os_link_stream_transport_stopped(espnow_link.status.link);
@@ -508,7 +508,7 @@ static void espnow_link_stop(solar_os_context_t *ctx)
 
     espnow_link.status.running = false;
     if (espnow_link.status.chat_enabled) {
-        solar_os_link_messaging_stop();
+        solar_os_link_messaging_stop(espnow_link.status.link);
     }
     solar_os_link_stream_transport_stopped(espnow_link.status.link);
     (void)solar_os_link_destroy(espnow_link.status.link);

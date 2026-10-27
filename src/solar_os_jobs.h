@@ -95,6 +95,7 @@ bool solar_os_jobs_inspect_by_name(
     solar_os_job_inspection_t *inspection);
 esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv);
 esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name);
+esp_err_t solar_os_jobs_prepare_shutdown(solar_os_context_t *ctx);
 /* Capture during start; asynchronous completion must present the same generation. */
 esp_err_t solar_os_jobs_get_generation(const char *name, uint32_t *generation);
 esp_err_t solar_os_jobs_mark_stopped(const char *name,

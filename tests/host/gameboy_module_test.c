@@ -50,6 +50,14 @@ static bool stop_requested(void) {
         return now > 350000U;
     if (scenario == 6)
         return now > 450000U;
+    if (scenario == 7)
+        return now > 150000U;
+    if (scenario == 8)
+        return now > 300000U;
+    if (scenario == 9)
+        return now > 150000U;
+    if (scenario == 10)
+        return now > 300000U;
     return stop || now > 2200000ULL + 5000000ULL * suspends;
 }
 static bool suspend_requested(void) { return scenario == 1 && !suspends && now > 500000; }
@@ -60,7 +68,7 @@ static int suspend_app(void) {
     now += 5000000;
     return 0;
 }
-static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
+static int raw_read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
     memset(key, 0, sizeof(*key));
     *available = false;
     if (scenario == 1 && now > 100000 && keys == 0) {
@@ -92,7 +100,42 @@ static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
             *available = true;
         }
     }
+    /* Character-only keyboard sources send both halves of a synthetic tap in
+     * one batch. Game Boy must keep its pulse active across emulated frames. */
+    if ((scenario == 7 || scenario == 8) && keys < 2 && now > 100000U) {
+        key->key = 'z';
+        key->source = 1;
+        key->action = keys == 0 ? SOLAR_OS_NATIVE_FOREGROUND_KEY_PRESS :
+                                SOLAR_OS_NATIVE_FOREGROUND_KEY_RELEASE;
+        keys++;
+        *available = true;
+    }
+    if ((scenario == 9 || scenario == 10) && keys < 2 && now > 100000U) {
+        key->key = 0x83; /* Trackball Right from the board-button source. */
+        key->source = 2;
+        key->action = keys == 0 ? SOLAR_OS_NATIVE_FOREGROUND_KEY_PRESS :
+                                SOLAR_OS_NATIVE_FOREGROUND_KEY_RELEASE;
+        keys++;
+        *available = true;
+    }
     return 0;
+}
+#ifdef TEST_NATIVE_KEY_PULSES
+#include "native_key_pulse_fixture.h"
+static bool native_key_raw_read(solar_os_native_foreground_key_v1_t *key) {
+    bool available;
+    assert(raw_read_key(key, &available) == 0);
+    return available;
+}
+static void native_key_raw_reset(void) { assert(false); }
+static uint64_t native_key_clock(void) { return now; }
+#endif
+static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
+#ifdef TEST_NATIVE_KEY_PULSES
+    return foreground_read_key(key, available);
+#else
+    return raw_read_key(key, available);
+#endif
 }
 static int file_size(const char *path, uint32_t *size) {
     if (!strcmp(path, "/sdcard/cart.gb")) {
@@ -174,7 +217,7 @@ static int rtc(uint8_t registers[5]) {
     memset(registers, 0, 5);
     return 0;
 }
-static uint8_t buttons(void) { return 0; }
+static uint8_t buttons(void) { return scenario == 9 || scenario == 10 ? 2 : 0; }
 static int video_stats(solar_os_native_foreground_video_stats_v1_t *stats) {
     memset(stats, 0, sizeof(*stats));
     return 0;
@@ -214,7 +257,7 @@ static const solar_os_native_foreground_api_v1_t app = {.abi_version = 1,
 static const void *get_service(const char *name, uint32_t abi, uint32_t size) {
     assert(abi == 1);
     if (!strcmp(name, "foreground")) {
-        assert(size == sizeof(app));
+        assert(size == offsetof(solar_os_native_foreground_api_v1_t, video_stats) + sizeof(app.video_stats));
         return &app;
     }
     assert(!strcmp(name, "memory") && size == sizeof(memory));
@@ -227,6 +270,9 @@ static const solar_os_native_host_api_v1_t host = {.abi_version = 1,
 const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void) { return &host; }
 extern int gameboy_module_main(int argc, char **argv);
 static void setup(unsigned mode) {
+#ifdef TEST_NATIVE_KEY_PULSES
+    native_key_pulse_reset();
+#endif
     assert(!allocations);
     now = allocate_calls = presents = suspends = opens = closes = writes = keys = 0;
     scenario = mode;
@@ -276,6 +322,20 @@ int main(void) {
     setup(6);
     memcpy(rom + 0x15a, joypad, sizeof(joypad));
     assert(!run() && keys == 4 && save[1] == 0);
+    setup(7);
+    memcpy(rom + 0x15a, joypad, sizeof(joypad));
+    assert(!run() && keys == 2 && save[1] == 1); /* Tap reaches the real guest joypad. */
+    setup(8);
+    memcpy(rom + 0x15a, joypad, sizeof(joypad));
+    assert(!run() && keys == 2 && save[1] == 0); /* Pulse expires without a stuck button. */
+#ifdef TEST_NATIVE_KEY_PULSES
+    setup(9);
+    memcpy(rom + 0x15a, joypad, sizeof(joypad)); rom[0x15b] = 0x20;
+    assert(!run() && keys == 2 && save[1] == 1); /* Board arrow visible in a guest frame. */
+    setup(10);
+    memcpy(rom + 0x15a, joypad, sizeof(joypad)); rom[0x15b] = 0x20;
+    assert(!run() && keys == 2 && save[1] == 0); /* Shared host pulse releases the arrow. */
+#endif
     setup(4);
     assert(!run() && opens == 1 && presents > 10 && writes == 1);
     setup(0);

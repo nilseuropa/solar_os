@@ -51,7 +51,7 @@ void u8g2_ClearBuffer(u8g2_t *u8g2)
 static void u8g2_send_tile_row(u8g2_t *u8g2, uint8_t src_tile_row, uint8_t dest_tile_row)
 {
   uint8_t *ptr;
-  uint16_t offset;
+  size_t offset;  /* Full buffers such as 1024x600 exceed 64 KiB. */
   uint8_t w;
   
   w = u8g2_GetU8x8(u8g2)->display_info->tile_width;

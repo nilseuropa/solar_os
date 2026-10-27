@@ -66,6 +66,12 @@ SOLAR_OS_BOARD_PIN_SD_POWER = "GPIO_NUM_18"
 SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_LCD_BACKLIGHT_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_LCD_BACKLIGHT_PWM = "1"
+# The LR1110's antenna switch hangs off DIO5 and DIO6 on this board: DIO5 high
+# selects the receive port, DIO6 high the high-power transmit path, both for
+# an ordinary transmit. Verified on the bench, where the board both heard and
+# was heard with this table. Other LR1110 boards wire the same two DIOs the
+# other way round, so a table is never copied between boards.
+SOLAR_OS_BOARD_LR11XX_RF_SWITCH = '{ .enable = LR11XX_RF_SWITCH_DIO5 | LR11XX_RF_SWITCH_DIO6, .rx = LR11XX_RF_SWITCH_DIO5, .tx = LR11XX_RF_SWITCH_DIO5 | LR11XX_RF_SWITCH_DIO6, .tx_hp = LR11XX_RF_SWITCH_DIO6 }'
 SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_SPI_NAME = '"FSPI"'
 SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_40"
@@ -172,6 +178,15 @@ bindings = { pwm = 9 }
 driver = "nmea"
 name = "gnss0"
 bindings = { uart = "uart1", power = 11, active = 0, alt_baud = 9600 }
+
+# The LR1110's band is a purchase-time SKU with nothing on the board to read it
+# back from, so the manifest names the 915 MHz variant and an 868 MHz unit has
+# to say so here. The TCXO is fed 3.3 V from DIO3; the part reports no errors
+# after calibrating with it, which a wrong supply voltage would show.
+[[devices]]
+driver = "lr11xx"
+name = "radio0"
+bindings = { spi = "spi0", cs = 39, busy = 41, reset = 45, irq = 42, freq = 915, tcxo = 3300 }
 
 [[pins]]
 gpio = 0

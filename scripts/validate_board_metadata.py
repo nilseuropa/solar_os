@@ -631,7 +631,7 @@ def _validate_manifest_boards(root: Path, board_ids: tuple[str, ...]) -> list[st
                     f"{identity['id']}: no PlatformIO environment uses "
                     f"target.platformio_board {target['platformio_board']!r}"
                 )
-        if "extends" not in raw_manifest and f"`{identity['id']}`" not in boards_doc:
+        if (env_match or "extends" not in raw_manifest) and f"`{identity['id']}`" not in boards_doc:
             errors.append(f"{identity['id']}: missing from doc/manual/boards.md target table")
     return errors
 

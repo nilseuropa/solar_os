@@ -36,6 +36,9 @@ so a successful handoff does not return. `args` is an array of strings without
 the app name. `can_open(path_or_url)` reports support for local file extensions
 and HTTP(S) URLs. `find(name)` continues to inspect the native registry.
 
+When the launched app exits, the completed interpreter session closes and
+control returns to the shell.
+
 ## Identity
 
 `solaros.identity.user()` and `hostname()` return the NVS-backed device

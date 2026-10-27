@@ -34,6 +34,8 @@ typedef struct {
 typedef struct {
     bool power_control;
     bool powered;
+    bool enable_control;
+    bool enabled;
     bool fix_available;
     solar_os_gnss_fix_t fix;
 } solar_os_gnss_status_t;
@@ -43,6 +45,8 @@ typedef struct {
                           uint32_t timeout_ms,
                           solar_os_gnss_fix_t *fix);
     esp_err_t (*set_power)(void *ctx, bool enabled);
+    /* Receiver output control, separate from switching its supply. */
+    esp_err_t (*set_enabled)(void *ctx, bool enabled);
 } solar_os_gnss_ops_t;
 
 typedef struct {
@@ -58,6 +62,8 @@ typedef struct {
     char driver[SOLAR_OS_GNSS_DRIVER_MAX];
     bool power_control;
     bool powered;
+    bool enable_control;
+    bool enabled;
 } solar_os_gnss_info_t;
 
 esp_err_t solar_os_gnss_register(const solar_os_gnss_registration_t *registration);
@@ -65,6 +71,8 @@ esp_err_t solar_os_gnss_unregister(const char *name);
 size_t solar_os_gnss_count(void);
 bool solar_os_gnss_get(size_t index, solar_os_gnss_info_t *info);
 esp_err_t solar_os_gnss_set_power(const char *name, bool enabled);
+esp_err_t solar_os_gnss_set_enabled(const char *name, bool enabled);
+esp_err_t solar_os_gnss_notify_enabled_state(const char *name, bool enabled);
 /* Driver notification for physical power changes, including error cleanup;
  * does not touch hardware. */
 esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered);

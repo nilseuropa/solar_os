@@ -41,6 +41,7 @@ esp_err_t rfm69_probe(rfm69_t *dev, uint8_t *version);
 esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config);
 esp_err_t rfm69_set_state(rfm69_t *dev, solar_os_radio_state_t state);
 esp_err_t rfm69_get_status(rfm69_t *dev, solar_os_radio_status_t *status);
+esp_err_t rfm69_tune_rx(rfm69_t *dev, uint32_t frequency_hz, uint32_t *settle_ms);
 esp_err_t rfm69_send(rfm69_t *dev, const solar_os_radio_packet_t *packet, uint32_t timeout_ms);
 esp_err_t rfm69_send_stream(rfm69_t *dev,
                             const uint8_t *data,

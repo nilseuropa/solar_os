@@ -1150,6 +1150,10 @@ static esp_err_t sketch_start(solar_os_context_t *ctx)
     if (gfx == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (solar_os_gfx_width(gfx) < 200 || solar_os_gfx_height(gfx) < 200) {
+        solar_os_context_finish(ctx, 1, "sketch: display resolution is too low (minimum 200x200)");
+        return ESP_OK;
+    }
     memset(&sketch, 0, sizeof(sketch));
     const sketch_layout_t layout = sketch_layout(gfx);
     if (layout.canvas_width <= 0 || layout.canvas_height <= 0 ||

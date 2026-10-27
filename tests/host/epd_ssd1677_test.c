@@ -16,6 +16,7 @@ static size_t command_count;
 static int dc_level, reset_level = 1;
 static int reset_count, power_count;
 static bool stuck_busy;
+static int fail_after = -1;
 static int64_t time_us;
 static uint8_t frame[SSD1677_BUFFER_BYTES], shadow[SSD1677_BUFFER_BYTES];
 static uint8_t line[SSD1677_PANEL_ROW_BYTES];
@@ -42,6 +43,8 @@ esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
 esp_err_t spi_device_polling_transmit(spi_device_handle_t device, spi_transaction_t *transaction)
 {
     assert(device != NULL);
+    if (fail_after == 0) { fail_after = -1; return ESP_FAIL; }
+    if (fail_after > 0) --fail_after;
     const uint8_t *data = transaction->flags & SPI_TRANS_USE_TXDATA ?
         transaction->tx_data : transaction->tx_buffer;
     size_t length = transaction->length / 8U;
@@ -179,11 +182,21 @@ static void test_failure_and_no_shadow(void)
     assert(find_command(0x26, 0)->data[0] == 0);
 }
 
+#define RELAX_TYPE epd_ssd1677_t
+#define RELAX_REFRESH ssd1677_refresh
+#define RELAX_APPLY epd_ssd1677_relax
+#define RELAX_MODE epd_ssd1677_set_controller_mode
+#define RELAX_PARTIAL EPD_SSD1677_REFRESH_PARTIAL
+#define RELAX_COUNT command_count
+#define RELAX_WIRE find_command(0x24, 0)->data
+#include "epd_relax_contract.h"
+
 int main(void)
 {
     test_initial_full();
     test_partial_and_cleanup();
     test_failure_and_no_shadow();
+    test_relax_transaction();
     puts("epd_ssd1677_test: PASS");
     return 0;
 }

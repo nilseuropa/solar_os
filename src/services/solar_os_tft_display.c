@@ -193,9 +193,15 @@ static esp_err_t present_auxiliary_frame(
     return tft_ili9341_present_frame((tft_ili9341_t *)context, frame);
 }
 
+static esp_err_t shutdown(solar_os_board_display_t *display)
+{
+    return display != NULL ? tft_ili9341_shutdown(display->driver) : ESP_ERR_INVALID_STATE;
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
+    .shutdown = shutdown,
     .deinit = deinit,
     .brightness_supported = brightness_supported,
     .get_brightness = get_brightness,

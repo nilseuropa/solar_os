@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "solar_os_resource_limits.h"
+#include "solar_os_memory_arena.h"
 
 #define SOLAR_OS_MEMORY_TAG_MAX 24U
 #define SOLAR_OS_MEMORY_INTERNAL_RESERVE_BYTES SOLAR_OS_INTERNAL_RESERVE_BYTES
@@ -17,6 +18,7 @@ typedef enum {
     SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
     SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
     SOLAR_OS_MEMORY_TRANSIENT,
+    SOLAR_OS_MEMORY_EXTERNAL_RESIDENT,
     SOLAR_OS_MEMORY_CLASS_COUNT,
 } solar_os_memory_class_t;
 
@@ -46,7 +48,18 @@ typedef struct {
     solar_os_memory_class_t last_failure_class;
     size_t last_failure_size;
     char last_failure_tag[SOLAR_OS_MEMORY_TAG_MAX];
+    solar_os_memory_arena_status_t arena;
+    solar_os_memory_region_status_t external_sdk;
 } solar_os_memory_status_t;
+
+/* Reserve one region before peripheral/service allocations. Zero disables the
+ * pool; the ordinary capability heaps remain available on every target. */
+void solar_os_memory_init(void);
+void solar_os_memory_set_reclaimer(size_t (*reclaim)(void));
+size_t solar_os_memory_reclaim(void);
+void *solar_os_memory_elf_alloc(size_t bytes);
+void *solar_os_memory_dl_alloc(size_t bytes);
+size_t solar_os_memory_dl_free_bytes(bool external);
 
 void *solar_os_memory_alloc(size_t size,
                             solar_os_memory_class_t memory_class,

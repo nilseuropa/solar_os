@@ -11,6 +11,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_meshcore_ble_protocol.h"
 #include "solar_os_messaging.h"
+#include "solar_os_meshcore_instances.h"
 #include "solar_os_time.h"
 
 #define MESHCORE_BLE_CONNECT_TIMEOUT_MS 12000U
@@ -57,7 +58,15 @@ typedef struct {
     solar_os_meshcore_ble_status_t status;
 } meshcore_ble_service_t;
 
-static meshcore_ble_service_t service;
+static meshcore_ble_service_t empty_service;
+static meshcore_ble_service_t *current_service(void)
+{
+    meshcore_ble_service_t *state = solar_os_meshcore_current_state(SOLAR_OS_MESHCORE_BACKEND_BLE, sizeof(*state));
+    return state ? state : &empty_service;
+}
+#define service (*current_service())
+static void finish_legacy_call(void **lease) { solar_os_meshcore_legacy_end(*lease); }
+
 static portMUX_TYPE service_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static uint32_t now_ms(void)
@@ -92,7 +101,7 @@ static void status_update(solar_os_meshcore_ble_state_t state,
 static void provider_status(bool connected, esp_err_t error, const char *detail)
 {
     (void)solar_os_messaging_provider_set_status(
-        SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, true, connected, error, detail);
+        solar_os_meshcore_current_id(), true, connected, error, detail);
 }
 
 static void schedule_retry(esp_err_t error, const char *detail)
@@ -109,6 +118,8 @@ static void schedule_retry(esp_err_t error, const char *detail)
 
 static void clear_peer(void)
 {
+    if (service.inflight_request) (void)solar_os_messaging_outbox_update(service.inflight_request,
+        SOLAR_OS_DELIVERY_FAILED, "MeshCore BLE disconnected before acknowledgement; outcome unknown");
     if (service.peer != SOLAR_OS_BLE_PEER_INVALID) {
         (void)solar_os_ble_peer_disconnect(service.session, service.peer);
         service.peer = SOLAR_OS_BLE_PEER_INVALID;
@@ -145,7 +156,7 @@ static esp_err_t upsert_channel(const solar_os_meshcore_ble_channel_t *channel)
     char provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
     (void)channel_provider_key(channel->index, provider_key, sizeof(provider_key));
     const solar_os_messaging_conversation_upsert_t request = {
-        .provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        .provider = solar_os_meshcore_current_id(),
         .provider_key = provider_key,
         .kind = SOLAR_OS_CONVERSATION_GROUP,
         .title = slot->name,
@@ -164,10 +175,10 @@ static esp_err_t upsert_contact(const solar_os_meshcore_ble_contact_t *contact)
     }
     solar_os_endpoint_t existing = {0};
     const bool known = solar_os_contacts_find_endpoint(
-        SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        solar_os_meshcore_current_id(),
         contact->public_key, sizeof(contact->public_key), &existing) == ESP_OK;
     return solar_os_contacts_import_discovered(
-        SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        solar_os_meshcore_current_id(),
         contact->public_key,
         sizeof(contact->public_key),
         contact->name,
@@ -186,7 +197,7 @@ static bool endpoint_for_prefix(const uint8_t prefix[6], solar_os_endpoint_t *re
         SOLAR_OS_CONTACT_ID_NONE, service.endpoints, SOLAR_OS_ENDPOINT_CAPACITY);
     for (size_t i = 0; i < count; i++) {
         solar_os_endpoint_t *endpoint = &service.endpoints[i];
-        if (endpoint->provider == SOLAR_OS_MESSAGING_PROVIDER_MESHCORE &&
+        if (endpoint->provider == solar_os_meshcore_current_id() &&
             endpoint->address.length == SOLAR_OS_MESHCORE_BLE_PUBLIC_KEY_SIZE &&
             endpoint->trust != SOLAR_OS_CONTACT_TRUST_BLOCKED &&
             memcmp(endpoint->address.bytes, prefix,
@@ -230,7 +241,7 @@ static esp_err_t publish_contact_message(const uint8_t *frame, size_t length)
         security |= SOLAR_OS_SECURITY_PEER_TRUSTED;
     }
     const solar_os_messaging_inbound_t inbound = {
-        .provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        .provider = solar_os_meshcore_current_id(),
         .conversation_key = provider_key,
         .conversation_kind = SOLAR_OS_CONVERSATION_DIRECT,
         .conversation_title = contact.display_name,
@@ -276,7 +287,7 @@ static esp_err_t publish_channel_message(const uint8_t *frame, size_t length)
         body = separator + 2U;
     }
     const solar_os_messaging_inbound_t inbound = {
-        .provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        .provider = solar_os_meshcore_current_id(),
         .conversation_key = provider_key,
         .conversation_kind = SOLAR_OS_CONVERSATION_GROUP,
         .conversation_title = slot->name,
@@ -451,7 +462,7 @@ static esp_err_t sync_contacts(void)
 static esp_err_t sync_channels(void)
 {
     memset(service.channels, 0, sizeof(service.channels));
-    (void)solar_os_messaging_groups_begin_sync(SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, "ble-group:");
+    (void)solar_os_messaging_groups_begin_sync(solar_os_meshcore_current_id(), "ble-group:");
     size_t count = 0U;
     for (uint8_t index = 0; index < SOLAR_OS_MESHCORE_BLE_CHANNEL_CAPACITY; index++) {
         uint8_t request[2];
@@ -654,6 +665,11 @@ static esp_err_t connect_peer(void)
     strlcpy(service.status.detail, "online", sizeof(service.status.detail));
     portEXIT_CRITICAL(&service_lock);
     provider_status(true, ESP_OK, "BLE companion online");
+    for (size_t i = 0; i < SOLAR_OS_MESHCORE_BLE_CHANNEL_CAPACITY; i++) {
+        if (!service.channels[i].valid) continue;
+        char key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX]; (void)channel_provider_key(i, key, sizeof(key));
+        (void)solar_os_messaging_join_update(solar_os_meshcore_current_id(), key, SOLAR_OS_MESSAGING_JOIN_JOINED, NULL);
+    }
     return ESP_OK;
 }
 
@@ -672,7 +688,7 @@ static esp_err_t process_outbound(void)
     }
     solar_os_messaging_outbound_t outbound;
     esp_err_t error = solar_os_messaging_outbox_peek(
-        SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, &outbound);
+        solar_os_meshcore_current_id(), &outbound);
     if (error == ESP_ERR_NOT_FOUND) return ESP_OK;
     if (error != ESP_OK) return error;
     solar_os_messaging_conversation_t conversation;
@@ -685,7 +701,7 @@ static esp_err_t process_outbound(void)
         solar_os_endpoint_t endpoint;
         error = solar_os_contacts_get_endpoint(conversation.endpoint_id, &endpoint);
         if (error == ESP_OK &&
-            (endpoint.provider != SOLAR_OS_MESSAGING_PROVIDER_MESHCORE ||
+            (endpoint.provider != solar_os_meshcore_current_id() ||
              endpoint.address.length != SOLAR_OS_MESHCORE_BLE_PUBLIC_KEY_SIZE ||
              endpoint.trust == SOLAR_OS_CONTACT_TRUST_BLOCKED)) {
             error = ESP_ERR_INVALID_STATE;
@@ -756,6 +772,10 @@ esp_err_t solar_os_meshcore_ble_start(const uint8_t bda[6], uint8_t addr_type,
                                       bool pin_supplied, uint32_t pin,
                                       const char *owner)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return context_error;
+    if (!solar_os_meshcore_current_state(SOLAR_OS_MESHCORE_BACKEND_BLE, sizeof(meshcore_ble_service_t))) return ESP_ERR_NO_MEM;
     if (bda == NULL || owner == NULL || owner[0] == '\0' ||
         addr_type > SOLAR_OS_BLE_ADDR_RANDOM_IDENTITY ||
         (pin_supplied && pin > 999999U)) {
@@ -765,19 +785,18 @@ esp_err_t solar_os_meshcore_ble_start(const uint8_t bda[6], uint8_t addr_type,
     esp_err_t error = solar_os_contacts_init();
     if (error == ESP_OK) error = solar_os_messaging_init();
     if (error == ESP_OK) {
-        error = solar_os_messaging_provider_register(
-            SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, "meshcore");
+        error = ESP_OK;
     }
     if (error == ESP_OK) {
         error = solar_os_messaging_provider_claim(
-            SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, "BLE companion starting");
+            solar_os_meshcore_current_id(), "BLE companion starting");
         provider_claimed = error == ESP_OK;
     }
     if (error == ESP_OK) error = solar_os_ble_init();
     if (error != ESP_OK) {
         if (provider_claimed) {
             (void)solar_os_messaging_provider_set_status(
-                SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+                solar_os_meshcore_current_id(),
                 false, false, ESP_OK, "start failed");
         }
         return error;
@@ -788,7 +807,7 @@ esp_err_t solar_os_meshcore_ble_start(const uint8_t bda[6], uint8_t addr_type,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "meshcore.ble.contacts");
     if (service.endpoints == NULL) {
         (void)solar_os_messaging_provider_set_status(
-            SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+            solar_os_meshcore_current_id(),
             false, false, ESP_OK, "start failed");
         return ESP_ERR_NO_MEM;
     }
@@ -797,7 +816,7 @@ esp_err_t solar_os_meshcore_ble_start(const uint8_t bda[6], uint8_t addr_type,
         solar_os_memory_free(service.endpoints);
         service.endpoints = NULL;
         (void)solar_os_messaging_provider_set_status(
-            SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+            solar_os_meshcore_current_id(),
             false, false, ESP_OK, "start failed");
         return error;
     }
@@ -823,6 +842,9 @@ esp_err_t solar_os_meshcore_ble_start(const uint8_t bda[6], uint8_t addr_type,
 
 void solar_os_meshcore_ble_loop_once(void)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return;
     if (!service.initialized || service.cancel_requested) return;
     if (service.peer == SOLAR_OS_BLE_PEER_INVALID) {
         if ((int32_t)(now_ms() - service.next_retry_ms) < 0) return;
@@ -872,6 +894,9 @@ void solar_os_meshcore_ble_loop_once(void)
 
 void solar_os_meshcore_ble_cancel(void)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return;
     service.cancel_requested = true;
     if (service.session != SOLAR_OS_BLE_SESSION_INVALID) {
         (void)solar_os_ble_session_cancel(service.session);
@@ -880,7 +905,13 @@ void solar_os_meshcore_ble_cancel(void)
 
 void solar_os_meshcore_ble_stop(void)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return;
     if (!service.initialized) return;
+    if (service.inflight_request) (void)solar_os_messaging_outbox_update(service.inflight_request,
+        SOLAR_OS_DELIVERY_FAILED, "MeshCore BLE stopped before acknowledgement; outcome unknown");
+    service.inflight_request = 0;
     service.cancel_requested = true;
     if (service.session != SOLAR_OS_BLE_SESSION_INVALID) {
         (void)solar_os_ble_session_close(service.session);
@@ -892,7 +923,7 @@ void solar_os_meshcore_ble_stop(void)
     service.pin = 0U;
     service.pin_supplied = false;
     (void)solar_os_messaging_provider_set_status(
-        SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, false, false, ESP_OK, "stopped");
+        solar_os_meshcore_current_id(), false, false, ESP_OK, "stopped");
     portENTER_CRITICAL(&service_lock);
     service.status.running = false;
     service.status.connected = false;
@@ -907,6 +938,10 @@ void solar_os_meshcore_ble_stop(void)
 
 esp_err_t solar_os_meshcore_ble_get_status(solar_os_meshcore_ble_status_t *status)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return context_error;
+    if (!solar_os_meshcore_current_state(SOLAR_OS_MESHCORE_BACKEND_BLE, sizeof(meshcore_ble_service_t))) return ESP_ERR_NO_MEM;
     if (status == NULL) return ESP_ERR_INVALID_ARG;
     portENTER_CRITICAL(&service_lock);
     *status = service.status;
@@ -916,6 +951,9 @@ esp_err_t solar_os_meshcore_ble_get_status(solar_os_meshcore_ble_status_t *statu
 
 void solar_os_meshcore_ble_note_stack_watermark(uint32_t bytes)
 {
+    void *lease __attribute__((cleanup(finish_legacy_call))) = NULL;
+    esp_err_t context_error = solar_os_meshcore_legacy_begin(SOLAR_OS_MESHCORE_BACKEND_BLE, &lease);
+    if (context_error != ESP_OK) return;
     portENTER_CRITICAL(&service_lock);
     if (service.status.stack_watermark_bytes == 0U ||
         bytes < service.status.stack_watermark_bytes) {
@@ -935,4 +973,47 @@ const char *solar_os_meshcore_ble_state_name(solar_os_meshcore_ble_state_t state
     case SOLAR_OS_MESHCORE_BLE_BACKOFF: return "backoff";
     default: return "unknown";
     }
+}
+
+static esp_err_t ble_instance_start(const solar_os_meshcore_instance_config_t *config, const char *owner)
+{ return solar_os_meshcore_ble_start(config->bda, config->addr_type, config->pin_supplied, config->pin, owner); }
+static void ble_instance_poll(void)
+{
+    solar_os_meshcore_ble_loop_once();
+    solar_os_meshcore_ble_note_stack_watermark((uint32_t)uxTaskGetStackHighWaterMark(NULL));
+}
+static void ble_instance_destroy(void)
+{
+    solar_os_meshcore_ble_stop();
+    meshcore_ble_service_t *state = solar_os_meshcore_current_state(SOLAR_OS_MESHCORE_BACKEND_BLE, 0);
+    if (state) {
+        volatile unsigned char *bytes = (volatile unsigned char *)state;
+        for (size_t i = 0; i < sizeof(*state); i++) bytes[i] = 0;
+        solar_os_meshcore_current_state_free(SOLAR_OS_MESHCORE_BACKEND_BLE);
+    }
+}
+static esp_err_t ble_instance_join(const char *target, solar_os_conversation_id_t *conversation)
+{
+    for (size_t i = 0; i < SOLAR_OS_MESHCORE_BLE_CHANNEL_CAPACITY; i++) {
+        if (!service.channels[i].valid) continue;
+        char key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX]; (void)channel_provider_key(i, key, sizeof(key));
+        if (strcmp(target, key) && strcmp(target, service.channels[i].name)) continue;
+        solar_os_messaging_conversation_upsert_t request = {.provider = solar_os_meshcore_current_id(),
+            .provider_key = key, .kind = SOLAR_OS_CONVERSATION_GROUP, .title = service.channels[i].name,
+            .group_ref = MESHCORE_BLE_GROUP_REF_BASE | i,
+            .security_flags = SOLAR_OS_SECURITY_ENCRYPTED | SOLAR_OS_SECURITY_SHARED_KEY | SOLAR_OS_SECURITY_SENDER_UNVERIFIED};
+        esp_err_t error = solar_os_messaging_conversation_upsert(&request, conversation);
+        if (error == ESP_OK) (void)solar_os_messaging_join_update(request.provider, key,
+            service.status.connected ? SOLAR_OS_MESSAGING_JOIN_JOINED : SOLAR_OS_MESSAGING_JOIN_PENDING, NULL);
+        return error;
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+void solar_os_meshcore_ble_install_backend(void)
+{
+    static const solar_os_meshcore_backend_t ops = {
+        .start = ble_instance_start, .poll = ble_instance_poll, .cancel = solar_os_meshcore_ble_cancel,
+        .stop = solar_os_meshcore_ble_stop, .destroy = ble_instance_destroy, .join = ble_instance_join,
+    };
+    solar_os_meshcore_backend_register(SOLAR_OS_MESHCORE_BACKEND_BLE, &ops);
 }

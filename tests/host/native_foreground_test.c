@@ -13,6 +13,9 @@
 #define pdMS_TO_TICKS(ms) ((ms) / 10U)
 typedef void *TaskHandle_t;
 typedef unsigned TickType_t;
+typedef solar_os_native_foreground_pointer_v1_t solar_os_input_pointer_event_t;
+#define pdTRUE 1
+static struct { solar_os_native_foreground_pointer_v1_t events[32]; unsigned count; } pointer_queue;
 typedef struct { void **state_slot; } solar_os_app_t;
 typedef struct { solar_os_app_t *app; void *gfx; bool streaming; } solar_os_context_t;
 typedef struct { int unused; } solar_os_app_registry_entry_t;
@@ -27,12 +30,12 @@ static size_t strlcpy(char *out, const char *in, size_t size) {
 typedef struct {
     const foreground_slot_t *slot;
     _Atomic(TaskHandle_t) worker;
-    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset;
+    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset;
     uint64_t stop_deadline_us;
     bool worker_started, keyboard_captured, themed_index2;
     int result, exit_code;
     char detail[160];
-    void *gfx, *keys, *presenter, *audio;
+    void *gfx, *keys, *pointers, *presenter, *audio;
 } foreground_state_t;
 static foreground_state_t first, second;
 static foreground_slot_t slots[2];
@@ -54,7 +57,7 @@ static TaskHandle_t xTaskGetCurrentTaskHandle(void) { return current; }
 static uint64_t foreground_time_us(void) { return clock_us; }
 static void foreground_refresh_index2_palette(foreground_state_t *s) { (void)s; }
 static void foreground_audio_close(void) { scope->audio = NULL; audio_order = ++sequence; }
-static void solar_os_audio_stream_close(void *audio) { assert(audio); audio_order = ++sequence; }
+static void solar_os_stream_close(void *audio) { assert(audio); audio_order = ++sequence; }
 static int solar_os_frame_presenter_deinit(void *presenter) {
     assert(presenter); presenter_order = ++sequence; return presenter_fail ? ESP_FAIL : ESP_OK;
 }
@@ -81,7 +84,21 @@ static void solar_os_input_release_keyboard(void *owner) {
 static void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx, bool active) {
     ctx->streaming = active;
 }
-static void xQueueReset(void *queue) { assert(queue); }
+static void xQueueReset(void *queue) { assert(queue); if (queue == &pointer_queue) pointer_queue.count = 0; }
+static int xQueueSend(void *queue, const void *event, unsigned timeout) {
+    assert(queue == &pointer_queue && !timeout);
+    if (pointer_queue.count == 32) return 0;
+    pointer_queue.events[pointer_queue.count++] = *(const solar_os_native_foreground_pointer_v1_t *)event;
+    return pdTRUE;
+}
+static int xQueueReceive(void *queue, void *event, unsigned timeout) {
+    assert(queue == &pointer_queue && !timeout);
+    if (!pointer_queue.count) return 0;
+    *(solar_os_native_foreground_pointer_v1_t *)event = pointer_queue.events[0];
+    --pointer_queue.count;
+    memmove(pointer_queue.events, pointer_queue.events + 1, pointer_queue.count * sizeof(pointer_queue.events[0]));
+    return pdTRUE;
+}
 static void vQueueDelete(void *queue) { assert(queue); deletions++; }
 static foreground_slot_t *foreground_find_slot(const solar_os_app_t *app) {
     return app == &apps[0] ? &slots[0] : app == &apps[1] ? &slots[1] : NULL;
@@ -120,6 +137,27 @@ static void setup(void) {
 }
 int main(void) {
     setup(); char busy[32];
+    bool available = true;
+    solar_os_native_foreground_pointer_v1_t pointer;
+    assert(foreground_read_pointer(&pointer, &available) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !available);
+    first.pointers = &pointer_queue;
+    assert(foreground_read_pointer(NULL, &available) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    solar_os_input_pointer_event_t event = {.x=123, .y=45, .delta_x=-7, .delta_y=2, .source=3, .pointer_id=2, .buttons=3, .mode=1, .action=1};
+    foreground_queue_pointer(&first, &event);
+    assert(foreground_read_pointer(&pointer, &available) == 0 && available && !pointer.reset);
+    assert(pointer.x == 123 && pointer.delta_x == -7 && pointer.source == 3 && pointer.pointer_id == 2 && pointer.buttons == 3);
+    for (unsigned i = 0; i < 33; ++i) foreground_queue_pointer(&first, &event);
+    assert(!pointer_queue.count && foreground_read_pointer(&pointer, &available) == 0 && available && pointer.reset);
+    foreground_queue_pointer(&first, &event);
+    atomic_store(&first.suspend_requested, true); foreground_queue_pointer(&first, &event);
+    assert(pointer_queue.count == 1);
+    current=&token[1]; assert(foreground_read_pointer(&pointer, &available) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    current=&token[0]; atomic_store(&first.suspend_requested, false); mode=1;
+    foreground_suspend(&contexts[0]); assert(!pointer_queue.count && atomic_load(&first.pointer_reset));
+    mode=2; foreground_resume(&contexts[0]);
+    assert(foreground_read_pointer(&pointer, &available) == 0 && available && pointer.reset);
+    mode=3; foreground_stop(&contexts[0]); assert(!first.pointers && deletions == 2);
+    setup();
     uint16_t width = 0, height = 0;
     first.presenter = NULL;
     assert(foreground_video_dimensions(&width, &height) == SOLAR_OS_NATIVE_OK);

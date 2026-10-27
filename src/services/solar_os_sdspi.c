@@ -141,6 +141,13 @@ esp_err_t solar_os_sdspi_attach(const char *name,
     return ESP_OK;
 }
 
+esp_err_t solar_os_sdspi_prepare_shutdown(void)
+{
+    if (sd_card_has_mounts()) return ESP_ERR_INVALID_STATE;
+    return sdspi.active && sdspi.power_control ?
+        solar_os_gpio_line_write(&sdspi.power_line, false) : ESP_OK;
+}
+
 esp_err_t solar_os_sdspi_detach(const char *name)
 {
     if (!sdspi.active || name == NULL || strcmp(sdspi.name, name) != 0) {

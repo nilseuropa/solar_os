@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "library-check"
+name = "Library Check"
+version = "1.0.0"
+description = "Exercise shared leases, compatibility gates and repeated library loading."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_native_library_check.app.elf"

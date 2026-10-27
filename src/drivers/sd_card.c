@@ -416,6 +416,7 @@ esp_err_t sd_card_configure_sdmmc_power(int power_pin, int active_level)
     for (size_t i = 0; i < 6; ++i)
         if (sdmmc_pins[i] == power_pin) return ESP_ERR_INVALID_ARG;
     const gpio_config_t config = {.pin_bit_mask = 1ULL << power_pin, .mode = GPIO_MODE_OUTPUT};
+    (void)gpio_hold_dis(power_pin);
     esp_err_t err = gpio_config(&config);
     if (err == ESP_OK) err = gpio_set_level(power_pin, !active_level);
     if (err != ESP_OK) return err;
@@ -1134,6 +1135,21 @@ esp_err_t sd_card_unmount_volume(const char *target)
     }
     deinit_card_if_unused();
     return ret;
+}
+
+esp_err_t sd_card_prepare_shutdown(void)
+{
+    if (sd_card_has_active_mounts()) return ESP_ERR_INVALID_STATE;
+#if SOLAR_OS_PACKAGE_EXPANSION_SDMMC && !SOLAR_OS_BOARD_STORAGE_SDSPI
+    if (sdmmc_power_pin >= 0) {
+        const esp_err_t err = gpio_set_level(sdmmc_power_pin, !sdmmc_power_active_level);
+        if (err != ESP_OK) return err;
+        const esp_err_t hold_err = gpio_hold_en(sdmmc_power_pin);
+        if (hold_err != ESP_OK) return hold_err;
+        gpio_deep_sleep_hold_en();
+    }
+#endif
+    return ESP_OK;
 }
 
 esp_err_t sd_card_unmount(void)

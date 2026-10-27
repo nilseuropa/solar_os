@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+/* Public-domain fixed bitmap face; terminal uses a 6x8 cell. */
+extern const uint8_t u8g2_font_5x8_tf[];
 extern const uint8_t u8g2_font_solar_os_default_r_10_tf[];
 extern const uint8_t u8g2_font_solar_os_default_b_10_tf[];
 extern const uint8_t u8g2_font_solar_os_default_i_10_tf[];

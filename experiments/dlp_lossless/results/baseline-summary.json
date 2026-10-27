@@ -1,0 +1,202 @@
+[
+  {
+    "scene": "solid",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1374.332296953071,
+    "transfer_present_ms": 1372.1072229673155,
+    "encode_ms": 2.2250739857554436,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1359.551872999873,
+    "transfer_present_ms": 1325.750452990178,
+    "encode_ms": 33.80142000969499,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1404.21826596139,
+    "transfer_present_ms": 1370.3063229913823,
+    "encode_ms": 33.91194297000766,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1366.3870470481925,
+    "transfer_present_ms": 1331.9673660444096,
+    "encode_ms": 33.90292002586648,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1373.871424002573,
+    "transfer_present_ms": 1371.717392001301,
+    "encode_ms": 2.2616119822487235,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1397.0607910305262,
+    "transfer_present_ms": 1364.8381810053252,
+    "encode_ms": 32.22261002520099,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 259.80936898849905,
+    "transfer_present_ms": 254.52925299759954,
+    "encode_ms": 5.111726000905037,
+    "tx_bytes": 18616,
+    "rectangles": 2
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 224.2491430370137,
+    "transfer_present_ms": 216.92825300851837,
+    "encode_ms": 7.596808020025492,
+    "tx_bytes": 2760,
+    "rectangles": 2
+  },
+  {
+    "scene": "scroll",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1373.0197800323367,
+    "transfer_present_ms": 1371.1066000396386,
+    "encode_ms": 2.2270689951255918,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1365.2705440181307,
+    "transfer_present_ms": 1331.4232600387186,
+    "encode_ms": 33.84728397941217,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 265.32865001354367,
+    "transfer_present_ms": 251.20339600834996,
+    "encode_ms": 13.35558801656589,
+    "tx_bytes": 7996,
+    "rectangles": 40
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 265.5037870281376,
+    "transfer_present_ms": 262.7159599796869,
+    "encode_ms": 2.7878270484507084,
+    "tx_bytes": 15724,
+    "rectangles": 20
+  },
+  {
+    "scene": "gradient",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1346.8578799511306,
+    "transfer_present_ms": 1346.299002005253,
+    "encode_ms": 0.7163729751482606,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1357.618719979655,
+    "transfer_present_ms": 1326.5041149570607,
+    "encode_ms": 34.185030963271856,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1399.98742507305,
+    "transfer_present_ms": 1366.5441170451231,
+    "encode_ms": 33.58782600844279,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1362.820976995863,
+    "transfer_present_ms": 1329.5721149770543,
+    "encode_ms": 33.591975981835276,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1377.5203219847754,
+    "transfer_present_ms": 1375.1014040317386,
+    "encode_ms": 2.4189179530367255,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1351.684862980619,
+    "transfer_present_ms": 1327.7045449940488,
+    "encode_ms": 23.9803179865703,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1370.108777016867,
+    "transfer_present_ms": 1346.395441039931,
+    "encode_ms": 23.713335976935923,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1416.7198849609122,
+    "transfer_present_ms": 1383.3572219591588,
+    "encode_ms": 33.69887499138713,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  }
+]

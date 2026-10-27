@@ -51,13 +51,13 @@ class ScriptAudioBindingsTest(unittest.TestCase):
 
     def test_tone_uses_the_selected_default_output_stream(self):
         tone = AUDIO_SOURCE.split(
-            "static esp_err_t audio_play_tone_locked(", 1
-        )[1].split("esp_err_t solar_os_audio_play_tone(", 1)[0]
+            "static esp_err_t audio_play_tone_sequence_locked(", 1
+        )[1].split("static esp_err_t audio_play_tone_locked(", 1)[0]
         self.assertIn("solar_os_audio_open_default(", tone)
         self.assertIn("SOLAR_OS_STREAM_DIRECTION_SINK", tone)
         self.assertIn("SOLAR_OS_STREAM_AUDIO_S16_LE", tone)
         self.assertIn("solar_os_audio_set_device_volume(device.id, volume)", tone)
-        self.assertIn("solar_os_stream_write(&stream", tone)
+        self.assertIn("audio_tone_write_segment(&stream", tone)
         self.assertIn("format.sample_rate", tone)
         self.assertIn("format.channels", tone)
         self.assertIn("solar_os_stream_close(&stream);", tone)

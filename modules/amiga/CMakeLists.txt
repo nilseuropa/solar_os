@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(solaros_native_amiga)
+include(elf_loader)
+set(ELF_LIBS "-flto -O2 -Wl,--undefined=solar_os_native_app_manifest -lgcc")
+project_elf(solaros_native_amiga)
+add_custom_target(typed_elf ALL DEPENDS solaros_native_amiga.app.elf)

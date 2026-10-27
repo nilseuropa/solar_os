@@ -225,7 +225,8 @@ int main(int argc, char **argv)
 {
     host = solar_os_native_host_v1();
     if (!host || host->abi_version != 1U || host->struct_size < sizeof(*host) || !host->get_service) return 1;
-    apple2_app = host->get_service(SOLAR_OS_NATIVE_FOREGROUND_SERVICE, 1U, sizeof(*apple2_app));
+    apple2_app = host->get_service(SOLAR_OS_NATIVE_FOREGROUND_SERVICE, 1U,
+        offsetof(solar_os_native_foreground_api_v1_t, suspend) + sizeof(apple2_app->suspend));
     const solar_os_native_memory_api_v1_t *memory = host->get_service(
         SOLAR_OS_NATIVE_MEMORY_SERVICE, 1U, sizeof(*memory));
     if (!apple2_app || !memory) { report("apple2: requires the foreground app host on compatible firmware"); return 1; }
@@ -362,7 +363,10 @@ int main(int argc, char **argv)
             stats_wall = now; stats_cycles = ticks;
             cpu_us = video_us = 0;
         }
-        apple2_app->sleep_ms(1U);
+        if (!m->paused && apple2_disk_accelerated())
+            solar_os_native_foreground_cooperate(apple2_app);
+        else
+            apple2_app->sleep_ms(1U);
     }
 done:
     apple2_app->audio_close();

@@ -470,7 +470,8 @@ int main(int argc, char **argv) {
     host = solar_os_native_host_v1();
     if (!host || host->struct_size < sizeof(*host) || !host->get_service)
         return 1;
-    app = host->get_service(SOLAR_OS_NATIVE_FOREGROUND_SERVICE, 1, sizeof(*app));
+    app = host->get_service(SOLAR_OS_NATIVE_FOREGROUND_SERVICE, 1,
+        offsetof(solar_os_native_foreground_api_v1_t, video_stats) + sizeof(app->video_stats));
     memory = host->get_service(SOLAR_OS_NATIVE_MEMORY_SERVICE, 1, sizeof(*memory));
     if (!app || !memory)
         return 1;

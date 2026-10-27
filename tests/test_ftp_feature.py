@@ -1,4 +1,6 @@
 import unittest
+import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -13,6 +15,55 @@ FTP_APP = (ROOT / "src/apps/solar_os_ftp_app.c").read_text(encoding="utf-8")
 
 
 class FtpFeatureTest(unittest.TestCase):
+    def test_marked_operations_are_serial_and_stop_on_failure(self):
+        def section(start, end):
+            return start + FTP_APP.split(start, 1)[1].split(end, 1)[0]
+        source = section("static int ftp_app_name_compare", "static esp_err_t ftp_app_load_local")
+        source += section("static ftp_app_entry_t *ftp_app_selected", "static const char *ftp_app_default_viewer")
+        source += section("static void ftp_app_restore_position", "static esp_err_t ftp_app_change_local_dir")
+        source += section("static void ftp_app_poll", "static void ftp_app_open_selected")
+        types = section("typedef struct {\n    char name[SOLAR_OS_FTP_NAME_MAX]", "static void *ftp_app_state")
+        harness = (ROOT / "tests/host/ftp_selection_test.inc").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "test.c").write_text(harness.replace("/* TYPES */", types).replace("/* SOURCE */", source))
+            compiled = subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                str(path / "test.c"), "-o", str(path / "test"),
+            ], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            subprocess.run([str(path / "test")], check=True)
+
+    def test_paging_and_hidden_items_on_foreground_panes(self):
+        def function(start, end):
+            return start + FTP_APP.split(start, 1)[1].split(end, 1)[0]
+        source = function("typedef struct {\n    char name[SOLAR_OS_FTP_NAME_MAX]", "typedef enum {")
+        source += function("static int ftp_app_name_compare", "static bool ftp_app_join")
+        source += function("static void ftp_app_filter_hidden", "static size_t ftp_app_selection_count")
+        source += function("static void ftp_app_page", "static bool ftp_app_event")
+        harness = (ROOT / "tests/host/ftp_navigation_test.inc").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "test.c").write_text(harness.replace("/* NAVIGATION_SOURCE */", source))
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                str(path / "test.c"), "-o", str(path / "test"),
+            ], check=True, capture_output=True, text=True)
+            subprocess.run([str(path / "test")], check=True)
+
+    def test_both_apps_dispatch_paging_and_hidden_toggle(self):
+        self.assertIn("case SOLAR_OS_KEY_PAGE_UP:\n        ftp_app_page(pane, false)", FTP_APP)
+        self.assertIn("case SOLAR_OS_KEY_PAGE_DOWN:\n        ftp_app_page(pane, true)", FTP_APP)
+        self.assertIn("ftp_app_filter_hidden(&ftp_app.panes[0])", FTP_APP)
+        self.assertIn("ftp_app_filter_hidden(&ftp_app.panes[1])", FTP_APP)
+        parent = FTP_APP.split("case 0x7f: {", 1)[1].split("case '\\r':", 1)[0]
+        self.assertIn("ftp_app_change_local_dir(pane, parent)", parent)
+        self.assertIn("strlcpy(request.source, parent, sizeof(request.source))", parent)
+        remote = FTP_APP.split("static esp_err_t ftp_app_list_remote", 1)[1].split(
+            "static esp_err_t ftp_app_remove_local", 1
+        )[0]
+        self.assertNotIn("ftp_app_filter_hidden", remote)
+
     def test_service_app_and_job_are_independent_packages(self):
         self.assertIn("[packages.service_ftp]", PACKAGES)
         self.assertIn("[packages.app_ftp]", PACKAGES)
@@ -76,7 +127,7 @@ class FtpFeatureTest(unittest.TestCase):
         self.assertIn('"F2 opens the connection setup"', FTP_APP)
         self.assertIn("case SOLAR_OS_KEY_F2:", FTP_APP)
         self.assertIn(
-            '"F2 Connect F3 View F5 Copy F6 Move F7 mKdir F8 Delete Alt+S Search"',
+            '"F2 Connect F3 View F5 Copy F6 Move F7 mKdir F8 Delete Alt+S Search Space Select"',
             FTP_APP,
         )
         self.assertIn('{"Connect", 2U}', FTP_APP)

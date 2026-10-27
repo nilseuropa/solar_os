@@ -356,14 +356,14 @@ static void shell_ls_print_entry_with_options(solar_os_shell_io_t *term,
         strlcpy(size_text, "?", sizeof(size_text));
     }
 
-    solar_os_shell_io_printf(term, "%8s ", size_text);
+    solar_os_shell_io_table_printf(term, "%8s ", size_text);
     if (is_dir) {
-        solar_os_shell_io_write_bold(term, display_name);
-        solar_os_shell_io_put_char(term, '/');
+        solar_os_shell_io_table_write_bold(term, display_name);
+        solar_os_shell_io_table_put_char(term, '/');
     } else {
-        solar_os_shell_io_write(term, display_name);
+        solar_os_shell_io_table_write(term, display_name);
     }
-    solar_os_shell_io_put_char(term, '\n');
+    solar_os_shell_io_table_put_char(term, '\n');
 }
 
 static void shell_list_directory(solar_os_shell_io_t *term,
@@ -372,7 +372,7 @@ static void shell_list_directory(solar_os_shell_io_t *term,
 {
     DIR *dir = opendir(path);
     if (dir == NULL) {
-        solar_os_shell_io_printf(term, "ls: cannot open %s: %s\n", path, strerror(errno));
+        solar_os_shell_io_table_printf(term, "ls: cannot open %s: %s\n", path, strerror(errno));
         return;
     }
 
@@ -383,7 +383,7 @@ static void shell_list_directory(solar_os_shell_io_t *term,
             continue;
         }
         if (!join_path_checked(child_path, sizeof(child_path), path, entry->d_name)) {
-            solar_os_shell_io_printf(term, "%8s %s\n", "?", entry->d_name);
+            solar_os_shell_io_table_printf(term, "%8s %s\n", "?", entry->d_name);
             continue;
         }
 
@@ -1085,7 +1085,7 @@ static void shell_zip_progress(const solar_os_zip_event_info_t *info, void *user
     }
 
     if (progress->list) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%10" PRIu32 "  %-7s  %s\n",
                                  info->uncompressed_size,
                                  shell_zip_method_name(info->method),
@@ -1357,7 +1357,7 @@ void solar_os_shell_cmd_unzip(solar_os_context_t *ctx, int argc, char **argv)
 
     esp_err_t err = ESP_OK;
     if (list_only) {
-        solar_os_shell_io_writeln(term, "    Length  Method   Name");
+        solar_os_shell_io_table_writeln(term, "    Length  Method   Name");
         err = solar_os_zip_list(archive, shell_zip_progress, &progress);
     } else {
         char dest[SHELL_PATH_MAX];

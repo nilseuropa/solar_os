@@ -420,6 +420,9 @@ static void rfm95_resolve_config(const rfm95_t *dev,
                                  solar_os_radio_config_t *resolved)
 {
     *resolved = *requested;
+    if (resolved->rx_gain == SOLAR_OS_RADIO_RX_GAIN_DEFAULT) {
+        resolved->rx_gain = SOLAR_OS_RADIO_RX_GAIN_BOOSTED;
+    }
 
     if (rfm95_is_lora(resolved)) {
         uint8_t bandwidth = 0;
@@ -634,7 +637,9 @@ static esp_err_t rfm95_configure_common_locked(rfm95_t *dev,
         ret = rfm95_configure_power_locked(dev, config->tx_power_dbm);
     }
     if (ret == ESP_OK) {
-        ret = rfm95_write_reg_locked(dev, REG_LNA, 0x23);
+        /* Automatic gain remains enabled; control HF LNA boost independently. */
+        ret = rfm95_write_reg_locked(dev, REG_LNA,
+            config->rx_gain == SOLAR_OS_RADIO_RX_GAIN_BOOSTED ? 0x23 : 0x20);
     }
     return ret;
 }
@@ -885,6 +890,11 @@ esp_err_t rfm95_configure(rfm95_t *dev, const solar_os_radio_config_t *config)
     if (dev == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_DEFAULT &&
+        config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_POWER_SAVING &&
+        config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_BOOSTED) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 
     solar_os_radio_config_t resolved;
     rfm95_resolve_config(dev, config, &resolved);
@@ -918,6 +928,33 @@ esp_err_t rfm95_set_state(rfm95_t *dev, solar_os_radio_state_t state)
     ret = rfm95_set_state_locked(dev, state);
     rfm95_unlock(dev);
     return ret;
+}
+
+esp_err_t rfm95_tune_rx(rfm95_t *dev, uint32_t frequency_hz, uint32_t *settle_ms)
+{
+    if (dev == NULL || settle_ms == NULL || frequency_hz < 862000000U ||
+        frequency_hz > 1020000000U) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = rfm95_lock(dev);
+    if (err != ESP_OK) return err;
+    if (dev->state != SOLAR_OS_RADIO_STATE_RX && dev->state != SOLAR_OS_RADIO_STATE_STANDBY) {
+        rfm95_unlock(dev);
+        return ESP_ERR_INVALID_STATE;
+    }
+    err = rfm95_set_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+    if (err == ESP_OK) {
+        uint32_t reg = rfm95_frequency_reg(frequency_hz);
+        uint8_t data[3] = {reg >> 16, reg >> 8, reg};
+        err = rfm95_write_burst_locked(dev, REG_FRF_MSB, data, sizeof(data));
+    }
+    if (err == ESP_OK) err = rfm95_set_state_locked(dev, SOLAR_OS_RADIO_STATE_RX);
+    if (err == ESP_OK) {
+        dev->config.frequency_hz = frequency_hz;
+        uint32_t bw = dev->config.rx_bandwidth_hz ? dev->config.rx_bandwidth_hz : 125000U;
+        uint32_t filter_ms = (32000U + bw - 1U) / bw;
+        *settle_ms = filter_ms < 2U ? 2U : filter_ms;
+    }
+    rfm95_unlock(dev);
+    return err;
 }
 
 esp_err_t rfm95_get_status(rfm95_t *dev, solar_os_radio_status_t *status)

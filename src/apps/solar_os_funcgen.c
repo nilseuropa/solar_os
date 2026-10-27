@@ -94,6 +94,7 @@ typedef struct {
     size_t output_count;
     size_t output_index;
     funcgen_control_t selected;
+    solar_os_tui_viewport_t controls;
     funcgen_waveform_t waveform;
     uint32_t frequency_hz;
     uint32_t sweep_end_hz;
@@ -610,8 +611,29 @@ static unsigned funcgen_control_position(funcgen_control_t control)
     }
 }
 
+static void funcgen_draw_text_fit(solar_os_gfx_t *gfx, int x, int baseline,
+                                  int width, const char *text, bool centered)
+{
+    if (width <= 0) return;
+    char fitted[96];
+    strlcpy(fitted, text, sizeof(fitted) - 3U);
+    size_t length = strlen(fitted);
+    if (text[length] != '\0' || (int)solar_os_gfx_text_width(gfx, fitted) > width) {
+        if ((int)solar_os_gfx_text_width(gfx, "...") > width) return;
+        do {
+            if (length > 0U) {
+                length--;
+                while (length > 0U && ((uint8_t)fitted[length] & 0xc0U) == 0x80U) length--;
+            }
+            memcpy(fitted + length, "...", 4U);
+        } while (length > 0U && (int)solar_os_gfx_text_width(gfx, fitted) > width);
+    }
+    if (centered) x += (width - (int)solar_os_gfx_text_width(gfx, fitted)) / 2;
+    solar_os_gfx_text(gfx, x, baseline, fitted);
+}
+
 static void funcgen_draw_knob(solar_os_gfx_t *gfx, int center_x, int center_y,
-                              int radius, funcgen_control_t control)
+                              int radius, int cell_width, funcgen_control_t control)
 {
     static const int8_t indicator_x[] = {-7, -10, -10, -8, -4, 0,
                                          4,  8,   10,  10, 7};
@@ -630,14 +652,72 @@ static void funcgen_draw_knob(solar_os_gfx_t *gfx, int center_x, int center_y,
     char value[24];
     funcgen_control_value(control, value, sizeof(value));
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_12);
-    const char *label = funcgen_control_label(control);
-    solar_os_gfx_text(gfx,
-                      center_x - (int)solar_os_gfx_text_width(gfx, label) / 2,
-                      center_y + radius + 14, label);
+    funcgen_draw_text_fit(gfx, center_x - cell_width / 2, center_y + radius + 14,
+                          cell_width, funcgen_control_label(control), true);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    solar_os_gfx_text(gfx,
-                      center_x - (int)solar_os_gfx_text_width(gfx, value) / 2,
-                      center_y + radius + 28, value);
+    funcgen_draw_text_fit(gfx, center_x - cell_width / 2, center_y + radius + 28,
+                          cell_width, value, true);
+}
+
+static void funcgen_render_compact(solar_os_gfx_t *gfx, int width, int height)
+{
+    const bool tiny = height < 56;
+    const bool micro = width < 160 || height < 80;
+    const int margin = micro ? 2 : 6;
+    const int content_width = width - 2 * margin;
+    char value[48];
+    funcgen_control_value(funcgen.selected, value, sizeof(value));
+    if (height < 32) {
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BITMAP_8);
+        if (height >= 20) funcgen_draw_text_fit(gfx, margin, 8, content_width,
+            funcgen_control_label(funcgen.selected), false);
+        if (height >= 8) funcgen_draw_text_fit(gfx, margin, height - 2,
+            content_width, value, true);
+        return;
+    }
+
+    const int header_y = tiny ? 7 : (micro ? 9 : 14);
+    solar_os_gfx_set_font(gfx, micro ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_12);
+    char heading[24];
+    snprintf(heading, sizeof(heading), width < 160 ? "%u/%u" : "FUNCGEN %u/%u",
+             (unsigned)funcgen.selected + 1U, (unsigned)FUNCGEN_CONTROL_COUNT);
+    const char *state = funcgen.last_error != ESP_OK ? "ERROR" :
+        (micro ? (funcgen.enabled ? "ON" : "OFF") :
+                 (funcgen.enabled ? "OUTPUT ON" : "OUTPUT OFF"));
+    const int state_width = (int)solar_os_gfx_text_width(gfx, state);
+    funcgen_draw_text_fit(gfx, margin, header_y, content_width - state_width - margin,
+                          heading, false);
+    solar_os_gfx_text(gfx, width - margin - state_width, header_y, state);
+
+    const int value_size = height >= 110 ? 20 : (tiny ? 8 : 14);
+    const int value_y = height - (tiny ? 2 : 16);
+    const int label_y = tiny ? height - 14 : value_y - value_size - 6;
+    if (height >= 88) {
+        char status[64];
+        if (funcgen.last_error != ESP_OK)
+            snprintf(status, sizeof(status), "Error: %s", esp_err_to_name(funcgen.last_error));
+        else
+            snprintf(status, sizeof(status), "Output: %s", funcgen_output_label());
+        const int info_y = header_y + 14;
+        funcgen_draw_text_fit(gfx, margin, info_y, content_width, status, false);
+        const int scope_y = info_y + 8;
+        const int scope_height = label_y - (micro ? 8 : 12) - 6 - scope_y;
+        if (scope_height >= 24 && content_width >= 5)
+            solar_os_oscilloscope_widget_draw(funcgen.scope, gfx, margin, scope_y,
+                                              content_width, scope_height);
+    }
+    solar_os_gfx_set_font(gfx, micro ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD_12);
+    funcgen_draw_text_fit(gfx, margin, label_y, content_width,
+                          funcgen_control_label(funcgen.selected), true);
+    solar_os_gfx_set_font(gfx, value_size == 20 ? SOLAR_OS_GFX_FONT_BOLD_20 :
+        (value_size == 14 ? SOLAR_OS_GFX_FONT_BOLD_14 : SOLAR_OS_GFX_FONT_BITMAP_8));
+    funcgen_draw_text_fit(gfx, margin, value_y, content_width, value, true);
+    if (!tiny) {
+        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BITMAP_8);
+        const char *help = width >= 300 ? "L/R select  U/D tune  Space output  Esc exit" :
+            (width >= 96 ? "L/R U/D Spc Esc" : "L/R U/D");
+        funcgen_draw_text_fit(gfx, margin, height - 3, content_width, help, false);
+    }
 }
 
 static void funcgen_render_graphics(solar_os_context_t *ctx)
@@ -650,8 +730,14 @@ static void funcgen_render_graphics(solar_os_context_t *ctx)
     const int height = (int)solar_os_gfx_height(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    if (width < 384 || height < 240) {
+        funcgen_render_compact(gfx, width, height);
+        solar_os_gfx_present(gfx);
+        funcgen.redraw = false;
+        return;
+    }
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_14);
-    solar_os_gfx_text(gfx, 6, 18, "FUNCTION GENERATOR");
+    funcgen_draw_text_fit(gfx, 6, 18, width / 2 - 12, "FUNCTION GENERATOR", false);
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
     char status[64];
     if (funcgen.last_error != ESP_OK) {
@@ -662,8 +748,7 @@ static void funcgen_render_graphics(solar_os_context_t *ctx)
                  funcgen.enabled ? "OUTPUT ON" : "OUTPUT OFF",
                  funcgen_output_label());
     }
-    const int status_x = width - 6 - (int)solar_os_gfx_text_width(gfx, status);
-    solar_os_gfx_text(gfx, status_x > 175 ? status_x : 175, 18, status);
+    funcgen_draw_text_fit(gfx, width / 2 + 6, 18, width / 2 - 12, status, false);
 
     const int scope_y = 28;
     const int scope_height = height >= 280 ? 78 : 58;
@@ -685,12 +770,12 @@ static void funcgen_render_graphics(solar_os_context_t *ctx)
         const int column = (int)(i % 4U);
         const int center_x = 6 + column * cell_width + cell_width / 2;
         const int center_y = controls_top + row * row_height + radius + 2;
-        funcgen_draw_knob(gfx, center_x, center_y, radius,
+        funcgen_draw_knob(gfx, center_x, center_y, radius, cell_width - 6,
                           (funcgen_control_t)i);
     }
     solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    solar_os_gfx_text(gfx, 6, footer_y,
-                      "Left/Right select  Up/Down tune  Space output");
+    funcgen_draw_text_fit(gfx, 6, footer_y, width - 12,
+                          "L/R select  U/D tune  Space output  Esc exit", false);
     solar_os_gfx_present(gfx);
     funcgen.redraw = false;
 }
@@ -701,33 +786,59 @@ static void funcgen_render_tui(void)
         return;
     }
     solar_os_tui_clear(&funcgen.tui);
+    const size_t rows = solar_os_tui_rows(&funcgen.tui);
+    const size_t cols = solar_os_tui_cols(&funcgen.tui);
+    if (rows == 0U || cols == 0U) return;
     char line[128];
-    solar_os_tui_draw_title(&funcgen.tui, "FUNCTION GENERATOR",
-                            funcgen.enabled ? "OUTPUT ON" : "OUTPUT OFF");
-    for (size_t i = 0U; i < FUNCGEN_CONTROL_COUNT; i++) {
+    const size_t top = rows >= 3U ? 1U : 0U;
+    const size_t help_rows = rows >= 2U ? 1U : 0U;
+    const size_t status_rows = rows >= 12U ? 1U : 0U;
+    const size_t visible = rows - top - help_rows - status_rows;
+    if (top) {
+        char detail[24];
+        snprintf(detail, sizeof(detail), "%u/%u %s", (unsigned)funcgen.selected + 1U,
+                 (unsigned)FUNCGEN_CONTROL_COUNT, funcgen.last_error != ESP_OK ? "ERR" :
+                 (funcgen.enabled ? "ON" : "OFF"));
+        solar_os_tui_draw_title(&funcgen.tui, cols >= 44U ? "FUNCTION GENERATOR" :
+                                 (cols >= 20U ? "FUNCGEN" : "GEN"), detail);
+    }
+    funcgen.controls.cursor = (size_t)funcgen.selected;
+    solar_os_tui_viewport_reconcile(&funcgen.controls, FUNCGEN_CONTROL_COUNT, visible);
+    static const char *const short_labels[] = {
+        "Wave", "Freq", "Amp", "Pulse", "Sweep", "End", "Time", "Output",
+    };
+    for (size_t row = 0U; row < visible && funcgen.controls.top + row < FUNCGEN_CONTROL_COUNT; row++) {
+        const size_t i = funcgen.controls.top + row;
         char value[48];
         funcgen_control_value((funcgen_control_t)i, value, sizeof(value));
-        snprintf(line, sizeof(line), "%-13s %s",
-                 funcgen_control_label((funcgen_control_t)i), value);
-        (void)solar_os_tui_addstr(&funcgen.tui, i + 2U, 2U, line,
+        snprintf(line, sizeof(line), cols >= 32U ? "%-13s %s" : "%-6s %s",
+                 cols >= 32U ? funcgen_control_label((funcgen_control_t)i) : short_labels[i], value);
+        (void)solar_os_tui_write_cell(&funcgen.tui, top + row, 0U, cols, line,
                                   funcgen.selected == (funcgen_control_t)i
                                       ? SOLAR_OS_TUI_ATTR_INVERSE
                                       : SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    solar_os_synth_status_t status;
-    solar_os_synth_get_status(&status);
-    snprintf(line, sizeof(line), "Stream: %s  Rate: %" PRIu32 " Hz%s%s",
-             status.running && status.playback_stream[0] != '\0'
-                 ? status.playback_stream
-                 : funcgen_output_label(),
-             status.sample_rate,
-             funcgen.last_error != ESP_OK ? "  Error: " : "",
-             funcgen.last_error != ESP_OK ? esp_err_to_name(funcgen.last_error)
-                                          : "");
-    (void)solar_os_tui_addstr(&funcgen.tui, FUNCGEN_CONTROL_COUNT + 3U, 2U,
-                              line, SOLAR_OS_TUI_ATTR_NORMAL);
-    solar_os_tui_draw_help(&funcgen.tui,
-                           "Arrows select/tune  Space output  Esc exit");
+    if (status_rows) {
+        solar_os_synth_status_t status;
+        solar_os_synth_get_status(&status);
+        snprintf(line, sizeof(line), "Stream: %s  Rate: %" PRIu32 " Hz%s%s",
+                 status.running && status.playback_stream[0] != '\0'
+                     ? status.playback_stream
+                     : funcgen_output_label(),
+                 status.sample_rate,
+                 funcgen.last_error != ESP_OK ? "  Error: " : "",
+                 funcgen.last_error != ESP_OK ? esp_err_to_name(funcgen.last_error)
+                                              : "");
+        (void)solar_os_tui_write_cell(&funcgen.tui, rows - help_rows - 1U, 0U,
+                                      cols, line, SOLAR_OS_TUI_ATTR_NORMAL);
+    }
+    if (help_rows) {
+        const char *help = cols >= 44U ? "L/R select  U/D tune  Space output  Esc exit" :
+            (cols >= 32U ? "L/R U/D  Space on/off  Esc exit" :
+             (cols >= 16U ? "L/R U/D Spc Esc" : "L/R U/D"));
+        (void)solar_os_tui_write_cell(&funcgen.tui, rows - 1U, 0U, cols,
+                                      help, SOLAR_OS_TUI_ATTR_INVERSE);
+    }
     solar_os_tui_refresh(&funcgen.tui);
     funcgen.redraw = false;
 }

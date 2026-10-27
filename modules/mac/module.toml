@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "mac"
+name = "Macintosh Plus"
+version = "0.1.0"
+description = "Macintosh Plus emulator with 4 MiB RAM, SCSI and raw floppy images. User-supplied ROM required."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 2
+minimum_host_api_size = 24
+required_capabilities = ["psram", "gfx"]
+artifact = "solaros_native_mac.app.elf"

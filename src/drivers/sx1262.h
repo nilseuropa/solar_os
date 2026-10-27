@@ -24,6 +24,8 @@ typedef struct {
     int16_t last_rssi_dbm;
     int16_t last_snr_db;
     bool has_last_packet;
+    uint32_t image_cal_min_hz;
+    uint32_t image_cal_max_hz;
     SemaphoreHandle_t mutex;
 } sx1262_t;
 
@@ -38,6 +40,8 @@ esp_err_t sx1262_probe(sx1262_t *dev, uint8_t *chip_mode);
 esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config);
 esp_err_t sx1262_set_state(sx1262_t *dev, solar_os_radio_state_t state);
 esp_err_t sx1262_get_status(sx1262_t *dev, solar_os_radio_status_t *status);
+esp_err_t sx1262_read_rssi(sx1262_t *dev, int16_t *dbm);
+esp_err_t sx1262_tune_rx(sx1262_t *dev, uint32_t frequency_hz, uint32_t *settle_ms);
 esp_err_t sx1262_send(sx1262_t *dev,
                       const solar_os_radio_packet_t *packet,
                       uint32_t timeout_ms);

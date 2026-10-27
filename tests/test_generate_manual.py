@@ -106,6 +106,47 @@ class ManualReleaseLimitTest(unittest.TestCase):
 
         generate_manual.validate_release_pages(pages)
 
+    def test_release_page_count_limit_matches_firmware(self):
+        docs_header = (
+            REPOSITORY / "src/services/solar_os_docs.h"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"^#define SOLAR_OS_DOCS_PAGE_COUNT_MAX (\d+)U$",
+            docs_header,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(
+            generate_manual.RELEASE_PAGE_COUNT_MAX, int(match.group(1))
+        )
+
+    def test_release_manual_with_more_than_256_pages_is_accepted(self):
+        pages = [
+            {"id": f"page-{i}", "release_markdown": "Guide"}
+            for i in range(259)
+        ]
+        generate_manual.validate_release_pages(pages)
+
+    def test_release_manual_page_count_at_limit_is_accepted(self):
+        pages = [
+            {"id": f"page-{i}", "release_markdown": "Guide"}
+            for i in range(generate_manual.RELEASE_PAGE_COUNT_MAX)
+        ]
+        generate_manual.validate_release_pages(pages)
+
+    def test_release_manual_page_count_outside_limit_is_rejected(self):
+        for count in (0, generate_manual.RELEASE_PAGE_COUNT_MAX + 1):
+            with self.subTest(count=count):
+                pages = [
+                    {"id": f"page-{i}", "release_markdown": "Guide"}
+                    for i in range(count)
+                ]
+                with self.assertRaisesRegex(
+                    ValueError, rf"manual has {count} pages"
+                ):
+                    generate_manual.validate_release_pages(pages)
+
     def test_command_names_resolve_to_command_pages(self):
         pages = generate_manual.load_pages(
             REPOSITORY / "doc/manual",

@@ -54,5 +54,7 @@ esp_err_t solar_os_credentials_read_secret(solar_os_credential_id_t record_id,
                                            size_t secret_capacity,
                                            size_t *secret_len);
 esp_err_t solar_os_credentials_remove(solar_os_credential_id_t record_id);
+/* Removes only this instance's secrets, including a retry after a failed save. */
+esp_err_t solar_os_credentials_remove_provider(solar_os_messaging_provider_id_t provider);
 void solar_os_credentials_wipe(void *buffer, size_t length);
 const char *solar_os_credential_kind_name(solar_os_credential_kind_t kind);

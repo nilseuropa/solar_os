@@ -26,6 +26,12 @@
       "type": "string",
       "format": "uri"
     },
+    "flavor_aliases": {
+      "description": "Signed fallback flavor names; exact board/flavor artifacts take precedence.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/flavor_id" },
+      "additionalProperties": { "$ref": "#/$defs/flavor_id" }
+    },
     "release": {
       "type": "object",
       "additionalProperties": false,
@@ -128,6 +134,10 @@
     "git_commit": {
       "type": "string",
       "pattern": "^[0-9a-fA-F]{7,40}$"
+    },
+    "flavor_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,30}$"
     },
     "id": {
       "type": "string",

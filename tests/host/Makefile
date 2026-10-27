@@ -14,12 +14,24 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 .PHONY: all test clean
 
-TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test
-TARGETS += input_action_match_test gesture_completion_test
+TARGETS += lr11xx_test lr11xx_service_test
+TARGETS += can_twai_test
+
+can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ican_stubs -Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
+TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
+TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
+TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
+TARGETS += drv8830_test
+TARGETS += motor_service_test
+TARGETS += encoder_service_test pcnt_encoder_test
+TARGETS += ssd1306_named_bus_test
+TARGETS += expansion_tui_test
 TARGETS += gt911_test
 TARGETS += sdmmc_expansion_test
 TARGETS += axp2101_service_test
@@ -42,19 +54,58 @@ TARGETS += tensor_image_test
 TARGETS += tensor_image_lua_test
 TARGETS += vision_lua_bindings_test
 TARGETS += media_lua_bindings_test
-TARGETS += messaging_service_test
-TARGETS += nmea_test nmea_gnss_test
+TARGETS += messaging_service_test irc_protocol_test gateway_config_test link_messaging_test chat_settings_test meshcore_instances_test
+TARGETS += messages_app_test
+TARGETS += inbox_saved_history_test
+
+inbox_saved_history_test: inbox_saved_history_test.c $(ROOT)/src/services/solar_os_inbox.c $(ROOT)/src/services/solar_os_inbox.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections \
+		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $< -Wl,--gc-sections -o $@
+TARGETS += nmea_test nmea_gnss_test gnss_output_test
+TARGETS += sx1262_test
 TARGETS += cw2017_test
 TARGETS += rtc_pcf8563_test
+TARGETS += rtc_ds3231_test
 TARGETS += tab5_keyboard_test
 TARGETS += i2c_buses_test
 TARGETS += inmp441_test
 TARGETS += epd_pixel_budget_test
 TARGETS += epd_scan_worker_test
-TARGETS += epd_ssd1683_test
+TARGETS += epd_ssd1683_test epd_ssd1683_waveform_test
+TARGETS += shell_table_test
+TARGETS += io_layout_test
+TARGETS += io_layout_can_test
+TARGETS += batmon_job_test
+TARGETS += power_key_test power_key_wired_test power_key_input_test power_key_custom_test
 
-epd_ssd1683_test: epd_ssd1683_test.c $(ROOT)/src/drivers/epd_ssd1683.c $(ROOT)/src/drivers/epd_ssd1683.h $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(wildcard epd_stubs/*.h epd_stubs/driver/*.h)
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/drivers -I$(ROOT)/src/services epd_ssd1683_test.c $(ROOT)/src/drivers/epd_pixel_budget.c -Wl,--gc-sections -o $@
+shell_table_test: shell_table_test.c $(ROOT)/src/shell/solar_os_shell_io.c $(ROOT)/src/shell/solar_os_shell_io.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections \
+		-include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/src/shell -I$(ROOT)/components/u8g2/src/clib \
+		shell_table_test.c $(ROOT)/src/shell/solar_os_shell_io.c -Wl,--gc-sections -o $@
+
+io_layout_can_test: override CFLAGS += -DSOLAR_OS_PACKAGE_CAN_TWAI=1
+io_layout_test io_layout_can_test: io_layout_test.c $(ROOT)/src/apps/solar_os_io.c $(ROOT)/src/services/solar_os_tui_widgets.c $(ROOT)/src/shell/solar_os_shell_expansion_command.c
+	$(CC) $(CFLAGS) -Wno-unused-variable -Wno-format-truncation \
+		-D_GNU_SOURCE -DSPI2_HOST=1 -DSPI3_HOST=2 \
+		-ffunction-sections -fdata-sections -include compat.h -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/apps -I$(ROOT)/src/shell -I$(ROOT)/src/services \
+		-I$(ROOT)/components/u8g2/src/clib io_layout_test.c \
+		$(ROOT)/src/services/solar_os_tui_widgets.c \
+		$(ROOT)/src/shell/solar_os_shell_expansion_command.c -Wl,--gc-sections -o $@
+
+power_key_wired_test: override CFLAGS += -DSOLAR_OS_BOARD_HAS_WIRED_KEYBOARD=1 -DSOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY=SOLAR_OS_KEY_ENTER
+power_key_input_test: override CFLAGS += -DSOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY=SOLAR_OS_KEY_APP_EXIT
+power_key_custom_test: override CFLAGS += -DSOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY=0x09
+power_key_test power_key_wired_test power_key_input_test power_key_custom_test: power_key_test.c $(ROOT)/src/services/solar_os_power.c $(ROOT)/src/services/solar_os_power.h $(wildcard power_stubs/*.h)
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Ipower_stubs -I. \
+		-I$(ROOT)/src/services power_key_test.c -Wl,--gc-sections -o $@
+
+epd_ssd1683_waveform_test: epd_ssd1683_waveform_test.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c $(ROOT)/src/drivers/epd_ssd1683_waveform.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers epd_ssd1683_waveform_test.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c -o $@
+
+epd_ssd1683_test: epd_ssd1683_test.c $(ROOT)/src/drivers/epd_ssd1683.c $(ROOT)/src/drivers/epd_ssd1683.h $(ROOT)/src/drivers/epd_ssd1683_waveform.c $(ROOT)/src/drivers/epd_ssd1683_waveform.h $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(wildcard epd_stubs/*.h epd_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/drivers -I$(ROOT)/src/services epd_ssd1683_test.c $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c -Wl,--gc-sections -o $@
 
 epd_pixel_budget_test: epd_pixel_budget_test.c $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers epd_pixel_budget_test.c $(ROOT)/src/drivers/epd_pixel_budget.c -o $@
@@ -103,6 +154,17 @@ tab5_keyboard_test: tab5_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_o
 		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
 		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
+rtc_ds3231_test: rtc_ds3231_test.c $(ROOT)/src/drivers/rtc_ds3231.c \
+        $(ROOT)/src/drivers/rtc_ds3231.h $(ROOT)/src/services/solar_os_ds3231.c \
+        $(ROOT)/src/services/solar_os_ds3231.h $(ROOT)/src/services/solar_os_ds3231_driver.c \
+        $(ROOT)/src/services/solar_os_rtc.c $(ROOT)/src/services/solar_os_rtc.h \
+        $(ROOT)/src/services/solar_os_time.h freertos/FreeRTOS.h compat.h esp_err.h \
+        $(wildcard expansion_stubs/*.h expansion_stubs/driver/*.h expansion_stubs/soc/*.h)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. \
+		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		rtc_ds3231_test.c $(ROOT)/src/drivers/rtc_ds3231.c $(ROOT)/src/services/solar_os_ds3231.c \
+		$(ROOT)/src/services/solar_os_ds3231_driver.c $(ROOT)/src/services/solar_os_rtc.c -o $@
+
 rtc_pcf8563_test: rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c \
         $(ROOT)/src/drivers/rtc_pcf8563.h $(ROOT)/src/services/solar_os_pcf8563.c \
         $(ROOT)/src/services/solar_os_pcf8563.h
@@ -130,8 +192,12 @@ cw2017_test: cw2017_test.c $(ROOT)/src/drivers/cw2017.c $(ROOT)/src/drivers/cw20
 		cw2017_test.c $(ROOT)/src/drivers/cw2017.c $(ROOT)/src/services/solar_os_cw2017.c -o $@
 TARGETS += pipeline_test pipeline_lua_test
 TARGETS += jobs_admission_test
+TARGETS += shutdown_test
 
-jobs_admission_test: jobs_admission_test.c $(ROOT)/src/solar_os_jobs.c $(ROOT)/src/solar_os_scheduler.c
+shutdown_test: shutdown_test.c $(ROOT)/src/services/solar_os_shutdown.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services $< -o $@
+
+jobs_admission_test: jobs_admission_test.c $(ROOT)/src/solar_os_jobs.c $(ROOT)/src/solar_os_scheduler.c $(ROOT)/src/services/solar_os_shutdown.c
 	$(CC) $(CFLAGS) -DSOLAR_OS_JOBS_MAX=0 -include compat.h -ffunction-sections -fdata-sections \
 		-Ijobs_admission_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		$(filter-out $(ROOT)/src/solar_os_jobs.c,$^) -Wl,--gc-sections -o $@
@@ -202,13 +268,52 @@ EPD_U8G2_TEST_SOURCES := $(addprefix $(ROOT)/components/u8g2/src/clib/, \
         u8g2_setup.c u8g2_buffer.c u8g2_font.c u8g2_ll_hvline.c u8g2_hvline.c \
         u8g2_intersection.c u8x8_setup.c u8x8_display.c)
 
+OLED_U8G2_TEST_SOURCES := $(EPD_U8G2_TEST_SOURCES) $(addprefix $(ROOT)/components/u8g2/src/clib/, \
+        u8x8_byte.c u8x8_cad.c u8x8_message.c u8x8_gpio.c u8g2_message.c \
+        u8x8_d_ssd1306_128x64_noname.c \
+        u8x8_d_ssd1306_128x32.c \
+        u8x8_d_ssd1306_64x48.c \
+        u8x8_d_ssd1306_64x32.c \
+        u8x8_d_ssd1306_96x16.c \
+        u8x8_d_ssd1306_96x40.c \
+        u8x8_d_ssd1306_72x40.c \
+        u8x8_d_ssd1306_48x64.c \
+        u8x8_d_sh1106_64x32.c \
+        u8x8_d_sh1106_72x40.c)
+ssd1306_named_bus_test: ssd1306_named_bus_test.c $(ROOT)/src/drivers/ssd1306.c $(ROOT)/src/drivers/ssd1306.h \
+        $(ROOT)/src/services/solar_os_ssd1306.c $(ROOT)/src/services/solar_os_ssd1306.h $(OLED_U8G2_TEST_SOURCES)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-include compat.h -Iepd_stubs -Iexpansion_stubs -Iinputronic_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/components/u8g2/src/clib \
+		ssd1306_named_bus_test.c $(ROOT)/src/drivers/ssd1306.c $(ROOT)/src/services/solar_os_ssd1306.c \
+		$(OLED_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+
 epd_uc8279_test: epd_uc8279_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/src/drivers/epd_ultrachip.h \
         $(ROOT)/src/drivers/epd_uc8279.c $(ROOT)/src/drivers/epd_uc8279.h \
         $(EPD_U8G2_TEST_SOURCES) \
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
-		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib \
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
 		epd_uc8279_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+
+ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
+        $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib ssd1685_expansion_test.c -o $@
+
+epd_ssd1685_test epd_ssd1677_test epd_uc8179_test epd_uc8279_test ssd1685_expansion_test uc8179_expansion_test uc8279_expansion_test x4pro_expansion_test: $(ROOT)/src/drivers/epd_relax.h $(ROOT)/src/services/solar_os_display_maintenance.h
+epd_ssd1685_test epd_ssd1677_test epd_uc8179_test epd_uc8279_test: epd_relax_contract.h
+
+epd_ssd1685_test: epd_ssd1685_test.c $(ROOT)/src/drivers/epd_ssd1685.c $(ROOT)/src/drivers/epd_ssd1685.h \
+        $(ROOT)/src/drivers/epd_ssd1685_waveform.c $(ROOT)/src/drivers/epd_ssd1685_waveform.h \
+        $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(ROOT)/src/drivers/epd_scan_worker.h \
+        $(EPD_U8G2_TEST_SOURCES) \
+        $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
+		epd_ssd1685_test.c $(ROOT)/src/drivers/epd_ssd1685_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 uc8179_expansion_test: uc8179_expansion_test.c $(ROOT)/src/services/solar_os_uc8179.c \
         $(ROOT)/src/services/solar_os_uc8179_driver.c $(ROOT)/src/drivers/epd_ultrachip.h
@@ -219,29 +324,43 @@ uc8179_expansion_test: uc8179_expansion_test.c $(ROOT)/src/services/solar_os_uc8
 
 epd_uc8179_test: epd_uc8179_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/src/drivers/epd_ultrachip.h \
         $(ROOT)/src/drivers/epd_uc8179.c $(ROOT)/src/drivers/epd_uc8179.h \
+        $(EPD_U8G2_TEST_SOURCES) \
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
-		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib \
-		epd_uc8179_test.c -Wl,--gc-sections -o $@
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
+		epd_uc8179_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 epd_ssd1677_test: epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677.c $(ROOT)/src/drivers/epd_ssd1677.h \
 	$(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
-		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib \
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
 		epd_ssd1677_test.c -Wl,--gc-sections -o $@
 
-messaging_service_test: messaging_service_test.c $(ROOT)/src/services/solar_os_contacts.c \
-        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_types.c \
+irc_protocol_test: irc_protocol_test.c $(ROOT)/src/services/solar_os_irc_protocol.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services $^ -o $@
+
+messages_app_test: $(ROOT)/src/apps/solar_os_messages.c $(ROOT)/src/services/solar_os_tui_widgets.c
+messages_app_test: override CFLAGS += -I$(ROOT)/src/apps -I$(ROOT)/src/shell
+messages_app_test: private MESSAGES_WIDGETS = $(ROOT)/src/services/solar_os_tui_widgets.c
+
+messaging_service_test gateway_config_test link_messaging_test chat_settings_test meshcore_instances_test messages_app_test: %: %.c $(ROOT)/src/services/solar_os_contacts.c \
+        $(ROOT)/src/services/solar_os_meshcore_instances.c $(ROOT)/src/services/solar_os_meshcore_instances.h \
+        $(ROOT)/src/services/solar_os_saved_config.h $(ROOT)/src/services/solar_os_credentials.c \
+        $(ROOT)/src/services/solar_os_link_messaging.c $(ROOT)/src/services/solar_os_link_messaging.h \
+        $(ROOT)/src/services/solar_os_chat.c messaging_service_test.c \
+        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_history.inc $(ROOT)/src/services/solar_os_messaging_registry.inc $(ROOT)/src/services/solar_os_messaging_types.c \
         $(ROOT)/src/services/solar_os_contacts.h $(ROOT)/src/services/solar_os_messaging.h \
         $(ROOT)/src/services/solar_os_messaging_types.h messaging_stubs/freertos/semphr.h \
         $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
+	$(CC) $(CFLAGS) -pthread -D_GNU_SOURCE -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
 		-ffunction-sections -fdata-sections \
 		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/board -I$(ROOT)/src/drivers \
-		messaging_service_test.c $(ROOT)/src/services/solar_os_messaging_types.c \
+		$< $(MESSAGES_WIDGETS) $(ROOT)/src/services/solar_os_messaging_types.c \
 		$(ROOT)/src/services/solar_os_storage.c -Wl,--gc-sections \
 		-Wl,--wrap=solar_os_storage_is_mounted,--wrap=solar_os_storage_sd_is_mounted \
+		-Wl,--wrap=solar_os_storage_flash_is_mounted,--wrap=solar_os_storage_flash_mount_point \
+		-Wl,--wrap=solar_os_storage_sd_mount_point \
 		-Wl,--wrap=solar_os_storage_default_path,--wrap=solar_os_storage_mkdir \
 		-Wl,--wrap=solar_os_storage_remove,--wrap=solar_os_storage_get_usage,--wrap=rename -o $@
 
@@ -371,10 +490,11 @@ ble_multi_peer_test: ble_multi_peer_test.c ble_test_support.c $(ROOT)/src/servic
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -include compat.h -Ible_stubs -I. -I$(ROOT)/src/services \
 		ble_multi_peer_test.c ble_test_support.c -o $@
 
-ble_nimble_test ble_hid_test ble_server_test: %: %.c nimble_test_support.c ble_test_support.c \
+ble_nimble_test ble_hid_test ble_server_test ble_coc_test: %: %.c nimble_test_support.c ble_test_support.c \
 		$(ROOT)/src/services/solar_os_ble_nimble.c $(ROOT)/src/services/solar_os_ble_hid.c \
 		$(ROOT)/src/services/solar_os_ble_hid_report_map.c \
 		$(ROOT)/src/services/solar_os_ble_nimble_server.inc $(ROOT)/src/services/solar_os_ble_hid_hosts.inc \
+		$(ROOT)/src/services/solar_os_ble_nimble_coc.inc \
 		$(ROOT)/src/services/solar_os_ble_hid_name.inc \
 		$(wildcard $(ROOT)/src/services/solar_os_ble*.h) \
 		$(wildcard ble_stubs/freertos/*.h) \
@@ -563,9 +683,9 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test: input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+input_test touch_gesture_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
-		input_test.c $(ROOT)/src/services/solar_os_input.c \
+		$< $(ROOT)/src/services/solar_os_input.c \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
 input_action_match_test: input_action_match_test.c $(ROOT)/src/services/solar_os_input_action_match.c $(ROOT)/src/services/solar_os_input_action_match.h $(ROOT)/src/services/solar_os_input_actions.h
@@ -604,9 +724,9 @@ board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(
 		-DSOLAR_OS_BOARD_HAS_HUMIDITY=1 -DSOLAR_OS_BOARD_HAS_SIMD=1 \
 		board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c -o $@
 
-hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h
+hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h $(ROOT)/src/services/solar_os_ble_hid_report_map.c $(ROOT)/src/services/solar_os_ble_hid_report_map.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
-		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c -o $@
+		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@
 
 ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -656,16 +776,27 @@ ubx_test: ubx_test.c $(ROOT)/src/drivers/ubx.c $(ROOT)/src/drivers/ubx.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
 		ubx_test.c $(ROOT)/src/drivers/ubx.c -o $@
 
+gnss_output_test: gnss_output_test.c gnss_output_fixture.h $(ROOT)/src/drivers/gnss_output.c $(ROOT)/src/drivers/gnss_output.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		gnss_output_test.c $(ROOT)/src/drivers/gnss_output.c -o $@
+
 nmea_test: nmea_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/nmea.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \
 		nmea_test.c $(ROOT)/src/drivers/nmea.c -o $@
 
-nmea_gnss_test: nmea_gnss_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/nmea.h \
+nmea_gnss_test: nmea_gnss_test.c gnss_output_fixture.h $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/nmea.h \
+        $(ROOT)/src/drivers/gnss_output.c $(ROOT)/src/drivers/gnss_output.h \
         $(ROOT)/src/services/solar_os_nmea_gnss.c $(ROOT)/src/services/solar_os_nmea_gnss.h \
         $(ROOT)/src/services/solar_os_gnss.c $(ROOT)/src/services/solar_os_gnss.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
-		nmea_gnss_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/services/solar_os_gnss.c -o $@
+		nmea_gnss_test.c $(ROOT)/src/drivers/nmea.c $(ROOT)/src/drivers/gnss_output.c \
+		$(ROOT)/src/services/solar_os_gnss.c -o $@
+
+sx1262_test: sx1262_test.c $(ROOT)/src/drivers/sx1262.c $(ROOT)/src/drivers/sx1262.h
+	$(CC) $(CFLAGS) -include compat.h \
+		-Igpio_controller_stubs -Iinputronic_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers sx1262_test.c -o $@
 
 gnss_service_test: gnss_service_test.c $(ROOT)/src/services/solar_os_gnss.c $(ROOT)/src/services/solar_os_gnss.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
@@ -729,6 +860,30 @@ pca9685_expansion_test: pca9685_expansion_test.c $(ROOT)/src/drivers/pca9685.c $
 		$(ROOT)/src/services/solar_os_pca9685_driver.c $(ROOT)/src/services/solar_os_pwm.c \
 		$(ROOT)/src/services/solar_os_servo.c -pthread -lm -o $@
 
+drv8830_test: drv8830_test.c $(ROOT)/src/drivers/drv8830.c $(ROOT)/src/drivers/drv8830.h \
+		$(ROOT)/src/services/solar_os_drv8830.c $(ROOT)/src/services/solar_os_drv8830.h \
+		$(ROOT)/src/services/solar_os_drv8830_driver.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_motor.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Igpio_controller_stubs -Ipwm_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		drv8830_test.c $(ROOT)/src/drivers/drv8830.c $(ROOT)/src/services/solar_os_drv8830.c \
+		$(ROOT)/src/services/solar_os_drv8830_driver.c $(ROOT)/src/services/solar_os_motor.c -pthread -lm -o $@
+
+encoder_service_test: encoder_service_test.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_encoder.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services encoder_service_test.c $(ROOT)/src/services/solar_os_encoder.c -pthread -o $@
+
+pcnt_encoder_test: pcnt_encoder_test.c encoder_service_test.c $(wildcard encoder_stubs/driver/*.h) \
+		$(wildcard $(ROOT)/src/drivers/pcnt_encoder.*) $(wildcard $(ROOT)/src/services/solar_os_pcnt_encoder*) \
+		$(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_encoder.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iencoder_stubs -Ipwm_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services pcnt_encoder_test.c \
+		$(ROOT)/src/drivers/pcnt_encoder.c $(ROOT)/src/services/solar_os_pcnt_encoder.c \
+		$(ROOT)/src/services/solar_os_pcnt_encoder_driver.c $(ROOT)/src/services/solar_os_encoder.c -pthread -o $@
+
+motor_service_test: motor_service_test.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_motor.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services motor_service_test.c $(ROOT)/src/services/solar_os_motor.c -pthread -lm -o $@
+
 drv2605_test: drv2605_test.c $(ROOT)/src/drivers/drv2605.c $(ROOT)/src/drivers/drv2605.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
 		drv2605_test.c $(ROOT)/src/drivers/drv2605.c -o $@
@@ -775,6 +930,21 @@ xl9555_test: xl9555_test.c $(ROOT)/src/drivers/xl9555.c \
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
 		xl9555_test.c $(ROOT)/src/drivers/xl9555.c -o $@
 
+lr11xx_test: lr11xx_test.c $(ROOT)/src/drivers/lr11xx.c \
+		$(ROOT)/src/drivers/lr11xx.h \
+		lr11xx_stubs/solar_os_buses.h lr11xx_stubs/esp_rom_sys.h \
+		lr11xx_stubs/driver/gpio.h esp_err.h esp_timer.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -Ilr11xx_stubs -I. -I$(ROOT)/include \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		lr11xx_test.c $(ROOT)/src/drivers/lr11xx.c -o $@
+
+lr11xx_service_test: lr11xx_service_test.c $(ROOT)/src/services/solar_os_lr11xx.c \
+		$(ROOT)/src/services/solar_os_lr11xx.h $(ROOT)/src/drivers/lr11xx.h \
+		lr11xx_stubs/driver/gpio.h esp_err.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ilr11xx_stubs -Iexpansion_stubs \
+		-I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		lr11xx_service_test.c -o $@
+
 st25r3916_test: st25r3916_test.c $(ROOT)/src/drivers/st25r3916.c \
 		$(ROOT)/src/drivers/st25r3916.h esp_err.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
@@ -792,6 +962,10 @@ battery_service_test: battery_service_test.c $(ROOT)/src/services/solar_os_batte
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		battery_service_test.c $(ROOT)/src/services/solar_os_battery.c \
 		$(ROOT)/src/services/solar_os_battery_trend.c -o $@
+
+batmon_job_test: batmon_job_test.c $(ROOT)/src/jobs/solar_os_batmon_job.c $(ROOT)/src/services/solar_os_shutdown.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src \
+		-I$(ROOT)/src/services $< -o $@
 
 battery_trend_test: battery_trend_test.c $(ROOT)/src/services/solar_os_battery_trend.c $(ROOT)/src/services/solar_os_battery_trend.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -922,6 +1096,16 @@ terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/sola
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
 
+EXPANSION_PROFILES_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_expansion_profiles_generated.h
+$(EXPANSION_PROFILES_HEADER): $(ROOT)/boards/expansion_drivers.toml $(ROOT)/scripts/generate_expansion_profiles.py $(ROOT)/scripts/solaros_board_manifest.py
+	python3 $(ROOT)/scripts/generate_expansion_profiles.py --catalog $(ROOT)/boards/expansion_drivers.toml \
+		--packages "expansion_ssd1306 expansion_ssd1683 driver_display_st7305 expansion_ssd1685 expansion_uc8179 expansion_uc8279" --output $@
+
+expansion_tui_test: expansion_tui_test.c $(ROOT)/src/shell/solar_os_shell_expansion_tui.c $(ROOT)/src/services/solar_os_tui_widgets.c $(EXPANSION_PROFILES_HEADER)
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections \
+		-Iexpansion_stubs -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/shell -I$(ROOT)/src/apps \
+		expansion_tui_test.c $(ROOT)/src/services/solar_os_tui_widgets.c -Wl,--gc-sections -o $@
+
 tui_widgets_test: tui_widgets_test.c $(ROOT)/src/services/solar_os_tui_widgets.c $(ROOT)/src/services/solar_os_tui_widgets.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/shell \
@@ -999,22 +1183,32 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
 
 test: $(TARGETS)
+	./can_twai_test
 	./i2c_buses_test
 	./inmp441_test
 	./epd_pixel_budget_test
 	./epd_scan_worker_test
 	./epd_ssd1683_test
+	./epd_ssd1683_waveform_test
 	./lc709203f_test
 	./battery_service_default_test
 	./apple2_app_test
 	./apple2_app_entry_test
 	./cw2017_test
 	./rtc_pcf8563_test
+	./rtc_ds3231_test
 	./axp2101_service_test
 	./messaging_service_test
+	./inbox_saved_history_test
+	./gateway_config_test
+	./link_messaging_test
+	./chat_settings_test
+	./meshcore_instances_test
+	./irc_protocol_test
 	./ble_service_test
 	./ble_multi_peer_test
 	./ble_nimble_test
+	./ble_coc_test
 	./ble_hid_test
 	./ble_lua_bindings_test
 	./writer_buffer_test
@@ -1039,6 +1233,7 @@ test: $(TARGETS)
 	./json_scan_test
 	./keys_test
 	./input_test
+	./touch_gesture_test
 	./unistroke_test
 	./graffiti_test
 	./board_caps_test
@@ -1053,6 +1248,7 @@ test: $(TARGETS)
 	./input_keymap_service_test
 	./cl32_keyboard_test
 	./battery_service_test
+	./batmon_job_test
 	./camera_service_test
 	./script_media_test
 	./script_media_rtsp_test
@@ -1100,6 +1296,13 @@ test: $(TARGETS)
 	./manual_external_metadata_test
 	./terminal_geometry_test
 	./app_exit_result_test
+	./shell_table_test
+	./io_layout_test
+	./io_layout_can_test
+	./power_key_test
+	./power_key_wired_test
+	./power_key_input_test
+	./power_key_custom_test
 	./terminal_preferences_test
 	./tui_widgets_test
 	./wireguard_crypto_test
@@ -1112,7 +1315,9 @@ test: $(TARGETS)
 	./rtc_pcf85063_test
 	./ubx_test
 	./nmea_test
+	./gnss_output_test
 	./nmea_gnss_test
+	./sx1262_test
 	./gnss_service_test
 	./modem_service_test
 	./haptic_service_test
@@ -1127,10 +1332,18 @@ test: $(TARGETS)
 	./pwm_provider_test
 	./pca9685_test
 	./pca9685_expansion_test
+	./drv8830_test
+	./motor_service_test
+	./encoder_service_test
+	./pcnt_encoder_test
+	./ssd1306_named_bus_test
+	./expansion_tui_test
 	./epd_xteink_identify_test
 	./x4pro_expansion_test
 	./gt911_test
 	./sdmmc_expansion_test
+	./epd_ssd1685_test
+	./ssd1685_expansion_test
 	./epd_uc8179_test
 	./uc8179_expansion_test
 	./epd_uc8279_test
@@ -1140,7 +1353,225 @@ test: $(TARGETS)
 	./sim7670_test
 	./st25r3916_test
 	./nfc_service_test
+	./lr11xx_test
+	./lr11xx_service_test
 
 clean:
 	$(RM) $(TARGETS) model_bundle_test inference_lua_json_test zoo_test
 	$(RM) -r generated
+
+# ---------------------------------------------------------------------------
+# SC2 portable crypto/session core (protocol/sc2), see protocol/sc2/README.md.
+# Appended block. Vendor crypto (orlp Ed25519, WireGuard refc) is compiled as
+# separate objects without -Werror; the SC2 sources and tests use $(CFLAGS).
+SC2_DIR := $(ROOT)/protocol/sc2
+SC2_ED_DIR := $(ROOT)/src/vendor/meshcore/ed25519
+SC2_WG_DIR := $(ROOT)/components/wireguard_lwip/src
+SC2_INC := -I$(SC2_DIR)/include -I$(SC2_DIR)/vectors -I$(SC2_ED_DIR) -I$(SC2_WG_DIR)/crypto/refc -I$(SC2_WG_DIR)
+SC2_SRCS := $(sort $(wildcard $(SC2_DIR)/src/*.c))
+SC2_HDRS := $(wildcard $(SC2_DIR)/include/*.h) $(SC2_DIR)/vectors/sc2_vectors.inc sc2_test_util.h
+SC2_VENDOR_SRCS := $(addprefix $(SC2_ED_DIR)/,fe.c ge.c sc.c sha512.c) \
+	$(addprefix $(SC2_WG_DIR)/crypto/refc/,x25519.c chacha20.c chacha20poly1305.c poly1305-donna.c) \
+	$(SC2_WG_DIR)/crypto.c
+SC2_VENDOR_OBJS := $(addprefix sc2_vendor_,$(notdir $(SC2_VENDOR_SRCS:.c=.o)))
+SC2_TARGETS := sc2_crypto_test sc2_session_test sc2_frame_test sc2_relaykey_test sc2_minirelay_test
+# Optional: the same crypto/session tests on the mbedTLS hash backend
+# (SC2_USE_MBEDTLS=1), built against an mbedTLS 3.x source tree. Defaults to
+# the ESP-IDF copy that PlatformIO installs; set SC2_MBEDTLS_DIR= to skip.
+SC2_MBEDTLS_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf/components/mbedtls/mbedtls))
+SC2_MBEDTLS_SRCS = $(addprefix $(SC2_MBEDTLS_DIR)/library/,md.c sha256.c platform_util.c)
+SC2_MBEDTLS_TARGETS := sc2_crypto_mbedtls_test sc2_session_mbedtls_test
+
+define SC2_VENDOR_RULE
+sc2_vendor_$(notdir $(1:.c=.o)): $(1)
+	$$(CC) $$(filter-out -Werror,$$(CFLAGS)) -Wno-sign-compare $$(SC2_INC) -c $(1) -o $$@
+endef
+$(foreach s,$(SC2_VENDOR_SRCS),$(eval $(call SC2_VENDOR_RULE,$(s))))
+
+$(SC2_TARGETS): %: %.c $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) $(SC2_INC) $< $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+$(SC2_MBEDTLS_TARGETS): sc2_%_mbedtls_test: sc2_%_test.c sc2_mbedtls_config.h $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	@test -n "$(SC2_MBEDTLS_DIR)" || { echo "set SC2_MBEDTLS_DIR to an mbedTLS 3.x source tree"; exit 1; }
+	$(CC) $(CFLAGS) -DSC2_USE_MBEDTLS=1 '-DMBEDTLS_CONFIG_FILE="sc2_mbedtls_config.h"' -I. \
+		-I$(SC2_MBEDTLS_DIR)/include $(SC2_INC) $< $(SC2_SRCS) $(SC2_VENDOR_OBJS) $(SC2_MBEDTLS_SRCS) -o $@
+
+.PHONY: sc2-test sc2-mbedtls-test
+sc2-test: $(SC2_TARGETS)
+	./sc2_crypto_test
+	./sc2_session_test
+	./sc2_frame_test
+	./sc2_relaykey_test
+	./sc2_minirelay_test
+
+sc2-mbedtls-test: $(SC2_MBEDTLS_TARGETS)
+	./sc2_crypto_mbedtls_test
+	./sc2_session_mbedtls_test
+
+all: $(SC2_TARGETS)
+test: sc2-test
+ifneq ($(SC2_MBEDTLS_DIR),)
+test: sc2-mbedtls-test
+endif
+TARGETS += $(SC2_TARGETS) $(SC2_MBEDTLS_TARGETS) $(SC2_VENDOR_OBJS)
+
+# SC2 portable device engine (src/services/solar_os_sc2_engine.c) and the
+# selftest/bench shared with the firmware `sc2 selftest` command.
+SC2E_DIR := $(ROOT)/src/services
+SC2E_SRCS := $(SC2E_DIR)/solar_os_sc2_engine.c $(SC2E_DIR)/solar_os_sc2_selftest.c
+SC2E_HDRS := $(SC2E_DIR)/solar_os_sc2_engine.h $(SC2E_DIR)/solar_os_sc2_selftest.h
+
+sc2_engine_test: sc2_engine_test.c $(SC2E_SRCS) $(SC2E_HDRS) $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) $(SC2_INC) -I$(SC2E_DIR) $< $(SC2E_SRCS) $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+sc2_engine_mbedtls_test: sc2_engine_test.c sc2_mbedtls_config.h $(SC2E_SRCS) $(SC2E_HDRS) $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	@test -n "$(SC2_MBEDTLS_DIR)" || { echo "set SC2_MBEDTLS_DIR to an mbedTLS 3.x source tree"; exit 1; }
+	$(CC) $(CFLAGS) -DSC2_USE_MBEDTLS=1 '-DMBEDTLS_CONFIG_FILE="sc2_mbedtls_config.h"' -I. \
+		-I$(SC2_MBEDTLS_DIR)/include $(SC2_INC) -I$(SC2E_DIR) $< $(SC2E_SRCS) $(SC2_SRCS) \
+		$(SC2_VENDOR_OBJS) $(SC2_MBEDTLS_SRCS) -o $@
+
+.PHONY: sc2-engine-test sc2-engine-mbedtls-test
+sc2-engine-test: sc2_engine_test
+	./sc2_engine_test
+
+sc2-engine-mbedtls-test: sc2_engine_mbedtls_test
+	./sc2_engine_mbedtls_test
+
+all: sc2_engine_test
+sc2-test: sc2-engine-test
+test: sc2-engine-test
+ifneq ($(SC2_MBEDTLS_DIR),)
+sc2-mbedtls-test: sc2-engine-mbedtls-test
+endif
+TARGETS += sc2_engine_test sc2_engine_mbedtls_test
+
+# SC2 relay client (sc2-sync state machine) against the mini-relay, in process.
+sc2_client_test: sc2_client_test.c $(SC2E_DIR)/solar_os_sc2_client.c $(SC2E_DIR)/solar_os_sc2_client.h \
+        $(SC2E_SRCS) $(SC2E_HDRS) $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) $(SC2_INC) -I$(SC2E_DIR) $< $(SC2E_DIR)/solar_os_sc2_client.c $(SC2E_SRCS) $(SC2_SRCS) \
+		$(SC2_VENDOR_OBJS) -o $@
+
+.PHONY: sc2-client-test
+sc2-client-test: sc2_client_test
+	./sc2_client_test
+
+all: sc2_client_test
+sc2-test: sc2-client-test
+test: sc2-client-test
+TARGETS += sc2_client_test
+
+sc2_client_lowram_test: sc2_client_test.c $(SC2E_DIR)/solar_os_sc2_client.c $(SC2E_DIR)/solar_os_sc2_client.h \
+        $(SC2E_SRCS) $(SC2E_HDRS) $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) -DSC2_LOW_RAM=1 $(SC2_INC) -I$(SC2E_DIR) $< $(SC2E_DIR)/solar_os_sc2_client.c \
+		$(SC2E_SRCS) $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+.PHONY: sc2-client-lowram-test
+sc2-client-lowram-test: sc2_client_lowram_test
+	./sc2_client_lowram_test
+
+all: sc2_client_lowram_test
+sc2-test: sc2-client-lowram-test
+test: sc2-client-lowram-test
+TARGETS += sc2_client_lowram_test
+
+# SC2 Messaging provider class on the real Messaging registry (SC2 key store stubbed).
+sc2_provider_test: sc2_provider_test.c messaging_service_test.c $(SC2E_DIR)/solar_os_sc2_provider.c \
+        $(SC2E_DIR)/solar_os_sc2_provider.h $(ROOT)/src/services/solar_os_contacts.c \
+        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_registry.inc \
+        $(ROOT)/src/services/solar_os_messaging_types.c $(ROOT)/src/services/solar_os_messaging.h \
+        $(ROOT)/src/services/solar_os_messaging_types.h messaging_stubs/freertos/semphr.h \
+        $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h
+	$(CC) $(CFLAGS) -pthread -D_GNU_SOURCE -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
+		-ffunction-sections -fdata-sections \
+		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(SC2_DIR)/include \
+		-I$(ROOT)/src/board -I$(ROOT)/src/drivers \
+		$< $(ROOT)/src/services/solar_os_messaging_types.c $(SC2_DIR)/src/sc2_codec.c \
+		$(ROOT)/src/services/solar_os_storage.c -Wl,--gc-sections \
+		-Wl,--wrap=solar_os_storage_is_mounted,--wrap=solar_os_storage_sd_is_mounted \
+		-Wl,--wrap=solar_os_storage_flash_is_mounted,--wrap=solar_os_storage_flash_mount_point \
+		-Wl,--wrap=solar_os_storage_sd_mount_point \
+		-Wl,--wrap=solar_os_storage_default_path,--wrap=solar_os_storage_mkdir \
+		-Wl,--wrap=solar_os_storage_remove,--wrap=solar_os_storage_get_usage,--wrap=rename -o $@
+
+.PHONY: sc2-provider-test
+sc2-provider-test: sc2_provider_test
+	./sc2_provider_test
+
+all: sc2_provider_test
+sc2-test: sc2-provider-test
+test: sc2-provider-test
+TARGETS += sc2_provider_test
+
+# SC2 membership commits, relay-signed room.mod events and invites.
+SC2A_TARGETS := sc2_admin_test
+SC2A_MBEDTLS_TARGETS := sc2_admin_mbedtls_test
+
+$(SC2A_TARGETS): %: %.c $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) $(SC2_INC) $< $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+$(SC2A_MBEDTLS_TARGETS): sc2_%_mbedtls_test: sc2_%_test.c sc2_mbedtls_config.h $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	@test -n "$(SC2_MBEDTLS_DIR)" || { echo "set SC2_MBEDTLS_DIR to an mbedTLS 3.x source tree"; exit 1; }
+	$(CC) $(CFLAGS) -DSC2_USE_MBEDTLS=1 '-DMBEDTLS_CONFIG_FILE="sc2_mbedtls_config.h"' -I. \
+		-I$(SC2_MBEDTLS_DIR)/include $(SC2_INC) $< $(SC2_SRCS) $(SC2_VENDOR_OBJS) $(SC2_MBEDTLS_SRCS) -o $@
+
+.PHONY: sc2-admin-test sc2-admin-mbedtls-test
+sc2-admin-test: $(SC2A_TARGETS)
+	./sc2_admin_test
+
+sc2-admin-mbedtls-test: $(SC2A_MBEDTLS_TARGETS)
+	./sc2_admin_mbedtls_test
+
+all: $(SC2A_TARGETS)
+sc2-test: sc2-admin-test
+test: sc2-admin-test
+ifneq ($(SC2_MBEDTLS_DIR),)
+sc2-mbedtls-test: sc2-admin-mbedtls-test
+endif
+TARGETS += $(SC2A_TARGETS) $(SC2A_MBEDTLS_TARGETS)
+
+# The device engine again in the SC2_LOW_RAM profile (builds without PSRAM):
+# same flows, smaller local limits, peak work memory checked against
+# SC2E_WORK_BUDGET.
+sc2_engine_lowram_test: sc2_engine_test.c $(SC2E_SRCS) $(SC2E_HDRS) $(SC2_SRCS) $(SC2_HDRS) $(SC2_VENDOR_OBJS)
+	$(CC) $(CFLAGS) -DSC2_LOW_RAM=1 $(SC2_INC) -I$(SC2E_DIR) $< $(SC2E_SRCS) $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+.PHONY: sc2-engine-lowram-test
+sc2-engine-lowram-test: sc2_engine_lowram_test
+	./sc2_engine_lowram_test
+
+all: sc2_engine_lowram_test
+sc2-test: sc2-engine-lowram-test
+test: sc2-engine-lowram-test
+TARGETS += sc2_engine_lowram_test
+
+# The SolarOS SC2 service on a host directory: aliases, safety-number
+# verification records and public-room notices, with a second
+# in-memory engine as the peer.
+SC2S_SRCS := $(ROOT)/src/services/solar_os_sc2.c $(SC2E_DIR)/solar_os_sc2_client.c $(SC2E_SRCS)
+sc2_service_test: sc2_service_test.c $(SC2S_SRCS) $(ROOT)/src/services/solar_os_sc2.h $(SC2E_HDRS) $(SC2_SRCS) \
+        $(SC2E_DIR)/solar_os_sc2_client.h $(SC2_HDRS) $(SC2_VENDOR_OBJS) sc2_service_stubs/esp_random.h
+	$(CC) $(CFLAGS) -Wno-format-truncation -pthread -D_GNU_SOURCE -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
+		-Isc2_service_stubs -Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $(SC2_INC) \
+		$< $(SC2S_SRCS) $(SC2_SRCS) $(SC2_VENDOR_OBJS) -o $@
+
+.PHONY: sc2-service-test
+sc2-service-test: sc2_service_test
+	./sc2_service_test
+
+all: sc2_service_test
+sc2-test: sc2-service-test
+test: sc2-service-test
+TARGETS += sc2_service_test
+
+# sc2-sync relay choice: failover, return to the primary, fallback visits.
+sc2_relay_policy_test: sc2_relay_policy_test.c $(ROOT)/src/services/solar_os_sc2_relay_policy.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services $< -o $@
+
+.PHONY: sc2-relay-policy-test
+sc2-relay-policy-test: sc2_relay_policy_test
+	./sc2_relay_policy_test
+
+all: sc2_relay_policy_test
+sc2-test: sc2-relay-policy-test
+test: sc2-relay-policy-test
+TARGETS += sc2_relay_policy_test

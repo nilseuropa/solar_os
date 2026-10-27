@@ -75,6 +75,10 @@ def patch(component: Path, kernel_placement: str = "flash") -> None:
     if not re.search(r'''(?m)^version:\s*["']?3\.3\.13["']?\s*$''', manifest):
         raise ValueError("SolarOS ESP-DL overlay requires pinned version 3.3.13")
     replace(component / "dl/model/include/dl_model_base.hpp", OLD, NEW)
+    replace(component / "dl/model/include/dl_model_base.hpp",
+        "    virtual std::map<std::string, TensorBase *> &get_inputs();",
+        "    ModelContext *module_context() { return m_model_context; }\n"
+        "    virtual std::map<std::string, TensorBase *> &get_inputs();")
     for header in ("dl/module/include/dl_module_base.hpp", "dl/tensor/include/dl_tensor_base.hpp"):
         path = component / header
         replace(path, "#pragma once\n", "#pragma once\n#include <new>\n")
@@ -100,6 +104,21 @@ def patch(component: Path, kernel_placement: str = "flash") -> None:
     replace(greedy, "        delete tensor_info[i];", "        delete tensor_info[i];\n        tensor_info[i] = nullptr;")
     patch_workers(component)
     patch_flash_kernels(component, kernel_placement)
+    tool = component / "dl/tool/src/dl_tool.cpp"
+    replace(tool, '#include "dl_tool.hpp"',
+        '#include "dl_tool.hpp"\nextern "C" void *solar_os_memory_dl_alloc(size_t);')
+    replace(tool, "HEAP_IRAM_ATTR void *malloc_aligned(size_t size, uint32_t caps)\n{",
+        "HEAP_IRAM_ATTR void *malloc_aligned(size_t size, uint32_t caps)\n{\n"
+        "    if (caps & MALLOC_CAP_SPIRAM) return solar_os_memory_dl_alloc(size);")
+    replace(tool, "HEAP_IRAM_ATTR void *calloc_aligned(size_t n, size_t size, uint32_t caps)\n{",
+        """HEAP_IRAM_ATTR void *calloc_aligned(size_t n, size_t size, uint32_t caps)
+{
+    if (caps & MALLOC_CAP_SPIRAM) {
+        if (!n || !size || n > SIZE_MAX / size) return nullptr;
+        void *buffer = solar_os_memory_dl_alloc(n * size);
+        if (buffer) memset(buffer, 0, n * size);
+        return buffer;
+    }""")
 
 
 if __name__ == "__main__":

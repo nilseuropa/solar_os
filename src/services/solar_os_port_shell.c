@@ -20,10 +20,11 @@
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_task.h"
+#include "solar_os_shutdown.h"
 #include "solar_os_vt100.h"
 
 #define PORT_SHELL_MAX 4
-#define PORT_SHELL_TASK_STACK 16384
+#define PORT_SHELL_TASK_STACK 24576
 #define PORT_SHELL_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PORT_SHELL_TASK_STACK);
 #define PORT_SHELL_READ_BUF 64
@@ -1032,7 +1033,10 @@ static void port_shell_cleanup(port_shell_state_t *state, uint32_t generation)
             if (!app_session->used || app_session->app == NULL) {
                 continue;
             }
-            solar_os_app_stop(app_session->app, &state->ctx);
+            while (!solar_os_app_stop_checked(app_session->app, &state->ctx)) {
+                /* Retain the context and port until its worker is gone. */
+                vTaskDelay(pdMS_TO_TICKS(SOLAR_OS_TASK_STOP_POLL_MS));
+            }
             port_app_release(app_session);
             portENTER_CRITICAL(&port_shells_lock);
             memset(app_session, 0, sizeof(*app_session));
@@ -1178,6 +1182,13 @@ static void port_shell_run(port_shell_state_t *state)
         port_shell_send_tick(state, now_ms);
         port_shell_process_requests(state);
         port_shell_process_app_operations(state);
+
+        /* Stream ports may return immediately even with a read timeout, and
+         * disconnected ports can keep returning an error. Give the idle task
+         * and the console requesting our close a chance to run in either case. */
+        if (read_len == 0) {
+            vTaskDelay(1);
+        }
     }
 
     SOLAR_OS_LOGI(TAG,
@@ -1626,6 +1637,7 @@ esp_err_t solar_os_port_shell_start_with_options(solar_os_context_t *ctx,
                                                  bool run_startup,
                                                  uint8_t *session_id)
 {
+    if (solar_os_shutdown_requested()) return ESP_ERR_INVALID_STATE;
     solar_os_port_handle_t port = SOLAR_OS_PORT_HANDLE_INIT;
     solar_os_shell_session_t *session = NULL;
     solar_os_shell_terminal_profile_t requested_profile =
@@ -1807,6 +1819,20 @@ esp_err_t solar_os_port_shell_start(solar_os_context_t *ctx,
                                                   session_id);
 }
 
+esp_err_t solar_os_port_shell_prepare_shutdown(void)
+{
+    bool pending = false;
+    portENTER_CRITICAL(&port_shells_lock);
+    for (size_t i = 0; i < PORT_SHELL_MAX; i++) {
+        if (port_shells[i].used) {
+            port_shells[i].stop_requested = true;
+            pending = true;
+        }
+    }
+    portEXIT_CRITICAL(&port_shells_lock);
+    return pending ? ESP_ERR_NOT_FINISHED : ESP_OK;
+}
+
 esp_err_t solar_os_port_shell_stop(uint8_t session_id)
 {
     portENTER_CRITICAL(&port_shells_lock);
@@ -1920,7 +1946,7 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
                  "%s/%s",
                  entry->port_name[0] != '\0' ? entry->port_name : "?",
                  solar_os_shell_terminal_profile_name(entry->terminal_profile));
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-3u %-12.12s %-8s %-9.9s %-8.8s "
                                  "%" PRIu32 "/%" PRIu32 "ms %" PRIu32
                                  "/%" PRIu32 "us n=%" PRIu32 " !%" PRIu32 "\n",
@@ -1942,7 +1968,7 @@ void solar_os_port_shell_print_list(solar_os_shell_io_t *io)
             }
             const char *app_state = app->active ? "active" :
                 app->suspended ? "suspended" : "ready";
-            solar_os_shell_io_printf(
+            solar_os_shell_io_table_printf(
                 io,
                 "%-3u %-12.12s %-8.8s %-9.9s %-8.8s "
                 "%" PRIu32 "/%" PRIu32 "ms %" PRIu32

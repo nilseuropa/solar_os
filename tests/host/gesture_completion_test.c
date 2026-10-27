@@ -39,6 +39,18 @@ static const solar_os_input_source_info_t sources[] = {
         .ready = true,
         .name = "imu0",
     },
+    {
+        .source = 4U,
+        .source_class = SOLAR_OS_INPUT_SOURCE_TOUCH,
+        .capabilities = SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE | SOLAR_OS_INPUT_CAP_GESTURE_EVENTS,
+        .gesture_mask =
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE),
+        .ready = true,
+        .name = "touch0",
+    },
 };
 
 const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture)
@@ -52,6 +64,7 @@ const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture)
         [SOLAR_OS_INPUT_GESTURE_TAP] = "tap",
         [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
         [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
+        [SOLAR_OS_INPUT_GESTURE_SWIPE] = "swipe",
     };
     assert(gesture >= SOLAR_OS_INPUT_GESTURE_FLICK);
     assert(gesture < SOLAR_OS_INPUT_GESTURE_COUNT);
@@ -118,10 +131,11 @@ int main(void)
     assert(contains(&list, "gesture="));
 
     list = complete("source=", NULL);
-    assert(list.count == 3U);
+    assert(list.count == 4U);
     assert(contains(&list, "source=*"));
     assert(contains(&list, "source=skywriter0"));
     assert(contains(&list, "source=imu0"));
+    assert(contains(&list, "source=touch0"));
     assert(!contains(&list, "source=keyboard0"));
 
     list = complete("source=i", NULL);
@@ -135,10 +149,19 @@ int main(void)
     assert(!contains(&list, "gesture=wave"));
 
     list = complete("gesture=", "*");
-    assert(list.count == 3U);
+    assert(list.count == 6U);
     assert(contains(&list, "gesture=flick"));
     assert(contains(&list, "gesture=tap"));
     assert(contains(&list, "gesture=wave"));
+    assert(contains(&list, "gesture=swipe"));
+
+    list = complete("gesture=", "touch0");
+    assert(list.count == 4U);
+    assert(contains(&list, "gesture=tap"));
+    assert(contains(&list, "gesture=double-tap"));
+    assert(contains(&list, "gesture=hold"));
+    assert(contains(&list, "gesture=swipe"));
+    assert(!contains(&list, "gesture=flick"));
 
     list = complete("gesture=", "missing");
     assert(list.count == 0U);

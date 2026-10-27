@@ -7,6 +7,7 @@
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "u8g2.h"
+#include "epd_relax.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,6 +50,7 @@ typedef struct {
     size_t line_buffer_size;
     esp_err_t last_error;
     epd_ssd1677_refresh_mode_t refresh_mode;
+    epd_relax_t relax;
     uint8_t partial_refresh_count;
     uint8_t refresh_log_count;
     int dc_pin;
@@ -71,6 +73,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
                            const epd_ssd1677_config_t *config);
 esp_err_t epd_ssd1677_resume(epd_ssd1677_t *display);
 void epd_ssd1677_deinit(epd_ssd1677_t *display);
+esp_err_t epd_ssd1677_relax(epd_ssd1677_t *display, solar_os_display_relax_phase_t phase);
 u8g2_t *epd_ssd1677_get_u8g2(epd_ssd1677_t *display);
 const char *epd_ssd1677_controller_mode(const epd_ssd1677_t *display);
 const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *display);

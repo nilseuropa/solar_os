@@ -41,6 +41,7 @@ static const char *TAG = "solar_os_wifi";
 #define WIFI_REPEATER_RECONNECT_MAX_MS 30000U
 #define WIFI_REPEATER_AP_SETTLE_MS 100U
 #define WIFI_REPEATER_AP_START_TIMEOUT_MS 1500U
+#define WIFI_RESUME_RECONNECT_ATTEMPTS 3U
 #define WIFI_STA_ROUTE_PRIORITY 100
 
 typedef struct {
@@ -102,6 +103,7 @@ static esp_err_t wifi_async_scan_result;
 static solar_os_wifi_state_t wifi_async_scan_previous_state;
 static esp_timer_handle_t wifi_repeater_reconnect_timer;
 static uint32_t wifi_repeater_reconnect_delay_ms = WIFI_REPEATER_RECONNECT_INITIAL_MS;
+static uint8_t wifi_resume_reconnect_attempts;
 static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 static char wifi_latency_owner[SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
 
@@ -244,6 +246,7 @@ static void wifi_repeater_cancel_reconnect(void)
     }
     wifi_lock();
     wifi_repeater_reconnect_delay_ms = WIFI_REPEATER_RECONNECT_INITIAL_MS;
+    wifi_resume_reconnect_attempts = 0U;
     wifi_unlock();
 }
 
@@ -252,11 +255,13 @@ static void wifi_repeater_reconnect_callback(void *argument)
     (void)argument;
 
     wifi_lock();
-    const bool should_connect = solar_os_wifi_repeater_is_enabled() &&
+    const bool should_connect =
+        (solar_os_wifi_repeater_is_enabled() || wifi_resume_reconnect_attempts != 0U) &&
         wifi_started && wifi_sta_enabled && !wifi_suspended && !wifi_connected &&
         wifi_state == SOLAR_OS_WIFI_STATE_DISCONNECTED;
     if (should_connect) {
         wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
+        if (wifi_resume_reconnect_attempts != 0U) wifi_resume_reconnect_attempts--;
     }
     wifi_unlock();
     if (!should_connect) {
@@ -274,7 +279,11 @@ static void wifi_repeater_reconnect_callback(void *argument)
 
 static void wifi_repeater_schedule_reconnect(void)
 {
-    if (!solar_os_wifi_repeater_is_enabled() || wifi_repeater_reconnect_timer == NULL) {
+    wifi_lock();
+    const bool resume_pending = wifi_resume_reconnect_attempts != 0U;
+    wifi_unlock();
+    if ((!solar_os_wifi_repeater_is_enabled() && !resume_pending) ||
+        wifi_repeater_reconnect_timer == NULL) {
         return;
     }
     if (esp_timer_is_active(wifi_repeater_reconnect_timer)) {
@@ -1172,6 +1181,7 @@ static void wifi_set_started_state(bool started)
 
 static void wifi_disconnect_for_reconfig(void)
 {
+    wifi_repeater_cancel_reconnect();
     const esp_err_t err = esp_wifi_disconnect();
     if (err == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -1196,9 +1206,8 @@ static void wifi_event_handler(void *arg,
             (void)solar_os_network_path_set_ready(wifi_sta_netif, false);
             wifi_lock();
             wifi_clear_link_state();
-            if (!wifi_suspended) {
-                wifi_sta_enabled = false;
-            }
+            /* STOP reports driver state, not the user's requested mode. It
+             * can arrive after resume has already started the radio again. */
             if (!wifi_ap_enabled) {
                 wifi_set_started_state(false);
             } else {
@@ -1566,9 +1575,17 @@ esp_err_t solar_os_wifi_start(void)
 esp_err_t solar_os_wifi_stop(void)
 {
     wifi_repeater_cancel_reconnect();
+    wifi_lock();
+    /* An explicit stop also cancels a failed wake's retained restore state. */
+    wifi_suspended = false;
+    wifi_unlock();
     if (!wifi_initialized || !wifi_started) {
         (void)solar_os_wifi_repeater_disable();
         wifi_lock();
+        wifi_sta_enabled = false;
+        wifi_ap_enabled = false;
+        wifi_ap_running = false;
+        wifi_ap_station_count = 0;
         wifi_state = SOLAR_OS_WIFI_STATE_OFF;
         wifi_unlock();
         return ESP_OK;
@@ -1651,10 +1668,12 @@ esp_err_t solar_os_wifi_resume(void)
     const bool reconnect_sta = wifi_sleep_reconnect_sta;
     wifi_sta_enabled = wifi_sleep_sta_enabled;
     wifi_ap_enabled = wifi_sleep_ap_enabled;
-    wifi_suspended = false;
     wifi_unlock();
 
     if (!was_started) {
+        wifi_lock();
+        wifi_suspended = false;
+        wifi_unlock();
         return ESP_OK;
     }
 
@@ -1681,6 +1700,9 @@ esp_err_t solar_os_wifi_resume(void)
     if (reconnect_sta) {
         wifi_lock();
         wifi_state = SOLAR_OS_WIFI_STATE_CONNECTING;
+        /* A successful connect call only starts association. Give transient
+         * post-wake authentication/disconnect failures bounded retries too. */
+        wifi_resume_reconnect_attempts = WIFI_RESUME_RECONNECT_ATTEMPTS;
         wifi_unlock();
 
         ret = esp_wifi_connect();
@@ -1691,6 +1713,10 @@ esp_err_t solar_os_wifi_resume(void)
             return ret;
         }
     }
+
+    wifi_lock();
+    wifi_suspended = false;
+    wifi_unlock();
 
     SOLAR_OS_LOGI(TAG,
                   "resume: Wi-Fi radio restored, sta=%s ap=%s reconnect=%s",
@@ -1818,6 +1844,7 @@ esp_err_t solar_os_wifi_disconnect(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+    wifi_repeater_cancel_reconnect();
     const esp_err_t ret = esp_wifi_disconnect();
     if (ret != ESP_OK &&
         ret != ESP_ERR_WIFI_NOT_STARTED &&

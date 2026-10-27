@@ -45,18 +45,18 @@ static void print_info(solar_os_shell_io_t *term, const solar_os_servo_info_t *i
     char output[SOLAR_OS_PWM_ENDPOINT_MAX];
     solar_os_pwm_format_output(&c->output, output, sizeof(output));
     if (!detailed) {
-        solar_os_shell_io_printf(term, "%s %s %s owner=%s\r\n",
+        solar_os_shell_io_table_printf(term, "%s %s %s owner=%s\r\n",
             info->name, output, info->enabled ? "enabled" : "disabled", info->owner);
         return;
     }
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
         "%s %s owner=%s %s %" PRIu32 " Hz pulses=%" PRIu32 "..%" PRIu32
         " us angles=%.3f..%.3f deg%s\r\n",
         info->name, output, info->owner, info->enabled ? "enabled" : "disabled",
         c->freq_hz, c->pulse_min_us, c->pulse_max_us,
         c->angle_min_deg, c->angle_max_deg, c->inverted ? " inverted" : "");
     if (info->has_command) {
-        solar_os_shell_io_printf(term, "  commanded %.3f deg / %" PRIu32 " us\r\n",
+        solar_os_shell_io_table_printf(term, "  commanded %.3f deg / %" PRIu32 " us\r\n",
             info->commanded_angle_deg, info->commanded_pulse_us);
     }
 }

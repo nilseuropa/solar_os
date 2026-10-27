@@ -56,6 +56,17 @@ static const terminal_font_family_t terminal_font_families[] = {
 };
 
 static const terminal_text_size_profile_t terminal_text_sizes[SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT] = {
+    [SOLAR_OS_TERMINAL_TEXT_SIZE_8] = {
+        .name = "8",
+        .regular_font = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = u8g2_font_5x8_tf,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = u8g2_font_5x8_tf,
+        },
+        .cell_width = {
+            [SOLAR_OS_TERMINAL_FONT_MONO] = 6,
+            [SOLAR_OS_TERMINAL_FONT_COMPACT] = 6,
+        },
+    },
     [SOLAR_OS_TERMINAL_TEXT_SIZE_10] = {
         .name = "10",
         .regular_font = {
@@ -819,7 +830,7 @@ static void terminal_alloc_scrollback(solar_os_terminal_t *terminal)
 
     terminal->scrollback = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
                                                   sizeof(terminal->scrollback[0]),
-                                                  SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
+                                                  SOLAR_OS_MEMORY_EXTERNAL_RESIDENT,
                                                   "terminal.text");
     terminal->scrollback_bold = solar_os_memory_calloc(SOLAR_OS_TERMINAL_SCROLLBACK_ROWS,
                                                        sizeof(terminal->scrollback_bold[0]),
@@ -1858,7 +1869,10 @@ esp_err_t solar_os_terminal_apply_profile_transient(
 
 bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
 {
-    return terminal != NULL && terminal->dirty;
+    uint32_t epoch;
+    return terminal != NULL &&
+        solar_os_display_terminal_draw_state(terminal->u8g2, &epoch) &&
+        (terminal->dirty || terminal->rendered_display_epoch != epoch);
 }
 
 void solar_os_terminal_invalidate_render(solar_os_terminal_t *terminal)
@@ -2124,9 +2138,12 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
         (void)u8g2_DrawGlyph(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, cell);
     }
     if (underline) {
+        int underline_y = y + 1;
+        const int cell_bottom = y - terminal->cell_ascent + terminal->line_height - 1;
+        if (underline_y > cell_bottom) underline_y = cell_bottom;
         u8g2_DrawHLine(u8g2,
                        (u8g2_uint_t)x,
-                       (u8g2_uint_t)(y + 1),
+                       (u8g2_uint_t)underline_y,
                        terminal->char_width);
     }
     terminal_set_draw_color(terminal, u8g2, 0);
@@ -2951,6 +2968,10 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
         return;
     }
 
+    uint32_t epoch;
+    if (!solar_os_display_terminal_draw_state(terminal->u8g2, &epoch)) return;
+    if (terminal->rendered_display_epoch != epoch) terminal->render_valid = false;
+
     u8g2_t *u8g2 = terminal->u8g2;
     (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     terminal_apply_settings(terminal, false);
@@ -3032,6 +3053,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
         solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
     }
     terminal->rendered_profile_hash = profile_hash;
+    terminal->rendered_display_epoch = epoch;
     terminal->rendered_status_hash = status_hash;
     terminal->rendered_footer_hash = footer_hash;
     terminal->render_valid = true;

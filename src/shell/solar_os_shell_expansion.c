@@ -19,6 +19,7 @@
 #include "solar_os_expansion.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
+#include "solar_os_memory.h"
 #include "solar_os_pins.h"
 #include "solar_os_resources.h"
 #include "solar_os_shell.h"
@@ -60,6 +61,7 @@ static void expansion_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  expansion bus detach <name>");
     solar_os_shell_io_writeln(term, "  expansion bus remove <name>");
     solar_os_shell_io_writeln(term, "  expansion attach <driver> <name> <resource...>");
+    solar_os_shell_io_writeln(term, "  expansion attach <board-device-name>");
     solar_os_shell_io_writeln(term, "  expansion detach <name>");
     solar_os_shell_io_writeln(term, "  expansion export <path>");
 }
@@ -167,7 +169,7 @@ static bool parse_uart_port(const char *text, int *port)
 
 static void print_cap(solar_os_shell_io_t *term, solar_os_board_capability_t cap, const char *name)
 {
-    solar_os_shell_io_printf(term, "%s%s", solar_os_board_has(cap) ? " " : "", solar_os_board_has(cap) ? name : "");
+    solar_os_shell_io_table_printf(term, "%s%s", solar_os_board_has(cap) ? " " : "", solar_os_board_has(cap) ? name : "");
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_I2C || SOLAR_OS_PACKAGE_SERVICE_SPI || \
@@ -180,7 +182,7 @@ static void print_bus_cap(solar_os_shell_io_t *term,
 {
     if (solar_os_board_has(runtime_capability) ||
         solar_os_bus_count_protocol(protocol) > 0) {
-        solar_os_shell_io_printf(term, " %s", name);
+        solar_os_shell_io_table_printf(term, " %s", name);
     }
 }
 #endif
@@ -194,7 +196,7 @@ static void expansion_print_bus_meta(solar_os_shell_io_t *term,
         return;
     }
     const char *state = !info.attached ? "detached" : info.ready ? "ready" : "attached";
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "\n  [%s %s %s %s leases=%u]\n",
                              solar_os_bus_origin_name(info.origin),
                              solar_os_bus_sharing_name(info.sharing),
@@ -217,7 +219,7 @@ static const char *spi_host_name(int host)
 
 static void expansion_print_resources(solar_os_shell_io_t *term)
 {
-    solar_os_shell_io_write(term, "Capabilities:");
+    solar_os_shell_io_table_write(term, "Capabilities:");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_GPIO, "gpio");
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
     print_bus_cap(term,
@@ -257,15 +259,15 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_PWM, "pwm");
     print_cap(term, SOLAR_OS_BOARD_CAP_EXPANSION_I2S, "i2s");
     if (!solar_os_expansion_available()) {
-        solar_os_shell_io_write(term, " none");
+        solar_os_shell_io_table_write(term, " none");
     }
-    solar_os_shell_io_put_char(term, '\n');
-    solar_os_shell_io_put_char(term, '\n');
+    solar_os_shell_io_table_put_char(term, '\n');
+    solar_os_shell_io_table_put_char(term, '\n');
 
     for (size_t i = 0; i < solar_os_gpio_controller_count(); i++) {
         solar_os_gpio_controller_info_t controller;
         if (solar_os_gpio_controller_get(i, &controller)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "GPIO %-5s lines 0..%u\n",
                                      controller.name,
                                      (unsigned)controller.line_count - 1U);
@@ -275,7 +277,7 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
     for (size_t i = 0; i < solar_os_expansion_i2c_bus_count(); i++) {
         solar_os_expansion_i2c_bus_t bus;
         if (solar_os_expansion_get_i2c_bus(i, &bus)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "I2C %-6s port %d SDA GPIO%d SCL GPIO%d speed=%" PRIu32,
                                      bus.name,
                                      bus.port,
@@ -283,7 +285,7 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
                                      bus.scl_pin,
                                      bus.speed_hz);
             expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_I2C);
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
     }
 
@@ -292,28 +294,28 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
         if (!solar_os_expansion_get_spi_bus(i, &bus)) {
             continue;
         }
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "SPI %-6s host %s SCK GPIO%d MISO ",
                                  bus.name,
                                  spi_host_name(bus.host),
                                  bus.sclk_pin);
         if (bus.miso_pin >= 0) {
-            solar_os_shell_io_printf(term, "GPIO%d", bus.miso_pin);
+            solar_os_shell_io_table_printf(term, "GPIO%d", bus.miso_pin);
         } else {
-            solar_os_shell_io_write(term, "none");
+            solar_os_shell_io_table_write(term, "none");
         }
-        solar_os_shell_io_printf(term, " MOSI GPIO%d CS", bus.mosi_pin);
+        solar_os_shell_io_table_printf(term, " MOSI GPIO%d CS", bus.mosi_pin);
         for (size_t cs = 0; cs < bus.cs_count && cs < SOLAR_OS_EXPANSION_SPI_CS_MAX; cs++) {
-            solar_os_shell_io_printf(term, " %s(GPIO%d)", bus.cs[cs].name, bus.cs[cs].pin);
+            solar_os_shell_io_table_printf(term, " %s(GPIO%d)", bus.cs[cs].name, bus.cs[cs].pin);
         }
         expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_SPI);
-        solar_os_shell_io_put_char(term, '\n');
+        solar_os_shell_io_table_put_char(term, '\n');
     }
 
     for (size_t i = 0; i < solar_os_expansion_uart_port_count(); i++) {
         solar_os_expansion_uart_port_t port;
         if (solar_os_expansion_get_uart_port(i, &port)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "UART %-5s port %d TX GPIO%d RX GPIO%d baud=%" PRIu32,
                                      port.name,
                                      port.port,
@@ -321,46 +323,46 @@ static void expansion_print_resources(solar_os_shell_io_t *term)
                                      port.rx_pin,
                                      port.baud_rate);
             expansion_print_bus_meta(term, port.name, SOLAR_OS_BUS_PROTOCOL_UART);
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
     }
 
     for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI); i++) {
         solar_os_bus_info_t bus;
         if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI, i, &bus)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "MIDI %-5s TX GPIO%d RX GPIO%d baud=%" PRIu32,
                                      bus.name,
                                      bus.config.uart.tx_pin,
                                      bus.config.uart.rx_pin,
                                      bus.config.uart.baud_rate);
             expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_MIDI);
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
     }
 
     for (size_t i = 0; i < solar_os_expansion_onewire_bus_count(); i++) {
         solar_os_expansion_onewire_bus_t bus;
         if (solar_os_expansion_get_onewire_bus(i, &bus)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "1WIRE %-4s GPIO%d",
                                      bus.name,
                                      bus.pin);
             expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_ONEWIRE);
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
     }
 
     for (size_t i = 0; i < solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_PS2); i++) {
         solar_os_bus_info_t bus;
         if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &bus)) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "PS2 %-6s CLOCK GPIO%d DATA GPIO%d",
                                      bus.name,
                                      bus.config.ps2.clock_pin,
                                      bus.config.ps2.data_pin);
             expansion_print_bus_meta(term, bus.name, SOLAR_OS_BUS_PROTOCOL_PS2);
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
     }
 }
@@ -483,6 +485,7 @@ static const char *expansion_driver_bus_type(const solar_os_expansion_driver_t *
             return "UART";
         case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
             return "PS/2";
+        case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
         case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
             return "STREAM";
         default:
@@ -535,11 +538,11 @@ static void expansion_print_drivers(solar_os_shell_io_t *term)
             continue;
         }
         if (printed_category) {
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
-        solar_os_shell_io_printf_bold(
+        solar_os_shell_io_table_printf_bold(
             term, "%s\n", solar_os_expansion_category_name(category));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  %-*s %-5s %-6s %s\n",
                                  (int)driver_width,
                                  "DRIVER",
@@ -549,7 +552,7 @@ static void expansion_print_drivers(solar_os_shell_io_t *term)
 
         const char *after;
         do {
-            solar_os_shell_io_printf(
+            solar_os_shell_io_table_printf(
                 term,
                 "  %-*s %-5s %-6s %s%s\n",
                 (int)driver_width,
@@ -570,7 +573,7 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
     case SOLAR_OS_EXPANSION_BINDING_GPIO:
     case SOLAR_OS_EXPANSION_BINDING_ADC:
     case SOLAR_OS_EXPANSION_BINDING_PWM:
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  " %s:%s=GPIO%d",
                                  solar_os_expansion_binding_kind_name(binding->kind),
                                  binding->role,
@@ -578,12 +581,12 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
         if (binding->target[0] == '\0') {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      " gpio_line:%s=GPIO%d",
                                      binding->role,
                                      binding->value);
         } else {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      " gpio_line:%s=%s:%d",
                                      binding->role,
                                      binding->target,
@@ -591,33 +594,34 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         }
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2S_PORT:
-        solar_os_shell_io_printf(term, " i2s=i2s%d", binding->value);
+        solar_os_shell_io_table_printf(term, " i2s=i2s%d", binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  " %s=%s",
                                  solar_os_expansion_binding_kind_name(binding->kind),
                                  binding->target);
         break;
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  " %s=%s",
                                  binding->role,
                                  binding->target);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
-        solar_os_shell_io_printf(term, " addr=0x%02x", binding->value);
+        solar_os_shell_io_table_printf(term, " addr=0x%02x", binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-        solar_os_shell_io_printf(term, " cs:%s=GPIO%d", binding->target, binding->value);
+        solar_os_shell_io_table_printf(term, " cs:%s=GPIO%d", binding->target, binding->value);
         break;
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
-        solar_os_shell_io_printf(term, " uart=%s", binding->target);
+        solar_os_shell_io_table_printf(term, " uart=%s", binding->target);
         break;
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
-        solar_os_shell_io_printf(term, " %s=%d", binding->role, binding->value);
+        solar_os_shell_io_table_printf(term, " %s=%d", binding->role, binding->value);
         break;
     default:
         break;
@@ -628,7 +632,7 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_expansion_device_count();
     if (count == 0) {
-        solar_os_shell_io_writeln(term, "no expansion devices attached");
+        solar_os_shell_io_table_writeln(term, "no expansion devices attached");
         return;
     }
 
@@ -640,11 +644,11 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
         }
 
         if (printed) {
-            solar_os_shell_io_put_char(term, '\n');
+            solar_os_shell_io_table_put_char(term, '\n');
         }
-        solar_os_shell_io_write_bold(term, device.name);
-        solar_os_shell_io_put_char(term, '\n');
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_write_bold(term, device.name);
+        solar_os_shell_io_table_put_char(term, '\n');
+        solar_os_shell_io_table_printf(term,
                                  "  driver: %s\n"
                                  "  origin: %s\n"
                                  "  ready: %s\n"
@@ -657,12 +661,12 @@ static void expansion_print_devices(solar_os_shell_io_t *term)
                                  device.autostart ? "automatic" : "manual",
                                  device.detachable ? "detachable" : "fixed");
         if (device.binding_count == 0) {
-            solar_os_shell_io_write(term, " none");
+            solar_os_shell_io_table_write(term, " none");
         }
         for (size_t b = 0; b < device.binding_count; b++) {
             expansion_print_binding(term, &device.bindings[b]);
         }
-        solar_os_shell_io_put_char(term, '\n');
+        solar_os_shell_io_table_put_char(term, '\n');
         printed = true;
     }
 }
@@ -671,11 +675,11 @@ static void expansion_print_claims(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_resource_claim_count();
     if (count == 0) {
-        solar_os_shell_io_writeln(term, "Claims: none");
+        solar_os_shell_io_table_writeln(term, "Claims: none");
         return;
     }
 
-    solar_os_shell_io_writeln(term, "Claims:");
+    solar_os_shell_io_table_writeln(term, "Claims:");
     for (size_t i = 0; i < count; i++) {
         solar_os_resource_claim_t claim;
         if (!solar_os_resource_get_claim(i, &claim)) {
@@ -691,7 +695,7 @@ static void expansion_print_claims(solar_os_shell_io_t *term)
         } else {
             (void)snprintf(resource, sizeof(resource), "%d", claim.primary);
         }
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  %-10s %-8s %-24s%s%s\n",
                                  solar_os_resource_kind_name(claim.kind),
                                  resource,
@@ -780,12 +784,12 @@ static void expansion_layout_print_rule(solar_os_shell_io_t *term,
                                         int cell_width)
 {
     for (size_t column = 0; column < columns; column++) {
-        solar_os_shell_io_put_char(term, '+');
+        solar_os_shell_io_table_put_char(term, '+');
         for (int i = 0; i < cell_width; i++) {
-            solar_os_shell_io_put_char(term, '-');
+            solar_os_shell_io_table_put_char(term, '-');
         }
     }
-    solar_os_shell_io_writeln(term, "+");
+    solar_os_shell_io_table_writeln(term, "+");
 }
 
 static void expansion_layout_list_connectors(solar_os_shell_io_t *term)
@@ -820,7 +824,7 @@ static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **arg
 {
     solar_os_connector_layout_info_t layout;
     if (!solar_os_connector_layout_get_info(&layout)) {
-        solar_os_shell_io_writeln(term, "expansion layout: no physical connector map for this board");
+        solar_os_shell_io_table_writeln(term, "expansion layout: no physical connector map for this board");
         return;
     }
     if (argc > 3) {
@@ -831,7 +835,7 @@ static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **arg
 
     const char *connector = argc == 3 ? argv[2] : NULL;
     if (connector != NULL && !solar_os_connector_exists(connector)) {
-        solar_os_shell_io_printf(term, "expansion layout: connector '%s' not found\n", connector);
+        solar_os_shell_io_table_printf(term, "expansion layout: connector '%s' not found\n", connector);
         expansion_layout_list_connectors(term);
         return;
     }
@@ -854,8 +858,8 @@ static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **arg
 
     const size_t visible_columns = max_column - min_column + 1U;
     const int cell_width = visible_columns <= 2U ? 18 : visible_columns <= 8U ? 8 : 6;
-    solar_os_shell_io_printf(term, "%s — %s\n", SOLAR_OS_BOARD_NAME, layout.title);
-    solar_os_shell_io_printf(term, "View: %s\n", layout.view);
+    solar_os_shell_io_table_printf(term, "%s — %s\n", SOLAR_OS_BOARD_NAME, layout.title);
+    solar_os_shell_io_table_printf(term, "View: %s\n", layout.view);
     expansion_layout_print_rule(term, visible_columns, cell_width);
     for (size_t row = min_row; row <= max_row; row++) {
         for (size_t column = min_column; column <= max_column; column++) {
@@ -878,16 +882,16 @@ static void expansion_cmd_layout(solar_os_shell_io_t *term, int argc, char **arg
                          expansion_layout_marker(&pin),
                          pin.label != NULL ? pin.label : "?");
             }
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "| %-*.*s",
                                      cell_width - 1,
                                      cell_width - 1,
                                      cell);
         }
-        solar_os_shell_io_writeln(term, "|");
+        solar_os_shell_io_table_writeln(term, "|");
         expansion_layout_print_rule(term, visible_columns, cell_width);
     }
-    solar_os_shell_io_writeln(term,
+    solar_os_shell_io_table_writeln(term,
                               "Legend: * free  ~ releasable  @ claimed  ! fixed/control  + power  - ground  x NC");
 }
 
@@ -1164,6 +1168,7 @@ static const char *expansion_spec_binding_role(
     case SOLAR_OS_EXPANSION_BINDING_ADC:
     case SOLAR_OS_EXPANSION_BINDING_PWM:
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return spec->key;
@@ -1249,11 +1254,11 @@ static bool expansion_parse_driver_binding_token(
                           value,
                           -1,
                           -1);
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
         solar_os_stream_info_t stream;
         return solar_os_stream_get_info(value, &stream) == ESP_OK &&
-            stream.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
-            stream.direction != SOLAR_OS_STREAM_DIRECTION_SINK &&
+            solar_os_expansion_stream_binding_valid(spec->kind, &stream) &&
             binding_store(bindings,
                           binding_count,
                           spec->kind,
@@ -1393,9 +1398,9 @@ static void expansion_print_attach_diagnostics(solar_os_shell_io_t *term, const 
 #endif
 }
 
-static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **argv)
+static void expansion_cmd_attach_with_bindings(solar_os_shell_io_t *term, int argc,
+    char **argv, solar_os_expansion_binding_t *bindings)
 {
-    solar_os_expansion_binding_t bindings[SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX];
     size_t binding_count = 0;
     solar_os_expansion_driver_t driver;
 
@@ -1403,6 +1408,17 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
         solar_os_shell_diag_missing(term, "expansion attach", "driver",
                                     "expansion attach <driver> <name> <resource...>");
         return;
+    }
+    if (argc == 3) {
+        const esp_err_t ret = solar_os_expansion_attach_board_device(argv[2]);
+        if (ret == ESP_OK) {
+            solar_os_shell_io_printf(term, "attached %s (board)\n", argv[2]);
+            return;
+        }
+        if (ret != ESP_ERR_NOT_FOUND) {
+            expansion_print_attach_error(term, argv[2], ret);
+            return;
+        }
     }
     if (!expansion_find_driver(argv[2], &driver)) {
         solar_os_shell_io_printf(term, "expansion attach: unknown driver '%s'\n", argv[2]);
@@ -1483,6 +1499,22 @@ static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **arg
         return;
     }
     solar_os_shell_io_printf(term, "attached %s using %s\n", argv[3], argv[2]);
+}
+
+static void expansion_cmd_attach(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    /* Driver discovery and connection run below this frame on the 8 KiB main
+     * stack when invoked from the display shell. Bindings live until attach
+     * returns, including every validation and transport failure path. */
+    solar_os_expansion_binding_t *bindings = solar_os_memory_alloc(
+        SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX * sizeof(*bindings),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "expansion.attach.bindings");
+    if (bindings == NULL) {
+        solar_os_shell_diag_esp(term, "expansion attach", ESP_ERR_NO_MEM, NULL, NULL);
+        return;
+    }
+    expansion_cmd_attach_with_bindings(term, argc, argv, bindings);
+    solar_os_memory_free(bindings);
 }
 
 static void expansion_cmd_detach(solar_os_shell_io_t *term, int argc, char **argv)

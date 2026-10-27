@@ -19,6 +19,7 @@ QUICK_REFERENCE_HEADING = "quick reference"
 CATALOG_SCHEMA_VERSION = 2
 ARCHIVE_PATH = "manual.zip"
 RELEASE_PAGE_MAX = 128 * 1024
+RELEASE_PAGE_COUNT_MAX = 1024
 AGENT_REFERENCE_CHUNK_MAX = 900
 # Firmware carries the topic directory and enough help to obtain the full
 # signed manual or recover a device. Release artifacts always use full pages.
@@ -52,12 +53,14 @@ EMBEDDED_MANUAL_NOTICE = (
 )
 COMMAND_GITHUB_HREFS = {
     "agent": "agent.md",
+    "encoder": "encoder.md",
     "expansion": "expansion.md",
     "help": "help.md",
     "identity": "identity.md",
     "job": "jobs.md",
     "jobs": "jobs.md",
     "link": "link.md",
+    "motor": "motor.md",
     "servo": "servo.md",
 }
 # Bare names intentionally owned by a richer topic or an earlier focused page.
@@ -73,6 +76,7 @@ DERIVED_ALIAS_OWNERS = {
     ("command.commands", "commands"): "commands",
     ("command.control", "control"): "controls",
     ("command.expansion", "expansion"): "expansion",
+    ("command.encoder", "encoder"): "encoder",
     ("command.gpio", "gpio"): "gpio.analog",
     ("command.help", "help"): "help",
     ("command.i2c", "i2c"): "compatibility.io",
@@ -81,6 +85,7 @@ DERIVED_ALIAS_OWNERS = {
     ("command.jobs", "jobs"): "jobs",
     ("command.link", "link"): "link",
     ("command.meshcore", "meshcore"): "meshcore",
+    ("command.motor", "motor"): "motor",
     ("command.mqtt", "mqtt"): "network",
     ("command.network", "network"): "network",
     ("command.neopixel", "neopixel"): "expansion",
@@ -96,12 +101,14 @@ DERIVED_ALIAS_OWNERS = {
     ("command.wireguard", "wireguard"): "network",
     ("app.agent", "agent"): "agent",
     ("app.contacts", "contacts"): "command.contacts",
+    ("app.dlp", "dlp"): "command.dlp",
     ("app.email", "email"): "command.email",
     ("app.files", "files"): "storage",
     ("app.flash", "flash"): "flash",
     ("app.help", "help"): "help",
     ("app.inbox", "inbox"): "command.inbox",
     ("app.lua", "lua"): "lua",
+    ("app.messages", "messages"): "command.messages",
     ("app.playground", "playground"): "playground",
     ("app.python", "python"): "python",
     ("job.controls", "controls"): "controls",
@@ -969,6 +976,11 @@ def build_archive(pages: list[dict[str, object]]) -> bytes:
 
 
 def validate_release_pages(pages: list[dict[str, object]]) -> None:
+    if not 1 <= len(pages) <= RELEASE_PAGE_COUNT_MAX:
+        raise ValueError(
+            f"manual has {len(pages)} pages; "
+            f"release manuals must have 1..{RELEASE_PAGE_COUNT_MAX} pages"
+        )
     for page in pages:
         page_id = str(page["id"])
         size = len(str(page["release_markdown"]).encode("utf-8"))

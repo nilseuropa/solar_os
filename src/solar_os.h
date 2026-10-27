@@ -34,6 +34,8 @@ typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
 #define SOLAR_OS_APP_FLAG_AXIS_EVENTS (1U << 4)
 /* Receive recognized touchless and touch gesture events. */
 #define SOLAR_OS_APP_FLAG_GESTURE_EVENTS (1U << 5)
+/* Retain the ordinary graphics snapshot even when resume also manages workers. */
+#define SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT (1U << 6)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -165,6 +167,7 @@ struct solar_os_app {
 esp_err_t solar_os_app_start(const solar_os_app_t *app,
                              solar_os_context_t *ctx);
 void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx);
+bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ctx);
 
 typedef enum {
     SOLAR_OS_JOB_KIND_BACKGROUND,

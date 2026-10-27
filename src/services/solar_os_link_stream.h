@@ -12,6 +12,7 @@
 
 typedef struct {
     const char *port_label;
+    uint8_t window_frames;
     uint32_t acknowledgement_delay_ms;
     uint32_t retry_ms;
     uint32_t retry_jitter_ms;
@@ -40,6 +41,8 @@ typedef struct {
     bool port_open;
     bool connected;
     size_t data_mtu;
+    size_t window_frames;
+    size_t tx_credit;
     size_t rx_queued;
     size_t tx_queued;
     size_t tx_inflight;
@@ -85,4 +88,9 @@ esp_err_t solar_os_link_stream_ingest(const char *link,
                                       const solar_os_link_message_t *message,
                                       uint32_t now_ms);
 void solar_os_link_stream_process(const char *link, uint32_t now_ms);
+/* A transport that only listens when its send queue is empty can cap the
+ * configured window to preserve receive turns after each transmission. */
+void solar_os_link_stream_process_with_window(const char *link,
+                                              uint32_t now_ms,
+                                              uint8_t window_limit);
 void solar_os_link_stream_transport_stopped(const char *link);

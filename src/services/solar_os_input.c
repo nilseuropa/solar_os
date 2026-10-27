@@ -29,6 +29,26 @@
 #define INPUT_LEGACY_NVS_NAMESPACE "blekbd"
 #define INPUT_POINTER_CAPABILITIES \
     (SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE | SOLAR_OS_INPUT_CAP_POINTER_RELATIVE)
+#define INPUT_TOUCH_GESTURES \
+    (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) | \
+     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) | \
+     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) | \
+     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE))
+#define INPUT_TOUCH_SLOP 12
+#define INPUT_TOUCH_DOUBLE_SLOP 24
+#define INPUT_TOUCH_TAP_MS 250U
+#define INPUT_TOUCH_DOUBLE_MS 300U
+#define INPUT_TOUCH_HOLD_MS 600U
+#define INPUT_TOUCH_SWIPE_MS 1000U
+#define INPUT_TOUCH_SWIPE_DISTANCE 40
+
+typedef struct {
+    bool pressed, moved, held, pending_tap, second_tap;
+    uint8_t pointer_id;
+    int16_t start_x, start_y, tap_x, tap_y;
+    uint32_t pressed_ms, tap_ms;
+    char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
+} input_touch_state_t;
 
 #define INPUT_LATIN1_A_UMLAUT_UPPER ((uint8_t)0xc4)
 #define INPUT_LATIN1_O_UMLAUT_UPPER ((uint8_t)0xd6)
@@ -68,6 +88,7 @@ typedef struct {
     uint32_t gesture_mask;
     bool ready;
     char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
+    input_touch_state_t touch;
 } input_source_slot_t;
 
 typedef struct {
@@ -100,6 +121,7 @@ static input_pressed_slot_t input_pressed[SOLAR_OS_INPUT_MAX_PRESSED_KEYS];
 static solar_os_input_key_event_t input_queue[INPUT_QUEUE_MAX];
 static size_t input_queue_head;
 static size_t input_queue_count;
+static uint32_t input_key_press_generation;
 static solar_os_input_pointer_event_t *input_pointer_queue;
 static size_t input_pointer_queue_head;
 static size_t input_pointer_queue_count;
@@ -119,6 +141,15 @@ static void *input_pointer_filter_context;
 static input_gesture_observer_slot_t
     input_gesture_observers[INPUT_GESTURE_OBSERVER_MAX];
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
+
+typedef struct {
+    const void *owner;
+    solar_os_input_pointer_sample_t *queue;
+    size_t head, count;
+    bool reset, wait_neutral, boundary;
+    uint32_t boundary_ms;
+} input_pointer_capture_t;
+static input_pointer_capture_t pointer_captures[INPUT_SOURCE_MAX];
 
 #define INPUT_CAPTURE_QUEUE_MAX 32U
 static const void *input_capture_owner;
@@ -230,6 +261,7 @@ static const char *const input_gesture_names[] = {
     [SOLAR_OS_INPUT_GESTURE_TAP] = "tap",
     [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
     [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
+    [SOLAR_OS_INPUT_GESTURE_SWIPE] = "swipe",
 };
 
 static const char *const input_gesture_direction_names[] = {
@@ -457,6 +489,7 @@ static input_pressed_slot_t *input_find_pressed_locked(solar_os_input_source_t s
 {
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active &&
+            input_pressed[i].event.action != SOLAR_OS_INPUT_KEY_RELEASE &&
             input_pressed[i].event.source == source &&
             input_pressed[i].event.physical_key == physical_key) {
             return &input_pressed[i];
@@ -477,6 +510,11 @@ static input_pressed_slot_t *input_alloc_pressed_locked(void)
 
 static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
 {
+    /* Count before capture/queueing: a foreground owner may consume the key
+     * before the desktop polls, and a full queue must not hide wake activity. */
+    if (event != NULL && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
+        input_key_press_generation++;
+    }
     if (event != NULL && input_capture_push_locked(event)) {
         return true;
     }
@@ -490,6 +528,30 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
     input_queue[index] = *event;
     input_queue_count++;
     return true;
+}
+
+static bool input_source_has_releases_locked(solar_os_input_source_t source)
+{
+    for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
+        if (input_pressed[i].active && input_pressed[i].event.source == source &&
+            input_pressed[i].event.action == SOLAR_OS_INPUT_KEY_RELEASE) return true;
+    }
+    for (size_t i = 0; i < input_queue_count; i++) {
+        const solar_os_input_key_event_t *event = &input_queue[(input_queue_head + i) % INPUT_QUEUE_MAX];
+        if (event->source == source && event->action == SOLAR_OS_INPUT_KEY_RELEASE) return true;
+    }
+    return false;
+}
+
+static void input_flush_retired_releases_locked(void)
+{
+    for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS && input_queue_count < INPUT_QUEUE_MAX; i++) {
+        if (input_pressed[i].active && input_pressed[i].event.action == SOLAR_OS_INPUT_KEY_RELEASE) {
+            (void)input_queue_push_locked(&input_pressed[i].event);
+            input_record_key_locked(&input_pressed[i].event);
+            memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
+        }
+    }
 }
 
 static bool input_pointer_queue_push_locked(const solar_os_input_pointer_event_t *event)
@@ -711,7 +773,7 @@ static esp_err_t input_source_open_locked(const char *name,
     }
 
     for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
-        if (input_sources[i].active) {
+        if (input_sources[i].active || input_source_has_releases_locked((solar_os_input_source_t)(i + 1U))) {
             continue;
         }
         input_sources[i].active = true;
@@ -719,8 +781,10 @@ static esp_err_t input_source_open_locked(const char *name,
         input_sources[i].capabilities = capabilities;
         input_sources[i].gesture_mask =
             (capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0U
-                ? SOLAR_OS_INPUT_GESTURE_MASK_ALL
+                ? (source_class == SOLAR_OS_INPUT_SOURCE_TOUCH
+                    ? INPUT_TOUCH_GESTURES : SOLAR_OS_INPUT_GESTURE_MASK_ALL)
                 : 0U;
+        memset(&input_sources[i].touch, 0, sizeof(input_sources[i].touch));
         input_sources[i].ready = ready;
         strlcpy(input_sources[i].name, name, sizeof(input_sources[i].name));
         memset(&input_diagnostics[i], 0, sizeof(input_diagnostics[i]));
@@ -737,6 +801,10 @@ esp_err_t solar_os_input_source_open_typed(const char *name,
                                            bool ready,
                                            solar_os_input_source_t *source)
 {
+    if (source_class == SOLAR_OS_INPUT_SOURCE_TOUCH &&
+        (capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE) != 0U) {
+        capabilities |= SOLAR_OS_INPUT_CAP_GESTURE_EVENTS;
+    }
     if (!input_source_open_args_valid(name, source_class, capabilities, source)) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -921,6 +989,8 @@ esp_err_t solar_os_input_source_set_ready(solar_os_input_source_t source,
     } else {
         input_sources[source - 1U].ready = ready;
         if (!ready) {
+            memset(&input_sources[source - 1U].touch, 0,
+                   sizeof(input_sources[source - 1U].touch));
             input_capture_reset_locked(source);
         }
     }
@@ -1194,6 +1264,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
 
     solar_os_input_pointer_event_t *pointer_queue_to_free = NULL;
+    solar_os_input_pointer_sample_t *capture_queue_to_free = NULL;
     solar_os_input_axis_event_t *axis_queue_to_free = NULL;
     solar_os_input_gesture_event_t *gesture_queue_to_free = NULL;
     portENTER_CRITICAL(&input_lock);
@@ -1206,11 +1277,15 @@ void solar_os_input_source_close(solar_os_input_source_t source)
         return;
     }
 
+    capture_queue_to_free = pointer_captures[source - 1U].queue;
+    memset(&pointer_captures[source - 1U], 0, sizeof(pointer_captures[0]));
+
     solar_os_input_key_event_t retained[INPUT_QUEUE_MAX];
     size_t kept = 0;
     for (size_t i = 0; i < input_queue_count; i++) {
         const size_t read_index = (input_queue_head + i) % INPUT_QUEUE_MAX;
-        if (input_queue[read_index].source != source) {
+        if (input_queue[read_index].source != source ||
+            input_queue[read_index].action == SOLAR_OS_INPUT_KEY_RELEASE) {
             retained[kept++] = input_queue[read_index];
         }
     }
@@ -1261,7 +1336,17 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
-            memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
+            solar_os_input_key_event_t release = input_pressed[i].event;
+            release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+            release.modifiers = 0;
+            if (input_queue_push_locked(&release)) {
+                input_record_key_locked(&release);
+                memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
+            } else {
+                /* Reuse this existing slot until the reader can deliver the
+                 * final release. It is no longer a held or repeatable key. */
+                input_pressed[i].event = release;
+            }
         }
     }
     if (input_repeat.active && input_repeat.source == source) {
@@ -1329,6 +1414,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
     portEXIT_CRITICAL(&input_lock);
     solar_os_memory_free(pointer_queue_to_free);
+    solar_os_memory_free(capture_queue_to_free);
     solar_os_memory_free(axis_queue_to_free);
     solar_os_memory_free(gesture_queue_to_free);
 }
@@ -1408,13 +1494,67 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
     return result;
 }
 
+esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
+                                 uint16_t physical_key, uint16_t usage,
+                                 uint8_t key, uint8_t modifiers)
+{
+    if (physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE) return ESP_ERR_INVALID_ARG;
+    esp_err_t result = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        (input_sources[source - 1U].capabilities & SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0) {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
+        if (pressed && key && pressed->event.key == key &&
+            pressed->event.usage == usage && pressed->event.modifiers == modifiers) {
+            portEXIT_CRITICAL(&input_lock);
+            return ESP_OK;
+        }
+        const size_t needed = (pressed != NULL ? 1U : 0U) + (key != 0 ? 1U : 0U);
+        const bool captured = input_capture_owner != NULL && input_capture_source == source;
+        size_t available = INPUT_QUEUE_MAX - input_queue_count;
+        /* Captured session shortcuts can still route individual transitions to
+         * the desktop. Reserve both possible paths before changing held state. */
+        if (captured && INPUT_CAPTURE_QUEUE_MAX - input_capture_count < available)
+            available = INPUT_CAPTURE_QUEUE_MAX - input_capture_count;
+        input_pressed_slot_t *next = pressed;
+        if (key && !next) next = input_alloc_pressed_locked();
+        if (needed > available || (key && !next)) {
+            result = ESP_ERR_NO_MEM;
+        } else {
+            if (pressed) {
+                solar_os_input_key_event_t release = pressed->event;
+                release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+                release.modifiers = modifiers;
+                (void)input_queue_push_locked(&release);
+                input_record_key_locked(&release);
+                input_repeat_stop_locked(source, physical_key);
+                memset(pressed, 0, sizeof(*pressed));
+            }
+            if (key) {
+                next->active = true;
+                next->event = (solar_os_input_key_event_t){
+                    .source = source, .physical_key = physical_key, .usage = usage,
+                    .key = key, .modifiers = modifiers, .action = SOLAR_OS_INPUT_KEY_PRESS,
+                };
+                (void)input_queue_push_locked(&next->event);
+                input_record_key_locked(&next->event);
+                input_repeat_start_locked(&next->event);
+            }
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return result;
+}
+
 esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
                                        uint16_t physical_key,
                                        uint16_t usage,
                                        uint8_t key,
                                        uint8_t modifiers)
 {
-    if (physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE || key == 0U) {
+    if (key == 0U) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1481,9 +1621,191 @@ esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
     return result;
 }
 
+/* Queue and snapshot under the input lock; invoke observers after unlocking. */
+static bool input_publish_gesture_locked(solar_os_input_source_t source,
+    const solar_os_input_gesture_event_t *event)
+{
+    if (!input_gesture_queue_push_locked(event)) return false;
+    input_source_diagnostics_state_t *diagnostics = &input_diagnostics[source - 1U];
+    input_increment_counter(&diagnostics->gesture_events);
+    diagnostics->has_gesture = true;
+    diagnostics->last_gesture = *event;
+    return true;
+}
+
+typedef struct {
+    solar_os_input_gesture_event_t events[2];
+    size_t count;
+    input_gesture_observer_slot_t observers[INPUT_GESTURE_OBSERVER_MAX];
+} input_touch_delivery_t;
+
+static void input_touch_emit_locked(solar_os_input_source_t source,
+    solar_os_input_gesture_t gesture, solar_os_input_gesture_direction_t direction,
+    int16_t value, input_touch_delivery_t *delivery)
+{
+    if ((input_sources[source - 1U].gesture_mask &
+         SOLAR_OS_INPUT_GESTURE_MASK(gesture)) == 0U) return;
+    const solar_os_input_gesture_event_t event = {
+        .source = source, .gesture = gesture, .direction = direction, .value = value,
+        .flags = gesture == SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP
+            ? SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE : 0U,
+    };
+    if (delivery->count < 2U && input_publish_gesture_locked(source, &event)) {
+        delivery->events[delivery->count++] = event;
+        memcpy(delivery->observers, input_gesture_observers, sizeof(delivery->observers));
+    }
+}
+
+static void input_touch_deliver(const input_touch_delivery_t *delivery)
+{
+    for (size_t e = 0; e < delivery->count; e++) {
+        for (size_t i = 0; i < INPUT_GESTURE_OBSERVER_MAX; i++) {
+            if (delivery->observers[i].observer != NULL)
+                delivery->observers[i].observer(&delivery->events[e],
+                                               delivery->observers[i].context);
+        }
+    }
+}
+
+static bool input_touch_available_locked(solar_os_input_source_t source)
+{
+    const size_t index = source - 1U;
+    if (input_sources[index].source_class != SOLAR_OS_INPUT_SOURCE_TOUCH ||
+        (input_sources[index].capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U)
+        return false;
+    if (!input_sources[index].ready || input_pointer_filter != NULL ||
+        pointer_captures[index].owner != NULL || pointer_captures[index].wait_neutral) {
+        memset(&input_sources[index].touch, 0, sizeof(input_sources[index].touch));
+        return false;
+    }
+    return true;
+}
+
+static int32_t input_touch_abs(int32_t value) { return value < 0 ? -value : value; }
+
+static void input_touch_tick_locked(solar_os_input_source_t source, uint32_t now,
+    input_touch_delivery_t *delivery)
+{
+    input_touch_state_t *touch = &input_sources[source - 1U].touch;
+    if (touch->pressed && (uint32_t)(now - touch->pressed_ms) > INPUT_TOUCH_TAP_MS)
+        touch->second_tap = false;
+    if (touch->pending_tap && !(touch->pressed && touch->second_tap) &&
+        (uint32_t)(now - touch->tap_ms) > INPUT_TOUCH_DOUBLE_MS) {
+        input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_TAP,
+            SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, 1, delivery);
+        touch->pending_tap = false;
+    }
+    if (touch->pressed && !touch->moved && !touch->held &&
+        (uint32_t)(now - touch->pressed_ms) >= INPUT_TOUCH_HOLD_MS) {
+        /* A second contact that becomes a hold cannot complete a double tap. */
+        if (touch->pending_tap) {
+            input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_TAP,
+                SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, 1, delivery);
+            touch->pending_tap = false;
+        }
+        input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_HOLD,
+            SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, INPUT_TOUCH_HOLD_MS, delivery);
+        touch->held = true;
+    }
+}
+
+static void input_touch_pointer_locked(solar_os_input_source_t source,
+    const solar_os_input_pointer_event_t *event, uint32_t now,
+    input_touch_delivery_t *delivery)
+{
+    if (!input_touch_available_locked(source) ||
+        event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE) return;
+    input_touch_state_t *touch = &input_sources[source - 1U].touch;
+    if (event->action == SOLAR_OS_INPUT_POINTER_PRESS) {
+        if (touch->pressed) {
+            /* Overlapping/restarted contacts are not a single-finger stroke. */
+            memset(touch, 0, sizeof(*touch));
+            return;
+        }
+        input_touch_tick_locked(source, now, delivery);
+        touch->second_tap = touch->pending_tap &&
+            strcmp(touch->target, event->target) == 0 &&
+            input_touch_abs((int32_t)event->x - touch->tap_x) <= INPUT_TOUCH_DOUBLE_SLOP &&
+            input_touch_abs((int32_t)event->y - touch->tap_y) <= INPUT_TOUCH_DOUBLE_SLOP;
+        if (touch->pending_tap && !touch->second_tap) {
+            input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_TAP,
+                SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, 1, delivery);
+            touch->pending_tap = false;
+        }
+        touch->pressed = true;
+        touch->moved = touch->held = false;
+        touch->pointer_id = event->pointer_id;
+        touch->start_x = event->x; touch->start_y = event->y;
+        touch->pressed_ms = now;
+        memcpy(touch->target, event->target, sizeof(touch->target));
+        return;
+    }
+    if (!touch->pressed) return;
+    if (touch->pointer_id != event->pointer_id || strcmp(touch->target, event->target)) {
+        memset(touch, 0, sizeof(*touch));
+        return;
+    }
+    const int32_t dx = (int32_t)event->x - touch->start_x;
+    const int32_t dy = (int32_t)event->y - touch->start_y;
+    const int32_t ax = input_touch_abs(dx), ay = input_touch_abs(dy);
+    touch->moved |= ax > INPUT_TOUCH_SLOP || ay > INPUT_TOUCH_SLOP;
+    if (touch->moved || (uint32_t)(now - touch->pressed_ms) > INPUT_TOUCH_TAP_MS)
+        touch->second_tap = false;
+    input_touch_tick_locked(source, now, delivery);
+    if (event->action != SOLAR_OS_INPUT_POINTER_RELEASE) return;
+    const uint32_t duration = now - touch->pressed_ms;
+    touch->pressed = false;
+    if (touch->held) return;
+    if (!touch->moved && duration <= INPUT_TOUCH_TAP_MS) {
+        if (touch->second_tap) {
+            touch->pending_tap = false;
+            input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP,
+                SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, 2, delivery);
+        } else {
+            touch->pending_tap = true;
+            touch->tap_ms = now;
+            touch->tap_x = event->x; touch->tap_y = event->y;
+        }
+    } else if (duration <= INPUT_TOUCH_SWIPE_MS &&
+               ((ax >= INPUT_TOUCH_SWIPE_DISTANCE && ax * 2 >= ay * 3) ||
+                (ay >= INPUT_TOUCH_SWIPE_DISTANCE && ay * 2 >= ax * 3))) {
+        const solar_os_input_gesture_direction_t direction = ax > ay
+            ? (dx > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST : SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST)
+            : (dy > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH : SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
+        const int32_t distance = ax > ay ? ax : ay;
+        input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_SWIPE, direction,
+            distance > INT16_MAX ? INT16_MAX : (int16_t)distance, delivery);
+    }
+}
+
+void solar_os_input_poll(void)
+{
+    for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+        const solar_os_input_source_t source = (solar_os_input_source_t)(i + 1U);
+        input_touch_delivery_t delivery = {0};
+        portENTER_CRITICAL(&input_lock);
+        if (input_source_valid_locked(source) && input_touch_available_locked(source))
+            input_touch_tick_locked(source, input_now_ms(), &delivery);
+        portEXIT_CRITICAL(&input_lock);
+        input_touch_deliver(&delivery);
+    }
+}
+
 esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event)
 {
+    if (event == NULL) return ESP_ERR_INVALID_ARG;
+    const solar_os_input_pointer_sample_t sample = {
+        .event = *event, .time_ms = input_now_ms(),
+    };
+    return solar_os_input_write_pointer_sample(source, &sample);
+}
+
+esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
+    const solar_os_input_pointer_sample_t *sample)
+{
+    if (sample == NULL) return ESP_ERR_INVALID_ARG;
+    const solar_os_input_pointer_event_t *event = &sample->event;
     if (event == NULL || event->mode > SOLAR_OS_INPUT_POINTER_RELATIVE ||
         event->action > SOLAR_OS_INPUT_POINTER_RELEASE ||
         event->target[SOLAR_OS_INPUT_POINTER_TARGET_MAX - 1U] != '\0') {
@@ -1491,6 +1813,7 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
     }
 
     esp_err_t result = ESP_OK;
+    input_touch_delivery_t delivery = {0};
     portENTER_CRITICAL(&input_lock);
     if (!input_source_valid_locked(source) ||
         (event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
@@ -1502,6 +1825,14 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
         input_pointer_queue == NULL) {
         result = ESP_ERR_INVALID_STATE;
     } else {
+        input_pointer_capture_t *capture = &pointer_captures[source - 1U];
+        if (capture->boundary && (int32_t)(sample->time_ms - capture->boundary_ms) <= 0) {
+            /* A producer may still have interrupt samples from before the
+             * claim/release boundary. They belong to the discarded gesture. */
+            portEXIT_CRITICAL(&input_lock);
+            return ESP_OK;
+        }
+        capture->boundary = false;
         input_source_diagnostics_state_t *diagnostics =
             &input_diagnostics[source - 1U];
         solar_os_input_pointer_event_t raw = *event;
@@ -1509,9 +1840,28 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
         solar_os_input_pointer_event_t queued = raw;
         input_apply_calibration_locked(diagnostics, &queued);
         queued.source = source;
-        if (!input_pointer_queue_push_locked(&queued)) {
-            result = ESP_ERR_NO_MEM;
+        bool accepted = true;
+        if (capture->owner != NULL) {
+            input_capture_activity = true;
+            if (capture->count == INPUT_POINTER_QUEUE_MAX) {
+                capture->head = capture->count = 0;
+                capture->reset = true;
+            }
+            const size_t index = (capture->head + capture->count++) % INPUT_POINTER_QUEUE_MAX;
+            capture->queue[index] = *sample;
+            capture->queue[index].event = queued;
+        } else if (capture->wait_neutral) {
+            capture->wait_neutral = queued.buttons != 0 ||
+                queued.action == SOLAR_OS_INPUT_POINTER_PRESS;
         } else {
+            accepted = input_pointer_queue_push_locked(&queued);
+        }
+        if (!accepted) {
+            result = ESP_ERR_NO_MEM;
+            memset(&input_sources[source - 1U].touch, 0,
+                   sizeof(input_sources[source - 1U].touch));
+        } else {
+            input_touch_pointer_locked(source, &queued, sample->time_ms, &delivery);
             input_increment_counter(&diagnostics->pointer_events);
             diagnostics->has_pointer = true;
             diagnostics->last_pointer.event = queued;
@@ -1522,7 +1872,106 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_touch_deliver(&delivery);
     return result;
+}
+
+static void input_pointer_discard_queued_locked(solar_os_input_source_t source)
+{
+    const size_t count = input_pointer_queue_count;
+    for (size_t i = 0; i < count; i++) {
+        const solar_os_input_pointer_event_t event = input_pointer_queue[input_pointer_queue_head];
+        input_pointer_queue_head = (input_pointer_queue_head + 1U) % INPUT_POINTER_QUEUE_MAX;
+        input_pointer_queue_count--;
+        if (event.source != source) (void)input_pointer_queue_push_locked(&event);
+    }
+}
+
+esp_err_t solar_os_input_capture_pointer(const char *name, const void *owner,
+                                         solar_os_input_source_t *source)
+{
+    if (name == NULL || owner == NULL || source == NULL) return ESP_ERR_INVALID_ARG;
+    *source = SOLAR_OS_INPUT_SOURCE_INVALID;
+    solar_os_input_pointer_sample_t *queue = solar_os_memory_calloc(
+        INPUT_POINTER_QUEUE_MAX, sizeof(*queue), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+        "input.pointer.capture");
+    if (!queue) return ESP_ERR_NO_MEM;
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    portENTER_CRITICAL(&input_lock);
+    for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+        if (!input_sources[i].active || strcmp(input_sources[i].name, name)) continue;
+        input_pointer_capture_t *capture = &pointer_captures[i];
+        const solar_os_input_pointer_event_t *last = &input_diagnostics[i].last_pointer.event;
+        if (!(input_sources[i].capabilities & INPUT_POINTER_CAPABILITIES) || !input_sources[i].ready) {
+            err = ESP_ERR_NOT_SUPPORTED;
+        } else if (capture->owner || last->buttons || last->action == SOLAR_OS_INPUT_POINTER_PRESS ||
+                   capture->wait_neutral) {
+            err = ESP_ERR_INVALID_STATE;
+        } else {
+            *capture = (input_pointer_capture_t){.owner = owner, .queue = queue,
+                .boundary = true, .boundary_ms = input_now_ms()};
+            *source = (solar_os_input_source_t)(i + 1U);
+            memset(&input_sources[i].touch, 0, sizeof(input_sources[i].touch));
+            input_pointer_discard_queued_locked(*source);
+            queue = NULL;
+            err = ESP_OK;
+        }
+        break;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    solar_os_memory_free(queue);
+    return err;
+}
+
+void solar_os_input_release_pointer(solar_os_input_source_t source, const void *owner)
+{
+    solar_os_input_pointer_sample_t *queue = NULL;
+    portENTER_CRITICAL(&input_lock);
+    if (input_source_valid_locked(source) && owner && pointer_captures[source - 1U].owner == owner) {
+        input_pointer_capture_t *capture = &pointer_captures[source - 1U];
+        const solar_os_input_pointer_event_t *last = &input_diagnostics[source - 1U].last_pointer.event;
+        memset(&input_sources[source - 1U].touch, 0,
+               sizeof(input_sources[source - 1U].touch));
+        queue = capture->queue;
+        *capture = (input_pointer_capture_t){.wait_neutral = last->buttons != 0 ||
+            last->action == SOLAR_OS_INPUT_POINTER_PRESS, .boundary = true,
+            .boundary_ms = input_now_ms()};
+        input_pointer_discard_queued_locked(source);
+    }
+    portEXIT_CRITICAL(&input_lock);
+    solar_os_memory_free(queue);
+}
+
+esp_err_t solar_os_input_read_captured_pointer(solar_os_input_source_t source,
+    const void *owner, solar_os_input_pointer_sample_t *sample, bool *reset)
+{
+    if (!owner || !sample || !reset) return ESP_ERR_INVALID_ARG;
+    *reset = false;
+    esp_err_t err = ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&input_lock);
+    if (input_source_valid_locked(source) && input_sources[source - 1U].ready &&
+        pointer_captures[source - 1U].owner == owner) {
+        input_pointer_capture_t *capture = &pointer_captures[source - 1U];
+        *reset = capture->reset;
+        capture->reset = false;
+        err = ESP_ERR_NOT_FOUND;
+        if (capture->count) {
+            *sample = capture->queue[capture->head];
+            capture->head = (capture->head + 1U) % INPUT_POINTER_QUEUE_MAX;
+            capture->count--;
+            err = ESP_OK;
+        }
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return err;
+}
+
+bool solar_os_input_pointer_is_captured(solar_os_input_source_t source)
+{
+    portENTER_CRITICAL(&input_lock);
+    const bool captured = input_source_valid_locked(source) && pointer_captures[source - 1U].owner != NULL;
+    portEXIT_CRITICAL(&input_lock);
+    return captured;
 }
 
 esp_err_t solar_os_input_pointer_apply_orientation(
@@ -1813,6 +2262,8 @@ esp_err_t solar_os_input_pointer_filter_register(
     } else {
         input_pointer_filter = filter;
         input_pointer_filter_context = context;
+        for (size_t i = 0; i < INPUT_SOURCE_MAX; i++)
+            memset(&input_sources[i].touch, 0, sizeof(input_sources[i].touch));
     }
     portEXIT_CRITICAL(&input_lock);
     return result;
@@ -1952,6 +2403,14 @@ bool solar_os_input_read_captured_key(const void *owner,
     return found;
 }
 
+uint32_t solar_os_input_key_press_generation(void)
+{
+    portENTER_CRITICAL(&input_lock);
+    const uint32_t generation = input_key_press_generation;
+    portEXIT_CRITICAL(&input_lock);
+    return generation;
+}
+
 bool solar_os_input_take_captured_activity(void)
 {
     portENTER_CRITICAL(&input_lock);
@@ -1968,8 +2427,15 @@ size_t solar_os_input_read_events(solar_os_input_key_event_t *events, size_t eve
     }
 
     portENTER_CRITICAL(&input_lock);
-    input_queue_repeat_if_due_locked();
     size_t count = 0;
+    for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS && count < event_count; i++) {
+        if (input_pressed[i].active && input_pressed[i].event.action == SOLAR_OS_INPUT_KEY_RELEASE) {
+            events[count++] = input_pressed[i].event;
+            input_record_key_locked(&input_pressed[i].event);
+            memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
+        }
+    }
+    input_queue_repeat_if_due_locked();
     while (count < event_count && input_queue_count > 0) {
         events[count++] = input_queue[input_queue_head];
         input_queue_head = (input_queue_head + 1U) % INPUT_QUEUE_MAX;
@@ -2061,6 +2527,7 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
     }
 
     portENTER_CRITICAL(&input_lock);
+    input_flush_retired_releases_locked();
     input_queue_repeat_if_due_locked();
     solar_os_input_key_event_t retained[INPUT_QUEUE_MAX];
     size_t kept = 0;
@@ -2090,12 +2557,13 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
             buffer[count++] = (char)SOLAR_OS_KEY_ALT_PREFIX;
         }
         if (emits_char) {
-            buffer[count++] = (char)event.key;
+            buffer[count++] = (char)solar_os_input_translate_char_key(event.key, event.modifiers);
         }
     }
     memcpy(input_queue, retained, kept * sizeof(retained[0]));
     input_queue_head = 0;
     input_queue_count = kept;
+    input_flush_retired_releases_locked();
     portEXIT_CRITICAL(&input_lock);
     return count;
 }
@@ -2124,7 +2592,7 @@ size_t solar_os_input_get_pressed(solar_os_input_key_event_t *keys, size_t key_c
     portENTER_CRITICAL(&input_lock);
     size_t count = 0;
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS && count < key_count; i++) {
-        if (input_pressed[i].active) {
+        if (input_pressed[i].active && input_pressed[i].event.action != SOLAR_OS_INPUT_KEY_RELEASE) {
             keys[count++] = input_pressed[i].event;
         }
     }
@@ -2424,6 +2892,29 @@ static uint8_t input_usage_to_nav_key(uint16_t usage, uint8_t modifiers)
             (shift ? SOLAR_OS_KEY_SHIFT_UP : SOLAR_OS_KEY_UP);
     default: return 0;
     }
+}
+
+uint8_t solar_os_input_translate_char_key(uint8_t key, uint8_t modifiers)
+{
+    uint16_t usage = 0;
+    switch (key) {
+    case SOLAR_OS_KEY_UP: usage = 0x52; break;
+    case SOLAR_OS_KEY_DOWN: usage = 0x51; break;
+    case SOLAR_OS_KEY_LEFT: usage = 0x50; break;
+    case SOLAR_OS_KEY_RIGHT: usage = 0x4f; break;
+    case SOLAR_OS_KEY_HOME: usage = 0x4a; break;
+    case SOLAR_OS_KEY_END: usage = 0x4d; break;
+    case SOLAR_OS_KEY_PAGE_UP: usage = 0x4b; break;
+    case SOLAR_OS_KEY_PAGE_DOWN: usage = 0x4e; break;
+    default: break;
+    }
+    if (usage) return input_usage_to_nav_key(usage, modifiers);
+    if ((modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0U) {
+        if (key >= 'a' && key <= 'z') return (uint8_t)(key - 'a' + 1U);
+        if (key >= '@' && key <= '_') return key & 0x1fU;
+        if (key == '?') return 0x7fU;
+    }
+    return key;
 }
 
 static uint8_t input_usage_to_control(uint16_t usage,

@@ -1,4 +1,5 @@
 #include "solar_os_jobs.h"
+#include "solar_os_shutdown.h"
 
 #include <stdio.h>
 #include <inttypes.h>
@@ -537,6 +538,7 @@ bool solar_os_jobs_inspect_by_name(
 
 esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv)
 {
+    if (solar_os_shutdown_requested()) return ESP_ERR_INVALID_STATE;
     esp_err_t ret = solar_os_jobs_init();
     if (ret != ESP_OK) {
         return ret;
@@ -751,6 +753,11 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
         portEXIT_CRITICAL(&jobs_lock);
         return ESP_ERR_INVALID_STATE;
     }
+    if (solar_os_shutdown_requested() && runtime->callback_refs != 0) {
+        /* Keep the scheduler free to drain requests from the callback. */
+        portEXIT_CRITICAL(&jobs_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (runtime->state != SOLAR_OS_JOB_RUNNING) {
         solar_os_job_pending_start_t *pending = runtime->pending_start;
         runtime->pending_start = NULL;
@@ -790,6 +797,20 @@ esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
         vTaskDelay(1);
     }
     job_complete_stop(runtime, generation, active_job, ctx);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_jobs_prepare_shutdown(solar_os_context_t *ctx)
+{
+    const size_t count = solar_os_jobs_count();
+    for (size_t i = 0; i < count; i++) {
+        solar_os_job_status_t status;
+        if (!solar_os_jobs_get(i, &status)) continue;
+        /* STOPPED may still have an outstanding stop callback. */
+        const esp_err_t err = solar_os_jobs_stop(ctx, status.name);
+        if (err == ESP_ERR_INVALID_STATE) return ESP_ERR_NOT_FINISHED;
+        if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) return err;
+    }
     return ESP_OK;
 }
 
@@ -841,6 +862,7 @@ esp_err_t solar_os_jobs_mark_stopped(const char *name,
 
 static void job_retry_pending_start(size_t index, solar_os_context_t *ctx)
 {
+    if (solar_os_shutdown_requested()) return;
     const solar_os_job_t *job = NULL;
     solar_os_job_pending_start_t *pending = NULL;
     uint32_t generation = 0;

@@ -36,7 +36,7 @@ class NativeRunScopesTest(unittest.TestCase):
             Path(tmp, "native_run.inc").write_text(scope + "\n" + functions)
             binary = Path(tmp, "scopes")
             subprocess.run([
-                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", tmp,
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread", "-I", tmp,
                 "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
                 "-I", str(ROOT / "src/services"),
                 str(ROOT / "tests/host/native_run_scopes_test.c"), "-o", str(binary),

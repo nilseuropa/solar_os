@@ -1,9 +1,8 @@
-#include "solar_os_inference_backend.h"
+#include "solar_os_espdl_backend.h"
 #include "solar_os_espdl_validate.h"
 extern "C" {
 #include "solar_os_memory.h"
 }
-#include "solar_os_storage.h"
 #include "dl_model_base.hpp"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -13,6 +12,7 @@ extern "C" {
 #include <cstring>
 #include <memory>
 #include <new>
+#include <vector>
 
 /* All backend operations, including destruction, use service admission. */
 static size_t resident_backends;
@@ -23,6 +23,50 @@ struct solar_os_inference_backend {
     std::unique_ptr<fbs::FbsModel> fbs;
     std::unique_ptr<dl::Model> model;
     size_t layers = 0;
+    struct workspace_binding { dl::TensorBase *tensor; size_t offset; };
+    std::vector<workspace_binding> workspace_bindings;
+    size_t workspace_bytes = 0;
+    void release_workspace()
+    {
+        if (!workspace_bytes) return;
+        for (auto &binding : workspace_bindings) binding.tensor->data = nullptr;
+        model->module_context()->root_free();
+    }
+    bool acquire_workspace()
+    {
+        if (!workspace_bytes) return true;
+        auto *context = model->module_context();
+        if (!context->root_alloc(0, workspace_bytes)) return false;
+        auto *root = static_cast<uint8_t *>(context->get_psram_root());
+        for (auto &binding : workspace_bindings) binding.tensor->data = root + binding.offset;
+        return true;
+    }
+    void capture_workspace()
+    {
+        auto *context = model->module_context();
+        dl::mem_info_t memory = {};
+        context->get_variable_memory_size(memory);
+        if (memory.internal || !memory.psram) return;
+        const uintptr_t root = reinterpret_cast<uintptr_t>(context->get_psram_root());
+        /* Parameters are persistent. If a future memory planner places them
+         * in the root too, retain that root instead of discarding weights. */
+        for (auto *tensor : context->m_parameters) {
+            if (!tensor) continue;
+            const uintptr_t data = reinterpret_cast<uintptr_t>(tensor->data);
+            if (data >= root && data - root < memory.psram) return;
+        }
+        auto capture = [&](const std::vector<dl::TensorBase *> &tensors) {
+            for (auto *tensor : tensors) {
+                if (!tensor) continue;
+                const uintptr_t data = reinterpret_cast<uintptr_t>(tensor->data);
+                if (data >= root && data - root < memory.psram)
+                    workspace_bindings.push_back({tensor, data - root});
+            }
+        };
+        capture(context->m_variables);
+        workspace_bytes = memory.psram;
+        release_workspace();
+    }
     dl::runtime_mode_t mode = dl::RUNTIME_MODE_SINGLE_CORE;
     ~solar_os_inference_backend()
     {
@@ -83,35 +127,24 @@ static esp_err_t describe(const std::string &name, dl::TensorBase *tensor,
     }
     return ESP_OK;
 }
-extern "C" esp_err_t solar_os_inference_backend_load(const char *path,
+static esp_err_t load_buffer(const uint8_t *data, size_t size, void *allocation,
     solar_os_inference_cancel_fn cancel, void *user,
     solar_os_inference_backend_t **out, solar_os_inference_model_info_t *info)
 {
+    std::unique_ptr<void, decltype(&solar_os_memory_free)> owned(allocation, solar_os_memory_free);
     *out = nullptr;
     try {
-        const size_t internal_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-        const size_t external_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-        solar_os_storage_metadata_t metadata;
-        esp_err_t error = solar_os_storage_stat(path, &metadata);
-        if (error != ESP_OK) return error;
-        if (metadata.type != SOLAR_OS_STORAGE_ENTRY_FILE || metadata.size_bytes < 16 ||
-            metadata.size_bytes > SOLAR_OS_INFERENCE_FILE_MAX) return ESP_ERR_INVALID_SIZE;
-        size_t size = metadata.size_bytes;
+        const size_t internal_before = solar_os_memory_dl_free_bytes(false);
+        const size_t external_before = solar_os_memory_dl_free_bytes(true);
+        esp_err_t error;
+        if (!data || size < 16 || size > SOLAR_OS_INFERENCE_FILE_MAX)
+            return ESP_ERR_INVALID_SIZE;
         std::unique_ptr<solar_os_inference_backend> b(new solar_os_inference_backend);
-        b->allocation = solar_os_memory_alloc(size + 31,
+        b->allocation = allocation ? owned.release() : solar_os_memory_alloc(size + 31,
             SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "inference.file");
         if (!b->allocation) return ESP_ERR_NO_MEM;
         b->buffer = reinterpret_cast<uint8_t *>((reinterpret_cast<uintptr_t>(b->allocation) + 15) & ~uintptr_t(15));
-        std::unique_ptr<FILE, decltype(&fclose)> file(fopen(path, "rb"), fclose);
-        if (!file) return ESP_ERR_NOT_FOUND;
-        for (size_t offset = 0; offset < size;) {
-            if (cancel(user)) return ESP_ERR_TIMEOUT;
-            size_t chunk = std::min(size - offset, size_t(4096));
-            if (fread(b->buffer + offset, 1, chunk, file.get()) != chunk) return ESP_ERR_INVALID_SIZE;
-            offset += chunk; vTaskDelay(1);
-        }
-        if (fgetc(file.get()) != EOF || ferror(file.get())) return ESP_ERR_INVALID_SIZE;
-        if (fclose(file.release())) return ESP_FAIL;
+        if (!allocation) std::memcpy(b->buffer, data, size);
         size_t offset, payload;
         error = solar_os_espdl_validate(b->buffer, size, &offset, &payload, &b->layers);
         if (error != ESP_OK) return error;
@@ -142,22 +175,72 @@ extern "C" esp_err_t solar_os_inference_backend_load(const char *path,
             ++info->output_count;
         }
         if (cancel(user)) return ESP_ERR_TIMEOUT;
-        const size_t internal_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-        const size_t external_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        /* Graph variables are activation scratch. Keep weights and tensor
+         * descriptors resident, and acquire scratch only while executing. */
+        b->capture_workspace();
+        const size_t internal_after = solar_os_memory_dl_free_bytes(false);
+        const size_t external_after = solar_os_memory_dl_free_bytes(true);
         info->model_bytes = size;
         info->internal_bytes = internal_before > internal_after ? internal_before - internal_after : 0;
         info->external_bytes = external_before > external_after ? external_before - external_after : 0;
+        /* A transferred source predates this snapshot but stays resident as
+         * model weights. Include its requested allocation in the estimate. */
+        if (allocation) info->external_bytes += size + 31;
         *out = b.release(); return ESP_OK;
     } catch (const std::bad_alloc &) { return ESP_ERR_NO_MEM; }
     catch (...) { return ESP_FAIL; }
 }
-extern "C" esp_err_t solar_os_inference_backend_run(solar_os_inference_backend_t *b,
+extern "C" esp_err_t solar_os_espdl_backend_load_buffer(const uint8_t *data, size_t size,
+    solar_os_inference_cancel_fn cancel, void *user,
+    solar_os_inference_backend_t **out, solar_os_inference_model_info_t *info)
+{ return load_buffer(data, size, nullptr, cancel, user, out, info); }
+extern "C" esp_err_t solar_os_espdl_backend_load_owned_buffer(void *allocation, uint8_t *data, size_t size,
+    solar_os_inference_cancel_fn cancel, void *user,
+    solar_os_inference_backend_t **out, solar_os_inference_model_info_t *info)
+{
+    if (!allocation || !data || (uintptr_t)data % 16 ||
+        (uintptr_t)data < (uintptr_t)allocation || (uintptr_t)data - (uintptr_t)allocation > 15) {
+        solar_os_memory_free(allocation); *out = nullptr; return ESP_ERR_INVALID_ARG;
+    }
+    return load_buffer(data, size, allocation, cancel, user, out, info);
+}
+extern "C" esp_err_t solar_os_espdl_backend_run(solar_os_inference_backend_t *b,
     const solar_os_inference_input_t *inputs, size_t count,
     solar_os_inference_cancel_fn cancel, void *user, solar_os_inference_result_t *r)
 {
     try {
         const int64_t start = esp_timer_get_time();
         auto &ports = b->model->get_inputs();
+        if (count != ports.size()) return ESP_ERR_INVALID_ARG;
+        /* The firmware facade normally checks these before calling the engine.
+         * A standalone provider must check sizes before copying into tensors. */
+        for (size_t i = 0; i < count; ++i) {
+            if (!inputs[i].name || !inputs[i].data) return ESP_ERR_INVALID_ARG;
+            auto found = ports.find(inputs[i].name);
+            if (found == ports.end() || !found->second) return ESP_ERR_INVALID_ARG;
+            if (inputs[i].bytes != found->second->get_bytes()) return ESP_ERR_INVALID_SIZE;
+            for (size_t j = 0; j < i; ++j)
+                if (!std::strcmp(inputs[i].name, inputs[j].name)) return ESP_ERR_INVALID_ARG;
+            if (inputs[i].tensor) {
+                const auto &t = *inputs[i].tensor;
+                auto shape = found->second->get_shape();
+                solar_os_tensor_dtype_t type;
+                if (dtype(found->second->get_dtype(), type) || t.dtype != type ||
+                    t.rank != shape.size() || t.bytes != inputs[i].bytes) return ESP_ERR_INVALID_ARG;
+                for (size_t j = 0; j < shape.size(); ++j)
+                    if (t.shape[j] != shape[j]) return ESP_ERR_INVALID_ARG;
+                const size_t exponents = type == SOLAR_OS_TENSOR_FLOAT32 || type == SOLAR_OS_TENSOR_FLOAT64 ||
+                    type == SOLAR_OS_TENSOR_FLOAT16 || type == SOLAR_OS_TENSOR_BOOL ? 0 : found->second->exponent.channel_size();
+                if (t.exponent_count != exponents || (exponents && !t.exponents)) return ESP_ERR_INVALID_ARG;
+                for (size_t j = 0; j < exponents; ++j)
+                    if (t.exponents[j] != found->second->exponent.get(j)) return ESP_ERR_INVALID_ARG;
+            }
+        }
+        struct WorkspaceLease {
+            solar_os_inference_backend *backend;
+            ~WorkspaceLease() { backend->release_workspace(); }
+        } workspace{b};
+        if (!b->acquire_workspace()) return ESP_ERR_NO_MEM;
         for (size_t i = 0; i < count; ++i) {
             auto found = ports.find(inputs[i].name);
             if (found == ports.end() || !found->second) return ESP_ERR_INVALID_ARG;
@@ -189,11 +272,11 @@ extern "C" esp_err_t solar_os_inference_backend_run(solar_os_inference_backend_t
     } catch (const std::bad_alloc &) { return ESP_ERR_NO_MEM; }
     catch (...) { return ESP_FAIL; }
 }
-extern "C" void solar_os_inference_backend_reset(solar_os_inference_backend_t *b)
+extern "C" void solar_os_espdl_backend_reset(solar_os_inference_backend_t *b)
 {
     if (b) b->model->reset();
 }
-extern "C" void solar_os_inference_backend_set_mode(solar_os_inference_backend_t *b,
+extern "C" void solar_os_espdl_backend_set_mode(solar_os_inference_backend_t *b,
     solar_os_inference_mode_t mode)
 {
     switch (mode) {
@@ -202,7 +285,8 @@ extern "C" void solar_os_inference_backend_set_mode(solar_os_inference_backend_t
     default: b->mode = dl::RUNTIME_MODE_SINGLE_CORE; break;
     }
 }
-extern "C" void solar_os_inference_backend_close(solar_os_inference_backend_t *b)
+extern "C" void solar_os_espdl_backend_close(solar_os_inference_backend_t *b)
 {
     delete b;
 }
+extern "C" bool solar_os_espdl_backend_idle(void) { return resident_backends == 0; }

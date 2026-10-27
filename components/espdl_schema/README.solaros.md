@@ -19,3 +19,7 @@ the execution-plan vector before creating modules; and reclaim temporary
 memory-manager / tensor-planning objects during exception unwinding. S3
 defaults enable C++ exceptions with an emergency allocation pool. These fixes
 do not replace validation of operator-specific exported graph contracts.
+
+ESP-IDF configuration applies the overlay. PlatformIO also checks it after
+framework setup on every build, before compilation, so a cached configuration
+can repair a restored upstream managed component.

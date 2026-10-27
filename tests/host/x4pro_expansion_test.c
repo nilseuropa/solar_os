@@ -5,7 +5,7 @@
 #include "../../src/services/solar_os_x4pro_driver.c"
 
 const u8g2_cb_t u8g2_cb_r0 = {0};
-static bool cached, latch_on;
+static bool cached, latch_on, latch_held, deep_hold;
 static uint8_t cached_id;
 static int probes, writes, commits, initializes;
 static epd_xteink_controller_t detected = EPD_XTEINK_UC8179;
@@ -17,7 +17,12 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 esp_err_t gpio_config(const gpio_config_t *c)
 { assert(c->pin_bit_mask == 2 && c->mode == GPIO_MODE_OUTPUT); return ESP_OK; }
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
-{ assert(pin == 1 && level == 1); latch_on = true; return ESP_OK; }
+{ assert(pin == 1 && level <= 1 && !latch_held); latch_on = level != 0; return ESP_OK; }
+esp_err_t gpio_hold_en(gpio_num_t pin)
+{ assert(pin == 1 && !latch_on); latch_held = true; return ESP_OK; }
+esp_err_t gpio_hold_dis(gpio_num_t pin)
+{ assert(pin == 1); latch_held = false; return ESP_OK; }
+void gpio_deep_sleep_hold_en(void) { deep_hold = true; }
 bool solar_os_expansion_find_spi_bus(const char *name, solar_os_expansion_spi_bus_t *bus, size_t *index)
 { (void)index; if (strcmp(name,"spi0")) return false; bus->mosi_pin=11; return true; }
 bool solar_os_expansion_spi_cs_allowed(const char *name, int pin)
@@ -82,9 +87,16 @@ static void reboot(void)
     registered=NULL; latch_on=false; probes=writes=commits=initializes=0;
     probe_error=init_error=commit_error=register_error=ESP_OK;
 }
+static bool relaxed_ssd;
+esp_err_t epd_ssd1677_relax(epd_ssd1677_t *d, solar_os_display_relax_phase_t phase)
+{ assert(d && phase == SOLAR_OS_DISPLAY_RELAX_BEGIN); relaxed_ssd = true; return ESP_OK; }
+esp_err_t epd_ultrachip_relax(epd_ultrachip_t *d, solar_os_display_relax_phase_t phase)
+{ assert(d && phase == SOLAR_OS_DISPLAY_RELAX_BEGIN); relaxed_ssd = false; return ESP_OK; }
 int main(void)
 {
     assert(attach()==ESP_OK && probes==1 && commits==1 && cached_id==EPD_XTEINK_UC8179);
+    assert(registered->ops->relax(registered, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
+    assert(!relaxed_ssd);
     assert(registered->ops->brightness_supported(registered));
     assert(registered->ops->set_brightness(registered, 42)==ESP_OK);
     uint8_t brightness=0;
@@ -92,12 +104,16 @@ int main(void)
     assert(registered->ops->set_power_save(registered, true)==ESP_OK && device->light.suspended);
     assert(registered->ops->set_power_save(registered, false)==ESP_OK && !device->light.suspended);
     assert(device->light.percent==42);
+    assert(registered->ops->shutdown(registered)==ESP_OK && !latch_on && latch_held && deep_hold);
     reboot(); detected=EPD_XTEINK_UC8279; probe_error=ESP_FAIL;
     assert(attach()==ESP_OK && probes==0 && commits==0 && !strcmp(registered->controller,"UC8179"));
+    assert(latch_on && !latch_held);
     reboot(); cached=false;
     assert(attach()==ESP_OK && commits==1 && cached_id==EPD_XTEINK_UC8279);
     reboot(); cached=false; detected=EPD_XTEINK_SSD1677;
     assert(attach()==ESP_OK && commits==1 && !strcmp(registered->controller,"SSD1677"));
+    assert(registered->ops->relax(registered, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
+    assert(relaxed_ssd);
     reboot(); cached=false; probe_error=ESP_ERR_NOT_SUPPORTED;
     assert(attach()==ESP_ERR_NOT_SUPPORTED && !commits && !device);
     reboot(); cached=false; init_error=ESP_ERR_TIMEOUT;

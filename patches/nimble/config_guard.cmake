@@ -29,6 +29,20 @@ function(solar_os_regenerate_stale_sdkconfig)
         return()
     endif()
     if(bluetooth_enabled)
+        # Existing generated configs otherwise leave native byte channels
+        # compiled out even after updating the defaults. Preserve local values
+        # larger than our minimum and all unrelated settings.
+        file(STRINGS "${config}" coc_setting REGEX "^CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=[0-9]+$")
+        if(NOT coc_setting MATCHES "=([0-9]+)$" OR CMAKE_MATCH_1 LESS 2)
+            get_filename_component(config_name "${config}" NAME)
+            if(config_name MATCHES "^sdkconfig\\.defaults($|\\.)")
+                message(FATAL_ERROR "SDKCONFIG must select a generated configuration, not defaults: ${config}")
+            endif()
+            file(READ "${config}" contents)
+            string(REGEX REPLACE "(^|\n)CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=[^\n]*" "\\1" contents "${contents}")
+            file(WRITE "${config}" "${contents}\nCONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=2\n")
+            message(NOTICE "SolarOS enabling two NimBLE CoC channels in ${config}")
+        endif()
         # Defaults cannot raise the stack in an existing generated sdkconfig.
         # Keep larger local stacks and all unrelated settings intact.
         file(STRINGS "${config}" stack_setting

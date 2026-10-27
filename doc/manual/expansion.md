@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "ds3231", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "lr11xx", "lr1110", "lr1120", "lr1121", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 ds3231 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 lr11xx lr1110 lr1120 lr1121 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -13,8 +13,12 @@ Expansion drivers let you add displays, keyboards, sensors, audio devices,
 and other hardware while SolarOS is running. A driver can serve both built-in
 and added hardware. Its availability depends on the board and firmware.
 
-Built-in devices attach at boot and appear in `expansion devices` as fixed
-attachments. They cannot be detached. Runtime attachments use named buses and
+Built-in devices attach at boot and appear in `expansion devices` with board
+origin. Most are fixed; a board manifest can explicitly make an individual
+device detachable. Use `expansion detach <name>` to release it and
+`expansion attach <name>` to restore its board bindings. Detachment lasts until
+restoration or reboot and does not imply that the hardware is powered off.
+Runtime attachments use named buses and
 available pins; detach them when finished to release those resources.
 
 Digital control lines, such as a device's power switch, may use an ESP32 GPIO
@@ -32,10 +36,16 @@ display list
 ```
 
 `expansion` opens the device manager. Its Devices view lists current
-attachments and opens their details; detachable runtime devices can be removed
+attachments and opens their details; detachable devices can be removed
 after confirmation. Its Drivers view groups drivers by category and opens an
 attachment form for drivers supported by the running board. Binding forms use
 existing named buses; create, attach, detach, or remove buses in the `io` app.
+Press Enter on a field to choose or edit its value. While editing the device
+name, Enter accepts the name and returns to the attachment menu.
+Display panel choices list their native resolutions and module names. Optional
+panel fields include a default choice. Rotation has its own selection list with
+degree labels and only the orientations supported by the driver. Leave its
+default choice selected to use the driver's default rotation.
 `expansion status` retains the textual capabilities, buses, devices, and claims
 report for scripts and terminal inspection.
 
@@ -48,6 +58,10 @@ From a script, inspect `solaros.expansion.drivers()` and
 physical device is attached.
 
 ## Attach deliberately
+
+Run `expansion attach <driver>` to list that driver's required and optional
+bindings. After entering a driver and device name, Tab completion offers its
+bindings and values, including display `panel` and `rotation` options.
 
 Use real bus and pin names returned by discovery:
 
@@ -126,6 +140,42 @@ expansion detach cardkb0
 The CardKB firmware produces characters after key release. SolarOS maps its
 four navigation values to the same logical arrow keys used by PS/2 and BLE
 keyboards. The module's Fn combinations are device-specific and are ignored.
+
+### DS3231 real-time clock
+
+Use a named I2C bus running at 100 or 400 kHz. Connect SDA, SCL, ground, and
+3.3 V power. For alarm interrupts, also connect INT/SQW to an available ESP32
+GPIO with a pull-up to 3.3 V, and add `irq=<pin>` to the attachment command.
+
+```text
+expansion attach ds3231 rtc0 i2c=i2c0 addr=0x68
+rtc status
+date
+ntp
+rtc alarm set 07:30:15
+rtc pending
+rtc ack alarm
+rtc alarm clear
+expansion detach rtc0
+```
+
+Only one RTC/time provider can be attached. A board with a fixed onboard RTC
+already occupies that slot. The `ds3231` group enables this driver; the `full`
+flavor includes it on boards with I2C.
+
+The calendar uses 2000–2099 with the century bit cleared and Sunday numbered
+as zero in SolarOS. Oscillator-stop status leaves the clock unreliable until
+time is set, for example with `ntp` on a connected device. Existing
+12-hour clocks are read correctly; setting time writes 24-hour format.
+
+Alarm 1 supports seconds, seconds and minutes, time of day, or time of day
+with either a date of the month or weekday. Other match combinations are
+unsupported. Alarm 2 interrupts are disabled, and `rtc timer` is unsupported.
+The existing Python and Lua time/RTC APIs use this provider too. The alarm
+interrupt is available to the existing sleep policy when the selected GPIO
+supports waking the ESP32.
+
+### Other I2C sensors
 
 RTC and environmental sensor modules use the same named-I2C lifecycle.
 Environmental adapters register named providers with the generic sensor
@@ -362,6 +412,112 @@ Composite PAL uses I2S0 and GPIO25. VGA32 uses I2S1 plus its six RGB and two
 sync GPIOs; see the expansion reference for its full binding list. A fixed
 board-default `display0` cannot be detached.
 
+## Display Link Protocol over streams
+
+`stream-dlp` connects a DLP peripheral through an existing exclusive duplex
+byte stream. It registers the supplied name as a display target for text,
+graphics, and foreground applications. The `stream_dlp` firmware group is
+included in the `full` flavor, including boards without a built-in display.
+The stream owns transport setup; the driver owns DLP discovery, format
+selection, uploads, presentation completion, and recovery.
+
+```text
+stream tcp connect pico0 192.0.2.10 7777
+expansion attach stream-dlp lcd1 stream=pico0
+display test lcd1
+expansion detach lcd1
+stream tcp remove pico0
+```
+
+Replace the address with a reachable DLP endpoint. For UART, create a UART
+port with the required pins and fixed baud first, then select its byte-stream
+ID. For example, on approved free pins and an unused controller:
+
+```text
+expansion bus create uart dlp-uart port=uart1 tx=<host-tx-gpio> rx=<host-rx-gpio> baud=921600
+expansion attach stream-dlp lcd1 stream=dlp-uart
+```
+
+Cross host TX to peripheral RX and host RX to peripheral TX, with common
+ground. Radio-backed streams follow the same contract. There is no baud
+negotiation or UART READY signal. Optional hardware reset is separate from
+the stream driver.
+
+`stream=` completes compatible registered streams. Attachment claims the
+stream exclusively; it remains claimed until detach. Stop applications and
+release display claims before detaching. Detach frees the local DLP image,
+conversion and protocol buffers and releases the stream claim. The stream
+itself remains registered; a Link stream's RX/TX queues are released by
+`link stream remove <port>`.
+
+`timeout-ms=100..60000` sets discovery
+and the minimum command timeout, default 5000 ms. Peripheral presentation
+limits may require longer waits. Discovery retries transient stream failures
+within its connection deadline. A failed presentation returns an error; the
+next presentation reopens the stream, discovers a fresh protocol session,
+and uploads a full frame. Dimensions and supported formats must remain fixed
+for the attachment; detach and attach again after changing the peripheral.
+
+Both DLP drivers use the same host core, including negotiated window uploads,
+compression, retained-state checks, and changed-region uploads. Private
+[Python](python.gfx.md#direct-dlp-connections) and
+[Lua](lua.gfx.md#direct-dlp-connections) connections use that core without
+registering a named display.
+
+Add `compressed=1` to either DLP attachment to enable negotiated lossless LZ4
+compression. For example:
+
+```text
+expansion attach stream-dlp lcd1 stream=pico0 compressed=1
+expansion attach spi-dlp lcd2 spi=<bus> cs=<allowed-cs-gpio> compressed=1
+```
+
+The setting belongs to that attachment and is preserved when you save it for
+startup. Omitted or `compressed=0` retains the existing raw/RLE behavior.
+With the option enabled, the sender chooses raw, RLE, or LZ4 per block;
+unsupported endpoints fall back to raw/RLE. Compression preserves every pixel
+and works with all negotiated pixel formats. The receiver needs no separate
+compression switch.
+
+## Display Link Protocol over SPI
+
+`spi-dlp` attaches a Display Link Protocol (DLP) peripheral under the supplied display name.
+The peripheral owns its physical panel. SolarOS reads its native dimensions
+and accepted pixel formats, selects a transfer format, and registers a display
+target for text, graphics, and foreground applications. A receive-capable SPI
+bus with MISO is required. The `spi_dlp` firmware group supplies the driver
+and is selected by the `full` flavor on compatible boards.
+
+```text
+expansion attach spi-dlp lcd1 spi=<bus> cs=<allowed-cs-gpio>
+expansion attach spi-dlp lcd1 spi=<bus> cs=<allowed-cs-gpio> ready=<allowed-input-gpio> reset=<allowed-output-gpio>
+```
+
+READY and RESET are independently optional. Without READY, transfers use
+polling and the peripheral's minimum spacing. RESET targets the peripheral
+controller, and defaults to active low with a 10 ms pulse and a 5 s boot
+deadline. Optional parameters are `clock=<kHz>`, `reset-ms=<ms>`,
+`boot-ms=<ms>`, and `reset-active=0|1`. The clock ceiling defaults to 10000 kHz
+and is limited by the peripheral's reported maximum. Width and height are
+discovered rather than supplied as bindings.
+
+The host accepts dimensions up to 2040 pixels per axis and 1,048,576 total
+pixels, subject to available memory. It keeps a monochrome text buffer, an
+RGB565 composition buffer, and one conversion row. When memory permits, two
+additional native-format buffers (each at most 256 KiB) track changes. The
+driver uploads changed rectangles, uses optional byte RLE when useful, and
+checks retained state before skipping an unchanged frame. It sends a full
+replacement after content loss or when partial updates cost more. Larger
+images and cache allocation failures use bounded full-frame uploads. Color
+and indexed graphics are converted to the negotiated format. Changing geometry requires detaching
+and recreating the target after releasing display claims.
+
+The DLP SPI profile retains SDLP v1 mode 1 and 256-byte full-duplex cells.
+The portable protocol also supports ordered byte streams; this driver uses
+SPI. Its negotiated format
+describes wire pixels; it does not require any particular MCU or panel bus.
+See the [driver reference](expansion.reference.md#spi-display-link) for bindings.
+
 ## Quick reference
 
 solaros.expansion.drivers() lists registered drivers and devices() lists
@@ -370,3 +526,17 @@ bindings) and detach(name) manage them. Never assume an example name such as
 lcd0 or oled0 exists; inspect devices() or use a name explicitly supplied by
 the user. Foreground scripts consume attached pointer, axis, and gesture sources through
 solaros.input.
+
+`spi-dlp` attaches a DLP endpoint using `spi` and `cs`, with independent
+optional `ready` and `reset` GPIOs. Native dimensions and wire formats are
+discovered during attachment. Optional `clock` is a ceiling in kHz;
+`reset-ms`, `boot-ms`, and `reset-active` configure reset and discovery.
+
+`stream-dlp` attaches a DLP endpoint through `stream=<existing-exclusive-duplex-byte-stream>`.
+Optional `timeout-ms=100..60000` defaults to 5000. Configure UART, TCP, BLE, or radio
+through its stream provider first; there is no baud negotiation. Attachment
+claims the stream until detach; release display claims before detaching.
+`stream tcp connect <name> <host> <port>` creates an outbound TCP stream.
+`stream ble connect <name> <address> <address-type>` creates an outbound native
+CoC stream. A `stream ble listen <name>` endpoint can also host a DLP client;
+BLE central/peripheral roles are independent of DLP direction.

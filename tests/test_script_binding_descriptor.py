@@ -29,7 +29,7 @@ LUA_BINDINGS = LUA_SOURCE + (
 ).read_text(encoding="utf-8")
 PYTHON_BINDINGS += (REPOSITORY / "src/apps/solar_os_python_media.inc").read_text(encoding="utf-8")
 LUA_BINDINGS += (REPOSITORY / "src/apps/solar_os_lua_media.inc").read_text(encoding="utf-8")
-for stem in ("image_rgb", "tensor_image", "inference", "pipeline", "imlib"):
+for stem in ("image_rgb", "tensor_image", "inference", "pipeline", "imlib", "dlp", "emotion", "jet", "sc2"):
     PYTHON_BINDINGS += (REPOSITORY / f"src/apps/solar_os_python_{stem}.inc").read_text(encoding="utf-8")
     LUA_BINDINGS += (REPOSITORY / f"src/apps/solar_os_lua_{stem}.inc").read_text(encoding="utf-8")
 DESCRIPTOR = (REPOSITORY / "src/apps/solar_os_script_api.inc").read_text(
@@ -41,6 +41,20 @@ HID_KEYCODES = (REPOSITORY / "src/services/solar_os_hid_keycodes.inc").read_text
 
 
 class ScriptBindingDescriptorTest(unittest.TestCase):
+    def test_jet_scene_methods_match_in_both_runtimes(self):
+        methods=[]
+        for runtime in ("python", "lua"):
+            source=(REPOSITORY / f"src/apps/solar_os_{runtime}_jet.inc").read_text()
+            methods.append(set(re.findall(r"METHOD\((\w+)\)",source)) - {"name"})
+        self.assertEqual(methods[0],methods[1])
+        self.assertTrue({"mesh_data", "texture", "material", "capabilities", "primitive",
+            "object_set", "mesh_update", "camera_action", "point_light", "gradient", "lod",
+            "sprite", "sprite_info", "sprite_set", "pick", "picks", "load_obj", "load_mtl", "load_bmp",
+            "prototype", "instance", "instance_set", "instance_info", "instance_clear",
+            "particles", "particles_emit", "flare", "flare_element_set", "step",
+            "postfx", "postfx_info", "postfx_reset", "postfx_clear", "sample_texture",
+            "shader", "shader_set", "shader_info"} <= methods[0])
+
     def test_both_interpreters_expand_the_shared_descriptor_once(self):
         include = '#include "solar_os_script_api.inc"'
         self.assertEqual(PYTHON_SOURCE.count(include), 1)
@@ -54,7 +68,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 57)
+        self.assertEqual(len(modules), 63)
         self.assertEqual(len(modules), len(set(modules)))
         self.assertNotRegex(PYTHON_SOURCE, r'python_new_submodule\(module,\s*"')
         self.assertNotRegex(LUA_SOURCE, r'solua_new_submodule\(L,\s*solaros,\s*"')
@@ -85,6 +99,21 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
                 lua_handler,
             )
 
+    def test_dlp_teardown_does_not_depend_on_http(self):
+        for source, prefix in ((PYTHON_SOURCE, "python"), (LUA_SOURCE, "solua")):
+            scopes = []
+            calls = 0
+            for line in source.splitlines():
+                directive = line.strip()
+                if re.match(r"#\s*if(?:def|ndef)?\b", directive):
+                    scopes.append(directive)
+                elif re.match(r"#\s*endif\b", directive):
+                    scopes.pop()
+                if f"{prefix}_dlp_destroy();" in line:
+                    calls += 1
+                    self.assertFalse(any("HTTP_CLIENT" in scope for scope in scopes))
+            self.assertEqual(calls, 3)
+
     def test_named_and_nested_handlers_exist_in_both_interpreters(self):
         named = re.findall(
             r"SOLAR_OS_SCRIPT_API_FUNCTION_NAMED\(\s*"
@@ -102,7 +131,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(nested), 42)
+        self.assertEqual(len(nested), 48)
         self.assertTrue({("ble", "hid", name, name) for name in
                          ("hosts", "connect", "forget", "disconnect")}.issubset(set(nested)))
         for module, submodule, _public_name, native_name in nested:
@@ -203,7 +232,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             + submodule_constant_count
             + subnested_count
             + hid_keycode_count * hid_keycode_include_count,
-            854,
+            918,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

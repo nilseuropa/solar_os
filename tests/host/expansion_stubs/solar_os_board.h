@@ -6,7 +6,7 @@
 
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 9
 #define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICES { \
-    { .driver = "manual", .name = "board0", .binding_count = 1, \
+    { .driver = "manual", .name = "board0", .detachable = true, .binding_count = 1, \
       .bindings = {{.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pin", .value = 0}} }, \
     { .driver = "manual", .name = "board1", .binding_count = 1, \
       .bindings = {{.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "pin", .value = 1}} }, \

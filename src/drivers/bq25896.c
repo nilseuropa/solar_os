@@ -7,6 +7,7 @@
 #define REG_CHARGE_CURRENT 0x04U
 #define REG_CHARGE_VOLTAGE 0x06U
 #define REG_CHARGE_TIMER 0x07U
+#define REG_MISC_CONTROL 0x09U
 #define REG_STATUS 0x0BU
 #define REG_FAULT 0x0CU
 #define REG_DEVICE 0x14U
@@ -51,6 +52,12 @@ static esp_err_t update_bits(bq25896_t *device,
     }
     current = (uint8_t)((current & (uint8_t)~mask) | (value & mask));
     return write_u8(device, reg, current);
+}
+
+esp_err_t bq25896_power_off(bq25896_t *device)
+{
+    if (!device_valid(device)) return ESP_ERR_INVALID_STATE;
+    return update_bits(device, REG_MISC_CONTROL, 1U << 5, 1U << 5);
 }
 
 static bool exact(uint16_t value,

@@ -39,6 +39,12 @@ esp_err_t solar_os_routed_spi_start(const solar_os_bus_spi_config_t *config,
         if (cs_ret != ESP_OK) {
             return cs_ret;
         }
+        /* Keep every idle peripheral deselected while the CPU sleeps. A
+         * floating SD CS can corrupt its SPI-mode session on a shared bus. */
+        cs_ret = gpio_sleep_sel_dis((gpio_num_t)config->cs[i].pin);
+        if (cs_ret != ESP_OK) {
+            return cs_ret;
+        }
     }
 
     const spi_bus_config_t bus_config = {

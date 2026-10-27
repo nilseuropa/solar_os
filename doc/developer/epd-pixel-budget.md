@@ -39,9 +39,13 @@ frame-rate code, not a portable frequency. Profiles may impose narrower limits.
 mailbox. Submitting copies the frame without waiting for panel I/O; repeated
 queued submissions coalesce. The adapter callback performs at most one drive
 cycle and reports whether work remains. The worker continues until settling
-finishes, accepts retargeting between cycles, and enforces a requested minimum
-interval between scan starts. Hardware time can exceed that interval; its
-statistics report completed scans, duration, and actual start-to-start time.
+finishes and accepts retargeting between cycles. The requested minimum interval
+paces distinct target snapshots; pending settling drives run as fast as the
+panel callback permits. Targets queued before their image slot coalesce while
+the preceding snapshot continues settling. Identical snapshots neither consume
+an image slot nor refill budgets. Hardware time can exceed the interval.
+Statistics separate successfully processed distinct snapshots (including native
+baselines) and their start-to-start time from completed drives and drive timing.
 The adapter owns bus serialization, power transitions, and failure recovery.
 Disable the worker during native operation and join it before releasing panel
 resources. The mailbox lock must never be held while acquiring a panel lock.

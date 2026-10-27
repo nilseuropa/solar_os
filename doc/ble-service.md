@@ -5,6 +5,25 @@ handles, scan results, characteristic properties, discovery/value types, and
 shared initialization and sleep/resume entry points. Bluetooth host-stack types
 are confined to the backend.
 
+Native byte streams use `solar_os_ble_stream.h` and the common exclusive stream
+API. Their private CoC adapter shares this host, connection budget, peripheral
+lease, and sleep/reset lifecycle. A stream claim owns its BLE session; releasing
+it retires the channel and connection. The adapter copies received SDUs into a
+bounded byte queue and grants another credit only when a complete SDU fits.
+Bulk data bypasses the GATT notification/event queues. Stack calls run on the
+shared host queue and callbacks never invoke application or interpreter code.
+See [BLE byte streams](manual/commands.md#ble-byte-streams) for connection roles
+and commands.
+
+The stream service UUID is `569a2001-b87f-490c-92cb-11ba5ea5167c`.
+Its read-only descriptor characteristic UUID is
+`569a2002-b87f-490c-92cb-11ba5ea5167c`. The five descriptor bytes are version
+`1`, PSM `0x0080` as a little-endian uint16, then the receive SDU MTU as a
+little-endian uint16. A central discovers and checks this descriptor before
+opening the CoC channel. The PSM is registered once per host lifetime; inactive
+or already occupied listeners refuse incoming channel requests. Stream
+configuration never grants another app access to an existing connection.
+
 ## Ownership and lifetime
 
 `solar_os_ble_session_create(owner, &session)` allocates an opaque, nonzero

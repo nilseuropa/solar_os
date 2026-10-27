@@ -2,6 +2,18 @@
 
 #include "esp_err.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_CREDENTIALS
+#include "solar_os_credentials.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IRC
+#include "solar_os_irc.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER
+#include "solar_os_sc2_provider.h"
+#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#include "solar_os_sc2_sync.h"
+#endif
+#endif
 #include "solar_os_adc.h"
 #include "solar_os_adc_dpad.h"
 #include "solar_os_battery.h"
@@ -9,7 +21,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
-#if SOLAR_OS_PACKAGE_SERVICE_CHAT
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
 #include "solar_os_chat.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_DOCS
@@ -30,6 +42,12 @@
 #include "solar_os_json.h"
 #endif
 #include "solar_os_log.h"
+#if SOLAR_OS_PACKAGE_SERVICE_MESHCORE_COMMON
+#include "solar_os_meshcore_instances.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_LINK && SOLAR_OS_PACKAGE_SERVICE_MESSAGING
+#include "solar_os_link_messaging.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 #include "solar_os_module_packages.h"
 #endif
@@ -106,6 +124,12 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (identity_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Identity unavailable: %s", esp_err_to_name(identity_err));
     }
+#if SOLAR_OS_PACKAGE_SERVICE_CREDENTIALS
+    const esp_err_t credentials_err = solar_os_credentials_init();
+    if (credentials_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "Credentials unavailable: %s", esp_err_to_name(credentials_err));
+    }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     const esp_err_t inbox_err = solar_os_inbox_init();
     if (inbox_err != ESP_OK) {
@@ -169,11 +193,34 @@ void solar_os_boot_services_init(uint32_t now_ms)
     }
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_CHAT
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
     const esp_err_t chat_err = solar_os_chat_init();
     if (chat_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "Chat service unavailable: %s", esp_err_to_name(chat_err));
     }
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_IRC
+    const esp_err_t irc_err = solar_os_irc_init();
+    if (irc_err != ESP_OK) SOLAR_OS_LOGW(TAG, "IRC unavailable: %s", esp_err_to_name(irc_err));
+#endif
+
+#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+    solar_os_sc2_sync_install(); /* notify an already-running worker of instance changes */
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER
+    const esp_err_t sc2_err = solar_os_sc2_provider_init();
+    if (sc2_err != ESP_OK) SOLAR_OS_LOGW(TAG, "SC2 messaging unavailable: %s", esp_err_to_name(sc2_err));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_LINK && SOLAR_OS_PACKAGE_SERVICE_MESSAGING
+    const esp_err_t link_chat_err = solar_os_link_messaging_init();
+    if (link_chat_err != ESP_OK) SOLAR_OS_LOGW(TAG, "Link messaging unavailable: %s", esp_err_to_name(link_chat_err));
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MESHCORE_COMMON
+    const esp_err_t meshcore_instances_err = solar_os_meshcore_instances_init();
+    if (meshcore_instances_err != ESP_OK) SOLAR_OS_LOGW(TAG, "MeshCore instances unavailable: %s", esp_err_to_name(meshcore_instances_err));
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_UART

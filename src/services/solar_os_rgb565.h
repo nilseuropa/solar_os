@@ -41,15 +41,43 @@ static inline void solar_os_rgb565_rotate(const uint8_t *source,
     uint16_t width, uint16_t height, size_t source_stride,
     uint8_t *output, size_t output_stride, solar_os_display_rotation_t rotation)
 {
-    for (uint16_t y = 0; y < height; y++) {
-        for (uint16_t x = 0; x < width; x++) {
-            uint16_t dx = x, dy = y;
-            if (rotation == SOLAR_OS_DISPLAY_ROTATION_90) { dx = height - 1U - y; dy = x; }
-            else if (rotation == SOLAR_OS_DISPLAY_ROTATION_180) { dx = width - 1U - x; dy = height - 1U - y; }
-            else if (rotation == SOLAR_OS_DISPLAY_ROTATION_270) { dx = y; dy = width - 1U - x; }
-            const uint8_t *src = source + (size_t)y * source_stride + x * 2U;
-            uint8_t *dst = output + (size_t)dy * output_stride + dx * 2U;
-            dst[0] = src[0]; dst[1] = src[1];
-        }
+    if (rotation == SOLAR_OS_DISPLAY_ROTATION_0) {
+        for (uint16_t y = 0; y < height; y++)
+            memcpy(output + (size_t)y * output_stride,
+                source + (size_t)y * source_stride, (size_t)width * 2U);
+        return;
     }
+    if (rotation == SOLAR_OS_DISPLAY_ROTATION_180) {
+        for (uint16_t y = 0; y < height; y++) {
+            const uint8_t *row = source + (size_t)y * source_stride;
+            uint8_t *out = output + (size_t)(height - 1U - y) * output_stride;
+            for (uint16_t x = 0; x < width; x++) {
+                out[(width - 1U - x) * 2U] = row[x * 2U];
+                out[(width - 1U - x) * 2U + 1U] = row[x * 2U + 1U];
+            }
+        }
+        return;
+    }
+    /* Stage a small tile in internal stack memory. Both PSRAM reads and writes
+     * become contiguous row copies rather than repeated column stores. memcpy
+     * preserves arbitrary alignment and RGB565 wire byte order. */
+    uint16_t tile[16][16], row[16];
+    for (unsigned y0 = 0; y0 < height; y0 += 16U)
+        for (unsigned x0 = 0; x0 < width; x0 += 16U) {
+            const unsigned rows = height - y0 < 16U ? height - y0 : 16U;
+            const unsigned cols = width - x0 < 16U ? width - x0 : 16U;
+            for (unsigned y = 0; y < rows; y++)
+                memcpy(tile[y], source + (size_t)(y0 + y) * source_stride + x0 * 2U, cols * 2U);
+            for (unsigned x = 0; x < cols; x++) {
+                uint8_t *dst;
+                if (rotation == SOLAR_OS_DISPLAY_ROTATION_90) {
+                    for (unsigned y = 0; y < rows; y++) row[y] = tile[rows - 1U - y][x];
+                    dst = output + (size_t)(x0 + x) * output_stride + (height - y0 - rows) * 2U;
+                } else {
+                    for (unsigned y = 0; y < rows; y++) row[y] = tile[y][x];
+                    dst = output + (size_t)(width - 1U - x0 - x) * output_stride + y0 * 2U;
+                }
+                memcpy(dst, row, rows * 2U);
+            }
+        }
 }

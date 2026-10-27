@@ -17,6 +17,7 @@ typedef int gpio_int_type_t;
 #define GPIO_PULLDOWN_DISABLE 0
 #define GPIO_PULLDOWN_ENABLE 1
 #define GPIO_INTR_DISABLE 0
+#define GPIO_INTR_ANYEDGE 3
 #define GPIO_IS_VALID_GPIO(pin) ((pin) >= 0 && (pin) < 64)
 #define GPIO_IS_VALID_OUTPUT_GPIO(pin) GPIO_IS_VALID_GPIO(pin)
 
@@ -29,5 +30,10 @@ typedef struct {
 } gpio_config_t;
 
 esp_err_t gpio_config(const gpio_config_t *config);
+esp_err_t gpio_reset_pin(gpio_num_t pin);
 int gpio_get_level(gpio_num_t pin);
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level);
+esp_err_t gpio_install_isr_service(int flags);
+esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg);
+esp_err_t gpio_isr_handler_remove(gpio_num_t pin);
+esp_err_t gpio_set_intr_type(gpio_num_t pin, gpio_int_type_t type);

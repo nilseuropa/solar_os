@@ -30,7 +30,7 @@ void solar_os_shell_cmd_haptic(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_haptic_info_t info;
         for (size_t i = 0; solar_os_haptic_get(i, &info); i++) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "%s  %s  effects=1..%u\r\n",
                                      info.name,
                                      info.driver,

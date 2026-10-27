@@ -12,6 +12,8 @@
 #include "services/gap/ble_svc_gap.h"
 #include "solar_os_hid.h"
 #include "solar_os_ble_keyboard.h"
+#include "solar_os_identity.h"
+#include "solar_os_config.h"
 
 #define BLE_KEYBOARD_CLIENT_PAUSE_TIMEOUT_MS 1500U
 
@@ -60,6 +62,10 @@ static size_t server_used_locked(void);
 static bool server_idle_locked(void);
 static void server_reset_locked(void);
 static void server_commands_locked(void);
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+static void coc_reset_locked(void);
+static void coc_commands_locked(void);
+#endif
 
 static void restore_pairing_io_locked(ble_client_t *client)
 {
@@ -123,6 +129,13 @@ esp_err_t solar_os_ble_nimble_error(int status)
     }
 }
 
+esp_err_t solar_os_ble_nimble_set_hostname(void)
+{
+    char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
+    solar_os_identity_get_hostname(hostname, sizeof(hostname));
+    return solar_os_ble_nimble_error(ble_svc_gap_device_name_set(hostname));
+}
+
 void solar_os_ble_nimble_address(ble_addr_t *out, const uint8_t bda[6], uint8_t type)
 {
     out->type = type;
@@ -180,6 +193,9 @@ void solar_os_ble_backend_reset(void)
     lock();
     while (clients) clear_locked(clients); /* Host is stopped; callbacks drained. */
     server_reset_locked();
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+    coc_reset_locked();
+#endif
     unlock();
 }
 
@@ -852,6 +868,9 @@ static void command_client(ble_client_t *client)
 /* A single coalesced queue event drains only newly queued work, never resubmits
  * an in-flight ATT request when a different peer queues a command. */
 #include "solar_os_ble_nimble_server.inc"
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+#include "solar_os_ble_nimble_coc.inc"
+#endif
 
 static void command_callback(struct ble_npl_event *event)
 {
@@ -860,7 +879,13 @@ static void command_callback(struct ble_npl_event *event)
         lock();
         ble_client_t *client = clients;
         while (client && !client->queued) client = client->next;
-        if (!client) { server_commands_locked(); unlock(); return; }
+        if (!client) {
+            server_commands_locked();
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+            coc_commands_locked();
+#endif
+            unlock(); return;
+        }
         client->queued = false;
         command_client(client); /* Releases mutex; may retire/free this entry. */
     }

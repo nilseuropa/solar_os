@@ -25,6 +25,7 @@
 #include "solar_os_log.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
+#include "solar_os_shutdown.h"
 
 #define FTPD_DEFAULT_PORT 21U
 #define FTPD_TASK_STACK 8192U
@@ -961,6 +962,10 @@ static void ftpd_stop(solar_os_context_t *ctx)
         }
         vTaskDelay(pdMS_TO_TICKS(25));
     }
+    portENTER_CRITICAL(&ftpd_lock);
+    const bool stopped = ftpd.task == NULL;
+    portEXIT_CRITICAL(&ftpd_lock);
+    if (!stopped) solar_os_shutdown_note_failure(ESP_ERR_TIMEOUT);
 }
 
 const solar_os_job_t solar_os_ftpd_job = {

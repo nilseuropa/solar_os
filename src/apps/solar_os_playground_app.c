@@ -934,7 +934,7 @@ static bool playground_handle_search_command(solar_os_context_t *ctx)
     solar_os_shell_io_t *io = playground_io(ctx);
     if (!playground_join_query(
             ctx, 2, playground.search, sizeof(playground.search))) {
-        solar_os_shell_io_writeln(io, "usage: playground search QUERY...");
+        solar_os_shell_io_table_writeln(io, "usage: playground search QUERY...");
         playground_command_finish(ctx, 2);
         return true;
     }
@@ -952,7 +952,7 @@ static bool playground_handle_search_command(solar_os_context_t *ctx)
         }
         char marker[4];
         playground_app_marker(&app, marker);
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%s %-31s %-6s %s\n",
                                  marker,
                                  app.id,
@@ -961,7 +961,7 @@ static bool playground_handle_search_command(solar_os_context_t *ctx)
         matches++;
     }
     if (matches == 0U) {
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io, "playground: no matches for %s\n", playground.search);
     }
     playground_command_finish(ctx, 0);

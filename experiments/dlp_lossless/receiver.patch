@@ -1,0 +1,136 @@
+--- a/protocol/display_link/include/sdlp.h
++++ b/protocol/display_link/include/sdlp.h
+@@ -164,6 +164,9 @@
+   sdlp_replay_t replay, auxiliary;
+   sdlp_device_window_t *window;
+   uint8_t decoded[SDLP_RLE_MAX_DECODED];
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++  uint32_t trial_hash, trial_bytes;
++#endif
+ } sdlp_device_t;
+ bool sdlp_device_init(sdlp_device_t *, const sdlp_info_t *, uint64_t boot,
+                       const sdlp_backend_t *);
+--- a/protocol/display_link/src/sdlp.c
++++ b/protocol/display_link/src/sdlp.c
+@@ -2,6 +2,17 @@
+ #include "sdlp.h"
+ #include <limits.h>
+ #include <string.h>
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++#include "../../../experiments/dlp_lossless/decoder.h"
++#endif
++static bool trial_rectangle(unsigned op) {
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++  return op == 0x16;
++#else
++  (void)op;
++  return false;
++#endif
++}
+ uint16_t sdlp_get_u16(const uint8_t *p) {
+   return (uint16_t)(p[0] | (uint16_t)p[1] << 8);
+ }
+@@ -316,6 +327,19 @@
+     a->length = 24;
+     return SDLP_OK;
+   }
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++  /* Private experiment query: version, scratch limit, decoded-stream FNV-1a,
++   * byte count. This opcode is not advertised as a production extension. */
++  if (q->opcode == 8) {
++    if (q->length) return SDLP_BAD_ARGUMENT;
++    sdlp_put_u16(a->payload, 1);
++    sdlp_put_u16(a->payload + 2, sizeof(d->decoded));
++    sdlp_put_u32(a->payload + 4, d->trial_hash);
++    sdlp_put_u32(a->payload + 8, d->trial_bytes);
++    a->length = 12;
++    return SDLP_OK;
++  }
++#endif
+   if (q->opcode == SDLP_GET_EXTENSIONS || q->opcode == SDLP_GET_SYNC) {
+     if (q->length) return SDLP_BAD_ARGUMENT;
+     if (q->opcode == SDLP_GET_SYNC && !(d->info.capabilities & SDLP_SYNC))
+@@ -359,7 +383,7 @@
+   if (d->window && d->window->active && d->window->error)
+     return SDLP_BAD_STATE;
+   if (q->opcode != SDLP_BEGIN_FRAME && q->opcode != SDLP_BEGIN_RECT &&
+-      q->opcode != SDLP_RECT_DATA && q->opcode != SDLP_RECT_RLE && q->opcode != SDLP_PRESENT &&
++      q->opcode != SDLP_RECT_DATA && q->opcode != SDLP_RECT_RLE && !trial_rectangle(q->opcode) && q->opcode != SDLP_PRESENT &&
+       q->opcode != SDLP_ABORT_FRAME && q->opcode != SDLP_SET_BRIGHTNESS &&
+       q->opcode != SDLP_SET_POWER)
+     return SDLP_UNSUPPORTED;
+@@ -422,6 +446,10 @@
+     d->rect_high = 0;
+     d->next_y = 0;
+     d->have_rect = false;
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++    d->trial_hash = UINT32_C(2166136261);
++    d->trial_bytes = 0;
++#endif
+     return SDLP_OK;
+   }
+   if (s->state != SDLP_STATE_FRAME_OPEN)
+@@ -456,19 +484,25 @@
+       static const unsigned bits[] = {1, 2, 4, 8, 16};
+       d->row_used_bits = (uint16_t)((w * bits[d->format]) % 8);
+     }
+-  } else if (q->opcode == SDLP_RECT_DATA || q->opcode == SDLP_RECT_RLE) {
++  } else if (q->opcode == SDLP_RECT_DATA || q->opcode == SDLP_RECT_RLE || trial_rectangle(q->opcode)) {
+     if (q->length < 13 || !s->rectangle ||
+         sdlp_get_u32(p + 4) != s->rectangle || sdlp_get_u32(p + 8) != s->offset)
+       return SDLP_BAD_ARGUMENT;
+     uint32_t n = q->length - 12;
+     const uint8_t *bytes = p + 12;
+-    if (q->opcode == SDLP_RECT_RLE) {
+-      if (!(d->info.capabilities & SDLP_RLE)) return SDLP_UNSUPPORTED;
++    if (q->opcode == SDLP_RECT_RLE || trial_rectangle(q->opcode)) {
++      if (q->opcode == SDLP_RECT_RLE && !(d->info.capabilities & SDLP_RLE)) return SDLP_UNSUPPORTED;
+       if (q->length < 16) return SDLP_BAD_ARGUMENT;
+       n = sdlp_get_u16(p + 12);
+-      if (!n || n > sizeof(d->decoded) ||
+-          !sdlp_rle_decode(d->decoded, n, p + 14, q->length - 14))
+-        return SDLP_BAD_ARGUMENT;
++      if (!n || n > sizeof(d->decoded)) return SDLP_BAD_ARGUMENT;
++      bool decoded;
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++      if (trial_rectangle(q->opcode))
++        decoded = solar_os_dlp_trial_lz4_decode(d->decoded, n, p + 14, q->length - 14);
++      else
++#endif
++        decoded = sdlp_rle_decode(d->decoded, n, p + 14, q->length - 14);
++      if (!decoded) return SDLP_BAD_ARGUMENT;
+       bytes = d->decoded;
+     }
+     if (n > d->rect_total - s->offset)
+@@ -480,6 +514,11 @@
+           return SDLP_BAD_ARGUMENT;
+     r = d->backend.write(ctx, s->offset, bytes, n);
+     if (!r) {
++#ifdef SOLAR_OS_DLP_LOSSLESS_TRIAL
++      for (uint32_t k = 0; k < n; k++)
++        d->trial_hash = (d->trial_hash ^ bytes[k]) * UINT32_C(16777619);
++      d->trial_bytes += n;
++#endif
+       s->offset += n;
+       if (s->offset == d->rect_total) {
+         s->rectangle = 0;
+@@ -538,7 +577,7 @@
+     } else if (q.sequence > w->grant) error = SDLP_BAD_SEQUENCE;
+     else if (q.sequence != w->applied + 1) return false;
+     else if (q.opcode != SDLP_BEGIN_FRAME && q.opcode != SDLP_BEGIN_RECT &&
+-             q.opcode != SDLP_RECT_DATA && q.opcode != SDLP_RECT_RLE &&
++             q.opcode != SDLP_RECT_DATA && q.opcode != SDLP_RECT_RLE && !trial_rectangle(q.opcode) &&
+              q.opcode != SDLP_PRESENT) error = SDLP_UNSUPPORTED;
+     else error = execute(d, &q, &a, now);
+     if (error) {
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -575,3 +575,8 @@
+         MESH_PACKET_LOGGING=0
+     )
+ endif()
++
++# Local DLP lossless experiment; no effect in ordinary firmware builds.
++if(DEFINED ENV{SOLAR_OS_DLP_LOSSLESS_TRIAL} AND "$ENV{SOLAR_OS_DLP_LOSSLESS_TRIAL}" STREQUAL "1")
++    target_compile_definitions(${COMPONENT_LIB} PRIVATE SOLAR_OS_DLP_LOSSLESS_TRIAL=1)
++endif()

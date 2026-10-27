@@ -40,9 +40,14 @@
 #define AUDIO_WAV_HEADER_BYTES 44U
 #define AUDIO_WAV_BUFFER_BYTES 4096U
 #define AUDIO_WAV_PCM_FORMAT 1U
-#define AUDIO_TONE_WORKER_STACK 8192U
+#define AUDIO_TONE_WORKER_STACK 6144U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
+/* Allow amplifier/codec startup before the first audible sample. The tail
+ * exceeds the built-in sinks' DMA/producer buffering, so short tones reach
+ * the speaker before stream close disables its clocks and amplifier. */
+#define AUDIO_TONE_SETTLE_MS 120U
+#define AUDIO_TONE_DRAIN_MS 200U
 #define AUDIO_GLOBAL_DEFAULT_VOLUME 50U
 #if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 #define SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS 2U
@@ -1808,18 +1813,60 @@ esp_err_t solar_os_audio_unregister_streams(const char *id)
 
 #endif
 
-static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
-                                        uint32_t duration_ms,
-                                        uint8_t volume,
-                                        const volatile bool *cancelled)
+static esp_err_t audio_tone_write_segment(solar_os_stream_handle_t *stream,
+                                          uint32_t frequency_hz,
+                                          uint32_t duration_ms,
+                                          const volatile bool *cancelled)
 {
-    if (frequency_hz < SOLAR_OS_AUDIO_TONE_MIN_HZ ||
-        frequency_hz > SOLAR_OS_AUDIO_TONE_MAX_HZ ||
-        duration_ms == 0U || duration_ms > SOLAR_OS_AUDIO_TEST_MAX_MS ||
-        !audio_volume_arg_valid(volume)) {
-        return ESP_ERR_INVALID_ARG;
+    const solar_os_stream_audio_format_t format = stream->audio;
+    int16_t samples[AUDIO_FRAME_CHUNK * AUDIO_TONE_MAX_CHANNELS];
+    uint32_t block_frames = format.frames_per_block;
+    if (block_frames == 0U || block_frames > AUDIO_FRAME_CHUNK) {
+        block_frames = AUDIO_FRAME_CHUNK;
     }
+    uint32_t phase = 0U;
+    const uint32_t phase_step =
+        (uint32_t)(((uint64_t)frequency_hz << 16) / format.sample_rate);
+    uint32_t frames_remaining =
+        (uint32_t)(((uint64_t)format.sample_rate * duration_ms) / 1000U);
 
+    while (frames_remaining > 0U) {
+        if (cancelled != NULL && *cancelled) {
+            return ESP_ERR_TIMEOUT;
+        }
+        const uint32_t frames = frames_remaining > block_frames ?
+            block_frames : frames_remaining;
+        for (uint32_t frame = 0U; frame < frames; frame++) {
+            const int16_t sample = frequency_hz == 0U ? 0 :
+                ((phase & 0x8000U) != 0U ?
+                    AUDIO_TONE_AMPLITUDE : -AUDIO_TONE_AMPLITUDE);
+            phase += phase_step;
+            for (uint8_t channel = 0U; channel < format.channels; channel++) {
+                samples[(frame * format.channels) + channel] = sample;
+            }
+        }
+
+        const size_t bytes = frames * format.channels * sizeof(samples[0]);
+        size_t written = 0U;
+        const esp_err_t ret = solar_os_stream_write(
+            stream, samples, bytes, UINT32_MAX, &written);
+        if (ret != ESP_OK || written != bytes) {
+            return ret != ESP_OK ? ret : ESP_ERR_INVALID_SIZE;
+        }
+        frames_remaining -= frames;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t audio_play_tone_sequence_locked(
+    const solar_os_audio_tone_step_t *steps,
+    size_t step_count,
+    uint8_t volume,
+    const volatile bool *cancelled)
+{
+    if (cancelled != NULL && *cancelled) {
+        return ESP_ERR_TIMEOUT;
+    }
     const solar_os_stream_open_options_t options = {
         .direction = SOLAR_OS_STREAM_DIRECTION_SINK,
         .timeout_ms = UINT32_MAX,
@@ -1855,59 +1902,58 @@ static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
         }
     }
 
-    int16_t samples[AUDIO_FRAME_CHUNK * AUDIO_TONE_MAX_CHANNELS];
-    uint32_t block_frames = format.frames_per_block;
-    if (block_frames == 0U || block_frames > AUDIO_FRAME_CHUNK) {
-        block_frames = AUDIO_FRAME_CHUNK;
+    ret = audio_tone_write_segment(&stream, 0U, AUDIO_TONE_SETTLE_MS, cancelled);
+    for (size_t i = 0U; ret == ESP_OK && i < step_count; i++) {
+        ret = audio_tone_write_segment(&stream, steps[i].frequency_hz,
+                                       steps[i].duration_ms, cancelled);
+        if (ret == ESP_OK && i + 1U < step_count) {
+            /* Pauses are PCM silence on the same stream, not a teardown or
+             * a producer delay that could repeat buffered tone samples. */
+            ret = audio_tone_write_segment(&stream, 0U, steps[i].pause_ms,
+                                           cancelled);
+        }
     }
-    uint32_t phase = 0U;
-    const uint32_t phase_step =
-        (uint32_t)(((uint64_t)frequency_hz << 16) / format.sample_rate);
-    uint32_t frames_remaining =
-        (uint32_t)(((uint64_t)format.sample_rate * duration_ms) / 1000U);
-
-    while (frames_remaining > 0U) {
-        if (cancelled != NULL && *cancelled) {
-            ret = ESP_ERR_TIMEOUT;
-            break;
-        }
-        const uint32_t frames = frames_remaining > block_frames ?
-            block_frames : frames_remaining;
-        for (uint32_t frame = 0U; frame < frames; frame++) {
-            const int16_t sample = (phase & 0x8000U) != 0U ?
-                AUDIO_TONE_AMPLITUDE : -AUDIO_TONE_AMPLITUDE;
-            phase += phase_step;
-            for (uint8_t channel = 0U; channel < format.channels; channel++) {
-                samples[(frame * format.channels) + channel] = sample;
-            }
-        }
-
-        const size_t bytes = frames * format.channels * sizeof(samples[0]);
-        size_t written = 0U;
-        ret = solar_os_stream_write(&stream, samples, bytes, UINT32_MAX, &written);
-        if (ret != ESP_OK || written != bytes) {
-            if (ret == ESP_OK) {
-                ret = ESP_ERR_INVALID_SIZE;
-            }
-            break;
-        }
-        frames_remaining -= frames;
+    if (ret == ESP_OK) {
+        ret = audio_tone_write_segment(&stream, 0U, AUDIO_TONE_DRAIN_MS, cancelled);
     }
-
-    memset(samples, 0, block_frames * format.channels * sizeof(samples[0]));
-    size_t written = 0U;
-    (void)solar_os_stream_write(
-        &stream, samples,
-        block_frames * format.channels * sizeof(samples[0]),
-        UINT32_MAX, &written);
+    if (ret == ESP_OK) {
+        /* A successful write means queued, not played. Let the silence tail
+         * leave the sink before disabling it, including at coarse tick rates. */
+        const int64_t deadline_us = esp_timer_get_time() +
+            (int64_t)AUDIO_TONE_DRAIN_MS * 1000LL;
+        while (esp_timer_get_time() < deadline_us) {
+            if (cancelled != NULL && *cancelled) {
+                ret = ESP_ERR_TIMEOUT;
+                break;
+            }
+            TickType_t ticks = pdMS_TO_TICKS(AUDIO_TONE_CANCEL_POLL_MS);
+            vTaskDelay(ticks > 0U ? ticks : 1U);
+        }
+    }
     solar_os_stream_close(&stream);
     if (ret == ESP_OK) {
-        SOLAR_OS_LOGI(TAG,
-                      "tone: %" PRIu32 " Hz %" PRIu32
-                      " ms vol=%u output=%s",
-                      frequency_hz, duration_ms, volume, device.id);
+        SOLAR_OS_LOGI(TAG, "tone sequence: %u steps vol=%u output=%s",
+                      (unsigned)step_count, volume, device.id);
     }
     return ret;
+}
+
+static esp_err_t audio_play_tone_locked(uint32_t frequency_hz,
+                                        uint32_t duration_ms,
+                                        uint8_t volume,
+                                        const volatile bool *cancelled)
+{
+    if (frequency_hz < SOLAR_OS_AUDIO_TONE_MIN_HZ ||
+        frequency_hz > SOLAR_OS_AUDIO_TONE_MAX_HZ ||
+        duration_ms == 0U || duration_ms > SOLAR_OS_AUDIO_TEST_MAX_MS ||
+        !audio_volume_arg_valid(volume)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const solar_os_audio_tone_step_t step = {
+        .frequency_hz = frequency_hz,
+        .duration_ms = duration_ms,
+    };
+    return audio_play_tone_sequence_locked(&step, 1U, volume, cancelled);
 }
 
 esp_err_t solar_os_audio_play_tone(uint32_t frequency_hz,
@@ -1946,22 +1992,6 @@ static bool audio_tone_request_valid(const solar_os_audio_tone_request_t *reques
         }
     }
     return total_ms <= SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_MS;
-}
-
-static bool audio_tone_cancelled(void)
-{
-    return audio_tones.cancel_current;
-}
-
-static bool audio_tone_delay(uint32_t duration_ms)
-{
-    while (duration_ms > 0 && !audio_tone_cancelled()) {
-        const uint32_t delay_ms = duration_ms > AUDIO_TONE_CANCEL_POLL_MS ?
-            AUDIO_TONE_CANCEL_POLL_MS : duration_ms;
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        duration_ms -= delay_ms;
-    }
-    return !audio_tone_cancelled();
 }
 
 static void audio_tone_finish(const audio_tone_queue_entry_t *entry,
@@ -2028,24 +2058,9 @@ static void audio_tone_worker(void *arg)
             if (audio_resolve_playback_volume(entry.volume) == 0) {
                 result = ESP_OK;
             } else {
-                for (size_t i = 0; i < entry.step_count; i++) {
-                    if (audio_tone_cancelled()) {
-                        result = ESP_ERR_TIMEOUT;
-                        break;
-                    }
-                    result = audio_play_tone_locked(entry.steps[i].frequency_hz,
-                                                    entry.steps[i].duration_ms,
-                                                    entry.volume,
-                                                    &audio_tones.cancel_current);
-                    if (result != ESP_OK) {
-                        break;
-                    }
-                    if (i + 1U < entry.step_count &&
-                        !audio_tone_delay(entry.steps[i].pause_ms)) {
-                        result = ESP_ERR_TIMEOUT;
-                        break;
-                    }
-                }
+                result = audio_play_tone_sequence_locked(
+                    entry.steps, entry.step_count, entry.volume,
+                    &audio_tones.cancel_current);
             }
             audio_operation_give();
         }

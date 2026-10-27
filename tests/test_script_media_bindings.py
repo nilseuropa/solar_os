@@ -34,7 +34,8 @@ class ScriptMediaBindingsTest(unittest.TestCase):
         self.assertIn("services/solar_os_script_media.c", package["sources"])
         for language in ("python", "lua"):
             self.assertIn("service_script_media", PACKAGES[f"app_{language}"]["depends"])
-        for module, gate in (("streams", "SCRIPT_MEDIA"), ("camera", "CAMERA"), ("rtsp", "RTSP_CLIENT")):
+        self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA || SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM || SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM\nSOLAR_OS_SCRIPT_API_MODULE_BEGIN(streams);", DESCRIPTOR)
+        for module, gate in (("camera", "CAMERA"), ("rtsp", "RTSP_CLIENT")):
             self.assertIn(f"#if SOLAR_OS_PACKAGE_SERVICE_{gate}\nSOLAR_OS_SCRIPT_API_MODULE_BEGIN({module});", DESCRIPTOR)
 
     def test_all_interpreter_teardown_paths_close_media(self):

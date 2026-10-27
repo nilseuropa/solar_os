@@ -161,6 +161,9 @@ static void test_foreground_manifest(void)
     assert(info.foreground && !strcmp(info.app.id, "test-app"));
     assert(!strcmp(info.app.file_extensions, ".gb .nib"));
     assert(info.app.worker_stack_bytes == 4096U && info.app.worker_priority == 2U);
+    put_u32(data, 528U, SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS);
+    assert(solar_os_native_elf_validate(data, sizeof(data), 94U, &info, NULL, 0U) == ESP_OK);
+    assert(info.app.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS);
     const char *bad_extensions[] = {"gb", ".", ".GB", ".gb/", ".gb ", ".gb  .nib"};
     for (size_t i = 0U; i < sizeof(bad_extensions) / sizeof(bad_extensions[0]); ++i) {
         make_foreground_elf(data);
@@ -256,6 +259,95 @@ static void test_rejects_missing_solaros_abi_import(void)
                                         0U) == ESP_ERR_INVALID_RESPONSE);
 }
 
+typedef struct {
+    const uint8_t *data;
+    size_t bytes, calls, fail_call;
+} discovery_fixture_t;
+
+static esp_err_t fixture_read(void *context, size_t offset, void *buffer, size_t length)
+{
+    discovery_fixture_t *fixture = context;
+    fixture->calls++;
+    if (fixture->calls == fixture->fail_call) return ESP_FAIL;
+    assert(offset <= TEST_FILE_SIZE && length <= TEST_FILE_SIZE - offset);
+    /* The executable section must never be read by discovery. */
+    const uint8_t *text = fixture->data + section_offset(3U);
+    const size_t text_offset = (size_t)text[16] | ((size_t)text[17] << 8U) |
+        ((size_t)text[18] << 16U) | ((size_t)text[19] << 24U);
+    assert(offset + length <= text_offset || offset >= text_offset + 4U);
+    memcpy(buffer, fixture->data + offset, length);
+    fixture->bytes += length;
+    return ESP_OK;
+}
+
+static void test_discovery(void)
+{
+    uint8_t data[TEST_FILE_SIZE];
+    make_foreground_elf(data);
+    discovery_fixture_t fixture = {.data = data};
+    solar_os_native_elf_info_t full, discovered;
+    assert(solar_os_native_elf_validate(data, sizeof(data), 94U, &full, NULL, 0U) == ESP_OK);
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+        &discovered, NULL, 0U) == ESP_OK);
+    assert(discovered.foreground && !memcmp(&discovered.app, &full.app, sizeof(full.app)));
+    assert(discovered.entry == full.entry && discovered.section_count == full.section_count);
+    const size_t calls = fixture.calls;
+    for (size_t i = 1U; i <= calls; ++i) {
+        fixture = (discovery_fixture_t){.data = data, .fail_call = i};
+        assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+            &discovered, NULL, 0U) == ESP_FAIL);
+        assert(!discovered.foreground);
+    }
+    /* Discovery is not permission to execute: unrelated symbol imports are
+     * checked by the complete validator again when the app is launched. */
+    data[833U] = 'x';
+    fixture = (discovery_fixture_t){.data = data};
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+        &discovered, NULL, 0U) == ESP_OK && discovered.foreground);
+    assert(solar_os_native_elf_validate(data, sizeof(data), 94U, NULL, NULL, 0U) == ESP_ERR_INVALID_RESPONSE);
+    make_foreground_elf(data);
+    /* Large executable payloads do not increase discovery reads or require
+     * an allocation the size of the app. The fixture provides metadata only. */
+    put_u32(data, section_offset(3U) + 16U, 4096U);
+    put_u32(data, section_offset(3U) + 20U, 4U * 1024U * 1024U);
+    fixture = (discovery_fixture_t){.data = data};
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, 8U * 1024U * 1024U,
+        94U, &discovered, NULL, 0U) == ESP_OK);
+    assert(fixture.bytes < 2048U && discovered.foreground);
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 243U,
+        &discovered, NULL, 0U) == ESP_ERR_NOT_SUPPORTED);
+    const size_t corruptions[] = {32U, section_offset(1U) + 16U, section_offset(1U) + 20U,
+        section_offset(1U) + 24U, section_offset(2U) + 16U, section_offset(4U) + 16U,
+        section_offset(5U) + 16U, 800U, 804U, 808U,
+        512U, 516U, 520U, 524U, 528U, 532U, 536U, 540U, 544U, 548U};
+    for (size_t i = 0; i < sizeof(corruptions) / sizeof(corruptions[0]); ++i) {
+        make_foreground_elf(data); put_u32(data, corruptions[i], UINT32_MAX);
+        fixture = (discovery_fixture_t){.data = data};
+        assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+            &discovered, NULL, 0U) == ESP_ERR_INVALID_RESPONSE);
+    }
+    make_foreground_elf(data);
+    put_u32(data, section_offset(1U) + 20U, 64U);
+    memcpy(data + 816U, data + 800U, 16U);
+    fixture = (discovery_fixture_t){.data = data};
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+        &discovered, NULL, 0U) == ESP_ERR_INVALID_RESPONSE); /* Duplicate manifest. */
+    make_valid_elf(data); fixture = (discovery_fixture_t){.data = data};
+    assert(solar_os_native_elf_discover(fixture_read, &fixture, sizeof(data), 94U,
+        &discovered, NULL, 0U) == ESP_OK && !discovered.foreground);
+}
+
+typedef struct { FILE *file; size_t bytes; } file_reader_t;
+
+static esp_err_t file_read(void *context, size_t offset, void *buffer, size_t length)
+{
+    file_reader_t *reader = context;
+    if (fseek(reader->file, (long)offset, SEEK_SET) ||
+        fread(buffer, 1U, length, reader->file) != length) return ESP_FAIL;
+    reader->bytes += length;
+    return ESP_OK;
+}
+
 static void test_real_elf_file(const char *path)
 {
     FILE *file = fopen(path, "rb");
@@ -268,20 +360,26 @@ static void test_real_elf_file(const char *path)
     uint8_t *data = malloc((size_t)file_size);
     assert(data != NULL);
     assert(fread(data, 1U, (size_t)file_size, file) == (size_t)file_size);
-    assert(fclose(file) == 0);
-
     char detail[128];
+    solar_os_native_elf_info_t full, discovered;
     const esp_err_t err = solar_os_native_elf_validate(
         data,
         (size_t)file_size,
         SOLAR_OS_NATIVE_ELF_MACHINE_XTENSA,
-        NULL,
+        &full,
         detail,
         sizeof(detail));
     if (err != ESP_OK) {
         fprintf(stderr, "%s: %s\n", path, detail);
     }
     assert(err == ESP_OK);
+    file_reader_t reader = {.file = file};
+    assert(solar_os_native_elf_discover(file_read, &reader, (size_t)file_size, 94U,
+        &discovered, detail, sizeof(detail)) == ESP_OK);
+    assert(discovered.foreground == full.foreground);
+    assert(!memcmp(&discovered.app, &full.app, sizeof(full.app)));
+    printf("%s: discovery %zu bytes / %ld-byte ELF\n", path, reader.bytes, file_size);
+    assert(fclose(file) == 0);
     free(data);
 }
 
@@ -290,6 +388,7 @@ int main(int argc, char **argv)
     assert(argc == 1 || argc == 2);
     test_valid_elf();
     test_foreground_manifest();
+    test_discovery();
     test_rejects_wrong_machine();
     test_rejects_truncated_section_table();
     test_rejects_entry_outside_text();

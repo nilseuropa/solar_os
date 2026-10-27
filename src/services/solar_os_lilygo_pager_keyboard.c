@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "pwm_port.h"
+#include "solar_os_backlight.h"
 #include "solar_os_tca8418.h"
 #include "solar_os_memory.h"
 #include <stdlib.h>
@@ -28,6 +29,11 @@ typedef struct {
     int backlight_pin;
 } pager_device_t;
 static EXT_RAM_BSS_ATTR pager_device_t pager_devices[PAGER_DEVICE_MAX];
+static esp_err_t set_backlight(void *user, uint8_t percent)
+{
+    const pager_device_t *device = user;
+    return pwm_port_set(device->backlight_pin, 5000U, percent);
+}
 static StaticSemaphore_t pager_mutex_buffer;
 static SemaphoreHandle_t pager_mutex;
 static portMUX_TYPE pager_init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -70,11 +76,13 @@ static esp_err_t attach_pager_locked(const char *name,
     if (map == NULL) return ESP_ERR_NO_MEM;
     solar_os_lilygo_pager_keyboard_map(map);
     esp_err_t err = ESP_OK;
-    if (backlight_pin >= 0) err = pwm_port_set(backlight_pin, 5000U, 50U);
+    device->backlight_pin = backlight_pin;
+    if (backlight_pin >= 0) err = solar_os_backlight_register(set_backlight, device);
     if (err == ESP_OK)
         err = solar_os_tca8418_attach_profile(name, controller_bindings, controller_count, map);
     free(map);
     if (err != ESP_OK) {
+        solar_os_backlight_unregister(device);
         if (backlight_pin >= 0) (void)pwm_port_stop(backlight_pin);
         return err;
     }
@@ -97,6 +105,7 @@ static esp_err_t detach_pager_locked(const char *name)
             device->controller_attached = false;
         }
         if (device->backlight_pin >= 0) {
+            solar_os_backlight_unregister(device);
             const esp_err_t err = pwm_port_stop(device->backlight_pin);
             if (err != ESP_OK) return err;
         }

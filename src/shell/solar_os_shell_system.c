@@ -25,9 +25,11 @@
 #include "solar_os_engines.h"
 #include "solar_os_i2c.h"
 #include "solar_os_memory.h"
+#include "solar_os_shutdown.h"
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 #include "solar_os_log.h"
 #include "solar_os_module_packages.h"
+#include "solar_os_native.h"
 #endif
 #include "solar_os_power.h"
 #include "solar_os_ramfs.h"
@@ -437,7 +439,7 @@ static void pkg_install_progress(uint32_t bytes, uint32_t total, void *user)
 
 static void pkg_print_available(solar_os_shell_io_t *term)
 {
-    solar_os_shell_io_writeln(term, "pkg: checking signed module catalog");
+    solar_os_shell_io_table_writeln(term, "pkg: checking signed module catalog");
     solar_os_shell_io_flush(term);
 
     solar_os_module_catalog_t *catalog = NULL;
@@ -449,17 +451,17 @@ static void pkg_print_available(solar_os_shell_io_t *term)
         return;
     }
 
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "Available modules: SolarOS %s, %s, ABI %u, signed\n",
                              catalog->host_version,
                              catalog->target,
                              (unsigned)catalog->native_abi);
     if (catalog->count == 0U) {
-        solar_os_shell_io_writeln(term, "none");
+        solar_os_shell_io_table_writeln(term, "none");
     }
     for (size_t i = 0U; i < catalog->count; i++) {
         const solar_os_module_package_t *package = &catalog->packages[i];
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%s %s %s%s%s\n",
                                  solar_os_module_type_name(package->type),
                                  package->id,
@@ -467,7 +469,7 @@ static void pkg_print_available(solar_os_shell_io_t *term)
                                  package->installed ? " installed" : "",
                                  package->compatible ? "" : " incompatible");
         if (!package->compatible) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "reason: %s\n",
                                      package->incompatibility);
         }
@@ -586,10 +588,13 @@ typedef struct {
 static bool pkg_print_installed_module(const char *id, void *user)
 {
     pkg_installed_print_t *print = (pkg_installed_print_t *)user;
-    solar_os_shell_io_printf(print->term,
-                             "%s %s\n",
+    solar_os_shell_io_table_printf(print->term,
+                             "%s %s%s\n",
                              solar_os_module_type_name(print->type),
-                             id);
+                             id,
+                             print->type == SOLAR_OS_MODULE_TYPE_LIBRARY ?
+                                 (solar_os_native_module_active(print->type, id) ?
+                                     " (loaded)" : " (on storage)") : "");
     print->count++;
     return true;
 }
@@ -600,6 +605,7 @@ static void pkg_print_installed(solar_os_shell_io_t *term)
         SOLAR_OS_MODULE_TYPE_APP,
         SOLAR_OS_MODULE_TYPE_JOB,
         SOLAR_OS_MODULE_TYPE_DRIVER,
+        SOLAR_OS_MODULE_TYPE_LIBRARY,
     };
     pkg_installed_print_t print = {
         .term = term,
@@ -677,14 +683,22 @@ void solar_os_shell_cmd_pkg(solar_os_context_t *ctx, int argc, char **argv)
         pkg_remove_module(term, argv[2]);
         return;
     }
+    if (argc == 3 && strcmp(argv[1], "unload") == 0) {
+        char detail[128] = {0};
+        const esp_err_t err = solar_os_native_module_deactivate(
+            SOLAR_OS_MODULE_TYPE_LIBRARY, argv[2], detail, sizeof(detail));
+        if (err != ESP_OK) solar_os_shell_diag_esp(term, "pkg unload", err, detail, NULL);
+        else solar_os_shell_io_printf(term, "pkg: unloaded library %s\n", argv[2]);
+        return;
+    }
     static const char * const subcommands[] = {
-        "system", "available", "installed", "install", "remove",
+        "system", "available", "installed", "install", "remove", "unload",
     };
     solar_os_shell_diag_subcommand(term,
                                    "pkg",
                                    argc,
                                    argv,
-                                   "pkg [system|available|installed|install <module>|remove <module>]",
+                                   "pkg [system|available|installed|install <module>|remove <module>|unload <library>]",
                                    subcommands,
                                    sizeof(subcommands) / sizeof(subcommands[0]));
 #else
@@ -717,8 +731,23 @@ void solar_os_shell_cmd_sleep(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "sleeping; press KEY to wake");
+    solar_os_shell_io_printf(term, "sleeping; press %s to wake\n",
+                              SOLAR_OS_BOARD_SLEEP_WAKE_LABEL);
     solar_os_context_request_sleep(ctx);
+}
+
+void solar_os_shell_cmd_shutdown(solar_os_context_t *ctx, int argc, char **argv)
+{
+    solar_os_shell_io_t *io = terminal(ctx);
+    if (argc != 1) {
+        solar_os_shell_diag_unexpected(io, "shutdown", argv[1], "shutdown");
+        return;
+    }
+    solar_os_shell_io_writeln(io, "shutting down; press power/KEY or RESET to boot");
+    (void)solar_os_shell_io_flush(io);
+    if (solar_os_shutdown_request() != ESP_OK) {
+        solar_os_shell_io_writeln(io, "shutdown already requested");
+    }
 }
 
 void solar_os_shell_cmd_deepsleep(solar_os_context_t *ctx, int argc, char **argv)
@@ -738,8 +767,8 @@ void solar_os_shell_cmd_deepsleep(solar_os_context_t *ctx, int argc, char **argv
         return;
     }
 
-    solar_os_shell_io_writeln(term,
-                              "entering deep sleep; press KEY or RESET to boot");
+    solar_os_shell_io_printf(term, "entering deep sleep; press %s or RESET to boot\n",
+                              SOLAR_OS_BOARD_SLEEP_WAKE_LABEL);
     (void)solar_os_shell_io_flush(term);
     solar_os_context_request_deep_sleep(ctx);
 }
@@ -760,7 +789,7 @@ void solar_os_shell_cmd_suspend(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    solar_os_shell_io_writeln(term, "suspending; press KEY to resume");
+    solar_os_shell_io_writeln(term, "suspending; press a key to resume");
     solar_os_context_request_suspend(ctx);
 }
 
@@ -801,7 +830,7 @@ static void power_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  power status");
     solar_os_shell_io_writeln(term, "  power profile [performance|balanced|battery|lowpower]");
     solar_os_shell_io_writeln(term, "  power idle [off|seconds]");
-    solar_os_shell_io_writeln(term, "  power key [off|sleep|suspend]");
+    solar_os_shell_io_writeln(term, "  power key [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]");
     solar_os_shell_io_writeln(term, "  power sleep");
     solar_os_shell_io_writeln(term, "  power suspend");
 }
@@ -860,6 +889,8 @@ static void power_print_status(solar_os_shell_io_t *term)
     solar_os_shell_io_printf(term,
                              "KEY short press: %s\n",
                              solar_os_power_key_action_name(status.key_action));
+    solar_os_shell_io_printf(term, "KEY long press: %s\n",
+                             solar_os_power_key_action_name(status.key_long_action));
     solar_os_shell_io_printf(term, "Idle sleep: %s\n", idle_text);
     solar_os_shell_io_printf(term,
                              "Light sleep count: %" PRIu32 "\n",
@@ -971,39 +1002,14 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "key") == 0) {
-        if (argc == 2) {
-            solar_os_power_status_t status;
-            solar_os_power_get_status(&status);
-            solar_os_shell_io_printf(term,
-                                     "key: %s\n",
-                                     solar_os_power_key_action_name(status.key_action));
-            solar_os_shell_io_writeln(term, "values: off sleep suspend");
+        if (argc > 4) {
+            solar_os_shell_diag_unexpected(term, "power key", argv[4],
+                "power key [short|long] [action]");
             return;
         }
-        if (argc != 3) {
-            solar_os_shell_diag_unexpected(term, "power key", argv[3],
-                                           "power key [off|sleep|suspend]");
-            return;
-        }
-
-        solar_os_power_key_action_t action;
-        if (!solar_os_power_parse_key_action(argv[2], &action)) {
-            solar_os_shell_diag_invalid(term, "power key", "action", argv[2],
-                                        "off, sleep, or suspend",
-                                        "power key [off|sleep|suspend]", false);
-            return;
-        }
-
-        const esp_err_t err = solar_os_power_set_key_action(action);
-        if (err == ESP_OK) {
-            solar_os_shell_io_printf(term,
-                                     "power key: %s\n",
-                                     solar_os_power_key_action_name(action));
-        } else {
-            solar_os_shell_io_printf(term,
-                                     "power key: save failed: %s\n",
-                                     solar_os_shell_error_text(err));
-        }
+        char *args[4] = {"setterm", "powerkey", NULL, NULL};
+        for (int i = 2; i < argc; i++) args[i] = argv[i];
+        solar_os_shell_cmd_setterm(ctx, argc, args);
         return;
     }
 
@@ -1016,7 +1022,8 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_io_writeln(term, "sleep is only available from the display shell");
             return;
         }
-        solar_os_shell_io_writeln(term, "sleeping; press KEY to wake");
+        solar_os_shell_io_printf(term, "sleeping; press %s to wake\n",
+                                  SOLAR_OS_BOARD_SLEEP_WAKE_LABEL);
         solar_os_context_request_sleep(ctx);
         return;
     }
@@ -1032,7 +1039,7 @@ void solar_os_shell_cmd_power(solar_os_context_t *ctx, int argc, char **argv)
                                       "suspend is only available from the display shell");
             return;
         }
-        solar_os_shell_io_writeln(term, "suspending; press KEY to resume");
+        solar_os_shell_io_writeln(term, "suspending; press a key to resume");
         solar_os_context_request_suspend(ctx);
         return;
     }
@@ -1299,12 +1306,12 @@ static void nvs_list_namespaces(solar_os_shell_io_t *term)
     nvs_stats_t stats;
     esp_err_t error = nvs_get_stats(NULL, &stats);
     if (error != ESP_OK) {
-        solar_os_shell_io_printf(term, "nvs list: %s\n",
+        solar_os_shell_io_table_printf(term, "nvs list: %s\n",
                                  solar_os_shell_error_text(error));
         return;
     }
     if (stats.namespace_count == 0U) {
-        solar_os_shell_io_writeln(term, "nvs: no namespaces");
+        solar_os_shell_io_table_writeln(term, "nvs: no namespaces");
         return;
     }
 
@@ -1314,7 +1321,7 @@ static void nvs_list_namespaces(solar_os_shell_io_t *term)
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
         "nvs.list");
     if (summaries == NULL) {
-        solar_os_shell_io_writeln(term, "nvs list: out of memory");
+        solar_os_shell_io_table_writeln(term, "nvs list: out of memory");
         return;
     }
 
@@ -1347,7 +1354,7 @@ static void nvs_list_namespaces(solar_os_shell_io_t *term)
     nvs_release_iterator(iterator);
     if (error != ESP_ERR_NVS_NOT_FOUND) {
         solar_os_memory_free(summaries);
-        solar_os_shell_io_printf(term, "nvs list: %s\n",
+        solar_os_shell_io_table_printf(term, "nvs list: %s\n",
                                  solar_os_shell_error_text(error));
         return;
     }
@@ -1365,20 +1372,20 @@ static void nvs_list_namespaces(solar_os_shell_io_t *term)
     }
     qsort(summaries, count, sizeof(*summaries), nvs_namespace_compare);
 
-    solar_os_shell_io_writeln(term, "Namespace        Keys Entries");
+    solar_os_shell_io_table_writeln(term, "Namespace        Keys Entries");
     for (size_t i = 0; i < count; i++) {
         if (summaries[i].usage_valid) {
-            solar_os_shell_io_printf(term, "%-15s %4u %7u\n",
+            solar_os_shell_io_table_printf(term, "%-15s %4u %7u\n",
                                      summaries[i].name,
                                      (unsigned)summaries[i].key_count,
                                      (unsigned)summaries[i].used_entries);
         } else {
-            solar_os_shell_io_printf(term, "%-15s %4u       ?\n",
+            solar_os_shell_io_table_printf(term, "%-15s %4u       ?\n",
                                      summaries[i].name,
                                      (unsigned)summaries[i].key_count);
         }
     }
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "%u non-empty namespaces listed; NVS reports %u total\n",
                              (unsigned)count,
                              (unsigned)stats.namespace_count);
@@ -1391,7 +1398,7 @@ static void nvs_list_namespace(solar_os_shell_io_t *term,
     nvs_handle_t handle = 0;
     esp_err_t error = nvs_open(namespace_name, NVS_READONLY, &handle);
     if (error != ESP_OK) {
-        solar_os_shell_io_printf(term, "nvs list: %s: %s\n",
+        solar_os_shell_io_table_printf(term, "nvs list: %s: %s\n",
                                  namespace_name,
                                  solar_os_shell_error_text(error));
         return;
@@ -1399,7 +1406,7 @@ static void nvs_list_namespace(solar_os_shell_io_t *term,
 
     size_t used = 0;
     const bool usage_valid = nvs_get_used_entry_count(handle, &used) == ESP_OK;
-    solar_os_shell_io_writeln(term, "Key             Type      Bytes Entries");
+    solar_os_shell_io_table_writeln(term, "Key             Type      Bytes Entries");
     size_t key_count = 0;
     nvs_iterator_t iterator = NULL;
     error = nvs_entry_find(NVS_DEFAULT_PART_NAME,
@@ -1417,13 +1424,13 @@ static void nvs_list_namespace(solar_os_shell_io_t *term,
         const size_t entries = size_error == ESP_OK ?
             nvs_value_entries(info.type, size) : 0U;
         if (size_error == ESP_OK) {
-            solar_os_shell_io_printf(term, "%-15s %-8s %6u %7u\n",
+            solar_os_shell_io_table_printf(term, "%-15s %-8s %6u %7u\n",
                                      info.key,
                                      nvs_type_name(info.type),
                                      (unsigned)size,
                                      (unsigned)entries);
         } else {
-            solar_os_shell_io_printf(term, "%-15s %-8s      ?       ?\n",
+            solar_os_shell_io_table_printf(term, "%-15s %-8s      ?       ?\n",
                                      info.key,
                                      nvs_type_name(info.type));
         }
@@ -1434,19 +1441,19 @@ static void nvs_list_namespace(solar_os_shell_io_t *term,
     nvs_close(handle);
 
     if (error != ESP_ERR_NVS_NOT_FOUND) {
-        solar_os_shell_io_printf(term, "nvs list: %s: %s\n",
+        solar_os_shell_io_table_printf(term, "nvs list: %s: %s\n",
                                  namespace_name,
                                  solar_os_shell_error_text(error));
         return;
     }
     if (usage_valid) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%s: %u keys, %u entries including namespace\n",
                                  namespace_name,
                                  (unsigned)key_count,
                                  (unsigned)(used + 1U));
     } else {
-        solar_os_shell_io_printf(term, "%s: %u keys\n",
+        solar_os_shell_io_table_printf(term, "%s: %u keys\n",
                                  namespace_name, (unsigned)key_count);
     }
 }
@@ -1726,7 +1733,7 @@ static void mem_print_region(solar_os_shell_io_t *term,
     format_bytes(region->free, free_now, sizeof(free_now));
     format_bytes(region->minimum_free, low, sizeof(low));
     format_bytes(region->largest_free, largest, sizeof(largest));
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "%s: total %s free %s low %s max %s\n",
                              label,
                              total,
@@ -1754,7 +1761,7 @@ static void engine_print_stats(solar_os_shell_io_t *term,
 {
     const uint64_t util = engine_util_tenths(stats);
 
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "%-8s %-8s %s ops=%" PRIu64
                              " work=%" PRIu64 "ms busy=%" PRIu64
                              "ms util=%" PRIu64 ".%u%% units=%" PRIu64,
@@ -1768,18 +1775,18 @@ static void engine_print_stats(solar_os_shell_io_t *term,
                              (unsigned)(util % 10ULL),
                              stats->unit_count);
     if (stats->op_count > 0) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  " last=%" PRIu64 "us max=%" PRIu64 "us",
                                  stats->last_us,
                                  stats->max_us);
     }
     if (stats->owner[0] != '\0') {
-        solar_os_shell_io_printf(term, " owner=%s", stats->owner);
+        solar_os_shell_io_table_printf(term, " owner=%s", stats->owner);
     }
     if (stats->label[0] != '\0') {
-        solar_os_shell_io_printf(term, " label=%s", stats->label);
+        solar_os_shell_io_table_printf(term, " label=%s", stats->label);
     }
-    solar_os_shell_io_put_char(term, '\n');
+    solar_os_shell_io_table_put_char(term, '\n');
 }
 
 void solar_os_shell_cmd_engine(solar_os_context_t *ctx, int argc, char **argv)
@@ -1829,17 +1836,30 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     solar_os_memory_status_t status;
 
+    if (argc == 2 && strcmp(argv[1], "reclaim") == 0) {
+        solar_os_memory_status_t before;
+        solar_os_memory_get_status(&before);
+        const size_t released = solar_os_memory_reclaim();
+        solar_os_memory_get_status(&status);
+        solar_os_shell_io_table_printf(term,
+            "Released %u unused libraries\nPSRAM free: %u -> %u bytes\n"
+            "Largest free block: %u -> %u bytes\n",
+            (unsigned)released, (unsigned)before.external.free,
+            (unsigned)status.external.free, (unsigned)before.external.largest_free,
+            (unsigned)status.external.largest_free);
+        return;
+    }
     if (argc > 2 || (argc == 2 && strcmp(argv[1], "policy") != 0)) {
         if (argc > 2) {
-            solar_os_shell_diag_unexpected(term, "mem", argv[2], "mem [policy]");
+            solar_os_shell_diag_unexpected(term, "mem", argv[2], "mem [policy|reclaim]");
         } else {
-            static const char * const values[] = {"policy"};
+            static const char * const values[] = {"policy", "reclaim"};
             solar_os_shell_diag_unknown(term,
                                         "mem",
                                         "argument",
                                         argv[1],
-                                        solar_os_shell_suggest(argv[1], values, 1),
-                                        "mem [policy]");
+                                        solar_os_shell_suggest(argv[1], values, 2),
+                                        "mem [policy|reclaim]");
         }
         return;
     }
@@ -1848,16 +1868,26 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     mem_print_region(term, "Internal", &status.internal);
     mem_print_region(term, "PSRAM", &status.external);
     mem_print_region(term, "DMA", &status.dma);
+    if (status.arena.total) {
+        solar_os_shell_io_table_printf(term,
+            "Managed PSRAM: total %u free %u largest %u resident %u bytes, %u allocations\n",
+            (unsigned)status.arena.total, (unsigned)status.arena.free,
+            (unsigned)status.arena.largest, (unsigned)status.arena.resident,
+            (unsigned)status.arena.allocations);
+    }
 
     if (argc == 1) {
         return;
     }
 
+    solar_os_shell_io_table_printf(term, "SDK PSRAM: free %u largest %u bytes\n",
+        (unsigned)status.external_sdk.free, (unsigned)status.external_sdk.largest_free);
+
     char reserve[16];
     char fallback_max[16];
     format_bytes(status.internal_reserve, reserve, sizeof(reserve));
     format_bytes(status.internal_fallback_max, fallback_max, sizeof(fallback_max));
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "Policy: internal reserve %s, fallback max %s\n",
                              reserve,
                              fallback_max);
@@ -1866,7 +1896,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
         const solar_os_memory_class_stats_t *stats = &status.classes[i];
         char requested[16];
         format_bytes(stats->requested_bytes, requested, sizeof(requested));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%-18s req=%" PRIu32 " ok=%" PRIu32
                                  " fail=%" PRIu32 " fallback=%" PRIu32
                                  " bytes=%s\n",
@@ -1884,7 +1914,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
         const solar_os_task_role_stats_t *stats = &task_status.roles[i];
         char requested[16];
         format_bytes(stats->requested_stack_bytes, requested, sizeof(requested));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "task %-12s req=%" PRIu32 " ok=%" PRIu32
                                  " deny=%" PRIu32 " fail=%" PRIu32 " stack=%s\n",
                                  solar_os_task_role_name((solar_os_task_role_t)i),
@@ -1894,7 +1924,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
                                  stats->failures,
                                  requested);
     }
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "task wait         now=%" PRIu32 " ok=%" PRIu32
                              " cancel=%" PRIu32 "\n",
                              task_status.waiting,
@@ -1904,7 +1934,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     if (status.last_failure_valid) {
         char failed_size[16];
         format_bytes(status.last_failure_size, failed_size, sizeof(failed_size));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "Last failure: %s tag=%s size=%s\n",
                                  solar_os_memory_class_name(status.last_failure_class),
                                  status.last_failure_tag,
@@ -1931,7 +1961,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
         format_bytes(task_status.last_failure_external_largest_block_bytes,
                      failed_external_largest,
                      sizeof(failed_external_largest));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "Last task %s: %s role=%s stack=%s placement=%s\n",
                                  task_status.last_failure_denied ? "denial" : "failure",
                                  task_status.last_failure_name,
@@ -1939,7 +1969,7 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
                                  failed_stack,
                                  task_status.last_failure_external_stack ?
                                      "PSRAM" : "internal");
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  at failure: internal free %s max %s; "
                                  "PSRAM free %s max %s\n",
                                  failed_internal_free,
@@ -2012,11 +2042,11 @@ static void ramfs_print_status(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_ramfs_mount_count();
     if (count == 0) {
-        solar_os_shell_io_writeln(term, "ramfs: no mounts");
+        solar_os_shell_io_table_writeln(term, "ramfs: no mounts");
         return;
     }
 
-    solar_os_shell_io_writeln(term, "PATH       TOTAL    USED     FREE     FILES DIRS OPEN");
+    solar_os_shell_io_table_writeln(term, "PATH       TOTAL    USED     FREE     FILES DIRS OPEN");
     for (size_t i = 0; i < count; i++) {
         solar_os_ramfs_info_t info;
         char total[12];
@@ -2029,7 +2059,7 @@ static void ramfs_print_status(solar_os_shell_io_t *term)
         format_bytes(info.total_bytes, total, sizeof(total));
         format_bytes(info.used_bytes, used, sizeof(used));
         format_bytes(info.free_bytes, free_space, sizeof(free_space));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%-10s %-8s %-8s %-8s %5u %4u %4u\n",
                                  info.mount_point,
                                  total,
@@ -2141,11 +2171,11 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     bool any = false;
-    solar_os_shell_io_writeln(term, "Filesystem  Total    Used     Free     Use% Mount");
+    solar_os_shell_io_table_writeln(term, "Filesystem  Total    Used     Free     Use% Mount");
 
     const esp_err_t scan_err = solar_os_storage_rescan();
     if (scan_err != ESP_OK && scan_err != ESP_ERR_NOT_SUPPORTED) {
-        solar_os_shell_io_printf(term, "sd         read failed: %s\n", solar_os_shell_error_text(scan_err));
+        solar_os_shell_io_table_printf(term, "sd         read failed: %s\n", solar_os_shell_error_text(scan_err));
         any = true;
     }
 
@@ -2163,7 +2193,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
 
         const esp_err_t err = solar_os_storage_get_usage_for_path(mount.mount_point, &usage);
         if (err != ESP_OK) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "%-10s read failed: %s\n",
                                      mount.name,
                                      solar_os_shell_error_text(err));
@@ -2178,7 +2208,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
             (uint32_t)((usage.used_bytes * 100ULL) / usage.total_bytes) :
             0U;
 
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%-10s %-8s %-8s %-8s %3u%% %s\n",
                                  mount.name,
                                  total,
@@ -2190,7 +2220,7 @@ void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (!any) {
-        solar_os_shell_io_writeln(term, "df: no mounted filesystems");
+        solar_os_shell_io_table_writeln(term, "df: no mounted filesystems");
     }
 }
 
@@ -2231,7 +2261,7 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
                                                  SOLAR_OS_MEMORY_TRANSIENT,
                                                  "shell.top");
     if (tasks == NULL) {
-        solar_os_shell_io_writeln(term, "top: out of memory");
+        solar_os_shell_io_table_writeln(term, "top: out of memory");
         return;
     }
 
@@ -2243,7 +2273,7 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
 #endif
     if (task_count == 0) {
         solar_os_memory_free(tasks);
-        solar_os_shell_io_writeln(term, "top: task snapshot failed");
+        solar_os_shell_io_table_writeln(term, "top: task snapshot failed");
         return;
     }
 
@@ -2257,7 +2287,7 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
         }
     }
 
-    solar_os_shell_io_writeln(term, "TASK         S PRI CPU% STACK");
+    solar_os_shell_io_table_writeln(term, "TASK         S PRI CPU% STACK");
     for (UBaseType_t i = 0; i < task_count; i++) {
         char stack_free[16];
         const char *name = tasks[i].pcTaskName != NULL ? tasks[i].pcTaskName : "?";
@@ -2272,7 +2302,7 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
 #else
         const uint64_t cpu_tenths = 0ULL;
 #endif
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%-12.12s %c %3u %3" PRIu64 ".%u %s\n",
                                  name,
                                  task_state_char(tasks[i].eCurrentState),
@@ -2284,6 +2314,6 @@ void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_memory_free(tasks);
 #else
-    solar_os_shell_io_writeln(term, "top: FreeRTOS trace facility disabled");
+    solar_os_shell_io_table_writeln(term, "top: FreeRTOS trace facility disabled");
 #endif
 }

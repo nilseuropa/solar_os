@@ -11,6 +11,8 @@ typedef struct {
     unsigned reads;
     unsigned power_changes;
     bool powered;
+    bool enabled;
+    bool enable_fail;
     bool try_unregister;
 } fake_gnss_t;
 
@@ -36,6 +38,19 @@ static esp_err_t fake_set_power(void *ctx, bool enabled)
         assert(solar_os_gnss_unregister(fake->name) == ESP_ERR_INVALID_STATE);
     }
     fake->powered = enabled;
+    return ESP_OK;
+}
+
+static esp_err_t fake_set_enabled(void *ctx, bool enabled)
+{
+    fake_gnss_t *fake = ctx;
+    if (fake->try_unregister) {
+        assert(solar_os_gnss_unregister(fake->name) == ESP_ERR_INVALID_STATE);
+    }
+    if (fake->enable_fail) {
+        return ESP_FAIL;
+    }
+    fake->enabled = enabled;
     return ESP_OK;
 }
 
@@ -67,6 +82,7 @@ static const solar_os_gnss_ops_t fake_ops = {
 static const solar_os_gnss_ops_t controlled_ops = {
     .read_fix = fake_read_fix,
     .set_power = fake_set_power,
+    .set_enabled = fake_set_enabled,
 };
 
 static void register_fake(const char *name,
@@ -165,6 +181,23 @@ int main(void)
            ESP_ERR_NOT_FOUND);
     assert(solar_os_gnss_get_status("missing", 250U, &status) ==
            ESP_ERR_NOT_FOUND);
+
+    assert(solar_os_gnss_set_enabled("missing", false) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_gnss_set_enabled(second.name, false) == ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_gnss_set_enabled(first.name, false) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_gnss_set_power(first.name, true) == ESP_OK);
+    assert(solar_os_gnss_set_enabled(first.name, false) == ESP_OK && !first.enabled);
+    const unsigned reads_before = first.reads;
+    assert(solar_os_gnss_get_status(first.name, 250U, &status) == ESP_OK);
+    assert(status.enable_control && !status.enabled && status.powered && !status.fix_available);
+    assert(first.reads == reads_before);
+    assert(solar_os_gnss_read_fix(first.name, 250U, &fix) == ESP_ERR_INVALID_STATE);
+    first.enable_fail = true;
+    assert(solar_os_gnss_set_enabled(first.name, true) == ESP_FAIL);
+    assert(solar_os_gnss_get(0, &info) && !info.enabled);
+    first.enable_fail = false;
+    assert(solar_os_gnss_set_enabled(first.name, true) == ESP_OK && first.enabled);
+    assert(solar_os_gnss_get(0, &info) && info.enabled);
 
     assert(solar_os_gnss_unregister(first.name) == ESP_OK);
     assert(solar_os_gnss_unregister(second.name) == ESP_OK);

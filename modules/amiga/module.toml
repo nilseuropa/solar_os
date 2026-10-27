@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "amiga"
+name = "amiga"
+version = "0.1.0"
+description = "Amiga 500 with OCS, 1 MiB RAM and read-only ADF floppy. User-supplied Kickstart required."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 2
+minimum_host_api_size = 24
+required_capabilities = ["psram", "gfx"]
+artifact = "solaros_native_amiga.app.elf"

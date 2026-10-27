@@ -29,3 +29,6 @@ const char *solar_os_shell_suggest(const char *input,
                                    const char * const *candidates,
                                    size_t candidate_count);
 bool solar_os_shell_parse_rgb888(const char *text, uint32_t *rgb888);
+/* Classify parsed commands so quoting and whitespace cannot put setup secrets
+ * into the interactive history file. */
+bool solar_os_shell_command_has_secrets(int argc, const char *const *argv);

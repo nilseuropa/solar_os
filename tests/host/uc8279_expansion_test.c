@@ -64,6 +64,14 @@ const char *epd_ultrachip_controller_mode_values(const epd_ultrachip_t *display)
 esp_err_t epd_ultrachip_set_controller_mode(epd_ultrachip_t *display, const char *mode)
 { (void)display; (void)mode; return ESP_OK; }
 
+static void *relax_driver;
+esp_err_t epd_ultrachip_relax(epd_ultrachip_t *d, solar_os_display_relax_phase_t phase)
+{
+    assert(phase == SOLAR_OS_DISPLAY_RELAX_BEGIN || phase == SOLAR_OS_DISPLAY_RELAX_END);
+    relax_driver = d;
+    return ESP_OK;
+}
+
 int main(void)
 {
     solar_os_expansion_binding_t bindings[] = {
@@ -90,6 +98,8 @@ int main(void)
     assert(target.width == 800 && target.height == 480 && !target.black_is_one);
     assert(strcmp(target.driver, "uc8279") == 0 && strcmp(target.controller, "UC8279") == 0);
     assert(solar_os_uc8279_attach("epd0", bindings, 6) == ESP_ERR_INVALID_ARG);
+    assert(target.relax(target.relax_context, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
+    assert(relax_driver == target.relax_context);
     unregister_error = ESP_FAIL;
     assert(solar_os_uc8279_detach("epd0") == ESP_FAIL && deinited == 2);
     unregister_error = ESP_OK;
@@ -101,6 +111,9 @@ int main(void)
     primary = true;
     assert(solar_os_uc8279_attach("display0", bindings, 6) == ESP_OK);
     assert(primary_display->ready && strcmp(primary_display->controller, "UC8279") == 0);
+    assert(target.relax && target.relax_context);
+    assert(primary_display->ops->relax(primary_display, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
+    assert(relax_driver == primary_display->driver);
     assert(solar_os_uc8279_detach("display0") == ESP_OK);
     puts("uc8279_expansion_test: PASS"); return 0;
 }

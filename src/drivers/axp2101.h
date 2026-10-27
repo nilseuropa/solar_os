@@ -52,6 +52,7 @@ typedef struct {
 
 esp_err_t axp2101_init(axp2101_t *device, const axp2101_io_t *io);
 esp_err_t axp2101_deinit(axp2101_t *device);
+esp_err_t axp2101_power_off(axp2101_t *device);
 esp_err_t axp2101_enable_monitoring(axp2101_t *device);
 esp_err_t axp2101_read_battery(axp2101_t *device,
                                axp2101_battery_status_t *status);

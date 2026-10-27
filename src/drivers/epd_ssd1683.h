@@ -8,6 +8,7 @@
 #include "esp_err.h"
 #include "epd_pixel_budget.h"
 #include "epd_scan_worker.h"
+#include "solar_os_display_maintenance.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "u8g2.h"
@@ -86,10 +87,13 @@ typedef struct {
     bool pulse_mask_dirty;
     bool pulse_power_hold, pulse_ramp_fast, pulse_analog_on;
     bool scan_async;
+    bool power_state_present;
+    uint8_t *relax_storage;
     uint32_t scan_submit_ready;
     uint16_t scan_period_ms;
     uint32_t spi_clock_hz, pulse_spi_clock_hz, spi_applied_hz;
     int64_t pulse_last_drive_start, pulse_drive_interval;
+    int64_t pulse_last_frame_start;
     epd_scan_worker_t scan_worker;
     uint32_t pulse_updates;
     bool pulse_lut_loaded;
@@ -102,6 +106,16 @@ typedef struct {
 esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
                            const epd_ssd1683_config_t *config);
 esp_err_t epd_ssd1683_resume(epd_ssd1683_t *display);
+/* Compose a complete frame with a white (or inverted black) border. Source
+ * rows are byte-padded, LSB-first MONO1, with set bits representing black. */
+esp_err_t epd_ssd1683_present_mono_xbm(epd_ssd1683_t *display,
+                                      const uint8_t *bitmap, size_t bitmap_size,
+                                      uint16_t x, uint16_t y,
+                                      uint16_t width, uint16_t height,
+                                      uint16_t stride, bool palette_inverted);
+esp_err_t epd_ssd1683_present_power_state(epd_ssd1683_t *display);
+esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
+                            solar_os_display_relax_phase_t phase);
 void epd_ssd1683_deinit(epd_ssd1683_t *display);
 u8g2_t *epd_ssd1683_get_u8g2(epd_ssd1683_t *display);
 const char *epd_ssd1683_controller_name(const epd_ssd1683_t *display);

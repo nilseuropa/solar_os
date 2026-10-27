@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "nvs.h"
+#include "solar_os_saved_config.h"
 #include "solar_os_link.h"
 #include "solar_os_log.h"
 #include "solar_os_wifi.h"
@@ -278,6 +279,14 @@ static esp_err_t espnow_driver_reconcile_peers(
     return ESP_OK;
 }
 
+static solar_os_saved_config_t espnow_peer_file;
+static bool espnow_peer_store_valid(const void *data, size_t length)
+{
+    const espnow_peer_store_t *store = data;
+    return length == sizeof(*store) && store->magic == ESPNOW_PEER_STORE_MAGIC &&
+        store->version == ESPNOW_PEER_STORE_VERSION && store->count <= SOLAR_OS_ESPNOW_PEER_MAX;
+}
+
 static esp_err_t espnow_save_configured_peers(void)
 {
     espnow_peer_store_t store = {
@@ -297,17 +306,7 @@ static esp_err_t espnow_save_configured_peers(void)
     }
     portEXIT_CRITICAL(&espnow_lock);
 
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(ESPNOW_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    ret = nvs_set_blob(nvs, ESPNOW_NVS_PEERS_KEY, &store, sizeof(store));
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs);
-    }
-    nvs_close(nvs);
-    return ret;
+    return solar_os_saved_config_save(&espnow_peer_file, "espnow-peers", &store, sizeof(store));
 }
 
 static esp_err_t espnow_load_configured_peers(void)
@@ -321,28 +320,10 @@ static esp_err_t espnow_load_configured_peers(void)
 
     espnow_peer_store_t store = {0};
     size_t length = sizeof(store);
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(ESPNOW_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        ret = ESP_OK;
-    } else if (ret == ESP_OK) {
-        ret = nvs_get_blob(nvs, ESPNOW_NVS_PEERS_KEY, &store, &length);
-        nvs_close(nvs);
-        if (ret == ESP_ERR_NVS_NOT_FOUND) {
-            ret = ESP_OK;
-        }
-    }
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    if (length != sizeof(store) ||
-        (store.magic != 0U &&
-         (store.magic != ESPNOW_PEER_STORE_MAGIC ||
-          store.version != ESPNOW_PEER_STORE_VERSION ||
-          store.count > SOLAR_OS_ESPNOW_PEER_MAX))) {
-        return ESP_ERR_INVALID_VERSION;
-    }
+    esp_err_t ret = solar_os_saved_config_load(&espnow_peer_file, "espnow-peers",
+        ESPNOW_NVS_NAMESPACE, ESPNOW_NVS_PEERS_KEY, &store, sizeof(store), &length, espnow_peer_store_valid);
+    if (ret == ESP_ERR_NVS_NOT_FOUND || ret == ESP_ERR_NOT_FOUND) memset(&store, 0, sizeof(store));
+    else if (ret != ESP_OK) return ret;
 
     portENTER_CRITICAL(&espnow_lock);
     memset(espnow_state.peers, 0, sizeof(espnow_state.peers));

@@ -159,7 +159,7 @@ static void input_print_sources(solar_os_shell_io_t *io,
                                 solar_os_input_source_class_t source_class)
 {
     size_t shown = 0;
-    solar_os_shell_io_writeln(io, "SOURCE           CLASS      READY CAPABILITIES");
+    solar_os_shell_io_table_writeln(io, "SOURCE           CLASS      READY CAPABILITIES");
     const size_t count = solar_os_input_source_count();
     for (size_t i = 0; i < count; i++) {
         solar_os_input_source_info_t info;
@@ -171,7 +171,7 @@ static void input_print_sources(solar_os_shell_io_t *io,
         input_format_capabilities(info.capabilities,
                                   capabilities,
                                   sizeof(capabilities));
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-16s %-10s %-5s %s\n",
                                  info.name,
                                  solar_os_input_source_class_name(info.source_class),
@@ -181,11 +181,11 @@ static void input_print_sources(solar_os_shell_io_t *io,
     }
     if (shown == 0) {
         if (filter) {
-            solar_os_shell_io_printf(io,
+            solar_os_shell_io_table_printf(io,
                                      "no %s sources\n",
                                      solar_os_input_source_class_name(source_class));
         } else {
-            solar_os_shell_io_writeln(io, "no input sources");
+            solar_os_shell_io_table_writeln(io, "no input sources");
         }
     }
 }
@@ -575,24 +575,24 @@ static void gesture_bind(solar_os_shell_io_t *io, int argc, char **argv)
 
 static void gesture_list_bindings(solar_os_shell_io_t *io)
 {
-    solar_os_shell_io_printf(io,
+    solar_os_shell_io_table_printf(io,
                              "listener: %s\n",
                              solar_os_input_actions_running()
                                  ? "running"
                                  : "stopped");
     const size_t count = solar_os_input_actions_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "no gesture bindings");
+        solar_os_shell_io_table_writeln(io, "no gesture bindings");
         return;
     }
-    solar_os_shell_io_writeln(
+    solar_os_shell_io_table_writeln(
         io, "ID SOURCE           GESTURE     DIRECTION        COOLDOWN FIRED DROPPED COMMAND");
     for (size_t i = 0; i < count; i++) {
         solar_os_input_action_binding_t binding;
         if (!solar_os_input_actions_get(i, &binding)) {
             continue;
         }
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io,
             "%-2" PRIu32 " %-16s %-11s %-16s %8" PRIu32 " %5" PRIu32 " %7" PRIu32 " %s\n",
             binding.id,
@@ -611,7 +611,7 @@ static void gesture_list_bindings(solar_os_shell_io_t *io)
 static void gesture_print_sources(solar_os_shell_io_t *io)
 {
     size_t shown = 0U;
-    solar_os_shell_io_writeln(io, "SOURCE           READY GESTURES");
+    solar_os_shell_io_table_writeln(io, "SOURCE           READY GESTURES");
     for (size_t i = 0; i < solar_os_input_source_count(); i++) {
         solar_os_input_source_info_t source;
         if (!solar_os_input_source_get(i, &source) ||
@@ -634,7 +634,7 @@ static void gesture_print_sources(solar_os_shell_io_t *io)
                         (solar_os_input_gesture_t)value),
                     sizeof(gestures));
         }
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-16s %-5s %s\n",
                                  source.name,
                                  source.ready ? "yes" : "no",
@@ -642,7 +642,7 @@ static void gesture_print_sources(solar_os_shell_io_t *io)
         shown++;
     }
     if (shown == 0U) {
-        solar_os_shell_io_writeln(io, "no gesture sources");
+        solar_os_shell_io_table_writeln(io, "no gesture sources");
     }
 }
 
@@ -697,18 +697,18 @@ static void input_keymap(solar_os_context_t *ctx, solar_os_shell_io_t *io,
 #if SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP
     esp_err_t err;
     if (argc == 2) {
-        solar_os_shell_io_writeln(io, "SOURCE           MAPPING      KEYS FEATURES");
+        solar_os_shell_io_table_writeln(io, "SOURCE           MAPPING      KEYS FEATURES");
         for (size_t i = 0; i < solar_os_input_source_count(); i++) {
             solar_os_input_source_info_t source;
             solar_os_input_keymap_info_t info;
             if (!solar_os_input_source_get(i, &source) ||
                 solar_os_input_keymap_info(source.name, &info) != ESP_OK) continue;
-            solar_os_shell_io_printf(io, "%-16s %-12s %4u %s", source.name,
+            solar_os_shell_io_table_printf(io, "%-16s %-12s %4u %s", source.name,
                 info.capabilities != 0U ? "physical" : "unsupported", info.key_count,
                 info.capabilities != 0U ? "modifiers layers tap-hold" : "-");
-            if (info.rows != 0U) solar_os_shell_io_printf(io, " matrix=%ux%u stride=%u",
+            if (info.rows != 0U) solar_os_shell_io_table_printf(io, " matrix=%ux%u stride=%u",
                 info.rows, info.cols, info.stride);
-            solar_os_shell_io_writeln(io, "");
+            solar_os_shell_io_table_writeln(io, "");
         }
         return;
     }
@@ -724,10 +724,10 @@ static void input_keymap(solar_os_context_t *ctx, solar_os_shell_io_t *io,
             SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "keyboard-map");
         err = map == NULL ? ESP_ERR_NO_MEM : solar_os_input_keymap_get(argv[2], false, map);
         if (err == ESP_OK) {
-            solar_os_shell_io_printf(io, "%s: physical keys, modifiers, layers, tap-hold", argv[2]);
-            if (map->rows != 0U) solar_os_shell_io_printf(io, "; rows=%u cols=%u stride=%u",
+            solar_os_shell_io_table_printf(io, "%s: physical keys, modifiers, layers, tap-hold", argv[2]);
+            if (map->rows != 0U) solar_os_shell_io_table_printf(io, "; rows=%u cols=%u stride=%u",
                 map->rows, map->cols, map->stride);
-            solar_os_shell_io_writeln(io, "\nROW COL    ID LAYER USAGE KEY SHIFT FLAGS");
+            solar_os_shell_io_table_writeln(io, "\nROW COL    ID LAYER USAGE KEY SHIFT FLAGS");
             for (unsigned layer = 0; layer < 2U; layer++)
                 for (unsigned slot = 1; slot <= map->slot_count; slot++) {
                     const unsigned physical = map->physical[slot];
@@ -736,10 +736,10 @@ static void input_keymap(solar_os_context_t *ctx, solar_os_shell_io_t *io,
                     if (layer == 1U && key.usage == 0U && key.key == 0U &&
                         key.shifted_key == 0U && key.flags == 0U) continue;
                     if (map->rows != 0U)
-                        solar_os_shell_io_printf(io, "%3u %3u ",
+                        solar_os_shell_io_table_printf(io, "%3u %3u ",
                             (physical - map->first) / map->stride, (physical - map->first) % map->stride);
-                    else solar_os_shell_io_printf(io, "  -   - ");
-                    solar_os_shell_io_printf(io, "%5u %5u 0x%02x %3u %5u %5u\n",
+                    else solar_os_shell_io_table_printf(io, "  -   - ");
+                    solar_os_shell_io_table_printf(io, "%5u %5u 0x%02x %3u %5u %5u\n",
                         physical, layer, key.usage, key.key, key.shifted_key, key.flags);
                 }
         }
@@ -751,14 +751,14 @@ static void input_keymap(solar_os_context_t *ctx, solar_os_shell_io_t *io,
         return;
     }
     if (err == ESP_ERR_NOT_SUPPORTED)
-        solar_os_shell_io_writeln(io, "input keymap: this source has no registered keymap");
+        solar_os_shell_io_table_writeln(io, "input keymap: this source has no registered keymap");
     else if (err != ESP_OK)
-        solar_os_shell_io_printf(io, "input keymap: %s\n", esp_err_to_name(err));
+        solar_os_shell_io_table_printf(io, "input keymap: %s\n", esp_err_to_name(err));
     else
-        solar_os_shell_io_writeln(io, "keymap applied; release and press any held keys again");
+        solar_os_shell_io_table_writeln(io, "keymap applied; release and press any held keys again");
 #else
     (void)ctx; (void)argc; (void)argv;
-    solar_os_shell_io_writeln(io, "input keymap: keymap service is not included");
+    solar_os_shell_io_table_writeln(io, "input keymap: keymap service is not included");
 #endif
 }
 

@@ -20,9 +20,9 @@ typedef struct {
     bool active_low;
     bool emit_on_release;
     solar_os_button_pull_t pull;
-    /* For directional rollers, reject a short horizontal impulse immediately
-     * after a vertical movement. Zero leaves normal button behavior intact. */
-    uint16_t horizontal_guard_after_vertical_ms;
+    /* Hall direction signals: capture both edges and accumulate relative
+     * movement; emit one dominant-axis arrow when movement stops. */
+    bool track_motion;
 } solar_os_button_def_t;
 
 typedef struct {
@@ -33,7 +33,7 @@ typedef struct {
     bool stable_pressed;
     uint32_t raw_transitions;
     uint32_t stable_transitions;
-    uint32_t suppressed_releases;
+    uint32_t dropped_edges;
 } solar_os_button_debug_info_t;
 
 esp_err_t solar_os_buttons_init(void);

@@ -38,6 +38,50 @@ finally:
     gfx.end()
 ```
 
+
+## Direct DLP connections
+
+When `dlp_client` is selected, `solaros.dlp.connect(stream, format=MONO1,
+timeout_ms=5000)` opens a private DLP connection over a registered exclusive
+duplex byte stream. Python accepts positional arguments or these keywords.
+It does not register a display target or allocate text/graphics composition
+buffers. TCP endpoints can be configured through `solaros.streams.tcp` when
+TCP byte-stream support is available; UART and radio streams are configured
+through their providers.
+
+```python
+import solaros
+
+# Configure once, or use a stream already registered by the shell.
+solaros.streams.tcp.connect("pico0", "192.0.2.10", 7777)
+try:
+    with solaros.dlp.connect("pico0") as link:
+        info = link.info()
+        link.present(bytes(info["frame_bytes"]))  # white MONO1 image
+finally:
+    solaros.streams.tcp.remove("pico0")
+```
+
+Use `info()` for `width`, `height`, `format`, byte `stride`, `frame_bytes`,
+accepted `formats` bitmask, `capabilities`, `model`, and `firmware`.
+`present(pixels)` requires exactly `frame_bytes` packed bytes and returns after
+presentation completes; errors propagate to the script. MONO1 uses black=1,
+LSB-first horizontal bits, with each row padded to a whole byte. GRAY2/GRAY4
+use LSB-first packed indices, GRAY8 uses one byte per pixel, and RGB565_BE
+uses the high byte first. Unused row-padding bits must be zero.
+
+Format constants are `solaros.dlp.MONO1`, `GRAY2`, `GRAY4`, `GRAY8`, and
+`RGB565_BE`; pass `-1` to select the peripheral's preferred format.
+`timeout_ms` accepts 100..60000 and sets discovery and the minimum command
+timeout. Peripheral presentation deadlines may extend command waits.
+
+`close()` releases the stream claim and is idempotent. The connection supports `with`.
+Interpreter teardown also closes all outstanding connections, including after
+an error or cancellation. Each interpreter supports four private connections.
+After an I/O failure, another `present` attempts a fresh connection and full
+repaint; geometry and format capabilities must remain unchanged. Close and
+reconnect if the peripheral configuration changes.
+
 Always put `gfx.end()` in `finally` so an exception releases the display.
 
 ## Draw on an attached display
@@ -54,6 +98,11 @@ from a port or headless shell raises `RuntimeError` because that session has no
 foreground display.
 
 ## Colors and dimensions
+
+`gfx.theme()` returns a dictionary with `foreground` and `background` RGB888
+integers from the current `setterm` colors. It does not require `gfx.begin()`
+or claim a display. Use these literal values for Jet materials and backgrounds.
+Read the dictionary again after a terminal color change to obtain the new colors.
 
 Use `gfx.WHITE`, `gfx.LIGHT`, `gfx.DARK`, `gfx.BLACK`, `gfx.gray(level)`, or
 `gfx.rgb(red, green, blue)`. RGB components are `0..255`. On color TFTs, the
@@ -242,6 +291,17 @@ gfx.end()
 ```
 
 ## Quick reference
+
+With `dlp_client`, `solaros.dlp.connect(stream, format=solaros.dlp.MONO1,
+timeout_ms=5000)` returns a private connection with `info()`, `present(pixels)`,
+and idempotent `close()`. It supports `with`; interpreter teardown also releases
+the exclusive byte-stream claim. `present` accepts exactly the packed
+`info()["frame_bytes"]` bytes and waits for completion. No display is registered.
+`solaros.streams.tcp.connect(name, host, port)` creates an outbound stream;
+`solaros.streams.tcp.remove(name)` removes it after the connection closes.
+With BLE byte-stream support, `solaros.streams.ble.connect(name, address, addr_type)`
+configures a native CoC stream; `solaros.streams.ble.remove(name)` removes it
+after use. See [BLE byte streams](python.media.md#ble-byte-streams).
 
 Python: import solaros; from solaros import gfx. gfx.begin() uses the current
 foreground display and raises RuntimeError from a port/headless shell where

@@ -36,10 +36,11 @@ not a count of currently held keys. Character-only devices such as CardKB emit
 one press and one release per character, so one tap normally adds two events.
 Their last event has `physical=0` and `usage=0`; `key=10` is newline/Enter.
 
-On CL-32, Shift and Fn cycle
-through one-shot, locked, and off states. File is left Alt, Menu is left Ctrl,
-OK is Enter, Cancel is Escape, and Fn with keypad 1 through 0 produces F1
-through F10.
+On Pi0cket CL-32, hold Shift for shifted keys and Fn for alternate symbols.
+Both modifiers stop applying when released. File is left Alt, Menu is left Ctrl,
+OK is Enter, Cancel is Escape, and holding Fn with keypad 1 through 0 produces
+F1 through F10. Hold Fn and press Yes (OK) or No (Cancel) to switch to the
+previous or next retained session on the focused display, once per key press.
 
 ## PS/2 keyboard
 
@@ -85,6 +86,26 @@ deltas; analog joysticks report normalized X/Y axes; gesture sensors report
 recognized motions and taps. `input test` shows counters and the latest event
 while the shell is active.
 
+The input service recognizes single-finger `tap`, `double-tap`, `hold`, and
+`swipe` gestures from any registered absolute touch source. Producers submit
+ordinary pointer samples; the common input pump handles gesture timing.
+`gesture status` lists touch sources and their supported gestures. Recognition
+preserves ordinary pointer events and pauses while an exclusive pointer filter
+or capture owns the source, including handwriting input.
+
+A tap lasts at most 250 ms with no more than 12 pixels of movement on either
+axis. A single tap waits 300 ms after release so a second tap can form one
+`double-tap` event instead of two taps. The second press must start within that
+interval and within 24 pixels on each axis of the first release. A stationary
+contact produces one `hold` after 600 ms; release does not produce another
+gesture. A swipe completes within 1000 ms, moves at least 40 pixels, and has a
+dominant axis at least 1.5 times the other axis. Its direction is `west`,
+`east`, `north`, or `south` in calibrated source coordinates, before display
+`setterm orientation` is applied. Other touch gestures use direction `none`.
+Touch gesture `value` is 1 for tap, 2 for double-tap, 600 milliseconds for hold,
+or the dominant-axis distance in pixels for swipe, capped at 32767. `raw` is
+zero; double-tap sets the double flag. Pinch and rotation are not supported.
+
 Native foreground applications opt in to structured pointer input with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS` and to axis input with
 `SOLAR_OS_APP_FLAG_AXIS_EVENTS`. Gesture-aware applications opt in with
@@ -115,6 +136,17 @@ job start gestures
 gesture bindings
 job stop gestures
 gesture unbind 2
+```
+
+To use horizontal swipes for previous/next foreground sessions and vertical
+swipes for page navigation in the focused app:
+
+```text
+gesture bind source=* gesture=swipe direction=west -- input emit ALT+LEFT
+gesture bind source=* gesture=swipe direction=east -- input emit ALT+RIGHT
+gesture bind source=* gesture=swipe direction=north -- input emit PAGE_UP
+gesture bind source=* gesture=swipe direction=south -- input emit PAGE_DOWN
+job start gestures
 ```
 
 `input emit` creates a virtual local keyboard on first use and injects a key
@@ -227,12 +259,14 @@ same keyboard address is paired again, including after keyboard firmware changes
 move its GATT handles. `ble pair` performs that forget operation before it scans
 for a replacement, so switching keyboards does not retain the previous keyboard
 bond. If a keyboard still has an orphaned bond from an older SolarOS release,
-explicit pairing replaces that conflicting bond. On boards with a system KEY, a
-long press also forgets the remembered keyboard and starts a new pairing scan.
-Pairing has no user cancellation path. The KEY short-press power action remains
-separately configurable with `setterm powerkey sleep|suspend`. Suspend is the
-default; another short press resumes the display and restores the prior power
-profile.
+explicit pairing replaces that conflicting bond. On boards with a system KEY,
+`setterm powerkey long ble-pair` assigns this operation to a hold. It is the
+default on targets without a board-owned wired
+keyboard; targets with one default to suspend. Pairing has no user cancellation
+path. The short and long actions are independently configurable with
+`setterm powerkey short <action>` and `setterm powerkey long <action>`.
+A press of any duration resumes suspend, with the wake press consumed until
+release. See the [KEY settings](commands.md) for actions and board defaults.
 
 ## Clipboard
 

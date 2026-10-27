@@ -21,13 +21,176 @@ by its command name, with any arguments shown below.
 | Move local input between displays | `Ctrl+Alt+Arrow` | `session focus TARGET` |
 
 Either Alt key works, including AltGr. Apps may also provide `Esc` or `Q` to
-exit. In shared text menus, `Alt+Enter` toggles full screen; on CL-32 use
+exit. In shared text menus, `Alt+Enter` toggles full screen; on Pi0cket CL-32 use
 `File+OK`. Small text menus start in full screen automatically.
 
 Closing returns to the shell. Python/Lua stdout, errors, and tracebacks remain
 in shell scrollback; app screens are discarded. Errors return to the shell
 with a diagnostic. Run `status` to check the most recent app exit code: 0 means
 success. See [Sessions](sessions.apps.md) for switching and display focus.
+
+## messages
+
+Manage messaging instances, connections, and local message history on the display
+or a VT100 terminal. Run `messages` without arguments to open the TUI. Existing
+`messages` subcommands remain available for shell and scripting use.
+
+Press `Tab` to switch between **Instances**, **Connections**, and **Messages**.
+Use the arrow keys to select a row, `Enter` to open it, `a` for actions, and `?`
+for help. `f` selects an instance or **All instances**. The selected instance
+is shared between tabs. `Esc` returns to the previous view; `q` closes the TUI.
+
+- **Instances:** `n` adds an instance using a provider form, `e` edits its
+  settings, and `d` removes it after confirmation. Select a field and press
+  `Enter` to edit it in place with a visible insertion cursor; `s` saves the form.
+  The other fields remain visible. Unchanged secret fields keep their saved
+  values. Submitting an empty secret field clears it. Removal deletes local
+  history, queued sends, settings, and credentials for that instance.
+- **Connections:** `c` enables the selected instance and `x` disables it.
+  `Enter` shows connection state, worker state, and errors. Enabling an instance
+  does not start its worker; use `job start` with the appropriate worker settings.
+- **Messages:** `v` cycles through conversations, unread messages, and the
+  pending outbox. `Enter` opens conversation history or a message's full text.
+  `Page Up` loads older records and `Page Down` loads newer records. `c` opens
+  Chat for the selected conversation; closing Chat returns to this browser.
+  `r` marks the selected conversation read. `d` deletes one selected local message
+  after confirmation. A pending send must first be cancelled with `x` before its
+  history can be deleted. Local deletion does not retract a remote message.
+
+Message browsing uses the persistent Messaging archive. The universal Inbox
+also contains notifications from other applications; see `inbox` for those.
+See [Messaging](messaging.md) for provider settings, trust, and storage behavior.
+
+## dlp
+
+Use a named SolarOS display as a Display Link Protocol receiver. The `dlp`
+package requires graphics support. One receiver may run at a time.
+
+```text
+dlp serve display0 stream=cdc0
+dlp status
+dlp stop display0
+```
+
+Run these commands from the local display shell or a separate port/network
+shell. The selected stream must provide exclusive, ordered, duplex bytes.
+Release any shell, log, or bridge owner on that stream first; DLP needs both
+directions for commands and replies. DLP does not configure baud rates,
+establish network connections, or add a BLE/radio transport.
+
+The receiver runs as a foreground session on the named display, suspending its
+previous session. It advertises the current display orientation and MONO1
+pixels (black=1, least-significant pixel first). Targets with direct RGB565
+presentation also advertise RGB565 with big-endian pixel bytes. The host must
+use an advertised format. Updates are staged; the display changes on PRESENT.
+Changed rectangles and RLE are supported. A new connection/session must send a
+full image before partial updates.
+The receiver also supports negotiated upload windows of up to 16 packets.
+Uploads receive cumulative progress acknowledgements, and the final reply
+waits for presentation completion. Lost or corrupt packets are retransmitted
+within the bounded window; retries do not repeat accepted writes or PRESENT.
+
+MONO1 uses direct presentation where supported. Displays with an INDEX2 raster
+backend use batched MONO1 conversion and send changed regions,
+without rebuilding a graphics canvas. This path needs an extra two-bit-per-pixel
+conversion buffer (38,400 bytes at 480×320). Initial frames and resume redraws
+repaint the full display. Other targets use the regular graphics canvas.
+
+`Ctrl+]`, `Ctrl+Alt+Delete`, Escape, or `dlp stop <display>` closes the receiver,
+releases the stream, and restores the previous session, including while waiting
+for a host. Suspension pauses protocol
+processing; resuming redraws the last completed image. Provider disconnects and
+I/O errors leave the app waiting for a new connection, retaining the last
+completed image. The receiver retries opening an unavailable stream. Each
+reopened transport starts a fresh protocol session and requires a full image.
+Serial links with no disconnect indication remain listening until stopped.
+
+The desktop test sender requires Python, pyserial, and Pillow:
+
+```sh
+python3 -m pip install pyserial Pillow
+python3 scripts/dlp_image.py --port /dev/ttyACM0 image.png
+python3 scripts/dlp_image.py --port /dev/ttyACM0 --demo --frames 20 --stats
+python3 scripts/dlp_image.py --port /dev/ttyACM0 --demo --fps 30 --frames 100 --stats
+python3 scripts/dlp_image.py --port /dev/ttyACM0 --demo --frames 6 --reconnect-every 2
+```
+
+Start the receiver before running the sender. The script discovers geometry,
+fits images on a white background, and sends MONO1 frames. `--legacy-cells`
+tests fixed-cell framing; compact DLP framing is the default. This is an image
+test tool; desktop virtual-monitor integration belongs to a host project.
+Windowed uploads are negotiated by default, with automatic fallback for older
+receivers. `--no-window` forces the original stop-and-wait behavior for comparison;
+it is independent of `--legacy-cells`. After display suspension invalidates
+retained content, the sender starts a new session and repaints fully.
+
+For Wi-Fi, create a raw TCP stream from a separate device console:
+
+```text
+stream tcp listen tcp0 7777
+dlp serve display0 stream=tcp0
+```
+
+Then run the desktop sender, replacing the example address with the device IP:
+
+```sh
+python3 scripts/dlp_image.py --tcp 192.0.2.10:7777 --demo --fps 30 --frames 100 --stats
+```
+
+TCP needs Pillow but does not need pyserial. Use the raw TCP listener, rather
+than a Telnet shell port. Closing the TCP sender leaves DLP waiting on the same
+listener. Connect a new sender without running `dlp serve` again. To remove the endpoint,
+stop DLP first if it is running, then run `stream tcp remove tcp0`.
+
+For a BLE connection between two SolarOS devices, configure a CoC listener on
+the receiving device and start DLP:
+
+```text
+stream ble listen ble0
+dlp serve display0 stream=ble0
+```
+
+On the sending device, use `ble scan` to find the advertised `SolarOS ble0`
+peripheral. Copy its address and address type into the connect command:
+
+```text
+stream ble connect ble0 aa:bb:cc:dd:ee:ff public
+expansion attach stream-dlp remote stream=ble0
+display test remote
+```
+
+The central/peripheral roles belong to the BLE connection; either side can
+serve a display or send frames. Release the consumer to close the connection.
+DLP serving waits for a new connection after a disconnect. An attached
+`stream-dlp` display reconnects on a subsequent presentation attempt. To remove
+an endpoint, stop DLP or detach the display, then `stream ble remove ble0`.
+See [BLE stream commands](commands.md#ble-byte-streams).
+
+`--stats` prints actual completion rate, byte counts, and host wall times per
+input frame: `prep` generates/loads and converts the image; `upload` plans and
+sends the update, including intermediate window checkpoints; `present_wait`
+runs from PRESENT through the completion reply. With windows it also includes
+sending the final buffered upload batch. `total` includes preparation and any
+requested reconnect, and excludes
+the intentional frame-rate sleep. The final summary counts presented frames
+and unchanged images separately; unchanged images do not increase completed
+FPS. The default rate limit is 2 FPS; `--fps 30` sets a 30 FPS ceiling and
+includes image preparation in that budget.
+
+Run `dlp status` from a separate shell for receiver-side last/average/maximum
+timings in microseconds. `render` measures MONO1 canvas preparation or changed-area
+detection and batched INDEX2 conversion; `display`
+measures the display-service call, including driver conversion, rotation,
+tile checks and I/O. Unconverted direct rasters have zero separate `render`
+time. All driver work is included under `display`. `total` is their sum.
+These measurements exclude wire upload, startup and resume/overlay redraws;
+they measure service completion, not panel scanout. Completion rate averages
+the intervals between the first and last DLP frame, including host pacing.
+The statistics remain available after stopping, until the next receiver start.
+Host `present_wait` includes stream transfer, round trips, scheduling and
+legacy status polling,
+so it is not a device-only or SPI-only measurement. Diagnostics never enter
+the DLP byte stream.
 
 ## rtsp
 
@@ -243,6 +406,12 @@ Recorder selects its graphical interface on a graphical shell and its text
 interface on a port shell. `--tui` forces the text interface even when the
 launching shell has graphics.
 
+On displays narrower than 240 pixels or shorter than 180 pixels, the graphical
+media controls use an 8-pixel bitmap font and smaller transport buttons.
+Short displays show volume as a percentage beside the filename instead of a
+volume bar. Lists scroll to keep the selected entry visible, and edit dialogs
+fit the display. When the cassette cannot fit, the visualizer uses a scope.
+
 `Tab` switches between Record and Setup. The Record view uses the shared
 cassette widget by default; `V` cycles through Cassette, Oscilloscope, and
 Spectrum. `R` starts recording, Space pauses or resumes, `S` stops and
@@ -291,6 +460,11 @@ width; a repeating linear sweep; sweep end frequency; sweep time; and playback
 stream. The TUI exposes the same controls. `--tui` forces it on a graphical
 shell.
 
+Small graphical displays show one selected control at a time, with its position
+in the eight-control sequence. The waveform remains visible when space allows.
+Short terminals scroll the controls to keep the selection visible. Long output
+names are clipped to the available width.
+
 Controls:
 
 - `Left`/`Right` selects a control.
@@ -332,7 +506,8 @@ player [--tui] [file.wav|file.mp3]
 
 Player selects its graphical interface on a graphical shell and its text
 interface on a port shell. `--tui` forces the text interface even when the
-launching shell has graphics.
+launching shell has graphics. The graphical controls and lists
+adapt to small displays, including 240×64 and 128×64 targets.
 
 On a graphical session, `Tab` switches between Play and Playlist. The Play tab
 uses the space above the shared bottom controls for a cassette visualizer by
@@ -421,8 +596,8 @@ Graphical controls:
 
 ## chat
 
-Tabbed provider-neutral conversation client. The Channels tab lists gateway and
-radio conversations. Enter selects a conversation and opens its bounded shared
+Tabbed provider-neutral conversation client. The Channels tab groups conversations
+by named instance, including IRC, Gateway, MeshCore, and Link. Enter selects a conversation and opens its bounded shared
 history on the Chat tab, which also contains the message/command input. The app
 opens and remains useful offline; network or radio transport jobs connect
 independently.
@@ -435,11 +610,11 @@ a message, the footer follows its delivery state through `queued`, `sending`,
 Usage:
 
 ```text
-chat [gateway|meshcore|link|conversation-id]
+chat [instance|class|conversation-id]
 ```
 
 With no selector, Chat opens a unified view and initially selects the newest
-unread conversation. A provider name filters the list. A decimal conversation
+unread conversation. An instance name or provider class filters the list. A decimal conversation
 ID opens exactly that conversation.
 
 The background `gateway-sync` job owns the gateway transport connection, retries, and
@@ -468,13 +643,19 @@ Gateway setup and room lifecycle use `gateway status`, `gateway configure`,
 the `gateway-sync` job name. Selecting a known gateway room in the Channels tab
 requests a join automatically and opens it after the server confirms `joined`.
 
+Additional Gateway connections use `messages add gateway NAME URL [TOKEN]`,
+`messages connect NAME`, and `messages join NAME ROOM`. The same `gateway-sync`
+job maintains every enabled instance independently. In Chat, use `/add gateway
+NAME URL [TOKEN]`, `/connect NAME`, and `/join NAME ROOM`. `/remove NAME` closes
+the instance and deletes its settings, pending sends, and local history.
+
 Conversation rows show provider, unread, and security state. Outbound rows show
 queued/sending/sent/delivered/failed state. Use `/new CONTACT_ID` to open a
 direct conversation with the contact's preferred endpoint. Sending to a
 discovered endpoint asks for a second Enter confirmation; blocked endpoints
 cannot be messaged.
 
-The conversation header reports the selected provider's state. Gateway uses
+The conversation header reports the selected instance's state. Connection providers use
 `disconnected`, `connecting`, and `connected`; connectionless MeshCore and Link
 providers use `stopped`, `starting`, `ready`, and `error`.
 
@@ -483,6 +664,15 @@ In-app commands:
 ```text
 /help
 /new contact-id
+/join instance channel
+/query instance nickname
+/leave
+/connect instance
+/disconnect instance
+/remove instance
+/server instance host port nickname
+/sasl instance account password
+/sasl instance off
 /status
 /quit
 ```
@@ -581,7 +771,8 @@ Controls:
 ## webradio
 
 Stream a direct MP3 URL through the default registered audio output. On a
-graphical display shell, WebRadio opens a two-tab media-player GUI. On UART,
+graphical display shell, WebRadio opens a two-tab media-player GUI. The GUI uses compact controls, scrolling channels and fitted edit dialogs on
+small display targets. On UART,
 USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 
 The catalog is stored as `.solar/webradio/catalog.bin` on the current storage
@@ -818,6 +1009,8 @@ Controls:
   view, edit, copy, move, create a directory, delete, and create a zip archive.
   The function keys remain the primary map; the help bar shows the letter
   mnemonics within the action names.
+- `Space` toggles a mark on the current file or directory and advances to the
+  next item.
 - Copy, move, and delete operate on the current or marked entries.
   Copy and recursive delete scan their source trees first, then show measured
   progress with the current entry. Move shows progress across the selected
@@ -841,6 +1034,9 @@ ftp
 ftp HOST [PORT] [--user USER --password PASSWORD] [--remote PATH] [--local PATH]
 ```
 
+Press Tab after a host prefix to complete aliases from `.ssh/hosts` on the
+default storage.
+
 Anonymous login is the default (`anonymous` with `solaros@` as its password).
 Specify both `--user` and `--password` for an authenticated server. Passwords
 are plaintext on the network and remain in shell history when entered on the
@@ -854,24 +1050,36 @@ the socket supplies that distinction, and as server unavailable otherwise.
 
 Controls:
 
-- Arrows navigate the active pane. `Tab`, Left, and Right switch panes.
+- Up/Down selects an item. `PgUp`/`PgDn` moves by one visible page, and
+  Home/End selects the first/last item. `Tab`, Left, and Right switch panes.
+- `Space` toggles a mark on the current file or directory and advances to the
+  next item, as in Files. Marked items show `*`; each pane shows its mark count.
+  Copy, move, and delete use the active pane's marked items, or the current
+  item when none are marked. The parent entry cannot be marked.
 - `F2`/`n` opens the connection form. `Tab` or Up/Down selects a field, Enter
   connects, and Esc cancels the form.
-- `Enter` opens a directory. `r` refreshes the remote and local listings.
+- `Enter` opens a directory; Backspace opens its parent. `r` refreshes the
+  remote and local listings. `h` toggles hidden files and directories in both
+  panes. Hidden items are shown initially; the title shows `hidden:on` or
+  `hidden:off`.
 - `F3`/`V` views a local file. For a remote file, FTP downloads a temporary hidden
   copy into the current local folder, opens its registered viewer, and removes
   the copy when control returns to FTP.
-- `F5`/`C` copies the current file or directory to the other pane. Directory
-  transfers are recursive. Copy and move show the same preparing/transfer
+- `F5`/`C` copies the current or marked files and directories to the other pane.
+  Directory transfers are recursive. Copy and move show the same preparing/transfer
   progress popup used by Files.
-- `F6`/`M` moves the current file or directory to the other pane by completing the
-  copy before deleting the source.
+- `F6`/`M` moves the current or marked files and directories to the other pane by
+  completing each item's copy before deleting its source.
 - `F7`/`k`/`K` creates a directory in the active pane.
-- `F8`/`D` recursively deletes the current item after confirmation. The help
-  bar emphasizes the same operation mnemonics used by Files and SFTP.
+- `F8`/`D` recursively deletes the current or marked items after confirmation.
+  The help bar emphasizes the same operation mnemonics used by Files and SFTP.
 - `q`, `F10`, or the app-exit key closes the connection and exits.
 - After an operation refreshes the current directories, both panes retain their
   cursor and scroll positions. Opening another directory starts at its top.
+  Marks survive refreshes in the same directory and pane switching. Opening
+  another directory clears that pane's marks; hiding hidden items clears their
+  marks. Completed items are unmarked. A failure stops the batch and leaves
+  remaining items marked.
 
 FTP is a resumable TUI on the display shell and VT100-compatible port shells.
 One operation runs at a time in its foreground worker. Existing destination
@@ -893,6 +1101,9 @@ sftp
 sftp [user@]HOST[:PATH] [PORT] [--user USER] [--password PASSWORD] [--remote PATH] [--local PATH]
 ```
 
+Press Tab after a host prefix to complete aliases from `.ssh/hosts` on the
+default storage. Completion preserves a supplied `user@` prefix.
+
 Starting without arguments opens the disconnected file manager. Press `F2`/`n`
 to enter the host, port, user, optional password, and initial remote path. Leave
 the password empty to use the configured SSH key. When `user@` and `--user` are
@@ -906,9 +1117,13 @@ reopens the form on the password field instead of showing a low-level error.
 
 Controls are identical to FTP: `F2`/`n` opens connection setup; `F3`/`V` views,
 `F5`/`C` copies, `F6`/`M` moves, `F7`/`k`/`K` creates a directory, and `F8`/`D`
-deletes after confirmation. Transfers are recursive, use the same progress
-popup, retain both pane positions after refresh, and stage downloaded and
-uploaded files before replacement. `q`, `F10`, or the app-exit key closes the
+deletes after confirmation. `PgUp`/`PgDn` moves by one visible page, Backspace
+opens the parent directory, and `h` toggles hidden files and directories in both
+panes. `Space` marks or unmarks files and directories and advances the cursor,
+as in Files. Copy, move, and delete operate on marked items in the active pane,
+or the current item if none are marked. Transfers are recursive, show progress,
+retain both pane positions after refresh, and stage downloaded and uploaded
+files before replacement. `q`, `F10`, or the app-exit key closes the
 SSH connection and exits.
 
 ## flash
@@ -947,9 +1162,33 @@ contacts
 
 The list is grouped by trust and provider. Press `/` to search, `Enter` to view
 the selected endpoint addresses, capabilities, last-seen times, and bounded
-provider metadata summary, and `Esc` or `q` to leave.
+provider metadata summary, and `Esc` or `q` to leave. The footer shows
+`a Actions` and `? Help`, including on compact screens.
 
-Use the shell surface for mutations:
+When Chat is included, select a contact and press `c` to open their direct
+conversation. Closing Chat returns to Contacts. Chat uses the contact's
+preferred direct endpoint, favoring trusted endpoints; sending to a discovered
+endpoint still requires confirmation.
+
+Press `a` in the list or details to manage the selected contact:
+
+- `c`: open Chat for the selected contact, when Chat is included.
+- `t`: trust all endpoints or choose one endpoint.
+- `b`: block all endpoints or choose one endpoint.
+- `r`: edit the contact name, then `Enter` to save or `Esc` to cancel.
+- `l`: choose another contact to link into the selected contact. Confirm with
+  `y` to move its endpoints and remove its source record.
+- `d`: remove the contact and its endpoints after confirming with `y`.
+
+These shortcuts also work directly from the list and details. Use arrows and
+`Enter` in menus, and `Esc` to cancel. Confirmation pages require `y`;
+`Enter` does not confirm removal or linking. Press `f` in the list to filter
+by endpoint trust (`all`, `discovered`, `trusted`, or `blocked`), and `s` for
+store status. `?` opens a scrollable key guide. Filters match contacts with any
+endpoint in that trust state; linking can select any other contact regardless
+of the current filter or name search.
+
+The same operations are available from the shell:
 
 ```text
 contacts status
@@ -1059,24 +1298,36 @@ Controls:
   in the other views. Page Up/Page Down, Home, and End make larger moves.
 - Layout adapts to the terminal: compact headers show several pins across,
   while long headers such as the DevKitC J1/J3 pair scroll vertically with one
-  physical pin pair per row.
+  physical pin pair per row. Narrow screens show fewer columns and keep the
+  selected pin visible.
+- Pins, Buses, and Claims fit their columns to the screen width. Bus state stays
+  ahead of routing details; trailing columns are omitted when space is limited.
 - Layout markers are `*` free, `~` releasable, `@` claimed, `!` fixed/control,
   `+` power, `-` ground, and `x` not connected.
 - `Enter` opens context-sensitive actions for a pin or bus.
-- `n` creates a board-approved named I2C, SPI, UART, MIDI, or 1-Wire bus.
+- `n` creates a board-approved named I2C, SPI, UART, MIDI, 1-Wire, PS/2, or
+  CAN bus, depending on the installed drivers.
 - Bus creation uses arrows to select fields and values; the generated bus name
   can be edited directly.
 - Runtime buses can be attached, detached, or removed when their lease state
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
   assignments can be created and released from the Pins or Layout view.
+- CAN creation selects TX/RX GPIOs, bitrate in kbit/s, listen-only or normal
+  mode, and an optional transceiver-select GPIO with its active level. The
+  default is 500 kbit/s in listen-only mode. CAN controllers appear in Buses;
+  runtime controllers support removal and `Autostart`, which saves an
+  `expansion attach twai-can ...` command. A compatible CAN transceiver is
+  required; see `manual hardware.can`.
 - A selected I2C bus has a `Set I2C speed` action with 100 kHz, 400 kHz, and
   1 MHz choices. The change applies at runtime even while devices lease the bus.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
 
 ## invaders
 
-Graphical arcade shooter.
+Graphical arcade shooter. The playfield scales to the active display;
+ship movement, shields and collision detection use the same game coordinates.
+Small displays use bitmap text for the score and lives.
 
 Usage:
 
@@ -1144,6 +1395,133 @@ Controls:
   task list.
 - `r` resets the sampling baseline.
 - `q`, `Esc`, or the app-exit key exits.
+
+## rfscan
+
+Graphical receiver-energy monitor for attached radios that report the
+`live_rssi` capability. Requires a graphical display and the `radio_scanner`
+group. Radio drivers provide live energy readings and validate tuning and
+bandwidth settings through the common radio API; the app does not select
+support by radio model.
+
+```text
+rfscan
+rfscan radio0
+radio scan radio0
+```
+
+Select the radio at launch with `rfscan <name>`; it remains selected for that
+app session. With no argument the app selects the first attached radio.
+The `radio` configuration TUI also opens the scanner
+with `s` on a graphical display. From a text-only shell, use
+`session create rfscan display0 radio0` to open it on the device display.
+
+**Channel** plots live RSSI against time. **Time** cycles through 10 seconds,
+1 minute, 10 minutes and 1 hour. Sampling intervals increase with the time
+window; short bursts can be missed. The graph shows the latest level and the
+minimum and peak since starting or clearing. When another service is already
+receiving, the scanner observes without retuning, consuming packets or taking
+its radio claim. Transmit and sleep intervals produce no energy samples. An
+idle radio is claimed and placed in receive mode until scanning stops.
+
+PgUp zooms into the RSSI plot's Y axis and PgDown zooms out. Available spans
+are 5, 10, 25, 50, 100 and 200 dB; the default is 100 dB. In Channel, the plot
+centers on the average RSSI of samples inside the displayed time window. In
+Band, it centers on the average of the current frequency-bin readings. Empty
+bins and held peaks do not affect the average. Each zoom key centers the axis
+on that average, then holds the axis steady until the next zoom key. The **Avg**
+readout continues updating; values outside the selected span are clipped to
+the plot edges. Zoom leaves scanning and the alert threshold unchanged and
+does not change waterfall shading. A threshold outside the visible Y range
+keeps working but its horizontal marker is hidden.
+
+Channel controls are **Start/Stop**, **Time**, **Step**, **Freq** and **Thresh**.
+**Step** selects a frequency increment of 25, 62.5, 125 or 250 kHz without
+interrupting monitoring. With **Freq** selected, Up/Down increases/decreases
+the requested frequency by that increment; the frequency is shown to 1 Hz.
+Changing frequency applies it and resumes acquisition automatically when
+monitoring was running. Tuning requires an unclaimed radio and preserves the
+current receiver bandwidth. A busy radio reports its owner. Stop, suspension
+or exit restores the previous frequency and operating state.
+
+Enter on a setting opens a prefilled input popup. Type to replace the current
+value, use Left/Right, Home/End, Backspace or Delete to edit, or Ctrl+U to clear
+the field. Enter applies and Esc cancels. Frequency uses MHz; Step and BW use
+kHz, including decimal values. A BW of `0` keeps the current receiver filter.
+Range accepts start and end frequencies in MHz separated by a space; Time
+accepts 1–3600 seconds. Values that would exceed the supported number of scan
+bins are rejected or require a larger step. Radio drivers validate frequency
+and bandwidth when scanning starts. Opening or cancelling a popup leaves the
+current scan running.
+
+**Thresh** controls an audible energy alert in both tabs. The default is
+−90 dBm; Up/Down changes it by 1, 1, 1, 2, 5 or 10 dB for Y spans of
+5, 10, 25, 50, 100 or 200 dB, respectively, and cycles through Off at the ends
+of the −130 to −30 dBm range. Enter accepts an exact dBm value or `off`. Changing the
+threshold leaves scanning running. A dashed horizontal line marks the threshold;
+fresh samples at or above it request a short beep at most once per second, including
+brief hits between graphical refreshes. Alerts use the selected audio output
+and global volume/mute, skip busy audio, and are cancelled on Stop, suspension
+or exit. Audio failures are reported without ending the scan.
+The center frequency of the strongest sample responsible for the last alert
+is shown beside the threshold as `Threshold: >=-90dBm Triggered: 868.375000MHz`.
+Before the first alert, Triggered shows `--`. The frequency remains visible while scanning moves on;
+the next alert updates it.
+
+**Band** shows received energy against frequency, a dashed peak trace and a
+waterfall with the newest completed sweep at the top. Darker pixels mean
+stronger energy. The waterfall uses dithering on 1-bit displays; buttons use
+solid backgrounds, outlines and inverse selection. **Range** cycles through
+±250 kHz, ±1 MHz, ±2 MHz and a
+preset band: 433.05–434.79, 863–870 or 902–928 MHz, selected from the current
+frequency. **Step** cycles through 25, 62.5, 125 and 250 kHz; wide ranges
+increase the step when necessary to stay within 129 frequency bins. **BW**
+selects the current receiver bandwidth or 62.5, 125 or 250 kHz. Drivers can
+round the requested bandwidth up to a supported filter; the running scan shows
+the applied bandwidth. Unsupported settings are rejected by the radio driver.
+The final frequency shown is the
+last sampled bin.
+
+Three status lines above the graph show tuning settings, RSSI readings and the
+alert threshold with the last alert frequency. Errors replace the RSSI readings.
+The top header shows LIVE with **owns RX**, **observe RX** or **RX paused**
+for a band sweep; stopped acquisition shows STOPPED. In Channel, the header
+also shows the time window. The tuning row shows the frequency or band range,
+with **BW:** and **Step:** labels.
+Sampling runs independently of graphical refreshes. Radios advertising
+`fast_tune` use lightweight frequency changes and driver-defined settling
+times; other `live_rssi` radios remain supported through normal configuration.
+Sweep speed depends on the driver, bandwidth, range and frequency step.
+
+Band scans require exclusive ownership of the selected radio.
+A busy radio shows its owner; stop that owner explicitly
+before scanning. Normal packet reception on that radio is paused during a
+sweep. Band scanning has no idle timeout. Stop, app suspension, app exit or a
+scan error ends the sweep. The scanner restores the previous configuration and
+operating state and releases its claim; a restoration failure is reported.
+Changing settings or switching tabs automatically resumes acquisition if it
+was running; a stopped scan stays stopped. Rejected settings restore the
+previous selection and resume it when radio ownership permits.
+Returning to a suspended app leaves it
+stopped until **Start** is selected.
+
+| Control | Action |
+| --- | --- |
+| Tab, or tap a tab | Switch between Channel and Band |
+| Left/Right | Select a bottom function |
+| PgUp/PgDown | Zoom the RSSI Y axis in/out, centered on the displayed average |
+| Up/Down | Next/previous value of the selected function; Up starts and Down stops when Start/Stop is selected |
+| Enter, or tap a bottom button | Toggle Start/Stop, or open the selected setting's input popup |
+| Space | Start or stop |
+| `r`, `s`, `t` | Time/range, step, threshold |
+| `f` in Channel, `b` in Band | Increase frequency by Step, or advance bandwidth |
+| `c` | Clear history and peak hold |
+| Ctrl+Alt+Del, `q` or Esc | Exit |
+
+RSSI measures energy inside the receiver filter without decoding its source.
+Frequency bins are sampled sequentially; receiver bandwidth limits frequency
+detail. Scan only within the attached module's supported RF band and antenna
+range. This display does not provide raw I/Q samples.
 
 ## logic
 
@@ -1647,6 +2025,9 @@ telnet host [port]
 telnet -r host [port]
 ```
 
+Press Tab after a host prefix to complete aliases from `.ssh/hosts` on the
+default storage, including in raw mode.
+
 Controls:
 
 - App-exit key closes the Telnet app.
@@ -1681,6 +2062,10 @@ Graphical MPEG-1 media player with optional MP2 audio.
 The bottom controls show playback status and elapsed time above the volume bar;
 full screen hides the controls and time. The middle Stop/Play icon indicates
 pause while paused.
+
+The viewport and controls adapt to small targets, including 240×64 displays.
+Full screen uses the entire display for video. The minimum target size is
+84×48 pixels.
 
 Usage:
 
@@ -1736,6 +2121,9 @@ Usage:
 sketch
 sketch file.png
 ```
+
+Sketch requires at least 200×200 pixels. On smaller targets it reports that
+the display resolution is too low and returns to the shell.
 
 Sketch is intentionally not gated on a pointer hardware capability. If no ready
 absolute or relative pointer is registered when the app starts, a popup explains

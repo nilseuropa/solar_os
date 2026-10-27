@@ -2,8 +2,8 @@
 id = "python.hardware"
 title = "Python gpio and peripherals API"
 section = "api"
-summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, servo, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC"
-keywords = "python solaros api hardware gpio onewire led adc pwm servo i2c spi uart neopixel battery charger sensors gnss haptic imu nfc"
+summary = "GPIO and peripherals: gpio, onewire, led, adc, pwm, servo, motor, encoder, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC"
+keywords = "python solaros api hardware gpio onewire led adc pwm servo motor encoder i2c spi uart neopixel battery charger sensors gnss haptic imu nfc"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
@@ -60,9 +60,14 @@ print(solaros.sensors.humidity())
 Available when the firmware includes a GNSS receiver service.
 
 - `list()`: return registered receivers with `name`, `driver`, `power_control`,
-  and `powered`.
+  `powered`, `enable_control`, and `enabled`. Output enable state is separate
+  from the supply state.
 - `power(enabled[, name])`: change a driver-managed receiver power rail,
   defaulting to the first receiver, and return the requested state.
+- `enable([name])` / `disable([name])`: enable or silence NMEA output through
+  recognized UBX/CASIC configuration support. Return `True` or `False`
+  respectively. Unsupported receivers raise an error; a disable request
+  retains the UART claim and does not power down or electrically isolate it.
 - `fix([name[, timeout_ms]])`: poll a receiver, defaulting to the first one and
   a 1000 ms timeout. The result contains fix and UTC validity, date and time,
   fix type, `satellites_valid` and satellite count, longitude and latitude in
@@ -77,6 +82,27 @@ fix = solaros.gnss.fix()
 if fix["valid"]:
     print(fix["latitude_deg_e7"], fix["longitude_deg_e7"])
 ```
+
+## `solaros.encoder`
+
+Available when the common encoder service is compiled. `list()` returns
+metadata records with `name`, `driver`, integer `mode`, and `can_reset`.
+`status(name)` adds signed integer `count`; `read(name)` returns that count.
+`reset(name)` sets it to zero when supported. Names are required and service
+errors raise exceptions. `MODE_X1`, `MODE_X2`, and `MODE_X4` equal 1, 2, and 4.
+See [Encoder counts](encoder.md) for attachment, wiring, and count limits.
+
+## `solaros.motor`
+
+Available when the common motor service is compiled. `list()` returns endpoint
+metadata; `status(name)` returns normalized state and optional driver diagnostics.
+Use `drive(name, value)` with a finite signed value from `-1.0` to `1.0`.
+Zero coasts. `coast(name)`, `brake(name)`, and `clear(name)` share the shell
+semantics; optional unsupported operations raise an error. Names are required.
+
+The same API works with all registered motor drivers. A normalized command is
+not a measured speed or voltage. See [Motor control](motor.md) for record fields,
+fault-mask constants, driver scaling, lifecycle, and examples.
 
 ## `solaros.haptic`
 
@@ -392,5 +418,5 @@ print(solaros.uart.read(64, 500))
 
 ## Quick reference
 
-Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.servo`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
+Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.servo`, `solaros.motor`, `solaros.encoder`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.
 See `man python` for runtime conventions and service availability.

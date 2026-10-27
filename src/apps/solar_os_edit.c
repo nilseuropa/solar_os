@@ -63,6 +63,7 @@ static void *editor_state;
 #define editor (*(editor_state_t *)editor_state)
 
 static const solar_os_terminal_text_size_t editor_text_sizes[] = {
+    SOLAR_OS_TERMINAL_TEXT_SIZE_8,
     SOLAR_OS_TERMINAL_TEXT_SIZE_10,
     SOLAR_OS_TERMINAL_TEXT_SIZE_12,
     SOLAR_OS_TERMINAL_TEXT_SIZE_14,

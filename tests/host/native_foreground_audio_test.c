@@ -6,6 +6,7 @@
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_native_app_abi.h"
+#include "solar_os_stream.h"
 #define SOLAR_OS_PACKAGE_SERVICE_SYNTH 1
 #define SOLAR_OS_PACKAGE_SERVICE_AUDIO 1
 #define portMAX_DELAY 0U
@@ -20,7 +21,8 @@ typedef struct {
     SemaphoreHandle_t synth_mutex;
     bool synth_running;
     solar_os_native_foreground_audio_render_v1_t synth_render;
-    void *synth_user, *audio, *presenter;
+    void *synth_user, *presenter;
+    solar_os_stream_handle_t *audio, audio_stream;
     uint16_t palette[256];
     int result, exit_code;
     char detail[160];
@@ -41,6 +43,11 @@ static foreground_state_t *scope;
 static TaskHandle_t current;
 static bool mutex_fail, start_fail, stop_fail, image_live;
 static uint32_t sample_rate=16000;
+static unsigned stream_opens, stream_closes, stream_writes;
+static esp_err_t stream_open_error, stream_write_error;
+static bool short_write;
+static uint8_t stream_channels=2, stream_bits=16;
+static size_t stream_bytes;
 static jmp_buf restarted;
 static void *solar_os_native_run_service_user(void) { return scope; }
 static TaskHandle_t xTaskGetCurrentTaskHandle(void) { return current; }
@@ -58,7 +65,32 @@ static int solar_os_synth_stop(const char *owner) {
     int16_t samples[32]={0};config.render(samples,16,16000,config.user);return ESP_OK;
 }
 static void solar_os_synth_get_status(solar_os_synth_status_t *s) {s->sample_rate=sample_rate;strcpy(s->owner,synth_owner);}
-static void solar_os_audio_stream_close(void *s) {(void)s;assert(!state.synth_running);}
+static esp_err_t solar_os_audio_open_default(solar_os_stream_direction_t direction,
+    const char *owner, const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *stream, void *device) {
+    assert(direction==SOLAR_OS_STREAM_DIRECTION_SINK && !strcmp(owner,"gameboy"));
+    assert(options->direction==direction && !options->timeout_ms && !device);
+    assert(options->requested_audio.sample_format==SOLAR_OS_STREAM_AUDIO_S16_LE);
+    assert(options->requested_audio.bits_per_sample==16 && !options->requested_audio.sample_rate);
+    assert(!options->requested_audio.channels && stream->slot==-1 && !state.synth_running);
+    stream_opens++;
+    if(stream_open_error)return stream_open_error;
+    stream->slot=0;
+    stream->audio=(solar_os_stream_audio_format_t){
+        .sample_format=SOLAR_OS_STREAM_AUDIO_S16_LE, .sample_rate=sample_rate,
+        .channels=stream_channels, .bits_per_sample=stream_bits};
+    return ESP_OK;
+}
+void solar_os_stream_close(solar_os_stream_handle_t *stream) {
+    assert(stream==&state.audio_stream && stream->slot==0 && !state.synth_running);
+    stream_closes++; stream->slot=-1;
+}
+esp_err_t solar_os_stream_write(solar_os_stream_handle_t *stream, const void *data,
+    size_t len, uint32_t timeout, size_t *written) {
+    assert(stream==&state.audio_stream && stream->slot==0 && data && timeout==UINT32_MAX);
+    stream_writes++;stream_bytes=len;*written=short_write?len-2:len;
+    return stream_write_error;
+}
 static int solar_os_frame_presenter_deinit(void *p) {assert(p && !state.synth_running && deleted);presented++;return ESP_OK;}
 static void esp_restart(void) {longjmp(restarted,1);}
 static int solar_os_disk_image_close_owner(const void *owner) { (void)owner; return ESP_OK; }
@@ -75,8 +107,53 @@ static void setup(void) {
     atomic_store(&state.worker,&token[0]);atomic_store(&other.worker,&token[1]);
     strcpy(synth_owner,"gameboy");scope=&state;current=&token[0];mutex_fail=start_fail=stop_fail=false;image_live=true;
     starts=stops=deleted=presented=calls=depth=0;sample_rate=16000;
+    stream_opens=stream_closes=stream_writes=0;stream_open_error=stream_write_error=ESP_OK;
+    stream_channels=2;stream_bits=16;short_write=false;stream_bytes=0;
 }
 int main(void) {
+    // Amiga's probe must reach an expansion sink (T-Deck) as well as a codec.
+    for(unsigned i=0;i<2;i++) {
+        setup();sample_rate=i?48000:16000;
+        uint32_t rate=0;uint8_t channels=0;
+        assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_OK);
+        assert(rate==sample_rate && channels==2 && stream_opens==1);
+        assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+        assert(foreground_synth_open(guest_render,&state,16,rate)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+        int16_t pcm[32]={0};
+        assert(foreground_audio_write(pcm,16)==SOLAR_OS_NATIVE_OK && stream_bytes==sizeof(pcm));
+        short_write=true;
+        assert(foreground_audio_write(pcm,16)==SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+        short_write=false;stream_write_error=ESP_ERR_TIMEOUT;
+        assert(foreground_audio_write(pcm,16)==SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+        assert(foreground_audio_write(NULL,16)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+        assert(foreground_audio_write(pcm,4097)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+        current=&token[1];
+        assert(foreground_audio_write(pcm,16)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+        assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+        foreground_audio_close();assert(!stream_closes);
+        current=&token[0];foreground_audio_close();assert(!state.audio && stream_closes==1);
+        foreground_audio_close();assert(stream_closes==1);
+        assert(foreground_synth_open(guest_render,&state,16,rate)==SOLAR_OS_NATIVE_OK);
+        assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+        foreground_synth_close();
+    }
+    setup();uint32_t rate=0;uint8_t channels=0;
+    assert(foreground_audio_open(NULL,&channels)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(foreground_audio_open(&rate,NULL)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    stream_open_error=ESP_ERR_INVALID_STATE;
+    assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!state.audio && !stream_closes);
+    stream_open_error=ESP_OK;stream_channels=3;
+    assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!state.audio && stream_closes==1);
+    stream_channels=1;stream_bits=8;
+    assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!state.audio && stream_closes==2);
+    stream_bits=16;
+    assert(foreground_audio_open(&rate,&channels)==SOLAR_OS_NATIVE_OK && channels==1);
+    int16_t mono[16]={0};
+    assert(foreground_audio_write(mono,16)==SOLAR_OS_NATIVE_OK && stream_bytes==sizeof(mono));
+    foreground_worker_cleanup(&state);assert(!state.audio && stream_closes==3);
     setup();foreground_refresh_index2_palette(&state);
     assert(state.palette[0]==foreground_rgb565(0xddeeff));
     assert(state.palette[3]==foreground_rgb565(0x112233));

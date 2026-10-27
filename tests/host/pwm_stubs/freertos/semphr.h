@@ -21,3 +21,7 @@ static inline int xSemaphoreGive(SemaphoreHandle_t mutex)
     assert(pthread_mutex_unlock(mutex) == 0);
     return pdTRUE;
 }
+static inline void vSemaphoreDelete(SemaphoreHandle_t mutex)
+{
+    assert(pthread_mutex_destroy(mutex) == 0);
+}

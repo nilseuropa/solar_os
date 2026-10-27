@@ -256,6 +256,40 @@ static esp_err_t storage_unmount_volume_locked(const char *target)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t solar_os_storage_shutdown_hardware(void)
+{
+#if SOLAR_OS_STORAGE_HAS_REMOVABLE
+    return solar_os_board_storage_shutdown();
+#else
+    return ESP_OK;
+#endif
+}
+
+esp_err_t solar_os_storage_prepare_shutdown(void)
+{
+    if (fflush(NULL) != 0) return ESP_FAIL;
+    for (;;) {
+        solar_os_storage_mount_info_t target;
+        bool found = false;
+        const size_t count = solar_os_storage_mount_count();
+        /* Release image backing-file claims before their parent volumes. */
+        for (unsigned pass = 0; pass < 2U && !found; pass++) {
+            for (size_t i = 0; i < count; i++) {
+                if (!solar_os_storage_get_mount(i, &target)) continue;
+                if ((pass == 0 && target.type == SOLAR_OS_STORAGE_MOUNT_IMAGE) ||
+                    (pass == 1 && target.type != SOLAR_OS_STORAGE_MOUNT_RAMFS)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) return ESP_OK;
+        const esp_err_t err = solar_os_storage_unmount_volume(target.mount_point);
+        if (err != ESP_OK) return err;
+        if (solar_os_storage_mount_count() >= count) return ESP_ERR_INVALID_STATE;
+    }
+}
+
 esp_err_t solar_os_storage_unmount_volume(const char *target)
 {
     solar_os_disk_image_registry_lock();

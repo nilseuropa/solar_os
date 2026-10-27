@@ -14,6 +14,8 @@ agent_reference_sections = true
 ## Quick reference
 
 - Enable `inference` (`service.inference`) on ESP32-S3 with PSRAM.
+- `model backend` shows whether the engine is built in or supplied by a library.
+- When the engine is absent, use `pkg install espdl`, then load a model normally.
 - `solaros.inference.load(path)` loads a compatible `.espdl` file and returns
   a resident integer handle; `close(handle)` releases it.
 - `inputs(handle)` and `outputs(handle)` describe named tensors.
@@ -26,9 +28,32 @@ agent_reference_sections = true
 ## Availability and ownership
 
 `solaros.inference` requires `service.inference`, provided by the `inference`
-group. The `full` flavor enables this group on ESP32-S3 boards with PSRAM.
+group. Standard flavors enable this group on ESP32-S3 boards with PSRAM.
 Camera, display, and image services are optional. No models are built into the
 firmware; put compatible `.espdl` files on a mounted SolarOS storage volume.
+
+The `inference_backend` group (`backend.inference-espdl`) includes the engine
+in firmware. Custom flavors can enable it; the standard `full` and compact
+`writerdeck` profiles use the downloadable `espdl` library.
+Other custom flavors can select either configuration. The shell, Python, Lua,
+native clients, and bundle adapters use the same APIs in both configurations.
+
+On firmware using the library, mount storage and install it from a signed
+catalog available for your firmware version:
+
+```text
+pkg install espdl
+model backend
+model load /sdcard/model.espdl
+```
+
+Loading a model acquires the installed library without network access. Model
+loading never downloads an engine automatically. Models keep it in use until
+unloaded. After closing all models, `pkg unload espdl` releases the engine's
+code and private runtime memory; the installed file remains available for the
+next load. `pkg remove espdl` also removes the file. Both commands refuse an
+engine still used by a model. Built-in firmware uses its built-in engine even
+when an external library is installed.
 
 `load` returns an integer handle. The model file and workspace stay resident
 in native memory until explicit `unload(handle)`/`close(handle)`,

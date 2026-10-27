@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "jet"
+name = "Jet 3D renderer"
+version = "1.11.0"
+description = "Resident Jet scene renderer with RGB565 wire-order output."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "jet.library.elf"

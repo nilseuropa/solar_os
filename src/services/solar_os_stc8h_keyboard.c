@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "pwm_port.h"
 #include "solar_os_buses.h"
+#include "solar_os_backlight.h"
 #include "solar_os_cardkb_codec.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
@@ -47,8 +48,8 @@
 #define STC8H_COMPOSE_TIMEOUT_US 2000000LL
 
 #define STC8H_POLL_MS 15U
-#define STC8H_BACKLIGHT_PWM_HZ 5000U
-#define STC8H_BACKLIGHT_DEFAULT_PERCENT 50U
+/* Must match the display backlight's frequency: all PWM pins share one LEDC timer. */
+#define STC8H_BACKLIGHT_PWM_HZ 20000U
 #define STC8H_TASK_STACK 3072U
 #define STC8H_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
 
@@ -346,6 +347,12 @@ static esp_err_t configure_long_press(solar_os_stc8h_device_t *device)
                                       sizeof(value));
 }
 
+static esp_err_t set_backlight(void *user, uint8_t percent)
+{
+    const solar_os_stc8h_device_t *device = user;
+    return pwm_port_set((gpio_num_t)device->backlight_pin, STC8H_BACKLIGHT_PWM_HZ, percent);
+}
+
 static void clear_device(solar_os_stc8h_device_t *device)
 {
     if (device == NULL) {
@@ -355,6 +362,7 @@ static void clear_device(solar_os_stc8h_device_t *device)
         solar_os_input_source_close(device->input_source);
     }
     if (device->backlight_active) {
+        solar_os_backlight_unregister(device);
         const esp_err_t err = pwm_port_stop((gpio_num_t)device->backlight_pin);
         if (err != ESP_OK) {
             ESP_LOGW(TAG,
@@ -418,10 +426,9 @@ esp_err_t solar_os_stc8h_keyboard_attach(const char *name,
     }
 
     if (backlight_pin >= 0) {
-        err = pwm_port_set((gpio_num_t)backlight_pin,
-                           STC8H_BACKLIGHT_PWM_HZ,
-                           STC8H_BACKLIGHT_DEFAULT_PERCENT);
+        err = solar_os_backlight_register(set_backlight, &stc8h_device);
         if (err != ESP_OK) {
+            (void)pwm_port_stop((gpio_num_t)backlight_pin);
             clear_device(&stc8h_device);
             return err;
         }

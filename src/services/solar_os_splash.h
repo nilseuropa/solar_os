@@ -4,4 +4,6 @@
 
 void solar_os_splash_clear(solar_os_gfx_t *gfx);
 void solar_os_splash_draw(solar_os_gfx_t *gfx, const char *status);
+/* Draw without submitting, for a serialized system-owned display transition. */
+void solar_os_splash_render(solar_os_gfx_t *gfx, const char *status);
 void solar_os_splash_draw_reboot(solar_os_gfx_t *gfx, const char *status);

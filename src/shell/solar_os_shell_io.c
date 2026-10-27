@@ -460,6 +460,143 @@ esp_err_t solar_os_shell_io_printf(solar_os_shell_io_t *io, const char *fmt, ...
     return err;
 }
 
+esp_err_t solar_os_shell_io_table_write(solar_os_shell_io_t *io, const char *text)
+{
+    if (io == NULL || text == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t cols = solar_os_shell_io_cols(io);
+    const size_t limit = cols > 0U ? cols - 1U : 0U;
+    while (*text != '\0') {
+        if (*text == '\n') {
+            const esp_err_t err = solar_os_shell_io_newline(io);
+            if (err != ESP_OK) return err;
+            text++;
+            continue;
+        }
+        /* Accept CRLF without allowing field contents to reset the budget. */
+        if (*text == '\r' && text[1] == '\n') {
+            text++;
+            continue;
+        }
+        const size_t col = solar_os_shell_io_cursor_col(io);
+        if (col >= limit) {
+            text++;
+            continue;
+        }
+        if (*text == '\t') {
+            const size_t spaces = 4U - col % 4U;
+            for (size_t i = 0; i < spaces && col + i < limit; i++) {
+                const esp_err_t err = solar_os_shell_io_put_char(io, ' ');
+                if (err != ESP_OK) return err;
+            }
+            text++;
+            continue;
+        }
+        const unsigned char lead = (unsigned char)*text;
+        size_t len = lead < 0x80U ? 1U :
+            lead >= 0xc2U && lead <= 0xdfU ? 2U :
+            lead >= 0xe0U && lead <= 0xefU ? 3U :
+            lead >= 0xf0U && lead <= 0xf4U ? 4U : 0U;
+        for (size_t i = 1U; i < len; i++) {
+            if (((unsigned char)text[i] & 0xc0U) != 0x80U) {
+                len = 0U;
+                break;
+            }
+        }
+        if (len == 0U || lead < 0x20U || lead == 0x7fU) {
+            const esp_err_t err = solar_os_shell_io_put_char(io, '?');
+            if (err != ESP_OK) return err;
+            text++;
+        } else if (len > limit - col) {
+            /* Exhaust the row even when a complete UTF-8 character cannot fit.
+             * Counting bytes conservatively also bounds wide terminal glyphs. */
+            for (size_t i = col; i < limit; i++) {
+                const esp_err_t err = solar_os_shell_io_put_char(io, ' ');
+                if (err != ESP_OK) return err;
+            }
+            text += len;
+        } else {
+            /* Batch ASCII runs; multi-byte characters stay intact. */
+            if (len == 1U) {
+                while (len < limit - col && (unsigned char)text[len] >= 0x20U &&
+                       (unsigned char)text[len] < 0x7fU) len++;
+            }
+            const esp_err_t err = solar_os_shell_io_write_len(io, text, len);
+            if (err != ESP_OK) return err;
+            text += len;
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_shell_io_table_writeln(solar_os_shell_io_t *io, const char *text)
+{
+    const esp_err_t err = solar_os_shell_io_table_write(io, text);
+    return err == ESP_OK ? solar_os_shell_io_newline(io) : err;
+}
+
+static esp_err_t shell_io_table_vprintf(solar_os_shell_io_t *io, const char *fmt,
+                                        va_list args)
+{
+    if (io == NULL || fmt == NULL) return ESP_ERR_INVALID_ARG;
+    char buffer[192];
+    const int needed = vsnprintf(buffer, sizeof(buffer), fmt, args);
+    if (needed < 0) return ESP_FAIL;
+    /* Drop an incomplete final UTF-8 character after formatting truncation. */
+    size_t len = strlen(buffer);
+    if ((size_t)needed >= sizeof(buffer)) {
+        while (len > 0U && ((unsigned char)buffer[len - 1U] & 0xc0U) == 0x80U) len--;
+        if (len > 0U && (unsigned char)buffer[len - 1U] >= 0xc0U) len--;
+        buffer[len] = '\0';
+    }
+    const esp_err_t err = solar_os_shell_io_table_write(io, buffer);
+    /* A long final field must not swallow the row separator. */
+    if (err == ESP_OK && (size_t)needed >= sizeof(buffer) &&
+        fmt[0] != '\0' && fmt[strlen(fmt) - 1U] == '\n') {
+        return solar_os_shell_io_newline(io);
+    }
+    return err;
+}
+
+esp_err_t solar_os_shell_io_table_printf(solar_os_shell_io_t *io, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    const esp_err_t err = shell_io_table_vprintf(io, fmt, args);
+    va_end(args);
+    return err;
+}
+
+esp_err_t solar_os_shell_io_table_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+{
+    const bool bold = io != NULL && io->bold;
+    esp_err_t err = solar_os_shell_io_set_bold(io, true);
+    if (err != ESP_OK) return err;
+    va_list args;
+    va_start(args, fmt);
+    err = shell_io_table_vprintf(io, fmt, args);
+    va_end(args);
+    const esp_err_t restore = solar_os_shell_io_set_bold(io, bold);
+    return err == ESP_OK ? restore : err;
+}
+
+esp_err_t solar_os_shell_io_table_write_bold(solar_os_shell_io_t *io, const char *text)
+{
+    const bool bold = io != NULL && io->bold;
+    esp_err_t err = solar_os_shell_io_set_bold(io, true);
+    if (err != ESP_OK) return err;
+    err = solar_os_shell_io_table_write(io, text);
+    const esp_err_t restore = solar_os_shell_io_set_bold(io, bold);
+    return err == ESP_OK ? restore : err;
+}
+
+esp_err_t solar_os_shell_io_table_put_char(solar_os_shell_io_t *io, char ch)
+{
+    const char text[] = {ch, '\0'};
+    return solar_os_shell_io_table_write(io, text);
+}
+
 esp_err_t solar_os_shell_io_set_bold(solar_os_shell_io_t *io, bool enabled)
 {
     if (io == NULL) {

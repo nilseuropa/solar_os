@@ -2,13 +2,17 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_tui_apps.h"
+#include "solar_os_config.h"
 
 static const char * const radio_commands[] = {
     "status", "list", "config", "profile", "state", "send", "recv",
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    "scan",
+#endif
 };
 static const char * const radio_config_fields[] = {
     "frequency", "modulation", "bitrate", "deviation", "bandwidth", "sf",
-    "coding-rate", "power", "crc", "variable", "length", "preamble", "node",
+    "coding-rate", "power", "rx-gain", "crc", "variable", "length", "preamble", "node",
     "network", "sync",
 };
 
@@ -22,6 +26,9 @@ static const char * const radio_config_fields[] = {
 #include "esp_err.h"
 #include "solar_os_radio.h"
 #include "solar_os_shell.h"
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+#include "solar_os_rfscan.h"
+#endif
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
@@ -43,6 +50,9 @@ static void radio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  radio state <name> [sleep|standby|rx|tx]");
     solar_os_shell_io_writeln(term, "  radio send <name> <text|byte...>");
     solar_os_shell_io_writeln(term, "  radio recv <name> [timeout-ms]");
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    solar_os_shell_io_writeln(term, "  radio scan [name]");
+#endif
 }
 
 static bool parse_u32_arg(const char *text, uint32_t min, uint32_t max, uint32_t *value)
@@ -268,7 +278,7 @@ static void radio_print_error(solar_os_shell_io_t *term, const char *prefix, esp
         solar_os_shell_io_printf(term, "%s: timeout\n", prefix);
         break;
     case ESP_ERR_INVALID_STATE:
-        solar_os_shell_io_printf(term, "%s: radio is owned by a job\n", prefix);
+        solar_os_shell_io_printf(term, "%s: radio is owned by a job, or has no settings\n", prefix);
         break;
     default:
         solar_os_shell_io_printf(term, "%s failed: %s\n", prefix, solar_os_shell_error_text(err));
@@ -290,6 +300,7 @@ static void radio_print_sync_word(solar_os_shell_io_t *term, const solar_os_radi
 
 static void radio_print_config(solar_os_shell_io_t *term, const solar_os_radio_config_t *config)
 {
+    solar_os_shell_io_printf(term, "rx-gain=%s ", solar_os_radio_rx_gain_name(config->rx_gain));
     if (config->modulation == SOLAR_OS_RADIO_MODULATION_LORA) {
         solar_os_shell_io_printf(term,
                                  "frequency=%" PRIu32 " modulation=lora bandwidth=%" PRIu32
@@ -364,6 +375,12 @@ static void radio_print_device(solar_os_shell_io_t *term, const solar_os_radio_i
         return;
     }
     solar_os_shell_io_printf(term, "  features: %s\n", features);
+    if (info->rx_gain_modes != 0) {
+        char gains[80];
+        solar_os_radio_rx_gains_format(info->rx_gain_modes |
+            SOLAR_OS_RADIO_RX_GAIN_BIT(SOLAR_OS_RADIO_RX_GAIN_DEFAULT), gains, sizeof(gains));
+        solar_os_shell_io_printf(term, "  rx-gain modes: %s\n", gains);
+    }
     if (info->summary[0] != '\0') {
         solar_os_shell_io_printf(term, "  summary: %s\n", info->summary);
     }
@@ -522,6 +539,11 @@ static void radio_cmd_config(solar_os_shell_io_t *term, int argc, char **argv)
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
             return;
         }
+    } else if (strcmp(field, "rx-gain") == 0) {
+        if (!solar_os_radio_rx_gain_parse(argv[4], &config.rx_gain)) {
+            radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
+            return;
+        }
     } else if (strcmp(field, "power") == 0) {
         if (!parse_i32_arg(argv[4], -128, 127, &i32)) {
             radio_print_error(term, "radio config", ESP_ERR_INVALID_ARG);
@@ -626,7 +648,7 @@ static void radio_cmd_profile_list(solar_os_shell_io_t *term)
     }
 
     for (size_t i = 0; i < count; i++) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%s type=%s modulation=%s frequency=%" PRIu32 "\n",
                                  profiles[i].name,
                                  profiles[i].builtin ? "built-in" : "user",
@@ -928,6 +950,16 @@ void solar_os_shell_cmd_radio(solar_os_context_t *ctx, int argc, char **argv)
         }
         return;
     }
+
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    if (strcmp(argv[1], "scan") == 0 && argc <= 3) {
+        char *args[] = {"rfscan", argc == 3 ? argv[2] : NULL};
+        esp_err_t err = solar_os_context_request_launch(ctx, &solar_os_rfscan_app, argc - 1, args);
+        if (err == ESP_OK) solar_os_shell_session_prepare_foreground_launch(ctx, true);
+        else radio_print_error(term, "radio scan", err);
+        return;
+    }
+#endif
 
     if (strcmp(argv[1], "status") == 0) {
         radio_cmd_status(term, argc, argv);

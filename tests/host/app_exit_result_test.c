@@ -5,6 +5,15 @@
 #include "solar_os.h"
 #include "solar_os_shell_io.h"
 
+esp_err_t solar_os_shell_resolve_path(solar_os_context_t *ctx,
+    const char *arg, char *out, size_t size)
+{
+    assert(ctx->shell_session != NULL && arg == NULL);
+    assert(size > strlen("/sdcard/amiga"));
+    strcpy(out, "/sdcard/amiga");
+    return ESP_OK;
+}
+
 typedef struct {
     char text[32];
     size_t len;
@@ -115,6 +124,11 @@ int main(void)
     strcpy(ctx.launch_cwd, "/flash");
     assert(solar_os_context_request_launch(&ctx, &app, 1, args) == ESP_OK);
     assert(!ctx.launch_cwd[0]);
+    ctx.shell_session = (solar_os_shell_session_t *)(uintptr_t)1;
+    char *relative_args[] = {"amiga", "kick13.rom", "workbench.adf"};
+    assert(solar_os_context_request_launch(&ctx, &app, 3, relative_args) == ESP_OK);
+    assert(strcmp(ctx.launch_cwd, "/sdcard/amiga") == 0);
+    assert(strcmp(ctx.argv[1], "kick13.rom") == 0 && strcmp(ctx.argv[2], "workbench.adf") == 0);
     puts("app exit result tests passed");
     return 0;
 }

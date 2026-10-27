@@ -1,9 +1,30 @@
 # Memory Policy
 
-SolarOS uses ESP-IDF's capability heaps directly. The memory policy does not
-replace the allocator; it gives subsystems an explicit allocation intent and
-prevents an optional PSRAM allocation from consuming memory needed for tasks,
-network transports, and DMA.
+SolarOS uses ESP-IDF capability heaps for internal RAM and constrained driver
+allocations. On boards with sufficient PSRAM, it reserves one contiguous region
+at boot for bulk buffers and resident objects. Bulk scratch and large unconstrained SDK buffers grow from one end;
+executable images and persistent terminal metadata grow from the other. Live allocations keep their addresses. Adjacent freed
+blocks merge automatically; unused native libraries can be released under
+allocation pressure or with `mem reclaim`. Active library leases and application
+sessions keep their state.
+
+`SOLAR_OS_PSRAM_GENERAL_RESERVE_BYTES` leaves 512 KiB outside the region by default
+for capability-constrained SDK and driver allocations; zero disables the region.
+Ordinary SDK PSRAM allocations can overflow into the managed region. DMA,
+ISR, and stronger alignment requirements retain their capability-heap path.
+`SOLAR_OS_PSRAM_BULK_MIN_BYTES` defaults to 64 KiB. Smaller policy allocations
+prefer the capability heap and overflow at the resident end when needed.
+`mem` reports aggregate free PSRAM, its largest block, and managed-region status.
+Allocation can still fail if no available block satisfies a request.
+Large requests prefer the managed region, then use the SDK PSRAM heap if they
+cannot fit there. `mem policy` also reports free and largest blocks in the SDK
+heap separately. Allocation searches skip live managed objects; freeing an
+object locates its header directly and merges adjacent holes.
+
+The ESP-DL backend keeps weights and tensor metadata resident, but leases its
+activation workspace only for execution. It copies outputs before releasing
+the lease. Preprocessing can use that space while the model is idle. This
+requires an updated external ESP-DL library on firmware using that provider.
 
 On a PSRAM-enabled board, ordinary `malloc()` allocations, Wi-Fi/lwIP buffers,
 and Bluetooth host allocations prefer PSRAM. Internal SRAM is the exception:
@@ -28,6 +49,8 @@ Allocation classes:
   from external memory under pressure.
 - `dma`: internal DMA-capable RAM.
 - `external-required`: PSRAM only. Failure is reported to the caller.
+- `external-resident`: PSRAM only, placed at the resident end of the managed
+  region regardless of size.
 - `external-preferred`: PSRAM first. If the board has PSRAM, internal fallback
   is limited to 4 KiB allocations and must preserve a 32 KiB contiguous
   internal reserve. Boards without PSRAM retain an unrestricted internal

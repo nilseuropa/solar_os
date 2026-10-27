@@ -185,7 +185,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
                                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                "shell.inbox");
     if (entries == NULL) {
-        solar_os_shell_io_writeln(io, "inbox: out of memory");
+        solar_os_shell_io_table_writeln(io, "inbox: out of memory");
         return;
     }
 
@@ -193,7 +193,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
     const size_t count =
         solar_os_inbox_snapshot(entries, INBOX_LIST_MAX, unread_only, &total);
     if (total == 0) {
-        solar_os_shell_io_writeln(io, unread_only ? "no unread messages" : "inbox is empty");
+        solar_os_shell_io_table_writeln(io, unread_only ? "no unread messages" : "inbox is empty");
         solar_os_memory_free(entries);
         return;
     }
@@ -201,7 +201,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
     for (size_t i = 0; i < count; i++) {
         char summary[81];
         inbox_summary(&entries[i], summary, sizeof(summary));
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%c%c %lu %s%s%s: %s%s\n",
                                  entries[i].unread ? '*' : ' ',
                                  inbox_priority_marker(entries[i].priority),
@@ -213,7 +213,7 @@ static void inbox_cmd_list(solar_os_shell_io_t *io, bool unread_only)
                                  entries[i].truncated ? " [truncated]" : "");
     }
     if (total > count) {
-        solar_os_shell_io_printf(io, "... %u older messages\n", (unsigned)(total - count));
+        solar_os_shell_io_table_printf(io, "... %u older messages\n", (unsigned)(total - count));
     }
     solar_os_memory_free(entries);
 }

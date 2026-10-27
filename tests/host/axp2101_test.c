@@ -110,7 +110,17 @@ int main(void)
     assert(chip.registers[0x90] == 0xA0U);
     assert(axp2101_set_aldo3(&device, true, 3350U) == ESP_ERR_INVALID_ARG);
 
+    chip.registers[0x10] = 0xA4U;
+    assert(axp2101_power_off(&device) == ESP_OK);
+    assert(chip.registers[0x10] == 0xA5U);
+    chip.read_result = ESP_ERR_TIMEOUT;
+    assert(axp2101_power_off(&device) == ESP_ERR_TIMEOUT);
+    chip.read_result = ESP_OK;
+    chip.write_result = ESP_FAIL;
+    assert(axp2101_power_off(&device) == ESP_FAIL);
+    chip.write_result = ESP_OK;
     assert(axp2101_deinit(&device) == ESP_OK);
+    assert(axp2101_power_off(&device) == ESP_ERR_INVALID_STATE);
     assert(axp2101_read_battery(&device, &battery) == ESP_ERR_INVALID_ARG);
     puts("AXP2101 tests: ok");
     return 0;

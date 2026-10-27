@@ -32,4 +32,8 @@ typedef struct {
     /* Optional hot state/cache allocation in internal memory. Returns NULL
      * when the reserve cannot be preserved. free accepts either heap. */
     void *(*alloc_internal)(size_t bytes);
+    /* Optional append-only heap queries, available independently of inference. */
+    bool (*is_external)(const void *buffer);
+    size_t (*free_bytes)(bool external);
+    size_t (*largest_free_bytes)(bool external);
 } solar_os_native_memory_api_v1_t;

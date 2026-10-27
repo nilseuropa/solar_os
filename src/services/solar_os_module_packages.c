@@ -21,6 +21,7 @@
 #include "solar_os_native_abi.h"
 #include "solar_os_native_driver_abi.h"
 #include "solar_os_native_job_abi.h"
+#include "solar_os_native_library_abi.h"
 #include "solar_os_native_foreground.h"
 #include "solar_os_ota_key.h"
 #include "solar_os_log.h"
@@ -89,6 +90,8 @@ const char *solar_os_module_type_name(solar_os_module_type_t type)
         return "job";
     case SOLAR_OS_MODULE_TYPE_DRIVER:
         return "driver";
+    case SOLAR_OS_MODULE_TYPE_LIBRARY:
+        return "library";
     default:
         return "invalid";
     }
@@ -103,6 +106,8 @@ static const char *module_type_directory(solar_os_module_type_t type)
         return "jobs";
     case SOLAR_OS_MODULE_TYPE_DRIVER:
         return "drivers";
+    case SOLAR_OS_MODULE_TYPE_LIBRARY:
+        return "libraries";
     default:
         return NULL;
     }
@@ -136,6 +141,9 @@ static solar_os_module_type_t module_type_parse(const char *name)
     }
     if (name != NULL && strcmp(name, "driver") == 0) {
         return SOLAR_OS_MODULE_TYPE_DRIVER;
+    }
+    if (name != NULL && strcmp(name, "library") == 0) {
+        return SOLAR_OS_MODULE_TYPE_LIBRARY;
     }
     return SOLAR_OS_MODULE_TYPE_INVALID;
 }
@@ -355,6 +363,10 @@ static esp_err_t module_parse_package(const solar_os_json_value_t *value,
     case SOLAR_OS_MODULE_TYPE_JOB:
         supported_lifecycle_abi = SOLAR_OS_MODULE_JOB_LIFECYCLE_ABI;
         host_api_size = sizeof(solar_os_native_job_host_api_v1_t);
+        break;
+    case SOLAR_OS_MODULE_TYPE_LIBRARY:
+        supported_lifecycle_abi = SOLAR_OS_MODULE_LIBRARY_LIFECYCLE_ABI;
+        host_api_size = sizeof(solar_os_native_library_host_api_v1_t);
         break;
     case SOLAR_OS_MODULE_TYPE_DRIVER:
         supported_lifecycle_abi = SOLAR_OS_MODULE_DRIVER_LIFECYCLE_ABI;
@@ -783,6 +795,7 @@ esp_err_t solar_os_module_packages_init(void)
         .first_error = ESP_OK,
     };
     static const solar_os_module_type_t resident_types[] = {
+        /* Libraries stay on storage until a consumer acquires them. */
         SOLAR_OS_MODULE_TYPE_JOB,
         SOLAR_OS_MODULE_TYPE_DRIVER,
     };
@@ -1076,14 +1089,20 @@ esp_err_t solar_os_module_package_install(const char *id,
                                    package,
                                    detail,
                                    detail_len);
-    if (err == ESP_OK && (package->type == SOLAR_OS_MODULE_TYPE_JOB ||
-                         package->type == SOLAR_OS_MODULE_TYPE_DRIVER)) {
+    if (err == ESP_OK && package->type != SOLAR_OS_MODULE_TYPE_APP) {
         err = solar_os_native_module_activate(package->type,
                                               package->id,
                                               staged_path,
                                               detail,
                                               detail_len);
         resident_activated = err == ESP_OK;
+    }
+    /* Validate a library's registration during installation, then leave it
+     * cold. Libraries are activated by consumers, never by the boot scan. */
+    if (err == ESP_OK && package->type == SOLAR_OS_MODULE_TYPE_LIBRARY) {
+        err = solar_os_native_module_deactivate(package->type, package->id,
+                                                detail, detail_len);
+        resident_activated = err != ESP_OK;
     }
     if (err == ESP_OK) {
         err = solar_os_storage_replace_file(staged_path,
@@ -1153,6 +1172,7 @@ esp_err_t solar_os_module_package_remove(const char *id,
         SOLAR_OS_MODULE_TYPE_APP,
         SOLAR_OS_MODULE_TYPE_JOB,
         SOLAR_OS_MODULE_TYPE_DRIVER,
+        SOLAR_OS_MODULE_TYPE_LIBRARY,
     };
     for (size_t i = 0U; i < sizeof(types) / sizeof(types[0]); i++) {
         char candidate[SOLAR_OS_STORAGE_PATH_MAX];

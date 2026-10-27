@@ -1,6 +1,7 @@
 schema = 1
 
 [drivers.cardkb]
+keyboard = true
 summary = "I2C keyboard"
 package = "expansion_cardkb"
 targets = ["esp32", "esp32s3"]
@@ -21,6 +22,7 @@ required = true
 allowed = [0x5f]
 
 [drivers.inputronic-keyboard]
+keyboard = true
 summary = "Soldered Inputronic 8x10 keyboard"
 package = "expansion_inputronic_keyboard"
 targets = ["esp32", "esp32s3"]
@@ -53,6 +55,7 @@ hint = "gpio"
 role = "irq"
 
 [drivers.tdeck-keyboard]
+keyboard = true
 summary = "LilyGO T-Deck raw-matrix keyboard"
 package = "expansion_tdeck_keyboard"
 targets = ["esp32s3"]
@@ -73,6 +76,7 @@ required = true
 allowed = [0x55]
 
 [drivers.stc8h-keyboard]
+keyboard = true
 summary = "Elecrow STC8H companion-MCU keypad"
 package = "expansion_stc8h_keyboard"
 targets = ["esp32s3"]
@@ -105,6 +109,7 @@ kind = "pwm"
 hint = "gpio"
 
 [drivers.tab5-keyboard]
+keyboard = true
 summary = "M5Stack Tab5 70-key keyboard"
 package = "expansion_tab5_keyboard"
 targets = ["esp32", "esp32s3"]
@@ -172,6 +177,7 @@ min = 1
 max = 10
 
 [drivers.lilygo-pager-keyboard]
+keyboard = true
 summary = "LilyGO T-LoRa-Pager 4x10 keyboard"
 package = "expansion_lilygo_pager_keyboard"
 targets = ["esp32", "esp32s3"]
@@ -205,7 +211,8 @@ hint = "gpio"
 role = "backlight"
 
 [drivers.cl32-core]
-summary = "CL-32 board controller"
+keyboard = true
+summary = "Pi0cket CL-32 board controller"
 package = "board_cl32_core"
 targets = ["esp32s3"]
 capabilities = ["i2c"]
@@ -224,6 +231,51 @@ kind = "i2c_address"
 hint = "0x08"
 required = true
 allowed = [0x08]
+
+[drivers.twai-can]
+summary = "ESP32 TWAI classic CAN controller"
+package = "can_twai"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio"]
+default_name = "can0"
+
+[[drivers.twai-can.bindings]]
+key = "tx"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.twai-can.bindings]]
+key = "rx"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.twai-can.bindings]]
+key = "bitrate"
+kind = "parameter"
+hint = "25|50|100|125|250|500|800|1000 kbit/s"
+required = true
+allowed = [25,50,100,125,250,500,800,1000]
+
+[[drivers.twai-can.bindings]]
+key = "listen"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.twai-can.bindings]]
+key = "select"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.twai-can.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
 
 [drivers.xl9555]
 summary = "XL9555 16-line I2C GPIO controller"
@@ -497,6 +549,85 @@ role = "osc_hz"
 min = 20000000
 max = 30000000
 
+[drivers.pcnt-encoder]
+summary = "Hardware quadrature encoder with explicit x1/x2/x4 counting"
+package = "pcnt_encoder"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gpio"]
+default_name = "encoder0"
+
+[[drivers.pcnt-encoder.bindings]]
+key = "a"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.pcnt-encoder.bindings]]
+key = "b"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.pcnt-encoder.bindings]]
+key = "mode"
+kind = "parameter"
+hint = "1|2|4"
+required = true
+allowed = [1, 2, 4]
+
+[[drivers.pcnt-encoder.bindings]]
+key = "invert"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+
+[[drivers.pcnt-encoder.bindings]]
+key = "pull"
+kind = "parameter"
+hint = "0|1|2"
+allowed = [0, 1, 2]
+
+[[drivers.pcnt-encoder.bindings]]
+key = "filter_ns"
+kind = "parameter"
+hint = "1000"
+min = 0
+max = 2147483647
+
+[drivers.drv8830]
+summary = "TI DRV8830 brushed DC motor driver"
+package = "drv8830"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "motor0"
+
+[[drivers.drv8830.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.drv8830.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x60..0x68"
+required = true
+allowed = [0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68]
+
+[[drivers.drv8830.bindings]]
+key = "int"
+kind = "gpio"
+hint = "gpio"
+role = "int"
+
+[[drivers.drv8830.bindings]]
+key = "max_mv"
+kind = "parameter"
+hint = "5060"
+role = "max_mv"
+min = 482
+max = 5060
+
 [drivers.bq25896]
 summary = "TI BQ25896 battery charger"
 package = "bq25896"
@@ -587,9 +718,50 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_ssd1683"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1683"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "400", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1683"' }
 early = true
 default_name = "display0"
+
+[[drivers.ssd1683.display_profiles]]
+name = "waveshare-v2"
+label = "Waveshare 4.2-inch V2"
+width = 400
+height = 300
+bindings = { panel = 3 }
+rotation = 0
+default = true
+
+[[drivers.ssd1683.display_profiles]]
+name = "elecrow-auto"
+label = "Elecrow 4.2-inch revision detection"
+width = 400
+height = 300
+bindings = { panel = 0 }
+rotation = 2
+
+[[drivers.ssd1683.display_profiles]]
+name = "elecrow-legacy"
+label = "Elecrow 4.2-inch legacy"
+width = 400
+height = 300
+bindings = { panel = 1 }
+rotation = 0
+
+[[drivers.ssd1683.display_profiles]]
+name = "elecrow-green"
+label = "Elecrow 4.2-inch green sticker"
+width = 400
+height = 300
+bindings = { panel = 2 }
+rotation = 0
+
+[[drivers.ssd1683.display_profiles]]
+name = "elecrow-579-dual"
+label = "Elecrow 5.79-inch dual controller"
+width = 792
+height = 272
+bindings = { panel = 4 }
+rotation = 0
 
 [[drivers.ssd1683.bindings]]
 key = "spi"
@@ -669,9 +841,17 @@ targets = ["esp32s3"]
 capabilities = ["gfx"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_ssd1677"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"' }
 early = true
 default_name = "display0"
+
+[[drivers.ssd1677.display_profiles]]
+name = "800x480"
+label = "SSD1677 800x480"
+width = 800
+height = 480
+rotation = 0
+default = true
 
 [[drivers.ssd1677.bindings]]
 key = "spi"
@@ -817,11 +997,77 @@ min = 0
 max = 1
 
 [drivers.ssd1306]
-summary = "128x64 I2C OLED"
+summary = "SSD1306 I2C OLED"
 package = "expansion_ssd1306"
 targets = ["esp32", "esp32s3"]
 capabilities = ["expansion_i2c"]
 default_name = "display0"
+
+[[drivers.ssd1306.display_profiles]]
+name = "128x64"
+label = "Generic 128x64"
+width = 128
+height = 64
+bindings = { panel = 0 }
+rotation = 0
+default = true
+
+[[drivers.ssd1306.display_profiles]]
+name = "128x32-univision"
+label = "Univision 128x32"
+width = 128
+height = 32
+bindings = { panel = 1 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "64x48-er"
+label = "EastRising 64x48"
+width = 64
+height = 48
+bindings = { panel = 2 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "64x32"
+label = "Generic 64x32"
+width = 64
+height = 32
+bindings = { panel = 3 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "96x16-er"
+label = "EastRising 96x16"
+width = 96
+height = 16
+bindings = { panel = 4 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "96x40"
+label = "96x40"
+width = 96
+height = 40
+bindings = { panel = 5 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "72x40-er"
+label = "EastRising 72x40"
+width = 72
+height = 40
+bindings = { panel = 6 }
+rotation = 0
+
+[[drivers.ssd1306.display_profiles]]
+name = "48x64-winstar"
+label = "Winstar 48x64"
+width = 48
+height = 64
+bindings = { panel = 7 }
+rotation = 0
+
 [[drivers.ssd1306.bindings]]
 key = "i2c"
 kind = "i2c_bus"
@@ -834,12 +1080,62 @@ hint = "0x3c|0x3d"
 required = true
 allowed = [0x3c, 0x3d]
 
+[[drivers.ssd1306.bindings]]
+key = "panel"
+kind = "parameter"
+role = "panel"
+hint = "0..7"
+min = 0
+max = 7
+
+[[drivers.ssd1306.bindings]]
+key = "rotation"
+kind = "parameter"
+role = "rotation"
+hint = "0..3"
+min = 0
+max = 3
+
 [drivers.sh1106]
-summary = "128x64 I2C OLED"
+summary = "SH1106 I2C OLED"
 package = "expansion_ssd1306"
 targets = ["esp32", "esp32s3"]
 capabilities = ["expansion_i2c"]
 default_name = "display0"
+
+[[drivers.sh1106.display_profiles]]
+name = "128x64"
+label = "Generic 128x64"
+width = 128
+height = 64
+bindings = { panel = 0 }
+rotation = 0
+default = true
+
+[[drivers.sh1106.display_profiles]]
+name = "128x32-visionox"
+label = "Visionox 128x32"
+width = 128
+height = 32
+bindings = { panel = 1 }
+rotation = 0
+
+[[drivers.sh1106.display_profiles]]
+name = "64x32"
+label = "64x32"
+width = 64
+height = 32
+bindings = { panel = 2 }
+rotation = 0
+
+[[drivers.sh1106.display_profiles]]
+name = "72x40-wise"
+label = "Wise 72x40"
+width = 72
+height = 40
+bindings = { panel = 3 }
+rotation = 0
+
 [[drivers.sh1106.bindings]]
 key = "i2c"
 kind = "i2c_bus"
@@ -851,6 +1147,99 @@ kind = "i2c_address"
 hint = "0x3c|0x3d"
 required = true
 allowed = [0x3c, 0x3d]
+
+[[drivers.sh1106.bindings]]
+key = "panel"
+kind = "parameter"
+role = "panel"
+hint = "0..3"
+min = 0
+max = 3
+
+[[drivers.sh1106.bindings]]
+key = "rotation"
+kind = "parameter"
+role = "rotation"
+hint = "0..3"
+min = 0
+max = 3
+
+[drivers.spi-dlp]
+summary = "Negotiated SDLP SPI display"
+package = "expansion_spi_dlp"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+default_name = "display0"
+
+[[drivers.spi-dlp.bindings]]
+key = "compressed"
+hint = "0|1"
+kind = "parameter"
+role = "compressed"
+min = 0
+max = 1
+
+[[drivers.spi-dlp.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.spi-dlp.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.spi-dlp.bindings]]
+key = "ready"
+kind = "gpio"
+hint = "gpio"
+required = false
+role = "ready"
+
+[[drivers.spi-dlp.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+required = false
+role = "reset"
+
+[[drivers.spi-dlp.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "khz"
+required = false
+role = "clock"
+min = 100
+max = 40000
+
+[[drivers.spi-dlp.bindings]]
+key = "reset-ms"
+kind = "parameter"
+hint = "ms"
+required = false
+role = "reset-ms"
+min = 1
+max = 1000
+
+[[drivers.spi-dlp.bindings]]
+key = "boot-ms"
+kind = "parameter"
+hint = "ms"
+required = false
+role = "boot-ms"
+min = 100
+max = 60000
+
+[[drivers.spi-dlp.bindings]]
+key = "reset-active"
+kind = "parameter"
+hint = "0|1"
+required = false
+role = "reset-active"
+min = 0
+max = 1
 
 [drivers.pcd8544]
 summary = "84x48 SPI LCD"
@@ -886,9 +1275,26 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_st7305"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "400", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "300" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305"' }
 early = true
 default_name = "display0"
+
+[[drivers.st7305.display_profiles]]
+name = "300x400"
+label = "SolarTerm 4.2-inch RLCD"
+width = 300
+height = 400
+bindings = { panel = 0 }
+rotation = 1
+default = true
+
+[[drivers.st7305.display_profiles]]
+name = "168x384"
+label = "CL-32 2.9-inch RLCD"
+width = 168
+height = 384
+bindings = { panel = 1 }
+rotation = 3
 [[drivers.st7305.bindings]]
 key = "spi"
 kind = "spi_bus"
@@ -1274,6 +1680,30 @@ hint = "0x51"
 required = true
 allowed = [0x51]
 [[drivers.pcf8563.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
+[drivers.ds3231]
+summary = "DS3231 real-time clock"
+package = "driver_ds3231"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["rtc"]
+board_driver = "rtc_ds3231"
+default_name = "rtc0"
+[[drivers.ds3231.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.ds3231.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68"
+required = true
+allowed = [0x68]
+[[drivers.ds3231.bindings]]
 key = "irq"
 kind = "gpio"
 hint = "gpio"
@@ -1797,6 +2227,7 @@ min = 0
 max = 1000000
 
 [drivers.ps2-keyboard]
+keyboard = true
 summary = "PS/2 keyboard"
 package = "expansion_ps2_keyboard"
 targets = ["esp32", "esp32s3"]
@@ -1807,6 +2238,38 @@ key = "ps2"
 kind = "ps2_bus"
 hint = "bus"
 required = true
+
+[drivers.trackball]
+summary = "Four-channel GPIO trackball"
+package = "expansion_trackball"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio"]
+default_name = "trackball0"
+[[drivers.trackball.bindings]]
+key = "up"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.trackball.bindings]]
+key = "down"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.trackball.bindings]]
+key = "left"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.trackball.bindings]]
+key = "right"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.trackball.bindings]]
+key = "pull"
+kind = "parameter"
+hint = "0=none|1=up|2=down"
+allowed = [0, 1, 2]
 
 [drivers.ps2-mouse]
 summary = "PS/2 mouse"
@@ -1929,6 +2392,57 @@ hint = "gpio"
 key = "irq"
 kind = "gpio"
 hint = "gpio"
+
+[drivers.lr11xx]
+summary = "LR11xx LoRa radio (LR1110/LR1120/LR1121)"
+package = "lr11xx"
+targets = ["esp32s3"]
+capabilities = ["spi"]
+default_name = "radio0"
+
+[[drivers.lr11xx.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.lr11xx.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.lr11xx.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.lr11xx.bindings]]
+key = "freq"
+kind = "parameter"
+hint = "150..960 MHz"
+role = "freq"
+min = 150
+max = 960
+
+[[drivers.lr11xx.bindings]]
+key = "tcxo"
+kind = "parameter"
+hint = "0|1600..3300 mV"
+role = "tcxo"
+min = 0
+max = 3300
 
 [drivers.rotary-encoder]
 summary = "Quadrature rotary encoder (Up/Down per detent)"
@@ -2084,6 +2598,88 @@ kind = "gpio_line"
 hint = "gpio|controller:line"
 role = "reset"
 
+[drivers.ssd1685]
+summary = "SSD1685 168x384 e-paper"
+package = "expansion_ssd1685"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_ssd1685"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1685"' }
+early = true
+default_name = "display0"
+
+[[drivers.ssd1685.display_profiles]]
+name = "gdey029t71h"
+label = "GDEY029T71H 2.9-inch e-paper"
+width = 168
+height = 384
+bindings = { panel = 1 }
+rotation = 0
+default = true
+
+[[drivers.ssd1685.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.ssd1685.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.ssd1685.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.ssd1685.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.ssd1685.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.ssd1685.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
+[[drivers.ssd1685.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..10000 kHz"
+role = "clock"
+min = 100
+max = 10000
+
+[[drivers.ssd1685.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+[[drivers.ssd1685.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "1: GDEY029T71H"
+role = "panel"
+required = true
+allowed = [1]
+
 [drivers.uc8179]
 summary = "UC8179 800x480 e-paper"
 package = "expansion_uc8179"
@@ -2091,9 +2687,18 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_uc8179"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"UC8179"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"UC8179"' }
 early = true
 default_name = "display0"
+
+[[drivers.uc8179.display_profiles]]
+name = "xteink-800x480"
+label = "Xteink 800x480"
+width = 800
+height = 480
+bindings = { panel = 1 }
+rotation = 0
+default = true
 
 [[drivers.uc8179.bindings]]
 key = "spi"
@@ -2222,9 +2827,26 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_uc8279"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"UC8279"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"UC8279"' }
 early = true
 default_name = "display0"
+
+[[drivers.uc8279.display_profiles]]
+name = "x4-pro"
+label = "Xteink X4 Pro"
+width = 800
+height = 480
+bindings = { panel = 1 }
+rotation = 0
+default = true
+
+[[drivers.uc8279.display_profiles]]
+name = "x4-classic"
+label = "Xteink X4 Classic"
+width = 800
+height = 480
+bindings = { panel = 2 }
+rotation = 0
 
 [[drivers.uc8279.bindings]]
 key = "spi"
@@ -2287,3 +2909,30 @@ hint = "1: X4 Pro, 2: X4 Classic (800x480)"
 role = "panel"
 required = true
 allowed = [1, 2]
+
+[drivers.stream-dlp]
+summary = "DLP display on an existing duplex byte stream"
+package = "expansion_stream_dlp"
+targets = ["esp32", "esp32s3"]
+default_name = "display0"
+[[drivers.stream-dlp.bindings]]
+key = "compressed"
+hint = "0|1"
+kind = "parameter"
+role = "compressed"
+min = 0
+max = 1
+
+[[drivers.stream-dlp.bindings]]
+key = "stream"
+kind = "byte_stream"
+hint = "duplex-byte-stream"
+required = true
+role = "stream"
+[[drivers.stream-dlp.bindings]]
+key = "timeout-ms"
+kind = "parameter"
+hint = "ms"
+role = "timeout-ms"
+min = 100
+max = 60000

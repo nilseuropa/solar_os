@@ -105,7 +105,7 @@ baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
 [[devices]]
 driver = "ssd1683"
 name = "display0"
-bindings = { spi = "spi0", cs = 45, dc = 46, reset = 47, busy = 48, power = 7, clock = 10000, panel = 4 }
+bindings = { spi = "spi0", cs = 45, dc = 46, reset = 47, busy = 48, power = 7, clock = 10000, panel = 4, startup-pulse = 1 }
 
 [[devices]]
 driver = "sdspi"

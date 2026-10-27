@@ -41,6 +41,7 @@ if(EXISTS "${SOLAR_OS_BOARD_MANIFEST}")
         "${SOLAR_OS_GENERATED_DIR}/solar_os_board_generated.h")
     file(GLOB SOLAR_OS_BOARD_MANIFEST_INPUTS
         "${SOLAR_OS_BOARD_MANIFEST_DIR}/*.toml"
+        "${SOLAR_OS_BOARD_MANIFEST_DIR}/common/*.toml"
     )
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${SOLAR_OS_BOARD_GENERATOR}"
@@ -272,6 +273,20 @@ if(NOT SOLAR_OS_FLAVOR_GENERATE_RESULT EQUAL 0)
 endif()
 include("${SOLAR_OS_GENERATED_CMAKE}")
 
+set(SOLAR_OS_EXPANSION_PROFILE_GENERATOR "${SOLAR_OS_PROJECT_DIR}/scripts/generate_expansion_profiles.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${SOLAR_OS_EXPANSION_PROFILE_GENERATOR}" "${SOLAR_OS_BOARD_DRIVER_CATALOG}")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_EXPANSION_PROFILE_GENERATOR}"
+            "--catalog" "${SOLAR_OS_BOARD_DRIVER_CATALOG}"
+            "--packages" "${SOLAR_OS_PACKAGE_ID_LIST}"
+            "--output" "${SOLAR_OS_GENERATED_DIR}/solar_os_expansion_profiles_generated.h"
+    RESULT_VARIABLE SOLAR_OS_EXPANSION_PROFILE_RESULT
+)
+if(NOT SOLAR_OS_EXPANSION_PROFILE_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS expansion profile generation failed")
+endif()
+
 # Compile profile defaults from the same descriptions used by the desktop CLI.
 # Empty options produce standard maps and remove overrides from previous builds.
 foreach(SOLAR_OS_KEYMAP_OPTION SOLAR_OS_KEYMAP_PROFILE SOLAR_OS_KEYMAP_FILE SOLAR_OS_KEYMAPS_FILE)
@@ -305,6 +320,17 @@ foreach(SOLAR_OS_KEYMAP_PACKAGE IN LISTS SOLAR_OS_KEYMAP_REQUIRED_PACKAGES)
         message(FATAL_ERROR "Custom keymap requires package ${SOLAR_OS_KEYMAP_PACKAGE} in the selected flavor")
     endif()
 endforeach()
+if(SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES)
+    set(SOLAR_OS_NATIVE_ELF_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_native_elf.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SOLAR_OS_NATIVE_ELF_PATCH}")
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_NATIVE_ELF_PATCH}"
+        "${SOLAR_OS_PROJECT_DIR}/managed_components/espressif__elf_loader"
+        RESULT_VARIABLE SOLAR_OS_NATIVE_ELF_PATCH_RESULT)
+    if(NOT SOLAR_OS_NATIVE_ELF_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "SolarOS native ELF overlay failed")
+    endif()
+endif()
+
 if(SOLAR_OS_PACKAGE_SERVICE_INFERENCE)
     set(SOLAR_OS_ESPDL_DIR "${SOLAR_OS_PROJECT_DIR}/managed_components/espressif__esp-dl")
     set(SOLAR_OS_ESPDL_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_espdl.py")
@@ -485,10 +511,20 @@ set(SOLAR_OS_FLAVOR_STAMP
 )
 
 set(SOLAR_OS_EXTRA_INCLUDE_DIRS)
+if(SOLAR_OS_PACKAGE_SERVICE_DISPLAY_LINK)
+    list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS "../protocol/display_link/include")
+endif()
 if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
     list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS
         "../src/vendor/meshcore"
         "../src/vendor/meshcore/crypto"
+        "../src/vendor/meshcore/ed25519"
+    )
+endif()
+if(SOLAR_OS_PACKAGE_SERVICE_SC2)
+    # SC2 core headers; Ed25519 field/group code is shared with MeshCore.
+    list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS
+        "../protocol/sc2/include"
         "../src/vendor/meshcore/ed25519"
     )
 endif()
@@ -527,6 +563,9 @@ if(SOLAR_OS_PACKAGE_SERVICE_MPEG)
         services/solar_os_mpeg_raster.c PROPERTIES COMPILE_OPTIONS "-O2")
 endif()
 
+# Frame rotation and DMA row staging are hot paths on the SPI color displays.
+set_source_files_properties(drivers/tft_ili9341.c PROPERTIES COMPILE_OPTIONS "-O2")
+
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${SOLAR_OS_BOARD_DEFINE}=1
     ${SOLAR_OS_BOARD_CAPABILITY_DEFINES}
@@ -537,6 +576,13 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     SOLAR_OS_VERSION="${SOLAR_OS_VERSION}"
     SOLAR_OS_FLAVOR_STAMP="${SOLAR_OS_FLAVOR_STAMP}"
 )
+if(SOLAR_OS_MODULE_REPOSITORY_URL)
+    if(NOT SOLAR_OS_MODULE_REPOSITORY_URL MATCHES "^https?://[A-Za-z0-9:/._%~-]+$")
+        message(FATAL_ERROR "Invalid SolarOS module repository URL")
+    endif()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        SOLAR_OS_MODULE_REPOSITORY_URL="${SOLAR_OS_MODULE_REPOSITORY_URL}")
+endif()
 
 if(SOLAR_OS_BOARD_GENERATED)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
@@ -553,4 +599,13 @@ if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
         MESH_DEBUG=0
         MESH_PACKET_LOGGING=0
     )
+endif()
+
+if(SOLAR_OS_PACKAGE_SERVICE_SC2)
+    # SC2 SHA-256/HMAC on the mbedTLS backend (see protocol/sc2/README.md).
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE SC2_USE_MBEDTLS=1)
+    # No PSRAM: SC2's low-RAM profile (protocol/sc2/README.md).
+    if(NOT CONFIG_SPIRAM)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE SC2_LOW_RAM=1)
+    endif()
 endif()

@@ -378,16 +378,16 @@ static esp_err_t ssd1677_activate(epd_ssd1677_t *display)
     return ssd1677_wait_ready(display);
 }
 
-static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
+static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *source, bool force_full)
 {
     if (!display->controller_ready) {
         ESP_RETURN_ON_ERROR(ssd1677_controller_init(display), TAG, "controller resume failed");
     }
-    if (display->shadow_valid && display->shadow != NULL &&
-        memcmp(display->buffer, display->shadow, display->buffer_size) == 0) {
+    if (!force_full && display->shadow_valid && display->shadow != NULL &&
+        memcmp(source, display->shadow, display->buffer_size) == 0) {
         return ESP_OK;
     }
-    const bool full = !display->shadow_valid || display->shadow == NULL ||
+    const bool full = force_full || !display->shadow_valid || display->shadow == NULL ||
         display->refresh_mode == EPD_SSD1677_REFRESH_FULL ||
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO &&
          display->partial_refresh_count >= SSD1677_AUTO_FULL_INTERVAL - 1U);
@@ -396,7 +396,7 @@ static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO ||
          display->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL);
     if (partial && !ssd1677_find_change_window(display, &window)) {
-        memcpy(display->shadow, display->buffer, display->buffer_size);
+        memcpy(display->shadow, source, display->buffer_size);
         return ESP_OK;
     }
 
@@ -422,20 +422,20 @@ static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
             .y_start = 0, .y_end = SSD1677_HEIGHT - 1U,
         };
     }
-    ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, display->buffer, &window, false),
+    ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, source, &window, false),
                         TAG, "current frame write failed");
     /* A complemented baseline forces every pixel to transition on full updates. */
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x26,
-                                           partial ? display->shadow : display->buffer,
+                                           partial ? display->shadow : source,
                                            &window, !partial),
                         TAG, "previous frame write failed");
     esp_err_t ret = ssd1677_activate(display);
     if (ret == ESP_OK) {
         /* Keep both controller planes aligned with the displayed frame. */
-        ret = ssd1677_write_plane(display, 0x24, display->buffer, &window, false);
+        ret = ssd1677_write_plane(display, 0x24, source, &window, false);
     }
     if (ret == ESP_OK) {
-        ret = ssd1677_write_plane(display, 0x26, display->buffer, &window, false);
+        ret = ssd1677_write_plane(display, 0x26, source, &window, false);
     }
     if (ret != ESP_OK) {
         display->shadow_valid = false;
@@ -448,13 +448,19 @@ static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
         ESP_LOGI(TAG, "panel refresh %u complete", (unsigned)display->refresh_log_count);
     }
     if (display->shadow != NULL) {
-        memcpy(display->shadow, display->buffer, display->buffer_size);
+        memcpy(display->shadow, source, display->buffer_size);
     }
     display->shadow_valid = true;
     display->partial_refresh_active = partial;
     display->partial_refresh_count = full ? 0 :
         (uint8_t)(display->partial_refresh_count + 1U);
     return ESP_OK;
+}
+
+static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
+{
+    if (display->relax.storage) return ESP_OK;
+    return ssd1677_refresh_image(display, display->buffer, false);
 }
 
 static esp_err_t ssd1677_sleep(epd_ssd1677_t *display)
@@ -661,6 +667,7 @@ esp_err_t epd_ssd1677_resume(epd_ssd1677_t *display)
 void epd_ssd1677_deinit(epd_ssd1677_t *display)
 {
     if (display == NULL) return;
+    epd_relax_dispose(&display->relax);
     if (display->spi != NULL && display->powered) (void)ssd1677_sleep(display);
     if (display->spi != NULL) {
         (void)spi_bus_remove_device(display->spi);
@@ -713,6 +720,7 @@ esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *display,
                                           const char *mode)
 {
     if (display == NULL || mode == NULL) return ESP_ERR_INVALID_ARG;
+    if (display->relax.storage) return ESP_ERR_INVALID_STATE;
     if (strcmp(mode, "refresh=auto") == 0) {
         display->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
     } else if (strcmp(mode, "refresh=partial") == 0) {
@@ -723,4 +731,27 @@ esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *display,
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
+}
+
+static esp_err_t relax_native(void *context, solar_os_display_relax_phase_t phase,
+                               const uint8_t *image)
+{
+    epd_ssd1677_t *d = context;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN) {
+        d->controller_ready = d->shadow_valid = false;
+        return ESP_OK;
+    }
+    const esp_err_t err = d->powered ? ssd1677_refresh_image(d, image, true) : ESP_ERR_INVALID_STATE;
+    if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
+    return err;
+}
+
+esp_err_t epd_ssd1677_relax(epd_ssd1677_t *d, solar_os_display_relax_phase_t phase)
+{
+    if (!d || !d->buffer || (unsigned)phase > SOLAR_OS_DISPLAY_RELAX_END) return ESP_ERR_INVALID_ARG;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN && !d->powered) return ESP_ERR_INVALID_STATE;
+    const esp_err_t err = epd_relax_apply(&d->relax, d->buffer, d->buffer_size,
+                                         phase, relax_native, d);
+    d->last_error = err;
+    return err;
 }

@@ -28,12 +28,12 @@ class GatewayReplayProtocolTest(unittest.TestCase):
 
     def test_join_is_confirmed_only_by_server_event(self):
         service = source("src/services/solar_os_chat.c")
-        join_start = service.index("esp_err_t solar_os_chat_join(")
-        join_end = service.index("esp_err_t solar_os_chat_leave(", join_start)
+        join_start = service.index("static esp_err_t chat_change_membership(")
+        join_end = service.index("esp_err_t solar_os_chat_join(", join_start)
         join_body = service[join_start:join_end]
         self.assertIn("chat_add_channel_locked(channel, true, false)", join_body)
         self.assertNotIn("chat_add_channel_locked(channel, true, true)", join_body)
-        self.assertIn("chat.channels[existing_index].desired", join_body)
+        self.assertIn("chat.channels[index].desired = joining", join_body)
 
         publish_start = service.index("esp_err_t solar_os_gateway_sync_publish(")
         publish_body = service[publish_start:]
@@ -43,7 +43,7 @@ class GatewayReplayProtocolTest(unittest.TestCase):
         self.assertIn("if (!connected)", service)
 
         app = source("src/apps/solar_os_chat.c")
-        self.assertIn("chat_check_pending_gateway_join();", app)
+        self.assertIn("chat_check_pending_join();", app)
         self.assertIn('chat_set_status("waiting for join confirmation")', app)
         self.assertIn("chat_app.tab = CHAT_APP_TAB_CHAT", app)
 

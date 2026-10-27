@@ -40,6 +40,7 @@
 #define SX1262_OP_GET_STATUS 0xC0U
 #define SX1262_OP_GET_RX_BUFFER_STATUS 0x13U
 #define SX1262_OP_GET_PACKET_STATUS 0x14U
+#define SX1262_OP_GET_RSSI_INST 0x15U
 #define SX1262_OP_WRITE_REGISTER 0x0DU
 #define SX1262_OP_WRITE_BUFFER 0x0EU
 #define SX1262_OP_READ_BUFFER 0x1EU
@@ -48,6 +49,7 @@
 #define SX1262_OP_SET_STOP_RX_TIMER_ON_PREAMBLE 0x9FU
 
 #define SX1262_STANDBY_RC 0x00U
+#define SX1262_STANDBY_XOSC 0x01U
 #define SX1262_REGULATOR_DC_DC 0x01U
 #define SX1262_TCXO_VOLTAGE_3V0 0x06U
 #define SX1262_TCXO_DELAY_15625NS_UNITS 320U /* ~5 ms startup delay */
@@ -67,6 +69,7 @@
 
 #define SX1262_REG_LORA_SYNC_WORD_MSB 0x0740U
 #define SX1262_REG_LORA_SYNC_WORD_LSB 0x0741U
+#define SX1262_REG_RX_GAIN 0x08ACU
 
 #define SX1262_BUSY_TIMEOUT_US 1000000ULL
 #define SX1262_POLL_INTERVAL_MS 4U
@@ -106,6 +109,24 @@ static esp_err_t sx1262_wait_busy(sx1262_t *dev)
     return ESP_OK;
 }
 
+static esp_err_t sx1262_prepare_command(sx1262_t *dev)
+{
+    if (dev->state == SOLAR_OS_RADIO_STATE_SLEEP) {
+        /* BUSY stays high in sleep. The NSS falling edge of this write-only
+         * GetStatus wakes the chip; its response is undefined and ignored.
+         * Use the bus service so CS and the shared SPI bus stay serialized. */
+        const uint8_t wake[] = {SX1262_OP_GET_STATUS, 0x00U};
+        esp_err_t err = solar_os_bus_spi_transfer(dev->spi_bus, dev->cs_pin,
+            0, dev->speed_hz, wake, NULL, sizeof(wake));
+        if (err != ESP_OK) return err;
+        err = sx1262_wait_busy(dev);
+        if (err != ESP_OK) return err;
+        dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+        return ESP_OK;
+    }
+    return sx1262_wait_busy(dev);
+}
+
 /* One full command transaction: opcode + params out, with `resp_len` extra
  * clock cycles appended to fetch a response (0 for pure "set" commands).
  * `resp` receives the response bytes, if any, with the always-present
@@ -124,7 +145,7 @@ static esp_err_t sx1262_transact(sx1262_t *dev,
     if (total > sizeof(tx) || (resp_len > 0 && resp == NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = sx1262_wait_busy(dev);
+    esp_err_t err = sx1262_prepare_command(dev);
     if (err != ESP_OK) {
         return err;
     }
@@ -139,6 +160,10 @@ static esp_err_t sx1262_transact(sx1262_t *dev,
     }
     if (resp_len > 0) {
         memcpy(resp, &rx[1 + param_len], resp_len);
+    }
+    if (opcode == SX1262_OP_SET_SLEEP) {
+        /* Complete the sleep entry before another NSS edge may wake it. */
+        esp_rom_delay_us(500);
     }
     return ESP_OK;
 }
@@ -178,7 +203,7 @@ static esp_err_t sx1262_read_buffer(sx1262_t *dev, uint8_t offset, uint8_t *data
     if (len > SX1262_MAX_PACKET_LEN || total > sizeof(tx)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = sx1262_wait_busy(dev);
+    esp_err_t err = sx1262_prepare_command(dev);
     if (err != ESP_OK) {
         return err;
     }
@@ -197,6 +222,23 @@ static esp_err_t sx1262_set_standby(sx1262_t *dev)
 {
     const uint8_t param = SX1262_STANDBY_RC;
     return sx1262_transact(dev, SX1262_OP_SET_STANDBY, &param, 1, NULL, 0);
+}
+
+static esp_err_t sx1262_start_rx(sx1262_t *dev)
+{
+    /* RxGain is outside the default warm-sleep retention list. Restore it once
+     * when arming RX, without interrupting subsequent nonblocking RX polls. */
+    esp_err_t err = sx1262_set_standby(dev);
+    if (err == ESP_OK) {
+        dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+        const uint8_t gain = dev->config.rx_gain == SOLAR_OS_RADIO_RX_GAIN_BOOSTED ? 0x96U : 0x94U;
+        err = sx1262_write_register(dev, SX1262_REG_RX_GAIN, &gain, 1);
+    }
+    if (err == ESP_OK) {
+        const uint8_t params[3] = {0xFFU, 0xFFU, 0xFFU};
+        err = sx1262_transact(dev, SX1262_OP_SET_RX, params, sizeof(params), NULL, 0);
+    }
+    return err;
 }
 
 static esp_err_t sx1262_get_irq_status(sx1262_t *dev, uint16_t *irq)
@@ -336,6 +378,27 @@ static uint8_t sx1262_lora_bandwidth_code(uint32_t bw_hz)
     return 0x06U; /* 500 kHz */
 }
 
+static bool sx1262_gfsk_bandwidth(uint32_t requested, uint32_t *actual, uint8_t *code)
+{
+    /* Semtech sx126x_gfsk_bw_t encodings; choose the narrowest filter that
+     * covers the requested bandwidth. Do not silently use a fixed filter. */
+    static const uint32_t widths[] = {
+        4800, 5800, 7300, 9700, 11700, 14600, 19500, 23400, 29300,
+        39000, 46900, 58600, 78200, 93800, 117300, 156200, 187200,
+        234300, 312000, 373600, 467000,
+    };
+    static const uint8_t codes[] = {
+        0x1f, 0x17, 0x0f, 0x1e, 0x16, 0x0e, 0x1d, 0x15, 0x0d,
+        0x1c, 0x14, 0x0c, 0x1b, 0x13, 0x0b, 0x1a, 0x12,
+        0x0a, 0x19, 0x11, 0x09,
+    };
+    if (requested == 0) requested = 234300U;
+    for (size_t i = 0; i < sizeof(widths) / sizeof(widths[0]); i++) {
+        if (widths[i] >= requested) { *actual = widths[i]; *code = codes[i]; return true; }
+    }
+    return false;
+}
+
 static void sx1262_image_calibration_bytes(uint32_t freq_hz, uint8_t *freq1, uint8_t *freq2)
 {
     if (freq_hz >= 902000000U && freq_hz <= 928000000U) {
@@ -349,9 +412,12 @@ static void sx1262_image_calibration_bytes(uint32_t freq_hz, uint8_t *freq1, uin
     } else if (freq_hz >= 430000000U && freq_hz <= 440000000U) {
         *freq1 = 0x6BU; *freq2 = 0x6FU; /* 433 MHz ISM */
     } else {
-        /* Fall back to the widest documented band; calibration will be
-         * less accurate outside a known plan but should not fail outright. */
-        *freq1 = 0xE1U; *freq2 = 0xE9U;
+        /* Calibrate a local window for frequencies outside the common plans.
+         * Parameters are 4 MHz steps; use odd endpoints around the carrier. */
+        uint32_t lower = (freq_hz - 4000000U) / 4000000U;
+        uint32_t upper = (freq_hz + 4000000U + 3999999U) / 4000000U;
+        *freq1 = (uint8_t)((lower & 1U) ? lower : lower - 1U);
+        *freq2 = (uint8_t)((upper & 1U) ? upper : upper + 1U);
     }
 }
 
@@ -384,6 +450,18 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
     if (dev == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    uint32_t gfsk_bandwidth_hz = 0;
+    uint8_t gfsk_bandwidth_code = 0;
+    if (config->frequency_hz < 150000000U || config->frequency_hz > 960000000U ||
+        (!sx1262_is_lora(config) &&
+         !sx1262_gfsk_bandwidth(config->rx_bandwidth_hz, &gfsk_bandwidth_hz, &gfsk_bandwidth_code))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_DEFAULT &&
+        config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_POWER_SAVING &&
+        config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_BOOSTED) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     esp_err_t err = sx1262_lock(dev);
     if (err != ESP_OK) {
         return err;
@@ -392,6 +470,11 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
     const bool lora = sx1262_is_lora(config);
 
     err = sx1262_set_standby(dev);
+    if (err == ESP_OK) {
+        dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+        const uint8_t gain = config->rx_gain == SOLAR_OS_RADIO_RX_GAIN_BOOSTED ? 0x96U : 0x94U;
+        err = sx1262_write_register(dev, SX1262_REG_RX_GAIN, &gain, 1);
+    }
     if (err == ESP_OK) {
         const uint8_t regulator = SX1262_REGULATOR_DC_DC;
         err = sx1262_transact(dev, SX1262_OP_SET_REGULATOR_MODE, &regulator, 1, NULL, 0);
@@ -415,6 +498,10 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
         sx1262_image_calibration_bytes(config->frequency_hz, &freq1, &freq2);
         const uint8_t params[2] = {freq1, freq2};
         err = sx1262_transact(dev, SX1262_OP_CALIBRATE_IMAGE, params, sizeof(params), NULL, 0);
+        if (err == ESP_OK) {
+            dev->image_cal_min_hz = (uint32_t)freq1 * 4000000U;
+            dev->image_cal_max_hz = (uint32_t)freq2 * 4000000U;
+        }
     }
     if (err == ESP_OK) {
         const uint32_t freq_reg =
@@ -451,7 +538,7 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
             const uint8_t params[8] = {
                 (uint8_t)(br_reg >> 16), (uint8_t)(br_reg >> 8), (uint8_t)(br_reg & 0xFFU),
                 0x00U, /* no pulse shaping */
-                0x0FU, /* ~234.3 kHz Rx bandwidth: safe wideband default */
+                gfsk_bandwidth_code,
                 (uint8_t)(fdev_reg >> 16), (uint8_t)(fdev_reg >> 8), (uint8_t)(fdev_reg & 0xFFU),
             };
             err = sx1262_transact(dev, SX1262_OP_SET_MODULATION_PARAMS, params, sizeof(params), NULL, 0);
@@ -526,6 +613,10 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
     }
     if (err == ESP_OK) {
         dev->config = *config;
+        if (!lora) dev->config.rx_bandwidth_hz = gfsk_bandwidth_hz;
+        if (dev->config.rx_gain == SOLAR_OS_RADIO_RX_GAIN_DEFAULT) {
+            dev->config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_POWER_SAVING;
+        }
         dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
     }
 
@@ -543,9 +634,14 @@ esp_err_t sx1262_set_state(sx1262_t *dev, solar_os_radio_state_t state)
         return err;
     }
 
+    if (state == SOLAR_OS_RADIO_STATE_SLEEP && dev->state == state) {
+        sx1262_unlock(dev);
+        return ESP_OK;
+    }
+
     switch (state) {
     case SOLAR_OS_RADIO_STATE_SLEEP: {
-        const uint8_t param = 0x00U; /* cold start, no RTC wakeup */
+        const uint8_t param = 0x04U; /* warm start, retain config, no RTC wakeup */
         err = sx1262_transact(dev, SX1262_OP_SET_SLEEP, &param, 1, NULL, 0);
         break;
     }
@@ -553,8 +649,7 @@ esp_err_t sx1262_set_state(sx1262_t *dev, solar_os_radio_state_t state)
         err = sx1262_set_standby(dev);
         break;
     case SOLAR_OS_RADIO_STATE_RX: {
-        const uint8_t params[3] = {0xFFU, 0xFFU, 0xFFU}; /* continuous */
-        err = sx1262_transact(dev, SX1262_OP_SET_RX, params, sizeof(params), NULL, 0);
+        err = sx1262_start_rx(dev);
         break;
     }
     case SOLAR_OS_RADIO_STATE_TX: {
@@ -595,6 +690,74 @@ esp_err_t sx1262_get_status(sx1262_t *dev, solar_os_radio_status_t *status)
     }
     sx1262_unlock(dev);
     return ESP_OK;
+}
+
+esp_err_t sx1262_tune_rx(sx1262_t *dev, uint32_t frequency_hz, uint32_t *settle_ms)
+{
+    if (dev == NULL || settle_ms == NULL || frequency_hz < 150000000U ||
+        frequency_hz > 960000000U) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = sx1262_lock(dev);
+    if (err != ESP_OK) return err;
+    if ((dev->state != SOLAR_OS_RADIO_STATE_RX && dev->state != SOLAR_OS_RADIO_STATE_STANDBY) ||
+        dev->config.frequency_hz == 0) {
+        sx1262_unlock(dev);
+        return ESP_ERR_INVALID_STATE;
+    }
+    bool calibrate = dev->image_cal_min_hz == 0 ||
+        frequency_hz < dev->image_cal_min_hz + 1000000U ||
+        frequency_hz > dev->image_cal_max_hz - 1000000U;
+    /* XOSC standby keeps the TCXO running between bins. RC standby and image
+     * calibration are needed only when leaving the calibrated RF window. */
+    uint8_t standby = calibrate ? SX1262_STANDBY_RC : SX1262_STANDBY_XOSC;
+    err = sx1262_transact(dev, SX1262_OP_SET_STANDBY, &standby, 1, NULL, 0);
+    if (err == ESP_OK) dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
+    if (err == ESP_OK && calibrate) {
+        uint8_t params[2];
+        sx1262_image_calibration_bytes(frequency_hz, &params[0], &params[1]);
+        err = sx1262_transact(dev, SX1262_OP_CALIBRATE_IMAGE, params, 2, NULL, 0);
+        if (err == ESP_OK) {
+            dev->image_cal_min_hz = (uint32_t)params[0] * 4000000U;
+            dev->image_cal_max_hz = (uint32_t)params[1] * 4000000U;
+            standby = SX1262_STANDBY_XOSC;
+            err = sx1262_transact(dev, SX1262_OP_SET_STANDBY, &standby, 1, NULL, 0);
+        }
+    }
+    if (err == ESP_OK) {
+        uint32_t reg = (uint32_t)((((uint64_t)frequency_hz << 25) + SX1262_FXTAL_HZ / 2) / SX1262_FXTAL_HZ);
+        uint8_t params[4] = {reg >> 24, reg >> 16, reg >> 8, reg};
+        err = sx1262_transact(dev, SX1262_OP_SET_RF_FREQUENCY, params, 4, NULL, 0);
+    }
+    if (err == ESP_OK) err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+    if (err == ESP_OK) {
+        const uint8_t params[3] = {0xff, 0xff, 0xff};
+        err = sx1262_transact(dev, SX1262_OP_SET_RX, params, 3, NULL, 0);
+    }
+    if (err == ESP_OK) {
+        dev->config.frequency_hz = frequency_hz;
+        dev->state = SOLAR_OS_RADIO_STATE_RX;
+        uint32_t bw = dev->config.rx_bandwidth_hz ? dev->config.rx_bandwidth_hz : 125000U;
+        uint32_t filter_ms = (32000U + bw - 1U) / bw;
+        *settle_ms = filter_ms < 2U ? 2U : filter_ms;
+    }
+    sx1262_unlock(dev);
+    return err;
+}
+
+esp_err_t sx1262_read_rssi(sx1262_t *dev, int16_t *dbm)
+{
+    if (dev == NULL || dbm == NULL) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = sx1262_lock(dev);
+    if (err != ESP_OK) return err;
+    if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
+        err = ESP_ERR_INVALID_STATE;
+    } else {
+        /* opcode, status/NOP, RssiInst: one status byte precedes the value. */
+        uint8_t response[2] = {0};
+        err = sx1262_transact(dev, SX1262_OP_GET_RSSI_INST, NULL, 0, response, 2);
+        if (err == ESP_OK) *dbm = -(int16_t)(response[1] / 2U);
+    }
+    sx1262_unlock(dev);
+    return err;
 }
 
 esp_err_t sx1262_send(sx1262_t *dev, const solar_os_radio_packet_t *packet, uint32_t timeout_ms)
@@ -714,8 +877,7 @@ esp_err_t sx1262_receive(sx1262_t *dev, solar_os_radio_packet_t *packet, uint32_
     if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
         err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
         if (err == ESP_OK) {
-            const uint8_t params[3] = {0xFFU, 0xFFU, 0xFFU}; /* continuous */
-            err = sx1262_transact(dev, SX1262_OP_SET_RX, params, sizeof(params), NULL, 0);
+            err = sx1262_start_rx(dev);
         }
         if (err != ESP_OK) {
             sx1262_unlock(dev);

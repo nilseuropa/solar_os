@@ -320,7 +320,10 @@ static const solar_os_native_memory_api_v1_t memory_api = {
 static const void *get_service(const char *name, uint32_t abi, uint32_t size)
 {
     assert(abi == 1);
-    if (!strcmp(name, "foreground")) { assert(size == sizeof(vm_api)); return &vm_api; }
+    if (!strcmp(name, "foreground")) {
+        assert(size == offsetof(solar_os_native_foreground_api_v1_t, suspend) + sizeof(vm_api.suspend));
+        return &vm_api;
+    }
     assert(!strcmp(name, "memory") && size == sizeof(memory_api)); return &memory_api;
 }
 const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)

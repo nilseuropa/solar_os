@@ -73,6 +73,7 @@ typedef struct {
 esp_err_t tft_ili9341_init(tft_ili9341_t *display,
                            const tft_ili9341_config_t *config);
 esp_err_t tft_ili9341_resume(tft_ili9341_t *display);
+esp_err_t tft_ili9341_shutdown(tft_ili9341_t *display);
 void tft_ili9341_deinit(tft_ili9341_t *display);
 u8g2_t *tft_ili9341_get_u8g2(tft_ili9341_t *display);
 bool tft_ili9341_backlight_supported(void);

@@ -191,6 +191,7 @@ static void test_hid_boot_database(void)
     assert(fake.server_add_calls==0 && fake.adv_calls==0);
     solar_os_ble_backend_server_cancel(42); nimble_test_drain();
     assert(peripheral->dormant && peripheral->registered);
+    assert(!strcmp(fake.device_name,fake.hostname));
     assert(execute_hid(43,&hid)==ESP_OK);
     assert(fake.server_add_calls==0 && hid_characteristic(SERVER_HID_KEYBOARD_INPUT)->handle==handle);
     solar_os_ble_backend_server_cancel(43); nimble_test_drain();
@@ -209,6 +210,15 @@ static void test_hid_boot_database(void)
 int main(void)
 {
     nimble_test_reset(); assert(solar_os_ble_backend_register()==ESP_OK);
+    assert(solar_os_ble_nimble_set_hostname()==ESP_OK);
+    assert(!strcmp(fake.device_name,"test-device"));
+    strcpy(fake.hostname,"1234567890123456789012345678901");
+    assert(strlen(fake.hostname)==31);
+    assert(solar_os_ble_nimble_set_hostname()==ESP_OK);
+    assert(!strcmp(fake.device_name,fake.hostname));
+    fake.submit_error=BLE_HS_ENOMEM;
+    assert(solar_os_ble_nimble_set_hostname()==ESP_ERR_NO_MEM);
+    fake.submit_error=0;
     test_hid_boot_database();
     /* Every allocation while defining and starting the peripheral is recoverable. */
     for (int n=1;n<=7;n++) {
@@ -290,6 +300,7 @@ int main(void)
     assert(peripheral && peripheral->closing && !peripheral->advertising && !server_idle_locked());
     assert(access_value(21,&ctx)==BLE_ATT_ERR_UNLIKELY);
     disconnect_peer(21); assert(peripheral); disconnect_peer(22); assert(!peripheral);
+    assert(!strcmp(fake.device_name,fake.hostname));
     create_server(); start_server();
     assert(execute(42,&r)==ESP_ERR_INVALID_ARG); /* Old characteristic ID cannot alias the new lease. */
     struct ble_gap_event stale={.type=BLE_GAP_EVENT_ADV_COMPLETE};
@@ -757,6 +768,7 @@ int main(void)
     assert(fake.server_delete_calls==before_replace+1);
     solar_os_ble_backend_server_cancel(42); nimble_test_drain();
     assert(server_idle_locked());
+    assert(!strcmp(fake.device_name,fake.hostname));
     puts("BLE server: generic ownership plus encrypted keyboard, mouse and gamepad HOGP lifecycle OK");
     return 0;
 }

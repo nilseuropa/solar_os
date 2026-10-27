@@ -41,7 +41,7 @@ extern struct nimble_test_state {
     size_t nvs_length, nvs_pending_length;
     bool advertising, mbuf_fail, encrypted, bonded;
     uint16_t appearance;
-    char device_name[27];
+    char device_name[32], hostname[32];
     ble_gap_event_fn *server_gap;
     void *server_gap_arg;
     const struct ble_gatt_svc_def *server_definitions;

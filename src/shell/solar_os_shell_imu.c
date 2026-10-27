@@ -25,13 +25,13 @@ static void print_capabilities(solar_os_shell_io_t *term,
                                solar_os_imu_capabilities_t capabilities)
 {
     if ((capabilities & SOLAR_OS_IMU_CAP_ACCELERATION) != 0U) {
-        solar_os_shell_io_write(term, " accel");
+        solar_os_shell_io_table_write(term, " accel");
     }
     if ((capabilities & SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY) != 0U) {
-        solar_os_shell_io_write(term, " gyro");
+        solar_os_shell_io_table_write(term, " gyro");
     }
     if ((capabilities & SOLAR_OS_IMU_CAP_ORIENTATION) != 0U) {
-        solar_os_shell_io_write(term, " orientation");
+        solar_os_shell_io_table_write(term, " orientation");
     }
 }
 
@@ -45,9 +45,9 @@ void solar_os_shell_cmd_imu(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_imu_info_t info;
         for (size_t i = 0; solar_os_imu_get(i, &info); i++) {
-            solar_os_shell_io_printf(term, "%s  %s", info.name, info.driver);
+            solar_os_shell_io_table_printf(term, "%s  %s", info.name, info.driver);
             print_capabilities(term, info.capabilities);
-            solar_os_shell_io_write(term, "\r\n");
+            solar_os_shell_io_table_write(term, "\r\n");
         }
         return;
     }

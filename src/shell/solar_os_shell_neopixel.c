@@ -51,7 +51,7 @@ static bool print_device(solar_os_shell_io_t *term, const char *name)
             (name != NULL && strcmp(name, info.name) != 0)) {
             continue;
         }
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%s GPIO%d pixels=%u order=GRB\n",
                                  info.name,
                                  info.data_pin,
@@ -94,7 +94,7 @@ void solar_os_shell_cmd_neopixel(solar_os_context_t *ctx, int argc, char **argv)
             for (size_t i = 0; i < count; i++) {
                 solar_os_neopixel_info_t info;
                 if (solar_os_neopixel_get(i, &info)) {
-                    solar_os_shell_io_printf(term,
+                    solar_os_shell_io_table_printf(term,
                                              "%s GPIO%d pixels=%u order=GRB\n",
                                              info.name,
                                              info.data_pin,

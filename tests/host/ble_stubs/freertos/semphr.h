@@ -16,6 +16,7 @@ typedef StaticSemaphore_t *SemaphoreHandle_t;
 #define portMAX_DELAY 0xffffffffU
 
 SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *storage);
+SemaphoreHandle_t xSemaphoreCreateMutex(void);
 SemaphoreHandle_t xSemaphoreCreateBinaryStatic(StaticSemaphore_t *storage);
 int xSemaphoreTake(SemaphoreHandle_t semaphore, unsigned timeout);
 int xSemaphoreGive(SemaphoreHandle_t semaphore);

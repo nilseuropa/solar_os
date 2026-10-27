@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "hello-library"
+name = "Hello Library"
+version = "1.0.0"
+description = "Resident library with a versioned unsigned addition API."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_native_hello_library.library.elf"

@@ -232,6 +232,7 @@ static void pkg_tui_finish_operation(void)
 static const char *pkg_tui_type_short(solar_os_module_type_t type)
 {
     return type == SOLAR_OS_MODULE_TYPE_DRIVER ? "drv" :
+        type == SOLAR_OS_MODULE_TYPE_LIBRARY ? "lib" :
         solar_os_module_type_name(type);
 }
 

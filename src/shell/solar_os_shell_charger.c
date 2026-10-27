@@ -25,23 +25,23 @@ static void print_range(solar_os_shell_io_t *term,
                         const solar_os_charger_range_t *range,
                         const char *unit)
 {
-    solar_os_shell_io_printf(term, "%s=%u..%u/%u%s ", label,
+    solar_os_shell_io_table_printf(term, "%s=%u..%u/%u%s ", label,
                              range->minimum, range->maximum, range->step, unit);
 }
 
 static void list(solar_os_shell_io_t *term)
 {
     if (solar_os_charger_count() == 0U) {
-        solar_os_shell_io_writeln(term, "no battery chargers registered");
+        solar_os_shell_io_table_writeln(term, "no battery chargers registered");
         return;
     }
     solar_os_charger_info_t info;
     for (size_t i = 0; solar_os_charger_get(i, &info); i++) {
-        solar_os_shell_io_printf(term, "%s  %s  ", info.name, info.driver);
+        solar_os_shell_io_table_printf(term, "%s  %s  ", info.name, info.driver);
         print_range(term, "input", &info.input_current_limit_ma, "mA");
         print_range(term, "charge", &info.charge_current_ma, "mA");
         print_range(term, "voltage", &info.charge_voltage_mv, "mV");
-        solar_os_shell_io_write(term, "\r\n");
+        solar_os_shell_io_table_write(term, "\r\n");
     }
 }
 

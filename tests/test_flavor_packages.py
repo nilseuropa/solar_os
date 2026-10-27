@@ -39,8 +39,23 @@ class FlavorPackagesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid flavor name"):
             generate_flavor_config.public_flavor_name("full", "beta flavor")
 
+    def test_radio_scanner_requires_graphics_and_radio_service(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["radio_scanner"])
+        for name in ("app_rfscan", "service_radio_scan", "service_radio", "service_audio"):
+            self.assertTrue(packages[name], name)
+        _, capable = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"gfx", "expansion_spi"})
+        self.assertTrue(capable["app_rfscan"])
+        _, headless = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"expansion_spi"})
+        self.assertFalse(headless["app_rfscan"])
+        for flavor in ("classic", "writerdeck"):
+            _, _, _, optional = self.resolve(flavor)
+            self.assertFalse(optional["app_rfscan"])
+
     def test_games_are_only_in_full(self):
-        built_in_flavors = ("core", "full", "netrunner", "rover", "writerdeck")
+        built_in_flavors = ("full", "classic", "writerdeck")
         for flavor in built_in_flavors:
             _, _, groups, packages = self.resolve(flavor)
             expected = flavor == "full"
@@ -49,8 +64,31 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertNotIn("gameboy", groups, flavor)
             self.assertNotIn("app_gameboy", packages, flavor)
 
+    def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
+        for flavor in ("full", "classic", "writerdeck"):
+            _, _, groups, packages = self.resolve(flavor)
+            self.assertEqual(groups["tcp_streams"], flavor == "full")
+            self.assertEqual(packages["service_tcp_stream"], flavor == "full")
+
+    def test_classic_uses_compact_baseline_with_dpad_support(self):
+        _, _, compact_groups, compact_packages = self.resolve("writerdeck")
+        name, _, groups, packages = self.resolve("classic")
+        self.assertEqual(name, "classic")
+        self.assertEqual({key for key in compact_groups if compact_groups[key] != groups[key]},
+                         {"adc_dpad", "synth", "sc2"})
+        self.assertEqual({key for key in compact_packages if compact_packages[key] != packages[key]},
+                         {"service_adc_dpad", "app_synth", "service_synth", "service_midi",
+                          "service_sc2", "service_sc2_provider", "job_sc2_sync"})
+        self.assertTrue(packages["service_adc_dpad"])
+        self.assertFalse(packages["app_lua"])
+        self.assertTrue(packages["app_python"])
+        self.assertTrue(packages["app_playground"])
+        requires = generate_flavor_config.collect_requires(self.catalog, groups, packages)
+        self.assertNotIn("lua", requires)
+        self.assertIn("micropython_embed", requires)
+
     def test_servo_is_optional_and_native_backend_requires_pwm_gpio(self):
-        _, _, core_groups, core_packages = self.resolve("core")
+        _, _, core_groups, core_packages = self.resolve("writerdeck")
         self.assertFalse(core_groups["servo"])
         self.assertFalse(core_packages["service_servo"])
         _, _, groups, packages = self.resolve("full")
@@ -67,8 +105,72 @@ class FlavorPackagesTest(unittest.TestCase):
                 self.assertTrue(pruned["service_pwm"])
                 self.assertEqual(pruned["driver_pwm_native"], enabled)
 
+    def test_drv8830_is_optional_and_requires_expansion_i2c(self):
+        for flavor in ("classic", "writerdeck"):
+            _, _, groups, packages = self.resolve(flavor)
+            self.assertFalse(groups["drv8830"])
+            self.assertFalse(packages["drv8830"])
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["drv8830"])
+        for target in ("esp32", "esp32s3"):
+            selected = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+            _, supported = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, selected, {"i2c", "expansion_i2c"})
+            self.assertTrue(supported["drv8830"])
+            self.assertTrue(supported["service_motor"])
+            self.assertTrue(supported["service_i2c"])
+            _, unsupported = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, selected, {"i2c"})
+            self.assertFalse(unsupported["drv8830"])
+            self.assertTrue(unsupported["service_motor"])
+
+    def test_encoder_driver_is_optional_and_requires_gpio(self):
+        for flavor in ("classic", "writerdeck"):
+            _, _, groups, packages = self.resolve(flavor)
+            self.assertFalse(groups["pcnt_encoder"])
+            self.assertFalse(packages["pcnt_encoder"])
+        _, _, groups, packages = self.resolve("full")
+        for target in ("esp32", "esp32s3"):
+            selected = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+            _, supported = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, selected, {"gpio"})
+            self.assertTrue(supported["pcnt_encoder"])
+            self.assertTrue(supported["service_encoder"])
+            _, unsupported = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, selected, set())
+            self.assertFalse(unsupported["pcnt_encoder"])
+            self.assertTrue(unsupported["service_encoder"])
+
+    def test_encoder_service_does_not_pull_a_concrete_driver(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "encoder.toml"
+            path.write_text('[flavor]\nname = "encoder-only"\n[groups]\nencoder = true\n')
+            _, _, groups, packages = generate_flavor_config.load_flavor(path, self.catalog)
+        self.assertTrue(packages["service_encoder"])
+        self.assertFalse(packages["pcnt_encoder"])
+        self.assertFalse(packages["rotary_encoder"])
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, set())
+        self.assertTrue(pruned["service_encoder"])
+
+    def test_motor_service_does_not_pull_a_concrete_driver(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "motor.toml"
+            path.write_text('[flavor]\nname = "motor-only"\n[groups]\nmotor = true\n')
+            _, _, groups, packages = generate_flavor_config.load_flavor(path, self.catalog)
+        self.assertTrue(packages["service_motor"])
+        self.assertFalse(packages["drv8830"])
+        self.assertFalse(packages["service_i2c"])
+        _, pruned = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, set())
+        self.assertTrue(pruned["service_motor"])
+
     def test_pca9685_is_optional_and_uses_i2c_without_native_pwm(self):
-        _, _, core_groups, core_packages = self.resolve("core")
+        _, _, core_groups, core_packages = self.resolve("writerdeck")
         self.assertFalse(core_groups["pca9685"])
         self.assertFalse(core_packages["pca9685"])
         _, _, groups, packages = self.resolve("full")
@@ -132,7 +234,7 @@ class FlavorPackagesTest(unittest.TestCase):
             (REPOSITORY / "boards" / "manifests" / "odroid_go.toml").read_text()
         )
         capabilities = set(board["build"]["capabilities"])
-        for flavor in ("core", "full"):
+        for flavor in ("writerdeck", "full"):
             with self.subTest(flavor=flavor):
                 _, _, groups, packages = self.resolve(flavor)
                 _, pruned = generate_flavor_config.apply_board_capability_pruning(
@@ -142,9 +244,10 @@ class FlavorPackagesTest(unittest.TestCase):
                     self.catalog, pruned, board["target"]["mcu"]
                 )
                 for package in ("service_resources", "service_i2c",
-                                "service_expansion", "expansion_cardkb"):
+                                "service_expansion"):
                     self.assertTrue(pruned[package], package)
                 if flavor == "full":
+                    self.assertTrue(pruned["expansion_cardkb"])
                     self.assertTrue(pruned["expansion_tab5_keyboard"])
                     self.assertTrue(pruned["expansion_inputronic_keyboard"])
 
@@ -173,7 +276,8 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(pruned["app_zoo"])
 
     def test_update_layout_adds_ota_without_exposing_it_in_flavor(self):
-        _, _, _, packages = self.resolve("core")
+        _, _, _, packages = self.resolve("writerdeck")
+        packages["service_ota"] = False
         single = generate_flavor_config.apply_update_layout(
             self.catalog, packages, "single"
         )
@@ -201,6 +305,22 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog, groups, packages, {"gfx", "spi", "expansion_spi"}
         )
         self.assertFalse(unavailable["expansion_uc8279"])
+
+    def test_ssd1685_expansion_profile_and_package(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["ssd1685"])
+        self.assertTrue(packages["expansion_ssd1685"])
+        for caps, enabled in (
+            ({"gfx", "spi", "expansion_spi", "expansion_gpio"}, True),
+            ({"gfx", "spi", "expansion_spi"}, False),
+            ({"spi", "expansion_spi", "expansion_gpio"}, False),
+        ):
+            _, selected = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, packages, caps)
+            self.assertEqual(selected["expansion_ssd1685"], enabled)
+        for flavor in ("classic", "writerdeck"):
+            _, _, _, optional = self.resolve(flavor)
+            self.assertFalse(optional["expansion_ssd1685"])
 
     def test_uc8179_expansion_profile_and_package(self):
         _, _, groups, packages = self.resolve("full")
@@ -244,8 +364,26 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertFalse(unavailable["driver_pcf8563"])
 
+    def test_ds3231_expansion_only_requires_i2c_hardware(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["ds3231"])
+        self.assertTrue(packages["driver_ds3231"])
+        _, _, core_groups, core_packages = self.resolve("writerdeck")
+        self.assertFalse(core_groups["ds3231"])
+        self.assertFalse(core_packages["driver_ds3231"])
+        _, supported = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"i2c"}
+        )
+        for target in ("esp32", "esp32s3"):
+            pruned = generate_flavor_config.apply_target_pruning(self.catalog, supported, target)
+            self.assertTrue(pruned["driver_ds3231"], target)
+        _, unavailable = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, set()
+        )
+        self.assertFalse(unavailable["driver_ds3231"])
+
     def test_gesture_listener_job_is_part_of_the_core_runtime(self):
-        for flavor in ("core", "full", "netrunner", "rover", "writerdeck"):
+        for flavor in ("full", "writerdeck"):
             _, _, _, packages = self.resolve(flavor)
             self.assertTrue(packages["job_gesture_listener"], flavor)
 
@@ -300,12 +438,12 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(pruned_packages["job_graffiti"])
 
     def test_launcher_is_available_on_graphics_builds(self):
-        for flavor in ("core", "full", "netrunner", "rover", "vga32", "writerdeck"):
+        for flavor in ("full", "writerdeck"):
             groups, packages = self.resolve(flavor)[2:]
             self.assertTrue(groups["launcher"], flavor)
             self.assertTrue(packages["app_launcher"], flavor)
 
-        _, _, groups, packages = self.resolve("core")
+        _, _, groups, packages = self.resolve("writerdeck")
         _, graphics = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"gfx"}
         )
@@ -316,7 +454,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(headless["app_launcher"])
 
     def test_board_required_package_enables_dependencies(self):
-        _, _, _, packages = self.resolve("core")
+        _, _, _, packages = self.resolve("writerdeck")
         enabled = generate_flavor_config.enable_required_packages(
             self.catalog,
             packages,
@@ -327,8 +465,45 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(enabled["service_ps2"])
         self.assertTrue(enabled["service_resources"])
 
+    def test_solar_writer_rtc_survives_writerdeck_pruning(self):
+        from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
+        manifest_dir = REPOSITORY / "boards/manifests"
+        board = load_board_manifest(manifest_dir / "solar_writer.toml", manifest_dir)
+        drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
+        _, _, groups, packages = self.resolve("writerdeck")
+        self.assertFalse(packages["driver_ds3231"])
+        selected = generate_flavor_config.enable_required_packages(
+            self.catalog, packages, set(required_packages(board, drivers))
+        )
+        selected = generate_flavor_config.apply_target_pruning(
+            self.catalog, selected, board["target"]["mcu"]
+        )
+        groups, selected = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, selected, set(board["build"]["capabilities"])
+        )
+        for package in ("driver_ds3231", "service_rtc", "service_i2c", "service_expansion"):
+            self.assertTrue(selected[package], package)
+        sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
+        self.assertIn("drivers/rtc_ds3231.c", sources)
+        self.assertIn("services/solar_os_ds3231_driver.c", sources)
+
+    def test_cl32_epd_keeps_shared_pulse_sources_in_writerdeck(self):
+        from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
+        manifest_dir = REPOSITORY / "boards/manifests"
+        board = load_board_manifest(manifest_dir / "cl32_epd.toml", manifest_dir)
+        drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
+        _, _, groups, packages = self.resolve("writerdeck")
+        selected = generate_flavor_config.enable_required_packages(
+            self.catalog, packages, set(required_packages(board, drivers)))
+        groups, selected = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, selected, set(board["build"]["capabilities"]))
+        sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
+        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker"):
+            self.assertIn(f"drivers/{source}.c", sources)
+        self.assertNotIn("drivers/epd_ssd1683.c", sources)
+
     def test_unknown_board_required_package_is_rejected(self):
-        _, _, _, packages = self.resolve("core")
+        _, _, _, packages = self.resolve("writerdeck")
         with self.assertRaisesRegex(ValueError, "unknown board-required package"):
             generate_flavor_config.enable_required_packages(
                 self.catalog,
@@ -427,6 +602,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "tca8418": "tca8418",
             "lilygo_pager_keyboard": "expansion_lilygo_pager_keyboard",
             "sx1262": "sx1262",
+            "lr11xx": "lr11xx",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
             "bq25896": "bq25896",
@@ -456,6 +632,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_tca8418_expansion_driver",
             "solar_os_lilygo_pager_keyboard_expansion_driver",
             "solar_os_sx1262_expansion_driver",
+            "solar_os_lr11xx_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
             "solar_os_bq25896_expansion_driver",
@@ -515,6 +692,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "driver_display_ili9341",
             "driver_display_st7796",
             "expansion_ssd1683",
+            "expansion_ssd1685",
             "expansion_uc8179",
             "expansion_uc8279",
         )
@@ -770,7 +948,10 @@ class FlavorPackagesTest(unittest.TestCase):
             "image_viewer",
             "python",
             "playground",
-            "rtsp",
+            "speech",
+            "player",
+            "recorder",
+            "synth",
             "audio_pwm",
             "pcm5102",
             "web_browser",
@@ -788,9 +969,9 @@ class FlavorPackagesTest(unittest.TestCase):
             "sheet",
         ):
             self.assertTrue(groups[group], group)
-        self.assertFalse(groups["speech"])
-        self.assertFalse(packages["service_speech"])
-        self.assertFalse(packages["job_speechd"])
+        self.assertFalse(groups["rtsp"])
+        self.assertFalse(packages["app_rtsp"])
+        self.assertFalse(packages["job_rtspd"])
         for package in (
             "app_edit",
             "app_less",
@@ -808,8 +989,12 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_playground",
             "app_aplay",
             "app_view",
-            "app_rtsp",
-            "job_rtspd",
+            "app_player",
+            "app_recorder",
+            "app_synth",
+            "service_synth",
+            "service_speech",
+            "job_speechd",
             "expansion_audio_pwm",
             "expansion_pcm5102",
             "job_bridge",
@@ -831,7 +1016,6 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(packages["job_controls"])
         for group in (
             "device_flasher",
-            "player",
             "logic_analyzer",
             "sump",
             "mqtt",
@@ -845,6 +1029,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "rfm69",
             "rfm95",
             "sx1262",
+            "lr11xx",
         ):
             self.assertFalse(groups[group], group)
         for package in (
@@ -858,7 +1043,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_meshcore",
             "job_meshcore_ble",
             "app_lua",
-            "app_player",
             "app_logic",
         ):
             self.assertFalse(packages[package], package)
@@ -910,7 +1094,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(pruned["job_espnow_link"])
 
     def test_standard_flavors_do_not_select_dormant_hid(self):
-        for flavor in ("core", "full", "netrunner", "rover", "writerdeck"):
+        for flavor in ("full", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
             self.assertFalse(groups["usb_hid"], flavor)
             self.assertFalse(packages["service_hid"], flavor)
@@ -1041,61 +1225,70 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertTrue(classic["driver_audio_esp32_dac"])
 
-    def test_rover_is_an_expansion_capable_baseline(self):
-        rover_name, _, rover_groups, rover_packages = self.resolve("rover")
+    def test_compact_retains_installation_and_scripting_on_supported_targets(self):
+        from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
+        manifest_dir = REPOSITORY / "boards/manifests"
+        drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
+        cases = [("writerdeck", board) for board in
+                 ("elecrow_crowpanel_esp32_s3_5_79_epaper",
+                  "freenove_esp32_wrover_v3", "ttgo_vga32_v14")]
+        cases += [("classic", board) for board in
+                  ("odroid_go", "esp32_devkitc_v4_wrover",
+                   "freenove_esp32_wrover_v3", "ttgo_vga32_v14")]
+        for flavor, board_id in cases:
+            with self.subTest(flavor=flavor, board=board_id):
+                _, _, groups, packages = self.resolve(flavor)
+                board = tomllib.loads((REPOSITORY / "boards/manifests" /
+                                       f"{board_id}.toml").read_text())
+                selected = generate_flavor_config.enable_required_packages(
+                    self.catalog, packages, set(required_packages(
+                        load_board_manifest(manifest_dir / f"{board_id}.toml", manifest_dir), drivers)))
+                selected = generate_flavor_config.apply_target_pruning(
+                    self.catalog, selected, board["target"]["mcu"])
+                _, selected = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, set(board["build"]["capabilities"]))
+                self.assertTrue(selected["app_python"])
+                self.assertTrue(selected["app_playground"])
+                self.assertEqual(selected["service_native_modules"],
+                                 board["target"]["mcu"] == "esp32s3")
+                if board_id == "ttgo_vga32_v14":
+                    self.assertTrue(selected["expansion_ps2_keyboard"])
+                    self.assertTrue(selected["service_ps2"])
+                if board_id == "odroid_go":
+                    for package in ("service_buttons", "service_adc_dpad",
+                                    "driver_display_ili9341", "driver_audio_esp32_dac",
+                                    "expansion_sdspi"):
+                        self.assertTrue(selected[package], package)
 
-        self.assertEqual(rover_name, "rover")
-        self.assertTrue(rover_groups["hardware_shell"])
-        self.assertFalse(rover_groups["bluetooth"])
-        self.assertTrue(rover_groups["rfm69"])
-        self.assertTrue(rover_groups["meshcore"])
-        for group in (
-            "mqtt", "slip", "ppp", "osc", "chat", "chat_gateway",
-            "gateway_sync", "espnow", "radio_link",
-        ):
-            self.assertTrue(rover_groups[group], group)
-        self.assertFalse(rover_groups["ota"])
-        self.assertTrue(rover_groups["logging"])
-        self.assertTrue(rover_groups["bridge"])
-        self.assertTrue(rover_groups["audio_commands"])
-        self.assertFalse(rover_groups["agent"])
-        self.assertTrue(rover_groups["ssh"])
-        self.assertTrue(rover_groups["image_viewer"])
-        self.assertTrue(rover_groups["clock"])
-        self.assertTrue(rover_groups["writer"])
-        self.assertTrue(rover_packages["service_expansion"])
-        self.assertTrue(rover_packages["app_files"])
-        self.assertFalse(rover_packages["service_ota"])
-        self.assertFalse(rover_packages["service_docs"])
-        self.assertTrue(rover_packages["job_log"])
-        self.assertTrue(rover_packages["job_bridge"])
-        self.assertFalse(rover_packages["job_batmon"])
-        self.assertFalse(rover_packages["job_daq"])
-        self.assertFalse(rover_packages["job_sump"])
-        self.assertFalse(rover_packages["app_agent"])
-        self.assertFalse(rover_packages["app_logic"])
-        self.assertFalse(rover_packages["app_invaders"])
-        self.assertFalse(rover_packages["app_python"])
-        self.assertFalse(rover_packages["app_lua"])
-
-    def test_vga32_keeps_its_public_flavor_name(self):
-        vga32_name, _, groups, packages = self.resolve("vga32")
-
-        self.assertEqual(vga32_name, "vga32")
-        self.assertFalse(groups["bluetooth"])
-        self.assertFalse(packages["service_ble"])
-        self.assertTrue(groups["ps2_keyboard"])
-        self.assertTrue(packages["job_ps2_keyboard"])
+    def test_public_profiles_and_board_defaults(self):
+        self.assertEqual({path.stem for path in (REPOSITORY / "flavors").glob("*.toml")},
+                         {"full", "classic", "writerdeck"})
+        import configparser
+        config = configparser.ConfigParser()
+        config.read(REPOSITORY / "platformio.ini")
+        classic_boards = {
+            path.stem for path in (REPOSITORY / "boards/manifests").glob("*.toml")
+            if tomllib.loads(path.read_text()).get("target", {}).get("mcu") == "esp32"
+        }
+        self.assertEqual(classic_boards, {"odroid_go", "esp32_devkitc_v4_wrover",
+                                         "freenove_esp32_wrover_v3", "ttgo_vga32_v14"})
+        for board in classic_boards:
+            with self.subTest(board=board):
+                self.assertEqual(config[f"env:{board}"]["custom_solaros_default_flavor"],
+                                 "classic")
+        for board in ("elecrow_crowpanel_esp32_s3_5_79_epaper",
+                      "elecrow_crowpanel_esp32_s3_4_2_epaper"):
+            self.assertEqual(config[f"env:{board}"]["custom_solaros_default_flavor"], "writerdeck")
 
     def test_existing_flavors_preserve_hardware_job_selection(self):
-        for flavor in ("core", "full", "netrunner"):
+        for flavor in ("writerdeck", "full"):
             with self.subTest(flavor=flavor):
                 _, _, groups, packages = self.resolve(flavor)
                 self.assertTrue(groups["bridge"])
                 self.assertTrue(packages["job_bridge"])
                 self.assertTrue(packages["job_controls"])
                 self.assertTrue(packages["job_daq"])
-                self.assertTrue(packages["job_sump"])
+                self.assertEqual(packages["job_sump"], flavor == "full")
 
         _, _, full_groups, full_packages = self.resolve("full")
         self.assertTrue(full_groups["writer"])

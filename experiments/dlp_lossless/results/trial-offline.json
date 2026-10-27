@@ -1,0 +1,227 @@
+[
+  {
+    "scene": "solid",
+    "mode": "rle-full",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 21.836961968801916
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-full",
+    "planned_bytes": 19552,
+    "commands": 301,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 5.26262097992003
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-bands",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.19287696061656
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-tiles",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.235953016206622
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-tiles",
+    "planned_bytes": 19552,
+    "commands": 301,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 5.50671003293246
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-full",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 32.33100799843669
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "lz4-full",
+    "planned_bytes": 55202,
+    "commands": 406,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 7.636939990334213
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-bands",
+    "planned_bytes": 18312,
+    "commands": 74,
+    "rectangles": 2,
+    "updated_bytes": 14752,
+    "encode_verify_ms": 1.178389007691294
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-tiles",
+    "planned_bytes": 2632,
+    "commands": 12,
+    "rectangles": 2,
+    "updated_bytes": 2048,
+    "encode_verify_ms": 1.889200008008629
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "lz4-tiles",
+    "planned_bytes": 382,
+    "commands": 4,
+    "rectangles": 2,
+    "updated_bytes": 2048,
+    "encode_verify_ms": 1.8184299697168171
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-full",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 31.270259991288185
+  },
+  {
+    "scene": "scroll",
+    "mode": "lz4-full",
+    "planned_bytes": 67895,
+    "commands": 441,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 8.463697973638773
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-bands",
+    "planned_bytes": 7648,
+    "commands": 80,
+    "rectangles": 40,
+    "updated_bytes": 3648,
+    "encode_verify_ms": 4.29125502705574
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-tiles",
+    "planned_bytes": 15376,
+    "commands": 84,
+    "rectangles": 20,
+    "updated_bytes": 11264,
+    "encode_verify_ms": 2.5356539990752935
+  },
+  {
+    "scene": "scroll",
+    "mode": "lz4-tiles",
+    "planned_bytes": 5277,
+    "commands": 41,
+    "rectangles": 20,
+    "updated_bytes": 11264,
+    "encode_verify_ms": 2.153602021280676
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-full",
+    "planned_bytes": 377620,
+    "commands": 1476,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 21.865618997253478
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-full",
+    "planned_bytes": 198436,
+    "commands": 1041,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 23.166358994785696
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-bands",
+    "planned_bytes": 377620,
+    "commands": 1476,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.189248993527144
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-tiles",
+    "planned_bytes": 377620,
+    "commands": 1476,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.548269014805555
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-tiles",
+    "planned_bytes": 198436,
+    "commands": 1041,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 23.683715029619634
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-full",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 21.918342972639948
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-full",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 33.787177002523094
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-bands",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.311193984933197
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-tiles",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 22.509028029162437
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-tiles",
+    "planned_bytes": 378148,
+    "commands": 1478,
+    "rectangles": 1,
+    "updated_bytes": 307200,
+    "encode_verify_ms": 34.648988978005946
+  }
+]

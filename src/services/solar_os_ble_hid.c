@@ -24,6 +24,7 @@ typedef struct {
     uint16_t handle, ccc;
     uint8_t map, id;
     bool battery;
+    solar_os_hid_keyboard_report_layout_t layout;
 } hid_report_t;
 typedef struct {
     solar_os_ble_hid_event_type_t type;
@@ -235,6 +236,9 @@ static void subscribe(uint8_t id)
     r->id = id;
     r->map = hid.map_index;
     r->battery = ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x180f;
+    if (!r->battery) {
+        (void)solar_os_ble_hid_report_layout(hid_data.map, hid.map_len, id, &r->layout);
+    }
     uint8_t value[2] = {(chr->properties & BLE_GATT_CHR_PROP_NOTIFY) ? 1 : 2, 0};
     hid.phase = WRITE_CCC;
     int rc = ble_gattc_write_flat(device.conn_id, r->ccc, value, sizeof(value), value_callback, token());
@@ -552,6 +556,7 @@ static int gap_callback(struct ble_gap_event *event, void *arg)
                 e.event.input.usage = ESP_HID_USAGE_KEYBOARD;
                 e.event.input.map_index = r->map;
                 e.event.input.report_id = r->id;
+                e.event.input.layout = r->layout;
                 e.event.input.length = n;
                 os_mbuf_copydata(event->notify_rx.om, 0, n, e.event.input.data);
             }

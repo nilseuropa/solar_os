@@ -70,13 +70,29 @@ class RuntimeBoundaryTest(unittest.TestCase):
             "src/services/solar_os_radio.c":
                 "static EXT_RAM_BSS_ATTR radio_device_t radio_devices",
             "src/services/solar_os_chat.c":
-                "static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t chat",
-            "src/services/solar_os_chat_transport_gateway.c":
-                "static EXT_RAM_BSS_ATTR solar_os_chat_state_data_t chat_state",
+                "static EXT_RAM_BSS_ATTR solar_os_chat_store_state_t default_chat",
         }
         for relative_path, declaration in declarations.items():
             source = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn(declaration, source, relative_path)
+
+    def test_gateway_transport_state_uses_per_instance_external_memory(self):
+        source = (ROOT / "src/services/solar_os_chat_transport_gateway.c").read_text(
+            encoding="utf-8"
+        )
+        initializer = re.search(
+            r"^static esp_err_t solar_os_chat_gateway_init\(void\)\n\{.*?^\}",
+            source, re.M | re.S,
+        )
+        self.assertIsNotNone(initializer)
+        self.assertIn("void **slot = solar_os_gateway_transport_slot();", initializer.group())
+        self.assertIn("*slot = chat_calloc(1, sizeof(solar_os_chat_state_data_t))", initializer.group())
+        allocator = re.search(
+            r"^static void \*chat_calloc\([^;]*?\n\{.*?^\}", source, re.M | re.S,
+        )
+        self.assertIsNotNone(allocator)
+        self.assertIn("solar_os_memory_calloc(", allocator.group())
+        self.assertIn("SOLAR_OS_MEMORY_EXTERNAL_REQUIRED", allocator.group())
 
     def test_expansion_registry_prefers_external_memory(self):
         source = (ROOT / "src/services/solar_os_expansion.c").read_text(
@@ -159,9 +175,10 @@ class RuntimeBoundaryTest(unittest.TestCase):
             "static void key_button_init", 1
         )[0]
 
-        self.assertIn("SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY", short_press)
-        self.assertIn("solar_os_input_write_char(", short_press)
-        self.assertIn("return;", short_press)
+        self.assertIn("handle_key_action(status.key_action", short_press)
+        self.assertIn("solar_os_input_write_char(", main)
+        power = (ROOT / "src/services/solar_os_power.c").read_text(encoding="utf-8")
+        self.assertIn("SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY", power)
 
     def test_expansion_drivers_declare_categories(self):
         descriptor_sources = []
@@ -187,7 +204,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertNotIn('"CATEGORY"', shell)
-        self.assertIn("solar_os_shell_io_printf_bold(", shell)
+        self.assertIn("solar_os_shell_io_table_printf_bold(", shell)
         self.assertIn('"  %-*s %-5s %-6s %s\\n"', shell)
         self.assertIn("expansion_next_driver_in_category", shell)
         self.assertIn("strcmp(driver.name, next->name) < 0", shell)
@@ -218,7 +235,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("solar_os_task_create_pinned_external(telnetd_job_task", telnetd)
         self.assertIn("solar_os_task_delete_external(NULL);", telnetd)
         self.assertIn(".worker_stack_external = true,", telnetd)
-        self.assertIn("#define PORT_SHELL_TASK_STACK 16384", port_shell)
+        self.assertIn("#define PORT_SHELL_TASK_STACK 24576", port_shell)
 
     def test_python_stack_budget_and_task_failure_diagnostics(self):
         python = (ROOT / "src/apps/solar_os_python.c").read_text(
@@ -695,9 +712,11 @@ class RuntimeBoundaryTest(unittest.TestCase):
         )[0]
 
         self.assertIn("suspend_ble_wake_generation =", suspend)
+        self.assertIn("suspend_input_key_press_generation =", suspend)
+        self.assertIn("solar_os_input_key_press_generation()", suspend)
         self.assertIn("solar_os_ble_keyboard_wake_generation()", suspend)
-        self.assertIn("maybe_exit_suspend_for_ble_keyboard();", dispatch)
-        self.assertIn("maybe_exit_suspend_for_ble_keyboard();", runtime)
+        self.assertIn("maybe_exit_suspend_for_input();", dispatch)
+        self.assertIn("maybe_exit_suspend_for_input();", runtime)
         self.assertIn("solar_os_hid_keyboard_report_has_new_press", report)
         self.assertIn("note_wake_activity();", report)
         self.assertIn("note_wake_activity();", opened)

@@ -1,0 +1,20 @@
+fastwave
+Copyright 2026 Bootdsc
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+Source: https://github.com/bootdsc/fastwave
+
+Portions of the SSD1683 port descend from the board vendor's demo code for that
+panel; see the "Provenance and licence" section of README.md.
+
+SolarOS includes a pure C adaptation of the SSD1683 waveform builder from
+https://github.com/bootdsc/Fastwave-Eink-Driver
+commit c7d20eeefd0b0a5015b335a54bb9b63b37bca88f.
+The adaptation adds argument validation and separates panel transport from
+waveform construction. The Apache license is included as fastwave.txt.
+
+SolarOS also adapts the short drive/settle phases for SSD1685 in
+epd_ssd1685_waveform.c. This experimental adapter uses the SSD1685 mode-1
+four-block/eight-group LUT layout, synthetic hold/white/black RAM masks,
+and the panel's factory source and gate voltages.

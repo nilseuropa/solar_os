@@ -40,27 +40,18 @@ solaros/
         version.txt
         firmware.bin
         firmware.factory.bin
-        firmware.factory.bin
-      core/
-        manifest.json
-        version.txt
-        firmware.bin
     elecrow_crowpanel_esp32_s3_4_2_epaper/
       full/
         manifest.json
         version.txt
         firmware.bin
         firmware.factory.bin
-      core/
+      writerdeck/
         manifest.json
         version.txt
         firmware.bin
     esp32_s3_devkitc1_n16r8/
-      core/
-        manifest.json
-        version.txt
-        firmware.bin
-      netrunner/
+      full/
         manifest.json
         version.txt
         firmware.bin
@@ -136,6 +127,7 @@ builds or offline flash-catalog targets.
 Optional but recommended fields:
 
 - `base_url`
+- `flavor_aliases`: object mapping legacy flavor names to replacement names
 - `release.channel`
 - `release.created_utc`
 - `release.git_commit`
@@ -144,6 +136,27 @@ Optional but recommended fields:
 - `capabilities`
 - `groups`
 - `packages`
+
+Flavor aliases are signed fallback selections. Firmware first searches for an
+exact board/flavor artifact. If none exists, it follows `flavor_aliases` while
+keeping the compiled board ID, up to seven redirects. Invalid names, cycles,
+and longer chains are rejected. A check reports the resolved flavor without
+changing the configured target. After a verified upgrade finishes successfully,
+firmware saves the resolved target flavor for subsequent checks.
+
+`full` remains the standard flavor and requires no migration. The compact
+profile currently retains the published `writerdeck` name. To rename it later:
+
+1. Publish firmware with alias support under `writerdeck` and allow existing
+   devices to install it before retiring that artifact name.
+2. Publish the replacement as `compact` and enable `writerdeck compact` in
+   the publisher's `ota-flavor-aliases.txt` policy. The publisher validates
+   the mapping and places it in the signed release index.
+3. Retain the alias while devices may still have `writerdeck` configured.
+
+Older firmware without alias support needs the `writerdeck` bridge release or
+an explicit flavor selection. No flavor aliases are enabled during the current
+consolidation. Board-ID aliases and flavor aliases can be used together.
 
 ## Firmware Manifest
 
@@ -189,10 +202,11 @@ The firmware OTA flow is:
 1. Device fetches `<base>/index.json`.
 2. Device fetches `<base>/index.sig`.
 3. Device verifies `index.sig` against the exact `index.json` bytes.
-4. Device finds an artifact where `board_id` matches the compiled board id and `flavor` matches the OTA target flavor.
+4. Device finds an artifact where `board_id` matches the compiled board ID and `flavor` matches the OTA target flavor, following signed flavor aliases only when the exact selection is absent.
 5. Device compares artifact `version` with the running app version.
 6. Device downloads the selected `firmware` path and streams it into the inactive OTA partition while hashing the received bytes.
 7. Device verifies the received firmware stream against artifact `sha256`.
 8. `esp_https_ota` finalizes image validation, then switches the boot partition.
+9. Device saves a resolved replacement flavor after successful finalization.
 
 The release index includes `sha256` and image `size`, so constrained devices can select and verify an artifact without first fetching the per-artifact manifest. The signed index protects the artifact URL, size, and SHA-256 metadata; the per-artifact `manifest.json` can be fetched later for detailed display, logging, or stricter verification.

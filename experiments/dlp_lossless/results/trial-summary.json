@@ -1,0 +1,352 @@
+[
+  {
+    "scene": "solid",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1388.5158660123125,
+    "transfer_present_ms": 1387.7428240375593,
+    "encode_ms": 0.7730419747531414,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1364.1183379804716,
+    "transfer_present_ms": 1342.1995590324514,
+    "encode_ms": 21.91877894802019,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1412.7554849837907,
+    "transfer_present_ms": 1390.613998984918,
+    "encode_ms": 22.141485998872668,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1370.717208017595,
+    "transfer_present_ms": 1343.8937869505025,
+    "encode_ms": 22.15582801727578,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-full",
+    "samples": 3,
+    "total_ms": 426.7284449888393,
+    "transfer_present_ms": 419.8915290180594,
+    "encode_ms": 5.2416329854168,
+    "tx_bytes": 20472,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-bands",
+    "samples": 3,
+    "total_ms": 428.78834606381133,
+    "transfer_present_ms": 421.29118501907215,
+    "encode_ms": 5.490790994372219,
+    "tx_bytes": 20472,
+    "rectangles": 1
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "total_ms": 427.30672302423045,
+    "transfer_present_ms": 420.4777639824897,
+    "encode_ms": 5.481305997818708,
+    "tx_bytes": 20472,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1338.4276099968702,
+    "transfer_present_ms": 1337.8038589726202,
+    "encode_ms": 0.6237510242499411,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1409.548273019027,
+    "transfer_present_ms": 1386.7746079922654,
+    "encode_ms": 22.28104998357594,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 259.7476490191184,
+    "transfer_present_ms": 256.1591030098498,
+    "encode_ms": 3.5885460092686117,
+    "tx_bytes": 18616,
+    "rectangles": 2
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 217.43097295984626,
+    "transfer_present_ms": 210.32139199087396,
+    "encode_ms": 7.1095809689722955,
+    "tx_bytes": 2760,
+    "rectangles": 2
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "lz4-full",
+    "samples": 3,
+    "total_ms": 518.7076299916953,
+    "transfer_present_ms": 511.04125299025327,
+    "encode_ms": 7.666377001442015,
+    "tx_bytes": 56430,
+    "rectangles": 1
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "lz4-bands",
+    "samples": 3,
+    "total_ms": 223.14802702749148,
+    "transfer_present_ms": 221.64870199048892,
+    "encode_ms": 1.5273390454240143,
+    "tx_bytes": 2321,
+    "rectangles": 2
+  },
+  {
+    "scene": "sparse-ui",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "total_ms": 216.9529620441608,
+    "transfer_present_ms": 209.94315401185304,
+    "encode_ms": 6.9022399839013815,
+    "tx_bytes": 510,
+    "rectangles": 2
+  },
+  {
+    "scene": "scroll",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1348.9550699596293,
+    "transfer_present_ms": 1348.2829009881243,
+    "encode_ms": 0.6721689715050161,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1405.5799180059694,
+    "transfer_present_ms": 1383.6544619989581,
+    "encode_ms": 21.94516803137958,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 263.05223297094926,
+    "transfer_present_ms": 251.74677302129567,
+    "encode_ms": 12.657266983296722,
+    "tx_bytes": 7996,
+    "rectangles": 40
+  },
+  {
+    "scene": "scroll",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 271.99532999657094,
+    "transfer_present_ms": 265.32700000097975,
+    "encode_ms": 7.583454018458724,
+    "tx_bytes": 15724,
+    "rectangles": 20
+  },
+  {
+    "scene": "scroll",
+    "mode": "lz4-full",
+    "samples": 3,
+    "total_ms": 536.3969299942255,
+    "transfer_present_ms": 527.9992549913004,
+    "encode_ms": 8.4802660276182,
+    "tx_bytes": 69263,
+    "rectangles": 1
+  },
+  {
+    "scene": "scroll",
+    "mode": "lz4-bands",
+    "samples": 3,
+    "total_ms": 258.14111495856196,
+    "transfer_present_ms": 244.29861595854163,
+    "encode_ms": 13.45677301287651,
+    "tx_bytes": 6375,
+    "rectangles": 40
+  },
+  {
+    "scene": "scroll",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "total_ms": 242.82100202981383,
+    "transfer_present_ms": 234.55038602696732,
+    "encode_ms": 6.605105998460203,
+    "tx_bytes": 5493,
+    "rectangles": 20
+  },
+  {
+    "scene": "gradient",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1386.4928780240007,
+    "transfer_present_ms": 1385.9007289865986,
+    "encode_ms": 0.661257014144212,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1362.0670260861516,
+    "transfer_present_ms": 1340.132039040327,
+    "encode_ms": 22.01579901156947,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1403.9102249662392,
+    "transfer_present_ms": 1381.6122269490734,
+    "encode_ms": 22.434181009884924,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1366.5303300367668,
+    "transfer_present_ms": 1341.7104260297492,
+    "encode_ms": 22.492008982226253,
+    "tx_bytes": 381796,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-full",
+    "samples": 3,
+    "total_ms": 979.3081840034574,
+    "transfer_present_ms": 956.6909680142999,
+    "encode_ms": 22.617215989157557,
+    "tx_bytes": 199731,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-bands",
+    "samples": 3,
+    "total_ms": 979.6703530009836,
+    "transfer_present_ms": 956.8395140231587,
+    "encode_ms": 22.830838977824897,
+    "tx_bytes": 199731,
+    "rectangles": 1
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "total_ms": 949.9122589477338,
+    "transfer_present_ms": 925.6023970083334,
+    "encode_ms": 22.87460200022906,
+    "tx_bytes": 199731,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "raw-full",
+    "samples": 3,
+    "total_ms": 1379.5601099845953,
+    "transfer_present_ms": 1378.9811399765313,
+    "encode_ms": 0.6006640032865107,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-full",
+    "samples": 3,
+    "total_ms": 1377.4766349815764,
+    "transfer_present_ms": 1355.5328419897705,
+    "encode_ms": 21.94379299180582,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-bands",
+    "samples": 3,
+    "total_ms": 1401.54144592816,
+    "transfer_present_ms": 1379.3000329751521,
+    "encode_ms": 22.241412953007966,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "rle-tiles",
+    "samples": 3,
+    "total_ms": 1403.076607035473,
+    "transfer_present_ms": 1376.4425520203076,
+    "encode_ms": 22.247704036999494,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-full",
+    "samples": 3,
+    "total_ms": 1384.2181750223972,
+    "transfer_present_ms": 1345.5989959766157,
+    "encode_ms": 33.40588300488889,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-bands",
+    "samples": 3,
+    "total_ms": 1419.6232929825783,
+    "transfer_present_ms": 1380.4879609961063,
+    "encode_ms": 33.74568303115666,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "total_ms": 1371.4573349570855,
+    "transfer_present_ms": 1336.5296380361542,
+    "encode_ms": 33.71931298170239,
+    "tx_bytes": 382324,
+    "rectangles": 1
+  }
+]

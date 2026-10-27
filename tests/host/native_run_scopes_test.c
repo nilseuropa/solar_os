@@ -4,9 +4,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "solar_os_native_elf.h"
+#include "solar_os_native_library_abi.h"
+static const solar_os_native_library_service_api_v1_t native_library_api = {0};
+#include "solar_os_native_time_abi.h"
+static const solar_os_native_time_api_v1_t native_time_api = {0};
+#include "solar_os_native_thread_abi.h"
+static const solar_os_native_thread_api_v1_t native_thread_api = {0};
+#include "solar_os_native_libc_abi.h"
+static const solar_os_native_libc_api_v1_t native_libc_api = {0};
 typedef void *TaskHandle_t;
-static TaskHandle_t current_task;
+static _Thread_local TaskHandle_t current_task;
 static TaskHandle_t xTaskGetCurrentTaskHandle(void) { return current_task; }
 #define portENTER_CRITICAL(lock) ((void)(lock))
 #define portEXIT_CRITICAL(lock) ((void)(lock))
@@ -28,8 +37,7 @@ typedef struct { int type; size_t size_bytes; } solar_os_storage_metadata_t;
 typedef struct { bool live; } esp_elf_t;
 static atomic_bool native_running;
 struct native_run_scope;
-static struct native_run_scope *native_run_scopes;
-static int native_run_scope_lock;
+static _Thread_local struct native_run_scope *native_run_scope_top;
 static int outer, inner, foreign, active_images, cleanup_count, allocation_count;
 static int fail_init, fail_relocate;
 static bool foreground_image;
@@ -77,23 +85,37 @@ static void cleanup(void *user) {
     assert(user == current_task); assert(active_images > 0);
     assert(solar_os_native_run_service_user() == user); cleanup_count++;
 }
+static void *interleaved(void *arg) {
+    char **argv = arg;
+    current_task = &foreign;
+    assert(solar_os_native_run_service_user() == NULL);
+    assert(native_write_utf8("x", 1U) == ESP_ERR_INVALID_ARG);
+    current_task = &inner;
+    const solar_os_native_run_options_t opts = {write_output, &inner, service, &inner, cleanup, NULL};
+    assert(solar_os_native_run("inner", 1, argv, &opts, NULL, NULL, 0) == ESP_OK);
+    assert(active_images == 1 && solar_os_native_run_service_user() == NULL);
+    return NULL;
+}
 static int esp_elf_request(esp_elf_t *elf, int unused, int argc, char **argv) {
+    static _Thread_local unsigned depth;
+    ++depth;
     (void)unused; assert(elf->live && argc == 1 && argv);
     assert(!atomic_load(&native_running) && allocation_count == 0);
     assert(native_write_utf8("x", 1U) == ESP_OK);
     assert(native_job_get_service("foreground", 1U, 8U) == current_task);
-    if (current_task == &outer) {
-        current_task = &foreign;
-        assert(solar_os_native_run_service_user() == NULL);
-        assert(native_write_utf8("x", 1U) == ESP_ERR_INVALID_ARG);
-        current_task = &inner;
-        const solar_os_native_run_options_t opts = {write_output, &inner, service, &inner, cleanup, NULL};
-        assert(solar_os_native_run("inner", 1, argv, &opts, NULL, NULL, 0) == ESP_OK);
-        assert(active_images == 1 && solar_os_native_run_service_user() == NULL);
-        current_task = &outer;
+    if (current_task == &outer && depth == 1) {
+        native_run_scope_t *saved = native_run_scope_current();
+        pthread_t thread;
+        assert(!pthread_create(&thread, NULL, interleaved, argv));
+        assert(!pthread_join(thread, NULL));
+        assert(native_run_scope_current() == saved);
+        const solar_os_native_run_options_t opts = {write_output, &outer, service, &outer, cleanup, NULL};
+        assert(solar_os_native_run("nested", 1, argv, &opts, NULL, NULL, 0) == ESP_OK);
+        assert(native_run_scope_current() == saved);
         assert(solar_os_native_run_service_user() == &outer);
         assert(native_write_utf8("x", 1U) == ESP_OK);
     }
+    --depth;
     return 0;
 }
 int main(void) {
@@ -101,7 +123,7 @@ int main(void) {
     char *argv[] = {"app"};
     solar_os_native_run_options_t opts = {write_output, &outer, service, &outer, cleanup, NULL};
     assert(solar_os_native_run("outer", 1, argv, &opts, NULL, NULL, 0) == ESP_OK);
-    assert(cleanup_count == 2 && !active_images && !allocation_count && !native_run_scopes);
+    assert(cleanup_count == 3 && !active_images && !allocation_count && !native_run_scope_top);
     assert(!atomic_load(&native_running));
     opts.cleanup = NULL;
     fail_init = 1;
@@ -110,7 +132,7 @@ int main(void) {
     assert(solar_os_native_run("bad", 1, argv, &opts, NULL, NULL, 0) == ESP_ERR_INVALID_RESPONSE);
     fail_relocate = 0; foreground_image = true;
     assert(solar_os_native_run("foreground", 1, argv, &opts, NULL, NULL, 0) == ESP_ERR_INVALID_STATE);
-    assert(!active_images && !allocation_count && !native_run_scopes && !atomic_load(&native_running));
+    assert(!active_images && !allocation_count && !native_run_scope_top && !atomic_load(&native_running));
     puts("Native execution scopes preserve task ownership and clean up before ELF unload");
     return 0;
 }

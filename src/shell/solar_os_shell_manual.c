@@ -88,7 +88,7 @@ static void man_list(solar_os_shell_io_t *io)
     for (size_t i = 0U; i < solar_os_manual_count(); i++) {
         const solar_os_manual_page_t *page = solar_os_manual_get(i);
         if (page != NULL) {
-            solar_os_shell_io_printf(io,
+            solar_os_shell_io_table_printf(io,
                                      "%-18s %-8s %s\n",
                                      page->id,
                                      page->section,
@@ -103,11 +103,11 @@ static size_t man_search(solar_os_shell_io_t *io, const char *query)
     const size_t count =
         solar_os_manual_search(query, matches, MAN_SEARCH_MAX);
     if (count == 0U) {
-        solar_os_shell_io_printf(io, "man: no entries for %s\n", query);
+        solar_os_shell_io_table_printf(io, "man: no entries for %s\n", query);
         return 0U;
     }
     for (size_t i = 0U; i < count; i++) {
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-18s - %s\n",
                                  matches[i]->id,
                                  matches[i]->summary);

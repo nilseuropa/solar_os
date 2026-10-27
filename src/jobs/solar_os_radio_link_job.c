@@ -239,9 +239,11 @@ static void radio_link_task(void *arg)
     while (!radio_link.stop_requested) {
         const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
         if (radio_link.status.chat_enabled) {
-            solar_os_link_messaging_process(now_ms);
+            solar_os_link_messaging_process(radio_link.status.link, now_ms);
         }
-        solar_os_link_stream_process(radio_link.status.link, now_ms);
+        /* This half-duplex worker listens only after its TX queue drains.
+         * Keep a receive turn between frames, including at long LoRa airtimes. */
+        solar_os_link_stream_process_with_window(radio_link.status.link, now_ms, 1U);
 
         solar_os_link_frame_t frame;
         esp_err_t ret = solar_os_link_take_tx(radio_link.status.link, &frame, 0);
@@ -253,7 +255,7 @@ static void radio_link_task(void *arg)
             ret = solar_os_radio_handle_send(
                 &radio_link.radio_handle, &packet, RADIO_LINK_SEND_TIMEOUT_MS);
             if (radio_link.status.chat_enabled) {
-                solar_os_link_messaging_note_transmit(&frame, ret, now_ms);
+                solar_os_link_messaging_note_transmit(radio_link.status.link, &frame, ret, now_ms);
             }
             radio_link.status.last_error = ret;
             if (ret == ESP_OK) {
@@ -318,7 +320,7 @@ static void radio_link_task(void *arg)
         }
         if (radio_link.status.chat_enabled) {
             const esp_err_t chat_error =
-                solar_os_link_messaging_note_ingest(&result, received_ms);
+                solar_os_link_messaging_note_ingest(radio_link.status.link, &result, received_ms);
             if (chat_error != ESP_OK) {
                 radio_link.status.chat_errors++;
                 SOLAR_OS_LOGW(TAG,
@@ -456,7 +458,7 @@ static esp_err_t radio_link_start(solar_os_context_t *ctx, int argc, char **argv
         radio_link.status.running = false;
         radio_link.status.last_error = ESP_ERR_NO_MEM;
         if (chat_enabled) {
-            solar_os_link_messaging_stop();
+            solar_os_link_messaging_stop(radio_link.status.link);
         }
         solar_os_link_stream_transport_stopped(link);
         (void)solar_os_link_destroy(link);
@@ -497,7 +499,7 @@ static void radio_link_stop(solar_os_context_t *ctx)
 
     radio_link.status.running = false;
     if (radio_link.status.chat_enabled) {
-        solar_os_link_messaging_stop();
+        solar_os_link_messaging_stop(radio_link.status.link);
     }
     solar_os_link_stream_transport_stopped(radio_link.status.link);
     (void)solar_os_link_destroy(radio_link.status.link);

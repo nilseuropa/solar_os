@@ -60,9 +60,40 @@ static void rotation(void)
     }
 }
 
+static void rotation_tiles(void)
+{
+    /* Inverse coordinate oracle, odd dimensions, padded rows, unaligned base
+     * addresses and complete byte guards. Sizes cross every 16-pixel tile edge. */
+    uint8_t src[4096], out[4096], expected[4096];
+    for (unsigned width = 1; width <= 37; width++)
+        for (unsigned height = 1; height <= 35; height++)
+            for (unsigned rotation = 0; rotation < 4; rotation++)
+                for (unsigned offset = 0; offset < 4; offset++) {
+                    const unsigned source_stride = width * 2 + 3;
+                    const unsigned dw = rotation & 1 ? height : width;
+                    const unsigned dh = rotation & 1 ? width : height;
+                    const unsigned output_stride = dw * 2 + 5;
+                    for (unsigned i = 0; i < sizeof(src); i++) src[i] = (uint8_t)(i * 71 + width * 11 + height);
+                    memset(out, 0xcc, sizeof(out));
+                    memset(expected, 0xcc, sizeof(expected));
+                    for (unsigned y = 0; y < dh; y++)
+                        for (unsigned x = 0; x < dw; x++) {
+                            unsigned sx = x, sy = y;
+                            if (rotation == 1) { sx = y; sy = height - 1 - x; }
+                            else if (rotation == 2) { sx = width - 1 - x; sy = height - 1 - y; }
+                            else if (rotation == 3) { sx = width - 1 - y; sy = x; }
+                            expected[3 + offset + y * output_stride + x * 2] = src[offset + sy * source_stride + sx * 2];
+                            expected[4 + offset + y * output_stride + x * 2] = src[1 + offset + sy * source_stride + sx * 2];
+                        }
+                    solar_os_rgb565_rotate(src + offset, width, height, source_stride,
+                        out + 3 + offset, output_stride, (solar_os_display_rotation_t)rotation);
+                    assert(!memcmp(out, expected, sizeof(out)));
+                }
+}
+
 int main(void)
 {
-    colors(); scale(); rotation();
+    colors(); scale(); rotation(); rotation_tiles();
     puts("rgb565_raster_test: OK");
     return 0;
 }

@@ -94,6 +94,7 @@ static bool binding_matches_spec(
     case SOLAR_OS_EXPANSION_BINDING_ADC:
     case SOLAR_OS_EXPANSION_BINDING_PWM:
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return strcmp(binding->role, spec->key) == 0;
@@ -156,6 +157,7 @@ static esp_err_t binding_key(const solar_os_expansion_driver_t *driver,
     case SOLAR_OS_EXPANSION_BINDING_ADC: fixed = "adc"; break;
     case SOLAR_OS_EXPANSION_BINDING_PWM: fixed = "pwm"; break;
     case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         fixed = binding->role;
@@ -201,6 +203,7 @@ static esp_err_t binding_token(const solar_os_expansion_driver_t *driver,
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
         written = snprintf(token, token_len, "%s=%s", key, binding->target);
         break;
@@ -261,6 +264,7 @@ esp_err_t solar_os_shell_expansion_binding_manifest_field(
     case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
     case SOLAR_OS_EXPANSION_BINDING_UART_PORT:
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
+    case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
         *string_value = true;
         written = snprintf(value, value_len, "%s", binding->target);

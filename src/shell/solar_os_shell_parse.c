@@ -1,9 +1,24 @@
 #include "solar_os_shell_parse.h"
-
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
+
+bool solar_os_shell_command_has_secrets(int argc, const char *const *argv)
+{
+    if (argc < 2 || !argv) return false;
+    if (argv[0][0] == '/') return !strcasecmp(argv[0], "/sasl") ||
+        !strcasecmp(argv[0], "/add") || !strcasecmp(argv[0], "/configure");
+    if (!strcmp(argv[0], "irc")) return !strcmp(argv[1], "sasl") || !strcmp(argv[1], "pass");
+    if (!strcmp(argv[0], "messages")) return !strcmp(argv[1], "add") || !strcmp(argv[1], "configure");
+    if (!strcmp(argv[0], "gateway")) return !strcmp(argv[1], "configure") || !strcmp(argv[1], "connect");
+    if (argc >= 3 && !strcmp(argv[0], "job")) return !strcmp(argv[1], "start") && !strcmp(argv[2], "meshcore-ble");
+    if (argc >= 3 && !strcmp(argv[0], "meshcore")) return
+        (!strcmp(argv[1], "identity") && !strcmp(argv[2], "import")) ||
+        (!strcmp(argv[1], "channel") && !strcmp(argv[2], "add"));
+    return false;
+}
 
 static bool shell_operator_token(const char *value, char operator_text[3])
 {

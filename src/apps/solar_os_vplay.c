@@ -22,8 +22,6 @@
 typedef struct mpeg_player mpeg_player_t;
 static void mpeg_player_destroy(mpeg_player_t *p);
 
-#define HEADER_HEIGHT SOLAR_OS_MEDIA_PLAYER_HEADER_HEIGHT
-#define CONTROLS_HEIGHT SOLAR_OS_MEDIA_PLAYER_CONTROLS_HEIGHT
 #define AUDIO_LEAD 0.50
 #define LATE_US 120000
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(VPLAY_STACK);
@@ -408,10 +406,10 @@ static void viewport(mpeg_player_t *p)
 {
     solar_os_media_player_layout_t layout;
     solar_os_media_player_layout(p->screen_width, p->screen_height, true, &layout);
-    p->viewport_x = p->fullscreen ? 0U : layout.view_x;
-    p->viewport_y = p->fullscreen ? 0U : layout.view_y;
-    p->viewport_width = p->fullscreen ? p->screen_width : layout.view_width;
-    p->viewport_height = p->fullscreen ? p->screen_height : layout.view_height;
+    p->viewport_x = p->fullscreen ? 0U : (uint32_t)layout.view_x;
+    p->viewport_y = p->fullscreen ? 0U : (uint32_t)layout.view_y;
+    p->viewport_width = p->fullscreen ? p->screen_width : (uint32_t)layout.view_width;
+    p->viewport_height = p->fullscreen ? p->screen_height : (uint32_t)layout.view_height;
 }
 static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
                                    bool fullscreen, double start_time, bool paused,
@@ -419,8 +417,11 @@ static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bo
 {
     *out = NULL;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
-    if (!gfx || solar_os_gfx_width(gfx) < 48U ||
-        solar_os_gfx_height(gfx) <= HEADER_HEIGHT + CONTROLS_HEIGHT + 8U)
+    if (!gfx || solar_os_gfx_width(gfx) < 84U || solar_os_gfx_height(gfx) < 48U)
+        return ESP_ERR_NOT_SUPPORTED;
+    solar_os_media_player_layout_t layout;
+    solar_os_media_player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), true, &layout);
+    if (!fullscreen && (layout.view_width < 2 || layout.view_height < 2))
         return ESP_ERR_NOT_SUPPORTED;
     mpeg_player_t *p =
         solar_os_memory_calloc(1, sizeof(*p), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "vplay.state");

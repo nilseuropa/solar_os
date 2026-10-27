@@ -34,6 +34,11 @@ Default generated C arrays are committed to the repository:
 
 - `fonts/build/u8g2/u8g2_font_solar_os_default_*_tf.c`
 
+Terminal text size `8` uses the public-domain U8g2 `5x8` bitmap face in
+`components/u8g2/src/fonts/u8g2_font_5x8_tf.c`, with a six-pixel cell advance.
+That fixed face is independent of the TTF generator and retains its source and
+copyright notice in the vendored file.
+
 The firmware automatically compiles those arrays when
 `fonts/build/u8g2/u8g2_font_solar_os_default_r_14_tf.c` exists. Intermediate
 BDF files, previews, manifests, Python caches, and non-default generated

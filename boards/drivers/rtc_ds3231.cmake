@@ -1,0 +1,4 @@
+include("${CMAKE_CURRENT_LIST_DIR}/i2c_esp_idf.cmake")
+
+set(SOLAR_OS_BOARD_RTC_DRIVER "ds3231")
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES driver_ds3231)

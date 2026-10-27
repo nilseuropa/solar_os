@@ -14,6 +14,7 @@
 #include "solar_os_vector.h"
 #include "solar_os_rgb565.h"
 #include "solar_os_indexed_raster.h"
+#include "solar_os_memory.h"
 #define ILI9341_RGB565_BLACK 0x0000
 #define ILI9341_RGB565_WHITE 0xffff
 #define ILI9341_DMA_LINES 4U
@@ -255,6 +256,11 @@ static esp_err_t ili9341_configure_control_pins(tft_ili9341_t *display) {
                         "rst high failed");
   }
   if (gpio_valid(display->config.power_pin)) {
+    /* A panel rail can also supply storage and the keyboard (T-Deck). Light
+     * sleep must not float it and reset those still-mounted peripherals. */
+    ESP_RETURN_ON_ERROR(gpio_sleep_sel_dis(display->config.power_pin), TAG,
+                        "panel power sleep retention failed");
+    (void)gpio_hold_dis(display->config.power_pin);
     ESP_RETURN_ON_ERROR(
         gpio_set_level(display->config.power_pin,
                        display->config.power_active_high ? 1 : 0),
@@ -820,13 +826,15 @@ static esp_err_t ili9341_prepare_native_frame(
        (uint16_t)((width + 3U) / 4U));
   const size_t size = (size_t)stride * height;
   if (display->frame_scratch_size < size) {
-    uint8_t *scratch = rgb565 ? heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : heap_caps_malloc_prefer(
-        size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
-        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    /* Rotation is CPU-only storage. Use the managed pool: the SDK preference
+     * allocator cannot see its free PSRAM and can exhaust internal memory. */
+    uint8_t *scratch = solar_os_memory_alloc(size,
+        rgb565 ? SOLAR_OS_MEMORY_EXTERNAL_REQUIRED :
+                 SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "display.rotate");
     if (scratch == NULL) {
       return ESP_ERR_NO_MEM;
     }
-    heap_caps_free(display->frame_scratch);
+    solar_os_memory_free(display->frame_scratch);
     display->frame_scratch = scratch;
     display->frame_scratch_size = size;
   }
@@ -1326,6 +1334,20 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
   return display->last_error;
 }
 
+esp_err_t tft_ili9341_shutdown(tft_ili9341_t *display) {
+  if (display == NULL) return ESP_ERR_INVALID_ARG;
+  u8g2_SetPowerSave(&display->u8g2, 1);
+  if (!gpio_valid(display->config.power_pin)) return ESP_OK;
+  const esp_err_t err = gpio_set_level(display->config.power_pin,
+      display->config.power_active_high ? 0 : 1);
+  if (err == ESP_OK) {
+    const esp_err_t hold_err = gpio_hold_en(display->config.power_pin);
+    if (hold_err != ESP_OK) return hold_err;
+    gpio_deep_sleep_hold_en();
+  }
+  return err;
+}
+
 esp_err_t tft_ili9341_resume(tft_ili9341_t *display) {
   if (display == NULL || display->spi == NULL || display->buffer == NULL ||
       display->line_buffer == NULL || display->line_buffer_alt == NULL) {
@@ -1393,7 +1415,7 @@ void tft_ili9341_deinit(tft_ili9341_t *display) {
     display->shadow = NULL;
   }
   if (display->frame_scratch != NULL) {
-    heap_caps_free(display->frame_scratch);
+    solar_os_memory_free(display->frame_scratch);
     display->frame_scratch = NULL;
     display->frame_scratch_size = 0U;
   }

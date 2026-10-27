@@ -34,6 +34,7 @@ esp_err_t rfm95_probe(rfm95_t *dev, uint8_t *version);
 esp_err_t rfm95_configure(rfm95_t *dev, const solar_os_radio_config_t *config);
 esp_err_t rfm95_set_state(rfm95_t *dev, solar_os_radio_state_t state);
 esp_err_t rfm95_get_status(rfm95_t *dev, solar_os_radio_status_t *status);
+esp_err_t rfm95_tune_rx(rfm95_t *dev, uint32_t frequency_hz, uint32_t *settle_ms);
 esp_err_t rfm95_send(rfm95_t *dev,
                      const solar_os_radio_packet_t *packet,
                      uint32_t timeout_ms);

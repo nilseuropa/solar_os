@@ -4,11 +4,12 @@
 
 #include "bq25896.h"
 
-typedef struct { uint8_t registers[0x15]; } fake_chip_t;
+typedef struct { uint8_t registers[0x15]; esp_err_t read_error, write_error; } fake_chip_t;
 
 static esp_err_t read_regs(void *ctx, uint8_t reg, uint8_t *data, size_t len)
 {
     fake_chip_t *chip = ctx;
+    if (chip->read_error != ESP_OK) return chip->read_error;
     if ((size_t)reg + len > sizeof(chip->registers)) return ESP_ERR_INVALID_ARG;
     memcpy(data, &chip->registers[reg], len);
     return ESP_OK;
@@ -20,6 +21,7 @@ static esp_err_t write_regs(void *ctx,
                             size_t len)
 {
     fake_chip_t *chip = ctx;
+    if (chip->write_error != ESP_OK) return chip->write_error;
     if ((size_t)reg + len > sizeof(chip->registers)) return ESP_ERR_INVALID_ARG;
     memcpy(&chip->registers[reg], data, len);
     return ESP_OK;
@@ -69,7 +71,17 @@ int main(void)
     assert(status.charge_current_ma == 704U);
     assert(status.charge_voltage_mv == 4288U);
     assert(status.fault == 0x08U);
+    chip.registers[0x09] = 0x9AU;
+    assert(bq25896_power_off(&device) == ESP_OK);
+    assert(chip.registers[0x09] == 0xBAU);
+    chip.read_error = ESP_ERR_TIMEOUT;
+    assert(bq25896_power_off(&device) == ESP_ERR_TIMEOUT);
+    chip.read_error = ESP_OK;
+    chip.write_error = ESP_FAIL;
+    assert(bq25896_power_off(&device) == ESP_FAIL);
+    chip.write_error = ESP_OK;
     assert(bq25896_deinit(&device) == ESP_OK);
+    assert(bq25896_power_off(&device) == ESP_ERR_INVALID_STATE);
 
     memset(&chip, 0, sizeof(chip));
     assert(init(&chip, 0x19U, &device) == ESP_ERR_NOT_FOUND);

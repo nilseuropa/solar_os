@@ -191,6 +191,21 @@ class ZooInstallTest(unittest.TestCase):
         self.assertEqual(self.run_native("refresh-only")["error"], 0)
         self.assertEqual(self.run_native("refresh-only")["cached"], 0)
 
+    def test_trailing_data_and_nested_duplicate_keys_preserve_cache(self):
+        self.publish()
+        self.assertEqual(self.run_native("refresh-only")["error"], 0)
+        cache = self.storage / "dl/zoo/catalog.json"
+        valid = (self.server / "catalog.json").read_text()
+        original = cache.read_bytes()
+        for invalid in (valid + " {}", valid + " garbage",
+                        valid.replace('"schema": 1', '"schema": 1, "schema": 1', 1),
+                        valid.replace('"target": "esp32s3"',
+                                      '"target": "esp32s3", "target": "esp32s3"', 1)):
+            with self.subTest(invalid=invalid[-40:]):
+                (self.server / "catalog.json").write_text(invalid)
+                self.assertNotEqual(self.run_native("refresh-only")["error"], 0)
+                self.assertEqual(cache.read_bytes(), original)
+
 
 if __name__ == "__main__":
     unittest.main()

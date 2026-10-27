@@ -29,17 +29,19 @@ capabilities = [
   "streaming_display", "pointer",
   "psram", "simd", "display", "gfx", "display_brightness",
   "cdc", "uart", "sd", "i2c", "spi", "battery", "audio", "audio_input",
-  "wifi", "ble", "gpio", "adc", "pwm", "key", "buttons",
+  "wifi", "ble", "gpio", "adc", "pwm", "key",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
-required_packages = []
+required_packages = ["job_pointer_arrows"]
 psram_bytes = 8388608
 
 [header]
 includes = ["solar_os_buttons.h", "solar_os_input.h", "solar_os_input_composition.h", "solar_os_keys.h"]
 
 [defines]
+SOLAR_OS_BOARD_BACKLIGHT_ENABLED_ON_BOOT = "0"
+SOLAR_OS_BOARD_POINTER_ARROWS_SOURCE = '"trackball0"'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7789"'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER_ST7789 = "1"
 SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"st7789"'
@@ -79,8 +81,8 @@ SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
 SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY = "SOLAR_OS_KEY_ENTER"
-SOLAR_OS_BOARD_BUTTONS = '''{{.pin = GPIO_NUM_3, .name = "TRACKBALL-UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_15, .name = "TRACKBALL-DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_1, .name = "TRACKBALL-LEFT", .key = SOLAR_OS_KEY_LEFT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}, {.pin = GPIO_NUM_2, .name = "TRACKBALL-RIGHT", .key = SOLAR_OS_KEY_RIGHT, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .horizontal_guard_after_vertical_ms = 90}}'''
-SOLAR_OS_BOARD_TDECK_KEYMAP = '''{{{0x71,0x23},{0x77,0x31},{0,0},{0x61,0x2a},{0,0},{0x20,0},{0,0x30}},{{0x65,0x32},{0x73,0x34},{0x64,0x35},{0x70,0x40},{0x78,0x38},{0x7a,0x37},{0,0}},{{0x72,0x33},{0x67,0x2f},{0x74,0x28},{0,0},{0x76,0x3f},{0x63,0x39},{0x66,0x36}},{{0x75,0x5f},{0x68,0x3a},{0x79,0x29},{SOLAR_OS_KEY_ENTER,0},{0x62,0x21},{0x6e,0x2c},{0x6a,0x3b}},{{0x6f,0x2b},{0x6c,0x22},{0x69,0x2d},{0x08,0},{0x24,0},{0x6d,0x2e},{0x6b,0x27}}}'''
+# Microphone-icon key: Tab normally, digit 0 in the Sym layer.
+SOLAR_OS_BOARD_TDECK_KEYMAP = '''{{{0x71,0x23},{0x77,0x31},{0,0},{0x61,0x2a},{0,0},{0x20,0},{0x09,0x30}},{{0x65,0x32},{0x73,0x34},{0x64,0x35},{0x70,0x40},{0x78,0x38},{0x7a,0x37},{0,0}},{{0x72,0x33},{0x67,0x2f},{0x74,0x28},{0,0},{0x76,0x3f},{0x63,0x39},{0x66,0x36}},{{0x75,0x5f},{0x68,0x3a},{0x79,0x29},{SOLAR_OS_KEY_ENTER,0},{0x62,0x21},{0x6e,0x2c},{0x6a,0x3b}},{{0x6f,0x2b},{0x6c,0x22},{0x69,0x2d},{0x08,0},{0x24,0},{0x6d,0x2e},{0x6b,0x27}}}'''
 SOLAR_OS_BOARD_INPUT_CHORDS = '''{{.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = SOLAR_OS_KEY_UP, .output_key = SOLAR_OS_KEY_PAGE_UP}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = SOLAR_OS_KEY_DOWN, .output_key = SOLAR_OS_KEY_PAGE_DOWN}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x71, .output_key = SOLAR_OS_KEY_APP_EXIT}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x63, .output_key = SOLAR_OS_KEY_ESCAPE}, {.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT, .input_key = 0x73, .output_key = 0x13}}'''
 SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE = "SOLAR_OS_TERMINAL_TEXT_SIZE_16"
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_1"
@@ -137,6 +139,12 @@ name = "keyboard0"
 bindings = { i2c = "i2c0", addr = 0x55 }
 
 [[devices]]
+driver = "trackball"
+name = "trackball0"
+detachable = true
+bindings = { up = 3, down = 15, left = 1, right = 2, pull = 1 }
+
+[[devices]]
 driver = "i2s-output"
 name = "audio0"
 bindings = { i2s = 0, bck = 7, din = 6, rck = 5 }
@@ -162,9 +170,11 @@ name = "radio0"
 bindings = { spi = "spi0", cs = 9, busy = 13, reset = 17, irq = 45 }
 
 [[devices]]
-driver = "ublox-mia-m10q"
+# Both factory GNSS variants stream NMEA: L76K at 9600, MIA-M10Q at 38400.
+driver = "nmea"
 name = "gnss0"
-bindings = { uart = "uart0" }
+detachable = true
+bindings = { uart = "uart0", alt_baud = 38400 }
 
 [[pins]]
 gpio = 0
@@ -277,11 +287,11 @@ role = "LCD backlight"
 [[pins]]
 gpio = 43
 policy = "fixed"
-role = "GPS TX"
+role = "Grove UART TX / GNSS"
 [[pins]]
 gpio = 44
 policy = "fixed"
-role = "GPS RX"
+role = "Grove UART RX / GNSS"
 [[pins]]
 gpio = 45
 policy = "fixed"
@@ -292,144 +302,38 @@ policy = "fixed"
 role = "keyboard interrupt"
 
 [connector]
-title = "Internal peripheral wiring"
-view = "logical pin inventory; T-Deck Plus has no general-purpose Grove connector"
-rows = 5
+title = "Grove connector"
+view = "logical signal order; UART shared with always-on GNSS"
+rows = 1
 columns = 4
 
 [[connectors]]
-connector = "INTERNAL"
+connector = "GROVE"
 position = 1
 row = 0
 column = 0
-gpio = 40
-kind = "gpio"
-label = "SPI SCK"
+kind = "power"
+label = "3V3"
 [[connectors]]
-connector = "INTERNAL"
+connector = "GROVE"
 position = 2
 row = 0
 column = 1
-gpio = 38
-kind = "gpio"
-label = "SPI MISO"
+kind = "ground"
+label = "GND"
 [[connectors]]
-connector = "INTERNAL"
+connector = "GROVE"
 position = 3
 row = 0
 column = 2
-gpio = 41
+gpio = 43
 kind = "gpio"
-label = "SPI MOSI"
+label = "UART TX / GNSS"
 [[connectors]]
-connector = "INTERNAL"
+connector = "GROVE"
 position = 4
 row = 0
 column = 3
-gpio = 12
-kind = "gpio"
-label = "LCD CS"
-[[connectors]]
-connector = "INTERNAL"
-position = 5
-row = 1
-column = 0
-gpio = 39
-kind = "gpio"
-label = "SD CS"
-[[connectors]]
-connector = "INTERNAL"
-position = 6
-row = 1
-column = 1
-gpio = 9
-kind = "gpio"
-label = "LoRa CS"
-[[connectors]]
-connector = "INTERNAL"
-position = 7
-row = 1
-column = 2
-gpio = 18
-kind = "gpio"
-label = "I2C SDA"
-[[connectors]]
-connector = "INTERNAL"
-position = 8
-row = 1
-column = 3
-gpio = 8
-kind = "gpio"
-label = "I2C SCL"
-[[connectors]]
-connector = "INTERNAL"
-position = 9
-row = 2
-column = 0
-gpio = 43
-kind = "gpio"
-label = "GPS TX"
-[[connectors]]
-connector = "INTERNAL"
-position = 10
-row = 2
-column = 1
 gpio = 44
 kind = "gpio"
-label = "GPS RX"
-[[connectors]]
-connector = "INTERNAL"
-position = 11
-row = 2
-column = 2
-gpio = 11
-kind = "gpio"
-label = "LCD DC"
-[[connectors]]
-connector = "INTERNAL"
-position = 12
-row = 2
-column = 3
-gpio = 42
-kind = "gpio"
-label = "LCD backlight"
-[[connectors]]
-connector = "INTERNAL"
-position = 13
-row = 3
-column = 0
-gpio = 10
-kind = "gpio"
-label = "Peripheral power enable"
-[[connectors]]
-connector = "INTERNAL"
-position = 14
-row = 3
-column = 1
-gpio = 4
-kind = "gpio"
-label = "Battery ADC"
-[[connectors]]
-connector = "INTERNAL"
-position = 15
-row = 3
-column = 2
-gpio = 13
-kind = "gpio"
-label = "LoRa busy"
-[[connectors]]
-connector = "INTERNAL"
-position = 16
-row = 3
-column = 3
-gpio = 17
-kind = "gpio"
-label = "LoRa reset"
-[[connectors]]
-connector = "INTERNAL"
-position = 17
-row = 4
-column = 0
-gpio = 45
-kind = "gpio"
-label = "LoRa DIO1"
+label = "UART RX / GNSS"

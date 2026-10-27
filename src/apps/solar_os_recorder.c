@@ -43,9 +43,6 @@
 #define RECORDER_DISPLAY_HPM_HZ_TENTHS 255U
 #define RECORDER_SCOPE_SAMPLES 256U
 #define RECORDER_SPECTRUM_FFT_SIZE 256U
-#define RECORDER_HEADER_HEIGHT 28
-#define RECORDER_ROW_HEIGHT 24
-#define RECORDER_FOOTER_HEIGHT 20
 #define RECORDER_VOLUME_STEP 5
 #define RECORDER_INPUT_MAX 8U
 #define RECORDER_FILENAME_MAX 64U
@@ -1249,44 +1246,30 @@ static void recorder_render_tui(void)
     solar_os_tui_refresh(&recorder.tui);
 }
 
-static void recorder_draw_centered(solar_os_gfx_t *gfx, int width,
-                                   int baseline, const char *text)
-{
-    solar_os_gfx_text(gfx,
-        (width - (int)solar_os_gfx_text_width(gfx, text)) / 2,
-        baseline, text);
-}
-
 static void recorder_draw_header(solar_os_gfx_t *gfx, int width)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, 0, 0, width, RECORDER_HEADER_HEIGHT);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    solar_os_gfx_text(gfx, 7, 19, "Recorder");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
     static const char *tabs[] = {"[REC] SET", "REC [SET]"};
-    const char *text = tabs[recorder.tab];
-    solar_os_gfx_text(gfx,
-        width - (int)solar_os_gfx_text_width(gfx, text) - 7, 18, text);
+    solar_os_media_player_header_draw(gfx, width, "Recorder", tabs[recorder.tab]);
 }
 
 static void recorder_draw_visualizer(solar_os_gfx_t *gfx,
                                      int width, int height)
 {
-    const int media_top = height * 2 / 3;
-    const int visual_y = RECORDER_HEADER_HEIGHT + 4;
-    const int visual_height = media_top - visual_y - 4;
-    if (recorder.visualizer == RECORDER_VISUALIZER_CASSETTE) {
+    solar_os_media_player_layout_t layout;
+    solar_os_media_player_layout(width, height, false, &layout);
+    const int visual_y = layout.view_y, visual_height = layout.view_height;
+    if (visual_height < 5) return;
+    if (recorder.visualizer == RECORDER_VISUALIZER_CASSETTE && visual_height >= 50 && width >= 90) {
         solar_os_cassette_widget_draw(recorder.cassette, gfx, 5, visual_y,
                                       width - 10, visual_height);
-    } else if (recorder.visualizer == RECORDER_VISUALIZER_SCOPE) {
+    } else if (recorder.visualizer != RECORDER_VISUALIZER_SPECTRUM) {
         solar_os_oscilloscope_widget_draw(recorder.scope, gfx, 5, visual_y,
                                           width - 10, visual_height);
     } else {
         solar_os_spectrum_widget_draw(recorder.spectrum, gfx, 5, visual_y,
                                       width - 10, visual_height);
     }
+    if (layout.compact) return;
     static const char *labels[] = {
         "CASSETTE  V", "SCOPE  V", "SPECTRUM  V",
     };
@@ -1297,110 +1280,80 @@ static void recorder_draw_visualizer(solar_os_gfx_t *gfx,
     solar_os_gfx_text(gfx, 13, visual_y + 15, labels[recorder.visualizer]);
 }
 
-static void recorder_draw_progress(solar_os_gfx_t *gfx,
-                                   int width, int height,
-                                   bool clear_background)
+static void recorder_progress_text(int width, int height, char *status, size_t capacity)
 {
-    const int media_top = height * 2 / 3;
-    if (clear_background) {
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        solar_os_gfx_fill_rect(gfx, 1, media_top + 23, width - 2, 17);
-    }
-    char elapsed[16], status[96];
+    char elapsed[16];
     recorder_format_time(recorder.elapsed_ms, elapsed, sizeof(elapsed));
-    snprintf(status, sizeof(status), "%s  %s  %" PRIu32 " Hz  %s  %u bit",
-             recorder_state_name(), elapsed, recorder.sample_rate,
-             recorder.channels == 1U ? "mono" : "stereo",
-             (unsigned)recorder.bits_per_sample);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    recorder_draw_centered(gfx, width, media_top + 37, status);
+    if (width < 180)
+        snprintf(status, capacity, "%s %s M:%c", recorder_state_name(), elapsed,
+            recorder.monitor_enabled ? '+' : '-');
+    else if (height < 180)
+        snprintf(status, capacity, "%s %s %luk M:%c", recorder_state_name(), elapsed,
+            (unsigned long)(recorder.sample_rate / 1000), recorder.monitor_enabled ? '+' : '-');
+    else
+        snprintf(status, capacity, "%s %s M:%c %" PRIu32 " Hz %s %u bit",
+            recorder_state_name(), elapsed, recorder.monitor_enabled ? '+' : '-', recorder.sample_rate,
+            recorder.channels == 1U ? "mono" : "stereo", (unsigned)recorder.bits_per_sample);
 }
 
-static void recorder_render_record_graphics(solar_os_gfx_t *gfx,
-                                            int width, int height)
+static void recorder_draw_progress(solar_os_gfx_t *gfx, int width, int height,
+                                    bool clear_background)
 {
-    const int media_top = height * 2 / 3;
+    (void)clear_background;
+    char status[96];
+    recorder_progress_text(width, height, status, sizeof(status));
+    solar_os_media_player_status_draw(gfx, width, height, status);
+}
+
+static void recorder_render_record_graphics(solar_os_gfx_t *gfx, int width, int height)
+{
     recorder_draw_visualizer(gfx, width, height);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_line(gfx, 0, media_top, width - 1, media_top);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    recorder_draw_centered(gfx, width, media_top + 20,
-        recorder.active_path[0] != '\0' ?
-            recorder_basename(recorder.active_path) :
-            (recorder.filename[0] != '\0' ? recorder.filename : "Automatic name"));
-    recorder_draw_progress(gfx, width, height, false);
-    const int volume_width = width / 2;
-    const int volume_x = (width - volume_width) / 2;
-    const int volume_y = media_top + 43;
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, volume_x - 29, volume_y + 9, "VOL");
-    solar_os_gfx_text(gfx, volume_x + volume_width + 8, volume_y + 9,
-        recorder.monitor_enabled ?
-            "MON M ON" : "MON M OFF");
-    solar_os_gfx_rect(gfx, volume_x, volume_y, volume_width, 10);
-    if (recorder.volume > 0U) {
-        solar_os_gfx_fill_rect(gfx, volume_x + 2, volume_y + 2,
-            (volume_width - 4) * recorder.volume / 100, 6);
-    }
-    const int gap = 5;
-    const int button_width = (width - 5 * gap) / 4;
-    const int button_y = height - 25;
-    solar_os_media_transport_button_draw(
-        gfx, gap, button_y, button_width, 21,
-        SOLAR_OS_MEDIA_TRANSPORT_RECORD,
-        recorder.operation_state == RECORDER_RECORDING);
-    solar_os_media_transport_button_draw(
-        gfx, gap * 2 + button_width, button_y, button_width, 21,
-        SOLAR_OS_MEDIA_TRANSPORT_PLAY,
-        recorder.operation_state == RECORDER_PLAYING);
-    solar_os_media_transport_button_draw(
-        gfx, gap * 3 + button_width * 2, button_y, button_width, 21,
-        SOLAR_OS_MEDIA_TRANSPORT_PAUSE,
-        recorder.operation_state == RECORDER_PAUSED);
-    solar_os_media_transport_button_draw(
-        gfx, gap * 4 + button_width * 3, button_y, button_width, 21,
-        SOLAR_OS_MEDIA_TRANSPORT_STOP,
-        recorder.operation_state == RECORDER_IDLE ||
-            recorder.operation_state == RECORDER_ERROR);
+    char status[96];
+    recorder_progress_text(width, height, status, sizeof(status));
+    const solar_os_media_transport_icon_t icons[] = {SOLAR_OS_MEDIA_TRANSPORT_RECORD,
+        SOLAR_OS_MEDIA_TRANSPORT_PLAY, SOLAR_OS_MEDIA_TRANSPORT_PAUSE, SOLAR_OS_MEDIA_TRANSPORT_STOP};
+    const bool active[] = {
+        recorder.operation_state == RECORDER_RECORDING, recorder.operation_state == RECORDER_PLAYING,
+        recorder.operation_state == RECORDER_PAUSED,
+        recorder.operation_state == RECORDER_IDLE || recorder.operation_state == RECORDER_ERROR};
+    solar_os_media_controls_draw(gfx, width, height,
+        recorder.active_path[0] ? recorder_basename(recorder.active_path) :
+        recorder.filename[0] ? recorder.filename : "Automatic name",
+        status, recorder.volume, icons, active, 4);
 }
 
-static void recorder_render_setup_graphics(solar_os_gfx_t *gfx,
-                                           int width, int height)
+static void recorder_render_setup_graphics(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int list_y = RECORDER_HEADER_HEIGHT + 6;
-    const int row_height = (height - list_y - RECORDER_FOOTER_HEIGHT) /
-        (int)RECORDER_SETUP_ROWS;
-    for (size_t row = 0U; row < RECORDER_SETUP_ROWS; row++) {
-        const int y = list_y + (int)row * row_height;
+    solar_os_media_list_layout_t list;
+    solar_os_media_list_layout(width, height, &list);
+    size_t visible = (size_t)list.visible;
+    size_t first = visible && recorder.setup_cursor >= visible ? recorder.setup_cursor - visible + 1 : 0;
+    for (size_t index = first; index < RECORDER_SETUP_ROWS && index < first + visible; index++) {
+        int y = list.top + (int)(index - first) * list.row_height;
         char label[32], value[96];
-        recorder_setup_value(row, label, sizeof(label), value, sizeof(value));
-        if (row == recorder.setup_cursor) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, row_height - 2);
+        recorder_setup_value(index, label, sizeof(label), value, sizeof(value));
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        if (index == recorder.setup_cursor) {
+            solar_os_gfx_fill_rect(gfx, 2, y, width - 4, list.row_height - 1);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         }
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_gfx_text(gfx, 9, y + row_height - 7, label);
-        const int value_width = (int)solar_os_gfx_text_width(gfx, value);
-        solar_os_gfx_text(gfx, width - value_width - 9,
-                          y + row_height - 7, value);
+        solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
+        solar_os_media_text_draw(gfx, 4, y + list.baseline, width / 2 - 8, label);
+        solar_os_media_text_draw(gfx, width / 2, y + list.baseline, width / 2 - 4, value);
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 6, height - 6,
-                      "Up/Down select  Left/Right change  Enter edit/folder");
+    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_media_text_draw(gfx, 2, height - 2, width - 4,
+        list.compact ? "Up/Dn select  L/R change" : "Up/Down select  Left/Right change  Enter edit/folder");
 }
 
 static void recorder_render_browser_graphics(solar_os_gfx_t *gfx,
                                              int width, int height)
 {
-    const int list_y = RECORDER_HEADER_HEIGHT + 5;
-    const int bottom = height - RECORDER_FOOTER_HEIGHT;
-    const size_t visible = bottom > list_y ?
-        (size_t)((bottom - list_y) / RECORDER_ROW_HEIGHT) : 0U;
+    solar_os_media_list_layout_t list;
+    solar_os_media_list_layout(width, height, &list);
+    const int list_y = list.top;
+    const size_t visible = (size_t)list.visible;
     const size_t count = solar_os_storage_browser_count(recorder.browser);
     const size_t cursor = solar_os_storage_browser_cursor(recorder.browser);
     if (cursor < recorder.browser_top) recorder.browser_top = cursor;
@@ -1412,47 +1365,34 @@ static void recorder_render_browser_graphics(solar_os_gfx_t *gfx,
         if (index >= count) break;
         solar_os_storage_browser_entry_t entry;
         if (!solar_os_storage_browser_entry(recorder.browser, index, &entry)) continue;
-        const int y = list_y + (int)row * RECORDER_ROW_HEIGHT;
+        const int y = list_y + (int)row * list.row_height;
         char label[192];
         snprintf(label, sizeof(label), "%s%s",
                  entry.is_directory ? "[DIR] " : "", entry.name);
         if (index == cursor) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
             solar_os_gfx_fill_rect(gfx, 4, y, width - 8,
-                                   RECORDER_ROW_HEIGHT - 2);
+                                   list.row_height - 1);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         } else {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         }
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_gfx_text(gfx, 9, y + 17, label);
+        solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
+        solar_os_media_text_draw(gfx, 6, y + list.baseline, width - 12, label);
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 6, height - 6,
-        "Enter open/play WAV  D select folder  Esc cancel");
+    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_media_text_draw(gfx, 3, height - 2, width - 6,
+        list.compact ? "Enter open  D folder  Esc back" : "Enter open/play WAV  D select folder  Esc cancel");
 }
 
 static void recorder_draw_filename_dialog(solar_os_gfx_t *gfx,
                                           int width, int height)
 {
-    const int dialog_width = width * 4 / 5;
-    const int dialog_height = 76;
-    const int x = (width - dialog_width) / 2;
-    const int y = (height - dialog_height) / 2;
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, x, y, dialog_width, dialog_height);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, x, y, dialog_width, dialog_height);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_16);
-    solar_os_gfx_text(gfx, x + 8, y + 20, "Recording filename");
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_14);
     char value[RECORDER_FILENAME_MAX + 2U];
     snprintf(value, sizeof(value), "%s_", recorder.edit_filename);
-    solar_os_gfx_text(gfx, x + 8, y + 45, value);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, x + 8, y + 67,
-                      "Enter save  Esc cancel  Empty = automatic");
+    solar_os_media_dialog_draw(gfx, width, height, "Recording filename", value,
+        height < 160 ? "Enter save  Esc back" : "Enter save  Esc cancel  Empty = automatic");
 }
 
 static void recorder_render(solar_os_context_t *ctx)

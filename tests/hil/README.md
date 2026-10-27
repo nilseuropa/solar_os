@@ -1,8 +1,51 @@
 # Hardware checks
 
-These tests use live hardware. They do not flash or change persistent settings.
-Run with permission to use the relevant hardware resources. RTSP tests occupy
+These tests use live hardware. Each harness describes the resources and device
+state it changes. Run with permission to use those resources. RTSP tests occupy
 the publisher/viewer and receiver slots.
+
+## Foreground runtime benchmark
+
+```sh
+python3 tests/hil/foreground_benchmark.py --host DEVICE_ADDRESS \
+  --output /tmp/foreground-timing.txt
+```
+
+Requires the ESP32-S3 PlatformIO compiler, Telnet, SD storage and native
+foreground support. It builds a finite probe, temporarily installs `fgbench`,
+uses display0 through normal session switching, and restores the FTP listener.
+The probe measures empty input and stop checks, small-loop arithmetic, a larger
+instruction working set with indirect calls, dependent PSRAM reads at three
+working-set sizes, and frame submission by copying
+or exchanging buffers, with and without silent audio
+output. Frame generation is outside the submission work timer. No guest assets are
+needed. An existing `fgbench.elf` is never overwritten.
+
+Timing rows contain a name, operation count, accumulated work microseconds and
+wall microseconds. `presented` rows contain the displayed frame count, presenter
+microseconds and replaced frame count; the last `kernel`, `dispatch`, and `ram*`
+values are checksums.
+Work measurements include preemption and are not exclusive CPU time. Compare
+the same probe, power profile and display settings across firmware builds.
+
+## Native libraries
+
+`native_libraries.py` requires a signed maintainer catalog containing the
+`hello-library`, `library-check`, and `library-user` examples from
+`modules/examples`. Build their `typed_elf`, `elf`, and `typed_elf` targets,
+respectively. Configure the test firmware's `SOLAR_OS_MODULE_REPOSITORY_URL`
+to that catalog repository; its host version and target must match the device.
+
+```sh
+python3 -B tests/hil/native_libraries.py --telnet DEVICE_ADDRESS \
+  --output /tmp/native-libraries --runs 10
+```
+
+The output directory must not exist. The harness refuses to replace existing
+example installs, installs through the signed package manager, checks 300
+load/unload cycles and 25 cycles with a running job sharing the API, tests busy
+unload/remove/reinstall, and restarts the device to verify lazy boot behavior.
+It logs commands and memory snapshots, then removes only its own installs.
 
 ## Native image pipelines
 
@@ -215,3 +258,20 @@ python3 tests/hil/media_rtsp_timing.py rtsp://192.168.1.238/media \
 Checks complete-frame throughput, RTP sequence gaps, frame timestamps, initial
 backlog, clock drift and RTCP reports across explicit teardown/reconnect cycles.
 It does not measure decoded presentation latency or implement a video viewer.
+
+## T-Deck GNSS output control
+
+Requires a T-Deck Plus running firmware with detachable board `gnss0` and
+software GNSS output controls. The receiver must initially be attached and
+enabled. A valid position fix is not required.
+
+```sh
+python3 tests/hil/gnss_output.py --telnet 192.168.1.247 --output /tmp/gnss-output-hil --bindings
+```
+
+Captures NMEA before and after, verifies output disable and unavailable fixes,
+checks that GNSS keeps the UART claim until detach, observes a quiet UART,
+and checks automatic recovery on reattachment. Restores attachment and output
+on exit. Does not test GNSS supply current or electrical TX isolation.
+`--bindings` also checks Python and Lua controls through local inline scripts;
+omit it for firmware without those runtimes.

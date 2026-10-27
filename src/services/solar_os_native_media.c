@@ -17,9 +17,25 @@ static void *native_memory_alloc_internal(size_t bytes)
     if (buffer && solar_os_memory_is_external(buffer)) { solar_os_memory_free(buffer); return NULL; }
     return buffer;
 }
+static bool native_memory_is_external(const void *buffer)
+{ return solar_os_memory_is_external((void *)buffer); }
+static size_t native_memory_free_bytes(bool external)
+{
+    solar_os_memory_status_t status;
+    solar_os_memory_get_status(&status);
+    return external ? status.external.free : status.internal.free;
+}
+static size_t native_memory_largest_free_bytes(bool external)
+{
+    solar_os_memory_status_t status;
+    solar_os_memory_get_status(&status);
+    return external ? status.external.largest_free : status.internal.largest_free;
+}
 static const solar_os_native_memory_api_v1_t memory_api = {
     .abi_version = SOLAR_OS_NATIVE_MEMORY_ABI, .struct_size = sizeof(memory_api),
     .alloc = native_memory_alloc, .free = solar_os_memory_free, .alloc_internal = native_memory_alloc_internal,
+    .is_external = native_memory_is_external, .free_bytes = native_memory_free_bytes,
+    .largest_free_bytes = native_memory_largest_free_bytes,
 };
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE || SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA || \

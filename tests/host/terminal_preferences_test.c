@@ -99,6 +99,12 @@ int main(void)
     assert(profile.palette_inverted);
     assert(!profile.status_bar_visible);
 
+    assert(solar_os_terminal_profile_save_text_size(
+               SOLAR_OS_TERMINAL_TEXT_SIZE_8) == ESP_OK);
+    solar_os_terminal_profile_load_preferences(&profile);
+    assert(profile.text_size == SOLAR_OS_TERMINAL_TEXT_SIZE_8);
+    assert(solar_os_terminal_profile_is_valid(&profile));
+
     find_value("orientation")->value = 45;
     find_value("font")->value = 99;
     find_value("textsize")->value = 99;

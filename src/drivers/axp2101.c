@@ -5,6 +5,7 @@
 #define REG_STATUS1 0x00U
 #define REG_STATUS2 0x01U
 #define REG_CHIP_ID 0x03U
+#define REG_COMMON_CONFIG 0x10U
 #define REG_CHARGE_GAUGE_WDT 0x18U
 #define REG_INPUT_CURRENT_LIMIT 0x16U
 #define REG_ADC_CHANNEL 0x30U
@@ -95,6 +96,12 @@ esp_err_t axp2101_init(axp2101_t *device, const axp2101_io_t *io)
     }
     device->initialized = true;
     return ESP_OK;
+}
+
+esp_err_t axp2101_power_off(axp2101_t *device)
+{
+    if (!device_valid(device)) return ESP_ERR_INVALID_STATE;
+    return update_bits(device, REG_COMMON_CONFIG, 1U, 1U);
 }
 
 esp_err_t axp2101_deinit(axp2101_t *device)

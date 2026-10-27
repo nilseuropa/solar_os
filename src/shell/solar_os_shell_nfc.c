@@ -30,7 +30,7 @@ void solar_os_shell_cmd_nfc(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_nfc_info_t info;
         for (size_t i = 0; solar_os_nfc_get(i, &info); i++) {
-            solar_os_shell_io_printf(term,
+            solar_os_shell_io_table_printf(term,
                                      "%s  %s  power=%s\r\n",
                                      info.name,
                                      info.driver,

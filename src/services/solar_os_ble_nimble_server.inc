@@ -319,6 +319,7 @@ static void server_retire(void)
         if (!p->retiring && !ble_gap_terminate(p->conn, BLE_ERR_REM_USER_CONN_TERM)) p->retiring = true;
     }
     if (peripheral->peer_count || peripheral->untracked) return;
+    (void)solar_os_ble_nimble_set_hostname();
     if (peripheral->kind == SERVER_KIND_HID) {
         /* Bonded HOGP clients persist CCCDs by ATT handle. Keep the inactive
          * native service registered so a later script lease reuses those

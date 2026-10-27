@@ -79,5 +79,21 @@ int main(void)
     register_job(); can_create = false; assert(!solar_os_jobs_start(NULL,"dynamic",0,NULL));
     can_create = true; job_retry_pending_start(0,NULL); assert(starts == 2 && !allocations);
     release_job(); assert(stops == 2 && !depth && !allocations);
+    register_job();
+    assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_OK);
+    assert(solar_os_shutdown_request() == ESP_OK);
+    assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_ERR_INVALID_STATE);
+    job_runtimes[0].state = SOLAR_OS_JOB_STOPPED;
+    job_runtimes[0].lifecycle_busy = true;
+    assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_ERR_NOT_FINISHED);
+    job_runtimes[0].lifecycle_busy = false;
+    job_runtimes[0].state = SOLAR_OS_JOB_RUNNING;
+    job_runtimes[0].callback_refs = 1;
+    assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_ERR_NOT_FINISHED);
+    assert(stops == 2 && job_runtimes[0].state == SOLAR_OS_JOB_RUNNING);
+    job_runtimes[0].callback_refs = 0;
+    assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_OK);
+    assert(stops == 3);
+    release_job();
     puts("native job admission/unregister lifetime tests passed");
 }

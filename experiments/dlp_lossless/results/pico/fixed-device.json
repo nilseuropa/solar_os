@@ -1,0 +1,11 @@
+{
+  "width": 320,
+  "height": 240,
+  "model": "Pico RAM display",
+  "format": "RGB565_BE",
+  "framing": "fixed",
+  "window": 16,
+  "backend": "RAM",
+  "clock_limit_advertised": 0,
+  "cpu_hz": 125000000
+}

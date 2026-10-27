@@ -51,7 +51,7 @@ static void osc_list_bindings(solar_os_shell_io_t *io)
 {
     const size_t count = solar_os_osc_binding_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "No OSC bindings configured");
+        solar_os_shell_io_table_writeln(io, "No OSC bindings configured");
         return;
     }
     for (size_t i = 0; i < count; i++) {
@@ -60,7 +60,7 @@ static void osc_list_bindings(solar_os_shell_io_t *io)
             continue;
         }
         const float rate = 1000.0f / (float)binding.config.interval_ms;
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io, "%s: %s %s (%s) -> %s rate=%.3gHz",
             binding.config.name,
             solar_os_osc_source_name(binding.config.source_type),
@@ -69,22 +69,22 @@ static void osc_list_bindings(solar_os_shell_io_t *io)
             binding.config.address,
             (double)rate);
         if (binding.config.value_type == SOLAR_OS_OSC_VALUE_EVENT) {
-            solar_os_shell_io_printf(io, " edge=%s",
+            solar_os_shell_io_table_printf(io, " edge=%s",
                                      solar_os_osc_edge_name(binding.config.edge));
         } else {
-            solar_os_shell_io_printf(io, " delta=%.6g send=%s",
+            solar_os_shell_io_table_printf(io, " delta=%.6g send=%s",
                                      (double)binding.config.delta,
                                      binding.config.send_always ? "always" : "change");
         }
         if (binding.has_value) {
-            solar_os_shell_io_printf(
+            solar_os_shell_io_table_printf(
                 io, " state=%s value=%.6g sent=%u last-send=%llums error=%s\n",
                 binding.source_available ? "ready" : "missing",
                 (double)binding.last_value, (unsigned)binding.sent,
                 (unsigned long long)binding.last_send_ms,
                 solar_os_shell_error_text(binding.last_error));
         } else {
-            solar_os_shell_io_printf(
+            solar_os_shell_io_table_printf(
                 io, " state=%s value=- sent=%u last-send=%llums error=%s\n",
                 binding.source_available ? "ready" : "missing",
                 (unsigned)binding.sent,

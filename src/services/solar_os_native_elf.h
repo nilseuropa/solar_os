@@ -23,6 +23,16 @@ typedef struct {
     solar_os_native_app_manifest_v2_t app;
 } solar_os_native_elf_info_t;
 
+/* Read exactly length bytes at offset, or return an error. Discovery reads
+ * only ELF metadata and the app manifest; execution still requires validate. */
+typedef esp_err_t (*solar_os_native_elf_read_fn)(void *context, size_t offset,
+                                                void *buffer, size_t length);
+esp_err_t solar_os_native_elf_discover(solar_os_native_elf_read_fn read,
+                                       void *context, size_t file_size,
+                                       uint16_t expected_machine,
+                                       solar_os_native_elf_info_t *info,
+                                       char *detail, size_t detail_len);
+
 esp_err_t solar_os_native_elf_validate(const uint8_t *data,
                                        size_t data_len,
                                        uint16_t expected_machine,

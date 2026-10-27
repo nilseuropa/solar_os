@@ -35,6 +35,7 @@ static void transaction_end(void)
 struct solar_os_zoo {
     char source[SOLAR_OS_ZOO_SOURCE_MAX], root[SOLAR_OS_STORAGE_PATH_MAX];
     solar_os_json_doc_t *doc;
+    const cJSON *catalog;
 };
 static const cJSON *get(const cJSON *o, const char *key) { return cJSON_GetObjectItemCaseSensitive(o, key); }
 static const char *str(const cJSON *o) { return cJSON_IsString(o) ? o->valuestring : NULL; }
@@ -99,9 +100,15 @@ static esp_err_t parse(const uint8_t *data, size_t size, solar_os_json_doc_t **o
     *out = NULL;
     if (!size || memchr(data, 0, size)) return ESP_ERR_INVALID_ARG;
     /* Bound nesting before invoking cJSON; reject strings it cannot represent. */
-    unsigned depth = 0; bool quote = false, escape = false;
+    unsigned depth = 0; bool quote = false, escape = false, started = false, finished = false;
     for (size_t i = 0; i < size; ++i) {
         unsigned char c = data[i];
+        if (finished) { if (!isspace(c)) return ESP_ERR_INVALID_ARG; continue; }
+        if (!started) {
+            if (isspace(c)) continue;
+            if (c != '{') return ESP_ERR_INVALID_ARG;
+            started = true;
+        }
         if (quote) {
             if (c < 32) return ESP_ERR_INVALID_ARG;
             if (escape) escape = false;
@@ -109,25 +116,22 @@ static esp_err_t parse(const uint8_t *data, size_t size, solar_os_json_doc_t **o
             else if (c == '"') quote = false;
         } else if (c == '"') quote = true;
         else if (c == '{' || c == '[') { if (++depth > 32) return ESP_ERR_INVALID_SIZE; }
-        else if (c == '}' || c == ']') { if (!depth) return ESP_ERR_INVALID_ARG; --depth; }
+        else if (c == '}' || c == ']') { if (!depth) return ESP_ERR_INVALID_ARG; if (!--depth) finished = true; }
         if (i + 6 <= size && !memcmp(data + i, "\\u0000", 6)) return ESP_ERR_INVALID_ARG;
     }
-    if (quote || depth) return ESP_ERR_INVALID_ARG;
-    const char *end = NULL;
-    solar_os_json_init();
-    cJSON *checked = cJSON_ParseWithLengthOpts((const char *)data, size, &end, false);
-    if (!checked) return ESP_ERR_INVALID_ARG;
-    while (end < (const char *)data + size && isspace((unsigned char)*end)) ++end;
-    bool ok = end == (const char *)data + size && unique(checked, 0);
-    cJSON_Delete(checked);
-    return ok ? solar_os_json_parse((const char *)data, size, out) : ESP_ERR_INVALID_ARG;
+    if (quote || depth || !finished) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_json_parse((const char *)data, size, out);
+    if (!error && !unique(solar_os_json_root(*out), 0)) {
+        solar_os_json_free(*out); *out = NULL; error = ESP_ERR_INVALID_ARG;
+    }
+    return error;
 }
 static const cJSON *entry(const solar_os_zoo_t *z, size_t index)
-{ return cJSON_GetArrayItem(get(solar_os_json_root(z->doc), "models"), index); }
+{ return cJSON_GetArrayItem(get(z->catalog, "models"), index); }
 static const cJSON *metadata(const cJSON *e) { return get(e, "metadata"); }
-static bool catalog_valid(solar_os_json_doc_t *doc)
+static bool catalog_valid(const cJSON *root)
 {
-    const cJSON *root = solar_os_json_root(doc), *models = get(root, "models");
+    const cJSON *models = get(root, "models");
     uint32_t schema, bytes;
     int count = cJSON_GetArraySize(models);
     if (!number(get(root, "schema"), 1, &schema) || schema != 1 || !cJSON_IsArray(models) ||
@@ -185,11 +189,16 @@ static esp_err_t remove_tree(const char *path)
 static esp_err_t read_doc(const char *path, size_t max, solar_os_json_doc_t **doc)
 {
     FILE *file = fopen(path, "rb"); if (!file) return ESP_ERR_NOT_FOUND;
-    uint8_t *data = solar_os_memory_alloc(max + 1, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "zoo.json");
+    struct stat info;
+    if (fstat(fileno(file), &info) || info.st_size < 0 || (uint64_t)info.st_size > max) {
+        fclose(file); return ESP_ERR_INVALID_SIZE;
+    }
+    size_t capacity = (size_t)info.st_size + 1;
+    uint8_t *data = solar_os_memory_alloc(capacity, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "zoo.json");
     if (!data) { fclose(file); return ESP_ERR_NO_MEM; }
-    size_t size = fread(data, 1, max + 1, file);
+    size_t size = fread(data, 1, capacity, file);
     bool io_error = ferror(file);
-    esp_err_t error = size > max || io_error ? ESP_ERR_INVALID_SIZE : parse(data, size, doc);
+    esp_err_t error = size == capacity || io_error ? ESP_ERR_INVALID_SIZE : parse(data, size, doc);
     fclose(file); solar_os_memory_free(data); return error;
 }
 static esp_err_t write_cache(const char *path, const char *data)
@@ -343,13 +352,9 @@ static esp_err_t reload(solar_os_zoo_t *z)
     /* Cache is wrapped with its source so changing repositories cannot use stale URLs. */
     if (!error && !eq(get(solar_os_json_root(doc), "source"), z->source)) error = ESP_ERR_INVALID_STATE;
     const cJSON *catalog = doc ? get(solar_os_json_root(doc), "catalog") : NULL;
-    solar_os_json_doc_t *parsed = NULL;
-    if (!error) { char *raw = cJSON_PrintUnformatted(catalog);
-        error = raw ? parse((uint8_t *)raw, strlen(raw), &parsed) : ESP_ERR_NO_MEM; cJSON_free(raw); }
-    if (!error && !catalog_valid(parsed)) error = ESP_ERR_INVALID_RESPONSE;
-    solar_os_json_free(doc);
-    if (error) solar_os_json_free(parsed);
-    else { solar_os_json_free(z->doc); z->doc = parsed; }
+    if (!error && !catalog_valid(catalog)) error = ESP_ERR_INVALID_RESPONSE;
+    if (error) solar_os_json_free(doc);
+    else { solar_os_json_free(z->doc); z->doc = doc; z->catalog = catalog; }
     return error;
 }
 static esp_err_t refresh(solar_os_zoo_t *z, const volatile bool *cancel, solar_os_zoo_progress_fn fn, void *user)
@@ -359,7 +364,7 @@ static esp_err_t refresh(solar_os_zoo_t *z, const volatile bool *cancel, solar_o
     esp_err_t error = download(z->source, temp, SOLAR_OS_ZOO_CATALOG_MAX - 1024, cancel, fn, user, "catalog");
     solar_os_json_doc_t *doc = NULL;
     if (!error) error = read_doc(temp, SOLAR_OS_ZOO_CATALOG_MAX, &doc);
-    if (!error && !catalog_valid(doc)) error = ESP_ERR_INVALID_RESPONSE;
+    if (!error && !catalog_valid(solar_os_json_root(doc))) error = ESP_ERR_INVALID_RESPONSE;
     if (!error && cancelled(cancel)) error = ESP_ERR_TIMEOUT;
     if (!error) {
         cJSON *wrapped = cJSON_CreateObject();
@@ -372,10 +377,10 @@ static esp_err_t refresh(solar_os_zoo_t *z, const volatile bool *cancel, solar_o
     }
     unlink(temp);
     if (error) solar_os_json_free(doc);
-    else { solar_os_json_free(z->doc); z->doc = doc; }
+    else { solar_os_json_free(z->doc); z->doc = doc; z->catalog = solar_os_json_root(doc); }
     return error;
 }
-size_t solar_os_zoo_count(const solar_os_zoo_t *z) { return z && z->doc ? cJSON_GetArraySize(get(solar_os_json_root(z->doc), "models")) : 0; }
+size_t solar_os_zoo_count(const solar_os_zoo_t *z) { return z ? cJSON_GetArraySize(get(z->catalog, "models")) : 0; }
 static void join_tags(const cJSON *array, char *out, size_t size)
 {
     out[0] = 0; const cJSON *item;

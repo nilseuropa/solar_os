@@ -17,13 +17,13 @@ static bool number(const char *text, uint32_t *out)
 }
 static void status(solar_os_shell_io_t *io, const solar_os_pipeline_status_t *s)
 {
-    solar_os_shell_io_printf(io, "%lu %s %s processor=%s model=%lu\n", (unsigned long)s->id,
+    solar_os_shell_io_table_printf(io, "%lu %s %s processor=%s model=%lu\n", (unsigned long)s->id,
         s->job, s->state, s->processor, (unsigned long)s->model);
-    solar_os_shell_io_write(io, "source="); solar_os_shell_io_writeln(io, s->source);
-    solar_os_shell_io_printf(io, "frames=%llu busy_frames=%llu sequence=%llu done=%s error=%s\n",
+    solar_os_shell_io_table_write(io, "source="); solar_os_shell_io_table_writeln(io, s->source);
+    solar_os_shell_io_table_printf(io, "frames=%llu busy_frames=%llu sequence=%llu done=%s error=%s\n",
         (unsigned long long)s->frames, (unsigned long long)s->busy_frames,
         (unsigned long long)s->sequence, s->done ? "true" : "false", esp_err_to_name(s->last_error));
-    solar_os_shell_io_printf(io, "decode_us=%llu process_us=%llu frame_us=%llu\n",
+    solar_os_shell_io_table_printf(io, "decode_us=%llu process_us=%llu frame_us=%llu\n",
         (unsigned long long)s->decode_us, (unsigned long long)s->process_us, (unsigned long long)s->frame_us);
 }
 void solar_os_shell_cmd_pipeline(solar_os_context_t *ctx, int argc, char **argv)

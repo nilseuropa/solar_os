@@ -11,13 +11,15 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nmea.h"
+#include "gnss_output.h"
 #include "solar_os_buses.h"
 #include "solar_os_gnss.h"
 #include "solar_os_gpio_controller.h"
 
 /*
  * Generic NMEA 0183 GNSS receiver on a UART bus. The receiver streams RMC
- * and GGA unprompted, so the driver only listens and never configures it.
+ * and GGA unprompted. Output enable/disable uses detected UBX or CASIC
+ * configuration support; ordinary fix reads do not configure the receiver.
  * Power-on detection listens at the UART's configured rate, then at
  * `alt_baud` when one is given: modules ship at 9600 or 115200.
  * A switched receiver's enable polarity is the board's to state with
@@ -44,6 +46,7 @@ typedef struct {
     char uart_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     bool power_control;
     bool powered;
+    bool enabled;
     bool power_active_high;
     uint32_t alternate_baud;
     /* The rate the board configured the bus at, and the one in use. */
@@ -63,6 +66,34 @@ typedef struct {
 
 static const char *TAG = "nmea-gnss";
 static nmea_gnss_device_t devices[NMEA_GNSS_DEVICE_MAX];
+
+static esp_err_t output_write(void *ctx, const uint8_t *data, size_t len)
+{
+    nmea_gnss_device_t *device = ctx;
+    size_t written = 0;
+    const esp_err_t ret = solar_os_bus_uart_write(device->uart_bus, data, len, &written);
+    return ret == ESP_OK && written != len ? ESP_ERR_INVALID_RESPONSE : ret;
+}
+
+static esp_err_t output_read(void *ctx, uint8_t *data, size_t len,
+                              uint32_t timeout_ms, size_t *read_len)
+{
+    nmea_gnss_device_t *device = ctx;
+    return solar_os_bus_uart_read(device->uart_bus, data, len, timeout_ms, read_len);
+}
+
+static int64_t output_now(void *ctx)
+{
+    (void)ctx;
+    return esp_timer_get_time();
+}
+
+static solar_os_gnss_output_io_t output_io(nmea_gnss_device_t *device)
+{
+    return (solar_os_gnss_output_io_t) {
+        .ctx = device, .write = output_write, .read = output_read, .now_us = output_now,
+    };
+}
 
 /* Waits for one checksum-valid RMC or GGA sentence. */
 static esp_err_t await_sentence(nmea_gnss_device_t *device, uint32_t timeout_ms)
@@ -112,9 +143,27 @@ static void drain_rx(nmea_gnss_device_t *device)
 /* Waits for a sentence at the rate in use, then at the other of the
  * configured and alternate rates. Leaves the working rate applied, or the
  * configured rate when neither is heard. */
-static esp_err_t detect_stream(nmea_gnss_device_t *device, uint32_t timeout_ms)
+static esp_err_t await_or_resume_output(nmea_gnss_device_t *device, uint32_t timeout_ms)
 {
     esp_err_t ret = await_sentence(device, timeout_ms);
+    if (ret != ESP_ERR_TIMEOUT) {
+        return ret;
+    }
+    /* Output muting can survive an ESP32 reset or driver detach. The binary
+     * control channel stays enabled so attachment can restore NMEA without
+     * resetting baud, message rates, navigation settings, or saved memory. */
+    const solar_os_gnss_output_io_t io = output_io(device);
+    solar_os_gnss_output_t output;
+    if (solar_os_gnss_output_probe(&io, device->current_baud, &output) == ESP_OK &&
+        !output.enabled && solar_os_gnss_output_set(&io, &output, true) == ESP_OK) {
+        ret = await_sentence(device, timeout_ms);
+    }
+    return ret;
+}
+
+static esp_err_t detect_stream(nmea_gnss_device_t *device, uint32_t timeout_ms)
+{
+    esp_err_t ret = await_or_resume_output(device, timeout_ms);
     if (ret == ESP_OK || device->alternate_baud == 0U ||
         device->alternate_baud == device->configured_baud) {
         return ret;
@@ -128,7 +177,7 @@ static esp_err_t detect_stream(nmea_gnss_device_t *device, uint32_t timeout_ms)
                         TAG,
                         "alternate baud switch failed");
     device->current_baud = other_baud;
-    if (await_sentence(device, timeout_ms) == ESP_OK) {
+    if (await_or_resume_output(device, timeout_ms) == ESP_OK) {
         ESP_LOGW(TAG,
                  "%s streams at %lu baud",
                  device->name,
@@ -236,7 +285,7 @@ static esp_err_t read_fix(void *ctx,
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(device->mutex, portMAX_DELAY);
-    if (!device->powered) {
+    if (!device->powered || !device->enabled) {
         xSemaphoreGive(device->mutex);
         return ESP_ERR_INVALID_STATE;
     }
@@ -297,6 +346,54 @@ static esp_err_t read_fix(void *ctx,
     return ESP_OK;
 }
 
+static esp_err_t set_enabled(void *ctx, bool enabled)
+{
+    nmea_gnss_device_t *device = ctx;
+    if (device == NULL || !device->active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    if (!device->powered) {
+        xSemaphoreGive(device->mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* Re-verify repeated requests too: a previous UART error may have
+     * followed an applied configuration write. */
+    const bool was_enabled = device->enabled;
+    reader_stop(device); /* Only this transaction may read the UART replies. */
+    const solar_os_gnss_output_io_t io = output_io(device);
+    solar_os_gnss_output_t output;
+    esp_err_t ret = solar_os_gnss_output_probe(&io, device->current_baud, &output);
+    const bool identified = ret == ESP_OK;
+    if (ret == ESP_OK) {
+        ret = solar_os_gnss_output_set(&io, &output, enabled);
+    }
+    if (ret == ESP_OK && !enabled) {
+        ret = solar_os_gnss_output_check_quiet(&io);
+    }
+    if (ret == ESP_OK && enabled) {
+        ret = await_sentence(device, NMEA_GNSS_DETECT_TIMEOUT_MS);
+    }
+    if (ret == ESP_OK) {
+        device->enabled = enabled;
+        (void)solar_os_gnss_notify_enabled_state(device->name, enabled);
+        if (enabled) {
+            ret = reader_start(device);
+        }
+    } else if (identified) {
+        /* A timeout may follow an applied write. Restore and verify the
+         * previous output configuration before resuming normal reads. */
+        if (solar_os_gnss_output_set(&io, &output, was_enabled) == ESP_OK) {
+            device->enabled = was_enabled;
+        }
+    }
+    if (ret != ESP_OK && device->enabled) {
+        (void)reader_start(device);
+    }
+    xSemaphoreGive(device->mutex);
+    return ret;
+}
+
 static esp_err_t set_power(void *ctx, bool enabled)
 {
     nmea_gnss_device_t *device = ctx;
@@ -340,6 +437,8 @@ static esp_err_t set_power(void *ctx, bool enabled)
         (void)solar_os_gnss_notify_power_state(device->name, device->powered);
     } else {
         device->powered = true;
+        device->enabled = true;
+        (void)solar_os_gnss_notify_enabled_state(device->name, true);
     }
     xSemaphoreGive(device->mutex);
     return ret;
@@ -347,11 +446,13 @@ static esp_err_t set_power(void *ctx, bool enabled)
 
 static const solar_os_gnss_ops_t gnss_ops = {
     .read_fix = read_fix,
+    .set_enabled = set_enabled,
 };
 
 static const solar_os_gnss_ops_t powered_gnss_ops = {
     .read_fix = read_fix,
     .set_power = set_power,
+    .set_enabled = set_enabled,
 };
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
@@ -435,6 +536,7 @@ esp_err_t solar_os_nmea_gnss_attach(const char *name,
                         "invalid bindings");
     memset(device, 0, sizeof(*device));
     device->active = true;
+    device->enabled = true;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->uart_bus, uart_bus, sizeof(device->uart_bus));
     device->power_control = power_control;

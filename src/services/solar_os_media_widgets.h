@@ -34,7 +34,20 @@ void solar_os_media_transport_button_draw(
 typedef struct {
     int view_x, view_y, view_width, view_height;
     int controls_y, title_y, status_y, volume_y, button_y, button_width, button_count;
+    int header_height, button_height, button_gap;
+    bool compact;
 } solar_os_media_player_layout_t;
+
+typedef struct {
+    int top, row_height, baseline, footer_height, visible;
+    bool compact;
+} solar_os_media_list_layout_t;
+void solar_os_media_list_layout(int width, int height, solar_os_media_list_layout_t *layout);
+/* Draw a single line clipped to the supplied pixel width. */
+void solar_os_media_text_draw(solar_os_gfx_t *gfx, int x, int baseline,
+                              int width, const char *text);
+void solar_os_media_dialog_draw(solar_os_gfx_t *gfx, int width, int height,
+                                const char *title, const char *input, const char *help);
 
 /* Allocation-free common chrome; decoding, clocks and transport remain app-owned. */
 void solar_os_media_player_layout(int width, int height, bool seek,
@@ -47,6 +60,10 @@ void solar_os_media_player_controls_draw(solar_os_gfx_t *gfx, int width, int hei
                                           const char *title, const char *status,
                                           uint8_t volume, bool seek,
                                           solar_os_media_transport_icon_t middle);
+void solar_os_media_controls_draw(solar_os_gfx_t *gfx, int width, int height,
+                                  const char *title, const char *status, uint8_t volume,
+                                  const solar_os_media_transport_icon_t *icons,
+                                  const bool *active, int count);
 /* Returns -1 outside a button, including the gaps. */
 int solar_os_media_player_button_at(int width, int height, bool seek, int x, int y);
 

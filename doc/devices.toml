@@ -1,0 +1,221 @@
+# User-facing hardware capabilities for the generated Docs > Devices page.
+# Keep target IDs aligned with boards/manifests and doc/manual/boards.md.
+schema = 1
+
+[devices.solar_term]
+display = "400×300 ST7305 reflective LCD."
+keyboard = "KEY button; attach an external keyboard for typing."
+sound = "ES8311 audio output and ES7210 microphone capture."
+storage = "microSD over SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery voltage monitoring through ADC."
+sensors = "PCF85063 RTC; SHTC3 temperature and humidity sensor."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S; runtime SPI3 routing on GPIO1/GPIO2/GPIO3/GPIO17."
+
+[devices.solar_writer]
+display = "792×272 dual-SSD1683 e-paper."
+keyboard = "Rotary, menu, and exit controls; attach an external keyboard for typing."
+sound = "INMP441 microphone; shared PCM5102 line output and MAX98357 speaker output."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, and CH340 USB-to-UART console."
+power = "LC709203F fuel gauge."
+sensors = "DS3231 RTC."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S. GPIO21 is reserved for jack detection."
+notes = "Assembled SolarWriter configuration based on the Elecrow CrowPanel 5.79-inch; the listed audio, RTC, and fuel-gauge hardware must be fitted."
+
+[devices.freenove_esp32_s3_display_4_0]
+display = "480×320 ST7796 LCD with brightness control."
+keyboard = "FT6336 capacitive touch and KEY button; no built-in keyboard."
+sound = "ES8311 speaker output and microphone capture."
+storage = "microSD over four-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery voltage monitoring through ADC."
+expansion = "UART, I2C, and GPIO expansion connectors."
+
+[devices.qdtech_es3c28p]
+display = "320×240 landscape ILI9341V LCD with brightness control."
+keyboard = "FT6336 capacitive touch and KEY button; no built-in keyboard."
+sound = "ES8311 speaker output and microphone capture."
+storage = "microSD over four-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery voltage monitoring through ADC."
+expansion = "UART, I2C, and GPIO expansion connectors; one WS2812B RGB LED."
+
+[devices.qdtech_es3n28p]
+display = "320×240 landscape ILI9341V LCD with brightness control; no touch."
+keyboard = "KEY button; no built-in keyboard."
+sound = "ES8311 speaker output and microphone capture."
+storage = "microSD over four-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery voltage monitoring through ADC."
+expansion = "UART, I2C, and GPIO expansion connectors; one WS2812B RGB LED."
+
+[devices.elecrow_crowpanel_esp32_s3_4_2_epaper]
+display = "400×300 SSD1683 e-paper."
+keyboard = "Rotary, menu, and exit controls; no built-in keyboard."
+sound = "No built-in audio."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, and CH340C USB-to-UART console."
+expansion = "I2C, SPI, UART, 1-Wire, GPIO, ADC, and PWM; status LED."
+
+[devices.elecrow_crowpanel_esp32_s3_5_79_epaper]
+display = "792×272 dual-SSD1683 e-paper."
+keyboard = "Rotary, menu, and exit controls; no built-in keyboard."
+sound = "No built-in audio."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, and CH340C USB-to-UART console."
+expansion = "I2C, SPI, UART, 1-Wire, GPIO, ADC, and PWM; status LED."
+
+[devices.waveshare_esp32_s3_epaper_3_97]
+display = "SSD1677 e-paper; defaults to 800×480 landscape."
+keyboard = "Rotary navigation and board buttons; no built-in keyboard."
+sound = "ES8311 speaker output and microphone capture."
+storage = "microSD over four-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "AXP2101 battery and charger monitoring."
+sensors = "PCF85063 RTC; SHTC3 temperature/humidity sensor; QMI8658 six-axis IMU."
+expansion = "I2C and UART expansion."
+
+[devices.xteink_x4_pro]
+display = "800×480 landscape e-paper; SSD1677/UC8179/UC8279 controller identification; fixed-mix frontlight brightness."
+keyboard = "GT911 touch, Home pad, and navigation buttons; no built-in keyboard."
+sound = "No built-in audio."
+storage = "microSD over one-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART0."
+power = "CW2017 battery gauge."
+sensors = "BM8563-compatible RTC."
+
+[devices.cl_32]
+display = "384×168 ST7305 reflective LCD."
+keyboard = "Built-in keyboard managed by the ATmega808 board controller."
+sound = "Onboard PWM buzzer."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery monitoring through the ATmega808 board controller."
+sensors = "PCF85063 RTC."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
+
+[devices.cl32_epd]
+display = "384×168 SSD1685 GDEY029T71H e-paper."
+keyboard = "Built-in keyboard managed by the ATmega808 board controller."
+sound = "Onboard PWM buzzer."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+power = "Battery monitoring through the ATmega808 board controller."
+sensors = "PCF85063 RTC."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
+
+[devices.odroid_go]
+display = "320×240 ILI9341 LCD with brightness control."
+keyboard = "Game buttons and ADC D-pad; no built-in keyboard."
+sound = "Speaker through the ESP32 internal DAC on GPIO26; GPIO25 controls the amplifier."
+storage = "microSD over VSPI/SPI."
+connectivity = "Wi-Fi, BLE, and UART."
+power = "Battery voltage monitoring through ADC."
+expansion = "I2C, SPI, UART, GPIO, and PWM; runtime GPIO4/GPIO15; status LED."
+
+[devices.freenove_esp32_wrover_v3]
+display = "384×288 monochrome PAL composite output on GPIO25; requires an external display."
+keyboard = "GPIO0 BOOT/KEY button; no built-in keyboard."
+sound = "No board audio configured; GPIO25 is used for composite video."
+storage = "microSD over one-bit SDMMC."
+connectivity = "Wi-Fi, BLE, and CH340 USB-to-UART console."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
+
+[devices.ttgo_vga32_v14]
+display = "External VGA through the onboard RGB222 resistor DAC; build-selectable 320×200 at 70 Hz, 320×240 at 60 Hz, 640×400 at 70 Hz, or 640×480 at 60 Hz."
+keyboard = "PS/2 keyboard attaches automatically when connected; requires an external keyboard."
+sound = "Mono ESP32 DAC audio on GPIO25."
+storage = "microSD over HSPI using the v1.4 wiring."
+connectivity = "Wi-Fi and USB-to-UART console; BLE is disabled by default."
+expansion = "Two input-only expansion GPIOs."
+
+[devices.esp32_s3_devkitc1_n16r8]
+display = "Headless; graphics are available through attachable display targets."
+keyboard = "GPIO0 BOOT/KEY button; no built-in keyboard."
+sound = "No built-in audio."
+storage = "No onboard SD interface configured."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+sensors = "No onboard sensors configured."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
+
+[devices.goouuu_esp32_s3cam]
+display = "Headless; no primary display."
+keyboard = "BOOT/KEY button; no built-in keyboard."
+sound = "No built-in audio."
+storage = "microSD over one-bit SDMMC."
+connectivity = "Wi-Fi, BLE, native USB CDC, and CH340 USB-to-UART console."
+sensors = "Fixed DVP/SCCB camera wiring; OV2640 probing and QVGA/VGA JPEG capture. `cam-webd` provides single-client MJPEG streaming and JPEG snapshots with optional authentication."
+expansion = "One onboard WS2812 RGB LED; board-owned camera pins remain reserved."
+
+[devices.esp32_devkitc_v4_wrover]
+display = "Headless; graphics are available through attachable display targets."
+keyboard = "GPIO0 BOOT/KEY button; no built-in keyboard."
+sound = "No built-in audio."
+storage = "No onboard SD interface configured."
+connectivity = "Wi-Fi, BLE, and UART; no native USB CDC."
+sensors = "No onboard sensors configured."
+expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
+
+[devices.devkitc1_epaper_workbench]
+display = "Fixed external 400×300 SSD1683 e-paper display."
+keyboard = "Fixed external CardKB I2C keyboard."
+sound = "No board audio configured."
+storage = "Fixed external microSD attachment over SPI."
+connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
+notes = "Development configuration based on the ESP32-S3 DevKitC-1; requires the listed display, keyboard, and storage attachments."
+
+[devices.t_lora_pager]
+display = "480×222 ST7796 LCD with brightness control."
+keyboard = "Built-in TCA8418 4×10 matrix keyboard and rotary encoder."
+sound = "ES8311 audio output and microphone capture."
+storage = "microSD over SPI; SD power and its external pull-up start enabled."
+connectivity = "Wi-Fi, BLE, native USB CDC, and SX1262 LoRa radio."
+power = "BQ27220 battery gauge; BQ25896 charger with 704 mA initial fast-charge current; XL9555-controlled power rails."
+sensors = "PCF85063 RTC; MIA-M10Q GNSS; ST25R3916 NFC-A reader; BHI260AP IMU; DRV2605 haptics."
+expansion = "I2C, SPI, UART, GPIO, ADC, and PWM."
+notes = "GNSS and NFC power start disabled; enable them with `gnss power on` and `nfc power on`. DRV2605 ROM effects 1–117 are available through `haptic play EFFECT`."
+
+[devices.thinknode_m9]
+display = "320×240 ST7789 LCD with brightness control."
+keyboard = "Built-in 37-key STC8H QWERTY keypad with backlight and a compose layer."
+sound = "Passive PWM buzzer."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, and CH340K USB-to-UART console. The onboard LR1110 LoRa radio has no SolarOS driver yet; its pins are reserved."
+power = "Battery voltage monitoring through ADC."
+sensors = "PCF8563 RTC; ATGM336H or BM72A GNSS over NMEA."
+expansion = "I2C, SPI, UART, GPIO, ADC, and PWM."
+notes = "GNSS starts powered off; use `gnss power on`. The default profile uses the v1.0 active-low GNSS enable rail; v1.1 requires `active = 1` on `gnss0`."
+
+[devices.t_deck_plus]
+display = "320×240 ST7789 LCD with brightness control."
+keyboard = "Built-in I2C keyboard, five-way trackball, and GT911 capacitive touch."
+sound = "Separate I2S speaker output and ES7210 microphone capture."
+storage = "microSD over SPI."
+connectivity = "Wi-Fi, BLE, native USB CDC, and SX1262 LoRa radio."
+power = "Battery voltage monitoring through ADC."
+sensors = "Factory L76K or MIA-M10Q GNSS receiver over NMEA UART; no onboard NFC reader."
+expansion = "Grove connector; its GPIO43/GPIO44 UART signals are shared with onboard GNSS."
+notes = "The GNSS receiver has no independent power control. Releasing its software UART claim does not electrically disconnect the receiver."
+
+[devices.waveshare_esp32_s3_sim7670g_4g]
+display = "Headless; no primary display."
+keyboard = "BOOT/KEY button; no built-in keyboard."
+sound = "No board audio configured."
+storage = "microSD over one-bit SDMMC."
+connectivity = "Wi-Fi, BLE, CH343 USB-to-UART console, and SIM7670G AT/IPv4 PPP access over UART1."
+power = "MAX17048 battery gauge; software-controlled modem VBAT rail."
+sensors = "SIM7670G GNSS. Camera support is not included."
+expansion = "GPIO, ADC, PWM, SPI, and I2S on available pins with CAM off; GPIO15/GPIO16 remain shared I2C and GPIO46 is blocked."
+notes = "Set DIP switches to CAM OFF, HUB ON, 4G OFF, USB OFF. The modem UART belongs exclusively to PPP while connected; disconnect PPP before AT or GNSS use."
+
+[devices.waveshare_esp32_s3_sim7670g_4g_epaper]
+display = "Fixed external 400×300 SSD1683 e-paper display on SPI2."
+keyboard = "Fixed external M5Stack TAB5 I2C keyboard at address `0x6d`, with interrupt on GPIO41."
+sound = "No board audio configured."
+storage = "microSD over one-bit SDMMC."
+connectivity = "Wi-Fi, BLE, CH343 USB-to-UART console, and SIM7670G AT/IPv4 PPP access over UART1."
+power = "MAX17048 battery gauge; software-controlled modem VBAT rail."
+sensors = "SIM7670G GNSS. Camera support is not included."
+expansion = "GPIO40 remains available; the display occupies GPIO3/GPIO7 through GPIO12."
+notes = "Workbench configuration requiring the listed external display and keyboard. Set DIP switches to CAM OFF, HUB ON, 4G OFF, USB OFF. Disconnect PPP before AT or GNSS use."

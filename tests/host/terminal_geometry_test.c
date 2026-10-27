@@ -41,6 +41,12 @@ static void expect_geometry(int height, int status, int footer, int line, int as
 int main(void)
 {
     test_columns();
+    solar_os_terminal_geometry_t small;
+    assert(solar_os_terminal_columns_compute(240, 4, 6, 160) == 38);
+    assert(solar_os_terminal_geometry_compute(64, 0, 0, 8, 7, 64, &small));
+    assert(small.rows == 8 && small.baseline_offset == 7);
+    assert(solar_os_terminal_geometry_compute(64, 16, 0, 8, 7, 64, &small));
+    assert(small.rows == 6);
     const int heights[] = {200, 240, 288, 300};
     const int lines[] = {10, 12, 14, 16, 18, 20};
     for (size_t h = 0; h < sizeof(heights) / sizeof(heights[0]); h++) {

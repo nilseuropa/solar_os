@@ -10,9 +10,11 @@
 #include "freertos/task.h"
 #include "solar_os_battery.h"
 #include "solar_os_buses.h"
+#include "solar_os_backlight.h"
 #include "solar_os_cl32_keyboard.h"
 #include "solar_os_input.h"
 #include "solar_os_task.h"
+#include "solar_os_power.h"
 
 #define CL32_CORE_POLL_MS 10U
 #define CL32_CORE_TASK_STACK 3072U
@@ -23,10 +25,12 @@
 #define CL32_CORE_REG_INTERRUPT 0x02U
 #define CL32_CORE_REG_EVENT_COUNT 0x03U
 #define CL32_CORE_REG_EVENT 0x04U
+#define CL32_CORE_REG_BACKLIGHT 0x0FU
 #define CL32_CORE_REG_BATTERY_VOLTAGE 0x14U
 #define CL32_CORE_STATUS_USB (1U << 1)
 #define CL32_CORE_STATUS_CHARGING (1U << 2)
 #define CL32_CORE_INTERRUPT_KEYBOARD (1U << 0)
+#define CL32_CORE_INTERRUPT_POWER ((1U << 1) | (1U << 2) | (1U << 3))
 #define CL32_CORE_KEYBOARD_NAME "keyboard0"
 #define CL32_CORE_BATTERY_NAME "battery0"
 #define CL32_CORE_BATTERY_MV_PER_COUNT 25U
@@ -35,7 +39,6 @@ typedef struct {
     bool active;
     volatile bool stop_requested;
     volatile bool worker_done;
-    bool keyboard_interrupt_pending;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address;
@@ -107,6 +110,15 @@ static esp_err_t read_register(solar_os_cl32_core_device_t *device,
                                      sizeof(*value));
 }
 
+static esp_err_t power_off(void *user)
+{
+    solar_os_cl32_core_device_t *device = user;
+    if (device == NULL || !device->active) return ESP_ERR_INVALID_STATE;
+    const uint8_t status = 0xffU;
+    return solar_os_bus_i2c_write_reg(device->i2c_bus, device->address,
+                                     CL32_CORE_REG_STATUS, &status, sizeof(status));
+}
+
 static esp_err_t battery_read(void *user, solar_os_battery_sample_t *sample)
 {
     solar_os_cl32_core_device_t *device = user;
@@ -137,7 +149,7 @@ static esp_err_t battery_read(void *user, solar_os_battery_sample_t *sample)
     return ESP_OK;
 }
 
-static esp_err_t clear_keyboard_interrupt(
+static esp_err_t acknowledge_core_interrupts(
     solar_os_cl32_core_device_t *device)
 {
     uint8_t interrupts = 0U;
@@ -147,11 +159,16 @@ static esp_err_t clear_keyboard_interrupt(
     if (err != ESP_OK) {
         return err;
     }
-    if ((interrupts & CL32_CORE_INTERRUPT_KEYBOARD) == 0U) {
+    const uint8_t handled = CL32_CORE_INTERRUPT_KEYBOARD | CL32_CORE_INTERRUPT_POWER;
+    if (interrupts != 0U && (interrupts & handled) == 0U) {
         return ESP_OK;
     }
 
-    interrupts &= (uint8_t)~CL32_CORE_INTERRUPT_KEYBOARD;
+    /* Power state is read directly by battery_read(). Its notification bits
+     * must also be acknowledged to release the shared active-low wake line.
+     * Write zero even when the register already reads zero: the AVR's IRQ
+     * output can remain asserted after its event flags have cleared. */
+    interrupts &= (uint8_t)~handled;
     return solar_os_bus_i2c_write_reg(device->i2c_bus,
                                       device->address,
                                       CL32_CORE_REG_INTERRUPT,
@@ -171,7 +188,7 @@ static void publish_wire_event(solar_os_cl32_core_device_t *device,
         device->state_events++;
         return;
     }
-    if (result != SOLAR_OS_CL32_KEY_TRANSITION) {
+    if (result != SOLAR_OS_CL32_KEY_TRANSITION && result != SOLAR_OS_CL32_KEY_TAP) {
         device->unsupported++;
         return;
     }
@@ -182,14 +199,21 @@ static void publish_wire_event(solar_os_cl32_core_device_t *device,
                                                   transition.modifiers,
                                                   false);
     }
-    if (solar_os_input_write_key(
+    const esp_err_t error = result == SOLAR_OS_CL32_KEY_TAP ?
+        solar_os_input_write_key_tap(device->input_source,
+                                     transition.physical_key,
+                                     transition.usage,
+                                     key,
+                                     transition.modifiers) :
+        solar_os_input_write_key(
             device->input_source,
             transition.physical_key,
             transition.usage,
             key,
             transition.modifiers,
             transition.pressed ? SOLAR_OS_INPUT_KEY_PRESS :
-                                 SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK) {
+                                 SOLAR_OS_INPUT_KEY_RELEASE);
+    if (error == ESP_OK) {
         device->transitions++;
     } else {
         device->dropped++;
@@ -210,9 +234,6 @@ static esp_err_t poll_keyboard(solar_os_cl32_core_device_t *device)
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    if (event_count > 0U) {
-        device->keyboard_interrupt_pending = true;
-    }
     uint8_t drained = 0U;
     while (event_count > 0U && drained < CL32_CORE_EVENT_DRAIN_MAX) {
         uint8_t wire_event = 0U;
@@ -235,15 +256,11 @@ static esp_err_t poll_keyboard(solar_os_cl32_core_device_t *device)
         }
     }
 
-    if (!device->keyboard_interrupt_pending) {
-        return ESP_OK;
-    }
     if (event_count == 0U) {
-        err = clear_keyboard_interrupt(device);
+        err = acknowledge_core_interrupts(device);
         if (err != ESP_OK) {
             return err;
         }
-        device->keyboard_interrupt_pending = false;
     }
     return ESP_OK;
 }
@@ -276,11 +293,23 @@ static void cl32_core_worker(void *arg)
     solar_os_task_delete_internal(NULL);
 }
 
+/* CL-32/CL-32 Software/CL-32/lib/CL32/include/regMap.h: CL32_BL_BRIGHT.
+ * The AVR retains ownership of its keyboard-activity timeout/fade. */
+static esp_err_t set_backlight(void *user, uint8_t percent)
+{
+    const solar_os_cl32_core_device_t *device = user;
+    const uint8_t value = (uint8_t)((percent * 255U + 50U) / 100U);
+    return solar_os_bus_i2c_write_reg(device->i2c_bus, device->address,
+                                      CL32_CORE_REG_BACKLIGHT, &value, 1U);
+}
+
 static void clear_device(solar_os_cl32_core_device_t *device)
 {
+    solar_os_power_unregister_off_provider(device);
     if (device == NULL) {
         return;
     }
+    solar_os_backlight_unregister(device);
     if (device->input_source != SOLAR_OS_INPUT_SOURCE_INVALID) {
         solar_os_input_source_close(device->input_source);
     }
@@ -315,7 +344,6 @@ esp_err_t solar_os_cl32_core_attach(
     memset(&cl32_core, 0, sizeof(cl32_core));
     cl32_core.active = true;
     cl32_core.address = address;
-    cl32_core.keyboard_interrupt_pending = true;
     strlcpy(cl32_core.name, name, sizeof(cl32_core.name));
     strlcpy(cl32_core.i2c_bus, i2c_bus, sizeof(cl32_core.i2c_bus));
     solar_os_cl32_keyboard_reset(&cl32_core.keyboard);
@@ -324,6 +352,11 @@ esp_err_t solar_os_cl32_core_attach(
         CL32_CORE_KEYBOARD_NAME,
         true,
         &cl32_core.input_source);
+    if (err != ESP_OK) {
+        clear_device(&cl32_core);
+        return err;
+    }
+    err = solar_os_backlight_register(set_backlight, &cl32_core);
     if (err != ESP_OK) {
         clear_device(&cl32_core);
         return err;
@@ -351,6 +384,7 @@ esp_err_t solar_os_cl32_core_attach(
         return ESP_ERR_NO_MEM;
     }
 
+    (void)solar_os_power_register_off_provider(name, power_off, &cl32_core);
     ESP_LOGI(TAG,
              "%s attached on %s address 0x%02x as %s and %s",
              name,

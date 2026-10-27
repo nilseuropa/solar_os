@@ -487,6 +487,11 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
     if (!rfm69_config_valid(dev, config)) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (config->rx_gain != SOLAR_OS_RADIO_RX_GAIN_DEFAULT &&
+        (config->rx_gain < SOLAR_OS_RADIO_RX_GAIN_AUTO ||
+         config->rx_gain > SOLAR_OS_RADIO_RX_GAIN_G6)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 
     esp_err_t ret = rfm69_lock(dev);
     if (ret != ESP_OK) {
@@ -552,7 +557,10 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
         ret = rfm69_write_reg_locked(dev, REG_PA_LEVEL, (uint8_t)(pa | (power & 0x1F)));
     }
     if (ret == ESP_OK) {
-        ret = rfm69_write_reg_locked(dev, REG_LNA, 0x88);
+        /* Preserve the existing 200-ohm input impedance; low three bits select gain. */
+        const uint8_t gain = config->rx_gain >= SOLAR_OS_RADIO_RX_GAIN_G1
+            ? config->rx_gain - SOLAR_OS_RADIO_RX_GAIN_G1 + 1U : 0U;
+        ret = rfm69_write_reg_locked(dev, REG_LNA, (uint8_t)(0x88U | gain));
     }
     if (ret == ESP_OK) {
         const uint8_t bw = rfm69_rx_bw_value(config->rx_bandwidth_hz, ook);
@@ -605,6 +613,9 @@ esp_err_t rfm69_configure(rfm69_t *dev, const solar_os_radio_config_t *config)
     }
     if (ret == ESP_OK) {
         dev->config = *config;
+        if (dev->config.rx_gain == SOLAR_OS_RADIO_RX_GAIN_DEFAULT) {
+            dev->config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_AUTO;
+        }
         dev->state = SOLAR_OS_RADIO_STATE_STANDBY;
         rfm69_reset_receive(dev);
     }
@@ -626,6 +637,33 @@ esp_err_t rfm69_set_state(rfm69_t *dev, solar_os_radio_state_t state)
     ret = rfm69_set_state_locked(dev, state);
     rfm69_unlock(dev);
     return ret;
+}
+
+esp_err_t rfm69_tune_rx(rfm69_t *dev, uint32_t frequency_hz, uint32_t *settle_ms)
+{
+    if (dev == NULL || settle_ms == NULL || frequency_hz < 290000000U ||
+        frequency_hz > 1020000000U) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = rfm69_lock(dev);
+    if (err != ESP_OK) return err;
+    if (dev->state != SOLAR_OS_RADIO_STATE_RX && dev->state != SOLAR_OS_RADIO_STATE_STANDBY) {
+        rfm69_unlock(dev);
+        return ESP_ERR_INVALID_STATE;
+    }
+    err = rfm69_write_state_locked(dev, SOLAR_OS_RADIO_STATE_STANDBY);
+    if (err == ESP_OK) {
+        uint32_t reg = rfm69_frf_reg(frequency_hz);
+        uint8_t data[3] = {reg >> 16, reg >> 8, reg};
+        err = rfm69_write_burst_locked(dev, REG_FRF_MSB, data, sizeof(data));
+    }
+    if (err == ESP_OK) err = rfm69_write_state_locked(dev, SOLAR_OS_RADIO_STATE_RX);
+    if (err == ESP_OK) {
+        dev->config.frequency_hz = frequency_hz;
+        uint32_t bw = dev->config.rx_bandwidth_hz ? dev->config.rx_bandwidth_hz : 10500U;
+        uint32_t filter_ms = (32000U + bw - 1U) / bw;
+        *settle_ms = filter_ms < 2U ? 2U : filter_ms;
+    }
+    rfm69_unlock(dev);
+    return err;
 }
 
 esp_err_t rfm69_get_status(rfm69_t *dev, solar_os_radio_status_t *status)

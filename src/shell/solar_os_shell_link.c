@@ -302,7 +302,7 @@ static void link_stream_print_status(solar_os_shell_io_t *term,
         : "closed";
     solar_os_shell_io_printf(term,
                              "%s link=%s peer=0x%08" PRIx32
-                             " state=%s proto=%u mtu=%u rx-queued=%u tx-queued=%u tx-inflight=%u\n",
+                             " state=%s proto=%u mtu=%u rx-queued=%u tx-queued=%u tx-inflight=%u window=%u credit=%u\n",
                              status->port,
                              status->link,
                              status->peer_id,
@@ -311,7 +311,9 @@ static void link_stream_print_status(solar_os_shell_io_t *term,
                              (unsigned)status->data_mtu,
                              (unsigned)status->rx_queued,
                              (unsigned)status->tx_queued,
-                             (unsigned)status->tx_inflight);
+                             (unsigned)status->tx_inflight,
+                             (unsigned)status->window_frames,
+                             (unsigned)status->tx_credit);
     solar_os_shell_io_printf(term,
                              "  tx-bytes=%" PRIu32 " rx-bytes=%" PRIu32
                              " tx-frames=%" PRIu32 " rx-frames=%" PRIu32

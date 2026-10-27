@@ -107,6 +107,7 @@ pio run -e freenove_esp32_s3_display_4_0
 pio run -e qdtech_es3c28p
 pio run -e qdtech_es3n28p
 pio run -e cl_32
+pio run -e cl32_epd
 pio run -e t_lora_pager
 pio run -e t_deck_plus
 pio run -e thinknode_m9
@@ -125,12 +126,15 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-The default build uses the full firmware flavor, except the e-paper HMI targets,
-which default to `writerdeck`, and the 4 MB VGA32 target, which defaults to
-`vga32`. For a smaller image or an explicit override:
+The standard flavor is `full`. All classic ESP32 targets default to `classic`:
+ODROID-GO, ESP32-DevKitC V4 WROVER, Freenove WROVER, and TTGO VGA32.
+E-paper HMI targets default to the compact `writerdeck` profile.
+Inference uses the downloadable ESP-DL library on supported targets.
+For a smaller image or an explicit override:
 
 ```sh
-SOLAR_OS_FLAVOR=core pio run -e solar_term
+SOLAR_OS_FLAVOR=writerdeck pio run -e solar_term
+SOLAR_OS_FLAVOR=classic pio run -e odroid_go
 SOLAR_OS_FLAVOR=writerdeck pio run -e elecrow_crowpanel_esp32_s3_4_2_epaper
 SOLAR_OS_FLAVOR=writerdeck pio run -e elecrow_crowpanel_esp32_s3_5_79_epaper
 SOLAR_OS_FLAVOR=writerdeck pio run -e waveshare_esp32_s3_epaper_3_97
@@ -159,6 +163,7 @@ locking is unavailable; do not run concurrent builds from the same checkout.
 
 - [Stream, control, parameter, and OSC binding model](doc/binding-model.md)
 - [Service concurrency contract](doc/service-concurrency.md)
+- [SPI Display Link library](protocol/display_link/README.md)
 - [Memory and task-admission policy](doc/memory-policy.md)
 - [OTA release schema](doc/solar_os_ota_schema.md)
 - [Manual generation and signed refresh](doc/manual-system.md)
@@ -237,5 +242,6 @@ components remain applicable and must be preserved in redistributions.
 | [MeshCore `03b6ef4`](https://github.com/meshcore-dev/MeshCore/commit/03b6ef4b0de98fc70b49ef10a6d0d61f8381fb7a) | Mesh packet, identity, contact, channel, and chat protocol subset | Separate notices are retained for MeshCore, `rweather/Crypto`, and Ed25519. See the [provenance and notice index](src/vendor/meshcore/README.solaros.md). |
 | [Peanut-GB `8e65698`](https://github.com/deltabeard/Peanut-GB/commit/8e656982f08663785794b84823d3e27f856fdb7f) | External Game Boy module emulation and `minigb_apu` audio | MIT; Mahyar Koshkouei, Alex Baines, and contributors. See the retained [provenance and notices](modules/gameboy/main/vendor/peanut_gb/README.solaros.md). |
 | [Reinette II Plus `b272efd`](modules/apple2/README.md) | External Apple II Plus module and 6502 interpreter | MIT; Arthur Ferreira and contributors. See the retained [license and notices](modules/apple2/main/vendor/LICENSE). |
+| [Espressif esp32-doom `085f21b`](modules/doom/README.md) | External DOOM foreground module based on PrBoom 2.5.0 | GPL-2.0-or-later; id Software, PrBoom authors and Espressif. See the retained [license](modules/doom/main/vendor/prboom/COPYING) and [authors](modules/doom/main/vendor/prboom/AUTHORS). |
 
  _Third-party code is adapted and modified it where needed, and integrated it into a shared system designed for constrained hardware by the authors of SolarOS._

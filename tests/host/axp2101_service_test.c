@@ -6,12 +6,27 @@
 #include "solar_os_battery.h"
 #include "solar_os_buses.h"
 #include "solar_os_charger.h"
+#include "solar_os_power.h"
 #include "freertos/semphr.h"
 
 /* Exercise the service and real register driver with a simulated PMIC. */
 static uint8_t registers[256];
 static esp_err_t write_result = ESP_OK;
 static unsigned unregister_calls;
+static solar_os_power_off_fn_t off_callback;
+static void *off_user;
+
+esp_err_t solar_os_power_register_off_provider(const char *name,
+                                               solar_os_power_off_fn_t off, void *user)
+{
+    assert(!strcmp(name, "power0"));
+    off_callback = off; off_user = user;
+    return ESP_OK;
+}
+void solar_os_power_unregister_off_provider(void *user)
+{
+    if (off_user == user) { off_callback = NULL; off_user = NULL; }
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -91,6 +106,9 @@ int main(void)
     assert(solar_os_axp2101_set_aldo3(true) == ESP_ERR_INVALID_STATE);
     registers[0x03] = 0x4AU;
     assert(solar_os_axp2101_attach("power0", bindings, 2U) == ESP_OK);
+    registers[0x10] = 0xA4U;
+    assert(off_callback != NULL && off_callback(off_user) == ESP_OK);
+    assert(registers[0x10] == 0xA5U);
     assert(solar_os_axp2101_acquire_aldo3("i2c1", 0x34U) == ESP_ERR_NOT_FOUND);
     assert(solar_os_axp2101_acquire_aldo3("i2c0", 0x35U) == ESP_ERR_NOT_FOUND);
     assert(solar_os_axp2101_acquire_aldo3("i2c0", 0x34U) == ESP_OK);

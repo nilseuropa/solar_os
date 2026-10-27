@@ -22,6 +22,7 @@ static void test_log(const char *tag, const char *format, ...)
 #define ESP_LOGW(...) test_log(__VA_ARGS__)
 
 #include "../../src/services/solar_os_nmea_gnss.c"
+#include "gnss_output_fixture.h"
 
 static int64_t now_us = 10000000;
 static bool hardware_power;
@@ -29,11 +30,14 @@ static bool active_high = true;
 static bool fail_off;
 static bool fail_on;
 static bool stream_available;
+static uint32_t stream_baud;
+static uint32_t uart_baud = 9600;
 static bool fail_task_create;
 static unsigned power_writes;
 static unsigned reader_starts;
 static uint32_t baud_changes[8];
 static size_t baud_change_count;
+static gnss_output_fixture_t output_fixture;
 
 int64_t esp_timer_get_time(void) { return now_us; }
 
@@ -104,9 +108,13 @@ esp_err_t solar_os_bus_uart_read(const char *name, uint8_t *data, size_t len,
                                  uint32_t timeout_ms, size_t *read_len)
 {
     assert(strcmp(name, "uart0") == 0);
+    if (output_fixture.protocol != SOLAR_OS_GNSS_OUTPUT_UNKNOWN) {
+        return fixture_read(&output_fixture, data, len, timeout_ms, read_len);
+    }
     now_us += (int64_t)timeout_ms * 1000;
     *read_len = 0;
-    if (stream_available && timeout_ms > 1) {
+    if (stream_available && timeout_ms > 1 &&
+        (stream_baud == 0U || stream_baud == uart_baud)) {
         const char *line = "$GNRMC,120000.00,V,,,,,,,010126,,,N*64\r\n";
         assert(strlen(line) <= len);
         *read_len = strlen(line);
@@ -115,21 +123,36 @@ esp_err_t solar_os_bus_uart_read(const char *name, uint8_t *data, size_t len,
     return ESP_OK;
 }
 
+esp_err_t solar_os_bus_uart_write(const char *name, const uint8_t *data,
+                                  size_t len, size_t *written)
+{
+    assert(strcmp(name, "uart0") == 0 && data != NULL);
+    *written = len;
+    if (output_fixture.protocol != SOLAR_OS_GNSS_OUTPUT_UNKNOWN) {
+        return fixture_write(&output_fixture, data, len);
+    }
+    return ESP_OK; /* This receiver stub does not support software control. */
+}
+
 esp_err_t solar_os_bus_uart_set_baud_rate(const char *name, uint32_t baud,
                                           const char *owner)
 {
     assert(strcmp(name, "uart0") == 0 && strcmp(owner, "gnss0") == 0);
     assert(baud_change_count < sizeof(baud_changes) / sizeof(baud_changes[0]));
     baud_changes[baud_change_count++] = baud;
+    uart_baud = baud;
     return ESP_OK;
 }
 
 static nmea_gnss_device_t *attach(bool controlled)
 {
     assert(solar_os_gnss_count() == 0);
+    memset(&output_fixture, 0, sizeof(output_fixture));
     hardware_power = false;
     fail_on = fail_off = fail_task_create = false;
     stream_available = !controlled;
+    stream_baud = 0;
+    uart_baud = 9600;
     power_writes = reader_starts = 0;
     baud_change_count = 0;
     const solar_os_expansion_binding_t bindings[] = {
@@ -271,6 +294,37 @@ static void test_configured_baud_restoration(void)
     assert(solar_os_nmea_gnss_detach("gnss0") == ESP_OK);
 }
 
+static void test_always_on_dual_baud_detection(void)
+{
+    const solar_os_expansion_binding_t bindings[] = {
+        {.kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, .target = "uart0"},
+        {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "alt_baud", .value = 38400},
+    };
+    const uint32_t rates[] = {9600, 38400};
+    for (size_t i = 0; i < sizeof(rates) / sizeof(rates[0]); i++) {
+        assert(solar_os_gnss_count() == 0);
+        stream_available = true;
+        stream_baud = rates[i];
+        uart_baud = 9600;
+        baud_change_count = power_writes = reader_starts = 0;
+        assert(solar_os_nmea_gnss_attach("gnss0", bindings, 2) == ESP_OK);
+        /* A checksum-valid RMC with no position fix still registers hardware. */
+        assert(solar_os_gnss_count() == 1 && reader_starts == 1);
+        assert(devices[0].powered && devices[0].current_baud == rates[i]);
+        assert(uart_baud == rates[i] && power_writes == 0);
+        assert(baud_change_count == i);
+        assert(solar_os_nmea_gnss_detach("gnss0") == ESP_OK);
+    }
+    /* A silent receiver is not falsely registered, and baud is restored. */
+    stream_available = false;
+    uart_baud = 9600;
+    baud_change_count = 0;
+    assert(solar_os_nmea_gnss_attach("gnss0", bindings, 2) == ESP_ERR_TIMEOUT);
+    assert(solar_os_gnss_count() == 0 && uart_baud == 9600);
+    assert(baud_change_count == 2 && baud_changes[0] == 38400 && baud_changes[1] == 9600);
+    stream_baud = 0;
+}
+
 static esp_err_t detach_during_read(void *ctx, uint32_t timeout_ms,
                                     solar_os_gnss_fix_t *fix)
 {
@@ -303,12 +357,57 @@ static void test_busy_unregister_retains_device(void)
     assert(!hardware_power && solar_os_gnss_count() == 0);
 }
 
+static void test_output_control_lifecycle(void)
+{
+    for (unsigned protocol = SOLAR_OS_GNSS_OUTPUT_UBX;
+         protocol <= SOLAR_OS_GNSS_OUTPUT_CASIC; protocol++) {
+        nmea_gnss_device_t *device = attach(false);
+        output_fixture = (gnss_output_fixture_t) {
+            .protocol = protocol, .clock = &now_us, .baud = uart_baud, .text_enabled = true,
+        };
+        assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_OK);
+        assert(!device->enabled && !device->reader_run && device->powered);
+        solar_os_gnss_status_t status;
+        assert(solar_os_gnss_get_status("gnss0", 1, &status) == ESP_OK);
+        assert(!status.enabled && status.powered && !status.fix_available);
+        const unsigned sets = output_fixture.sets;
+        assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_OK);
+        assert(output_fixture.sets == sets + 1);
+        assert(solar_os_gnss_set_enabled("gnss0", true) == ESP_OK);
+        assert(device->enabled && device->reader_run && output_fixture.text_enabled);
+        output_fixture.periodic_binary = true;
+        assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_ERR_INVALID_RESPONSE);
+        assert(device->enabled && device->reader_run && output_fixture.text_enabled);
+        output_fixture.periodic_binary = false;
+        output_fixture.write_fail = true;
+        assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_FAIL);
+        assert(device->enabled && device->reader_run);
+        output_fixture.write_fail = false;
+        assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_OK);
+        const unsigned writes = power_writes;
+        assert(solar_os_nmea_gnss_detach("gnss0") == ESP_OK);
+        assert(power_writes == writes && !output_fixture.text_enabled);
+        const solar_os_expansion_binding_t uart = {
+            .kind = SOLAR_OS_EXPANSION_BINDING_UART_PORT, .target = "uart0",
+        };
+        assert(solar_os_nmea_gnss_attach("gnss0", &uart, 1) == ESP_OK);
+        assert(output_fixture.text_enabled && devices[0].reader_run);
+        assert(solar_os_nmea_gnss_detach("gnss0") == ESP_OK);
+    }
+    nmea_gnss_device_t *device = attach(false);
+    assert(solar_os_gnss_set_enabled("gnss0", false) == ESP_ERR_NOT_SUPPORTED);
+    assert(device->enabled && device->reader_run);
+    assert(solar_os_nmea_gnss_detach("gnss0") == ESP_OK);
+}
+
 int main(void)
 {
     test_startup_failure_and_recovery();
     test_failed_detach_retains_provider();
     test_fix_metadata_and_freshness();
     test_configured_baud_restoration();
+    test_always_on_dual_baud_detection();
+    test_output_control_lifecycle();
     test_busy_unregister_retains_device();
     puts("NMEA GNSS service tests: ok");
     return 0;

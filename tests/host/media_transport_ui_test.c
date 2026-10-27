@@ -13,7 +13,10 @@ typedef struct {
     double start_time;
     struct { bool audio; } info;
 } mpeg_player_t;
-struct solar_os_gfx { int unused; };
+struct solar_os_gfx { int width, height; };
+size_t solar_os_gfx_height(const solar_os_gfx_t *gfx) { return gfx->height; }
+static solar_os_gfx_font_t probe_font;
+static bool check_bounds;
 static int64_t now;
 static unsigned draws, rectangles, polygons;
 static int glyph_top, glyph_bottom;
@@ -42,16 +45,27 @@ static int64_t esp_timer_get_time(void) { return now; }
 void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
 { (void)gfx; (void)color; }
 void solar_os_gfx_set_font(solar_os_gfx_t *gfx, solar_os_gfx_font_t font)
-{ (void)gfx; (void)font; }
+{ (void)gfx; /* Font metrics used by the geometry probe. */
+  probe_font = font; }
 size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx, const char *text)
-{ (void)gfx; return strlen(text) * 7; }
+{ (void)gfx; return strlen(text) * (probe_font == SOLAR_OS_GFX_FONT_BITMAP_8 ? 5 : 7); }
 void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline, const char *text)
-{ (void)gfx; assert(x >= 0 && baseline > 0); draws++; snprintf(label, sizeof(label), "%s", text); }
+{
+    assert(x >= 0 && baseline > 0);
+    if (check_bounds) {
+        assert(x + (int)solar_os_gfx_text_width(gfx, text) <= gfx->width);
+        assert(baseline < gfx->height);
+        assert(baseline >= (probe_font == SOLAR_OS_GFX_FONT_BITMAP_8 ? 7 : 11));
+    }
+    draws++; snprintf(label, sizeof(label), "%s", text);
+}
 void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
-{ (void)gfx; (void)x; (void)y; (void)width; (void)height; }
+{ if (check_bounds) assert(x >= 0 && y >= 0 && width > 0 && height > 0 &&
+    x + width <= gfx->width && y + height <= gfx->height); }
 void solar_os_gfx_fill_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
 {
     (void)gfx; assert(x >= 0 && y >= 0 && width > 0 && height > 0);
+    if (check_bounds) assert(x + width <= gfx->width && y + height <= gfx->height);
     rectangles++;
     last_rect_y = y; last_rect_height = height;
     if (y < glyph_top) glyph_top = y;
@@ -73,7 +87,7 @@ void solar_os_gfx_line(solar_os_gfx_t *gfx, int x, int y, int x1, int y1)
 
 int main(void)
 {
-    struct solar_os_gfx gfx = {0};
+    struct solar_os_gfx gfx = {240, 240};
     mpeg_player_t p = {.screen_width = 240, .screen_height = 240};
     assert(draw_play_time(&p, &gfx, 0, true) && strcmp(label, "PLAYING 00:00") == 0);
     assert(!draw_play_time(&p, &gfx, 999999, false));
@@ -136,6 +150,36 @@ int main(void)
             assert(last_rect_y >= layout.controls_y); /* Dynamic time never touches video. */
         }
     }
+    const int small_screens[][2] = {{240, 64}, {128, 64}, {96, 48}, {84, 128}, {240, 135}, {384, 168}};
+    for (size_t screen = 0; screen < sizeof(small_screens) / sizeof(*small_screens); screen++) {
+        int w = small_screens[screen][0], h = small_screens[screen][1];
+        gfx.width = w; gfx.height = h; check_bounds = true;
+        for (unsigned seek = 0; seek < 2; seek++) {
+            solar_os_media_player_layout_t l;
+            solar_os_media_player_layout(w, h, seek, &l);
+            assert(l.compact && l.view_height >= 2 && l.view_width > 0);
+            assert(l.view_y >= l.header_height && l.view_y + l.view_height < l.controls_y);
+            if (l.title_y >= 0) assert(l.status_y - 7 > l.title_y);
+            assert(l.status_y < l.button_y);
+            solar_os_media_player_header_draw(&gfx, w, "WebRadio", "PLAYER [CHANNELS]");
+            solar_os_media_player_controls_draw(&gfx, w, h, "long selected filename.wav",
+                "PLAYING 12:34 / 99:59", 50, seek, SOLAR_OS_MEDIA_TRANSPORT_PAUSE);
+            solar_os_media_player_status_draw(&gfx, w, h, "PAUSED 12:34");
+            assert(last_rect_y >= l.controls_y && last_rect_y + last_rect_height <= l.button_y);
+            for (int i = 0; i < l.button_count; i++) {
+                int x = l.button_gap * (i + 1) + l.button_width * i;
+                assert(solar_os_media_player_button_at(w, h, seek, x, l.button_y) == i);
+                assert(solar_os_media_player_button_at(w, h, seek, x - 1, l.button_y) == -1);
+                assert(solar_os_media_player_button_at(w, h, seek, x, l.button_y + l.button_height) == -1);
+            }
+            solar_os_media_dialog_draw(&gfx, w, h, "Recording filename", "very-long-filename-with-cursor_", "Enter save Esc cancel");
+        }
+        solar_os_media_list_layout_t list;
+        solar_os_media_list_layout(w, h, &list);
+        assert(list.visible > 0 && list.top >= 10);
+        assert(list.top + list.visible * list.row_height <= h - list.footer_height);
+    }
+    check_bounds = false;
     /* The common glyphs occupy the same vertical span at common button sizes. */
     const solar_os_media_transport_icon_t icons[] = {
         SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS, SOLAR_OS_MEDIA_TRANSPORT_REWIND,

@@ -48,7 +48,7 @@ static void control_list(solar_os_shell_io_t *io)
 {
     const size_t count = solar_os_control_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "No controls configured");
+        solar_os_shell_io_table_writeln(io, "No controls configured");
         return;
     }
     for (size_t i = 0; i < count; i++) {
@@ -56,26 +56,26 @@ static void control_list(solar_os_shell_io_t *io)
         if (!solar_os_control_get_info(i, &info)) {
             continue;
         }
-        solar_os_shell_io_printf(io, "%s: source=%s range=%.3g..%.3g",
+        solar_os_shell_io_table_printf(io, "%s: source=%s range=%.3g..%.3g",
                                  info.config.name,
                                  info.config.source[0] != '\0' ?
                                      info.config.source : "manual",
                                  (double)info.config.input_minimum,
                                  (double)info.config.input_maximum);
         if (info.has_value) {
-            solar_os_shell_io_printf(io, " value=%u raw=%.3g",
+            solar_os_shell_io_table_printf(io, " value=%u raw=%.3g",
                                      (unsigned)info.normalized,
                                      (double)info.source_value);
         }
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  " samples=%" PRIu32 " updates=%" PRIu32,
                                  info.samples,
                                  info.updates);
         if (info.last_error != ESP_OK) {
-            solar_os_shell_io_printf(io, " error=%s",
+            solar_os_shell_io_table_printf(io, " error=%s",
                                      esp_err_to_name(info.last_error));
         }
-        solar_os_shell_io_writeln(io, "");
+        solar_os_shell_io_table_writeln(io, "");
     }
 }
 
@@ -83,7 +83,7 @@ static void control_list_parameters(solar_os_shell_io_t *io)
 {
     const size_t count = solar_os_parameter_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "No native parameters available");
+        solar_os_shell_io_table_writeln(io, "No native parameters available");
         return;
     }
     for (size_t i = 0; i < count; i++) {
@@ -93,7 +93,7 @@ static void control_list_parameters(solar_os_shell_io_t *io)
             continue;
         }
         const esp_err_t err = solar_os_parameter_get(info.path, &value);
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io,
             "%s: %s %.4g..%.4g step=%.4g curve=%s",
             info.path,
@@ -103,12 +103,12 @@ static void control_list_parameters(solar_os_shell_io_t *io)
             (double)info.step,
             solar_os_parameter_curve_name(info.curve));
         if (err == ESP_OK) {
-            solar_os_shell_io_printf(io, " value=%.4g%s%s",
+            solar_os_shell_io_table_printf(io, " value=%.4g%s%s",
                                      (double)value,
                                      info.unit[0] != '\0' ? " " : "",
                                      info.unit);
         }
-        solar_os_shell_io_writeln(io, "");
+        solar_os_shell_io_table_writeln(io, "");
     }
 }
 
@@ -116,7 +116,7 @@ static void control_list_bindings(solar_os_shell_io_t *io)
 {
     const size_t count = solar_os_control_binding_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "No control bindings configured");
+        solar_os_shell_io_table_writeln(io, "No control bindings configured");
         return;
     }
     for (size_t i = 0; i < count; i++) {
@@ -124,25 +124,25 @@ static void control_list_bindings(solar_os_shell_io_t *io)
         if (!solar_os_control_binding_get(i, &binding)) {
             continue;
         }
-        solar_os_shell_io_printf(io, "%s -> ", binding.control);
+        solar_os_shell_io_table_printf(io, "%s -> ", binding.control);
         if (binding.target == SOLAR_OS_CONTROL_TARGET_MIDI_CC) {
-            solar_os_shell_io_printf(io, "midi ch=%u cc=%u",
+            solar_os_shell_io_table_printf(io, "midi ch=%u cc=%u",
                                      (unsigned)binding.midi_channel,
                                      (unsigned)binding.midi_controller);
         } else {
-            solar_os_shell_io_printf(io, "%s pickup=%s%s",
+            solar_os_shell_io_table_printf(io, "%s pickup=%s%s",
                                      binding.parameter,
                                      binding.pickup ? "on" : "off",
                                      binding.pickup && binding.pickup_latched ?
                                          " latched" : "");
         }
-        solar_os_shell_io_printf(io, " applied=%" PRIu32,
+        solar_os_shell_io_table_printf(io, " applied=%" PRIu32,
                                  binding.applied);
         if (binding.last_error != ESP_OK) {
-            solar_os_shell_io_printf(io, " error=%s",
+            solar_os_shell_io_table_printf(io, " error=%s",
                                      esp_err_to_name(binding.last_error));
         }
-        solar_os_shell_io_writeln(io, "");
+        solar_os_shell_io_table_writeln(io, "");
     }
 }
 

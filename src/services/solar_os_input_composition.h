@@ -15,3 +15,5 @@ void solar_os_input_composition_set_modifiers(solar_os_input_source_t source,
                                               uint8_t modifiers);
 uint8_t solar_os_input_composition_modifiers(void);
 uint8_t solar_os_input_composition_apply(uint8_t key);
+/* Translate a delayed gesture using the modifiers captured during movement. */
+uint8_t solar_os_input_composition_apply_with_modifiers(uint8_t key, uint8_t modifiers);

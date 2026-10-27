@@ -20,6 +20,17 @@ static int fail_after = -1;
 static int64_t time_us;
 static uint8_t frame[48000], shadow[48000], line[100];
 
+esp_err_t gpio_config(const gpio_config_t *config) { assert(config); return ESP_OK; }
+esp_err_t gpio_reset_pin(gpio_num_t pin) { (void)pin; return ESP_OK; }
+esp_err_t spi_bus_remove_device(spi_device_handle_t device) { assert(device); return ESP_OK; }
+esp_err_t solar_os_bus_spi_add_device(const char *name,
+    const spi_device_interface_config_t *config, spi_device_handle_t *device)
+{
+    assert(name && config && device);
+    *device = (void *)1;
+    return ESP_OK;
+}
+
 void vTaskDelay(TickType_t ticks)
 {
     assert(ticks > 0);
@@ -161,8 +172,18 @@ static void test_failures_and_sleep(void)
     assert(!config_valid(&c));
 }
 
+#define RELAX_TYPE epd_ultrachip_t
+#define RELAX_REFRESH epd_ultrachip_refresh
+#define RELAX_APPLY epd_ultrachip_relax
+#define RELAX_MODE epd_ultrachip_set_controller_mode
+#define RELAX_PARTIAL EPD_ULTRACHIP_REFRESH_PARTIAL
+#define RELAX_COUNT count
+#define RELAX_WIRE find(0x13, 0)->data + d.panel->gate_offset * EPD_ULTRACHIP_ROW_BYTES
+#include "epd_relax_contract.h"
+
 int main(void)
 {
     test_full_and_partial(); test_failures_and_sleep();
+    test_relax_transaction();
     puts("epd_uc8179_test: PASS"); return 0;
 }

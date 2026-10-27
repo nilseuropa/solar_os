@@ -1,0 +1,7 @@
+# Extra defaults for boards that ship the SC2 chat stack (flavor sc2 = true),
+# layered after the board's own defaults in platformio.ini.
+# The main task runs the UI, and the chat UI calls into SC2 directly (opening a
+# DM loads and verifies the peer bundle: Ed25519 verify needs about 4 KiB of
+# stack on its own). 12 KiB instead of 8 KiB, internal RAM, main task only.
+# scripts/sdkconfig_minimums.cmake raises existing generated sdkconfig files.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288

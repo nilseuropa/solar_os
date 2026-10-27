@@ -1,9 +1,13 @@
 import importlib.util
 from pathlib import Path
+import re
+import subprocess
 import sys
+import tempfile
 import unittest
 
 from PIL import ImageFont
+from test_foreground_presenter import production_functions
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -16,6 +20,24 @@ SPEC.loader.exec_module(generate_u8g2_fonts)
 
 
 class FontGenerationTest(unittest.TestCase):
+    def test_fixed_bitmap_terminal_cells(self):
+        component = REPOSITORY / "components/u8g2"
+        cmake = (component / "CMakeLists.txt").read_text().split("\n)", 1)[0]
+        sources = [str(component / name) for name in re.findall(r'"([^"]+\.c)"', cmake)]
+        with tempfile.TemporaryDirectory() as directory:
+            terminal = (REPOSITORY / "src/services/solar_os_terminal.c").read_text()
+            Path(directory, "terminal_cell.inc").write_text(
+                production_functions(terminal, ("terminal_draw_cell",)))
+            binary = str(Path(directory) / "bitmap-test")
+            subprocess.run([
+                "cc", "-std=c11", "-O2", "-ffunction-sections", "-fdata-sections",
+                "-I" + str(component / "src/clib"),
+                "-I" + directory,
+                str(REPOSITORY / "tests/host/terminal_bitmap_font_test.c"),
+                *sources, "-Wl,--gc-sections", "-o", binary,
+            ], check=True)
+            subprocess.run([binary], check=True)
+
     def test_italic_overhang_is_preserved_without_widening_advance(self):
         for filename in ("Italic.ttf", "BoldItalic.ttf"):
             for size in generate_u8g2_fonts.DEFAULT_SIZES:

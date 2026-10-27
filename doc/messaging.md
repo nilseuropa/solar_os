@@ -25,15 +25,106 @@ Zero is the invalid value for every identifier. Public snapshot and visitor
 APIs copy records while holding the owning service lock, release the lock, and
 only then invoke callers or perform I/O.
 
-## Providers
+## Provider classes and instances
 
-The assigned provider identifiers are:
+A provider class supplies protocol capabilities and operations. Independent
+instances carry stable numeric IDs, names, configuration, status, and runtime
+contexts. Classes and instances register at runtime; enumeration follows the
+registry rather than protocol enums or fixed provider arrays. Several IRC and
+Gateway instances can run simultaneously, with independent transport state,
+room membership, queues, and reconnect handling. Link projections bind separate
+instances to named Link transports, each with its own send and acknowledgement
+tracker. MeshCore instances carry separate local-radio or BLE-companion runtime
+contexts. Each MeshCore job maintains all enabled bindings of its transport type;
+both jobs can run concurrently. Duplicate physical-radio or companion bindings
+are rejected. Hardware transport workers retain their resource ownership rules.
 
-| ID | Name | Purpose |
+The original IDs retain their meaning as default instances:
+
+| Instance ID | Name | Purpose |
 | --- | --- | --- |
 | 1 | `gateway` | Existing SolarOS gateway Chat protocol |
 | 2 | `meshcore` | MeshCore companion/chat provider |
 | 3 | `link` | SolarOS Link text, direct, and broadcast projection |
+
+Additional instance IDs are allocated from 4 through 255, preserving the
+byte-sized identity field in existing Contacts and Credentials files. This
+identity-space bound is independent of the number of protocol classes;
+runtime memory admission still limits active connections. Conversation keys,
+contact endpoints, events, and outbound requests reference an instance, so
+matching channel names or nicknames on different connections remain separate.
+The existing history record layout remains compatible.
+
+Classes expose optional create, configure, join, leave, direct-open, connect, and target
+normalization operations. Messaging dispatches them outside its global lock.
+Group backends can resolve a subscription and return its canonical conversation
+through `join_open`, so membership does not allocate a placeholder room.
+Chat and scripts consume common membership states: none, left, pending, joined,
+and failed with a bounded reason. Class descriptors have static lifetime;
+instance contexts are leased until each operation finishes. Removal is refused
+while an operation is in progress. A class's `remove_prepare` excludes workers
+until `remove_finish` commits destruction or resumes them after a storage error.
+Registry labels remain stable and instance IDs are never reused.
+
+`solar_os_messaging_instance_remove` requires lifecycle hooks before removing a
+bound instance, including a default instance. It replaces the profile with a checked zero-payload record,
+then destroys its runtime context, cancels queued work, and deletes its retained
+messages, conversations, and Inbox projections. A reset after committing the
+record completes the history purge during Messaging initialization. The record retains only ID, name, and class; no
+connection settings or credentials remain. A committed record takes precedence
+over a stale backup during recovery. Failure before committing the record leaves
+the original profile and transport intact. File operations never hold the
+Messaging state lock. IRC also excludes configuration edits and its worker
+during the replacement, then frees the retired instance's PSRAM context.
+
+Saved connection profiles use checked, versioned files in `.chat/profiles` on
+mounted storage. The selected volume remains fixed during a boot. Temporary
+files are verified before replacement and an interrupted replacement can
+recover its backup. Gateway configuration migrates from NVS only after a
+verified file round trip; legacy keys remain intact when saving fails. IRC
+does not add NVS records. Its authentication settings are stored in its profile
+and excluded from status and scripting enumeration.
+
+Shared credentials, user radio profiles, and configured ESP-NOW peers use checked
+files in `.settings` on mounted storage. Each store pins its selected volume for
+the boot and recovers an interrupted replacement from a valid backup. Legacy NVS
+blobs remain until a valid file has been committed. New settings writes use files;
+there is no NVS fallback for mutations. Removing an instance also deletes its
+shared credential records, and boot recovery repeats that purge for retired IDs.
+
+`messages classes` lists registered classes; `messages instances` lists active
+instances. `messages add gateway NAME URL [TOKEN]` creates a disabled Gateway
+instance and `messages configure NAME URL [TOKEN]` changes its connection.
+Use `messages connect NAME`, `messages join NAME ROOM`, and `messages remove NAME`
+for its lifecycle. Chat exposes the same settings through `/add gateway NAME URL
+[TOKEN]` and `/configure NAME URL [TOKEN]`. Configuration commands are omitted
+from shell and Chat input history. `gateway` commands address the default Gateway.
+`job start gateway-sync` maintains all enabled Gateway instances.
+
+All installed backends expose setup through the same class registry. IRC accepts
+`HOST PORT NICK`, MeshCore accepts `radio RADIO PROFILE` or `ble ADDRESS TYPE [PIN]`,
+and Link accepts `TRANSPORT`. The `solaros.messages` Python and Lua submodules
+expose `classes()`, `add(class, name, settings)`, and `configure(instance, settings)`;
+settings are bounded lists/tables in shell argument order. Enumeration excludes
+authentication material.
+
+`messages add link NAME TRANSPORT` binds a Chat instance to a named Link
+transport; two Chat instances cannot bind the same transport. Its transport job
+must run with `chat=on`. `messages connect NAME` enables the projection and
+`messages join NAME broadcast` selects its broadcast conversation. Direct
+targets use hexadecimal device IDs with `messages query NAME DEVICE_ID`.
+`messages configure NAME TRANSPORT` changes the binding. Removal detaches only
+that Chat projection and deletes its history; a shared transport and its byte
+streams continue running. Legacy `chat=on` starts reuse the saved projection for
+that transport, or allocate one when no binding exists. The first legacy
+projection uses default ID 3 when available. Bindings and enabled state are
+saved in mounted storage.
+
+Native IRC provides live TLS sessions with optional SASL, channels, private
+messages, reconnect/rejoin, bounded buffers, and paced sends. It requests no
+history or echo-message capabilities. A completed socket write becomes `sent`,
+without a recipient-delivery claim. Interrupted sends fail without automatic
+replay. See `manual/messaging.irc.md` for setup and controls.
 
 A provider owns transport configuration, connection state, wire identifiers,
 and provider-specific metadata. Generic services own contacts, trust,
@@ -84,12 +175,37 @@ provider, kind, and label. Secret reads name one exact record and copy into a
 caller-provided buffer.
 
 Secret bytes are never published to Inbox, logs, autocomplete, native agent
-tools, Python, or Lua. Temporary secret buffers must be wiped. SolarOS
-currently stores NVS without flash encryption; physical flash access can
-therefore recover these records.
+tools, Python, or Lua. Temporary secret buffers must be wiped. The mounted
+credential file is unencrypted; access to its volume can recover these records.
 
 SSH keys, native-agent API keys, and existing tokens are not migrated into this
 service in this release.
+
+## Settings forms and messaging manager
+
+The `messages` foreground app uses the common TUI layer on display and VT100
+shells. It has Instances, Connections, and Messages tabs. Chat remains a separate
+app, launched with `SOLAR_OS_LAUNCH_CHILD_RETURN` so the manager retains its
+selected instance, view, and cursor.
+
+Settings use `solar_os_tui_draw_form`, the shared scrollable form widget. The
+widget renders the selected field's inline editor last and owns cursor position,
+visibility, horizontal input scrolling, and masking. Apps supply row labels and
+values, field actions, and save/cancel behavior. Draw surrounding screen elements
+before the form and refresh after it.
+
+Provider classes own `settings_read` and `settings_write` callbacks. A NULL
+context describes or creates an instance; non-NULL contexts are leased for the
+operation. Form indices enumerate backend variants. The generic settings API
+validates field lengths against the provider's schema before saving. Secret
+readback is empty with a separate presence flag; unchanged fields preserve saved
+values and explicitly edited empty secrets clear them. Settings forms and
+configuration copies belong in external memory, outside the foreground stack.
+
+`solar_os_messaging_message_page_filtered` provides bounded archive pages with
+optional unread filtering. Its offset counts matching messages. The browser
+deletes a selected message by its stable key through
+`solar_os_messaging_message_delete`; pending sends must be cancelled first.
 
 ## Conversations and messages
 
@@ -185,22 +301,42 @@ radio or companion transport without changing provider keys or message IDs.
 The outbox is volatile. Restored outbound `queued` and `sending` messages become
 `failed`, with an interruption reason, rather than implying pending work.
 
-Messages uses the same bounded fixed-slot and dual-header approach at
-`/.messages/messages.bin` only when the active storage has the large-history
-capacity already required by Chat. Small internal flash uses the compact
-records physically shared with Inbox as its internal history backend. This is
-reported as `compact internal` rather than exposed as an Inbox fallback.
-Deletions rewrite the compact store atomically. Full-history deletions use CRC-checked
-tombstones in their original fixed slots, so surviving records do not need to
-be copied during provider-scoped clearing.
+Messages retains received and sent records in `.messages/history.bin` on its
+selected disk volume. The 64-entry PSRAM cache is independent of disk retention.
+History grows with available disk space and does not overwrite older records.
+Disk readers support complete conversation visits and bounded history pages.
+Unread counts, replay cursors, deduplication, deletion, and delivery updates
+include records outside the cache.
 
-No `/.chat/messages.bin` records are migrated. After the new Messages store
-initializes successfully, the obsolete Chat store is removed. Existing Inbox
-notifications remain.
+Each conversation tracks its message count, replay cursor, and recent record
+offsets in bounded PSRAM indexes. Opening an empty conversation and marking an
+already-read conversation read require no archive reads. Recent pages reuse
+cached message bodies and read only missing records; older pages remain
+available from disk.
 
-Persistence snapshots carry a generation. Filesystem writes and `fsync` occur
-after releasing the service lock; the generation is rechecked before the
-result is committed as current.
+Each record has two CRC-checked copies. An update syncs the inactive copy before
+committing its state in memory. A fixed 256-bucket index in PSRAM follows
+on-disk links for message lookup. Disk transfers and syncing release the
+metadata mutex while a separate history mutex serializes history operations.
+Visitor callbacks run outside the history and metadata locks.
+
+New sends enter the volatile outbox only after their history record is durable.
+Storage errors are reported rather than evicting accepted messages. Explicit
+deletion writes a tombstone. Provider and conversation clearing compact the
+archive through a staged replacement; interrupted replacements recover the
+previous archive from its backup. Outbound IDs remain monotonic after clearing.
+
+The selected archive path is recorded in internal flash. If SD mounts after
+startup, an internal archive is copied, checked, and synced before the location
+record is replaced. The internal copy is removed only after that commit.
+Existing SD archives are not overwritten. A missing selected volume leaves
+history unavailable until it returns; status queries retry attachment without
+replacing the saved history with an empty store.
+
+The previous `.messages/messages.bin` ring and compact Inbox records migrate
+through a staged archive, including the internal Inbox when SD is mounted.
+Original files remain intact. The obsolete `.chat/messages.bin` format is not
+imported or removed.
 
 ## User interfaces and scripting
 
@@ -220,7 +356,7 @@ Inbox messages can be removed individually with `d` in either Inbox view or
 with `inbox delete <decimal-id>`. Shared retained messages can be removed with
 `messages delete <hex-message-id>`.
 
-Provider receive queues, event rings, and the compact persistence ring are
+Provider receive queues, event rings, Inbox notifications, and the RAM cache are
 bounded implementation details. They are not additional user mailboxes:
 Messaging owns conversations and history, Inbox shows inbound notifications,
 and Outbox shows pending sends.

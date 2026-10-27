@@ -101,10 +101,11 @@ esp_err_t solar_os_inference_backend_run(solar_os_inference_backend_t *backend,
     }
     r->elapsed_us = 123; return ESP_OK;
 }
-void solar_os_inference_backend_reset(solar_os_inference_backend_t *b) { if (b) ++b->resets; }
-void solar_os_inference_backend_set_mode(solar_os_inference_backend_t *b, solar_os_inference_mode_t mode)
+esp_err_t solar_os_inference_backend_reset(solar_os_inference_backend_t *b) { if (b) ++b->resets; return ESP_OK; }
+esp_err_t solar_os_inference_backend_set_mode(solar_os_inference_backend_t *b, solar_os_inference_mode_t mode)
 {
     (void)b; assert((unsigned)mode <= SOLAR_OS_INFERENCE_DUAL);
+    return ESP_OK;
 }
 void solar_os_inference_backend_close(solar_os_inference_backend_t *b) { solar_os_memory_free(b); }
 #ifndef INFERENCE_NATIVE_BUNDLE_TEST

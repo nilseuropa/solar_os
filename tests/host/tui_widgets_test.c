@@ -224,6 +224,50 @@ static void test_masked_input_draw(void)
     assert(test_cursor_visible);
 }
 
+static void form_row(size_t index, char *text, size_t capacity, void *user)
+{
+    assert(user == test_screen);
+    snprintf(text, capacity, "Field%zu: value", index);
+}
+
+static void test_inline_form(void)
+{
+    solar_os_tui_t tui = {0};
+    solar_os_tui_viewport_t viewport = {.cursor = 3};
+    const char value[] = "https://example.org/long-path";
+    solar_os_tui_input_state_t input = {.cursor = strlen(value)};
+    solar_os_tui_form_t form = {
+        .bounds = {.row = 0, .col = 2, .height = 2, .width = 12},
+        .viewport = &viewport, .count = 5, .row = form_row, .user = test_screen,
+        .empty_text = "Empty", .edit_label = "URL: ", .edit_text = value, .edit_state = &input,
+    };
+    /* Surrounding UI is drawn first; the form owns the final cursor position. */
+    assert(solar_os_tui_write_cell(&tui, 3, 0, TEST_COLS, "Enter apply  Esc cancel", 0) == ESP_OK);
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK);
+    assert(viewport.top == 2 && test_cursor_visible);
+    assert(test_cursor_row == 1 && test_cursor_col == 13 && input.view > 0);
+    assert(test_screen[0][2] == 'F' && test_screen[0][7] == '2');
+    assert(test_screen[1][2] == 'U' && test_screen[1][5] == ':');
+    assert(test_screen[3][0] == 'E');
+    input.cursor = 0;
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK);
+    assert(test_cursor_row == 1 && test_cursor_col == 7 && input.view == 0);
+    form.edit_label = "Token: "; form.edit_text = "p\xc3\xa4ss";
+    form.masked = true; input.cursor = strlen(form.edit_text);
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK);
+    for (size_t col = 9; col < 13; col++) assert(test_screen[1][col] == '*');
+    assert(test_cursor_visible && test_cursor_col == 13);
+    form.bounds.height = 1;
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK && viewport.top == 3 && test_cursor_row == 0);
+    form.edit_state = NULL;
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK && !test_cursor_visible);
+    form.count = 0;
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_OK && viewport.cursor == 0 && !test_cursor_visible);
+    assert(test_screen[0][2] == 'E');
+    form.bounds.width = TEST_COLS;
+    assert(solar_os_tui_draw_form(&tui, &form) == ESP_ERR_INVALID_ARG);
+}
+
 int main(void)
 {
     test_viewport();
@@ -231,6 +275,7 @@ int main(void)
     test_fullscreen_key();
     test_input();
     test_masked_input_draw();
+    test_inline_form();
     puts("tui_widgets_test: ok");
     return 0;
 }

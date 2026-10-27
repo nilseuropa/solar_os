@@ -35,17 +35,17 @@ static void daq_stream_print_list(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_stream_count();
     if (count == 0) {
-        solar_os_shell_io_writeln(term, "streams: none");
+        solar_os_shell_io_table_writeln(term, "streams: none");
         return;
     }
 
-    solar_os_shell_io_writeln(term, "ID           TYPE    FORMAT UNIT      SUMMARY");
+    solar_os_shell_io_table_writeln(term, "ID           TYPE    FORMAT UNIT      SUMMARY");
     for (size_t i = 0; i < count; i++) {
         solar_os_stream_info_t info;
         if (!solar_os_stream_get(i, &info)) {
             continue;
         }
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%-12s %-7s %-6s %-9s %s\n",
                                  info.id,
                                  solar_os_stream_type_name(info.type),

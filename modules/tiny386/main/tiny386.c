@@ -265,7 +265,7 @@ int main(int argc, char **argv)
         if (tiny_app->time_us() >= next_frame) {
             pc_vga_step(machine); present(); next_frame = tiny_app->time_us() + 66666;
         }
-        tiny_app->sleep_ms(1);
+        solar_os_native_foreground_cooperate(tiny_app);
     }
 done:
     if (tiny_failure) { tiny_report("tiny386: emulation stopped"); tiny_report(tiny_failure); }

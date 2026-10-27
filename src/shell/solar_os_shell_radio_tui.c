@@ -16,6 +16,10 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+#include "solar_os_rfscan.h"
+#endif
 
 #define RADIO_TUI_STATUS_MAX 96
 #define RADIO_TUI_EDIT_MAX 64
@@ -33,6 +37,7 @@ typedef enum {
     RADIO_TUI_ITEM_SPREADING_FACTOR,
     RADIO_TUI_ITEM_CODING_RATE,
     RADIO_TUI_ITEM_POWER,
+    RADIO_TUI_ITEM_RX_GAIN,
     RADIO_TUI_ITEM_CRC,
     RADIO_TUI_ITEM_VARIABLE,
     RADIO_TUI_ITEM_PREAMBLE,
@@ -75,6 +80,7 @@ static const radio_tui_item_def_t radio_tui_items[] = {
     [RADIO_TUI_ITEM_SPREADING_FACTOR] = {.label = "sf", .editable = true},
     [RADIO_TUI_ITEM_CODING_RATE] = {.label = "coding rate", .editable = true},
     [RADIO_TUI_ITEM_POWER] = {.label = "power", .editable = true},
+    [RADIO_TUI_ITEM_RX_GAIN] = {.label = "rx gain", .editable = false},
     [RADIO_TUI_ITEM_CRC] = {.label = "crc", .editable = false},
     [RADIO_TUI_ITEM_VARIABLE] = {.label = "variable", .editable = false},
     [RADIO_TUI_ITEM_PREAMBLE] = {.label = "preamble", .editable = true},
@@ -398,6 +404,10 @@ static void radio_tui_current_value(radio_tui_item_t item,
         break;
     case RADIO_TUI_ITEM_POWER:
         snprintf(buffer, buffer_len, "%d", (int)config->tx_power_dbm);
+        break;
+    case RADIO_TUI_ITEM_RX_GAIN:
+        strlcpy(buffer, info->rx_gain_modes != 0 ?
+            solar_os_radio_rx_gain_name(config->rx_gain) : "unsupported", buffer_len);
         break;
     case RADIO_TUI_ITEM_CRC:
         strlcpy(buffer, config->crc_enabled ? "on" : "off", buffer_len);
@@ -796,6 +806,20 @@ static void radio_tui_cycle_selected(int direction)
 
     config = status.config;
     switch ((radio_tui_item_t)radio_tui.selected) {
+    case RADIO_TUI_ITEM_RX_GAIN:
+        if (info.rx_gain_modes == 0) {
+            radio_tui_set_status("RX gain unsupported");
+            break;
+        }
+        for (unsigned i = 0; i < SOLAR_OS_RADIO_RX_GAIN_COUNT; i++) {
+            config.rx_gain = (uint8_t)((config.rx_gain + SOLAR_OS_RADIO_RX_GAIN_COUNT +
+                (direction < 0 ? -1 : 1)) % SOLAR_OS_RADIO_RX_GAIN_COUNT);
+            if ((info.rx_gain_modes & SOLAR_OS_RADIO_RX_GAIN_BIT(config.rx_gain)) != 0) {
+                radio_tui_apply_config(info.name, &config);
+                break;
+            }
+        }
+        break;
     case RADIO_TUI_ITEM_STATE:
         err = solar_os_radio_set_state(info.name, radio_tui_next_state(status.state, direction));
         if (err == ESP_OK) {
@@ -870,6 +894,9 @@ static esp_err_t radio_tui_start(solar_os_context_t *ctx)
         return err;
     }
     radio_tui_set_status("enter edits, arrows cycle, esc exits");
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    if (solar_os_context_gfx(ctx) != NULL) radio_tui_set_status("s: graphical scanner");
+#endif
     solar_os_tui_set_cursor_visible(&radio_tui.tui, false);
     radio_tui_render();
     return ESP_OK;
@@ -931,6 +958,21 @@ static bool radio_tui_event(solar_os_context_t *ctx, const solar_os_event_t *eve
         radio_tui_handle_edit_key(key);
         return true;
     }
+
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    if (key == 's' && solar_os_context_gfx(ctx) != NULL) {
+        solar_os_radio_info_t info;
+        if (radio_tui_current(&info, NULL)) {
+            char *args[] = {"rfscan", info.name};
+            esp_err_t err = solar_os_context_request_launch(ctx, &solar_os_rfscan_app, 2, args);
+            if (err != ESP_OK) {
+                radio_tui_set_status(esp_err_to_name(err));
+                radio_tui_render();
+            }
+        }
+        return true;
+    }
+#endif
 
     if (key == SOLAR_OS_KEY_APP_EXIT || key == SOLAR_OS_KEY_ESCAPE) {
         solar_os_context_finish(radio_tui.ctx, 0, NULL);

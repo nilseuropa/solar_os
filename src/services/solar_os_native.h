@@ -7,6 +7,7 @@
 #include "solar_os_module_packages.h"
 #include "solar_os_native_abi.h"
 #include "solar_os_native_elf.h"
+#include "solar_os_native_library_abi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +55,14 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
                                             size_t detail_len);
 bool solar_os_native_module_active(solar_os_module_type_t type,
                                    const char *id);
+
+/* Stable native service results, usable by firmware consumers as well. */
+int solar_os_native_library_acquire(const char *id, uint32_t abi_version,
+                                    uint32_t minimum_struct_size,
+                                    uint32_t *lease, const void **api);
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained_lease);
+int solar_os_native_library_release(uint32_t lease);
+int solar_os_native_library_unload(const char *id);
 
 #ifdef __cplusplus
 }

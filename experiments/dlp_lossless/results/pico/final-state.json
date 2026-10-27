@@ -1,0 +1,12 @@
+{
+  "model": "Pico RAM display",
+  "geometry": [
+    320,
+    240
+  ],
+  "format": "RGB565_BE",
+  "completed_smoke_frames": 2,
+  "experimental_query": "unsupported",
+  "final_firmware": "ordinary RAM baseline",
+  "flash_load_verified": true
+}

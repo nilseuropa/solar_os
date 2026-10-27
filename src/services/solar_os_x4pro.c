@@ -18,6 +18,7 @@
 
 typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
+    int latch_pin;
     epd_xteink_controller_t controller;
     union { epd_ssd1677_t ssd; epd_ultrachip_t uc; } panel;
     frontlight_pwm_t light;
@@ -147,13 +148,36 @@ static esp_err_t set_controller_mode(solar_os_board_display_t *display, const ch
         epd_ultrachip_set_controller_mode(&d->panel.uc, mode);
 }
 
+static esp_err_t relax(solar_os_board_display_t *display, solar_os_display_relax_phase_t phase)
+{
+    if (!display || !display->driver) return ESP_ERR_INVALID_STATE;
+    x4pro_device_t *d = display->driver;
+    return d->controller == EPD_XTEINK_SSD1677 ?
+        epd_ssd1677_relax(&d->panel.ssd, phase) : epd_ultrachip_relax(&d->panel.uc, phase);
+}
+
+static esp_err_t shutdown(solar_os_board_display_t *display)
+{
+    if (display == NULL || display->driver == NULL) return ESP_ERR_INVALID_STATE;
+    x4pro_device_t *d = display->driver;
+    const esp_err_t err = gpio_set_level(d->latch_pin, 0);
+    if (err == ESP_OK) {
+        const esp_err_t hold_err = gpio_hold_en(d->latch_pin);
+        if (hold_err != ESP_OK) return hold_err;
+        gpio_deep_sleep_hold_en();
+    }
+    return err;
+}
+
 static const solar_os_board_display_ops_t ops = {
     .runtime_ready = runtime_ready, .resume = resume, .deinit = deinit,
     .set_power_save = set_power_save,
+    .shutdown = shutdown,
     .brightness_supported = brightness_supported,
     .get_brightness = get_brightness, .set_brightness = set_brightness,
     .controller_mode = controller_mode, .controller_mode_values = controller_mode_values,
     .set_controller_mode = set_controller_mode,
+    .relax = relax,
 };
 
 esp_err_t solar_os_x4pro_attach(const char *name,
@@ -192,6 +216,8 @@ esp_err_t solar_os_x4pro_attach(const char *name,
     d->display.ops = &ops;
     d->display.driver = d;
     const gpio_config_t latch = {.pin_bit_mask = 1ULL << pins[4], .mode = GPIO_MODE_OUTPUT};
+    d->latch_pin = pins[4];
+    (void)gpio_hold_dis(pins[4]);
     esp_err_t err = gpio_config(&latch);
     if (err == ESP_OK) err = gpio_set_level(pins[4], 1);
     if (err == ESP_OK) err = frontlight_pwm_init(&d->light, pins[5], pins[6]);

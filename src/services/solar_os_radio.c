@@ -10,13 +10,19 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "solar_os_saved_config.h"
 
 #define SOLAR_OS_RADIO_DEVICE_MAX 4
 #define RADIO_RELEASE_WAIT_MS 3500U
 #define RADIO_PROFILE_NVS_NAMESPACE "radio_prof"
 #define RADIO_PROFILE_NVS_KEY "profiles"
 #define RADIO_PROFILE_MAGIC 0x52504631U
-#define RADIO_PROFILE_VERSION 1U
+#define RADIO_PROFILE_VERSION 2U
+
+/* Version 1 stored this struct verbatim, with two tail-padding bytes. */
+_Static_assert(sizeof(solar_os_radio_config_t) == 44 &&
+                   offsetof(solar_os_radio_config_t, rx_gain) == 42,
+               "radio profile v1 layout must remain readable");
 
 typedef struct {
     bool active;
@@ -262,7 +268,18 @@ static esp_err_t radio_validate_config(const solar_os_radio_config_t *config,
     if (config->sync_word_len > SOLAR_OS_RADIO_SYNC_WORD_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (config->rx_gain >= SOLAR_OS_RADIO_RX_GAIN_COUNT) {
+        return ESP_ERR_INVALID_ARG;
+    }
     return ESP_OK;
+}
+
+static esp_err_t radio_validate_rx_gain(const solar_os_radio_config_t *config, uint32_t modes)
+{
+    if (config->rx_gain >= SOLAR_OS_RADIO_RX_GAIN_COUNT) return ESP_ERR_INVALID_ARG;
+    return config->rx_gain == SOLAR_OS_RADIO_RX_GAIN_DEFAULT ||
+        (modes & SOLAR_OS_RADIO_RX_GAIN_BIT(config->rx_gain)) != 0
+        ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
 }
 
 static void format_append(char *buffer, size_t buffer_len, size_t *used, bool *any, const char *token)
@@ -292,6 +309,41 @@ static void format_append(char *buffer, size_t buffer_len, size_t *used, bool *a
     *any = true;
 }
 
+static const char *const radio_rx_gain_names[] = {
+    "default", "power-saving", "boosted", "auto", "g1", "g2", "g3", "g4", "g5", "g6",
+};
+
+const char *solar_os_radio_rx_gain_name(solar_os_radio_rx_gain_t gain)
+{
+    return (unsigned)gain < SOLAR_OS_RADIO_RX_GAIN_COUNT ? radio_rx_gain_names[gain] : "unknown";
+}
+
+bool solar_os_radio_rx_gain_parse(const char *name, uint8_t *gain)
+{
+    if (name == NULL || gain == NULL) return false;
+    for (unsigned i = 0; i < SOLAR_OS_RADIO_RX_GAIN_COUNT; i++) {
+        if (strcmp(name, radio_rx_gain_names[i]) == 0) {
+            *gain = (uint8_t)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+void solar_os_radio_rx_gains_format(uint32_t modes, char *buffer, size_t length)
+{
+    if (buffer == NULL || length == 0) return;
+    buffer[0] = '\0';
+    size_t used = 0;
+    bool any = false;
+    for (unsigned i = 0; i < SOLAR_OS_RADIO_RX_GAIN_COUNT; i++) {
+        if ((modes & SOLAR_OS_RADIO_RX_GAIN_BIT(i)) != 0) {
+            format_append(buffer, length, &used, &any, radio_rx_gain_names[i]);
+        }
+    }
+    if (!any) strlcpy(buffer, "none", length);
+}
+
 esp_err_t solar_os_radio_init(void)
 {
     return radio_ensure_init();
@@ -310,6 +362,9 @@ esp_err_t solar_os_radio_register(const solar_os_radio_registration_t *registrat
                                               registration->modulations),
                         "radio",
                         "invalid default config");
+    ESP_RETURN_ON_ERROR(radio_validate_rx_gain(&registration->default_config,
+                                               registration->rx_gain_modes),
+                        "radio", "invalid default RX gain");
     ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
 
     xSemaphoreTake(radio_mutex, portMAX_DELAY);
@@ -335,6 +390,7 @@ esp_err_t solar_os_radio_register(const solar_os_radio_registration_t *registrat
             sizeof(device->info.summary));
     device->info.modulations = registration->modulations;
     device->info.features = registration->features;
+    device->info.rx_gain_modes = registration->rx_gain_modes;
     device->info.max_packet_len = registration->max_packet_len;
     device->status.state = registration->initial_state;
     device->status.config = registration->default_config;
@@ -464,6 +520,27 @@ esp_err_t solar_os_radio_get_status(const char *name, solar_os_radio_status_t *s
 
     *status = current;
     return ESP_OK;
+}
+
+esp_err_t solar_os_radio_read_rssi(const char *name, int16_t *dbm)
+{
+    if (!radio_name_valid(name) || dbm == NULL) return ESP_ERR_INVALID_ARG;
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+    /* Keep the registration alive through this short, read-only driver call.
+     * Driver mutexes serialize it with the owner's receive/transmit calls. */
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    const int index = radio_find_index_locked(name);
+    esp_err_t ret = ESP_ERR_NOT_FOUND;
+    if (index >= 0) {
+        radio_device_t *device = &radio_devices[index];
+        ret = ESP_ERR_NOT_SUPPORTED;
+        if (device->ops != NULL && device->ops->read_rssi != NULL &&
+            (device->info.features & SOLAR_OS_RADIO_FEATURE_LIVE_RSSI)) {
+            ret = device->ops->read_rssi(device->ctx, dbm);
+        }
+    }
+    xSemaphoreGive(radio_mutex);
+    return ret;
 }
 
 esp_err_t solar_os_radio_claim(const char *name,
@@ -614,6 +691,38 @@ esp_err_t solar_os_radio_handle_get_status(const solar_os_radio_handle_t *handle
     return ESP_OK;
 }
 
+esp_err_t solar_os_radio_handle_tune_rx(const solar_os_radio_handle_t *handle,
+                                       uint32_t frequency_hz, uint32_t *settle_ms)
+{
+    if (frequency_hz == 0 || settle_ms == NULL) return ESP_ERR_INVALID_ARG;
+    ESP_RETURN_ON_ERROR(radio_ensure_init(), "radio", "init failed");
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (!radio_handle_operation_acquire_locked(handle)) {
+        xSemaphoreGive(radio_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int index = handle->index;
+    const uint32_t token = handle->token;
+    radio_device_t *device = &radio_devices[index];
+    const solar_os_radio_ops_t *ops = device->ops;
+    void *ctx = device->ctx;
+    bool supported = (device->info.features & SOLAR_OS_RADIO_FEATURE_FAST_TUNE) != 0;
+    xSemaphoreGive(radio_mutex);
+    esp_err_t err = ESP_ERR_NOT_SUPPORTED;
+    if (supported && ops != NULL && ops->tune_rx != NULL) {
+        err = ops->tune_rx(ctx, frequency_hz, settle_ms);
+    }
+    xSemaphoreTake(radio_mutex, portMAX_DELAY);
+    if (err == ESP_OK && radio_devices[index].active &&
+        radio_devices[index].claimed && radio_devices[index].token == token) {
+        radio_devices[index].status.config.frequency_hz = frequency_hz;
+        radio_devices[index].status.state = SOLAR_OS_RADIO_STATE_RX;
+    }
+    radio_handle_operation_release_locked(index, token);
+    xSemaphoreGive(radio_mutex);
+    return err;
+}
+
 esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config_t *config)
 {
     if (!radio_name_valid(name) || config == NULL) {
@@ -624,6 +733,7 @@ esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config
     const solar_os_radio_ops_t *ops = NULL;
     void *ctx = NULL;
     solar_os_radio_modulations_t supported = 0;
+    uint32_t rx_gain_modes = 0;
 
     xSemaphoreTake(radio_mutex, portMAX_DELAY);
     const int index = radio_find_index_locked(name);
@@ -636,11 +746,13 @@ esp_err_t solar_os_radio_configure(const char *name, const solar_os_radio_config
         return ESP_ERR_INVALID_STATE;
     }
     supported = radio_devices[index].info.modulations;
+    rx_gain_modes = radio_devices[index].info.rx_gain_modes;
     ops = radio_devices[index].ops;
     ctx = radio_devices[index].ctx;
     xSemaphoreGive(radio_mutex);
 
     ESP_RETURN_ON_ERROR(radio_validate_config(config, supported), "radio", "invalid config");
+    ESP_RETURN_ON_ERROR(radio_validate_rx_gain(config, rx_gain_modes), "radio", "unsupported RX gain");
     if (ops == NULL || ops->configure == NULL) {
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -670,6 +782,7 @@ esp_err_t solar_os_radio_handle_configure(const solar_os_radio_handle_t *handle,
     const solar_os_radio_ops_t *ops = NULL;
     void *ctx = NULL;
     solar_os_radio_modulations_t supported = 0;
+    uint32_t rx_gain_modes = 0;
     int index = -1;
     uint32_t token = 0;
 
@@ -681,11 +794,13 @@ esp_err_t solar_os_radio_handle_configure(const solar_os_radio_handle_t *handle,
     index = handle->index;
     token = handle->token;
     supported = radio_devices[index].info.modulations;
+    rx_gain_modes = radio_devices[index].info.rx_gain_modes;
     ops = radio_devices[index].ops;
     ctx = radio_devices[index].ctx;
     xSemaphoreGive(radio_mutex);
 
     esp_err_t ret = radio_validate_config(config, supported);
+    if (ret == ESP_OK) ret = radio_validate_rx_gain(config, rx_gain_modes);
     if (ret != ESP_OK) {
         xSemaphoreTake(radio_mutex, portMAX_DELAY);
         radio_handle_operation_release_locked(index, token);
@@ -1065,38 +1180,16 @@ static void radio_profile_store_empty(radio_profile_store_t *store)
     store->size = sizeof(*store);
 }
 
-static esp_err_t radio_profile_store_load(radio_profile_store_t *store)
+static solar_os_saved_config_t radio_profile_file;
+
+static bool radio_profile_store_valid(const void *data, size_t length)
 {
-    if (store == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    radio_profile_store_empty(store);
-
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(RADIO_PROFILE_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
-    }
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    size_t len = sizeof(*store);
-    ret = nvs_get_blob(nvs, RADIO_PROFILE_NVS_KEY, store, &len);
-    nvs_close(nvs);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        radio_profile_store_empty(store);
-        return ESP_OK;
-    }
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    if (len != sizeof(*store) ||
+    const radio_profile_store_t *store = data;
+    if (length != sizeof(*store) ||
         store->magic != RADIO_PROFILE_MAGIC ||
-        store->version != RADIO_PROFILE_VERSION ||
+        (store->version != 1U && store->version != RADIO_PROFILE_VERSION) ||
         store->size != sizeof(*store)) {
-        return ESP_ERR_INVALID_VERSION;
+        return false;
     }
 
     for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
@@ -1104,36 +1197,46 @@ static esp_err_t radio_profile_store_load(radio_profile_store_t *store)
         if (!profile->active) {
             continue;
         }
+        solar_os_radio_config_t config = profile->config;
+        if (store->version == 1U) config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_DEFAULT;
         if (!radio_profile_name_valid(profile->name) ||
             radio_builtin_profile_find(profile->name) != NULL ||
             radio_validate_config(
-                &profile->config,
+                &config,
                 SOLAR_OS_RADIO_MODULATION_FSK |
                     SOLAR_OS_RADIO_MODULATION_GFSK |
                     SOLAR_OS_RADIO_MODULATION_MSK |
                     SOLAR_OS_RADIO_MODULATION_GMSK |
                     SOLAR_OS_RADIO_MODULATION_OOK |
                     SOLAR_OS_RADIO_MODULATION_LORA) != ESP_OK) {
-            return ESP_ERR_INVALID_RESPONSE;
+            return false;
         }
     }
-    return ESP_OK;
+    return true;
+}
+
+static esp_err_t radio_profile_store_load(radio_profile_store_t *store)
+{
+    if (!store) return ESP_ERR_INVALID_ARG;
+    radio_profile_store_empty(store);
+    size_t length = sizeof(*store);
+    esp_err_t error = solar_os_saved_config_load(&radio_profile_file, "radio-profiles",
+        RADIO_PROFILE_NVS_NAMESPACE, RADIO_PROFILE_NVS_KEY, store, sizeof(*store), &length, radio_profile_store_valid);
+    if (error == ESP_ERR_NVS_NOT_FOUND || error == ESP_ERR_NOT_FOUND) {
+        radio_profile_store_empty(store); return ESP_OK;
+    }
+    if (error == ESP_OK && store->version == 1U) {
+        for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
+            store->profiles[i].config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_DEFAULT;
+        }
+        store->version = RADIO_PROFILE_VERSION;
+    }
+    return error;
 }
 
 static esp_err_t radio_profile_store_save(const radio_profile_store_t *store)
 {
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(RADIO_PROFILE_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = nvs_set_blob(nvs, RADIO_PROFILE_NVS_KEY, store, sizeof(*store));
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs);
-    }
-    nvs_close(nvs);
-    return ret;
+    return solar_os_saved_config_save(&radio_profile_file, "radio-profiles", store, sizeof(*store));
 }
 
 esp_err_t solar_os_radio_profile_list(solar_os_radio_profile_t *profiles,
@@ -1394,10 +1497,16 @@ const char *solar_os_radio_feature_name(solar_os_radio_feature_t feature)
         return "packet";
     case SOLAR_OS_RADIO_FEATURE_RSSI:
         return "rssi";
+    case SOLAR_OS_RADIO_FEATURE_LIVE_RSSI:
+        return "live_rssi";
+    case SOLAR_OS_RADIO_FEATURE_FAST_TUNE:
+        return "fast_tune";
     case SOLAR_OS_RADIO_FEATURE_SNR:
         return "snr";
     case SOLAR_OS_RADIO_FEATURE_TX_POWER:
         return "tx_power";
+    case SOLAR_OS_RADIO_FEATURE_RX_GAIN:
+        return "rx_gain";
     case SOLAR_OS_RADIO_FEATURE_CRC:
         return "crc";
     case SOLAR_OS_RADIO_FEATURE_SYNC_WORD:
@@ -1501,8 +1610,11 @@ void solar_os_radio_features_format(solar_os_radio_features_t features,
     const solar_os_radio_feature_t values[] = {
         SOLAR_OS_RADIO_FEATURE_PACKET,
         SOLAR_OS_RADIO_FEATURE_RSSI,
+        SOLAR_OS_RADIO_FEATURE_LIVE_RSSI,
+        SOLAR_OS_RADIO_FEATURE_FAST_TUNE,
         SOLAR_OS_RADIO_FEATURE_SNR,
         SOLAR_OS_RADIO_FEATURE_TX_POWER,
+        SOLAR_OS_RADIO_FEATURE_RX_GAIN,
         SOLAR_OS_RADIO_FEATURE_CRC,
         SOLAR_OS_RADIO_FEATURE_SYNC_WORD,
         SOLAR_OS_RADIO_FEATURE_PREAMBLE,

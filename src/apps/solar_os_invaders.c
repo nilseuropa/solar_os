@@ -255,12 +255,14 @@ static void invaders_sound_queue(invaders_sound_t sound)
 
 static int invaders_screen_w(solar_os_gfx_t *gfx)
 {
-    return (int)solar_os_gfx_width(gfx);
+    int width = (int)solar_os_gfx_width(gfx);
+    return width < 320 ? 320 : width;
 }
 
 static int invaders_screen_h(solar_os_gfx_t *gfx)
 {
-    return (int)solar_os_gfx_height(gfx);
+    int height = (int)solar_os_gfx_height(gfx);
+    return height < 240 ? 240 : height;
 }
 
 static int invaders_formation_w(void)
@@ -654,45 +656,63 @@ static void invaders_update(solar_os_gfx_t *gfx, uint32_t now_ms)
     }
 }
 
+/* Keep motion, shields and hit boxes in the same logical coordinates. */
+static void invaders_fill_rect(solar_os_gfx_t *gfx, int x, int y, int w, int h)
+{
+    int width = (int)solar_os_gfx_width(gfx), height = (int)solar_os_gfx_height(gfx);
+    int left = x * width / invaders_screen_w(gfx);
+    int top = y * height / invaders_screen_h(gfx);
+    int right = (x + w) * width / invaders_screen_w(gfx);
+    int bottom = (y + h) * height / invaders_screen_h(gfx);
+    if (right <= left) right = left + 1;
+    if (bottom <= top) bottom = top + 1;
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > width) right = width;
+    if (bottom > height) bottom = height;
+    if (right > left && bottom > top)
+        solar_os_gfx_fill_rect(gfx, left, top, right - left, bottom - top);
+}
+
 static void invaders_draw_enemy(solar_os_gfx_t *gfx, int x, int y, int row)
 {
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
 
     if (row == 0) {
-        solar_os_gfx_fill_rect(gfx, x + 5, y + 1, 6, 2);
-        solar_os_gfx_fill_rect(gfx, x + 3, y + 3, 10, 5);
-        solar_os_gfx_fill_rect(gfx, x + 1, y + 5, 14, 2);
+        invaders_fill_rect(gfx, x + 5, y + 1, 6, 2);
+        invaders_fill_rect(gfx, x + 3, y + 3, 10, 5);
+        invaders_fill_rect(gfx, x + 1, y + 5, 14, 2);
     } else if (row == 1) {
-        solar_os_gfx_fill_rect(gfx, x + 4, y + 1, 8, 2);
-        solar_os_gfx_fill_rect(gfx, x + 2, y + 3, 12, 6);
-        solar_os_gfx_fill_rect(gfx, x, y + 5, 16, 2);
+        invaders_fill_rect(gfx, x + 4, y + 1, 8, 2);
+        invaders_fill_rect(gfx, x + 2, y + 3, 12, 6);
+        invaders_fill_rect(gfx, x, y + 5, 16, 2);
     } else {
-        solar_os_gfx_fill_rect(gfx, x + 3, y + 1, 10, 2);
-        solar_os_gfx_fill_rect(gfx, x + 1, y + 3, 14, 5);
-        solar_os_gfx_fill_rect(gfx, x + 3, y + 8, 2, 2);
-        solar_os_gfx_fill_rect(gfx, x + 11, y + 8, 2, 2);
+        invaders_fill_rect(gfx, x + 3, y + 1, 10, 2);
+        invaders_fill_rect(gfx, x + 1, y + 3, 14, 5);
+        invaders_fill_rect(gfx, x + 3, y + 8, 2, 2);
+        invaders_fill_rect(gfx, x + 11, y + 8, 2, 2);
     }
 
     if (invaders.phase) {
-        solar_os_gfx_fill_rect(gfx, x + 1, y + 9, 3, 1);
-        solar_os_gfx_fill_rect(gfx, x + 12, y + 9, 3, 1);
+        invaders_fill_rect(gfx, x + 1, y + 9, 3, 1);
+        invaders_fill_rect(gfx, x + 12, y + 9, 3, 1);
     } else {
-        solar_os_gfx_fill_rect(gfx, x + 5, y + 9, 2, 1);
-        solar_os_gfx_fill_rect(gfx, x + 9, y + 9, 2, 1);
+        invaders_fill_rect(gfx, x + 5, y + 9, 2, 1);
+        invaders_fill_rect(gfx, x + 9, y + 9, 2, 1);
     }
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, x + 5, y + 4, 2, 2);
-    solar_os_gfx_fill_rect(gfx, x + 10, y + 4, 2, 2);
+    invaders_fill_rect(gfx, x + 5, y + 4, 2, 2);
+    invaders_fill_rect(gfx, x + 10, y + 4, 2, 2);
 }
 
 static void invaders_draw_player(solar_os_gfx_t *gfx)
 {
     const int y = invaders_player_y(gfx);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_fill_rect(gfx, invaders.player_x + 11, y, 4, 3);
-    solar_os_gfx_fill_rect(gfx, invaders.player_x + 5, y + 3, 16, 3);
-    solar_os_gfx_fill_rect(gfx, invaders.player_x, y + 6, INVADERS_PLAYER_W, 3);
+    invaders_fill_rect(gfx, invaders.player_x + 11, y, 4, 3);
+    invaders_fill_rect(gfx, invaders.player_x + 5, y + 3, 16, 3);
+    invaders_fill_rect(gfx, invaders.player_x, y + 6, INVADERS_PLAYER_W, 3);
 }
 
 static void invaders_draw_shields(solar_os_gfx_t *gfx)
@@ -707,7 +727,7 @@ static void invaders_draw_shields(solar_os_gfx_t *gfx)
                     continue;
                 }
                 solar_os_gfx_set_color(gfx, hp > 1 ? SOLAR_OS_GFX_COLOR_BLACK : SOLAR_OS_GFX_COLOR_DARK);
-                solar_os_gfx_fill_rect(gfx,
+                invaders_fill_rect(gfx,
                                        x + col * INVADERS_SHIELD_BLOCK,
                                        y + row * INVADERS_SHIELD_BLOCK,
                                        INVADERS_SHIELD_BLOCK - 1,
@@ -721,7 +741,7 @@ static void invaders_draw_bullets(solar_os_gfx_t *gfx)
 {
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     if (invaders.shot.active) {
-        solar_os_gfx_fill_rect(gfx, invaders.shot.x - 1, invaders.shot.y - 6, 3, 7);
+        invaders_fill_rect(gfx, invaders.shot.x - 1, invaders.shot.y - 6, 3, 7);
     }
 
     for (int i = 0; i < INVADERS_ENEMY_BULLETS; i++) {
@@ -730,7 +750,7 @@ static void invaders_draw_bullets(solar_os_gfx_t *gfx)
         }
         const int x = invaders.enemy_bullets[i].x;
         const int y = invaders.enemy_bullets[i].y;
-        solar_os_gfx_fill_rect(gfx, x - 1, y, 3, 7);
+        invaders_fill_rect(gfx, x - 1, y, 3, 7);
     }
 }
 
@@ -738,22 +758,24 @@ static void invaders_draw_header(solar_os_gfx_t *gfx)
 {
     char text[64];
     snprintf(text, sizeof(text), "SCORE %lu   LIVES %u", (unsigned long)invaders.score, invaders.lives);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    bool compact = solar_os_gfx_height(gfx) < 160 || solar_os_gfx_width(gfx) < 240;
+    if (solar_os_gfx_width(gfx) < 200)
+        snprintf(text, sizeof(text), "S:%lu L:%u", (unsigned long)invaders.score, invaders.lives);
+    solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_text(gfx, 4, 12, text);
+    solar_os_gfx_text(gfx, 2, compact ? 8 : 12, text);
 }
 
 static void invaders_draw_center_text(solar_os_gfx_t *gfx, const char *text)
 {
-    const int screen_w = invaders_screen_w(gfx);
-    const int screen_h = invaders_screen_h(gfx);
-    int width = 0;
-    for (const char *p = text; *p != '\0'; p++) {
-        width += 8;
-    }
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD);
+    const int screen_w = (int)solar_os_gfx_width(gfx);
+    const int screen_h = (int)solar_os_gfx_height(gfx);
+    solar_os_gfx_set_font(gfx, screen_h < 160 || screen_w < 240 ?
+        SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD);
+    int width = (int)solar_os_gfx_text_width(gfx, text);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_text(gfx, (screen_w - width) / 2, screen_h / 2, text);
+    solar_os_gfx_text(gfx, width < screen_w ? (screen_w - width) / 2 : 0,
+        screen_h / 2, text);
 }
 
 static void invaders_render(solar_os_context_t *ctx)

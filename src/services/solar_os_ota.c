@@ -736,30 +736,38 @@ static esp_err_t ota_find_artifact_in_index(const solar_os_json_value_t *root,
     }
 
     const size_t count = solar_os_json_array_size(artifacts);
-    for (size_t i = 0; i < count; i++) {
-        const solar_os_json_value_t *artifact = solar_os_json_array_get(artifacts, i);
-        if (!solar_os_json_is_object(artifact)) {
-            continue;
+    /* Exact selections win. Signed aliases are a fallback for renamed flavors,
+     * so an existing writerdeck installation can later discover compact. */
+    char selected[SOLAR_OS_OTA_FLAVOR_MAX];
+    char visited[8][SOLAR_OS_OTA_FLAVOR_MAX];
+    strlcpy(selected, result->target_flavor, sizeof(selected));
+    for (size_t hop = 0; hop < 8; ++hop) {
+        for (size_t previous = 0; previous < hop; ++previous)
+            if (!strcmp(selected, visited[previous])) return ESP_ERR_INVALID_RESPONSE;
+        strlcpy(visited[hop], selected, sizeof(visited[hop]));
+        for (size_t i = 0; i < count; i++) {
+            const solar_os_json_value_t *artifact = solar_os_json_array_get(artifacts, i);
+            if (!solar_os_json_is_object(artifact)) continue;
+            char board_id[SOLAR_OS_OTA_BOARD_MAX];
+            char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+            if (solar_os_json_get_path_string(artifact, "board_id", board_id, sizeof(board_id)) != ESP_OK ||
+                solar_os_json_get_path_string(artifact, "flavor", flavor, sizeof(flavor)) != ESP_OK) continue;
+            if (strcmp(board_id, SOLAR_OS_BOARD_ID) || strcmp(flavor, selected)) continue;
+            strlcpy(result->target_flavor, selected, sizeof(result->target_flavor));
+            strlcpy(result->board_id, board_id, sizeof(result->board_id));
+            return ota_fill_artifact_from_json(artifact, base_url, result);
         }
-
-        char board_id[SOLAR_OS_OTA_BOARD_MAX];
-        char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
-        if (solar_os_json_get_path_string(artifact, "board_id", board_id, sizeof(board_id)) !=
-                ESP_OK ||
-            solar_os_json_get_path_string(artifact, "flavor", flavor, sizeof(flavor)) != ESP_OK) {
-            continue;
-        }
-
-        if (strcmp(board_id, SOLAR_OS_BOARD_ID) != 0 ||
-            strcmp(flavor, result->target_flavor) != 0) {
-            continue;
-        }
-
-        strlcpy(result->board_id, board_id, sizeof(result->board_id));
-        return ota_fill_artifact_from_json(artifact, base_url, result);
+        const solar_os_json_value_t *aliases = solar_os_json_object_get(root, "flavor_aliases");
+        if (!aliases) return ESP_ERR_NOT_FOUND;
+        if (!solar_os_json_is_object(aliases)) return ESP_ERR_INVALID_RESPONSE;
+        const solar_os_json_value_t *alias = solar_os_json_object_get(aliases, selected);
+        if (!alias) return ESP_ERR_NOT_FOUND;
+        char next[SOLAR_OS_OTA_FLAVOR_MAX];
+        if (solar_os_json_get_string(alias, next, sizeof(next)) != ESP_OK || !ota_flavor_is_valid(next))
+            return ESP_ERR_INVALID_RESPONSE;
+        strlcpy(selected, next, sizeof(selected));
     }
-
-    return ESP_ERR_NOT_FOUND;
+    return ESP_ERR_INVALID_RESPONSE;
 }
 
 static esp_err_t ota_parse_release_index(char *index_body,
@@ -1267,6 +1275,14 @@ esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "upgrade finish failed: %s", esp_err_to_name(err));
         goto cleanup;
+    }
+
+    /* Persist a renamed target only after the verified update has finished.
+     * Failed checks/downloads leave the user's configured flavor untouched. */
+    if (strcmp(ota_target_flavor, artifact->target_flavor)) {
+        esp_err_t save_error = solar_os_ota_set_flavor(artifact->target_flavor);
+        if (save_error != ESP_OK)
+            SOLAR_OS_LOGW(TAG, "upgrade flavor save failed: %s", esp_err_to_name(save_error));
     }
 
     event->stage = SOLAR_OS_OTA_PROGRESS_DONE;

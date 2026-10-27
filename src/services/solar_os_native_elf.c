@@ -32,6 +32,7 @@ static const char *const native_host_symbols[] = {
     "solar_os_native_host_v1",
     "solar_os_native_job_host_v1",
     "solar_os_native_driver_host_v1",
+    "solar_os_native_library_host_v1",
 };
 
 typedef struct {
@@ -94,12 +95,8 @@ static bool power_of_two_or_zero(uint32_t value)
     return value == 0U || (value & (value - 1U)) == 0U;
 }
 
-static native_section_t read_section(const uint8_t *data,
-                                     uint32_t section_offset,
-                                     uint16_t index)
+static native_section_t decode_section(const uint8_t *section)
 {
-    const uint8_t *section = data + section_offset +
-        (size_t)index * ELF_SECTION_HEADER_SIZE;
     return (native_section_t){
         .name = read_u32(section),
         .type = read_u32(section + 4U),
@@ -112,6 +109,13 @@ static native_section_t read_section(const uint8_t *data,
         .alignment = read_u32(section + 32U),
         .entry_size = read_u32(section + 36U),
     };
+}
+
+static native_section_t read_section(const uint8_t *data,
+                                     uint32_t section_offset,
+                                     uint16_t index)
+{
+    return decode_section(data + section_offset + (size_t)index * ELF_SECTION_HEADER_SIZE);
 }
 
 static bool section_name_valid(const uint8_t *names,
@@ -134,7 +138,7 @@ static bool app_manifest_valid(const solar_os_native_app_manifest_v2_t *app)
         app->struct_size != sizeof(*app) ||
         (app->app_class != SOLAR_OS_NATIVE_APP_CLASS_TUI &&
          app->app_class != SOLAR_OS_NATIVE_APP_CLASS_GUI) ||
-        (app->flags & ~SOLAR_OS_NATIVE_APP_RESUMABLE) != 0U ||
+        (app->flags & ~(SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS)) != 0U ||
         app->worker_stack_bytes < 2048U || app->worker_stack_bytes > 65536U ||
         app->worker_priority < 1U || app->worker_priority > 4U ||
         app->minimum_internal_bytes > 512U * 1024U ||
@@ -169,6 +173,23 @@ static bool app_manifest_valid(const solar_os_native_app_manifest_v2_t *app)
     return true;
 }
 
+static void decode_app_manifest(const uint8_t *record,
+                                 solar_os_native_app_manifest_v2_t *app)
+{
+    *app = (solar_os_native_app_manifest_v2_t){
+        .magic = read_u32(record), .lifecycle_abi = read_u32(record + 4U),
+        .struct_size = read_u32(record + 8U), .app_class = read_u32(record + 12U),
+        .flags = read_u32(record + 16U), .worker_stack_bytes = read_u32(record + 20U),
+        .worker_priority = read_u32(record + 24U),
+        .minimum_internal_bytes = read_u32(record + 28U),
+        .minimum_psram_bytes = read_u32(record + 32U),
+        .tick_interval_ms = read_u32(record + 36U),
+    };
+    memcpy(app->id, record + 40U, sizeof(app->id));
+    memcpy(app->summary, record + 72U, sizeof(app->summary));
+    memcpy(app->file_extensions, record + 168U, sizeof(app->file_extensions));
+}
+
 /* All section, symbol and string bounds have already passed ELF validation.
  * Metadata must be a defined object fully contained in file-backed data;
  * a similarly named import, BSS object, or pointer cannot describe an app. */
@@ -199,23 +220,178 @@ static esp_err_t read_app_manifest(const uint8_t *data, size_t data_len,
                 !range_valid(section.offset, section.size, data_len))
                 return ESP_ERR_INVALID_RESPONSE;
             const uint8_t *record = data + section.offset + address - section.address;
-            *app = (solar_os_native_app_manifest_v2_t){
-                .magic = read_u32(record), .lifecycle_abi = read_u32(record + 4U),
-                .struct_size = read_u32(record + 8U), .app_class = read_u32(record + 12U),
-                .flags = read_u32(record + 16U), .worker_stack_bytes = read_u32(record + 20U),
-                .worker_priority = read_u32(record + 24U),
-                .minimum_internal_bytes = read_u32(record + 28U),
-                .minimum_psram_bytes = read_u32(record + 32U),
-                .tick_interval_ms = read_u32(record + 36U),
-            };
-            memcpy(app->id, record + 40U, sizeof(app->id));
-            memcpy(app->summary, record + 72U, sizeof(app->summary));
-            memcpy(app->file_extensions, record + 168U, sizeof(app->file_extensions));
+            decode_app_manifest(record, app);
             if (!app_manifest_valid(app)) return ESP_ERR_INVALID_RESPONSE;
             found = true;
         }
     }
     return found ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+typedef struct {
+    solar_os_native_elf_read_fn read;
+    void *context;
+    size_t offset, length;
+    uint8_t data[512];
+} native_metadata_reader_t;
+
+/* Two independent windows keep sequential symbols cached while looking up
+ * their names. Never prefetch beyond the metadata region being inspected. */
+static esp_err_t metadata_read(native_metadata_reader_t *reader, size_t offset,
+                                void *buffer, size_t length, size_t limit)
+{
+    if (!range_valid(offset, length, limit)) return ESP_ERR_INVALID_RESPONSE;
+    uint8_t *out = buffer;
+    while (length) {
+        if (offset < reader->offset || offset - reader->offset >= reader->length) {
+            reader->length = 0U;
+            size_t count = limit - offset;
+            if (count > sizeof(reader->data)) count = sizeof(reader->data);
+            esp_err_t err = reader->read(reader->context, offset, reader->data, count);
+            if (err != ESP_OK) return err;
+            reader->offset = offset;
+            reader->length = count;
+        }
+        size_t count = reader->length - (offset - reader->offset);
+        if (count > length) count = length;
+        memcpy(out, reader->data + offset - reader->offset, count);
+        offset += count; out += count; length -= count;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t metadata_section(native_metadata_reader_t *reader,
+                                   uint32_t offset, uint16_t count, uint16_t index,
+                                   native_section_t *section)
+{
+    uint8_t data[ELF_SECTION_HEADER_SIZE];
+    if (index >= count) return ESP_ERR_INVALID_RESPONSE;
+    esp_err_t err = metadata_read(reader, (size_t)offset + (size_t)index * sizeof(data),
+        data, sizeof(data), (size_t)offset + (size_t)count * sizeof(data));
+    if (err == ESP_OK) *section = decode_section(data);
+    return err;
+}
+
+esp_err_t solar_os_native_elf_discover(solar_os_native_elf_read_fn read,
+                                       void *context, size_t file_size,
+                                       uint16_t expected_machine,
+                                       solar_os_native_elf_info_t *info,
+                                       char *detail, size_t detail_len)
+{
+    if (detail && detail_len) detail[0] = '\0';
+    if (info) memset(info, 0, sizeof(*info));
+    if (!read || !info || !expected_machine) return ESP_ERR_INVALID_ARG;
+    if (file_size < ELF_HEADER_SIZE) return ESP_ERR_INVALID_SIZE;
+    uint8_t header[ELF_HEADER_SIZE];
+    esp_err_t err = read(context, 0U, header, sizeof(header));
+    if (err != ESP_OK) return err;
+    if (memcmp(header, "\177ELF", 4U)) return ESP_ERR_INVALID_RESPONSE;
+    if (header[4] != 1U || header[5] != 1U || header[6] != 1U ||
+        read_u16(header + 16U) != ELF_TYPE_DYNAMIC ||
+        read_u16(header + 18U) != expected_machine) return ESP_ERR_NOT_SUPPORTED;
+    const uint32_t entry = read_u32(header + 24U);
+    const uint32_t program_offset = read_u32(header + 28U);
+    const uint32_t section_offset = read_u32(header + 32U);
+    const uint16_t program_size = read_u16(header + 42U);
+    const uint16_t program_count = read_u16(header + 44U);
+    const uint16_t section_count = read_u16(header + 48U);
+    const uint16_t names_index = read_u16(header + 50U);
+    if (read_u32(header + 20U) != 1U || read_u16(header + 40U) != ELF_HEADER_SIZE || !entry ||
+        (program_count && program_size != ELF_PROGRAM_HEADER_SIZE) ||
+        !table_valid(program_offset, program_count, program_size, file_size) ||
+        !section_count || read_u16(header + 46U) != ELF_SECTION_HEADER_SIZE ||
+        names_index >= section_count ||
+        !table_valid(section_offset, section_count, ELF_SECTION_HEADER_SIZE, file_size)) {
+        set_detail(detail, detail_len, "invalid discovery header bounds");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    native_metadata_reader_t metadata = {.read = read, .context = context};
+    native_metadata_reader_t symbols = {.read = read, .context = context};
+    native_section_t names;
+    err = metadata_section(&metadata, section_offset, section_count, names_index, &names);
+    if (err != ESP_OK) goto failed;
+    if (names.type != ELF_SECTION_STRTAB || !names.size ||
+        !range_valid(names.offset, names.size, file_size)) {
+        err = ESP_ERR_INVALID_RESPONSE; goto failed;
+    }
+    bool found = false, entry_in_text = false, dynamic_symbols = false;
+    solar_os_native_app_manifest_v2_t app = {0};
+    for (uint16_t i = 0U; i < section_count; ++i) {
+        native_section_t section;
+        err = metadata_section(&metadata, section_offset, section_count, i, &section);
+        if (err != ESP_OK) goto failed;
+        if (!power_of_two_or_zero(section.alignment) ||
+            section.address > UINT32_MAX - section.size ||
+            (section.type != ELF_SECTION_NOBITS &&
+             !range_valid(section.offset, section.size, file_size))) {
+            err = ESP_ERR_INVALID_RESPONSE; goto failed;
+        }
+        if (section.type == ELF_SECTION_PROGBITS &&
+            (section.flags & (ELF_SECTION_FLAG_ALLOC | ELF_SECTION_FLAG_EXEC)) ==
+                (ELF_SECTION_FLAG_ALLOC | ELF_SECTION_FLAG_EXEC) &&
+            entry >= section.address && entry - section.address < section.size)
+            entry_in_text = true;
+        if (section.type != ELF_SECTION_DYNSYM) continue;
+        dynamic_symbols = true;
+        native_section_t strings;
+        err = metadata_section(&metadata, section_offset, section_count,
+            section.link < section_count ? (uint16_t)section.link : section_count, &strings);
+        if (err != ESP_OK) goto failed;
+        if (section.entry_size != ELF_SYMBOL_SIZE || section.size % ELF_SYMBOL_SIZE ||
+            strings.type != ELF_SECTION_STRTAB || !strings.size ||
+            !range_valid(strings.offset, strings.size, file_size)) {
+            err = ESP_ERR_INVALID_RESPONSE; goto failed;
+        }
+        const size_t symbol_end = (size_t)section.offset + section.size;
+        const size_t string_end = (size_t)strings.offset + strings.size;
+        for (size_t n = 0U; n < section.size / ELF_SYMBOL_SIZE; ++n) {
+            uint8_t symbol[ELF_SYMBOL_SIZE];
+            err = metadata_read(&symbols, (size_t)section.offset + n * sizeof(symbol),
+                symbol, sizeof(symbol), symbol_end);
+            if (err != ESP_OK) goto failed;
+            const uint32_t name_offset = read_u32(symbol);
+            if (name_offset >= strings.size) { err = ESP_ERR_INVALID_RESPONSE; goto failed; }
+            if (strings.size - name_offset < sizeof(SOLAR_OS_NATIVE_APP_MANIFEST_SYMBOL)) continue;
+            char name[sizeof(SOLAR_OS_NATIVE_APP_MANIFEST_SYMBOL)];
+            err = metadata_read(&metadata, (size_t)strings.offset + name_offset,
+                name, sizeof(name), string_end);
+            if (err != ESP_OK) goto failed;
+            if (memcmp(name, SOLAR_OS_NATIVE_APP_MANIFEST_SYMBOL, sizeof(name))) continue;
+            const uint16_t index = read_u16(symbol + 14U);
+            if (found || symbol[12U] != 0x11U || !index || index >= section_count ||
+                read_u32(symbol + 8U) != sizeof(app)) {
+                err = ESP_ERR_INVALID_RESPONSE; goto failed;
+            }
+            native_section_t record_section;
+            err = metadata_section(&metadata, section_offset, section_count, index, &record_section);
+            if (err != ESP_OK) goto failed;
+            const uint32_t address = read_u32(symbol + 4U);
+            if (record_section.type != ELF_SECTION_PROGBITS ||
+                !(record_section.flags & ELF_SECTION_FLAG_ALLOC) ||
+                (record_section.flags & ELF_SECTION_FLAG_EXEC) || address < record_section.address ||
+                !range_valid(address - record_section.address, sizeof(app), record_section.size) ||
+                !range_valid(record_section.offset, record_section.size, file_size)) {
+                err = ESP_ERR_INVALID_RESPONSE; goto failed;
+            }
+            uint8_t record[sizeof(app)];
+            err = read(context, (size_t)record_section.offset + (address - record_section.address),
+                record, sizeof(record));
+            if (err != ESP_OK) goto failed;
+            decode_app_manifest(record, &app);
+            if (!app_manifest_valid(&app)) { err = ESP_ERR_INVALID_RESPONSE; goto failed; }
+            found = true;
+        }
+    }
+    if (!entry_in_text || !dynamic_symbols) { err = ESP_ERR_INVALID_RESPONSE; goto failed; }
+    *info = (solar_os_native_elf_info_t){
+        .file_size = file_size, .entry = entry, .machine = expected_machine,
+        .program_count = program_count, .section_count = section_count,
+        .foreground = found, .app = app,
+    };
+    return ESP_OK;
+failed:
+    set_detail(detail, detail_len, "could not read valid foreground discovery metadata");
+    return err;
 }
 
 static esp_err_t validate_program_headers(const uint8_t *data,

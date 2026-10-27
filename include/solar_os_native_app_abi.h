@@ -9,6 +9,7 @@
 #define SOLAR_OS_NATIVE_APP_MANIFEST_MAGIC 0x32505041U
 #define SOLAR_OS_NATIVE_APP_MANIFEST_SYMBOL "solar_os_native_app_manifest"
 #define SOLAR_OS_NATIVE_APP_RESUMABLE (1U << 0)
+#define SOLAR_OS_NATIVE_APP_POINTER_EVENTS (1U << 1)
 #define SOLAR_OS_NATIVE_APP_CLASS_TUI 2U
 #define SOLAR_OS_NATIVE_APP_CLASS_GUI 3U
 
@@ -52,6 +53,25 @@ typedef struct {
     uint8_t key, modifiers, action, source;
     bool reset;
 } solar_os_native_foreground_key_v1_t;
+
+/* Logical taps (usage == physical_key == 0) receive a synthetic release after
+ * a 140 ms pulse measured from read_key consumption. Physical key streams keep
+ * their actual release timing. A reset clears all held and pending inputs. */
+
+#define SOLAR_OS_NATIVE_POINTER_ABSOLUTE 0U
+#define SOLAR_OS_NATIVE_POINTER_RELATIVE 1U
+#define SOLAR_OS_NATIVE_POINTER_MOVE 0U
+#define SOLAR_OS_NATIVE_POINTER_PRESS 1U
+#define SOLAR_OS_NATIVE_POINTER_RELEASE 2U
+typedef struct {
+    int16_t x, y, delta_x, delta_y;
+    uint8_t source, pointer_id, buttons, mode, action;
+    bool reset;
+} solar_os_native_foreground_pointer_v1_t;
+typedef struct {
+    uint16_t year;
+    uint8_t month, day, weekday, hour, minute, second;
+} solar_os_native_foreground_calendar_v1_t;
 
 typedef void (*solar_os_native_foreground_audio_render_v1_t)(int16_t *samples,
     size_t frames, uint32_t sample_rate, void *user);
@@ -116,4 +136,42 @@ typedef struct {
     int (*disk_write)(uint32_t handle, uint32_t offset, const void *data, size_t length);
     int (*disk_sync)(uint32_t handle);
     int (*disk_close)(uint32_t handle);
+    /* Opt-in pointer queue, routed to this app's selected display. Buttons
+     * are a held-state mask (bit 0 left, bit 1 right). Absolute coordinates
+     * use the rotated host surface; relative deltas are unscaled. On queue
+     * loss or session switches, reset releases buttons and position anchors. */
+    int (*read_pointer)(solar_os_native_foreground_pointer_v1_t *pointer, bool *available);
+    /* Host local wall clock. Guest writes must never alter the host clock. */
+    int (*calendar_read)(solar_os_native_foreground_calendar_v1_t *calendar);
+    /* Optional host-owned frame buffers. Acquire once after video_open, then
+     * write a complete frame and exchange to queue it without copying pixels.
+     * Exchange replaces *pixels with the next writable buffer. Previous
+     * contents of that buffer are unspecified. The submitted buffer is read-only
+     * until the next exchange, then must no longer be accessed. Never free these
+     * buffers or mix exchange with present. Buffers and the acquired writing
+     * pointer survive suspend; the host restores the last frame on resume and
+     * frees all buffers after main returns. */
+    int (*video_acquire)(uint8_t **pixels, size_t *length);
+    int (*video_exchange)(uint8_t **pixels);
+    /* CPU-work checkpoint. The host can coalesce successive requests to yield
+     * periodically; use sleep_ms for timed waits. Keep polling stop/suspend. */
+    void (*cooperate)(void);
 } solar_os_native_foreground_api_v1_t;
+
+static inline bool solar_os_native_foreground_has_exchange(
+    const solar_os_native_foreground_api_v1_t *app)
+{
+    return app && app->struct_size >=
+        offsetof(solar_os_native_foreground_api_v1_t, video_exchange) + sizeof(app->video_exchange) &&
+        app->video_acquire && app->video_exchange;
+}
+
+static inline void solar_os_native_foreground_cooperate(
+    const solar_os_native_foreground_api_v1_t *app)
+{
+    if (app->struct_size >= offsetof(solar_os_native_foreground_api_v1_t, cooperate) +
+        sizeof(app->cooperate) && app->cooperate)
+        app->cooperate();
+    else
+        app->sleep_ms(1);
+}

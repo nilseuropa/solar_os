@@ -46,7 +46,11 @@ typedef struct {
 
 typedef void (*solar_os_net_ping_event_fn_t)(const solar_os_net_ping_event_t *event, void *user);
 typedef bool (*solar_os_net_ping_stop_fn_t)(void *user);
+typedef bool (*solar_os_net_host_visitor_t)(const char *address,
+                                           const char *alias,
+                                           void *user);
 
+esp_err_t solar_os_net_hosts_visit(solar_os_net_host_visitor_t visitor, void *user);
 esp_err_t solar_os_net_resolve_host(const char *host, char *resolved_ip, size_t resolved_ip_len);
 esp_err_t solar_os_net_ping(const char *host,
                             const solar_os_net_ping_options_t *options,

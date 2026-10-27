@@ -304,13 +304,13 @@ static void print_schedule_entry(solar_os_shell_io_t *io,
     static const char *const weekday_names[] = {
         "sun", "mon", "tue", "wed", "thu", "fri", "sat",
     };
-    solar_os_shell_io_printf(io, "%s  %s  %s ",
+    solar_os_shell_io_table_printf(io, "%s  %s  %s ",
                              entry->name,
                              entry->enabled ? "enabled" : "disabled",
                              solar_os_schedule_kind_name(entry->kind));
     if (entry->kind == SOLAR_OS_SCHEDULE_ONCE_RELATIVE ||
         entry->kind == SOLAR_OS_SCHEDULE_INTERVAL) {
-        solar_os_shell_io_printf(io, "%" PRIu32 "s", entry->interval_seconds);
+        solar_os_shell_io_table_printf(io, "%" PRIu32 "s", entry->interval_seconds);
     } else if (entry->kind == SOLAR_OS_SCHEDULE_ONCE_CALENDAR) {
         time_t timestamp = (time_t)entry->at_utc_seconds;
         struct tm tm;
@@ -329,37 +329,37 @@ static void print_schedule_entry(solar_os_shell_io_t *io,
             };
         }
         if (solar_os_time_utc_to_local(&utc, &local) == ESP_OK) {
-            solar_os_shell_io_printf(io, "%04u-%02u-%02u %02u:%02u:%02u",
+            solar_os_shell_io_table_printf(io, "%04u-%02u-%02u %02u:%02u:%02u",
                                      (unsigned)local.year, (unsigned)local.month,
                                      (unsigned)local.day, (unsigned)local.hour,
                                      (unsigned)local.minute, (unsigned)local.second);
         } else {
-            solar_os_shell_io_printf(io, "utc=%" PRIu64, entry->at_utc_seconds);
+            solar_os_shell_io_table_printf(io, "utc=%" PRIu64, entry->at_utc_seconds);
         }
     } else {
         if (entry->kind == SOLAR_OS_SCHEDULE_WEEKLY) {
             bool separator = false;
             for (size_t i = 0; i < 7; i++) {
                 if ((entry->weekdays & (1U << i)) != 0) {
-                    solar_os_shell_io_printf(io, "%s%s",
+                    solar_os_shell_io_table_printf(io, "%s%s",
                                              separator ? "," : "",
                                              weekday_names[i]);
                     separator = true;
                 }
             }
-            solar_os_shell_io_write(io, " ");
+            solar_os_shell_io_table_write(io, " ");
         }
-        solar_os_shell_io_printf(io, "%02u:%02u:%02u",
+        solar_os_shell_io_table_printf(io, "%02u:%02u:%02u",
                                  (unsigned)entry->hour,
                                  (unsigned)entry->minute,
                                  (unsigned)entry->second);
     }
-    solar_os_shell_io_printf(io, "  %s", solar_os_schedule_action_name(entry->action));
+    solar_os_shell_io_table_printf(io, "  %s", solar_os_schedule_action_name(entry->action));
     if (entry->action == SOLAR_OS_SCHEDULE_ACTION_SCRIPT) {
-        solar_os_shell_io_printf(io, " %s", entry->value);
+        solar_os_shell_io_table_printf(io, " %s", entry->value);
     }
     if (!entry->persistent) {
-        solar_os_shell_io_write(io, "  transient");
+        solar_os_shell_io_table_write(io, "  transient");
     }
     solar_os_shell_io_newline(io);
 }

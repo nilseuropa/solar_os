@@ -177,7 +177,7 @@ static void midi_cmd_stream_list(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_midi_cc_stream_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(term, "No MIDI CC streams configured");
+        solar_os_shell_io_table_writeln(term, "No MIDI CC streams configured");
         return;
     }
     for (size_t i = 0; i < count; i++) {
@@ -185,15 +185,15 @@ static void midi_cmd_stream_list(solar_os_shell_io_t *term)
         if (!solar_os_midi_cc_stream_get(i, &info)) {
             continue;
         }
-        solar_os_shell_io_printf(term, "%s: channel=%u cc=%u ", info.id,
+        solar_os_shell_io_table_printf(term, "%s: channel=%u cc=%u ", info.id,
                                  (unsigned)info.channel,
                                  (unsigned)info.controller);
         if (info.has_value) {
-            solar_os_shell_io_printf(term, "value=%u ", (unsigned)info.value);
+            solar_os_shell_io_table_printf(term, "value=%u ", (unsigned)info.value);
         } else {
-            solar_os_shell_io_write(term, "value=waiting ");
+            solar_os_shell_io_table_write(term, "value=waiting ");
         }
-        solar_os_shell_io_printf(term, "updates=%" PRIu32 "\n", info.updates);
+        solar_os_shell_io_table_printf(term, "updates=%" PRIu32 "\n", info.updates);
     }
 }
 

@@ -71,13 +71,20 @@ typedef struct {
     pthread_mutex_t lock;
     pthread_cond_t wake;
     bool blocked, release, fail;
-    unsigned calls, remaining;
+    unsigned calls, remaining, maintenance_calls;
     uint8_t seen[16];
+    int64_t at_us[16];
 } fixture_t;
 static esp_err_t process(void *arg, const uint8_t *frame, bool fresh, bool *pending, bool *scanned) {
     fixture_t *f = arg; pthread_mutex_lock(&f->lock);
     if (fresh) f->remaining = 3;
+    if (!f->remaining) {
+        ++f->maintenance_calls;
+        *pending = false; *scanned = false;
+        pthread_mutex_unlock(&f->lock); return ESP_OK;
+    }
     assert(f->remaining && f->calls < 16);
+    f->at_us[f->calls] = esp_timer_get_time();
     f->seen[f->calls++] = frame[0];
     if (f->calls == 1) {
         f->blocked = true; pthread_cond_broadcast(&f->wake);
@@ -125,11 +132,52 @@ static void test_busy_submission_and_coalescing(void) {
     epd_scan_worker_t w; fixture_t f; begin(&w, &f);
     uint8_t image[4] = {2}; assert(epd_scan_worker_submit(&w, image) == ESP_OK);
     image[0] = 3; assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    sleep_ms(35); /* The next new-image slot is due when the callback returns. */
     image[0] = 99; release(&f); wait_scans(&w, 4);
     epd_scan_stats_t stats = epd_scan_worker_stats(&w);
     assert(stats.submitted == 3 && stats.coalesced == 1 && stats.scans == 4);
-    assert(stats.last_interval_us >= 25000);
+    assert(stats.frames == 2 && stats.last_frame_interval_us >= 30000);
     assert(f.seen[0] == 1 && f.seen[1] == 3 && f.seen[2] == 3 && f.seen[3] == 3);
+    finish(&w, &f);
+}
+static void test_redrives_between_image_slots(void) {
+    epd_scan_worker_t w; fixture_t f; begin(&w, &f);
+    assert(epd_scan_worker_set_period(&w, 200) == ESP_OK);
+    uint8_t image[4] = {2}; assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    release(&f); wait_scans(&w, 3);
+    epd_scan_stats_t stats = epd_scan_worker_stats(&w);
+    assert(stats.frames == 1 && stats.scans == 3);
+    assert(f.seen[1] == 1 && f.seen[2] == 1);
+    assert(f.at_us[2] - f.at_us[0] < 200000);
+    /* A faster second edit replaces the queued target before its image slot. */
+    image[0] = 3; assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    wait_scans(&w, 6);
+    stats = epd_scan_worker_stats(&w);
+    assert(stats.frames == 2 && stats.last_frame_interval_us >= 200000);
+    assert(stats.coalesced == 1 && f.seen[3] == 3 && f.seen[5] == 3);
+    /* Repeated identical presentations are not new images or new drives. */
+    assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    sleep_ms(220);
+    stats = epd_scan_worker_stats(&w);
+    assert(stats.frames == 2 && stats.scans == 6);
+    pthread_mutex_lock(&f.lock);
+    assert(f.maintenance_calls == 1); /* Identical frames still service tuning/cleanup. */
+    pthread_mutex_unlock(&f.lock);
+    /* A mode/power generation change must reseed even an identical image. */
+    epd_scan_worker_enable(&w, false); epd_scan_worker_enable(&w, true);
+    assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    wait_scans(&w, 9);
+    stats = epd_scan_worker_stats(&w);
+    assert(stats.frames == 3 && stats.last_frame_interval_us == 0);
+    finish(&w, &f);
+}
+static void test_new_image_interrupts_unfinished_redrives(void) {
+    epd_scan_worker_t w; fixture_t f; begin(&w, &f);
+    uint8_t image[4] = {2}; assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    sleep_ms(35);
+    release(&f); wait_scans(&w, 4);
+    assert(f.seen[0] == 1 && f.seen[1] == 2 && f.seen[3] == 2);
+    assert(epd_scan_worker_stats(&w).frames == 2);
     finish(&w, &f);
 }
 static void test_disable_discards_inflight_budget(void) {
@@ -178,6 +226,7 @@ static void test_shutdown_joins_callback(void) {
 }
 int main(void) {
     test_busy_submission_and_coalescing(); test_disable_discards_inflight_budget();
+    test_redrives_between_image_slots(); test_new_image_interrupts_unfinished_redrives();
     test_error_drops_queued_target();
     test_shutdown_joins_callback();
     epd_scan_worker_t w = {0}; fail_create = true;

@@ -66,6 +66,7 @@ static solar_os_radio_config_t default_config(void)
         .sync_word_len = 1,
         .sync_word = {0x12},
         .tx_power_dbm = 14,
+        .rx_gain = SOLAR_OS_RADIO_RX_GAIN_POWER_SAVING,
         .crc_enabled = true,
         .variable_length = true,
         .payload_length = SX1262_MAX_PACKET_LEN,
@@ -196,7 +197,19 @@ static esp_err_t op_receive(void *ctx, solar_os_radio_packet_t *packet, uint32_t
     return sx1262_receive((sx1262_t *)ctx, packet, timeout_ms);
 }
 
+static esp_err_t op_read_rssi(void *ctx, int16_t *dbm)
+{
+    return sx1262_read_rssi((sx1262_t *)ctx, dbm);
+}
+
+static esp_err_t op_tune_rx(void *ctx, uint32_t hz, uint32_t *settle_ms)
+{
+    return sx1262_tune_rx((sx1262_t *)ctx, hz, settle_ms);
+}
+
 static const solar_os_radio_ops_t radio_ops = {
+    .tune_rx = op_tune_rx,
+    .read_rssi = op_read_rssi,
     .configure = op_configure,
     .set_state = op_set_state,
     .get_status = op_get_status,
@@ -253,14 +266,18 @@ esp_err_t solar_os_sx1262_attach(const char *name,
             .modulations = SOLAR_OS_RADIO_MODULATION_LORA | SOLAR_OS_RADIO_MODULATION_GFSK,
             .features = SOLAR_OS_RADIO_FEATURE_PACKET |
                 SOLAR_OS_RADIO_FEATURE_RSSI |
+                SOLAR_OS_RADIO_FEATURE_LIVE_RSSI |
+                SOLAR_OS_RADIO_FEATURE_FAST_TUNE |
                 SOLAR_OS_RADIO_FEATURE_SNR |
                 SOLAR_OS_RADIO_FEATURE_TX_POWER |
+                SOLAR_OS_RADIO_FEATURE_RX_GAIN |
                 SOLAR_OS_RADIO_FEATURE_CRC |
                 SOLAR_OS_RADIO_FEATURE_SYNC_WORD |
                 SOLAR_OS_RADIO_FEATURE_PREAMBLE |
                 SOLAR_OS_RADIO_FEATURE_VARIABLE_LENGTH |
                 SOLAR_OS_RADIO_FEATURE_CONTINUOUS_RX,
             .max_packet_len = SX1262_MAX_PACKET_LEN,
+            .rx_gain_modes = SOLAR_OS_RADIO_RX_GAIN_BOOST_MODES,
             .default_config = config,
             .initial_state = SOLAR_OS_RADIO_STATE_STANDBY,
             .ops = &radio_ops,

@@ -119,3 +119,22 @@ esp_err_t solar_os_ble_backend_subscribe(uint32_t epoch, uint32_t request,
     uint16_t handle, uint8_t mode);
 esp_err_t solar_os_ble_backend_write(uint32_t epoch, uint32_t request, uint16_t handle,
     const uint8_t *value, size_t value_len, bool with_response);
+
+/* Native stream adapter only. Tokens outlive caller cancellation until host
+ * retirement; no stack pointers cross this boundary. Stack work is queued. */
+uint16_t solar_os_ble_backend_coc_mtu(void);
+esp_err_t solar_os_ble_backend_coc_open(solar_os_ble_session_t owner,
+    uint16_t connection, bool listener, uint32_t *token);
+void solar_os_ble_backend_coc_close(uint32_t token);
+esp_err_t solar_os_ble_backend_coc_read(uint32_t token, uint8_t *data,
+    size_t length, size_t *received);
+esp_err_t solar_os_ble_backend_coc_write(uint32_t token, const uint8_t *data,
+    size_t length, size_t *written);
+struct solar_os_ble_coc_info;
+typedef struct solar_os_ble_coc_info {
+    bool connected, failed;
+    uint16_t rx_mtu, tx_mtu;
+    uint32_t connection_interval_us;
+    size_t rx_pending, tx_pending;
+} solar_os_ble_coc_info_t;
+esp_err_t solar_os_ble_backend_coc_status(uint32_t token, solar_os_ble_coc_info_t *info);

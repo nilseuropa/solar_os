@@ -113,7 +113,8 @@ port list
 session focus
 ```
 
-See [Display commands](commands.md#hardware-and-time), [Sessions](sessions.apps.md), and
+See [Navigation and keys](navigation.md) for common shortcuts and target
+control mappings. See [Display commands](commands.md#hardware-and-time), [Sessions](sessions.apps.md), and
 [Input and audio](media.input.md).
 
 ## Streams, parameters, and controls

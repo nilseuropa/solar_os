@@ -123,6 +123,14 @@ typedef struct {
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
 } solar_os_input_pointer_event_t;
 
+/* Producer metadata for input transformations; keeps the app event ABI intact. */
+typedef struct {
+    solar_os_input_pointer_event_t event;
+    uint32_t time_ms;
+    uint8_t modifiers;
+    bool modifiers_valid;
+} solar_os_input_pointer_sample_t;
+
 /* A single exclusive filter may consume display-oriented pointer events. */
 typedef bool (*solar_os_input_pointer_filter_t)(
     const solar_os_input_pointer_event_t *event,
@@ -154,6 +162,7 @@ typedef enum {
     SOLAR_OS_INPUT_GESTURE_TAP,
     SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP,
     SOLAR_OS_INPUT_GESTURE_AIRWHEEL,
+    SOLAR_OS_INPUT_GESTURE_SWIPE,
     SOLAR_OS_INPUT_GESTURE_COUNT,
 } solar_os_input_gesture_t;
 
@@ -271,7 +280,15 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
                                    uint8_t key,
                                    uint8_t modifiers,
                                    solar_os_input_key_action_t action);
-/* Atomically enqueue a synthetic press and a fully released key event. */
+/* Set a tracked synthetic key, releasing its old logical value before a change.
+ * key=0 releases it. Queue pressure leaves both the held state and queue intact;
+ * setting the same key/usage/modifiers preserves the existing repeat deadline. */
+esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
+                                 uint16_t physical_key, uint16_t usage,
+                                 uint8_t key, uint8_t modifiers);
+/* Atomically enqueue a synthetic press and a fully released key event.
+ * Character-tap sources use PHYSICAL_NONE and USAGE_NONE: assigning a physical
+ * identity would advertise held-key semantics to consumers such as emulators. */
 esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
                                        uint16_t physical_key,
                                        uint16_t usage,
@@ -281,6 +298,21 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch);
 esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event);
+esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
+    const solar_os_input_pointer_sample_t *sample);
+/* The runtime input pump advances timed recognition for all input sources.
+ * Producers only submit ordinary input samples. */
+void solar_os_input_poll(void);
+/* Exclusive, source-specific capture before foreground/filter delivery. Claim
+ * only at a neutral button/contact boundary. Release discards pending samples.
+ * Read returns NOT_FOUND when empty, INVALID_STATE after source closure, and
+ * reset=true after overflow. No application callbacks run under the input lock. */
+esp_err_t solar_os_input_capture_pointer(const char *name, const void *owner,
+                                         solar_os_input_source_t *source);
+void solar_os_input_release_pointer(solar_os_input_source_t source, const void *owner);
+bool solar_os_input_pointer_is_captured(solar_os_input_source_t source);
+esp_err_t solar_os_input_read_captured_pointer(solar_os_input_source_t source,
+    const void *owner, solar_os_input_pointer_sample_t *sample, bool *reset);
 esp_err_t solar_os_input_pointer_apply_orientation(
     solar_os_input_pointer_event_t *event,
     uint16_t width,
@@ -336,7 +368,11 @@ esp_err_t solar_os_input_capture_keyboard_with_shortcuts(const char *name, const
 void solar_os_input_release_keyboard(const void *owner);
 bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event);
 /* Main-loop wake/idle accounting for events queued directly by drivers. */
+/* Captured keyboard presses and pointer samples still count as user activity. */
 bool solar_os_input_take_captured_activity(void);
+/* Advances on new key presses, including captured keys and modifiers, even
+ * when the event queue is full. Releases and autorepeat do not advance it. */
+uint32_t solar_os_input_key_press_generation(void);
 /* reset is delivered before queued keys after overflow, release-all or detach. */
 bool solar_os_input_read_captured_key(const void *owner,
     solar_os_input_key_event_t *event, bool *reset);
@@ -354,6 +390,9 @@ bool solar_os_input_parse_key_chord(const char *text,
 uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
                                            uint8_t modifiers,
                                            bool caps_lock);
+/* Encode Ctrl characters and modified navigation for text consumers.
+ * Already-translated keys remain unchanged. */
+uint8_t solar_os_input_translate_char_key(uint8_t key, uint8_t modifiers);
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms);
 esp_err_t solar_os_input_set_repeat(uint16_t rate_cps, uint16_t delay_ms);

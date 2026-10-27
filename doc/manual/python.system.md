@@ -107,6 +107,9 @@ another app.
 - `open(path_or_url)`: replace the current script app with the registered
   handler. A successful handoff does not return.
 
+When the launched app exits, the completed interpreter session closes and
+control returns to the shell.
+
 Example:
 
 ```python

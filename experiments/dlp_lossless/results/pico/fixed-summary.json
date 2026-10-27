@@ -1,0 +1,80 @@
+[
+  {
+    "scene": "solid",
+    "mode": "raw-full",
+    "samples": 3,
+    "transfer_present_ms": 907.230319979135,
+    "encode_ms": 0.43970602564513683,
+    "total_ms": 907.579927938059,
+    "tx_bytes": 201984,
+    "rectangles": 1,
+    "decode_us": 0,
+    "ram_write_us": 85780,
+    "verification_hash_us": 23583
+  },
+  {
+    "scene": "solid",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "transfer_present_ms": 297.38398001063615,
+    "encode_ms": 2.855034952517599,
+    "total_ms": 300.17279606545344,
+    "tx_bytes": 41728,
+    "rectangles": 1,
+    "decode_us": 13900,
+    "ram_write_us": 84989,
+    "verification_hash_us": 23395
+  },
+  {
+    "scene": "gradient",
+    "mode": "raw-full",
+    "samples": 3,
+    "transfer_present_ms": 906.605664989911,
+    "encode_ms": 0.37581700598821044,
+    "total_ms": 906.9814819958992,
+    "tx_bytes": 201984,
+    "rectangles": 1,
+    "decode_us": 0,
+    "ram_write_us": 85774,
+    "verification_hash_us": 23587
+  },
+  {
+    "scene": "gradient",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "transfer_present_ms": 701.1335950228386,
+    "encode_ms": 11.227106035221368,
+    "total_ms": 712.3607010580599,
+    "tx_bytes": 139776,
+    "rectangles": 1,
+    "decode_us": 22452,
+    "ram_write_us": 85459,
+    "verification_hash_us": 23501
+  },
+  {
+    "scene": "noise",
+    "mode": "raw-full",
+    "samples": 3,
+    "transfer_present_ms": 908.1444179755636,
+    "encode_ms": 0.3549850080162287,
+    "total_ms": 908.7280939565971,
+    "tx_bytes": 201984,
+    "rectangles": 1,
+    "decode_us": 0,
+    "ram_write_us": 85788,
+    "verification_hash_us": 23571
+  },
+  {
+    "scene": "noise",
+    "mode": "lz4-tiles",
+    "samples": 3,
+    "transfer_present_ms": 908.9196840068325,
+    "encode_ms": 16.66945399483666,
+    "total_ms": 925.8770719752647,
+    "tx_bytes": 201984,
+    "rectangles": 1,
+    "decode_us": 0,
+    "ram_write_us": 85771,
+    "verification_hash_us": 23580
+  }
+]

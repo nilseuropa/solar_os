@@ -51,6 +51,8 @@ static void gfx_mark_index8_all_dirty(solar_os_gfx_t *gfx);
 static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
 {
     switch (font) {
+    case SOLAR_OS_GFX_FONT_BITMAP_8:
+        return u8g2_font_5x8_tf;
     case SOLAR_OS_GFX_FONT_SMALL:
         return u8g2_font_solar_os_default_r_12_tf;
     case SOLAR_OS_GFX_FONT_BOLD:

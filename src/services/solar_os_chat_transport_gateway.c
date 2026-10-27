@@ -1,4 +1,5 @@
 #include "solar_os_chat_transport_gateway.h"
+#include "solar_os_gateway_instances.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -56,6 +57,8 @@ typedef struct {
 } chat_tx_item_t;
 
 typedef struct {
+    ssize_t last_io_ret;
+    int last_io_errno;
     bool initialized;
     bool configured;
     bool running;
@@ -77,10 +80,11 @@ typedef struct {
     SemaphoreHandle_t lock;
 } solar_os_chat_state_data_t;
 
-static EXT_RAM_BSS_ATTR solar_os_chat_state_data_t chat_state;
+/* Transport state is owned by the currently bound Gateway store. */
+#define chat_state (*(solar_os_chat_state_data_t *)*solar_os_gateway_transport_slot())
+#define chat_last_io_ret (chat_state.last_io_ret)
+#define chat_last_io_errno (chat_state.last_io_errno)
 static const char *TAG = "solar_os_chat";
-static ssize_t chat_last_io_ret;
-static int chat_last_io_errno;
 
 static esp_err_t solar_os_chat_gateway_disconnect(void);
 
@@ -490,7 +494,7 @@ static void chat_task_set_state(bool running, bool connected, esp_err_t err, con
 
 static void chat_gateway_task(void *arg)
 {
-    (void)arg;
+    (void)solar_os_gateway_scope_enter(arg);
 
     char url[SOLAR_OS_CHAT_URL_MAX];
     chat_lock();
@@ -681,6 +685,9 @@ static void chat_gateway_task(void *arg)
 
 static esp_err_t solar_os_chat_gateway_init(void)
 {
+    void **slot = solar_os_gateway_transport_slot();
+    if (!*slot) *slot = chat_calloc(1, sizeof(solar_os_chat_state_data_t));
+    if (!*slot) return ESP_ERR_NO_MEM;
     if (chat_state.initialized) {
         return ESP_OK;
     }
@@ -797,7 +804,7 @@ static esp_err_t solar_os_chat_gateway_connect_values(const char *url,
     BaseType_t created = solar_os_task_create_pinned(chat_gateway_task,
                                                      "solar_os_chat",
                                                      CHAT_TASK_STACK,
-                                                     NULL,
+                                                     solar_os_gateway_current_instance(),
                                                      CHAT_TASK_PRIORITY,
                                                      &chat_state.task,
                                                      tskNO_AFFINITY,
@@ -1074,3 +1081,24 @@ const solar_os_chat_transport_t solar_os_chat_gateway_transport = {
     .read_event = solar_os_chat_gateway_read_event,
     .get_status = solar_os_chat_gateway_get_status,
 };
+
+
+esp_err_t solar_os_chat_gateway_transport_prepare_remove(void)
+{
+    if (!*solar_os_gateway_transport_slot()) return ESP_OK;
+    return solar_os_chat_gateway_disconnect();
+}
+
+void solar_os_chat_gateway_transport_destroy(void)
+{
+    void **slot = solar_os_gateway_transport_slot();
+    if (!*slot) return;
+    /* prepare_remove has joined the child worker before store destruction. */
+    chat_clear_event_queue(); chat_clear_tx_queue();
+    if (chat_state.events) solar_os_queue_delete(chat_state.events);
+    if (chat_state.tx) solar_os_queue_delete(chat_state.tx);
+    if (chat_state.lock) vSemaphoreDelete(chat_state.lock);
+    volatile unsigned char *bytes = *slot;
+    for (size_t i = 0; i < sizeof(solar_os_chat_state_data_t); i++) bytes[i] = 0;
+    solar_os_memory_free(*slot); *slot = NULL;
+}

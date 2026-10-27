@@ -191,7 +191,7 @@ class RtspAppTest(unittest.TestCase):
         tft = (ROOT / "src/drivers/tft_ili9341.c").read_text()
         self.assertIn("solar_os_rgb565_rotate", tft)
         self.assertIn("solar_os_rgb565_scale_row", tft)
-        self.assertIn("heap_caps_malloc(size, MALLOC_CAP_SPIRAM", tft)
+        self.assertIn("rgb565 ? SOLAR_OS_MEMORY_EXTERNAL_REQUIRED", tft)
 
 
 if __name__ == "__main__":

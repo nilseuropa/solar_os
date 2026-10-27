@@ -49,6 +49,7 @@ typedef struct {
 
 esp_err_t bq25896_init(bq25896_t *device, const bq25896_io_t *io);
 esp_err_t bq25896_deinit(bq25896_t *device);
+esp_err_t bq25896_power_off(bq25896_t *device);
 esp_err_t bq25896_read_status(bq25896_t *device, bq25896_status_t *status);
 esp_err_t bq25896_set_enabled(bq25896_t *device, bool enabled);
 esp_err_t bq25896_set_input_current_limit(bq25896_t *device,

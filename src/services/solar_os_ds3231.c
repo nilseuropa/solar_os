@@ -1,0 +1,214 @@
+#include "solar_os_ds3231.h"
+
+#include <stdbool.h>
+#include <string.h>
+
+#include "esp_check.h"
+#include "esp_log.h"
+#include "rtc_ds3231.h"
+#include "solar_os_rtc.h"
+
+typedef struct {
+    bool active;
+    char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
+    solar_os_ds3231_t rtc;
+    int irq_pin;
+} solar_os_ds3231_device_t;
+
+static solar_os_ds3231_device_t rtc_device;
+
+static esp_err_t rtc_get(void *user, solar_os_datetime_t *datetime)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active || datetime == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    solar_os_ds3231_datetime_t value;
+    const esp_err_t read_err = solar_os_ds3231_get_datetime_device(&device->rtc, &value);
+    if (read_err != ESP_OK) {
+        ESP_LOGE("ds3231", "rtc_get: read failed: %s", esp_err_to_name(read_err));
+        return read_err;
+    }
+    *datetime = (solar_os_datetime_t) {
+        .year = value.year,
+        .month = value.month,
+        .day = value.day,
+        .hour = value.hour,
+        .minute = value.minute,
+        .second = value.second,
+        .weekday = value.weekday,
+        .clock_integrity = value.clock_integrity,
+    };
+    return ESP_OK;
+}
+
+static esp_err_t rtc_set(void *user, const solar_os_datetime_t *datetime)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active || datetime == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const solar_os_ds3231_datetime_t value = {
+        .year = datetime->year,
+        .month = datetime->month,
+        .day = datetime->day,
+        .hour = datetime->hour,
+        .minute = datetime->minute,
+        .second = datetime->second,
+        .weekday = datetime->weekday,
+        .clock_integrity = datetime->clock_integrity,
+    };
+    return solar_os_ds3231_set_datetime_device(&device->rtc, &value);
+}
+
+static esp_err_t rtc_set_alarm(void *user, const solar_os_rtc_alarm_t *alarm)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active || alarm == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint32_t match_fields = 0;
+    if ((alarm->match_fields & SOLAR_OS_RTC_ALARM_MATCH_SECOND) != 0) {
+        match_fields |= SOLAR_OS_DS3231_ALARM_MATCH_SECOND;
+    }
+    if ((alarm->match_fields & SOLAR_OS_RTC_ALARM_MATCH_MINUTE) != 0) {
+        match_fields |= SOLAR_OS_DS3231_ALARM_MATCH_MINUTE;
+    }
+    if ((alarm->match_fields & SOLAR_OS_RTC_ALARM_MATCH_HOUR) != 0) {
+        match_fields |= SOLAR_OS_DS3231_ALARM_MATCH_HOUR;
+    }
+    if ((alarm->match_fields & SOLAR_OS_RTC_ALARM_MATCH_DAY) != 0) {
+        match_fields |= SOLAR_OS_DS3231_ALARM_MATCH_DAY;
+    }
+    if ((alarm->match_fields & SOLAR_OS_RTC_ALARM_MATCH_WEEKDAY) != 0) {
+        match_fields |= SOLAR_OS_DS3231_ALARM_MATCH_WEEKDAY;
+    }
+    const solar_os_ds3231_alarm_t value = {
+        .match_fields = match_fields,
+        .second = alarm->second,
+        .minute = alarm->minute,
+        .hour = alarm->hour,
+        .day = alarm->day,
+        .weekday = alarm->weekday,
+    };
+    return solar_os_ds3231_set_alarm_device(&device->rtc, &value);
+}
+
+static esp_err_t rtc_disable_alarm(void *user)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return solar_os_ds3231_disable_alarm_device(&device->rtc);
+}
+
+static esp_err_t rtc_get_interrupt_status(void *user, uint32_t *interrupts)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint32_t device_interrupts = 0;
+    const esp_err_t ret = solar_os_ds3231_get_interrupt_status_device(
+        &device->rtc,
+        &device_interrupts);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    *interrupts = 0;
+    if ((device_interrupts & SOLAR_OS_DS3231_INTERRUPT_ALARM) != 0) {
+        *interrupts |= SOLAR_OS_RTC_INTERRUPT_ALARM;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t rtc_clear_interrupt_status(void *user, uint32_t interrupts)
+{
+    solar_os_ds3231_device_t *device = user;
+    if (device == NULL || !device->active) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint32_t device_interrupts = 0;
+    if ((interrupts & SOLAR_OS_RTC_INTERRUPT_ALARM) != 0) {
+        device_interrupts |= SOLAR_OS_DS3231_INTERRUPT_ALARM;
+    }
+    return solar_os_ds3231_clear_interrupt_status_device(&device->rtc,
+                                                        device_interrupts);
+}
+
+esp_err_t solar_os_ds3231_attach(const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t binding_count)
+{
+    if (name == NULL || name[0] == '\0' ||
+        strnlen(name, sizeof(rtc_device.name)) >= sizeof(rtc_device.name) || bindings == NULL ||
+        rtc_device.active) {
+        return rtc_device.active ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
+    }
+    const char *bus = NULL;
+    int address = -1;
+    int irq_pin = -1;
+    for (size_t i = 0; i < binding_count; i++) {
+        if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS && bus == NULL) {
+            bus = bindings[i].target;
+        } else if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS &&
+                   address < 0) {
+            address = bindings[i].value;
+        } else if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_GPIO &&
+                   strcmp(bindings[i].role, "irq") == 0 && irq_pin < 0 &&
+                   bindings[i].value >= 0 && bindings[i].value < 64) {
+            irq_pin = bindings[i].value;
+        } else {
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    if (bus == NULL || address != SOLAR_OS_DS3231_ADDRESS || irq_pin >= 64) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (solar_os_rtc_has_provider()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(solar_os_ds3231_init_device(&rtc_device.rtc,
+                                                  bus,
+                                                  (uint8_t)address),
+                        "ds3231",
+                        "controller init failed");
+    strlcpy(rtc_device.name, name, sizeof(rtc_device.name));
+    rtc_device.irq_pin = irq_pin;
+    rtc_device.active = true;
+    const solar_os_rtc_provider_t provider = {
+        .get_utc_datetime = rtc_get,
+        .set_utc_datetime = rtc_set,
+        .set_alarm = rtc_set_alarm,
+        .disable_alarm = rtc_disable_alarm,
+        .get_interrupt_status = rtc_get_interrupt_status,
+        .clear_interrupt_status = rtc_clear_interrupt_status,
+        .user = &rtc_device,
+        .interrupt_gpio = rtc_device.irq_pin,
+        .interrupt_active_level = 0,
+    };
+    const esp_err_t ret = solar_os_rtc_register_provider(name, &provider);
+    if (ret != ESP_OK) {
+        memset(&rtc_device, 0, sizeof(rtc_device));
+    }
+    return ret;
+}
+
+esp_err_t solar_os_ds3231_detach(const char *name)
+{
+    if (!rtc_device.active || name == NULL ||
+        strcmp(rtc_device.name, name) != 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    ESP_RETURN_ON_ERROR(solar_os_ds3231_disable_alarm_device(&rtc_device.rtc),
+                        "ds3231",
+                        "alarm disable failed");
+    ESP_RETURN_ON_ERROR(solar_os_rtc_unregister_provider(name),
+                        "ds3231",
+                        "provider unregister failed");
+    memset(&rtc_device, 0, sizeof(rtc_device));
+    return ESP_OK;
+}

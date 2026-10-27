@@ -21,6 +21,7 @@
 #include "solar_os_port.h"
 #include "solar_os_port_shell.h"
 #include "solar_os_task.h"
+#include "solar_os_shutdown.h"
 #include "solar_os_wifi.h"
 
 #define TELNETD_DEFAULT_PORT 23U
@@ -1188,6 +1189,10 @@ static void telnetd_job_stop(solar_os_context_t *ctx)
         }
         vTaskDelay(pdMS_TO_TICKS(25));
     }
+    portENTER_CRITICAL(&telnetd_lock);
+    const bool stopped = telnetd_job.task == NULL;
+    portEXIT_CRITICAL(&telnetd_lock);
+    if (!stopped) solar_os_shutdown_note_failure(ESP_ERR_TIMEOUT);
 }
 
 const solar_os_job_t solar_os_telnetd_job = {

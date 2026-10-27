@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "emotion"
+name = "Emotion"
+version = "1.0.0"
+description = "Animated procedural eyes and synthesized reaction sounds."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_emotion.library.elf"

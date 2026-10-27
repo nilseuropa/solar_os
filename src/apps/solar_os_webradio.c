@@ -49,9 +49,6 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(WEBRADIO_TASK_STACK);
 #define WEBRADIO_JITTER_TARGET_MS 500U
 #define WEBRADIO_WORKER_POLL_MS 20U
 #define WEBRADIO_INVALID_STREAM_BYTES (64U * 1024U)
-#define WEBRADIO_GUI_HEADER_HEIGHT SOLAR_OS_MEDIA_PLAYER_HEADER_HEIGHT
-#define WEBRADIO_GUI_ROW_HEIGHT 24
-#define WEBRADIO_GUI_FOOTER_HEIGHT 20
 #define WEBRADIO_SCOPE_SAMPLES 256U
 #define WEBRADIO_SPECTRUM_FFT_SIZE 256U
 #define WEBRADIO_VISUALIZER_REFRESH_MS 40U
@@ -555,13 +552,15 @@ static void webradio_draw_visualizer(solar_os_gfx_t *gfx,
     solar_os_media_player_layout_t layout;
     solar_os_media_player_layout(width, height, false, &layout);
     const int visualizer_y = layout.view_y, visualizer_height = layout.view_height;
+    if (visualizer_height < 8) return;
     if (webradio.visualizer == WEBRADIO_VISUALIZER_SPECTRUM) {
         solar_os_spectrum_widget_draw(
-            webradio.spectrum, gfx, 5, visualizer_y, width - 10, visualizer_height);
+            webradio.spectrum, gfx, layout.view_x, visualizer_y, layout.view_width, visualizer_height);
     } else {
         solar_os_oscilloscope_widget_draw(
-            webradio.scope, gfx, 5, visualizer_y, width - 10, visualizer_height);
+            webradio.scope, gfx, layout.view_x, visualizer_y, layout.view_width, visualizer_height);
     }
+    if (layout.compact) return;
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_fill_rect(gfx, 9, visualizer_y + 4, 78, 15);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
@@ -637,27 +636,10 @@ static void webradio_draw_dialog(solar_os_gfx_t *gfx, int width, int height)
     if (webradio.dialog == WEBRADIO_DIALOG_NONE) {
         return;
     }
-    const int dialog_width = width - 24;
-    const int dialog_height = 76;
-    const int x = 12;
-    const int y = (height - dialog_height) / 2;
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, x, y, dialog_width, dialog_height);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, x, y, dialog_width, dialog_height);
-    solar_os_gfx_rect(gfx, x + 2, y + 2, dialog_width - 4, dialog_height - 4);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_14);
-    solar_os_gfx_text(gfx, x + 9, y + 20, webradio_dialog_label());
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
     char input[WEBRADIO_GUI_INPUT_MAX + 2U];
     snprintf(input, sizeof(input), "%s_", webradio.dialog_input);
-    const size_t max_chars = dialog_width > 26 ?
-        (size_t)((dialog_width - 26) / 7) : 1U;
-    const size_t length = strlen(input);
-    const char *visible = length > max_chars ? input + length - max_chars : input;
-    solar_os_gfx_text(gfx, x + 9, y + 43, visible);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, x + 9, y + 64, "Enter next/save   Esc cancel");
+    solar_os_media_dialog_draw(gfx, width, height, webradio_dialog_label(), input,
+        height < 160 ? "Enter save/next  Esc back" : "Enter next/save   Esc cancel");
 }
 
 static void webradio_render_channels(solar_os_gfx_t *gfx,
@@ -666,10 +648,11 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
                                      webradio_playback_state_t state,
                                      const char *active_name)
 {
-    const int list_y = WEBRADIO_GUI_HEADER_HEIGHT + 5;
-    const int list_bottom = height - WEBRADIO_GUI_FOOTER_HEIGHT - 16;
-    const size_t visible_rows = list_bottom > list_y ?
-        (size_t)((list_bottom - list_y) / WEBRADIO_GUI_ROW_HEIGHT) : 0U;
+    solar_os_media_list_layout_t list;
+    solar_os_media_list_layout(width, height, &list);
+    const int list_y = list.top;
+    const int available = height - list.footer_height - (list.compact ? 0 : 16) - list_y;
+    const size_t visible_rows = available > 0 ? (size_t)(available / list.row_height) : 0;
     if (webradio.cursor < webradio.top) {
         webradio.top = webradio.cursor;
     }
@@ -677,20 +660,20 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
         webradio.top = webradio.cursor - visible_rows + 1U;
     }
 
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_14);
+    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD_14);
     for (size_t row = 0U; row < visible_rows; row++) {
         const size_t index = webradio.top + row;
         if (index >= webradio.station_count) {
             break;
         }
-        const int row_y = list_y + (int)row * WEBRADIO_GUI_ROW_HEIGHT;
+        const int row_y = list_y + (int)row * list.row_height;
         if (index == webradio.cursor) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
             solar_os_gfx_fill_rect(gfx,
                                    6,
                                    row_y,
                                    width - 12,
-                                   WEBRADIO_GUI_ROW_HEIGHT - 2);
+                                   list.row_height - 1);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         } else {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -698,28 +681,27 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
         const bool active = active_name[0] != '\0' &&
             strcmp(active_name, webradio.stations[index].name) == 0 &&
             state != WEBRADIO_PLAYBACK_IDLE && state != WEBRADIO_PLAYBACK_ERROR;
-        solar_os_gfx_text(gfx, 14, row_y + 17, active ? ">" : " ");
-        solar_os_gfx_text(gfx, 30, row_y + 17, webradio.stations[index].name);
+        solar_os_gfx_text(gfx, 14, row_y + list.baseline, active ? ">" : " ");
+        solar_os_media_text_draw(gfx, list.compact ? 22 : 30, row_y + list.baseline,
+            width - (list.compact ? 26 : 34), webradio.stations[index].name);
     }
     if (webradio.station_count == 0U) {
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        solar_os_gfx_text(gfx, 14, list_y + 17, "Catalog is empty");
+        solar_os_gfx_text(gfx, 14, list_y + list.baseline, "Catalog is empty");
     }
 
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    if (webradio.ui_message[0] != '\0') {
-        char clipped[96];
-        webradio_clip(clipped,
-                      sizeof(clipped),
-                      webradio.ui_message,
-                      (size_t)(width / 6));
-        solar_os_gfx_text(gfx, 8, height - WEBRADIO_GUI_FOOTER_HEIGHT - 3, clipped);
+    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+    if (list.compact) {
+        solar_os_media_text_draw(gfx, 2, height - 2, width - 4,
+            webradio.ui_message[0] ? webradio.ui_message : "Enter play  A+ E edit Del-");
+    } else {
+        if (webradio.ui_message[0])
+            solar_os_media_text_draw(gfx, 8, height - list.footer_height - 3,
+                width - 16, webradio.ui_message);
+        solar_os_media_text_draw(gfx, 8, height - 5, width - 16,
+            "A add  E edit  Del remove  Enter select");
     }
-    solar_os_gfx_text(gfx,
-                      8,
-                      height - 5,
-                      "A add  E edit  Del remove  Enter select");
     webradio_draw_dialog(gfx, width, height);
 }
 

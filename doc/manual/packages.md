@@ -38,11 +38,18 @@ where the board supports them:
 | --- | --- | --- |
 | `vision` | Decode QR codes and process images. | [Computer vision](vision.md) |
 | `inference` | Run resident models on ESP32-S3 with PSRAM. | [Model inference](inference.md) |
+| `inference_backend` | Include the ESP-DL engine in firmware; otherwise install the `espdl` library. | [Model inference](inference.md) |
+| `jet` | Include the script/display frontend for the separately installed Jet library. Also selected by Python and Lua on supported boards. | [Jet 3D renderer](jet.md) |
 | `zoo` | Browse and install model bundles. | [Zoo](apps.md#zoo) |
 | `pipelines` | Process images or video in the background. Also select the desired processor. | [Image pipelines](pipelines.md) |
 | `servo` | Control calibrated positional servos. | [Servo outputs](servo.md) |
 | `pwm` | Use native PWM outputs where supported. | [GPIO and PWM](gpio.analog.md) |
 | `pca9685` | Add 16 PWM outputs over expansion I2C. | [PCA9685](servo.md#pca9685-expansion-controller) |
+| `drv8830` | Control brushed DC motors over named I2C buses. | [Motor control](motor.md) |
+| `motor` | Common motor service, shell controls and Python/Lua APIs. | [Motor control](motor.md) |
+| `encoder` | Common encoder counts, shell controls and Python/Lua APIs. | [Encoder counts](encoder.md) |
+| `pcnt_encoder` | Attach native A/B encoders with explicit x1/x2/x4 counting. | [Encoder counts](encoder.md) |
+| `ds3231` | Add a battery-backed I2C clock and hardware alarm. | [DS3231](expansion.md#ds3231-real-time-clock) |
 
 Python or Lua alone does not enable optional media, vision, or inference
 services. Stored-image processing needs no camera or display. Audio can use
@@ -67,11 +74,14 @@ files.
   maintainer command, plus signed-catalog installation through `pkg`; target
   and capability pruning remove those services from other boards.
 - Native module manifests and signed catalogs carry an explicit `app`, `job`,
-  or `driver` type. Each type has a versioned runtime contract. Installed
+  `driver`, or `library` type. Each type has a versioned runtime contract. Installed
   artifacts use separate `/modules/apps`, `/modules/jobs`, and
-  `/modules/drivers` namespaces. Application modules run synchronously and
+  `/modules/drivers`, and `/modules/libraries` namespaces. Application modules run synchronously and
   unload; jobs and drivers remain resident while their callbacks are
-  registered. A per-entry lifecycle ABI is distinct from the native host ABI.
+  registered. Libraries load on first acquisition and remain resident until
+  unloaded; leases protect their API while consumers use it. See
+  [Native libraries](native-library.md). A per-entry lifecycle ABI is distinct
+  from the native host ABI.
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
   component requirements.
 - Every source file and component requirement belongs to a package.
@@ -124,24 +134,35 @@ are installed as [external foreground apps](native-app.md) through the module
 catalog and require native-module support in the firmware. They do not add
 firmware flavor groups.
 
-The `writerdeck` flavor targets the Elecrow e-paper boards with editing,
-pagination, Files, Reader, Writer, Notes, View, Python, Playground, audio
-playback, and offline speech synthesis. Its transfer tools include FTP/FTPD,
-SSH, SCP, SFTP, SFTP Sync, and Curl. PCM5102/I2S and PWM audio
-output remain available for boards such as CrowPanel that expose audio-capable
-expansion pins but have no built-in speaker path. Hardware diagnostics, broad
-expansion-driver collections, external radio stacks, messaging servers, the
-graphical Web browser and spectrum-heavy music player, VPN, MQTT, SLIP, PPP,
-and OSC are omitted to preserve the smaller OTA slot and suit e-paper refresh.
+SolarOS provides three firmware profiles. `full` is the standard profile with
+the broad application and hardware-service selection. `classic` uses the compact
+Writerdeck feature selection without the synthesizer and with ADC D-pad support
+for ODROID-GO. It is the default for all classic ESP32 targets, including boards
+with 4 MiB flash.
+`writerdeck` is the compact profile used by e-paper boards with smaller
+application partitions.
 
-The `rover` flavor targets the 4 MiB classic-ESP32 boards. It includes the
-expansion framework and drivers, networking, media viewing, writing and general
-utilities, Files, logging, Bridge, and GPIO Keys. It omits the battery monitor,
-DAQ, SUMP, Logic, games, scripting, Agent, and remote manual synchronization to
-fit the factory application slot and preserve internal-memory margin. The
-embedded `docs` application remains available. Specialized Rover images are
-created from this portable baseline with `os_builder` instead of being kept as
-separate checked-in `rover-*` flavors.
+`classic` retains Python, Playground, writing, media, communications, and the
+selected board's required hardware drivers. Lua, built-in games, video playback,
+and image-processing pipelines are omitted. ODROID-GO retains its buttons and
+ADC D-pad; VGA32 retains its default PS/2 keyboard attachment.
+
+`writerdeck` includes Python, Playground, editing, Files, Reader, Writer, Notes,
+View, audio playback, recording, speech synthesis, the synthesizer, Web, Agent,
+WireGuard, messaging, and file transfer.
+Its synth service also supplies generated audio for native foreground apps.
+Its transfer tools include FTP/FTPD, SSH, SCP, SFTP, SFTP Sync, and Curl.
+PCM5102/I2S and PWM audio remain available for runtime expansion outputs.
+Broad expansion-driver collections, external radio stacks, Lua, built-in
+games, and RTSP are omitted. Board and target requirements still
+prune unsupported features from every profile.
+
+On ESP32-S3 boards with PSRAM, all profiles include `pkg` for installing
+native modules. Native-module installation is unavailable on classic ESP32;
+Python and Playground remain available on its PSRAM boards. On supported
+targets, all profiles use the downloadable `espdl` library for inference.
+Custom profiles can select `inference_backend` to include the ESP-DL engine
+in firmware.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
@@ -300,7 +321,7 @@ command line:
 
 ```sh
 python3 scripts/os_builder.py \
-  --input flavors/core.toml \
+  --input flavors/writerdeck.toml \
   --output flavors/my-flavor.toml \
   --board solar_term \
   --layout ota

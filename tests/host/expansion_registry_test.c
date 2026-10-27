@@ -380,16 +380,18 @@ int main(void)
     assert(solar_os_expansion_init() == ESP_ERR_TIMEOUT);
     assert(solar_os_expansion_device_count() == 8);
     assert(live_allocations == 8);
+    assert(solar_os_expansion_detach("board0") == ESP_OK);
+    assert(solar_os_expansion_device_count() == 7);
     solar_os_expansion_poll(100U);
     solar_os_expansion_poll(599U);
-    assert(solar_os_expansion_device_count() == 8);
+    assert(solar_os_expansion_device_count() == 7);
     solar_os_expansion_poll(600U);
-    assert(solar_os_expansion_device_count() == 9);
-    assert(live_allocations == 9);
+    assert(solar_os_expansion_device_count() == 8);
+    assert(live_allocations == 8);
     assert(last_memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED);
-    for (size_t i = 0; i < 9; i++) {
+    for (size_t i = 0; i < 8; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "board%u", (unsigned)i);
+        snprintf(name, sizeof(name), "board%u", (unsigned)i + 1U);
         assert_device(i,
                       name,
                       SOLAR_OS_EXPANSION_ORIGIN_BOARD,
@@ -397,6 +399,17 @@ int main(void)
                       false);
     }
     assert(solar_os_expansion_detach("board8") == ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_expansion_attach_board_device(NULL) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_expansion_attach_board_device("missing") == ESP_ERR_NOT_FOUND);
+    claim_result = ESP_ERR_INVALID_STATE;
+    assert(solar_os_expansion_attach_board_device("board0") == ESP_ERR_INVALID_STATE);
+    claim_result = ESP_OK;
+    assert(solar_os_expansion_init() == ESP_OK);
+    assert(solar_os_expansion_device_count() == 8); /* Failed restore stays detached. */
+    assert(solar_os_expansion_attach_board_device("board0") == ESP_OK);
+    assert_device(8, "board0", SOLAR_OS_EXPANSION_ORIGIN_BOARD, true, true);
+    assert(solar_os_expansion_attach_board_device("board0") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_expansion_device_count() == 9 && live_allocations == 9);
 
     solar_os_expansion_binding_t native_line = {
         .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE,

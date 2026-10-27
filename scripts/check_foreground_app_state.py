@@ -22,8 +22,9 @@ FUNCTION_DECLARATION = re.compile(r"^[^=;{}]*\([^;{}]*\)\s*(?:;|\{)")
 def foreground_sources(repository: Path) -> list[Path]:
     sources = [
         path
-        for path in sorted((repository / "src").rglob("*.c"))
-        if APP_DESCRIPTOR.search(path.read_text(encoding="utf-8"))
+        for path in sorted((repository / "src").rglob("*"))
+        if path.suffix in {".c", ".cpp"}
+        and APP_DESCRIPTOR.search(path.read_text(encoding="utf-8"))
     ]
     return sorted(sources)
 
@@ -87,15 +88,23 @@ def lifecycle_bypasses(repository: Path) -> list[str]:
         repository / "src" / "solar_os_jobs.c",
     }
     callback = re.compile(r"->(?:start|stop)\s*\(")
-    for path in sorted((repository / "src").rglob("*.c")):
+    for path in sorted((repository / "src").rglob("*")):
+        if path.suffix not in {".c", ".cpp"}:
+            continue
         if path in allowed:
             continue
-        for line_number, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        source = path.read_text(encoding="utf-8")
+        backend_tables = re.findall(
+            r"\bconst\s+solar_os_\w+_backend_t\s*\*\s*(\w+)\b", source
+        )
+        for line_number, line in enumerate(source.splitlines(), start=1):
             # Device/service operation tables also conventionally expose
             # start/stop hooks. They are not foreground app descriptors.
-            if callback.search(line) and ".ops->" not in line:
+            backend_call = any(
+                re.search(rf"\b{re.escape(name)}->(?:start|stop)\s*\(", line)
+                for name in backend_tables
+            )
+            if callback.search(line) and ".ops->" not in line and not backend_call:
                 errors.append(
                     f"{path.relative_to(repository)}:{line_number}: "
                     "foreground callback bypasses solar_os_app_start/stop"

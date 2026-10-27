@@ -79,6 +79,17 @@ esp_err_t solar_os_shell_io_write_raw(solar_os_shell_io_t *io, const char *data,
 esp_err_t solar_os_shell_io_writeln(solar_os_shell_io_t *io, const char *text);
 esp_err_t solar_os_shell_io_printf(solar_os_shell_io_t *io, const char *fmt, ...);
 esp_err_t solar_os_shell_io_vprintf(solar_os_shell_io_t *io, const char *fmt, va_list args);
+/* Table fragments share the current row's width budget. Newlines start a new
+ * row; the final cell is reserved to avoid terminal auto-wrap. UTF-8 characters
+ * are never split. Ordinary text and raw streams retain their wrapping policy. */
+esp_err_t solar_os_shell_io_table_write(solar_os_shell_io_t *io, const char *text);
+esp_err_t solar_os_shell_io_table_writeln(solar_os_shell_io_t *io, const char *text);
+esp_err_t solar_os_shell_io_table_printf(solar_os_shell_io_t *io, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+esp_err_t solar_os_shell_io_table_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+esp_err_t solar_os_shell_io_table_write_bold(solar_os_shell_io_t *io, const char *text);
+esp_err_t solar_os_shell_io_table_put_char(solar_os_shell_io_t *io, char ch);
 esp_err_t solar_os_shell_io_set_bold(solar_os_shell_io_t *io, bool enabled);
 esp_err_t solar_os_shell_io_set_italic(solar_os_shell_io_t *io, bool enabled);
 esp_err_t solar_os_shell_io_set_underline(solar_os_shell_io_t *io, bool enabled);

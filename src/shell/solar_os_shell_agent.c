@@ -62,13 +62,13 @@ static void agent_conversations(solar_os_shell_io_t *io)
         SOLAR_OS_AGENT_CONVERSATION_LIST_MAX,
         &count);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "agent: list failed: %s\n",
                                  solar_os_shell_error_text(err));
         return;
     }
     if (count == 0) {
-        solar_os_shell_io_writeln(io, "No saved conversations.");
+        solar_os_shell_io_table_writeln(io, "No saved conversations.");
         return;
     }
     size_t cols = solar_os_shell_io_cols(io);
@@ -86,7 +86,7 @@ static void agent_conversations(solar_os_shell_io_t *io)
     if (cols < 72U || !slots_only) {
         for (size_t i = 0; i < count; i++) {
             const int value_width = cols > 9U ? (int)(cols - 9U) : 1;
-            solar_os_shell_io_printf(io,
+            solar_os_shell_io_table_printf(io,
                                      "%s  %u turn%s\n"
                                      "  model: %.*s\n"
                                      "  title: %.*s\n",
@@ -100,11 +100,11 @@ static void agent_conversations(solar_os_shell_io_t *io)
         }
         return;
     }
-    solar_os_shell_io_writeln(io,
+    solar_os_shell_io_table_writeln(io,
                               "SLOT TURNS  MODEL             TITLE");
     const int title_width = (int)(cols - 30U);
     for (size_t i = 0; i < count; i++) {
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-4s %-6u %-17.17s %.*s\n",
                                  items[i].id,
                                  (unsigned int)items[i].turn_count,
@@ -134,11 +134,11 @@ static void agent_tools(solar_os_shell_io_t *io)
 {
     solar_os_agent_status_t status = {0};
     (void)solar_os_agent_get_status(&status);
-    solar_os_shell_io_printf(
+    solar_os_shell_io_table_printf(
         io,
         "Policy: %s\n",
         solar_os_agent_tool_policy_name(status.tool_policy));
-    solar_os_shell_io_writeln(
+    solar_os_shell_io_table_writeln(
         io,
         "Name               Domain    Risk            Available  Policy   Requirement");
     const size_t count = solar_os_agent_tools_count();
@@ -153,7 +153,7 @@ static void agent_tools(solar_os_shell_io_t *io)
             "allow" :
             (decision == SOLAR_OS_AGENT_TOOL_POLICY_CONFIRM_ONCE ?
                 "confirm" : "deny");
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io,
             "%-18s %-9s %-15s %-10s %-8s %s\n",
             tool.provider.name,

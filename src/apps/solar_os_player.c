@@ -34,9 +34,6 @@
 #define PLAYER_DISPLAY_HPM_HZ_TENTHS 255U
 #define PLAYER_SCOPE_SAMPLES 256U
 #define PLAYER_SPECTRUM_FFT_SIZE 256U
-#define PLAYER_HEADER_HEIGHT SOLAR_OS_MEDIA_PLAYER_HEADER_HEIGHT
-#define PLAYER_ROW_HEIGHT 24
-#define PLAYER_FOOTER_HEIGHT 20
 #define PLAYER_VOLUME_STEP 5
 #if !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PLAYER_TASK_STACK);
@@ -553,16 +550,18 @@ static void player_draw_visualizer(solar_os_gfx_t *gfx, int width, int height)
     solar_os_media_player_layout_t layout;
     solar_os_media_player_layout(width, height, true, &layout);
     const int visual_y = layout.view_y, visual_height = layout.view_height;
-    if (player.visualizer == PLAYER_VISUALIZER_CASSETTE) {
-        solar_os_cassette_widget_draw(player.cassette, gfx, 5, visual_y,
-                                      width - 10, visual_height);
-    } else if (player.visualizer == PLAYER_VISUALIZER_SCOPE) {
-        solar_os_oscilloscope_widget_draw(player.scope, gfx, 5, visual_y,
-                                          width - 10, visual_height);
+    if (visual_height < 5) return;
+    if (player.visualizer == PLAYER_VISUALIZER_CASSETTE && visual_height >= 50 && layout.view_width >= 80) {
+        solar_os_cassette_widget_draw(player.cassette, gfx, layout.view_x, visual_y,
+                                      layout.view_width, visual_height);
+    } else if (player.visualizer != PLAYER_VISUALIZER_SPECTRUM) {
+        solar_os_oscilloscope_widget_draw(player.scope, gfx, layout.view_x, visual_y,
+                                          layout.view_width, visual_height);
     } else {
-        solar_os_spectrum_widget_draw(player.spectrum, gfx, 5, visual_y,
-                                      width - 10, visual_height);
+        solar_os_spectrum_widget_draw(player.spectrum, gfx, layout.view_x, visual_y,
+                                      layout.view_width, visual_height);
     }
+    if (layout.compact) return;
     static const char *labels[] = {"CASSETTE  V", "SCOPE  V", "SPECTRUM  V"};
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_fill_rect(gfx, 9, visual_y + 4, 86, 15);
@@ -598,20 +597,20 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
 
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    const int list_y = PLAYER_HEADER_HEIGHT + 5;
-    const int bottom = height - PLAYER_FOOTER_HEIGHT;
-    const size_t visible = bottom > list_y ?
-        (size_t)((bottom - list_y) / PLAYER_ROW_HEIGHT) : 0U;
+    solar_os_media_list_layout_t list;
+    solar_os_media_list_layout(width, height, &list);
+    const int list_y = list.top;
+    const size_t visible = (size_t)list.visible;
     const size_t count = player.browsing ?
         solar_os_storage_browser_count(player.browser) : player.track_count;
     const size_t cursor = player.browsing ?
         solar_os_storage_browser_cursor(player.browser) : player.cursor;
     if (cursor < player.top) player.top = cursor;
-    if (cursor >= player.top + visible) player.top = cursor - visible + 1U;
+    if (visible && cursor >= player.top + visible) player.top = cursor - visible + 1U;
     for (size_t row = 0U; row < visible; row++) {
         const size_t index = player.top + row;
         if (index >= count) break;
-        const int y = list_y + (int)row * PLAYER_ROW_HEIGHT;
+        const int y = list_y + (int)row * list.row_height;
         char label[192];
         if (player.browsing) {
             solar_os_storage_browser_entry_t entry;
@@ -627,17 +626,18 @@ static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
         }
         if (index == cursor) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, PLAYER_ROW_HEIGHT - 2);
+            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, list.row_height - 1);
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         } else {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         }
-        solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_gfx_text(gfx, 9, y + 17, label);
+        solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
+        solar_os_media_text_draw(gfx, 6, y + list.baseline, width - 12, label);
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_gfx_text(gfx, 6, height - 6,
+    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+    solar_os_media_text_draw(gfx, 3, height - 2, width - 6,
+                      list.compact ? (player.browsing ? "Enter open  Esc back" : "Enter play  A+ Del-") :
                       player.browsing ? "Enter open/add   Esc cancel" :
                                         "A add   Del remove   Enter play");
 }

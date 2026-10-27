@@ -52,16 +52,16 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
     solar_os_network_path_info_t preferred = {0};
     const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
 
-    solar_os_shell_io_writeln(term, "Interfaces:");
+    solar_os_shell_io_table_writeln(term, "Interfaces:");
     if (interface_count == 0U) {
-        solar_os_shell_io_writeln(term, "  no network interfaces");
+        solar_os_shell_io_table_writeln(term, "  no network interfaces");
     }
     for (size_t i = 0U;
          i < interface_count && i < SOLAR_OS_NETWORK_INTERFACE_MAX;
          i++) {
         char detail[40];
         network_interface_detail(&interfaces[i], detail, sizeof(detail));
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             term,
             "  %-10s %-10s %-15s %s%s\n",
             interfaces[i].name,
@@ -75,7 +75,7 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
     solar_os_network_router_status_t router = {0};
     solar_os_network_router_get_status(&router);
     if (router.available) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  %-10s %-10s %-15s downstream%s\n",
                                  router.downstream,
                                  router.downstream_active ? "up" : "down",
@@ -88,7 +88,7 @@ static void network_print_interfaces(solar_os_shell_io_t *term)
     solar_os_wireguard_status_t wireguard = {0};
     solar_os_wireguard_get_status(&wireguard);
     if (wireguard.configured || wireguard.desired_up || wireguard.routes_active) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  %-10s %-10s %-15s tunnel (%s)\n",
                                  "wireguard",
                                  wireguard.routes_active ? "up" : "down",
@@ -108,42 +108,42 @@ static void network_print_routes(solar_os_shell_io_t *term)
     solar_os_network_path_info_t preferred = {0};
     const bool have_preferred = solar_os_network_path_get_preferred(&preferred);
 
-    solar_os_shell_io_writeln(term, "Routes:");
+    solar_os_shell_io_table_writeln(term, "Routes:");
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
     solar_os_wireguard_status_t wireguard = {0};
     solar_os_wireguard_get_status(&wireguard);
     const char *underlay = wireguard.underlay[0] != '\0' ?
         wireguard.underlay : "uplink";
     if (wireguard.default_route_active) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  default via wireguard over %s\n",
                                  underlay);
     } else if (have_preferred) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  default via %s (automatic)\n",
                                  preferred.name);
     } else {
-        solar_os_shell_io_writeln(term, "  default unavailable");
+        solar_os_shell_io_table_writeln(term, "  default unavailable");
     }
     if (wireguard.routes_active) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  %u VPN route%s via wireguard over %s%s\n",
                                  (unsigned)wireguard.route_count,
                                  wireguard.route_count == 1U ? "" : "s",
                                  underlay,
                                  wireguard.full_tunnel ? " (full tunnel)" : "");
     } else if (wireguard.desired_up) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  WireGuard routes waiting: %s\n",
                                  solar_os_wireguard_state_name(wireguard.state));
     }
 #else
     if (have_preferred) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "  default via %s (automatic)\n",
                                  preferred.name);
     } else {
-        solar_os_shell_io_writeln(term, "  default unavailable");
+        solar_os_shell_io_table_writeln(term, "  default unavailable");
     }
 #endif
 
@@ -154,7 +154,7 @@ static void network_print_routes(solar_os_shell_io_t *term)
         if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_DOWNSTREAM) {
             if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP &&
                 have_preferred) {
-                solar_os_shell_io_printf(
+                solar_os_shell_io_table_printf(
                     term,
                     "  %s -> %s%s\n",
                     interface->name,
@@ -165,18 +165,18 @@ static void network_print_routes(solar_os_shell_io_t *term)
 #endif
                     interface->nat_enabled ? " with NAT" : "");
             } else if (interface->state == SOLAR_OS_NETWORK_INTERFACE_STATE_UP) {
-                solar_os_shell_io_printf(term,
+                solar_os_shell_io_table_printf(term,
                                          "  %s waiting for a default route\n",
                                          interface->name);
             } else {
-                solar_os_shell_io_printf(
+                solar_os_shell_io_table_printf(
                     term,
                     "  %s %s\n",
                     interface->name,
                     solar_os_network_interface_state_name(interface->state));
             }
         } else if (interface->role == SOLAR_OS_NETWORK_INTERFACE_ROLE_PEER) {
-            solar_os_shell_io_printf(
+            solar_os_shell_io_table_printf(
                 term,
                 "  %s peer %s\n",
                 interface->name,

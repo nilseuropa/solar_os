@@ -1,0 +1,23 @@
+--- a/protocol/src/sdlp.c
++++ b/protocol/src/sdlp.c
+@@ -42,12 +42,18 @@
+   return true;
+ }
+ uint32_t sdlp_crc32(const void *data, size_t n) {
++  /* Same reflected IEEE CRC32, two nibble lookups per byte. 64 B of rodata. */
++  static const uint32_t table[16] = {
++      UINT32_C(0x00000000), UINT32_C(0x1db71064), UINT32_C(0x3b6e20c8), UINT32_C(0x26d930ac),
++      UINT32_C(0x76dc4190), UINT32_C(0x6b6b51f4), UINT32_C(0x4db26158), UINT32_C(0x5005713c),
++      UINT32_C(0xedb88320), UINT32_C(0xf00f9344), UINT32_C(0xd6d6a3e8), UINT32_C(0xcb61b38c),
++      UINT32_C(0x9b64c2b0), UINT32_C(0x86d3d2d4), UINT32_C(0xa00ae278), UINT32_C(0xbdbdf21c)};
+   const uint8_t *p = data;
+   uint32_t crc = UINT32_MAX;
+   while (n--) {
+     crc ^= *p++;
+-    for (unsigned i = 0; i < 8; i++)
+-      crc = (crc >> 1) ^ ((0u - (crc & 1u)) & UINT32_C(0xedb88320));
++    crc = (crc >> 4) ^ table[crc & 15];
++    crc = (crc >> 4) ^ table[crc & 15];
+   }
+   return ~crc;
+ }

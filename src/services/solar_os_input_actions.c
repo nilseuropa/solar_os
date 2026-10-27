@@ -585,9 +585,8 @@ esp_err_t solar_os_input_actions_emit_key(const char *name)
         portEXIT_CRITICAL(&state.lock);
     }
 
-    const uint16_t physical_key = (uint16_t)key + 0x100U;
     return solar_os_input_write_key_tap(source,
-                                        physical_key,
+                                        SOLAR_OS_INPUT_PHYSICAL_NONE,
                                         SOLAR_OS_INPUT_USAGE_NONE,
                                         key,
                                         modifiers);

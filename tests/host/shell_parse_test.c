@@ -72,6 +72,31 @@ int main(void)
     assert(!solar_os_shell_parse_rgb888(NULL, &color));
     assert(!solar_os_shell_parse_rgb888("#123456", NULL));
 
+    char secret_setup[] = "  'messages'\tconfigure community sasl account password";
+    result = parse(secret_setup, argv, 8);
+    assert(result.error == SOLAR_OS_SHELL_PARSE_OK);
+    assert(solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    char chat_secret[] = "/SaSl\tSolarIRC admin \"a password\\\\with'and\\\"quotes\"";
+    result = parse(chat_secret, argv, 8);
+    assert(result.error == SOLAR_OS_SHELL_PARSE_OK && result.argc == 4);
+    assert(!strcmp(argv[3], "a password\\with'and\"quotes"));
+    assert(solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    char chat_setup[] = "/'configure'\tSolarIRC sasl admin 'literal \\ value'";
+    result = parse(chat_setup, argv, 8);
+    assert(result.error == SOLAR_OS_SHELL_PARSE_OK && result.argc == 5);
+    assert(!strcmp(argv[4], "literal \\ value"));
+    assert(solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    char chat_status[] = "/status";
+    result = parse(chat_status, argv, 8);
+    assert(!solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    char secret_ble[] = "job start meshcore-ble 01:02:03:04:05:06 public 123456";
+    result = parse(secret_ble, argv, 8);
+    assert(solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    char ordinary[] = "messages instances";
+    result = parse(ordinary, argv, 8);
+    assert(!solar_os_shell_command_has_secrets(result.argc, (const char *const *)argv));
+    assert(!solar_os_shell_command_has_secrets(0, NULL));
+
     puts("shell_parse_test: ok");
     return 0;
 }

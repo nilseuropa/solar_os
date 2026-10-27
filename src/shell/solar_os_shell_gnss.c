@@ -86,17 +86,14 @@ static void show_status(solar_os_shell_io_t *term,
     const char *power = status.power_control
         ? (status.powered ? "on" : "off")
         : "always-on";
+    solar_os_shell_io_printf(term, "%s power=%s output=%s ", name, power,
+                             status.enabled ? "enabled" : "disabled");
     if (!status.fix_available) {
-        solar_os_shell_io_printf(term,
-                                 "%s power=%s fix=unavailable\r\n",
-                                 name,
-                                 power);
+        solar_os_shell_io_writeln(term, "fix=unavailable");
         return;
     }
     solar_os_shell_io_printf(term,
-                             "%s power=%s fix=%s type=%u satellites=",
-                             name,
-                             power,
+                             "fix=%s type=%u satellites=",
                              status.fix.valid ? "valid" : "invalid",
                              status.fix.fix_type);
     print_satellite_count(term, &status.fix);
@@ -112,18 +109,39 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_gnss_info_t info;
         for (size_t i = 0; solar_os_gnss_get(i, &info); i++) {
-            solar_os_shell_io_printf(term,
-                                     "%s  %s  power=%s\r\n",
+            solar_os_shell_io_table_printf(term,
+                                     "%s  %s  power=%s output=%s\r\n",
                                      info.name,
                                      info.driver,
                                      info.power_control
                                          ? (info.powered ? "on" : "off")
-                                         : "always-on");
+                                         : "always-on",
+                                     info.enabled ? "enabled" : "disabled");
         }
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "status") == 0) {
         show_status(term, argc, argv);
+        return;
+    }
+    if (argc >= 2 && (strcmp(argv[1], "enable") == 0 || strcmp(argv[1], "disable") == 0)) {
+        if (argc > 3) {
+            solar_os_shell_io_writeln(term, "usage: gnss enable|disable [name]");
+            return;
+        }
+        const char *name = argc == 3 ? argv[2] : default_name();
+        if (name == NULL) {
+            solar_os_shell_io_writeln(term, "gnss: no receiver");
+            return;
+        }
+        const bool enabled = strcmp(argv[1], "enable") == 0;
+        const esp_err_t ret = solar_os_gnss_set_enabled(name, enabled);
+        if (ret == ESP_OK) {
+            solar_os_shell_io_printf(term, "%s output=%s\r\n", name,
+                                     enabled ? "enabled" : "disabled");
+        } else {
+            solar_os_shell_io_printf(term, "gnss %s: %s\r\n", argv[1], esp_err_to_name(ret));
+        }
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "power") == 0) {
@@ -149,6 +167,7 @@ void solar_os_shell_cmd_gnss(solar_os_context_t *ctx, int argc, char **argv)
     if (argc < 2 || argc > 4 || strcmp(argv[1], "fix") != 0) {
         solar_os_shell_io_writeln(term,
                                   "usage: gnss [list] | gnss status [name] | "
+                                  "gnss enable|disable [name] | "
                                   "gnss power <on|off> [name] | gnss fix [name] "
                                   "[timeout-ms]");
         return;

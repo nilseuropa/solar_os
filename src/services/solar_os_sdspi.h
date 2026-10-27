@@ -11,4 +11,5 @@ esp_err_t solar_os_sdspi_attach(const char *name,
                                 const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count);
 esp_err_t solar_os_sdspi_detach(const char *name);
+esp_err_t solar_os_sdspi_prepare_shutdown(void);
 size_t solar_os_sdspi_format_last_diagnostics(char *buffer, size_t len);

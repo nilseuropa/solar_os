@@ -25,6 +25,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 #include "solar_os_chat_app.h"
+#include "solar_os_messages_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 #include "solar_os_contacts_app.h"
@@ -67,6 +68,9 @@
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
 #include "solar_os_clock.h"
+#endif
+#if SOLAR_OS_PACKAGE_APP_DLP
+#include "solar_os_dlp_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_SYNTH
 #include "solar_os_synth_app.h"
@@ -128,6 +132,9 @@
 #if SOLAR_OS_PACKAGE_APP_LOGIC
 #include "solar_os_logic_app.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+#include "solar_os_rfscan.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_READER
 #include "solar_os_reader.h"
 #endif
@@ -165,6 +172,9 @@
      .min_argc = app_min, .max_argc = app_max}
 
 static const solar_os_app_registry_entry_t registered_apps[] = {
+#if SOLAR_OS_PACKAGE_APP_DLP
+    APP_ENTRY("dlp", "DLP display receiver", &solar_os_dlp_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "dlp stream=<byte-stream>", 2, 2),
+#endif
 #if SOLAR_OS_PACKAGE_APP_APLAY
     APP_ENTRY("aplay", "play WAV/MP3 audio", &solar_os_aplay_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "aplay [-v volume] <file.wav|file.mp3>", 2, 4),
 #endif
@@ -175,10 +185,11 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("recorder", "interactive WAV recorder", &solar_os_recorder_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "recorder [--tui] [file.wav]", 1, 3),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
-    APP_ENTRY("chat", "provider-neutral conversation client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "chat [gateway|meshcore|link|conversation-id]", 1, 2),
+    APP_ENTRY("chat", "provider-neutral conversation client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "chat [instance|class|conversation-id]", 1, 2),
+    APP_ENTRY("messages", "manage messaging instances, connections, and history", &solar_os_messages_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "messages", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
-    APP_ENTRY("contacts", "provider-neutral contact browser", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "contacts", 1, 1),
+    APP_ENTRY("contacts", "provider-neutral address book", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "contacts", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
     APP_ENTRY("agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "agent [--tts] [new|resume <id>|ask <prompt...>] | agent script <file> [args...]", 1, 0),
@@ -276,6 +287,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_LOGIC
     APP_ENTRY("logic", "logic analyzer waveform viewer", &solar_os_logic_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "logic <pin[,pin...]> [rate] [samples] [trigger=pin]", 2, 5),
+#endif
+#if SOLAR_OS_PACKAGE_APP_RFSCAN
+    APP_ENTRY("rfscan", "radio energy graph and swept waterfall", &solar_os_rfscan_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "rfscan [radio-name]", 1, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_READER
     APP_FILE_ENTRY("reader", "graphics text/Markdown/EPUB reader", &solar_os_reader_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "reader [--pager] <file.txt|file.md|file.epub|man:topic>", 2, 3, ".txt .text .md .markdown .epub"),
@@ -683,7 +697,8 @@ static esp_err_t app_registry_request_native_launch(
         }
         argv[i + 1U] = storage[i + 1U];
     }
-    return solar_os_context_request_launch(ctx, entry->app, (int)argc, argv);
+    return solar_os_context_request_launch_ex(ctx, entry->app, (int)argc, argv,
+                                              SOLAR_OS_LAUNCH_CHILD_RETURN);
 }
 
 esp_err_t solar_os_app_registry_request_launch(solar_os_context_t *ctx,

@@ -7,6 +7,9 @@
 #include "freertos/task.h"
 #include "sd_card.h"
 #include "solar_os_board.h"
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+#include "solar_os_sdspi.h"
+#endif
 
 #ifndef SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL
 #define SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL 1
@@ -34,13 +37,38 @@ static esp_err_t storage_power_on(void)
         storage_power_configured = true;
     }
 
+    esp_err_t err = gpio_sleep_sel_dis(SOLAR_OS_BOARD_PIN_SD_POWER);
+    if (err != ESP_OK) {
+        return err;
+    }
     const int active = SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL ? 1 : 0;
-    const esp_err_t err = gpio_set_level(SOLAR_OS_BOARD_PIN_SD_POWER, active);
+    (void)gpio_hold_dis(SOLAR_OS_BOARD_PIN_SD_POWER);
+    err = gpio_set_level(SOLAR_OS_BOARD_PIN_SD_POWER, active);
     if (err == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     return err;
 #endif
+}
+
+esp_err_t solar_os_board_storage_shutdown(void)
+{
+    if (sd_card_has_mounts()) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = sd_card_prepare_shutdown();
+    if (err != ESP_OK) return err;
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+    err = solar_os_sdspi_prepare_shutdown();
+    if (err != ESP_OK) return err;
+#endif
+#ifdef SOLAR_OS_BOARD_PIN_SD_POWER
+    err = gpio_set_level(SOLAR_OS_BOARD_PIN_SD_POWER, !SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL);
+    if (err == ESP_OK) {
+        err = gpio_hold_en(SOLAR_OS_BOARD_PIN_SD_POWER);
+        if (err != ESP_OK) return err;
+        gpio_deep_sleep_hold_en();
+    }
+#endif
+    return err;
 }
 
 static void storage_block_from_driver(solar_os_board_storage_block_t *out,

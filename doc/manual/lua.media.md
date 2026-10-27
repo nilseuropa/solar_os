@@ -236,3 +236,33 @@ end)
 solaros.rtsp.close(receiver)
 if not ok then error(err) end
 ```
+
+
+## TCP byte streams
+
+With TCP byte-stream support, `solaros.streams.tcp.listen(name, port)` creates
+a raw listener, `connect(name, host, port)` configures an outbound endpoint,
+and `remove(name)` removes an unclaimed endpoint. These create registered
+exclusive duplex byte streams; pass their names to `solaros.dlp.connect` or
+the `stream-dlp` expansion driver. Up to four endpoints share the TCP registry.
+The socket connects on first I/O and closes when its consumer releases the
+stream. Hostnames resolve at registration. These endpoints persist until
+removed or rebooted, including after the creating script exits.
+See [stream commands](commands.md#streams-logs-ports-and-transfers) and
+[direct DLP connections](lua.gfx.md#direct-dlp-connections).
+
+## BLE byte streams
+
+With BLE byte-stream support, `solaros.streams.ble.listen(name)` registers a
+native CoC listener, `connect(name, address, addr_type)` configures an outbound
+stream, and `remove(name)` removes an unclaimed endpoint. Address type defaults
+to 0: 0 public, 1 random, 2 public identity, 3 random identity. Use the address
+and type from `ble scan`.
+
+These configurations persist after the script exits. Claiming the stream starts
+its BLE connection; releasing it frees the connection and its data buffers.
+Use the name with `solaros.dlp.connect` or `solaros.streams.open`, close the
+consumer on every exit path, then remove configurations owned only by the
+script. A disconnected handle must be closed and reopened. The OS keyboard
+connection remains reserved. See [BLE stream commands](commands.md#ble-byte-streams)
+for connection roles, buffering, peripheral lease sharing, and security behavior.

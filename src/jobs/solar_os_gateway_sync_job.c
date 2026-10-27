@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "solar_os_chat.h"
+#include "solar_os_gateway_instances.h"
 #include "solar_os_chat_transport_gateway.h"
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
@@ -41,7 +42,12 @@ typedef struct {
     solar_os_messaging_outbound_t *outbound;
 } gateway_sync_state_t;
 
-static gateway_sync_state_t gateway_sync;
+#define gateway_sync (*(gateway_sync_state_t *)*solar_os_gateway_worker_slot())
+static struct {
+    bool running;
+    volatile bool stop_requested, worker_done;
+    TaskHandle_t worker;
+} gateway_manager;
 static const char *TAG = "gateway_sync";
 
 static void gateway_sync_worker(void *arg);
@@ -176,7 +182,7 @@ static void gateway_sync_submit_next(void)
     }
     if (solar_os_chat_outbox_peek(gateway_sync.command) != ESP_OK) {
         if (solar_os_messaging_outbox_peek(
-                SOLAR_OS_MESSAGING_PROVIDER_GATEWAY,
+                solar_os_gateway_current_id(),
                 gateway_sync.outbound) != ESP_OK) {
             return;
         }
@@ -259,69 +265,59 @@ static void gateway_sync_free_buffers(void)
     gateway_sync.outbound = NULL;
 }
 
+static esp_err_t gateway_sync_prepare_current(void)
+{
+    return solar_os_chat_gateway_transport_prepare_remove();
+}
+
+static void gateway_sync_destroy_current(void)
+{
+    void **slot = solar_os_gateway_worker_slot();
+    if (*slot) {
+        gateway_sync_free_buffers(); solar_os_memory_free(*slot); *slot = NULL;
+    }
+    solar_os_chat_gateway_transport_destroy();
+}
+
+static const solar_os_gateway_runtime_hooks_t runtime_hooks = {
+    .prepare = gateway_sync_prepare_current, .destroy = gateway_sync_destroy_current,
+};
+
+static esp_err_t gateway_sync_ensure_current(void)
+{
+    void **slot = solar_os_gateway_worker_slot();
+    if (!*slot) {
+        *slot = solar_os_memory_calloc(1, sizeof(gateway_sync_state_t), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "gateway.worker");
+        if (!*slot) return ESP_ERR_NO_MEM;
+        gateway_sync.transport = &solar_os_chat_gateway_transport;
+        gateway_sync.retry_delay_ms = GATEWAY_SYNC_RETRY_MIN_MS;
+    }
+    esp_err_t error = gateway_sync.transport->init();
+    if (error == ESP_OK && !gateway_sync.event) error = gateway_sync_alloc_buffers();
+    return error;
+}
+
 static esp_err_t gateway_sync_start(solar_os_context_t *ctx, int argc, char **argv)
 {
     (void)ctx;
-    if (argc > 1 || (argc == 1 && argv != NULL && argv[0] != NULL &&
-                     strcmp(argv[0], solar_os_gateway_sync_job.name) != 0)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (gateway_sync.running) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    memset(&gateway_sync, 0, sizeof(gateway_sync));
-    esp_err_t err = solar_os_chat_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    gateway_sync.transport = &solar_os_chat_gateway_transport;
-    err = gateway_sync.transport->init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = gateway_sync_alloc_buffers();
-    if (err != ESP_OK) {
-        return err;
-    }
-    gateway_sync.running = true;
-    gateway_sync.retry_delay_ms = GATEWAY_SYNC_RETRY_MIN_MS;
-    (void)solar_os_gateway_sync_set_status(true, false, ESP_OK, NULL);
-    if (solar_os_task_create_pinned(gateway_sync_worker,
-                                    "gateway_sync",
-                                    GATEWAY_SYNC_WORKER_STACK,
-                                    NULL,
-                                    GATEWAY_SYNC_WORKER_PRIORITY,
-                                    &gateway_sync.worker_task,
-                                    tskNO_AFFINITY,
-                                    SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
-        gateway_sync.running = false;
-        (void)solar_os_gateway_sync_set_status(false,
-                                            false,
-                                            ESP_ERR_NO_MEM,
-                                            "synchronizer worker allocation failed");
-        gateway_sync_free_buffers();
-        return ESP_ERR_NO_MEM;
+    if (argc > 1 || (argc == 1 && argv && argv[0] && strcmp(argv[0], solar_os_gateway_sync_job.name))) return ESP_ERR_INVALID_ARG;
+    if (gateway_manager.running || (gateway_manager.worker && !gateway_manager.worker_done)) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = solar_os_gateway_instances_init(); if (error != ESP_OK) return error;
+    solar_os_gateway_set_runtime_hooks(&runtime_hooks);
+    gateway_manager.stop_requested = false; gateway_manager.worker_done = false; gateway_manager.running = true;
+    if (solar_os_task_create_pinned(gateway_sync_worker, "gateway_sync", GATEWAY_SYNC_WORKER_STACK,
+        NULL, GATEWAY_SYNC_WORKER_PRIORITY, &gateway_manager.worker, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+        gateway_manager.running = false; gateway_manager.worker = NULL; return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
 }
 
 static void gateway_sync_stop(solar_os_context_t *ctx)
 {
-    (void)ctx;
-    gateway_sync.stop_requested = true;
-    if (gateway_sync.worker_task != NULL) {
-        (void)xTaskNotifyGive(gateway_sync.worker_task);
-    }
-    if (!solar_os_task_wait_done(gateway_sync.worker_task,
-                                 &gateway_sync.worker_done,
-                                 GATEWAY_SYNC_STOP_WAIT_MS)) {
-        SOLAR_OS_LOGW(TAG,
-                      "worker did not stop within %u ms",
-                      (unsigned)GATEWAY_SYNC_STOP_WAIT_MS);
-        return;
-    }
-    gateway_sync.worker_task = NULL;
-    gateway_sync_free_buffers();
+    (void)ctx; gateway_manager.stop_requested = true;
+    if (gateway_manager.worker && !gateway_manager.worker_done) xTaskNotifyGive(gateway_manager.worker);
+    if (solar_os_task_wait_done(gateway_manager.worker, &gateway_manager.worker_done, GATEWAY_SYNC_STOP_WAIT_MS)) gateway_manager.worker = NULL;
+    else SOLAR_OS_LOGW(TAG, "Gateway manager is still stopping child transports");
 }
 
 static bool gateway_sync_process(uint32_t now_ms)
@@ -413,22 +409,47 @@ static bool gateway_sync_process(uint32_t now_ms)
 static void gateway_sync_worker(void *arg)
 {
     (void)arg;
-    while (!gateway_sync.stop_requested) {
-        const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
-        (void)gateway_sync_process(now_ms);
-        (void)ulTaskNotifyTake(pdTRUE,
-                              pdMS_TO_TICKS(GATEWAY_SYNC_WORKER_INTERVAL_MS));
+    while (!gateway_manager.stop_requested) {
+        solar_os_gateway_workers_lock();
+        solar_os_messaging_provider_id_t cursor = 0; void *store;
+        while (!gateway_manager.stop_requested && (store = solar_os_gateway_instance_next(&cursor))) {
+            void *previous = solar_os_gateway_scope_enter(store);
+            solar_os_chat_config_t config;
+            if (solar_os_chat_get_config(&config) == ESP_OK && config.enabled && config.configured) {
+                esp_err_t error = gateway_sync_ensure_current();
+                if (error == ESP_OK) (void)gateway_sync_process(pdTICKS_TO_MS(xTaskGetTickCount()));
+                else (void)solar_os_gateway_sync_set_status(false, false, error, "Gateway worker allocation failed");
+            } else if (*solar_os_gateway_worker_slot()) {
+                (void)gateway_sync_process(pdTICKS_TO_MS(xTaskGetTickCount()));
+            }
+            solar_os_gateway_scope_leave(previous);
+        }
+        solar_os_gateway_workers_unlock();
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(GATEWAY_SYNC_WORKER_INTERVAL_MS));
     }
-    (void)gateway_sync.transport->disconnect();
-    (void)solar_os_gateway_sync_set_status(false, false, ESP_OK, NULL);
-    gateway_sync.running = false;
-    gateway_sync.worker_done = true;
+    bool stopped;
+    do {
+        stopped = true;
+        solar_os_gateway_workers_lock();
+        solar_os_messaging_provider_id_t cursor = 0; void *store;
+        while ((store = solar_os_gateway_instance_next(&cursor))) {
+            void *previous = solar_os_gateway_scope_enter(store);
+            if (gateway_sync_prepare_current() == ESP_OK) {
+                (void)solar_os_gateway_sync_set_status(false, false, ESP_OK, NULL);
+                gateway_sync_destroy_current();
+            } else stopped = false;
+            solar_os_gateway_scope_leave(previous);
+        }
+        solar_os_gateway_workers_unlock();
+        if (!stopped) vTaskDelay(pdMS_TO_TICKS(25));
+    } while (!stopped);
+    gateway_manager.running = false; gateway_manager.worker_done = true;
     solar_os_task_delete(NULL);
 }
 
 const solar_os_job_t solar_os_gateway_sync_job = {
     .name = "gateway-sync",
-    .summary = "synchronize the gateway messaging provider",
+    .summary = "synchronize configured Gateway instances",
     .kind = SOLAR_OS_JOB_KIND_BACKGROUND,
     .start = gateway_sync_start,
     .stop = gateway_sync_stop,

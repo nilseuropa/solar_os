@@ -1,4 +1,5 @@
 #include "epd_ssd1683.h"
+#include "epd_ssd1683_waveform.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -43,6 +44,8 @@
 #define SSD1683_WAVESHARE_RESET_LOW_MS 2U
 #define SSD1683_RESET_RECOVERY_LOW_MS 1000U
 #define SSD1683_AUTO_FULL_INTERVAL 20U
+/* ceil(1000 / 15): limit new Fastwave images, independently of redrives. */
+#define SSD1683_FASTWAVE_MIN_FRAME_PERIOD_MS 67U
 
 _Static_assert(SSD1683_DUAL_WIDTH + SSD1683_DUAL_SEAM_WIDTH ==
                    SSD1683_DUAL_PADDED_WIDTH,
@@ -135,6 +138,12 @@ static bool ssd1683_is_dual(const epd_ssd1683_t *display)
         display->panel_variant == EPD_SSD1683_PANEL_ELECROW_579_DUAL;
 }
 
+static bool ssd1683_uses_fastwave(const epd_ssd1683_t *display)
+{
+    return ssd1683_is_dual(display) || (display != NULL &&
+        display->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER);
+}
+
 static epd_pulse_tuning_t ssd1683_default_pulse_tuning(epd_ssd1683_panel_variant_t panel)
 {
     epd_pulse_tuning_t tuning = epd_pulse_default_tuning();
@@ -173,7 +182,7 @@ static void ssd1683_pulse_defaults(epd_ssd1683_t *display,
     display->pulse_tuning = ssd1683_default_pulse_tuning(config->panel_variant);
     display->scan_async = dual || config->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 ||
         config->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER;
-    display->scan_period_ms = dual || green ? 10 : 100;
+    display->scan_period_ms = dual || green ? SSD1683_FASTWAVE_MIN_FRAME_PERIOD_MS : 100;
     display->pulse_power_hold = dual;
     display->pulse_ramp_fast = dual || green;
     display->pulse_spi_clock_hz = dual || green ? 20000000 : config->spi_clock_hz;
@@ -590,6 +599,7 @@ static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
         display->pulse_mask_pending = 0;
         display->pulse_analog_on = false;
         display->pulse_last_drive_start = 0;
+        display->pulse_last_frame_start = 0;
         display->pulse_drive_interval = 0;
         display->pulse_needs_cleanup = false;
         display->controller_ready = true;
@@ -642,6 +652,7 @@ static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
     display->pulse_mask_pending = 0;
     display->pulse_analog_on = false;
     display->pulse_last_drive_start = 0;
+    display->pulse_last_frame_start = 0;
     display->pulse_drive_interval = 0;
     display->pulse_needs_cleanup = false;
     return ESP_OK;
@@ -827,15 +838,67 @@ static esp_err_t ssd1683_dual_write_frame(epd_ssd1683_t *display, bool auxiliary
     return ssd1683_dual_write_frame_source(display, display->buffer, auxiliary);
 }
 
-/* SSD1683 Rev 1.0 Figure 6-7: five 42-byte LUTs, then FR/XON at 224.
- * In B/W mode RAM (old,new) selects BB, WB, BW, WW. Only transitions
- * are driven; BB and WW are neutral. Phase A drives, phase B settles.
- * Custom waveforms require their companion power registers as well as LUT
- * SRAM. Program the selected panel's published rail settings;
- * an earlier native OTP activation is not the custom-waveform power setup.
+/* CrowPanel Fastwave adapter: phase A is the optional opposite kick (off),
+ * B drives, C settles at VSS. Only the two transition blocks are driven.
+ * Each cascade controller needs the generated LUT and selected companion
+ * power registers; earlier native OTP state is not a custom-waveform setup.
  */
-static esp_err_t ssd1683_load_pulse_lut(epd_ssd1683_t *display, bool dual)
+static esp_err_t ssd1683_dual_load_pulse_lut(epd_ssd1683_t *display)
 {
+    solar_os_ssd1683_waveform_params_t params = solar_os_ssd1683_waveform_defaults();
+    params.drive_tp = display->pulse_tuning.pulse_frames;
+    params.fr = display->pulse_tuning.waveform_fr;
+    /* Keep the tested nominal rails and scan duration. VCOM uses Fastwave's
+     * legal 0x08 setting; EOPT is deliberately excluded from register loading.
+     * The pulse-mask adapter maps block 2 to black and block 3 to white, so
+     * upstream's default rail selections preserve our established polarity.
+     */
+    params.volt_mask |= SOLAR_OS_SSD1683_WAVEFORM_V_GATE | SOLAR_OS_SSD1683_WAVEFORM_V_SOURCE;
+    uint8_t waveform[SOLAR_OS_SSD1683_WAVEFORM_BYTES];
+    if (!solar_os_ssd1683_waveform_build(waveform, &params)) return ESP_ERR_INVALID_ARG;
+
+    const uint8_t clock[] = {0x80};
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x22, clock, sizeof(clock)),
+                        TAG, "waveform clock setup failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x20), TAG, "waveform clock enable failed");
+    const TickType_t clock_ticks = pdMS_TO_TICKS(2);
+    vTaskDelay(clock_ticks != 0 ? clock_ticks : 1);
+    const uint8_t booster[] = {0x8b, 0x9c, 0xa4, display->pulse_ramp_fast ? 0x00 : 0x0f};
+    const uint8_t border[] = {0x80};
+    const uint8_t ram_options[10] = {0};
+    const uint8_t cascade[] = {0x00, 0x10};
+    for (unsigned chip = 0; chip < 2; ++chip) {
+        const uint8_t select = chip ? 0x80 : 0;
+        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x0c | select, booster, sizeof(booster)),
+                            TAG, "pulse booster failed");
+        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x32 | select, waveform,
+                                              SOLAR_OS_SSD1683_LUT_BYTES), TAG, "Fastwave LUT failed");
+        if (params.volt_mask & SOLAR_OS_SSD1683_WAVEFORM_V_EOPT)
+            ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x3f | select, waveform + 227, 1),
+                                TAG, "waveform EOPT failed");
+        if (params.volt_mask & SOLAR_OS_SSD1683_WAVEFORM_V_GATE)
+            ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x03 | select, waveform + 228, 1),
+                                TAG, "waveform gate voltage failed");
+        if (params.volt_mask & SOLAR_OS_SSD1683_WAVEFORM_V_SOURCE)
+            ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x04 | select, waveform + 229, 3),
+                                TAG, "waveform source voltage failed");
+        if (params.volt_mask & SOLAR_OS_SSD1683_WAVEFORM_V_VCOM)
+            ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x2c | select, waveform + 232, 1),
+                                TAG, "waveform VCOM failed");
+        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x3c | select, border, sizeof(border)),
+                            TAG, "pulse border failed");
+        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x37 | select, ram_options, sizeof(ram_options)),
+                            TAG, "pulse RAM options failed");
+    }
+    ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x21, cascade, sizeof(cascade)),
+                        TAG, "pulse cascade failed");
+    display->pulse_lut_loaded = true;
+    return ESP_OK;
+}
+
+static esp_err_t ssd1683_single_load_pulse_lut(epd_ssd1683_t *display)
+{
+    /* Preserve Waveshare V2's established table and voltage setup. */
     uint8_t lut[227] = {0};
     const uint8_t frames = display->pulse_tuning.pulse_frames;
     for (unsigned group = 0; group < 5; ++group) {
@@ -850,9 +913,9 @@ static esp_err_t ssd1683_load_pulse_lut(epd_ssd1683_t *display, bool dual)
     lut[224] = display->pulse_tuning.waveform_fr;
     const uint8_t end[] = {0x22}; /* Documented two-frame discharge. */
     const uint8_t border[] = {0x80};
-    const uint8_t cascade[] = {0x00, dual ? 0x10 : 0x00};
+    const uint8_t cascade[] = {0x00, 0x00};
     /* Waveshare EPD_4in2_V2's custom-LUT setup publishes VCOM 0x30. */
-    const uint8_t vcom[] = {dual ? 0x00 : 0x30};
+    const uint8_t vcom[] = {0x30};
     const uint8_t gate[] = {0x17};
     const uint8_t source[] = {0x41, 0xa8, 0x32};
     /* D[5:0] holds three two-bit duration selections, each 10..40 ms.
@@ -861,7 +924,7 @@ static esp_err_t ssd1683_load_pulse_lut(epd_ssd1683_t *display, bool dual)
      */
     const uint8_t booster[] = {0x8b, 0x9c, 0xa4, display->pulse_ramp_fast ? 0x00 : 0x0f};
     const uint8_t ram_options[10] = {0}; /* Disable RAM ping-pong: explicit planes. */
-    for (unsigned chip = 0; chip < (dual ? 2U : 1U); ++chip) {
+    for (unsigned chip = 0; chip < 1U; ++chip) {
         const uint8_t select = chip == 0 ? 0x00 : 0x80;
         ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x0c | select, booster,
                                               sizeof(booster)), TAG, "pulse booster failed");
@@ -884,16 +947,6 @@ static esp_err_t ssd1683_load_pulse_lut(epd_ssd1683_t *display, bool dual)
                         TAG, "pulse cascade failed");
     display->pulse_lut_loaded = true;
     return ESP_OK;
-}
-
-static esp_err_t ssd1683_dual_load_pulse_lut(epd_ssd1683_t *display)
-{
-    return ssd1683_load_pulse_lut(display, true);
-}
-
-static esp_err_t ssd1683_single_load_pulse_lut(epd_ssd1683_t *display)
-{
-    return ssd1683_load_pulse_lut(display, false);
 }
 
 static bool ssd1683_pulse_pixel_white(const epd_ssd1683_t *display,
@@ -1028,6 +1081,19 @@ static esp_err_t ssd1683_single_write_target(epd_ssd1683_t *display, const uint8
     return ESP_OK;
 }
 
+static esp_err_t ssd1683_legacy_write_target(epd_ssd1683_t *display, const uint8_t *source)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_set_address(display), TAG, "native address failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x24), TAG, "native RAM failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1), TAG, "native D/C failed");
+    for (unsigned y = 0; y < SSD1683_HEIGHT; ++y) {
+        ssd1683_convert_row(display, source, y);
+        ESP_RETURN_ON_ERROR(ssd1683_tx_bytes(display, display->line_buffer,
+                                            SSD1683_PANEL_ROW_BYTES), TAG, "native row failed");
+    }
+    return ESP_OK;
+}
+
 static esp_err_t ssd1683_single_write_pulse(epd_ssd1683_t *display)
 {
     const size_t plane_size = SSD1683_PANEL_ROW_BYTES * SSD1683_HEIGHT;
@@ -1132,6 +1198,17 @@ static esp_err_t ssd1683_green_write_pulse(epd_ssd1683_t *display)
 
 static esp_err_t ssd1683_green_load_pulse_lut(epd_ssd1683_t *display)
 {
+    /* UC8276c A0.6 sections 14-18: KW mode has the same six 7-byte groups
+     * per LUT as SSD1683. Reuse phases only; PLL and voltage registers have
+     * different encodings. DDX=01 maps block 2 to white, block 3 to black,
+     * opposite to the dual-panel adapter's rail selections.
+     */
+    solar_os_ssd1683_waveform_params_t params = solar_os_ssd1683_waveform_defaults();
+    params.drive_tp = display->pulse_tuning.pulse_frames;
+    params.invert = true;
+    params.volt_mask = 0;
+    uint8_t waveform[SOLAR_OS_SSD1683_WAVEFORM_BYTES];
+    if (!solar_os_ssd1683_waveform_build(waveform, &params)) return ESP_ERR_INVALID_ARG;
     /* The native automatic GC sequence leaves this revision needing reset
      * before a changed update. Reinitialize when entering a pulse waveform;
      * preserve the software budgets and replace both hardware RAM masks. */
@@ -1151,14 +1228,8 @@ static esp_err_t ssd1683_green_load_pulse_lut(epd_ssd1683_t *display)
     ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x06, booster, sizeof(booster)),
                         TAG, "green pulse booster failed");
     for (unsigned entry = 0; entry < 5; ++entry) {
-        uint8_t lut[42] = {0};
-        lut[0] = 1; /* One group, one state, drive followed by neutral frame. */
-        lut[1] = (uint8_t)display->pulse_tuning.pulse_frames;
-        if (entry == 2) lut[1] |= 0x80; /* NEW=1 OLD=0: white/VSL. */
-        if (entry == 3) lut[1] |= 0x40; /* NEW=0 OLD=1: black/VSH. */
-        lut[2] = 1;
-        lut[5] = 1;
-        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x20U + entry, lut, sizeof(lut)),
+        ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x20U + entry,
+                            waveform + entry * 42U, 42),
                             TAG, "green pulse LUT failed");
     }
     display->pulse_lut_loaded = true;
@@ -1324,11 +1395,26 @@ static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
         *baseline = true;
         return ESP_OK;
     }
-    if (new_target && ssd1683_pulse_retarget(display, source) && display->scan_async) {
-        /* Continuous retargeting can keep some pixels pending forever.
-         * Age cleanup by changed targets, independently of budget completion.
+    if (new_target && ssd1683_pulse_retarget(display, source)) {
+        /* The worker paces new snapshots. Synchronous presentations need the
+         * same image interval here; redrives never wait for an image slot.
          */
-        ++display->pulse_updates;
+        if (!display->scan_async && display->pulse_last_frame_start != 0) {
+            const int64_t due = display->pulse_last_frame_start +
+                (int64_t)display->scan_period_ms * 1000;
+            int64_t remaining;
+            while ((remaining = due - esp_timer_get_time()) > 0) {
+                TickType_t ticks = pdMS_TO_TICKS((remaining + 999) / 1000);
+                vTaskDelay(ticks != 0 ? ticks : 1);
+            }
+        }
+        display->pulse_last_frame_start = esp_timer_get_time();
+        if (display->scan_async) {
+            /* Continuous retargeting can keep some pixels pending forever.
+             * Age cleanup by changed targets, independently of completion.
+             */
+            ++display->pulse_updates;
+        }
     }
     return ESP_OK;
 }
@@ -1354,7 +1440,12 @@ static esp_err_t ssd1683_pulse_powerdown(epd_ssd1683_t *display)
 
 static esp_err_t ssd1683_pulse_activate(epd_ssd1683_t *display)
 {
-    const uint8_t update[] = {display->pulse_power_hold ? 0xcc : 0xcf};
+    /* The dual panel only needs the analog-enable sequence once per burst.
+     * DISPLAY alone keeps using the custom LUT and the already enabled rails.
+     * Reset and idle power-down invalidate pulse_analog_on before reuse.
+     */
+    const bool rails_ready = ssd1683_is_dual(display) && display->pulse_analog_on;
+    const uint8_t update[] = {display->pulse_power_hold ? (rails_ready ? 0x0c : 0xcc) : 0xcf};
     ESP_RETURN_ON_ERROR(ssd1683_cmd_data(display, 0x22, update, sizeof(update)),
                         TAG, "pulse activation setup failed");
     ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x20), TAG, "pulse activation failed");
@@ -1378,11 +1469,13 @@ static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
         display->pulse_mask_dirty = false;
     }
     const int64_t drive_started = esp_timer_get_time();
-    display->pulse_drive_interval = display->pulse_last_drive_start == 0 ? 0 :
-        drive_started - display->pulse_last_drive_start;
-    display->pulse_last_drive_start = drive_started;
     const int busy_idle = gpio_get_level((gpio_num_t)display->busy_pin);
     ESP_RETURN_ON_ERROR(profile->activate(display), TAG, "pulse activation failed");
+    /* Measure physical drives separately from the new-image cadence. */
+    const int64_t activated = esp_timer_get_time();
+    display->pulse_drive_interval = display->pulse_last_drive_start == 0 ? 0 :
+        activated - display->pulse_last_drive_start;
+    display->pulse_last_drive_start = activated;
     if (!ssd1683_busy_asserted(display, SSD1683_BUSY_ASSERT_TIMEOUT_MS)) {
         SOLAR_OS_LOGE(TAG, "pulse activation did not assert BUSY idle=%d now=%d expected=%d",
             busy_idle, gpio_get_level((gpio_num_t)display->busy_pin), display->busy_level);
@@ -1425,7 +1518,8 @@ static esp_err_t ssd1683_pulse_refresh(epd_ssd1683_t *display)
 
 static void ssd1683_scan_update_accepting(epd_ssd1683_t *display)
 {
-    const bool enabled = display->scan_async && display->refresh_mode == EPD_SSD1683_REFRESH_PULSE &&
+    const bool enabled = !display->power_state_present && display->relax_storage == NULL && display->scan_async &&
+        display->refresh_mode == EPD_SSD1683_REFRESH_PULSE &&
         display->powered && display->controller_ready;
     epd_scan_worker_enable(&display->scan_worker, enabled);
     __atomic_store_n(&display->scan_submit_ready, enabled, __ATOMIC_RELEASE);
@@ -1719,6 +1813,7 @@ static esp_err_t ssd1683_trigger_update(epd_ssd1683_t *display,
 
 static esp_err_t ssd1683_refresh(epd_ssd1683_t *display)
 {
+    if (display->relax_storage != NULL) return ESP_OK;
     const int64_t native_started = esp_timer_get_time();
     if (display->refresh_mode == EPD_SSD1683_REFRESH_PULSE) {
         const esp_err_t err = ssd1683_pulse_refresh(display);
@@ -1992,8 +2087,9 @@ static uint8_t ssd1683_u8x8_display_cb(u8x8_t *u8x8,
                 display->controller_ready = false;
                 display->shadow_valid = false;
             }
-        } else if (!display->controller_ready) {
-            err = ssd1683_controller_init(display);
+        } else {
+            display->power_state_present = false;
+            if (!display->controller_ready) err = ssd1683_controller_init(display);
         }
         break;
     case U8X8_MSG_DISPLAY_DRAW_TILE:
@@ -2017,6 +2113,65 @@ static uint8_t ssd1683_u8x8_display_cb(u8x8_t *u8x8,
     if (display->lock != NULL)
         xSemaphoreGive(display->lock);
     return err == ESP_OK ? 1 : 0;
+}
+
+esp_err_t epd_ssd1683_present_mono_xbm(epd_ssd1683_t *display,
+                                      const uint8_t *bitmap, size_t bitmap_size,
+                                      uint16_t x, uint16_t y,
+                                      uint16_t width, uint16_t height,
+                                      uint16_t stride, bool palette_inverted)
+{
+    if (display == NULL || display->buffer == NULL || bitmap == NULL ||
+        width == 0U || height == 0U ||
+        stride < ((size_t)width + 7U) / 8U ||
+        height > SIZE_MAX / stride || bitmap_size < (size_t)height * stride ||
+        (uint32_t)x + width > u8g2_GetDisplayWidth(&display->u8g2) ||
+        (uint32_t)y + height > u8g2_GetDisplayHeight(&display->u8g2)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const u8g2_cb_t *rotation = display->u8g2.cb;
+    if (rotation != U8G2_R0 && rotation != U8G2_R1 &&
+        rotation != U8G2_R2 && rotation != U8G2_R3) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const unsigned native_width = ssd1683_is_dual(display) ?
+        SSD1683_DUAL_WIDTH : SSD1683_WIDTH;
+    const unsigned native_height = ssd1683_is_dual(display) ?
+        SSD1683_DUAL_HEIGHT : SSD1683_HEIGHT;
+    if (display->buffer_size < native_width * ((native_height + 7U) / 8U) ||
+        !display->powered || display->power_state_present || display->relax_storage != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Like ordinary u8g2 drawing, compose before submitting the immutable
+     * snapshot. The pulse worker reads its own snapshot, never this buffer. */
+    memset(display->buffer, palette_inverted ? 0x00 : 0xff, display->buffer_size);
+    for (unsigned row = 0; row < height; ++row) {
+        const uint8_t *source = bitmap + (size_t)row * stride;
+        for (unsigned column = 0; column < width; ++column) {
+            const unsigned lx = x + column, ly = y + row;
+            unsigned nx = lx, ny = ly;
+            if (rotation == U8G2_R1) { nx = native_width - 1U - ly; ny = lx; }
+            else if (rotation == U8G2_R2) {
+                nx = native_width - 1U - lx; ny = native_height - 1U - ly;
+            } else if (rotation == U8G2_R3) { nx = ly; ny = native_height - 1U - lx; }
+            uint8_t *destination = display->buffer + (ny / 8U) * native_width + nx;
+            const uint8_t mask = (uint8_t)(1U << (ny & 7U));
+            const bool black = (source[column / 8U] & (1U << (column & 7U))) != 0U;
+            if (black == palette_inverted) *destination |= mask;
+            else *destination &= (uint8_t)~mask;
+        }
+    }
+    if (__atomic_load_n(&display->scan_submit_ready, __ATOMIC_ACQUIRE)) {
+        const esp_err_t err = epd_scan_worker_submit(&display->scan_worker, display->buffer);
+        if (err == ESP_OK) return ESP_OK;
+    }
+    if (display->lock != NULL) xSemaphoreTake(display->lock, portMAX_DELAY);
+    const esp_err_t err = ssd1683_refresh(display);
+    display->last_error = err;
+    ssd1683_scan_update_accepting(display);
+    if (display->lock != NULL) xSemaphoreGive(display->lock);
+    return err;
 }
 
 static bool ssd1683_pin_valid(int pin)
@@ -2191,6 +2346,94 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
     return ret;
 }
 
+esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
+                            solar_os_display_relax_phase_t phase)
+{
+    if (display == NULL || display->buffer == NULL || (unsigned)phase > SOLAR_OS_DISPLAY_RELAX_END)
+        return ESP_ERR_INVALID_ARG;
+    const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
+    if (display->lock != NULL) xSemaphoreTake(display->lock, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN) {
+        if (display->relax_storage != NULL || !display->powered || display->power_state_present) {
+            err = ESP_ERR_INVALID_STATE;
+        } else {
+            uint8_t *storage = heap_caps_malloc(display->buffer_size * 2U,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (storage == NULL) storage = heap_caps_malloc(display->buffer_size * 2U, MALLOC_CAP_8BIT);
+            if (storage == NULL) err = ESP_ERR_NO_MEM;
+            else {
+                memcpy(storage, display->buffer, display->buffer_size);
+                display->relax_storage = storage;
+                ssd1683_scan_update_accepting(display);
+                err = ssd1683_pulse_powerdown(display);
+                if (err == ESP_OK) err = ssd1683_controller_init(display);
+                if (err != ESP_OK) {
+                    heap_caps_free(display->relax_storage);
+                    display->relax_storage = NULL;
+                    display->controller_ready = false;
+                    display->shadow_valid = false;
+                }
+            }
+        }
+    } else if (display->relax_storage == NULL) {
+        err = ESP_ERR_INVALID_STATE;
+    } else {
+        const bool ending = phase == SOLAR_OS_DISPLAY_RELAX_END;
+        uint8_t *image = display->relax_storage;
+        if (!ending) {
+            image += display->buffer_size;
+            memset(image, phase == SOLAR_OS_DISPLAY_RELAX_WHITE ? 0xff : 0,
+                   display->buffer_size);
+        }
+        if (!display->controller_ready) err = ssd1683_controller_init(display);
+        if (err == ESP_OK) err = profile ? profile->write_target(display, image) :
+            ssd1683_legacy_write_target(display, image);
+        if (err == ESP_OK) err = ssd1683_trigger_update(display, true, false);
+        if (err != ESP_OK) {
+            display->controller_ready = false;
+            display->shadow_valid = false;
+        }
+        if (ending) {
+            if (err == ESP_OK && display->shadow != NULL) {
+                memcpy(display->shadow, image, display->buffer_size);
+                display->shadow_valid = true;
+                if (profile && display->pixel_budget.pixels != NULL)
+                    ssd1683_pulse_seed_budget(display, image);
+            }
+            display->pulse_updates = 0;
+            display->pulse_needs_cleanup = err != ESP_OK;
+            heap_caps_free(display->relax_storage);
+            display->relax_storage = NULL;
+        }
+    }
+    display->last_error = err;
+    ssd1683_scan_update_accepting(display);
+    if (display->lock != NULL) xSemaphoreGive(display->lock);
+    return err;
+}
+
+esp_err_t epd_ssd1683_present_power_state(epd_ssd1683_t *display)
+{
+    if (display == NULL || display->buffer == NULL || display->lock == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    __atomic_store_n(&display->scan_submit_ready, false, __ATOMIC_RELEASE);
+    epd_scan_worker_enable(&display->scan_worker, false);
+    xSemaphoreTake(display->lock, portMAX_DELAY);
+    display->power_state_present = true;
+    /* An in-flight scan may have re-enabled submission before releasing the
+     * panel lock. Discard its queued target again after joining it. */
+    ssd1683_scan_update_accepting(display);
+    const epd_ssd1683_refresh_mode_t previous = display->refresh_mode;
+    display->refresh_mode = EPD_SSD1683_REFRESH_FULL;
+    display->last_error = ssd1683_refresh(display);
+    display->refresh_mode = previous;
+    const esp_err_t err = display->last_error;
+    xSemaphoreGive(display->lock);
+    return err;
+}
+
 esp_err_t epd_ssd1683_resume(epd_ssd1683_t *display)
 {
     if (display == NULL || display->spi == NULL || display->buffer == NULL) {
@@ -2204,6 +2447,7 @@ esp_err_t epd_ssd1683_resume(epd_ssd1683_t *display)
     esp_err_t err = ssd1683_configure_pins(display);
     if (err == ESP_OK) err = ssd1683_controller_init(display);
     display->last_error = err;
+    display->power_state_present = false;
     ssd1683_scan_update_accepting(display);
     if (display->lock != NULL) xSemaphoreGive(display->lock);
     return err;
@@ -2249,6 +2493,8 @@ void epd_ssd1683_deinit(epd_ssd1683_t *display)
     }
     heap_caps_free(display->pulse_planes);
     display->pulse_planes = NULL;
+    heap_caps_free(display->relax_storage);
+    display->relax_storage = NULL;
     if (display->dc_pin >= 0) {
         (void)gpio_reset_pin((gpio_num_t)display->dc_pin);
     }
@@ -2292,12 +2538,15 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
              (d->refresh_mode == EPD_SSD1683_REFRESH_FAST ? "fast" : "auto"));
         const epd_scan_stats_t stats = epd_scan_worker_stats(&d->scan_worker);
         snprintf(d->mode_description, sizeof(d->mode_description),
-            "refresh=%s drive-cycles=%u pulse-frames=%u waveform-fr=%u cleanup-every=%u "
+            "refresh=%s%s drive-cycles=%u pulse-frames=%u waveform-fr=%u cleanup-every=%u "
             "cleanup-policy=%s cleanup-peak-cycles=%u cleanup-limit-cycles=%u cleanup-age=%u "
             "pulse-scan=%s pulse-period=%u pulse-power=%s pulse-ramp=%s pulse-spi-khz=%u "
             "scan-last-us=%lld scan-interval-us=%lld scan-count=%u "
+            "frame-count=%u frame-interval-us=%lld "
             "scan-submitted=%u scan-coalesced=%u pending=%u",
-            refresh, d->pulse_tuning.drive_cycles, d->pulse_tuning.pulse_frames,
+            refresh, ssd1683_is_dual(d) ? " waveform=fastwave" :
+                (d->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER ? " waveform=fastwave-uc8276" : ""),
+            d->pulse_tuning.drive_cycles, d->pulse_tuning.pulse_frames,
             d->pulse_tuning.waveform_fr, d->pulse_tuning.cleanup_every,
             d->pulse_tuning.cleanup_adaptive ? "adaptive" : "fixed",
             (unsigned)d->pixel_budget.peak_drive_cycles,
@@ -2307,7 +2556,8 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
             d->pulse_power_hold ? "hold" : "cycle", d->pulse_ramp_fast ? "fast" : "normal",
             (unsigned)(d->pulse_spi_clock_hz / 1000U),
             (long long)stats.last_scan_us, (long long)stats.last_interval_us,
-            (unsigned)stats.scans, (unsigned)stats.submitted, (unsigned)stats.coalesced,
+            (unsigned)stats.scans, (unsigned)stats.frames, (long long)stats.last_frame_interval_us,
+            (unsigned)stats.submitted, (unsigned)stats.coalesced,
             (unsigned)d->pixel_budget.pending);
         if (d->lock != NULL)
             xSemaphoreGive(d->lock);
@@ -2326,6 +2576,18 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
 
 const char *epd_ssd1683_controller_mode_values(const epd_ssd1683_t *display)
 {
+    if (ssd1683_is_dual(display))
+        return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
+               "pulse-frames=<1..32> waveform-fr=<1..5,9..12> cleanup-every=<1..128> "
+               "cleanup-policy=<adaptive,fixed> "
+               "pulse-scan=<sync,async> pulse-period=<67..1000> "
+               "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
+    if (display != NULL && display->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER)
+        return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
+               "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
+               "cleanup-policy=<adaptive,fixed> "
+               "pulse-scan=<sync,async> pulse-period=<67..1000> "
+               "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     if (ssd1683_pulse_profile(display) != NULL)
         return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
@@ -2342,6 +2604,10 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
     }
     if (display->lock != NULL)
         xSemaphoreTake(display->lock, portMAX_DELAY);
+    if (display->relax_storage != NULL) {
+        if (display->lock != NULL) xSemaphoreGive(display->lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t err = ESP_OK;
     const epd_ssd1683_refresh_mode_t before = display->refresh_mode;
     if (strcmp(mode, "refresh=auto") == 0) {
@@ -2393,7 +2659,9 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
                 if (*p < '0' || *p > '9' || value > maximum) { err = ESP_ERR_INVALID_ARG; break; }
                 value = value * 10U + (unsigned)(*p - '0');
             }
-            if (value < (spi_option ? 100U : 10U) || value > maximum) err = ESP_ERR_INVALID_ARG;
+            const unsigned minimum = spi_option ? 100U :
+                (ssd1683_uses_fastwave(display) ? SSD1683_FASTWAVE_MIN_FRAME_PERIOD_MS : 10U);
+            if (value < minimum || value > maximum) err = ESP_ERR_INVALID_ARG;
             if (err == ESP_OK && !spi_option && display->scan_worker.task != NULL)
                 err = epd_scan_worker_set_period(&display->scan_worker, value);
             if (err == ESP_OK) {
@@ -2402,6 +2670,11 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
             }
         } else {
             err = epd_pulse_tuning_set(&display->pulse_tuning, mode);
+            if (err == ESP_OK && ssd1683_is_dual(display) &&
+                !solar_os_ssd1683_waveform_fr_valid(display->pulse_tuning.waveform_fr)) {
+                display->pulse_tuning = previous;
+                err = ESP_ERR_INVALID_ARG;
+            }
         }
         if (err == ESP_OK && display->refresh_mode == EPD_SSD1683_REFRESH_PULSE &&
             (was_async != display->scan_async || was_hold != display->pulse_power_hold ||

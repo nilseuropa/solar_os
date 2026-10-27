@@ -30,6 +30,12 @@ SemaphoreHandle_t xSemaphoreCreateBinaryStatic(StaticSemaphore_t *sem)
     return sem;
 }
 
+SemaphoreHandle_t xSemaphoreCreateMutex(void)
+{
+    StaticSemaphore_t *sem = malloc(sizeof(*sem));
+    return sem ? xSemaphoreCreateMutexStatic(sem) : NULL;
+}
+
 SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *sem)
 {
     xSemaphoreCreateBinaryStatic(sem);

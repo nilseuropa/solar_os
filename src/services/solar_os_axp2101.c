@@ -12,6 +12,7 @@
 #include "solar_os_battery.h"
 #include "solar_os_buses.h"
 #include "solar_os_charger.h"
+#include "solar_os_power.h"
 
 #define AXP2101_CHARGER_NAME "charger0"
 
@@ -58,6 +59,16 @@ static esp_err_t chip_write(void *context,
     solar_os_axp2101_device_t *device = context;
     return solar_os_bus_i2c_write_reg(device->i2c_bus, device->address,
                                       reg, data, len);
+}
+
+static esp_err_t power_off(void *context)
+{
+    solar_os_axp2101_device_t *device = context;
+    if (!device->active) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    const esp_err_t err = axp2101_power_off(&device->chip);
+    xSemaphoreGive(device->mutex);
+    return err;
 }
 
 static esp_err_t battery_read(void *context,
@@ -207,6 +218,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 
 static void clear_device(void)
 {
+    solar_os_power_unregister_off_provider(&power_device);
     if (power_device.mutex != NULL) {
         vSemaphoreDelete(power_device.mutex);
     }
@@ -291,6 +303,7 @@ esp_err_t solar_os_axp2101_attach(
         return ret;
     }
 
+    (void)solar_os_power_register_off_provider(name, power_off, &power_device);
     ESP_LOGI(TAG, "%s attached on %s address 0x%02x; charger=%s",
              name, power_device.i2c_bus, power_device.address,
              AXP2101_CHARGER_NAME);

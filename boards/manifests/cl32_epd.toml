@@ -1,0 +1,18 @@
+schema = 1
+extends = "cl32_base"
+
+[board]
+id = "cl32_epd"
+name = "Pi0cket CL-32 EPD"
+
+[build]
+drivers = ["display_ssd1685"]
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1685"'
+SOLAR_OS_BOARD_PIN_LCD_BUSY = "GPIO_NUM_14"
+
+[[devices]]
+driver = "ssd1685"
+name = "display0"
+bindings = { spi = "spi0", cs = 6, dc = 13, reset = 12, busy = 14, panel = 1, rotation = 3 }

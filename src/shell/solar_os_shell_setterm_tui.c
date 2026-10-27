@@ -14,6 +14,7 @@
 #include "solar_os_ble_keyboard.h"
 #endif
 #include "solar_os_display.h"
+#include "solar_os_backlight.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
 #include "solar_os_power.h"
@@ -49,11 +50,13 @@ typedef enum {
     SETTERM_TUI_BACKGROUND,
     SETTERM_TUI_STATUSBAR,
     SETTERM_TUI_BRIGHTNESS,
+    SETTERM_TUI_BACKLIGHT,
     SETTERM_TUI_KEYBOARD,
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     SETTERM_TUI_BLE,
 #endif
     SETTERM_TUI_POWERKEY,
+    SETTERM_TUI_POWERKEY_LONG,
     SETTERM_TUI_KEYRATE,
     SETTERM_TUI_TIMEZONE,
     SETTERM_TUI_STARTUP,
@@ -92,11 +95,13 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_BACKGROUND] = {.label = "background"},
     [SETTERM_TUI_STATUSBAR] = {.label = "statusbar"},
     [SETTERM_TUI_BRIGHTNESS] = {.label = "brightness"},
+    [SETTERM_TUI_BACKLIGHT] = {.label = "backlight"},
     [SETTERM_TUI_KEYBOARD] = {.label = "keyboard"},
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     [SETTERM_TUI_BLE] = {.label = "ble"},
 #endif
-    [SETTERM_TUI_POWERKEY] = {.label = "powerkey"},
+    [SETTERM_TUI_POWERKEY] = {.label = "powerkey short"},
+    [SETTERM_TUI_POWERKEY_LONG] = {.label = "powerkey long"},
     [SETTERM_TUI_KEYRATE] = {.label = "keyrate"},
     [SETTERM_TUI_TIMEZONE] = {.label = "timezone"},
     [SETTERM_TUI_STARTUP] = {.label = "startup"},
@@ -169,6 +174,16 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         }
         break;
     }
+    case SETTERM_TUI_BACKLIGHT: {
+        solar_os_backlight_status_t status;
+        const esp_err_t err = solar_os_backlight_get_status(&status);
+        if (err == ESP_OK && !status.follow_display)
+            snprintf(buffer, buffer_len, "%u", (unsigned)status.percent);
+        else
+            strlcpy(buffer, err == ESP_OK ? "follow" :
+                err == ESP_ERR_NOT_SUPPORTED ? "unsupported" : "unavailable", buffer_len);
+        break;
+    }
     case SETTERM_TUI_KEYBOARD:
         strlcpy(buffer,
                 solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout()),
@@ -182,11 +197,13 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
                 buffer_len);
         break;
 #endif
-    case SETTERM_TUI_POWERKEY: {
+    case SETTERM_TUI_POWERKEY:
+    case SETTERM_TUI_POWERKEY_LONG: {
         solar_os_power_status_t status;
         solar_os_power_get_status(&status);
         strlcpy(buffer,
-                solar_os_power_key_action_name(status.key_action),
+                solar_os_power_key_action_name(item == SETTERM_TUI_POWERKEY_LONG ?
+                    status.key_long_action : status.key_action),
                 buffer_len);
         break;
     }
@@ -355,11 +372,14 @@ static bool setterm_tui_cycle_selected(int direction)
 {
     static const char * const orientation_values[] = {"0", "90", "180", "270"};
     static const char * const font_values[] = {"mono", "compact"};
-    static const char * const textsize_values[] = {"10", "12", "14", "16", "18", "20"};
+    static const char * const textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
     static const char * const palette_values[] = {"normal", "inverted"};
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
-    static const char * const powerkey_values[] = {"sleep", "suspend"};
+    static const char * const backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
+    static const char * const powerkey_values[] = {
+        "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+    };
     static const char * const startup_values[] = {"auto", "flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     static const char * const keyboard_values[] = {"us", "de"};
@@ -391,6 +411,10 @@ static bool setterm_tui_cycle_selected(int direction)
         return setterm_tui_cycle_value(brightness_values,
                                        sizeof(brightness_values) / sizeof(brightness_values[0]),
                                        direction);
+    case SETTERM_TUI_BACKLIGHT:
+        return setterm_tui_cycle_value(backlight_values,
+                                       sizeof(backlight_values) / sizeof(backlight_values[0]),
+                                       direction);
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD:
         return setterm_tui_cycle_value(keyboard_values,
@@ -402,6 +426,7 @@ static bool setterm_tui_cycle_selected(int direction)
                                        direction);
 #endif
     case SETTERM_TUI_POWERKEY:
+    case SETTERM_TUI_POWERKEY_LONG:
         return setterm_tui_cycle_value(powerkey_values,
                                        sizeof(powerkey_values) / sizeof(powerkey_values[0]),
                                        direction);
@@ -539,6 +564,13 @@ static bool setterm_tui_apply_selected(void)
         return parse_size_arg(setterm_tui.edit_text, 0, 100, &percent) &&
             solar_os_display_set_brightness((uint8_t)percent) == ESP_OK;
     }
+    case SETTERM_TUI_BACKLIGHT: {
+        if (strcmp(setterm_tui.edit_text, "follow") == 0)
+            return solar_os_backlight_set_follow() == ESP_OK;
+        size_t percent;
+        return parse_size_arg(setterm_tui.edit_text, 0, 100, &percent) &&
+            solar_os_backlight_set_brightness((uint8_t)percent) == ESP_OK;
+    }
     case SETTERM_TUI_KEYBOARD: {
         solar_os_input_keyboard_layout_t layout;
         return solar_os_input_parse_keyboard_layout(setterm_tui.edit_text, &layout) &&
@@ -551,12 +583,12 @@ static bool setterm_tui_apply_selected(void)
             solar_os_ble_keyboard_set_boot_setting(setting) == ESP_OK;
     }
 #endif
-    case SETTERM_TUI_POWERKEY: {
+    case SETTERM_TUI_POWERKEY:
+    case SETTERM_TUI_POWERKEY_LONG: {
         solar_os_power_key_action_t action;
-        return solar_os_power_parse_key_action(setterm_tui.edit_text, &action) &&
-            (action == SOLAR_OS_POWER_KEY_ACTION_SLEEP ||
-             action == SOLAR_OS_POWER_KEY_ACTION_SUSPEND) &&
-            solar_os_power_set_key_action(action) == ESP_OK;
+        if (!solar_os_power_parse_key_action(setterm_tui.edit_text, &action)) return false;
+        return (setterm_tui.selected == SETTERM_TUI_POWERKEY_LONG ?
+            solar_os_power_set_key_long_action(action) : solar_os_power_set_key_action(action)) == ESP_OK;
     }
     case SETTERM_TUI_KEYRATE:
         return setterm_tui_apply_keyrate();

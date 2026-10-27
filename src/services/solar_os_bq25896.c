@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 #include "solar_os_buses.h"
 #include "solar_os_charger.h"
+#include "solar_os_power.h"
 
 #define BQ25896_DEVICE_MAX 2U
 #define BQ25896_ADDRESS 0x6BU
@@ -53,6 +54,16 @@ static esp_err_t chip_write(void *ctx,
     bq25896_device_t *device = ctx;
     return solar_os_bus_i2c_write_reg(device->i2c_bus, device->address,
                                       reg, data, len);
+}
+
+static esp_err_t power_off(void *context)
+{
+    bq25896_device_t *device = context;
+    if (!device->active) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    const esp_err_t err = bq25896_power_off(&device->chip);
+    xSemaphoreGive(device->mutex);
+    return err;
 }
 
 static esp_err_t with_status(void *ctx, solar_os_charger_status_t *status)
@@ -150,6 +161,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 
 static void clear_device(bq25896_device_t *device)
 {
+    solar_os_power_unregister_off_provider(device);
     if (device->mutex != NULL) vSemaphoreDelete(device->mutex);
     memset(device, 0, sizeof(*device));
 }
@@ -228,6 +240,7 @@ esp_err_t solar_os_bq25896_attach(
         clear_device(device);
         return ret;
     }
+    (void)solar_os_power_register_off_provider(name, power_off, device);
     ESP_LOGI(TAG, "%s attached on %s addr=0x%02x part=%u rev=%u",
              name, device->i2c_bus, device->address,
              device->chip.part_number, device->chip.revision);

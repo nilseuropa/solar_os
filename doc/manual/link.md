@@ -66,6 +66,20 @@ Its capacity does not limit Chat delivery. `chat=on` and `inbox=on` are mutually
 exclusive because generic messaging already publishes received Chat messages to
 Inbox.
 
+Each named transport has an independent Chat instance. For example, a radio
+link and an ESP-NOW link can run together with `chat=on`; their contacts,
+conversations, send queues, and acknowledgements stay separate. The first legacy
+projection uses `link`; further projections receive names such as `link-link1`.
+Use `messages instances` to see their names and IDs.
+
+To choose a name before starting its transport, use `messages add link NAME
+TRANSPORT`, then `messages connect NAME`. `messages join NAME broadcast` opens
+the broadcast conversation; `messages query NAME HEX_DEVICE_ID` opens a direct
+conversation. `messages configure NAME TRANSPORT` changes the transport binding.
+Only one Chat instance can bind each transport. Bindings and enabled state are
+saved on mounted storage. `messages remove NAME` deletes that projection and its
+local history while keeping the transport and byte streams running.
+
 ## ESP-NOW Quick Start
 
 Start the ESP-NOW adapter on two SolarOS devices using the same channel:
@@ -101,7 +115,8 @@ espnow peer add 0x12345678 24:6f:28:11:22:33
 espnow peer remove 0x12345678
 ```
 
-There are 19 peer slots. Configured peers are stored in NVS; learned peers are
+There are 19 peer slots. Configured peers are stored in `.settings/espnow-peers.bin`
+on mounted storage; legacy NVS peers migrate after a verified save. Learned peers are
 volatile and the oldest learned entry is evicted when necessary. SolarOS
 rejects a learned mapping that conflicts with an existing source ID or MAC
 instead of silently redirecting traffic.
@@ -328,19 +343,33 @@ avoids expensive terminal probes and escape traffic; VT100 remains available
 when the radio profile has enough throughput.
 
 Each direction uses a fresh random session epoch whenever the port opens,
-16-bit byte-frame sequence numbers, ordered stop-and-wait delivery, piggybacked
-stream acknowledgements, and jittered retransmission after 0.8 to 1.2 seconds.
-Stream data is split to the active Link MTU and reassembled into a 2048-byte RX
-queue. A separate
-2048-byte TX queue applies backpressure to the shell or bridge instead of
-silently overflowing the four-entry packet queue. Fifteen-second open frames
-also detect a disconnected or restarted peer.
+16-bit byte-frame sequence numbers, and ordered delivery with cumulative
+acknowledgements. ESP-NOW allows up to eight data frames in flight. Sparse writes
+send immediately; queued bursts fill the window automatically. Lost frames trigger
+go-back-N retransmission after 0.8 to 1.2 seconds.
 
-Stream protocol v2 carries an acknowledgement field in every frame.
-Pending acknowledgements are piggybacked on outbound data, and a standalone ACK
-is delayed by 40 milliseconds to give an interactive port shell time to queue
-its echo first. A normal keystroke and its echo therefore need two radio frames
-on the fast path instead of waiting for a separate ACK between them.
+Stream protocol v3 carries an acknowledgement and an absolute receive-window
+edge in each 20-byte header. The sender stays within the receiver's advertised
+2048-byte capacity, including bytes still in flight. Reading data replenishes
+credit; a sender blocked by a lost credit update probes for the current window.
+Credit and acknowledgements are scoped to the transmit session and tolerate
+duplicates and counter wraparound. A separate 2048-byte TX queue applies
+backpressure to the shell or bridge. Stream data is split to the active Link
+MTU: ESP-NOW carries up to 216 data bytes per stream frame.
+
+Acknowledgements and credit updates piggyback on outbound traffic. Standalone
+ACKs become due after 10 milliseconds, or earlier after half a window of new
+data. This allows prompt keystroke echo while acknowledging sustained
+transfers in batches. `link stream status` reports the frame window and remaining
+transmit credit alongside queue sizes, retries, and byte/frame counts. MeshCore
+uses its own smaller window and longer acknowledgement and retry timings.
+The raw `radio-link` worker retains one frame in flight so it can listen for
+replies between transmissions, including with long LoRa packet airtimes.
+
+Both endpoints must support stream protocol v3; v2 stream peers must be updated.
+The outer Link packet protocol, Chat, and the byte-stream consumer APIs are
+unchanged. Fifteen-second open frames also detect a disconnected or restarted
+peer.
 
 Stream packets are dispatched before the normal Link receive queue, so they do
 not appear in `link receive` and cannot evict Chat or diagnostic packet copies.
@@ -358,8 +387,10 @@ link stream remove vser0
 
 Stopping and restarting `radio-link` or `espnow-link` with the same Link name
 leaves the virtual port registered. Buffered users see a disconnected stream
-until the transport returns; the stream epochs then resynchronize without
-reusing stale bytes.
+until the transport returns. A temporary transport stop preserves the open
+endpoints' session and sequence state, so unacknowledged bytes can be retried.
+If either endpoint closes and reopens, the peers establish fresh session state
+before resuming ordered delivery.
 
 ## Quick reference
 

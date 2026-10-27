@@ -102,7 +102,7 @@ static void contacts_list(solar_os_shell_io_t *io,
                                SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
                                "contacts.shell.list");
     if (contacts == NULL) {
-        solar_os_shell_io_writeln(io, "contacts: no PSRAM for snapshot");
+        solar_os_shell_io_table_writeln(io, "contacts: no PSRAM for snapshot");
         return;
     }
     size_t total = 0U;
@@ -113,7 +113,7 @@ static void contacts_list(solar_os_shell_io_t *io,
                                    trust,
                                    &total);
     for (size_t index = 0U; index < count; index++) {
-        solar_os_shell_io_printf(
+        solar_os_shell_io_table_printf(
             io,
             "%" PRIu32 "  %-10s %-8s  %s  (%u endpoint%s)\n",
             contacts[index].id,
@@ -124,7 +124,7 @@ static void contacts_list(solar_os_shell_io_t *io,
             contacts[index].endpoint_count == 1U ? "" : "s");
     }
     if (total == 0U) {
-        solar_os_shell_io_writeln(io, "No contacts");
+        solar_os_shell_io_table_writeln(io, "No contacts");
     }
     solar_os_memory_free(contacts);
 }

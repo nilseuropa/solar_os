@@ -1,0 +1,12 @@
+schema_version = 2
+type = "job"
+id = "library-user"
+name = "Library User"
+version = "1.0.0"
+description = "Background client that retains a library while running."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_native_library_user.job.elf"

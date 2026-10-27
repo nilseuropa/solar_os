@@ -145,7 +145,8 @@ static void poll_device(gt911_device_t *device)
     if (gt911_read(&raw) != ESP_OK) return;
     if (!raw.valid) return;
     if (device->home_key && device->home_pressed && !raw.home)
-        (void)solar_os_input_write_key_tap(device->source, 1, 0, device->home_key, 0);
+        (void)solar_os_input_write_key_tap(device->source,
+            SOLAR_OS_INPUT_PHYSICAL_NONE, SOLAR_OS_INPUT_USAGE_NONE, device->home_key, 0);
     device->home_pressed = raw.home;
     uint16_t x=0,y=0;
     if (raw.touched) {

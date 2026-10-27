@@ -42,6 +42,7 @@ typedef uint8_t ble_address_t[6];
 #define SOLAR_OS_BLE_ADDRESS_FMT "%02x:%02x:%02x:%02x:%02x:%02x"
 #define SOLAR_OS_BLE_ADDRESS_ARGS(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define BLE_KEYBOARD_SCAN_SECONDS 8
+#define BLE_KEYBOARD_DISCOVERY_PAUSE_TIMEOUT_MS 1500U
 #define BLE_KEYBOARD_NAME_MAX SOLAR_OS_BLE_KEYBOARD_NAME_MAX
 #define BLE_KEYBOARD_MAX_KEYS SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS
 #define BLE_KEYBOARD_RECONNECT_INITIAL_DELAY_MS 250
@@ -1592,14 +1593,16 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
 static void handle_keyboard_report(uint8_t map_index,
                                    uint16_t report_id,
                                    const uint8_t *data,
-                                   uint16_t length)
+                                   uint16_t length,
+                                   const solar_os_hid_keyboard_report_layout_t *layout)
 {
     solar_os_hid_keyboard_report_state_t report_state;
-    if (!solar_os_hid_keyboard_report_update(&keyboard_report_tracker,
+    if (!solar_os_hid_keyboard_report_update_with_layout(&keyboard_report_tracker,
                                              map_index,
                                              report_id,
                                              data,
                                              length,
+                                             layout->key_count ? layout : NULL,
                                              &report_state)) {
         return;
     }
@@ -1826,7 +1829,8 @@ static void hidh_callback(solar_os_ble_hid_event_type_t id, solar_os_ble_hid_eve
             handle_keyboard_report(param->input.map_index,
                                    param->input.report_id,
                                    param->input.data,
-                                   param->input.length);
+                                   param->input.length,
+                                   &param->input.layout);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
         break;
@@ -1966,7 +1970,10 @@ esp_err_t solar_os_ble_backend_init(void)
      * for runtime application services. They do not start advertising. */
     ble_svc_gap_init();
     ble_svc_gatt_init();
-    esp_err_t peripheral_ret = solar_os_ble_nimble_hid_prepare();
+    esp_err_t peripheral_ret = solar_os_ble_nimble_set_hostname();
+    if (peripheral_ret == ESP_OK) {
+        peripheral_ret = solar_os_ble_nimble_hid_prepare();
+    }
     if (peripheral_ret != ESP_OK) {
         (void)solar_os_ble_hid_deinit();
         (void)nimble_port_deinit();
@@ -2016,13 +2023,12 @@ esp_err_t solar_os_ble_backend_scan(solar_os_ble_keyboard_scan_result_t *results
     if (results == NULL || max_results == 0 || found == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (scan_task_handle != NULL ||
-        reconnect_task_handle != NULL ||
-        state == BLE_KEYBOARD_SCANNING ||
-        state == BLE_KEYBOARD_CONNECTING ||
-        state == BLE_KEYBOARD_PASSKEY) {
-        return ESP_ERR_INVALID_STATE;
-    }
+    /* An offline remembered keyboard keeps its reconnect worker alive even
+     * between attempts. Yield that background scan to explicit discovery and
+     * hold the lease until the caller's result buffer is no longer shared. */
+    esp_err_t ret = solar_os_ble_keyboard_client_acquire(
+        BLE_KEYBOARD_DISCOVERY_PAUSE_TIMEOUT_MS);
+    if (ret != ESP_OK) return ret;
 
     memset(results, 0, max_results * sizeof(results[0]));
     active_scan_results = results;
@@ -2030,7 +2036,7 @@ esp_err_t solar_os_ble_backend_scan(solar_os_ble_keyboard_scan_result_t *results
     active_scan_result_count = 0;
     collect_connected_scan_result();
 
-    const esp_err_t ret = run_keyboard_scan(BLE_KEYBOARD_SCAN_DISCOVERY, NULL);
+    ret = run_keyboard_scan(BLE_KEYBOARD_SCAN_DISCOVERY, NULL);
 
     *found = active_scan_result_count;
     active_scan_results = NULL;
@@ -2039,13 +2045,14 @@ esp_err_t solar_os_ble_backend_scan(solar_os_ble_keyboard_scan_result_t *results
     active_scan_mode = BLE_KEYBOARD_SCAN_DISCOVERY;
 
     if (ret == ESP_ERR_NOT_FOUND && *found > 0) {
-        return ESP_OK;
+        ret = ESP_OK;
     }
     if (ret == ESP_OK && !connected) {
         set_status(BLE_KEYBOARD_IDLE, "scan done");
     } else if (ret == ESP_OK) {
         restore_status_after_scan(BLE_KEYBOARD_SCAN_DISCOVERY);
     }
+    solar_os_ble_keyboard_client_release();
     return ret;
 }
 

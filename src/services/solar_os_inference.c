@@ -375,7 +375,7 @@ esp_err_t solar_os_inference_reset(solar_os_inference_t *s, uint32_t id)
     if (!admit()) return ESP_ERR_INVALID_STATE;
     inference_model_t *m = find(id);
     if (!m) { leave(); return ESP_ERR_NOT_FOUND; }
-    solar_os_inference_backend_reset(m->backend); leave(); return ESP_OK;
+    esp_err_t error = solar_os_inference_backend_reset(m->backend); leave(); return error;
 }
 esp_err_t solar_os_inference_set_mode(solar_os_inference_t *s, uint32_t id,
                                     solar_os_inference_mode_t mode)
@@ -385,9 +385,9 @@ esp_err_t solar_os_inference_set_mode(solar_os_inference_t *s, uint32_t id,
     if (!admit()) return ESP_ERR_INVALID_STATE;
     inference_model_t *m = find(id);
     if (!m) { leave(); return ESP_ERR_NOT_FOUND; }
-    solar_os_inference_backend_set_mode(m->backend, mode);
-    m->info.mode = mode;
-    leave(); return ESP_OK;
+    esp_err_t error = solar_os_inference_backend_set_mode(m->backend, mode);
+    if (!error) m->info.mode = mode;
+    leave(); return error;
 }
 esp_err_t solar_os_inference_close(solar_os_inference_t *s, uint32_t id)
 {

@@ -1,8 +1,15 @@
 #include "solar_os_messaging_types.h"
 
+extern const char *solar_os_messaging_instance_name(solar_os_messaging_provider_id_t)
+    __attribute__((weak));
+
 const char *solar_os_messaging_provider_name(
     solar_os_messaging_provider_id_t provider)
 {
+    if (solar_os_messaging_instance_name != NULL) {
+        const char *name = solar_os_messaging_instance_name(provider);
+        if (name != NULL) return name;
+    }
     switch (provider) {
     case SOLAR_OS_MESSAGING_PROVIDER_GATEWAY:
         return "gateway";

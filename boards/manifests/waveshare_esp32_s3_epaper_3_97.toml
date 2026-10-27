@@ -37,6 +37,7 @@ psram_bytes = 8388608
 includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 
 [defines]
+SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"power0"'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "480"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "800"

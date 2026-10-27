@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "espdl"
+name = "ESP-DL inference"
+version = "3.3.13"
+description = "ESP32-S3 inference engine for resident models, with single and dual-core execution."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "espdl.library.elf"

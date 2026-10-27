@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_display_maintenance.h"
 #include "solar_os_gfx.h"
 #include "solar_os_terminal.h"
 #include "u8g2.h"
@@ -50,6 +51,9 @@ typedef struct {
     uint32_t surface_formats;
     uint32_t frame_formats;
     uint16_t preferred_stream_fps;
+    /* Minimum caller task stack for synchronous presentation, bytes; 0 uses
+     * the presenter's default. Protocol-backed targets may nest substantial I/O. */
+    uint16_t presentation_stack_bytes;
     uint32_t max_stream_pixels_per_second;
     u8g2_t *u8g2;
     const u8g2_cb_t *base_rotation;
@@ -61,7 +65,25 @@ typedef struct {
     solar_os_display_surface_presenter_t present_surface;
     void *frame_context;
     solar_os_display_frame_presenter_t present_frame;
+    esp_err_t (*present_power_state)(void *context);
+    void *power_state_context;
+    esp_err_t (*relax)(void *context, solar_os_display_relax_phase_t phase);
+    void *relax_context;
 } solar_os_display_target_t;
+
+typedef struct {
+    uint32_t cycles;
+    bool cancelled;
+} solar_os_display_relax_result_t;
+
+/* Exclusive, synchronous native black/white cycles under the caller's claim.
+ * Cancellation is polled between hardware refreshes and during holds. END is
+ * always attempted after a successful BEGIN, including after a frame error.
+ */
+esp_err_t solar_os_display_relax(const char *name, const char *owner, unsigned seconds,
+                                 bool (*should_cancel)(void *), void *user,
+                                 solar_os_display_relax_result_t *result,
+                                 char *busy_owner, size_t busy_owner_len);
 
 typedef enum {
     SOLAR_OS_DISPLAY_PRESENT_TEXT,
@@ -71,6 +93,10 @@ typedef enum {
 typedef struct {
     const uint8_t *data;
     size_t data_size;
+    /* Optional native row-major RGB565 snapshot, most-significant byte first.
+     * Rows contain native_width pixels without padding. Shares data's lifetime. */
+    const uint8_t *rgb565_data;
+    size_t rgb565_size;
     uint32_t frame_id;
     uint32_t target_generation;
     uint16_t width;
@@ -112,6 +138,11 @@ esp_err_t solar_os_display_open_gfx(const char *name,
                                     char *busy_owner,
                                     size_t busy_owner_len);
 esp_err_t solar_os_display_release(const char *name, const char *owner);
+/* A claimed streaming client can exclude terminal/status-bar painting without
+ * changing the terminal's saved preferences. Release the block after joining
+ * presentation. The epoch makes terminals repaint fully when drawing resumes. */
+esp_err_t solar_os_display_set_terminal_blocked(const char *name, const char *owner, bool blocked);
+bool solar_os_display_terminal_draw_state(const u8g2_t *u8g2, uint32_t *epoch);
 bool solar_os_display_brightness_supported(void);
 esp_err_t solar_os_display_get_brightness(uint8_t *percent);
 esp_err_t solar_os_display_set_brightness(uint8_t percent);
@@ -120,6 +151,9 @@ esp_err_t solar_os_display_get_colors(uint32_t *foreground_rgb888,
 esp_err_t solar_os_display_set_foreground_color(uint32_t rgb888);
 esp_err_t solar_os_display_set_background_color(uint32_t rgb888);
 esp_err_t solar_os_display_suspend_primary(void);
+esp_err_t solar_os_display_show_power_state(const char *status);
+void solar_os_display_clear_power_state(void);
+esp_err_t solar_os_display_shutdown(void);
 esp_err_t solar_os_display_resume_primary(void);
 bool solar_os_display_primary_suspended(void);
 esp_err_t solar_os_display_set_palette_inverted(const char *name, bool inverted);

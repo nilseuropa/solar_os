@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-20",
+  "target": "Raspberry Pi Pico RP2040 B2",
+  "backend": "RAM",
+  "geometry": [
+    320,
+    240
+  ],
+  "format": "RGB565_BE",
+  "cpu_hz": 125000000,
+  "sdk_version": "2.2.0",
+  "build_type": "Release",
+  "usb_poll_bytes": 32,
+  "window": 16,
+  "decoded_block_limit": 1024,
+  "compressed_cell_budget": 206,
+  "source_commit": "c3e5f8c96b688318af7146dfac69de46e705b1d3",
+  "baseline_firmware_sha256": "dd37b8ead9514612bb75235fd59dd5bd6f396f91485ab1584d1a41691fa12b96",
+  "trial_firmware_sha256": "9f961474e628d96925bf68725dac9e6d16a5fb3f883571774fb80e27af4eec2f",
+  "fast_crc_firmware_sha256": "f2a4768d16689f41c37aeb843ecb25bbfb75d73c8ac84f14243edcd2fe409c65",
+  "baseline_size": {
+    "text": 52100,
+    "bss": 164264
+  },
+  "trial_size": {
+    "text": 52892,
+    "bss": 164328
+  },
+  "fast_crc_size": {
+    "text": 52948,
+    "bss": 164328
+  },
+  "baseline_updates": 60,
+  "trial_updates_verified": 105,
+  "verification": "decoded rectangle stream FNV-1a plus canonical RGB565 framebuffer FNV-1a",
+  "protocol_sanitizer_variants": [
+    "baseline",
+    "trial",
+    "fast-crc"
+  ],
+  "protocol_sanitizer_executables_per_variant": 3,
+  "framebuffer_test_variants": 2,
+  "crc_reference_vectors": 1028,
+  "fast_crc_updates_verified": 45,
+  "fixed_framing_updates_verified": 18,
+  "total_ram_updates_verified": 168,
+  "final_state": {
+    "model": "Pico RAM display",
+    "geometry": [
+      320,
+      240
+    ],
+    "format": "RGB565_BE",
+    "completed_smoke_frames": 2,
+    "experimental_query": "unsupported",
+    "final_firmware": "ordinary RAM baseline",
+    "flash_load_verified": true
+  },
+  "pico_prepare_py_sha256": "e92a4a37fa41e7be9ec6de61aef1ecdcd481c882a09737685b361bc374199469",
+  "pico_crc_variant_py_sha256": "824549c094b05c87b5db1d2056317145db459e129e5c7cdebe0110e43e7c5db2",
+  "pico_flash_py_sha256": "ef61e7c7b793a364cd9ad0633cbaf32982f2870e8ccfe0ca78d01572eb072c1a",
+  "pico_benchmark_py_sha256": "3044852c0e25dfa23863ee2b32e0bcd3e1fe19df2fb74685bb94ec10b6e3a56d",
+  "pico-receiver_patch_sha256": "30ec8313609158392c24b710ef33bb5161d797b0f0d67facbbfff5e4fcd9fa91",
+  "pico-fast-crc_patch_sha256": "6fa1ae2e1589656fc8ea752ad25094b863a1e6415e84c4ed240ab35ca1954b63"
+}

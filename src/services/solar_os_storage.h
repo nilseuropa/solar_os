@@ -90,6 +90,9 @@ void solar_os_storage_notify_changed(void);
 esp_err_t solar_os_storage_mount(void);
 esp_err_t solar_os_storage_mount_volume(const char *name, const char *mount_point);
 esp_err_t solar_os_storage_unmount(void);
+esp_err_t solar_os_storage_prepare_shutdown(void);
+/* After the final display refresh, because SD/display supplies can be shared. */
+esp_err_t solar_os_storage_shutdown_hardware(void);
 esp_err_t solar_os_storage_unmount_volume(const char *target);
 esp_err_t solar_os_storage_format(const char *target);
 bool solar_os_storage_is_mounted(void);

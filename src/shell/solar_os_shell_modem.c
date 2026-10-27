@@ -72,12 +72,12 @@ static void print_usage(solar_os_shell_io_t *term)
 static void list_modems(solar_os_shell_io_t *term)
 {
     if (solar_os_modem_count() == 0U) {
-        solar_os_shell_io_writeln(term, "no cellular modems registered");
+        solar_os_shell_io_table_writeln(term, "no cellular modems registered");
         return;
     }
     solar_os_modem_info_t info;
     for (size_t i = 0; solar_os_modem_get(i, &info); i++) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%s  driver=%s  transport=%s  power=%s  reset=%s  baud=%s\r\n",
                                  info.name,
                                  info.driver,

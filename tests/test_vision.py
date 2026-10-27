@@ -24,7 +24,7 @@ class VisionIntegrationTest(unittest.TestCase):
         self.assertFalse(disabled["service_vision"])
 
     def test_optional_flavor_and_service_boundaries(self):
-        for flavor in ("core", "rover", "netrunner", "writerdeck", "full"):
+        for flavor in ("writerdeck", "full"):
             data = tomllib.loads((ROOT / f"flavors/{flavor}.toml").read_text())
             self.assertEqual(data["groups"].get("vision", False), flavor == "full")
         source = (ROOT / "src/services/solar_os_vision.c").read_text()

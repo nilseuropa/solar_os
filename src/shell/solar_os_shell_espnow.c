@@ -88,10 +88,10 @@ static void print_peers(solar_os_shell_io_t *term)
 {
     const size_t count = solar_os_espnow_peer_count();
     if (count == 0U) {
-        solar_os_shell_io_writeln(term, "no ESP-NOW peers");
+        solar_os_shell_io_table_writeln(term, "no ESP-NOW peers");
         return;
     }
-    solar_os_shell_io_writeln(term, "LINK ID    MAC                SOURCE      RSSI LAST MS");
+    solar_os_shell_io_table_writeln(term, "LINK ID    MAC                SOURCE      RSSI LAST MS");
     for (size_t i = 0U; i < count; i++) {
         solar_os_espnow_peer_t peer;
         if (!solar_os_espnow_peer_get(i, &peer)) {
@@ -99,7 +99,7 @@ static void print_peers(solar_os_shell_io_t *term)
         }
         char mac[18];
         solar_os_espnow_format_mac(peer.mac, mac, sizeof(mac));
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "0x%08" PRIx32 " %-17s %-10s %4d %7" PRIu32 "\n",
                                  peer.link_id,
                                  mac,

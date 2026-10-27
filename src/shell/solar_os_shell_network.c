@@ -181,14 +181,14 @@ static void wifi_cmd_scan(solar_os_shell_io_t *term)
     const esp_err_t err = solar_os_wifi_scan(aps, sizeof(aps) / sizeof(aps[0]), &found);
 
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "wifi scan failed: %s\n", solar_os_shell_error_text(err));
+        solar_os_shell_io_table_printf(term, "wifi scan failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
-    solar_os_shell_io_writeln(term, "RSSI CH AUTH       K SSID");
+    solar_os_shell_io_table_writeln(term, "RSSI CH AUTH       K SSID");
     for (size_t i = 0; i < found; i++) {
         const bool known = !aps[i].hidden && solar_os_wifi_is_known_ssid(aps[i].ssid);
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%4d %2u %-10s %c %s\n",
                                  (int)aps[i].rssi,
                                  (unsigned)aps[i].channel,
@@ -196,7 +196,7 @@ static void wifi_cmd_scan(solar_os_shell_io_t *term)
                                  known ? '*' : '-',
                                  aps[i].ssid);
     }
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "%u network%s shown\n",
                              (unsigned)found,
                              found == 1 ? "" : "s");
@@ -210,25 +210,25 @@ static void wifi_cmd_known(solar_os_shell_io_t *term)
                                               sizeof(profiles) / sizeof(profiles[0]),
                                               &count);
     if (err != ESP_OK) {
-        solar_os_shell_io_printf(term, "wifi known failed: %s\n", solar_os_shell_error_text(err));
+        solar_os_shell_io_table_printf(term, "wifi known failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
 
     if (count == 0) {
-        solar_os_shell_io_writeln(term, "no known networks");
+        solar_os_shell_io_table_writeln(term, "no known networks");
         return;
     }
 
-    solar_os_shell_io_writeln(term, "P SSID");
+    solar_os_shell_io_table_writeln(term, "P SSID");
     const size_t shown = count < SOLAR_OS_WIFI_PROFILE_MAX ? count : SOLAR_OS_WIFI_PROFILE_MAX;
     for (size_t i = 0; i < shown; i++) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "%c %s\n",
                                  profiles[i].preferred ? '*' : '-',
                                  profiles[i].ssid);
     }
     if (count > shown) {
-        solar_os_shell_io_printf(term, "%u more not shown\n", (unsigned)(count - shown));
+        solar_os_shell_io_table_printf(term, "%u more not shown\n", (unsigned)(count - shown));
     }
 }
 
@@ -1297,7 +1297,7 @@ static void netscan_update_progress(solar_os_shell_io_t *term,
 
     solar_os_shell_io_set_cursor(term, row, 0);
     solar_os_shell_io_clear_line_from(term, row, 0);
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "%c %s:%u %u/%u",
                              frame,
                              ip,
@@ -1331,7 +1331,7 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_wifi_status_t wifi;
     solar_os_wifi_get_status(&wifi);
     if (!wifi.has_ip) {
-        solar_os_shell_io_writeln(term, "netscan: WiFi not connected");
+        solar_os_shell_io_table_writeln(term, "netscan: WiFi not connected");
         return;
     }
 
@@ -1347,27 +1347,27 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
     netscan_target_spec_t target;
     const esp_err_t target_err = netscan_parse_target(argv[1], &target);
     if (target_err == ESP_ERR_NOT_FOUND) {
-        solar_os_shell_io_printf(term, "netscan: unknown host: %s\n", argv[1]);
+        solar_os_shell_io_table_printf(term, "netscan: unknown host: %s\n", argv[1]);
         return;
     }
     if (target_err == ESP_ERR_NOT_SUPPORTED) {
-        solar_os_shell_io_writeln(term, "netscan: only IPv4 /24 ranges are supported");
+        solar_os_shell_io_table_writeln(term, "netscan: only IPv4 /24 ranges are supported");
         return;
     }
     if (target_err == ESP_ERR_INVALID_SIZE) {
-        solar_os_shell_io_printf(term,
+        solar_os_shell_io_table_printf(term,
                                  "netscan: too many hosts, max %u\n",
                                  (unsigned)NETSCAN_MAX_HOSTS);
         return;
     }
     if (target_err != ESP_OK) {
-        solar_os_shell_io_printf(term, "netscan: invalid target: %s\n", solar_os_shell_error_text(target_err));
+        solar_os_shell_io_table_printf(term, "netscan: invalid target: %s\n", solar_os_shell_error_text(target_err));
         return;
     }
 
     char first_ip[SOLAR_OS_NET_ADDR_MAX];
     netscan_target_ip(&target, 0, first_ip, sizeof(first_ip));
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "netscan %s (%s), %u host%s, %u ports, %s to stop\n",
                              target.label,
                              first_ip,
@@ -1375,7 +1375,7 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
                              target.count == 1 ? "" : "s",
                              (unsigned)port_count,
                              solar_os_shell_io_app_exit_key(term));
-    solar_os_shell_io_writeln(term, "HOST             PORT     STATE  SERVICE");
+    solar_os_shell_io_table_writeln(term, "HOST             PORT     STATE  SERVICE");
     solar_os_shell_io_flush(term);
 
     size_t open_count = 0;
@@ -1401,15 +1401,15 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
             probe_count++;
             if (netscan_probe_tcp(ip, port, NETSCAN_TIMEOUT_MS, &elapsed_ms)) {
                 netscan_clear_progress(term, progress_row);
-                solar_os_shell_io_printf(term,
+                solar_os_shell_io_table_printf(term,
                                          "%-15s %-8u open   %s",
                                          ip,
                                          (unsigned)port,
                                          netscan_service_name(port));
                 if (elapsed_ms > 0) {
-                    solar_os_shell_io_printf(term, " (%" PRIu32 "ms)", elapsed_ms);
+                    solar_os_shell_io_table_printf(term, " (%" PRIu32 "ms)", elapsed_ms);
                 }
-                solar_os_shell_io_put_char(term, '\n');
+                solar_os_shell_io_table_put_char(term, '\n');
                 solar_os_shell_io_flush(term);
                 open_count++;
                 progress_row = solar_os_shell_io_cursor_row(term);
@@ -1424,9 +1424,9 @@ void solar_os_shell_cmd_netscan(solar_os_context_t *ctx, int argc, char **argv)
 
     netscan_clear_progress(term, progress_row);
     if (stopped) {
-        solar_os_shell_io_writeln(term, "netscan: stopped");
+        solar_os_shell_io_table_writeln(term, "netscan: stopped");
     }
-    solar_os_shell_io_printf(term,
+    solar_os_shell_io_table_printf(term,
                              "netscan: %u open, %u probes\n",
                              (unsigned)open_count,
                              (unsigned)probe_count);

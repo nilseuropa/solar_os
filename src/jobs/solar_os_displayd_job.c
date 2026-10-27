@@ -37,6 +37,7 @@ typedef struct {
     char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char frame_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
     char raw_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
+    char rgb_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
     char input_uri[SOLAR_OS_HTTP_ROUTE_URI_MAX];
     uint16_t width;
     uint16_t height;
@@ -45,6 +46,7 @@ typedef struct {
     uint16_t native_stride;
     solar_os_display_rotation_t rotation;
     bool black_is_one;
+    bool color;
     uint8_t *raw_response;
     size_t raw_response_size;
     QueueHandle_t input;
@@ -143,16 +145,21 @@ static const char display_page[] =
     "if(!image||image.width!==w||image.height!==h){"
     "canvas.width=w;canvas.height=h;image=ctx.createImageData(w,h)}"
     "const d=image.data,b=m.black_is_one;d.fill(255);"
-    "function mark(x,y,set){if(b?set:!set){const i=(y*w+x)*4;d[i]=d[i+1]=d[i+2]=0}}"
-    "let x,y,nx,ny,i,set;"
+    "function mark(x,y,nx,ny){const i=(y*w+x)*4;"
+    "if(m.pixel_format==='rgb565'){const p=(ny*nw+nx)*2,c=(bytes[p]<<8)|bytes[p+1];"
+    "d[i]=Math.round((c>>>11)*255/31);d[i+1]=Math.round(((c>>>5)&63)*255/63);"
+    "d[i+2]=Math.round((c&31)*255/31);return}"
+    "const set=(bytes[(ny>>3)*s+nx]&(1<<(ny&7)))!==0;"
+    "if(b?set:!set)d[i]=d[i+1]=d[i+2]=0}"
+    "let x,y,nx,ny;"
     "if(m.rotation===1){for(y=0;y<h;y++){nx=nw-1-y;"
-    "for(x=0;x<w;x++){ny=x;i=(ny>>3)*s+nx;set=(bytes[i]&(1<<(ny&7)))!==0;mark(x,y,set)}}}"
+    "for(x=0;x<w;x++){ny=x;mark(x,y,nx,ny)}}}"
     "else if(m.rotation===2){for(y=0;y<h;y++){ny=nh-1-y;"
-    "for(x=0;x<w;x++){nx=nw-1-x;i=(ny>>3)*s+nx;set=(bytes[i]&(1<<(ny&7)))!==0;mark(x,y,set)}}}"
+    "for(x=0;x<w;x++){nx=nw-1-x;mark(x,y,nx,ny)}}}"
     "else if(m.rotation===3){for(y=0;y<h;y++){nx=y;"
-    "for(x=0;x<w;x++){ny=nh-1-x;i=(ny>>3)*s+nx;set=(bytes[i]&(1<<(ny&7)))!==0;mark(x,y,set)}}}"
+    "for(x=0;x<w;x++){ny=nh-1-x;mark(x,y,nx,ny)}}}"
     "else{for(y=0;y<h;y++){ny=y;"
-    "for(x=0;x<w;x++){nx=x;i=(ny>>3)*s+nx;set=(bytes[i]&(1<<(ny&7)))!==0;mark(x,y,set)}}}"
+    "for(x=0;x<w;x++){nx=x;mark(x,y,nx,ny)}}}"
     "ctx.putImageData(image,0,0)}"
     "async function poll(){clearTimeout(timer);if(!token||!frameUrl)return;"
     "try{const h=headers();if(etag)h['If-None-Match']=etag;"
@@ -168,7 +175,8 @@ static const char display_page[] =
     "try{const r=await fetch('/api/displays',{headers:headers(),cache:'no-store'});"
     "if(!r.ok)throw Error(r.status===401?'authentication failed':'display list HTTP '+r.status);"
     "const a=await r.json();if(!a.displays.length)throw Error('no exported display');"
-    "displayMeta=a.displays[0];frameUrl=displayMeta.frame_raw;inputUrl=displayMeta.input;"
+    "displayMeta=a.displays[0];frameUrl=displayMeta.pixel_format==='rgb565'?"
+    "displayMeta.frame_rgb565:displayMeta.frame_raw;inputUrl=displayMeta.input;"
     "canvas.focus();poll()}"
     "catch(e){status(e.message)}}"
     "button.onclick=connect;tokenEl.addEventListener('keydown',e=>{if(e.key==='Enter')connect()});"
@@ -227,7 +235,7 @@ static esp_err_t displayd_list_handler(httpd_req_t *req, void *user)
         solar_os_display_release_frame(&frame);
     }
 
-    char body[512];
+    char body[768];
     const int len = snprintf(body,
                              sizeof(body),
                              "{\"displays\":[{\"name\":\"%s\",\"source\":\"%s\","
@@ -236,6 +244,7 @@ static esp_err_t displayd_list_handler(httpd_req_t *req, void *user)
                              "\"native_stride\":%u,\"rotation\":%u,"
                              "\"black_is_one\":%s,\"frame_id\":%u,"
                              "\"frame\":\"%s\",\"frame_raw\":\"%s\","
+                             "\"pixel_format\":\"%s\",\"frame_rgb565\":\"%s\","
                              "\"input\":\"%s\"}]}",
                              target.name,
                              target.source,
@@ -250,6 +259,8 @@ static esp_err_t displayd_list_handler(httpd_req_t *req, void *user)
                              (unsigned)frame_id,
                              state->frame_uri,
                              state->raw_uri,
+                             state->color ? "rgb565" : "mono1",
+                             state->color ? state->rgb_uri : "",
                              state->input_uri);
     if (len < 0 || (size_t)len >= sizeof(body)) {
         return httpd_resp_send_err(req,
@@ -391,7 +402,7 @@ static esp_err_t displayd_frame_handler(httpd_req_t *req, void *user)
     return ret;
 }
 
-static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
+static esp_err_t displayd_send_raw_frame(httpd_req_t *req, void *user, bool color)
 {
     displayd_state_t *state = (displayd_state_t *)user;
     if (state == NULL) {
@@ -405,6 +416,10 @@ static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
     }
     if (acquire_err != ESP_OK) {
         return displayd_send_503(req, "display frame unavailable");
+    }
+    if (color && frame.rgb565_data == NULL) {
+        solar_os_display_release_frame(&frame);
+        return httpd_resp_send_404(req);
     }
     displayd_stats_add(&state->frame_requests, 1U);
 
@@ -427,20 +442,31 @@ static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
         return httpd_resp_send(req, NULL, 0);
     }
 
-    if (state->raw_response == NULL || state->raw_response_size < frame.data_size) {
+    const size_t frame_size = color ? frame.rgb565_size : frame.data_size;
+    const uint8_t *frame_data = color ? frame.rgb565_data : frame.data;
+    if (state->raw_response == NULL || state->raw_response_size < frame_size) {
         solar_os_display_release_frame(&frame);
         return httpd_resp_send_err(req,
                                    HTTPD_500_INTERNAL_SERVER_ERROR,
                                    "raw response buffer unavailable");
     }
-    const size_t frame_size = frame.data_size;
-    memcpy(state->raw_response, frame.data, frame_size);
+    memcpy(state->raw_response, frame_data, frame_size);
     solar_os_display_release_frame(&frame);
 
     (void)httpd_resp_set_type(req, "application/octet-stream");
     (void)httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     (void)httpd_resp_set_hdr(req, "ETag", etag);
     return httpd_resp_send(req, (const char *)state->raw_response, frame_size);
+}
+
+static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
+{
+    return displayd_send_raw_frame(req, user, false);
+}
+
+static esp_err_t displayd_rgb_handler(httpd_req_t *req, void *user)
+{
+    return displayd_send_raw_frame(req, user, true);
 }
 
 static esp_err_t displayd_input_handler(httpd_req_t *req, void *user)
@@ -532,6 +558,14 @@ static esp_err_t displayd_register_routes(void)
         },
         {
             .owner = DISPLAYD_ROUTE_OWNER,
+            .uri = displayd.rgb_uri,
+            .method = HTTP_GET,
+            .auth = SOLAR_OS_HTTP_AUTH_VIEW,
+            .handler = displayd_rgb_handler,
+            .user = &displayd,
+        },
+        {
+            .owner = DISPLAYD_ROUTE_OWNER,
             .uri = displayd.input_uri,
             .method = HTTP_POST,
             .auth = SOLAR_OS_HTTP_AUTH_CONTROL,
@@ -599,6 +633,10 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
                  sizeof(displayd.raw_uri),
                  "/api/displays/%s/frame.raw",
                  displayd.target) >= (int)sizeof(displayd.raw_uri) ||
+        snprintf(displayd.rgb_uri,
+                 sizeof(displayd.rgb_uri),
+                 "/api/displays/%s/frame.rgb565",
+                 displayd.target) >= (int)sizeof(displayd.rgb_uri) ||
         snprintf(displayd.input_uri,
                  sizeof(displayd.input_uri),
                  "/api/displays/%s/input",
@@ -641,7 +679,9 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
             displayd.native_stride = initial_frame.native_stride;
             displayd.rotation = initial_frame.rotation;
             displayd.black_is_one = initial_frame.black_is_one;
-            displayd.raw_response_size = initial_frame.data_size;
+            displayd.color = initial_frame.rgb565_data != NULL;
+            displayd.raw_response_size = initial_frame.rgb565_size > initial_frame.data_size ?
+                initial_frame.rgb565_size : initial_frame.data_size;
             solar_os_display_release_frame(&initial_frame);
             displayd.raw_response =
                 solar_os_memory_alloc(displayd.raw_response_size,

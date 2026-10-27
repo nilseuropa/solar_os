@@ -29,7 +29,7 @@ static int splash_min_int(int a, int b)
     return a < b ? a : b;
 }
 
-static void splash_draw_common(solar_os_gfx_t *gfx, const char *status, bool reboot)
+static void splash_draw_common(solar_os_gfx_t *gfx, const char *status, bool present)
 {
     if (gfx == NULL) {
         return;
@@ -47,8 +47,6 @@ static void splash_draw_common(solar_os_gfx_t *gfx, const char *status, bool reb
     const char *state = status != NULL && status[0] != '\0' ? status : "starting";
     const char *title = "SolarOS";
     char build[64];
-
-    (void)reboot;
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
@@ -75,7 +73,7 @@ static void splash_draw_common(solar_os_gfx_t *gfx, const char *status, bool reb
                       height - 10,
                       build);
 
-    solar_os_gfx_present(gfx);
+    if (present) solar_os_gfx_present(gfx);
 }
 
 void solar_os_splash_clear(solar_os_gfx_t *gfx)
@@ -88,6 +86,11 @@ void solar_os_splash_clear(solar_os_gfx_t *gfx)
 }
 
 void solar_os_splash_draw(solar_os_gfx_t *gfx, const char *status)
+{
+    splash_draw_common(gfx, status, true);
+}
+
+void solar_os_splash_render(solar_os_gfx_t *gfx, const char *status)
 {
     splash_draw_common(gfx, status, false);
 }

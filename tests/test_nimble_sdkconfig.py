@@ -11,10 +11,20 @@ REQUIRED = (
     "CONFIG_BT_NIMBLE_GATT_SERVER", "CONFIG_BT_NIMBLE_DYNAMIC_SERVICE",
 )
 CURRENT = ("CONFIG_BT_ENABLED=y\n" + "".join(f"{key}=y\n" for key in REQUIRED)
-           + "CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n")
+           + "CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192\n"
+           + "CONFIG_BT_NIMBLE_L2CAP_COC_MAX_NUM=2\n")
 
 
 class NimbleSdkconfigTest(unittest.TestCase):
+    def test_coc_minimum_preserves_unrelated_and_larger_settings(self):
+        for value in (0, 1, 2, 4):
+            content = CURRENT.replace("COC_MAX_NUM=2", f"COC_MAX_NUM={value}")
+            result, remaining = self.run_guard(content + "CONFIG_LOCAL_SETTING=123\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"COC_MAX_NUM={max(2, value)}\n", remaining)
+            self.assertIn("CONFIG_LOCAL_SETTING=123\n", remaining)
+            self.assertEqual(result.stderr.count("enabling two"), int(value < 2))
+
     def run_guard(self, contents, name="sdkconfig.test", explicit=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

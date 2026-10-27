@@ -66,13 +66,13 @@ static void gateway_rooms(solar_os_shell_io_t *io)
     for (size_t i = 0; i < count; i++) {
         const char *state = rooms[i].joined ? "joined" :
             (rooms[i].desired ? "joining" : "known");
-        solar_os_shell_io_printf(io,
+        solar_os_shell_io_table_printf(io,
                                  "%-7s %s\n",
                                  state,
                                  rooms[i].name);
     }
     if (count == 0U) {
-        solar_os_shell_io_writeln(io, "No gateway rooms");
+        solar_os_shell_io_table_writeln(io, "No gateway rooms");
     }
 }
 

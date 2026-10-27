@@ -2,6 +2,235 @@
 
 ## 4.x
 
+- **4.17.0** — 2026-10-27 — Added Sealed Chat (SC2) with end-to-end
+  encrypted direct messages and named private rooms, authenticated room
+  invitations, signed public rooms, safety-number verification, readable
+  sender labels, and shell completion. Added signed relay discovery, relay
+  key pinning, fallback relays, and Python/Lua SC2 APIs. The `sc2-sync`
+  worker follows explicit job start/stop controls. `chatd` can host a small
+  SC2 relay alongside legacy v1. Added configurable low-voltage actions to
+  `batmon` and CAN bus management in the I/O app. Fixed CL-32 sleep/wake
+  behavior and power splash screens.
+- **4.16.32** — 2026-10-26 — Added a tabbed messaging manager and direct Chat
+  access from Contacts. Fixed MeshCore send stack usage. Added Pi0cket CL-32
+  e-paper board support alongside RLCD, with held modifiers, session shortcuts,
+  and keyboard wake from sleep. Added the reusable SSD1685 driver with Fastwave,
+  native-app raster output, and pulse refresh by default. Extended `display relax`
+  to all supported e-paper displays. Added named display profiles and improved
+  runtime attachment with resolution and rotation lists. The function generator
+  now fits smaller displays.
+- **4.16.31** — 2026-10-25 — Chat now retains received and sent messages
+  on disk with fast channel switching and access to older history. Added TWAI
+  CAN expansion support and shell controls. Improved BLE keyboard compatibility,
+  fixed large-display rendering, and preserved full color in browser mirroring.
+- **4.16.30** — 2026-10-24 — Faster native-app discovery at boot and reduced
+  alert-tone SRAM use. Added Jet background caching and Python/Lua access to
+  terminal colors. Display snapshots now mirror unscaled full-screen RGB565
+  frames as dithered monochrome images.
+- **4.16.29** — 2026-10-24 — Added the optional `rfscan` graphical radio
+  scanner with live RSSI graphs, fast band sweeps and waterfalls on color and
+  monochrome displays. Added touchscreen tap, double-tap, hold and swipe
+  gestures.
+- **4.16.28** — 2026-10-23 — Added the optional Jet 3D renderer for Python
+  and Lua, with textured meshes, lighting, sprites, particles, shaders and asset
+  loading on color and dithered monochrome displays. Fixed streaming-script
+  terminal redraw and native-app audio on T-Deck and other expansion outputs.
+- **4.16.27** — 2026-10-22 — Added named motor and encoder services with
+  shell controls and Python/Lua bindings. DRV8830 motors use normalized signed
+  drive commands over named I2C buses, with an optional fault input. Native
+  A/B encoders support explicit x1, x2, and x4 counting modes, signed counts,
+  and reset. Fixed SSD1306/SH1106 OLED attachment on named buses and reduced
+  I2C refresh overhead; OLED emotion faces now default to animated 25 fps
+  submissions. Emotion colors follow terminal settings, with independent
+  foreground/background overrides. Fixed T-Deck keyboard and Wi-Fi wake
+  regressions, restored keyboard backlight state after suspend, and preserved
+  SD power and SPI chip selects during light sleep.
+- **4.16.25** — 2026-10-21 — Added an optional emotion engine for
+  ESP32-S3 devices with executable PSRAM. Python and Lua scripts can animate
+  21 Cozmo-style expressions on supported display targets, control gaze and
+  blinking, and play four reaction sounds. Faces animate independently of
+  script work and pause with foreground sessions. Added examples and API
+  documentation, and fixed a reboot during face cleanup.
+- **4.16.24** — 2026-10-21 — Added GNSS output controls for recognized
+  receivers and software release of T-Deck's shared Grove UART. Shell tables
+  and the I/O TUI now fit terminal width. KEY short and long presses support
+  configurable actions, including suspend, sleep, and deep sleep. Fixed suspend
+  wake for supported wired keyboards. App discovery runs before shells start;
+  T-Deck's keyboard backlight starts disabled.
+  Added reusable trackball pointer input and the `pointer-arrows` job, with
+  held-key repeat and adjustable `min-vector` sensitivity (default `2`).
+  Added RX gain controls for SX1262, RFM95, and RFM69 radios. Contacts now
+  supports trust/block, rename, link/remove, filtering, and status, with
+  discoverable help and visible edit cursors.
+- **4.16.23** — 2026-10-20 — Improved T-Deck trackball navigation and
+  keyboard shortcuts, including Mic for Tab and Shift+Mic for Ctrl.
+  Added `setterm backlight` controls. Fixed held keys, typing repeat,
+  native foreground input, T-Deck GNSS registration, and SX1262 wake from sleep.
+- **4.16.22** — 2026-10-20 — Added optional lossless LZ4 compression for DLP
+  display connections. Set `compressed=1` when attaching `spi-dlp` or
+  `stream-dlp` displays; saved startup attachments and board manifests retain
+  the setting. Senders negotiate support and choose raw, RLE, or LZ4 per block,
+  with raw/RLE fallback for older endpoints. DLP display servers accept LZ4
+  updates without a separate setting. Compression preserves pixel values and
+  works across supported pixel formats over SPI and ordered byte streams.
+  Fastwave e-paper updates now pace new images independently of settling
+  cycles, allowing pending pixel transitions to continue between frames.
+- **4.16.21** — 2026-10-19 — Added Fastwave waveforms for SolarWriter and
+  supported CrowPanel e-paper panels, with automatic cleanup and recovery.
+  The cancellable `display relax` command runs repeated black/white recovery
+  cycles and restores the saved image and refresh settings afterward.
+  SSD1683 displays now accept monochrome raster frames from native apps,
+  including scaled and dithered emulator output. Writerdeck now includes the
+  synthesizer and shared synth service for native-app audio.
+- **4.16.20** — 2026-10-19 — Added native IRC to unified Chat with verified
+  TLS, optional SASL authentication, channels, private messages, automatic
+  reconnect and rejoin, bounded buffers, and flood control. Each IRC instance
+  has independent server, nickname, authentication, and conversation settings.
+  Gateway, MeshCore, and Link now support named instances with isolated
+  messaging state. MeshCore supports independent radio and BLE companion
+  instances; Link instances use named transports.
+  Added common instance setup, connection, join, and private conversation
+  controls across the shell, Chat, Python, and Lua. Removing an instance also
+  deletes its local history, notifications, settings, and credentials, cancels
+  queued sends, and finishes interrupted removal after reboot.
+  Moved messaging profiles, shared credentials, radio profiles, and ESP-NOW
+  peers to mounted storage, with checked migration from legacy NVS settings.
+  Fixed display-shell stack overflows during IRC setup and disconnect, provider
+  completion, join metadata, and direct-message security metadata. Chat uses
+  shell quoting rules for setup commands, excludes credentials from input
+  history, and displays connection and authentication failures. IRC status
+  includes SASL rejection codes and server reasons.
+  Fixed DLP exit shortcuts and display attachment stack usage. BLE discovery
+  can run while the keyboard is reconnecting.
+- **4.16.19** — 2026-10-18 — Serve named displays with `dlp` over USB/UART,
+  TCP/Wi-Fi, BLE, or compatible radio byte streams. Attach remote displays with
+  `stream-dlp`, or open private DLP connections from Python and Lua without
+  registering a display. SPI attachment is now named `spi-dlp`.
+  Windowed uploads, compact framing, and compressed changed-region updates
+  improve transfer throughput. Display serving uses performance mode and
+  reports presentation timings; receivers wait for reconnect and restore the
+  shell on exit. Detaching releases display buffers and the stream claim.
+  Added raw TCP and native BLE L2CAP CoC byte streams, with shell commands,
+  completion, and Python/Lua BLE endpoint configuration. BLE streams coexist
+  with the input keyboard and currently accept unpaired connections.
+  Link stream protocol v3 adds windowed transfers and receiver credits for
+  sustained traffic with backpressure and prompt interactive writes. MeshCore
+  uses a smaller window with radio-specific timings. Both stream endpoints
+  must be updated; Chat and outer Link packet framing are unchanged.
+  Port shells remain responsive on idle or disconnected streams. Added a
+  navigation guide covering shared controls and board-specific keys.
+- **4.16.18** — 2026-10-17 — Added a resumable external Amiga 500 app for
+  ESP32-S3 devices with PSRAM, with 1 MiB guest RAM, keyboard, mouse and touch
+  input, joystick emulation, audio, and one read-only ADF floppy drive.
+  Kickstart 1.3 ROM and disk images are supplied separately. The guest screen
+  fits the display, and function keys select keyboard, mouse, or joystick mode.
+  Amiga audio preserves pitch as emulation speed changes, with adaptive
+  buffering and more regular video updates under load.
+  Reduced native service-call overhead and accelerated indexed-color conversion
+  for monochrome displays. Added optional frame-buffer exchange and cooperative
+  CPU checkpoints for foreground modules, reducing frame copies and unnecessary
+  sleeps in Amiga, Macintosh Plus, DOOM, Tiny386, and accelerated Apple II use.
+  Foreground modules gain mouse and touch events and read-only calendar access;
+  video restores the latest frame after session switching. Amiga ROM and disk
+  paths support relative names and tab completion.
+  Added the compact `classic` firmware profile as the default for classic ESP32
+  targets, retaining Python, Playground, writing, media, communications, and
+  board controls, including the ODROID-GO ADC D-pad.
+  Fixed incremental linker generation after memory-layout configuration changes.
+- **4.16.17** — 2026-10-17 — Added generic SPI display attachment through
+  Display Link Protocol (DLP), with discovered dimensions and pixel formats,
+  optional READY and RESET lines, changed-region uploads, and optional RLE
+  compression. The portable protocol also supports ordered byte streams.
+  Added a 6×8 bitmap terminal font for small displays.
+  Recorder, Player, WebRadio, VPlay, and Invaders now adapt to small display
+  targets, including 128×64 and 240×64. Sketch reports insufficient resolution
+  and returns to the shell on displays smaller than 200×200.
+  Added a German Epson HX-20 keyboard profile.
+- **4.16.16** — 2026-10-16 — Added resumable external DOOM and
+  Macintosh Plus apps for ESP32-S3 devices with PSRAM. DOOM supports
+  DOOM/DOOM II IWADs, keyboard controls, sound effects, display fitting,
+  and monochrome conversion; game data is supplied separately.
+  Macintosh Plus provides 4 MiB guest RAM, keyboard-controlled mouse,
+  one SCSI hard disk or raw floppy image, and persistent PRAM. A Plus v3
+  ROM adapts the guest screen to the selected display; ROMs and disks
+  are supplied separately.
+  Fixed foreground video startup on smaller displays, including DOOM by 
+  fitting source frames before validating output dimensions.
+  Rotated TFT frames now use managed PSRAM, fixing presentation failures
+  when the SDK heap cannot supply rotation buffers.
+  Standalone ESP-DL library builds now prepare their own ESP32-S3 SDK
+  without requiring an existing firmware build.
+- **4.16.15** — 2026-10-14 — Added Files-style Space selection to both
+  FTP and SFTP panes. Copy, move, and delete operate on marked files and
+  directories; completed items are unmarked, and a failure stops the batch.
+  Delete now removes the character under the shell command-line cursor.
+  Prompt paths longer than half the terminal width show only the last directory,
+  without changing the working directory.
+  Writerdeck now includes speech, Player, and Recorder, and omits the inference
+  and RTSP groups.
+- **4.16.14** — 2026-10-14 — Added a reusable DS3231 I2C real-time clock
+  expansion driver with named buses, optional active-low interrupt wiring,
+  a 2000–2099 UTC calendar, and second-resolution Alarm 1 support through
+  the existing time/RTC shell, Python, and Lua APIs. Reads accept 12-hour
+  and 24-hour clocks; oscillator-stop status marks time unreliable until
+  it is set. Countdown timers are unsupported.
+  SolarWriter now automatically attaches board-owned `rtc0` at `0x68`
+  on the shared fuel-gauge I2C bus (SDA GPIO8, SCL GPIO9). Its RTC driver
+  is included in every flavor, including `writerdeck`; INT/SQW is unbound
+  in the default profile.
+- **4.16.13** — 2026-10-14 — Added managed PSRAM allocation that groups
+  large buffers separately from resident executable images and metadata,
+  merges adjacent free blocks, and reclaims unused native libraries under
+  memory pressure. Active library consumers and suspended application sessions
+  retain their state. `mem` reports managed PSRAM and its largest free block;
+  `mem reclaim` releases unused libraries, and `mem policy` shows SDK heap
+  availability separately.
+  ESP-DL now releases activation workspace between inference calls, allowing
+  image preprocessing to reuse that memory while weights remain loaded.
+  Reduced Zoo startup and exit delays by eliminating repeated catalog parsing
+  and improving allocation and cleanup of small objects.
+  Fixed silent short alarm tones and kept tone sequences on one audio stream
+  through pauses and playback completion.
+  Fixed Help updates with more than 256 pages; firmware and manual generation
+  now support up to 1024 pages. Packed resident Help metadata to reduce PSRAM
+  fragmentation.
+- **4.16.12** — 2026-10-14 — Added resident native libraries and the
+  library module category on ESP32-S3 devices with PSRAM. Libraries load on
+  demand, share APIs between consumers, and stay resident until explicitly
+  unloaded; active consumers prevent unloading or removal.
+  Added the downloadable ESP-DL inference engine through `pkg install espdl`,
+  with single, auto, and dual-core execution through the existing model,
+  Python, Lua, and native APIs. Models retain the engine until unloaded;
+  `model backend` reports the selected provider. Model loading uses the
+  installed library without downloading code automatically.
+  Consolidated firmware profiles to standard `full` and compact `writerdeck`,
+  retiring `vga32`, `rover`, `core`, and `netrunner`. Both profiles use the
+  downloadable engine; custom flavors can still include ESP-DL in firmware.
+  Writerdeck retains Python and Playground, plus `pkg` on supported targets,
+  and fits the smaller CrowPanel OTA slots and classic-ESP32 factory slots.
+  Added signed OTA flavor redirects for future renames, saving the resolved
+  target only after a successful verified upgrade. Writerdeck keeps its
+  published name for now; no redirect is enabled.
+- **4.16.11** — 2026-10-13 — Added `shutdown` on all targets, with
+  app, job, and radio cleanup and persistent storage flushing and unmounting.
+  Uses hardware cutoff on CL32, Waveshare ESP32-S3-ePaper-3.97, and
+  T-LoRa-Pager, turns off supported peripheral rails, and otherwise enters
+  deep sleep. Shutdown allows only physical power/KEY wake and starts a
+  fresh boot; RTC and scheduled timer wake are disabled.
+  Added state splashes: **Suspended**, **Sleeping**, and **Powered off**,
+  including a completed native refresh before e-paper power-down.
+  Suspend and light-sleep wake redraw foreground and auxiliary displays.
+  Fixed ESP-DL patch application in cached PlatformIO builds after managed
+  dependency restoration.
+- **4.16.10** — 2026-10-13 — Added RTSP client Basic and Digest MD5
+  authentication with inline URL credentials or up to four saved accounts
+  managed by `rtsp-auth`. Player titles and connection messages hide URL
+  passwords. FTP, SFTP, and Telnet now complete hostname aliases from
+  `.ssh/hosts`, including SFTP `user@` prefixes and Telnet raw mode.
+  FTP and SFTP gain `PgUp`/`PgDn` paging, Backspace parent navigation,
+  and `h` to toggle hidden files and directories in both panes.
+  The default BLE device name now uses the configured hostname and is
+  restored when a BLE peripheral app closes.
 - **4.16.9** — 2026-10-13 — Added the SolarWriter board profile for the
   Elecrow 5.79-inch CrowPanel with microphone, shared DAC/amplifier output,
   and battery gauge. Added reusable INMP441 expansion audio with 16 kHz mono

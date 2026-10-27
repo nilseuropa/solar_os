@@ -274,6 +274,39 @@ static bool inbox_record_valid(const inbox_store_record_t *record)
         record->crc32 == inbox_crc32(record, offsetof(inbox_store_record_t, crc32));
 }
 
+esp_err_t solar_os_inbox_saved_snapshot(const char *path,
+    solar_os_inbox_entry_t *entries, size_t capacity, size_t *count)
+{
+    if (!path || !entries || !count) return ESP_ERR_INVALID_ARG;
+    *count = 0;
+    FILE *file = fopen(path, "rb");
+    if (!file) return errno == ENOENT ? ESP_OK : ESP_FAIL;
+    inbox_store_header_t headers[2];
+    bool read_ok = fread(headers, sizeof(headers), 1, file) == 1;
+    bool a = read_ok && inbox_header_valid(&headers[0]);
+    bool b = read_ok && inbox_header_valid(&headers[1]);
+    if (!a && !b) { fclose(file); return ESP_FAIL; }
+    const inbox_store_header_t *header = &headers[!a ||
+        (b && inbox_generation_newer(headers[1].generation, headers[0].generation))];
+    if (header->count > capacity) { fclose(file); return ESP_ERR_INVALID_SIZE; }
+    size_t oldest = (header->head + header->capacity - header->count) % header->capacity;
+    esp_err_t error = ESP_OK;
+    for (size_t i = 0; i < header->count; i++) {
+        inbox_store_record_t record;
+        long offset = (long)(INBOX_STORE_RECORDS_OFFSET +
+            ((oldest + i) % header->capacity) * sizeof(record));
+        if (fseek(file, offset, SEEK_SET) || fread(&record, sizeof(record), 1, file) != 1 ||
+            !inbox_record_valid(&record)) { error = ESP_FAIL; break; }
+        if (!memchr(record.slot.entry.source, 0, sizeof(record.slot.entry.source)) ||
+            !memchr(record.slot.entry.topic, 0, sizeof(record.slot.entry.topic)) ||
+            !memchr(record.slot.entry.sender, 0, sizeof(record.slot.entry.sender)) ||
+            !memchr(record.slot.entry.body, 0, sizeof(record.slot.entry.body))) { error = ESP_FAIL; break; }
+        entries[(*count)++] = record.slot.entry;
+    }
+    fclose(file);
+    return error;
+}
+
 static esp_err_t inbox_prepare_store_path(void)
 {
     if (!solar_os_storage_is_mounted()) {
