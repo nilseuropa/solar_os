@@ -127,6 +127,7 @@ Gesture bindings observe the same events without taking them away from the
 foreground application. A binding can match one source or every source, one
 gesture kind, and optionally one direction. Commands run one at a time. The
 cooldown suppresses repeated reports and defaults to 250 ms.
+The command after `--` accepts separate arguments or one quoted command line.
 
 An LSM6DS3TR-C attached with `irq=<pin>` registers a gesture source alongside
 its IMU measurements. It reports `tap`, `double-tap`, `tilt`, `wake`, and

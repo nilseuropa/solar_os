@@ -88,6 +88,23 @@ static bool input_append_command_token(char *line,
     return true;
 }
 
+static bool input_build_command(int argc, char **argv, int first,
+                                 char *command, size_t capacity)
+{
+    if (!command || !capacity || first >= argc) return false;
+    command[0] = '\0';
+    if (first + 1 == argc) {
+        const size_t length = strlen(argv[first]);
+        if (!length || length >= capacity) return false;
+        memcpy(command, argv[first], length + 1U);
+        return true;
+    }
+    for (int i = first; i < argc; i++) {
+        if (!input_append_command_token(command, capacity, argv[i])) return false;
+    }
+    return true;
+}
+
 static bool input_parse_class(const char *text,
                               solar_os_input_source_class_t *source_class)
 {
@@ -533,15 +550,10 @@ static void gesture_bind(solar_os_shell_io_t *io, int argc, char **argv)
     }
 
     char command[SOLAR_OS_INPUT_ACTION_COMMAND_MAX] = {0};
-    for (int i = separator + 1; i < argc; i++) {
-        if (!input_append_command_token(command, sizeof(command), argv[i])) {
-            solar_os_shell_diag_problem(io,
-                                        "gesture bind",
-                                        "command is empty or too long",
-                                        gesture_bind_usage,
-                                        NULL);
-            return;
-        }
+    if (!input_build_command(argc, argv, separator + 1, command, sizeof(command))) {
+        solar_os_shell_diag_problem(io, "gesture bind", "command is empty or too long",
+                                    gesture_bind_usage, NULL);
+        return;
     }
 
     uint32_t id = 0;
