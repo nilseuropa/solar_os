@@ -769,6 +769,72 @@ static esp_err_t ssd1677_refresh(epd_ssd1677_t *d)
     return err;
 }
 
+static uint8_t reverse_byte(uint8_t value)
+{
+    value = ((value & 0x55U) << 1U) | ((value >> 1U) & 0x55U);
+    value = ((value & 0x33U) << 2U) | ((value >> 2U) & 0x33U);
+    return (value << 4U) | (value >> 4U);
+}
+
+static void transpose_block(uint32_t *low, uint32_t *high)
+{
+    uint32_t a = *low, b = *high;
+    uint32_t swap = (a ^ (a >> 7U)) & 0x00aa00aaU;
+    a ^= swap ^ (swap << 7U);
+    swap = (b ^ (b >> 7U)) & 0x00aa00aaU;
+    b ^= swap ^ (swap << 7U);
+    swap = (a ^ (a >> 14U)) & 0x0000ccccU;
+    a ^= swap ^ (swap << 14U);
+    swap = (b ^ (b >> 14U)) & 0x0000ccccU;
+    b ^= swap ^ (swap << 14U);
+    swap = (a ^ (b << 4U)) & 0xf0f0f0f0U;
+    *low = a ^ swap;
+    *high = b ^ (swap >> 4U);
+}
+
+static bool blit_mono_packed(epd_ssd1677_t *d, const uint8_t *bitmap,
+    unsigned x, unsigned y, unsigned width, unsigned height, unsigned stride,
+    const u8g2_cb_t *rotation, bool inverted)
+{
+    if (rotation == U8G2_R0 || rotation == U8G2_R2) {
+        if ((y | height) & 7U) return false;
+        for (unsigned row = 0; row < height; row += 8U) {
+            const unsigned native_y = rotation == U8G2_R0 ? y + row :
+                SSD1677_HEIGHT - y - row - 8U;
+            uint8_t *out = d->buffer + (native_y / 8U) * SSD1677_WIDTH;
+            for (unsigned column = 0; column < width; column += 8U) {
+                const uint8_t *source = bitmap + row * stride + column / 8U;
+                uint32_t low = (uint32_t)source[0] | ((uint32_t)source[stride] << 8U) |
+                    ((uint32_t)source[2U * stride] << 16U) | ((uint32_t)source[3U * stride] << 24U);
+                uint32_t high = (uint32_t)source[4U * stride] | ((uint32_t)source[5U * stride] << 8U) |
+                    ((uint32_t)source[6U * stride] << 16U) | ((uint32_t)source[7U * stride] << 24U);
+                transpose_block(&low, &high);
+                const unsigned count = width - column < 8U ? width - column : 8U;
+                for (unsigned i = 0; i < count; i++) {
+                    uint8_t value = (uint8_t)((i < 4U ? low : high) >> ((i & 3U) * 8U));
+                    const unsigned nx = rotation == U8G2_R0 ? x + column + i :
+                        SSD1677_WIDTH - 1U - x - column - i;
+                    if (rotation == U8G2_R2) value = reverse_byte(value);
+                    out[nx] = inverted ? value : (uint8_t)~value;
+                }
+            }
+        }
+    } else {
+        if ((x | width) & 7U) return false;
+        for (unsigned row = 0; row < height; row++) {
+            const uint8_t *source = bitmap + row * stride;
+            const unsigned nx = rotation == U8G2_R1 ? SSD1677_WIDTH - 1U - y - row : y + row;
+            for (unsigned column = 0; column < width; column += 8U) {
+                const unsigned ny = rotation == U8G2_R1 ? x + column : SSD1677_HEIGHT - x - column - 8U;
+                uint8_t value = source[column / 8U];
+                if (rotation == U8G2_R3) value = reverse_byte(value);
+                d->buffer[(ny / 8U) * SSD1677_WIDTH + nx] = inverted ? value : (uint8_t)~value;
+            }
+        }
+    }
+    return true;
+}
+
 esp_err_t epd_ssd1677_present_mono_xbm(epd_ssd1677_t *d,
     const uint8_t *bitmap, size_t bitmap_size, uint16_t x, uint16_t y,
     uint16_t width, uint16_t height, uint16_t stride, bool palette_inverted)
@@ -786,20 +852,22 @@ esp_err_t epd_ssd1677_present_mono_xbm(epd_ssd1677_t *d,
         return ESP_ERR_INVALID_STATE;
     /* Compose without the panel lock; async scanning uses an immutable snapshot. */
     memset(d->buffer, palette_inverted ? 0 : 0xff, SSD1677_BUFFER_BYTES);
-    for (unsigned row = 0; row < height; row++) {
-        const uint8_t *source = bitmap + (size_t)row * stride;
-        for (unsigned column = 0; column < width; column++) {
-            const unsigned lx = x + column, ly = y + row;
-            unsigned nx = lx, ny = ly;
-            if (rotation == U8G2_R1) { nx = SSD1677_WIDTH - 1U - ly; ny = lx; }
-            else if (rotation == U8G2_R2) {
-                nx = SSD1677_WIDTH - 1U - lx; ny = SSD1677_HEIGHT - 1U - ly;
-            } else if (rotation == U8G2_R3) { nx = ly; ny = SSD1677_HEIGHT - 1U - lx; }
-            uint8_t *destination = d->buffer + (ny / 8U) * SSD1677_WIDTH + nx;
-            const uint8_t mask = (uint8_t)(1U << (ny & 7U));
-            const bool black = (source[column / 8U] & (1U << (column & 7U))) != 0;
-            if (black == palette_inverted) *destination |= mask;
-            else *destination &= (uint8_t)~mask;
+    if (!blit_mono_packed(d, bitmap, x, y, width, height, stride, rotation, palette_inverted)) {
+        for (unsigned row = 0; row < height; row++) {
+            const uint8_t *source = bitmap + (size_t)row * stride;
+            for (unsigned column = 0; column < width; column++) {
+                const unsigned lx = x + column, ly = y + row;
+                unsigned nx = lx, ny = ly;
+                if (rotation == U8G2_R1) { nx = SSD1677_WIDTH - 1U - ly; ny = lx; }
+                else if (rotation == U8G2_R2) {
+                    nx = SSD1677_WIDTH - 1U - lx; ny = SSD1677_HEIGHT - 1U - ly;
+                } else if (rotation == U8G2_R3) { nx = ly; ny = SSD1677_HEIGHT - 1U - lx; }
+                uint8_t *destination = d->buffer + (ny / 8U) * SSD1677_WIDTH + nx;
+                const uint8_t mask = (uint8_t)(1U << (ny & 7U));
+                const bool black = (source[column / 8U] & (1U << (column & 7U))) != 0;
+                if (black == palette_inverted) *destination |= mask;
+                else *destination &= (uint8_t)~mask;
+            }
         }
     }
     return ssd1677_refresh(d);
