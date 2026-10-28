@@ -138,7 +138,7 @@ max_transfer_size = 4096
 [[devices]]
 driver = "ssd1677"
 name = "display0"
-bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 10000, rotation = 0, panel = 1 }
+bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 20000, rotation = 0, panel = 1 }
 
 [[devices]]
 driver = "gt911"

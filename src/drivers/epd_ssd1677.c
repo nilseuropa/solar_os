@@ -980,6 +980,10 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     }
     if (ret != ESP_OK) {
         epd_ssd1677_deinit(display);
+    } else if (display->panel == EPD_SSD1677_PANEL_STICKY) {
+        const esp_err_t pulse = epd_ssd1677_set_controller_mode(display, "refresh=pulse");
+        if (pulse != ESP_OK)
+            ESP_LOGW(TAG, "startup pulse unavailable err=0x%x; retaining refresh=auto", (unsigned)pulse);
     }
     return ret;
 }

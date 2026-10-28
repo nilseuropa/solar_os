@@ -30,6 +30,16 @@ static int fail_after = -1;
 static int64_t time_us, busy_until;
 static bool missing_busy, worker_init_fail, worker_pending, worker_snapshot_valid;
 static uint32_t spi_hz;
+esp_err_t gpio_config(const gpio_config_t *config) { assert(config); return ESP_OK; }
+esp_err_t gpio_reset_pin(gpio_num_t pin) { (void)pin; return ESP_OK; }
+esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *config, int dma)
+{ (void)host; (void)config; (void)dma; return ESP_OK; }
+esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_config_t *config, spi_device_handle_t *device)
+{ (void)host; assert(config); *device = (void *)1; return ESP_OK; }
+esp_err_t solar_os_bus_spi_add_device(const char *name, const spi_device_interface_config_t *config, spi_device_handle_t *device)
+{ assert(strcmp(name, "spi0") == 0); return spi_bus_add_device(SPI2_HOST, config, device); }
+esp_err_t spi_bus_remove_device(spi_device_handle_t device) { assert(device); return ESP_OK; }
+esp_err_t spi_bus_free(spi_host_device_t host) { (void)host; return ESP_OK; }
 esp_err_t epd_scan_worker_init(epd_scan_worker_t *w, size_t n, epd_scan_process_fn fn, void *ctx)
 {
     if (worker_init_fail) return ESP_ERR_NO_MEM;
@@ -511,6 +521,40 @@ static void test_pulse_byte_diff_coordinates(void)
     dispose_pulse(&d);
 }
 
+static void test_startup_profile(void)
+{
+    for (unsigned panel = EPD_SSD1677_PANEL_GENERIC; panel <= EPD_SSD1677_PANEL_STICKY; panel++) {
+        for (unsigned fail_worker = 0; fail_worker <= 1; fail_worker++) {
+            epd_ssd1677_t d;
+            epd_ssd1677_config_t config = {
+                .spi_bus = "spi0", .spi_host = SPI2_HOST,
+                .cs_pin = 10, .dc_pin = 9, .reset_pin = 46,
+                .busy_pin = 3, .power_pin = -1, .busy_level = 1,
+                .spi_clock_hz = panel == EPD_SSD1677_PANEL_STICKY ? 20000000 : 10000000,
+                .panel = panel, .rotation = U8G2_R0,
+            };
+            command_count = 0;
+            worker_init_fail = fail_worker;
+            assert(epd_ssd1677_init(&d, &config) == ESP_OK);
+            worker_init_fail = false;
+            const bool pulse = panel == EPD_SSD1677_PANEL_STICKY && !fail_worker;
+            assert(d.refresh_mode == (pulse ? EPD_SSD1677_REFRESH_PULSE : EPD_SSD1677_REFRESH_AUTO));
+            assert((d.scan_worker.task != NULL) == pulse);
+            assert((d.pixel_budget.pixels != NULL) == pulse);
+            if (pulse) {
+                assert(d.scan_async && d.scan_worker.enabled && d.scan_submit_ready);
+                assert(d.pulse_spi_clock_hz == 20000000);
+                assert(d.pulse_tuning.drive_cycles == 3 && d.pulse_tuning.pulse_frames == 8);
+                assert(d.pulse_tuning.waveform_fr == 8 && d.scan_period_ms == 100);
+                assert(ssd1677_refresh(&d) == ESP_OK);
+                assert(worker_tick(&d.scan_worker) == ESP_OK && d.shadow_valid);
+                assert(spi_hz == 20000000);
+            }
+            epd_ssd1677_deinit(&d);
+        }
+    }
+}
+
 int main(void)
 {
     test_initial_full();
@@ -526,6 +570,7 @@ int main(void)
     test_submit_during_scan();
     test_pulse_window_clears_previous_mask();
     test_pulse_byte_diff_coordinates();
+    test_startup_profile();
     puts("epd_ssd1677_test: PASS");
     return 0;
 }
