@@ -978,7 +978,10 @@ static void foreground_resume(solar_os_context_t *ctx)
     foreground_state_t *state = foreground_context_state(ctx);
     if (!state) return;
     if (atomic_load(&state->done)) return;
-    if (!atomic_load(&state->suspended)) return;
+    if (!atomic_load(&state->suspended)) {
+        atomic_store(&state->redraw_requested, true);
+        return;
+    }
     /* Restore graphics ownership before allowing the guest/presenter to run. */
     state->gfx = ctx->gfx;
     xQueueReset(state->keys);

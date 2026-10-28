@@ -32,6 +32,8 @@ struct solar_os_frame_presenter {
     uint16_t output_width;
     uint16_t output_height;
     uint16_t output_stride;
+    uint16_t viewport_width;
+    uint16_t viewport_height;
     uint16_t present_fps;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
@@ -50,6 +52,7 @@ struct solar_os_frame_presenter {
 };
 
 static const char *TAG = "solar_os_frame_presenter";
+static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter);
 static const uint8_t bayer4[4][4] = {
     {0, 8, 2, 10},
     {12, 4, 14, 6},
@@ -410,7 +413,8 @@ static void frame_presenter_worker(void *arg)
         xSemaphoreGive(presenter->mutex);
 
         const int64_t started_us = esp_timer_get_time();
-        const esp_err_t err = frame_present(presenter);
+        esp_err_t err = frame_refresh_output(presenter);
+        if (err == ESP_OK) err = frame_present(presenter);
         const uint64_t elapsed_us =
             (uint64_t)(esp_timer_get_time() - started_us);
         if (xSemaphoreTake(presenter->mutex, portMAX_DELAY) == pdTRUE) {
@@ -449,7 +453,9 @@ static void frame_choose_output(solar_os_frame_presenter_t *presenter)
         presenter->config.gfx);
     const uint16_t display_height = (uint16_t)solar_os_gfx_height(
         presenter->config.gfx);
-    if (presenter->config.fit == SOLAR_OS_FRAME_FIT_HEIGHT) {
+    if (presenter->config.fit == SOLAR_OS_FRAME_FIT_HEIGHT ||
+        presenter->config.width > display_width ||
+        presenter->config.height > display_height) {
         uint32_t output_height = display_height;
         uint32_t output_width =
             ((uint32_t)presenter->config.width * output_height +
@@ -526,6 +532,24 @@ static esp_err_t frame_prepare_mono_output(
         presenter->mono_size = size;
     }
     presenter->output_stride = stride;
+    return ESP_OK;
+}
+
+static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
+{
+    const size_t width = solar_os_gfx_width(presenter->config.gfx);
+    const size_t height = solar_os_gfx_height(presenter->config.gfx);
+    if (width == presenter->viewport_width && height == presenter->viewport_height)
+        return ESP_OK;
+    frame_choose_output(presenter);
+    if (!presenter->output_width || !presenter->output_height ||
+        presenter->output_width > width || presenter->output_height > height)
+        return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t err = frame_prepare_mono_output(presenter);
+    if (err != ESP_OK) return err;
+    presenter->viewport_width = width;
+    presenter->viewport_height = height;
+    presenter->clear_background_pending |= presenter->config.clear_background_on_resume;
     return ESP_OK;
 }
 
