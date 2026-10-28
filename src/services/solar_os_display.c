@@ -38,6 +38,7 @@ typedef struct {
     size_t refs;
     size_t claim_refs;
     bool terminal_blocked;
+    bool orientation_locked;
     uint32_t terminal_epoch;
     SemaphoreHandle_t present_mutex;
     solar_os_display_target_t target;
@@ -797,6 +798,13 @@ esp_err_t solar_os_display_get_terminal_profile(
     return ESP_OK;
 }
 
+static bool display_profile_orientation_allowed(const display_target_slot_t *slot,
+    const solar_os_terminal_profile_t *profile)
+{
+    return !slot->orientation_locked ||
+        profile->orientation_degrees == slot->terminal_profile.orientation_degrees;
+}
+
 esp_err_t solar_os_display_set_terminal_profile(
     const char *name,
     const solar_os_terminal_profile_t *profile)
@@ -814,6 +822,10 @@ esp_err_t solar_os_display_set_terminal_profile(
     }
     display_target_slot_t *slot = &display_targets[slot_index];
     const uint8_t factor = profile->scale ? profile->scale : 1;
+    if (!display_profile_orientation_allowed(slot, profile)) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (factor > SOLAR_OS_DISPLAY_SCALE_MAX ||
         (factor != slot->scale.factor &&
          (slot->terminal_blocked || slot->overlay_active || slot->relax_active || slot->power_state_active))) {
@@ -964,6 +976,7 @@ esp_err_t solar_os_display_release(const char *name, const char *owner)
         slot->claim_refs--;
     }
     if (slot->claim_refs == 0) {
+        slot->orientation_locked = false;
         if (slot->terminal_blocked) {
             slot->terminal_blocked = false;
             ++slot->terminal_epoch;
@@ -992,6 +1005,25 @@ esp_err_t solar_os_display_set_terminal_blocked(const char *name, const char *ow
                 slot->terminal_blocked = blocked;
                 ++slot->terminal_epoch;
             }
+            err = ESP_OK;
+        }
+    }
+    portEXIT_CRITICAL(&display_targets_lock);
+    return err;
+}
+
+esp_err_t solar_os_display_set_orientation_locked(const char *name, const char *owner, bool locked)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
+        !display_owner_valid(owner)) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int index = display_find_slot_locked(name);
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    if (index >= 0) {
+        display_target_slot_t *slot = &display_targets[index];
+        err = ESP_ERR_INVALID_STATE;
+        if (slot->claim_refs && !strcmp(slot->target.owner, owner)) {
+            slot->orientation_locked = locked;
             err = ESP_OK;
         }
     }
