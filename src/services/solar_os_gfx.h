@@ -90,6 +90,7 @@ typedef struct {
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx);
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx);
+bool solar_os_gfx_dimensions(const solar_os_gfx_t *gfx, uint16_t *width, uint16_t *height);
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx);
 bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx);
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx,

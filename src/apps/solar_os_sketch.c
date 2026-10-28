@@ -91,9 +91,11 @@ static void sketch_draw_shape(solar_os_sketch_canvas_t *canvas, int x, int y);
 
 static sketch_layout_t sketch_layout(solar_os_gfx_t *gfx)
 {
+    uint16_t width, height;
+    solar_os_gfx_dimensions(gfx, &width, &height);
     sketch_layout_t layout = {
-        .screen_width = (int)solar_os_gfx_width(gfx),
-        .screen_height = (int)solar_os_gfx_height(gfx),
+        .screen_width = width,
+        .screen_height = height,
     };
     const int side = layout.screen_width >= 200 ? SKETCH_SIDE_BAR : 42;
     const int bottom = layout.screen_height >= 120 ? SKETCH_BOTTOM_BAR : 22;

@@ -852,6 +852,24 @@ size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
     return gfx_ready(gfx) ? u8g2_GetDisplayHeight(gfx->u8g2) : 0;
 }
 
+bool solar_os_gfx_dimensions(const solar_os_gfx_t *gfx, uint16_t *width, uint16_t *height)
+{
+    if (width == NULL || height == NULL) return false;
+    *width = *height = 0;
+    if (!gfx_ready(gfx)) return false;
+    char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_display_target_t target;
+    if (solar_os_gfx_display_target_name(gfx, name, sizeof(name)) &&
+        solar_os_display_find_target(name, &target)) {
+        *width = target.width;
+        *height = target.height;
+    } else {
+        *width = u8g2_GetDisplayWidth(gfx->u8g2);
+        *height = u8g2_GetDisplayHeight(gfx->u8g2);
+    }
+    return *width != 0 && *height != 0;
+}
+
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
 {
     return gfx_uses_index8(gfx) ? SOLAR_OS_DISPLAY_FORMAT_INDEX8 :
