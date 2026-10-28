@@ -32,6 +32,8 @@ typedef struct {
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address;
     int irq_pin;
+    uint8_t rotation, last_orientation;
+    bool orientation_valid;
     solar_os_input_source_t source;
     TaskHandle_t worker_task;
     uint8_t previous_events;
@@ -58,6 +60,32 @@ static void publish_event(lsm6ds3trc_device_t *device,
     (void)solar_os_input_write_gesture(device->source, &event);
 }
 
+static void publish_orientation(lsm6ds3trc_device_t *device, uint8_t source, uint32_t raw)
+{
+    unsigned quarter;
+    switch (source & 0x3fU) {
+    case 0x08: quarter = 0; break;
+    case 0x02: quarter = 1; break;
+    case 0x04: quarter = 2; break;
+    case 0x01: quarter = 3; break;
+    default: return;
+    }
+    quarter = (quarter + device->rotation) & 3U;
+    if (device->orientation_valid && device->last_orientation == quarter) return;
+    static const solar_os_input_gesture_direction_t directions[] = {
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST,
+    };
+    const solar_os_input_gesture_event_t event = {
+        .gesture=SOLAR_OS_INPUT_GESTURE_TILT, .direction=directions[quarter],
+        .value=(int)(quarter * 90U), .raw=raw,
+    };
+    if (solar_os_input_write_gesture(device->source, &event) == ESP_OK) {
+        device->last_orientation = quarter;
+        device->orientation_valid = true;
+    }
+}
+
 static void poll_gestures(lsm6ds3trc_device_t *device)
 {
     const uint64_t now = esp_timer_get_time();
@@ -77,7 +105,9 @@ static void poll_gestures(lsm6ds3trc_device_t *device)
     const unsigned fresh = events.flags & ~device->previous_events;
     device->previous_events = events.flags;
     const uint32_t raw = events.wake | ((uint32_t)events.tap << 8U) |
-        ((uint32_t)events.function << 16U);
+        ((uint32_t)events.function << 16U) | ((uint32_t)events.orientation << 24U);
+    if (events.flags & LSM6DS3TRC_EVENT_ORIENTATION)
+        publish_orientation(device, events.orientation, raw);
     if (fresh & LSM6DS3TRC_EVENT_DOUBLE_TAP) {
         device->tap_pending = false;
         publish_event(device, SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP, raw);
@@ -190,15 +220,17 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *i2c_bus,
                                 size_t i2c_bus_len,
-                                uint8_t *address, int *irq_pin)
+                                uint8_t *address, int *irq_pin, uint8_t *rotation)
 {
     bool have_i2c = false;
     bool have_address = false;
     bool have_irq = false;
+    bool have_rotation = false;
     if (bindings == NULL || i2c_bus == NULL || address == NULL || irq_pin == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     *irq_pin = -1;
+    *rotation = 0;
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
         if (binding->kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS && !have_i2c) {
@@ -214,6 +246,11 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                    strcmp(binding->role, "irq") == 0 && GPIO_IS_VALID_GPIO(binding->value)) {
             *irq_pin = binding->value;
             have_irq = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !have_rotation &&
+                   strcmp(binding->role, "rotation") == 0 &&
+                   binding->value >= 0 && binding->value <= 3) {
+            *rotation = (uint8_t)binding->value;
+            have_rotation = true;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
@@ -249,11 +286,12 @@ esp_err_t solar_os_lsm6ds3trc_attach(
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
     uint8_t address = 0U;
     int irq_pin = -1;
+    uint8_t rotation = 0;
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
                                        i2c_bus,
                                        sizeof(i2c_bus),
-                                       &address, &irq_pin),
+                                       &address, &irq_pin, &rotation),
                         TAG,
                         "invalid bindings");
 
@@ -261,6 +299,7 @@ esp_err_t solar_os_lsm6ds3trc_attach(
     device->active = true;
     device->address = address;
     device->irq_pin = irq_pin;
+    device->rotation = rotation;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->i2c_bus, i2c_bus, sizeof(device->i2c_bus));
     device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);

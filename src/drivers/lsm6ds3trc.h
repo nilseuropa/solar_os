@@ -13,6 +13,7 @@
 #define LSM6DS3TRC_EVENT_TILT (1U << 2)
 #define LSM6DS3TRC_EVENT_WAKE (1U << 3)
 #define LSM6DS3TRC_EVENT_FREE_FALL (1U << 4)
+#define LSM6DS3TRC_EVENT_ORIENTATION (1U << 5)
 
 typedef struct {
     esp_err_t (*read)(void *ctx, uint8_t reg, uint8_t *data, size_t len);
@@ -38,6 +39,7 @@ typedef struct {
     uint8_t wake;
     uint8_t tap;
     uint8_t function;
+    uint8_t orientation;
 } lsm6ds3trc_events_t;
 
 esp_err_t lsm6ds3trc_init(lsm6ds3trc_t *device, const lsm6ds3trc_io_t *io);

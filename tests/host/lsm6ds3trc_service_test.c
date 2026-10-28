@@ -17,7 +17,7 @@ static esp_err_t source_result;
 static bool task_fail, wait_fail;
 static TaskFunction_t worker_fn;
 static void *worker_context;
-static solar_os_input_gesture_event_t events[16];
+static solar_os_input_gesture_event_t events[32];
 
 esp_err_t gpio_config(const gpio_config_t *config) {
     assert(config->pin_bit_mask == (1ULL << 7) && config->mode == GPIO_MODE_INPUT);
@@ -43,7 +43,7 @@ esp_err_t solar_os_input_source_set_gestures(solar_os_input_source_t source, uin
 }
 esp_err_t solar_os_input_write_gesture(solar_os_input_source_t source,
     const solar_os_input_gesture_event_t *event) {
-    assert(source == 1 && event_count < 16);
+    assert(source == 1 && event_count < 32);
     events[event_count++] = *event; return ESP_OK;
 }
 BaseType_t solar_os_task_create_pinned_internal(TaskFunction_t fn, const char *name,
@@ -124,18 +124,19 @@ int main(void) {
     const solar_os_expansion_binding_t gesture_bindings[] = {
         bindings[0], bindings[1],
         {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO,.role="irq",.value=7},
+        {.kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER,.role="rotation",.value=1},
     };
     source_result = ESP_FAIL;
-    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 3) == ESP_FAIL);
+    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 4) == ESP_FAIL);
     assert(!registers[0x10] && !registers[0x5e] && !source_opens);
     source_result = ESP_OK; task_fail = true;
-    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 3) == ESP_ERR_NO_MEM);
+    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 4) == ESP_ERR_NO_MEM);
     assert(source_opens == source_closes && !registers[0x10]);
     task_fail = false; register_result = ESP_FAIL;
-    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 3) == ESP_FAIL);
+    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 4) == ESP_FAIL);
     assert(source_opens == source_closes && !registers[0x10]);
     register_result = ESP_OK;
-    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 3) == ESP_OK);
+    assert(solar_os_lsm6ds3trc_attach("imu0", gesture_bindings, 4) == ESP_OK);
     assert(registers[0x10] == 0x60 && registers[0x11] == 0x40);
     poll_events(1,0x28,0,0x20,0);
     assert(event_count == 3 && events[0].gesture == SOLAR_OS_INPUT_GESTURE_TILT);
@@ -156,6 +157,27 @@ int main(void) {
     assert(events[4].flags == SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE);
     poll_events(1,0,0x50,0,10);assert(event_count == 5);
     poll_events(0,0,0,0,700);assert(event_count == 5);
+    const uint8_t positions[] = {0x41, 0x48, 0x42, 0x44};
+    const solar_os_input_gesture_direction_t directions[] = {
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
+        SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST,
+    };
+    for (unsigned i = 0; i < 4; i++) {
+        registers[0x1d] = positions[i];
+        poll_events(1,0,0,0,10);
+        assert(event_count == 6 + i);
+        assert(events[5 + i].gesture == SOLAR_OS_INPUT_GESTURE_TILT);
+        assert(events[5 + i].direction == directions[i]);
+        assert(events[5 + i].value == (int)(i * 90U));
+        assert(events[5 + i].raw == (uint32_t)positions[i] << 24U);
+        poll_events(1,0,0,0,10);
+        assert(event_count == 6 + i);
+    }
+    for (unsigned i = 0; i < 3; i++) {
+        registers[0x1d] = (uint8_t[]){0x50, 0x60, 0x43}[i];
+        poll_events(1,0,0,0,10);
+        assert(event_count == 9);
+    }
     unregister_result = ESP_FAIL;
     assert(solar_os_lsm6ds3trc_detach("imu0") == ESP_FAIL);
     assert(source_opens != source_closes && registers[0x10] == 0x60);

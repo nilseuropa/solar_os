@@ -465,6 +465,14 @@ kind = "gpio"
 hint = "gpio"
 role = "irq"
 
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+
 [drivers.mgc3130]
 summary = "MGC3130 3D gesture and hover sensor"
 package = "driver_mgc3130"

@@ -131,10 +131,16 @@ The command after `--` accepts separate arguments or one quoted command line.
 
 An LSM6DS3TR-C attached with `irq=<pin>` registers a gesture source alongside
 its IMU measurements. It reports `tap`, `double-tap`, `tilt`, `wake`, and
-`free-fall`, with direction `none`. Single taps wait 650 ms so a double tap
+`free-fall`, with direction `none`. Its hardware 4D detector also reports `tilt`
+with directions `north`, `east`, `south`, and `west` and values 0, 90, 180, and
+270 degrees. The optional `rotation=0..3` binding corrects sensor mounting in
+quarter-turns; these directions stay fixed when the display rotates. Sticky
+uses `rotation=1`. Hold the screen upright and turn it; flat poses do not
+select an orientation. The detector uses a filtered 60-degree threshold and
+does not repeat an unchanged orientation. Single taps wait 650 ms so a double tap
 produces one double-tap event. Values are 1, or 2 for double-tap. The raw word
 contains WAKE_UP_SRC in bits 0..7, TAP_SRC in bits 8..15, and FUNC_SRC1 in bits
-16..23. `wake` is a motion event; power behavior requires an explicit binding.
+16..23, and D6D_SRC in bits 24..31. `wake` is a motion event; power behavior requires an explicit binding.
 No gesture commands are assigned automatically.
 
 ```text
@@ -145,6 +151,16 @@ job start gestures
 gesture bindings
 job stop gestures
 gesture unbind 2
+```
+
+To rotate Sticky's display when held in each of its four orientations:
+
+```text
+gesture bind source=imu0 gesture=tilt direction=north -- setterm --display display0 orientation 0
+gesture bind source=imu0 gesture=tilt direction=east -- setterm --display display0 orientation 90
+gesture bind source=imu0 gesture=tilt direction=south -- setterm --display display0 orientation 180
+gesture bind source=imu0 gesture=tilt direction=west -- setterm --display display0 orientation 270
+job start gestures
 ```
 
 To use horizontal swipes for previous/next foreground sessions and vertical

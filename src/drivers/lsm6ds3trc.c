@@ -8,6 +8,7 @@
 #define REG_CTRL3_C 0x12U
 #define REG_STATUS 0x1EU
 #define REG_CTRL10_C 0x19U
+#define REG_CTRL8_XL 0x17U
 #define REG_WAKE_UP_SRC 0x1BU
 #define REG_FUNC_SRC1 0x53U
 #define REG_TAP_CFG 0x58U
@@ -68,7 +69,7 @@ esp_err_t lsm6ds3trc_deinit(lsm6ds3trc_t *device) {
     if (!valid(device)) return ESP_ERR_INVALID_STATE;
     esp_err_t ret = ESP_OK;
     if (device->gestures_enabled) {
-        const uint8_t registers[] = {REG_MD1_CFG, REG_MD2_CFG, REG_TAP_CFG, REG_CTRL10_C};
+        const uint8_t registers[] = {REG_MD1_CFG, REG_MD2_CFG, REG_TAP_CFG, REG_CTRL10_C, REG_CTRL8_XL};
         for (unsigned i = 0; i < sizeof(registers); i++) {
             const esp_err_t err = write_reg(device, registers[i], 0);
             if (ret == ESP_OK) ret = err;
@@ -109,13 +110,13 @@ esp_err_t lsm6ds3trc_read_sample(lsm6ds3trc_t *device, lsm6ds3trc_sample_t *samp
 esp_err_t lsm6ds3trc_enable_gestures(lsm6ds3trc_t *device) {
     if (!valid(device)) return ESP_ERR_INVALID_STATE;
     if (device->gestures_enabled) return ESP_OK;
-    /* ST AN5130: 416 Hz taps, latched motion/free-fall, embedded relative tilt. */
+    /* ST AN5130: latched taps, relative tilt and filtered 4D at 60 degrees. */
     const uint8_t settings[][2] = {
         {REG_CTRL1_XL, 0x60}, {REG_TAP_CFG, 0x8f},
-        {REG_TAP_THS_6D, 0x0c}, {REG_INT_DUR2, 0x7f},
+        {REG_TAP_THS_6D, 0xcc}, {REG_INT_DUR2, 0x7f},
         {REG_WAKE_UP_THS, 0x82}, {REG_WAKE_UP_DUR, 0x20},
         {REG_FREE_FALL, 0x33}, {REG_CTRL10_C, 0x0c},
-        {REG_MD1_CFG, 0x7a}, {REG_MD2_CFG, 0x7a},
+        {REG_CTRL8_XL, 0x01}, {REG_MD1_CFG, 0x7e}, {REG_MD2_CFG, 0x7e},
     };
     for (unsigned i = 0; i < sizeof(settings) / sizeof(settings[0]); i++) {
         const esp_err_t err = write_reg(device, settings[i][0], settings[i][1]);
@@ -124,6 +125,7 @@ esp_err_t lsm6ds3trc_enable_gestures(lsm6ds3trc_t *device) {
             (void)write_reg(device, REG_MD2_CFG, 0);
             (void)write_reg(device, REG_TAP_CFG, 0);
             (void)write_reg(device, REG_CTRL10_C, 0);
+            (void)write_reg(device, REG_CTRL8_XL, 0);
             (void)write_reg(device, REG_CTRL1_XL, ODR_104HZ);
             return err;
         }
@@ -134,7 +136,7 @@ esp_err_t lsm6ds3trc_enable_gestures(lsm6ds3trc_t *device) {
 
 esp_err_t lsm6ds3trc_read_events(lsm6ds3trc_t *device, lsm6ds3trc_events_t *events) {
     if (!valid(device) || !device->gestures_enabled || !events) return ESP_ERR_INVALID_ARG;
-    uint8_t sources[2], function;
+    uint8_t sources[3], function;
     esp_err_t ret = device->io.read(device->io.ctx, REG_WAKE_UP_SRC, sources, sizeof(sources));
     if (ret == ESP_OK) ret = device->io.read(device->io.ctx, REG_FUNC_SRC1, &function, 1);
     if (ret != ESP_OK) return ret;
@@ -146,6 +148,8 @@ esp_err_t lsm6ds3trc_read_events(lsm6ds3trc_t *device, lsm6ds3trc_events_t *even
     if (sources[0] & 0x08U) flags |= LSM6DS3TRC_EVENT_WAKE;
     if (sources[0] & 0x20U) flags |= LSM6DS3TRC_EVENT_FREE_FALL;
     if (function & 0x20U) flags |= LSM6DS3TRC_EVENT_TILT;
-    *events = (lsm6ds3trc_events_t){.flags=flags, .wake=sources[0], .tap=sources[1], .function=function};
+    if (sources[2] & 0x40U) flags |= LSM6DS3TRC_EVENT_ORIENTATION;
+    *events = (lsm6ds3trc_events_t){.flags=flags, .wake=sources[0], .tap=sources[1],
+        .function=function, .orientation=sources[2]};
     return ESP_OK;
 }

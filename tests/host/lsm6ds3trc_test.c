@@ -75,7 +75,7 @@ int main(void) {
     assert(lsm6ds3trc_deinit(&device) == ESP_OK && !device.initialized);
     assert(bus.registers[0x10] == 0 && bus.registers[0x11] == 0);
     assert(lsm6ds3trc_read_sample(&device, &sample) == ESP_ERR_INVALID_ARG);
-    for (int write = 0; write < 10; write++) {
+    for (int write = 0; write < 11; write++) {
         bus = fresh(); assert(init(&bus, &device) == ESP_OK);
         bus.fail_write = bus.writes + write;
         assert(lsm6ds3trc_enable_gestures(&device) == ESP_FAIL);
@@ -86,10 +86,11 @@ int main(void) {
     bus = fresh(); assert(init(&bus, &device) == ESP_OK);
     assert(lsm6ds3trc_enable_gestures(&device) == ESP_OK);
     assert(device.gestures_enabled && bus.registers[0x10] == 0x60 && bus.registers[0x11] == 0x40);
-    assert(bus.registers[0x58] == 0x8f && bus.registers[0x59] == 0x0c);
+    assert(bus.registers[0x58] == 0x8f && bus.registers[0x59] == 0xcc);
     assert(bus.registers[0x5a] == 0x7f && bus.registers[0x5b] == 0x82);
     assert(bus.registers[0x5c] == 0x20 && bus.registers[0x5d] == 0x33);
-    assert(bus.registers[0x19] == 0x0c && bus.registers[0x5e] == 0x7a && bus.registers[0x5f] == 0x7a);
+    assert(bus.registers[0x19] == 0x0c && bus.registers[0x5e] == 0x7e && bus.registers[0x5f] == 0x7e);
+    assert(bus.registers[0x17] == 1);
     const unsigned writes = bus.writes;
     assert(lsm6ds3trc_enable_gestures(&device) == ESP_OK && bus.writes == writes);
     lsm6ds3trc_events_t events;
@@ -101,6 +102,13 @@ int main(void) {
         assert(events.flags == ((flags & 2) ? flags & ~1U : flags));
     }
     const lsm6ds3trc_events_t saved = events;
+    for (unsigned axis = 0; axis < 6; axis++) {
+        bus.registers[0x1d] = 0x40U | (1U << axis);
+        assert(lsm6ds3trc_read_events(&device, &events) == ESP_OK);
+        assert(events.flags & LSM6DS3TRC_EVENT_ORIENTATION);
+        assert(events.orientation == bus.registers[0x1d]);
+    }
+    events = saved;
     bus.fail_read = 0x53;
     assert(lsm6ds3trc_read_events(&device, &events) == ESP_FAIL);
     assert(!memcmp(&saved, &events, sizeof(events)));

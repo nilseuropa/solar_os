@@ -164,7 +164,7 @@ bindings = { i2c = "i2c0", addr = 0x55 }
 [[devices]]
 driver = "lsm6ds3tr-c"
 name = "imu0"
-bindings = { i2c = "i2c0", addr = 0x6a, irq = 7 }
+bindings = { i2c = "i2c0", addr = 0x6a, irq = 7, rotation = 1 }
 
 [[devices]]
 driver = "sdspi"

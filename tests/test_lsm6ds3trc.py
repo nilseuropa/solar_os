@@ -21,7 +21,7 @@ class LSM6DS3TRCTest(unittest.TestCase):
         board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
         imu = next(device for device in board["devices"] if device["name"] == "imu0")
         self.assertEqual(imu["driver"], "lsm6ds3tr-c")
-        self.assertEqual(imu["bindings"], {"i2c": "i2c0", "addr": 0x6a, "irq": 7})
+        self.assertEqual(imu["bindings"], {"i2c": "i2c0", "addr": 0x6a, "irq": 7, "rotation": 1})
 
     def test_provider_timeout_registration_and_detach(self):
         with tempfile.TemporaryDirectory() as directory:
