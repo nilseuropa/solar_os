@@ -200,6 +200,33 @@ static bool frame_convert_indexed_to_mono(solar_os_frame_presenter_t *presenter)
     return true;
 }
 
+static void frame_convert_native_rgb565_row(uint8_t *out, const uint8_t *row,
+    unsigned width, const uint16_t *red, const uint16_t *green,
+    const uint16_t *blue, const uint8_t *thresholds)
+{
+    uint8_t pixels[256];
+    for (unsigned base = 0; base < width; base += sizeof(pixels) / 2U) {
+        unsigned count = width - base;
+        if (count > sizeof(pixels) / 2U) count = sizeof(pixels) / 2U;
+        memcpy(pixels, row + base * 2U, count * 2U);
+#define RGB_DITHER(i) (thresholds[(i) & 3U] * 16U < 255U - \
+    ((red[pixels[(i) * 2U] >> 3U] + \
+      green[((pixels[(i) * 2U] & 7U) << 3U) | (pixels[(i) * 2U + 1U] >> 5U)] + \
+      blue[pixels[(i) * 2U + 1U] & 31U]) >> 8U))
+        unsigned x = 0;
+        for (; x + 8U <= count; x += 8U) {
+            out[(base + x) / 8U] = RGB_DITHER(x) | (RGB_DITHER(x+1) << 1U) |
+                (RGB_DITHER(x+2) << 2U) | (RGB_DITHER(x+3) << 3U) |
+                (RGB_DITHER(x+4) << 4U) | (RGB_DITHER(x+5) << 5U) |
+                (RGB_DITHER(x+6) << 6U) | (RGB_DITHER(x+7) << 7U);
+        }
+        unsigned bits = 0;
+        for (unsigned k = 0; x + k < count; k++) bits |= RGB_DITHER(x+k) << k;
+        if (x < count) out[(base + x) / 8U] = bits;
+#undef RGB_DITHER
+    }
+}
+
 static bool frame_convert_rgb565_to_mono(solar_os_frame_presenter_t *presenter)
 {
     if (presenter->config.format != SOLAR_OS_DISPLAY_FORMAT_RGB565) return false;
@@ -221,18 +248,22 @@ static bool frame_convert_rgb565_to_mono(solar_os_frame_presenter_t *presenter)
         const uint8_t *row = presenter->presenting + (size_t)source_y * presenter->config.stride;
         uint8_t *out = presenter->mono + (size_t)y * presenter->output_stride;
         const uint8_t *thresholds = bayer4[y & 3U];
-        unsigned source_x = 0, x_accumulator = 0;
-        for (unsigned x = 0; x < width; x += 8U) {
-            const unsigned count = width - x < 8U ? width - x : 8U;
-            unsigned bits = 0;
-            for (unsigned k = 0; k < count; ++k) {
-                const unsigned color = ((unsigned)row[source_x * 2U] << 8U) | row[source_x * 2U + 1U];
-                const unsigned luma = (red[color >> 11U] + green[(color >> 5U) & 63U] + blue[color & 31U]) >> 8U;
-                if (thresholds[k & 3U] * 16U < 255U - luma) bits |= 1U << k;
-                source_x += x_step; x_accumulator += x_fraction;
-                if (x_accumulator >= width) { x_accumulator -= width; ++source_x; }
+        if (width == presenter->config.width) {
+            frame_convert_native_rgb565_row(out, row, width, red, green, blue, thresholds);
+        } else {
+            unsigned source_x = 0, x_accumulator = 0;
+            for (unsigned x = 0; x < width; x += 8U) {
+                const unsigned count = width - x < 8U ? width - x : 8U;
+                unsigned bits = 0;
+                for (unsigned k = 0; k < count; ++k) {
+                    const unsigned color = ((unsigned)row[source_x * 2U] << 8U) | row[source_x * 2U + 1U];
+                    const unsigned luma = (red[color >> 11U] + green[(color >> 5U) & 63U] + blue[color & 31U]) >> 8U;
+                    if (thresholds[k & 3U] * 16U < 255U - luma) bits |= 1U << k;
+                    source_x += x_step; x_accumulator += x_fraction;
+                    if (x_accumulator >= width) { x_accumulator -= width; ++source_x; }
+                }
+                out[x >> 3U] = bits;
             }
-            out[x >> 3U] = bits;
         }
         source_y += y_step; y_accumulator += y_fraction;
         if (y_accumulator >= height) { y_accumulator -= height; ++source_y; }
