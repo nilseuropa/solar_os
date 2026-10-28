@@ -177,6 +177,12 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(rover.app_bytes, 0x3D0000)
 
     def test_update_layouts_follow_board_flash_capacity(self):
+        sticky = self.boards["seeed_reterminal_sticky"]
+        self.assertEqual(sticky.flash_bytes, 32 * 1024 * 1024)
+        self.assertEqual(
+            [(layout.key, layout.app_bytes) for layout in sticky.layouts],
+            [("ota", 0x700000), ("single", 0xE00000)],
+        )
         solar_term = self.boards["solar_term"]
         self.assertEqual(
             [(layout.key, layout.app_bytes) for layout in solar_term.layouts],
@@ -194,6 +200,9 @@ class FlavorConfigTest(unittest.TestCase):
         )
 
     def test_platformio_layout_selection_uses_the_same_layout_model(self):
+        self.assertEqual(select_layout("partitions_32mb.csv").key, "ota")
+        self.assertEqual(select_layout("partitions_32mb.csv", "single").partition_file,
+                         "partitions_32mb_single.csv")
         self.assertEqual(select_layout("partitions.csv").key, "ota")
         self.assertEqual(select_layout("partitions_8mb.csv", "single").app_bytes,
                          0x700000)

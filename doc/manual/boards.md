@@ -1377,8 +1377,12 @@ Seeed hardware overview:
 
 The default devices are `display0`, `touch0`, `rtc0`, `environment0`,
 `battery0`, `imu0`, `storage0`, `audio0`, and `mic0`. The console uses the USB-UART bridge;
-GPIO19/20 carry the PDM microphone clock/data. The standard partition table
-uses the first 16 MB of the 32 MB flash.
+GPIO19/20 carry the PDM microphone clock/data. The 32 MiB partition table keeps
+two 7 MiB OTA application slots and reserves nearly 18 MiB for FAT storage at
+`/flash`, mounted alongside `/sdcard`. The serial-only layout uses one 14 MiB
+application slot and the same storage region. Updating from the former 16 MiB
+layout requires flashing the partition table over USB; an OTA image cannot
+change it. Back up flash files before changing layouts or formatting storage.
 
 The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
