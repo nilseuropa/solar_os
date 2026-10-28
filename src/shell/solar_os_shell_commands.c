@@ -289,7 +289,7 @@ static void display_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  display [list]");
-    solar_os_shell_io_writeln(term, "  display orientation <target> [0|90|180|270] [--temporary]");
+    solar_os_shell_io_writeln(term, "  display orientation <target> [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  display scale <target> [1..4]");
     solar_os_shell_io_writeln(term, "  display layouts");
     solar_os_shell_io_writeln(term, "  display test <target>");
