@@ -1350,11 +1350,21 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
                               size_t bitmap_size,
                               const solar_os_gfx_color_t palette[4])
 {
-    const size_t pixels = width > 0 && height > 0 ?
-        (size_t)width * (size_t)height : 0U;
+    solar_os_gfx_bitmap_2bpp_scaled(gfx, x, y, width, height, bitmap,
+        bitmap_size, width, height, palette);
+}
+
+void solar_os_gfx_bitmap_2bpp_scaled(solar_os_gfx_t *gfx,
+    int x, int y, int width, int height,
+    const uint8_t *bitmap, size_t bitmap_size,
+    int source_width, int source_height,
+    const solar_os_gfx_color_t palette[4])
+{
+    const size_t pixels = source_width > 0 && source_height > 0 ?
+        (size_t)source_width * (size_t)source_height : 0U;
     const size_t required = (pixels + 3U) / 4U;
     if (!gfx_ready(gfx) || bitmap == NULL || palette == NULL ||
-        pixels == 0 || bitmap_size < required) {
+        pixels == 0 || width <= 0 || height <= 0 || bitmap_size < required) {
         return;
     }
 
@@ -1374,7 +1384,8 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
             if (target_x < 0 || target_x >= (int)solar_os_gfx_width(gfx)) {
                 continue;
             }
-            const size_t pixel = (size_t)row * (size_t)width + (size_t)column;
+            const size_t pixel = ((size_t)row * source_height / height) * source_width +
+                (size_t)column * source_width / width;
             const uint8_t value = (uint8_t)((bitmap[pixel >> 2U] >>
                 ((pixel & 3U) * 2U)) & 3U);
             if (gfx_uses_index8(gfx)) {

@@ -105,6 +105,26 @@ static sketch_layout_t sketch_layout(solar_os_gfx_t *gfx)
     return layout;
 }
 
+static sketch_layout_t sketch_canvas_viewport(const sketch_layout_t *layout)
+{
+    sketch_layout_t view = *layout;
+    int width = sketch.canvas.width;
+    int height = sketch.canvas.height;
+    if (width > layout->canvas_width) {
+        height = (int32_t)height * layout->canvas_width / width;
+        width = layout->canvas_width;
+    }
+    if (height > layout->canvas_height) {
+        width = (int32_t)width * layout->canvas_height / height;
+        height = layout->canvas_height;
+    }
+    view.canvas_width = width > 0 ? width : 1;
+    view.canvas_height = height > 0 ? height : 1;
+    view.canvas_x += (layout->canvas_width - view.canvas_width) / 2;
+    view.canvas_y += (layout->canvas_height - view.canvas_height) / 2;
+    return view;
+}
+
 static bool sketch_suffix(const char *name, const char *suffix)
 {
     if (name == NULL || suffix == NULL) {
@@ -571,6 +591,7 @@ static void sketch_draw_shape_button(solar_os_gfx_t *gfx,
 static void sketch_render_canvas(solar_os_gfx_t *gfx,
                                  const sketch_layout_t *layout)
 {
+    const sketch_layout_t view = sketch_canvas_viewport(layout);
     solar_os_sketch_canvas_t preview = sketch.canvas;
     const solar_os_sketch_canvas_t *render_canvas = &sketch.canvas;
     if (sketch.drawing && sketch_is_shape_tool() &&
@@ -583,22 +604,23 @@ static void sketch_render_canvas(solar_os_gfx_t *gfx,
         render_canvas = &preview;
     }
     if (solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8) {
-        solar_os_gfx_bitmap_2bpp(gfx, layout->canvas_x, layout->canvas_y,
-                                 layout->canvas_width, layout->canvas_height,
+        solar_os_gfx_bitmap_2bpp_scaled(gfx, view.canvas_x, view.canvas_y,
+                                 view.canvas_width, view.canvas_height,
                                  render_canvas->pixels,
                                  solar_os_sketch_canvas_bytes(
                                      render_canvas->width,
                                      render_canvas->height),
+                                 render_canvas->width, render_canvas->height,
                                  sketch_colors);
     } else {
-        if (!solar_os_sketch_canvas_render_xbm(
+        if (!solar_os_sketch_canvas_render_xbm_scaled(
                 render_canvas, sketch.canvas_bitmap,
-                sketch.canvas_bitmap_size)) {
+                sketch.canvas_bitmap_size, view.canvas_width, view.canvas_height)) {
             return;
         }
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        solar_os_gfx_bitmap(gfx, layout->canvas_x, layout->canvas_y,
-                            layout->canvas_width, layout->canvas_height,
+        solar_os_gfx_bitmap(gfx, view.canvas_x, view.canvas_y,
+                            view.canvas_width, view.canvas_height,
                             sketch.canvas_bitmap);
     }
 }
@@ -892,10 +914,13 @@ static void sketch_bucket_fill(int x, int y)
 static void sketch_canvas_pointer(const sketch_layout_t *layout,
                                   const solar_os_input_pointer_event_t *pointer)
 {
-    const int x = sketch.pointer_x - layout->canvas_x;
-    const int y = sketch.pointer_y - layout->canvas_y;
-    const bool inside = x >= 0 && y >= 0 && x < layout->canvas_width &&
-        y < layout->canvas_height;
+    const sketch_layout_t view = sketch_canvas_viewport(layout);
+    const int vx = sketch.pointer_x - view.canvas_x;
+    const int vy = sketch.pointer_y - view.canvas_y;
+    const bool inside = vx >= 0 && vy >= 0 && vx < view.canvas_width &&
+        vy < view.canvas_height;
+    const int x = vx < 0 ? -1 : (int32_t)vx * sketch.canvas.width / view.canvas_width;
+    const int y = vy < 0 ? -1 : (int32_t)vy * sketch.canvas.height / view.canvas_height;
     if (pointer->action == SOLAR_OS_INPUT_POINTER_PRESS && inside) {
         if (sketch.tool == SKETCH_TOOL_FILL) {
             sketch_bucket_fill(x, y);
@@ -927,17 +952,17 @@ static void sketch_canvas_pointer(const sketch_layout_t *layout,
     } else if (pointer->action == SOLAR_OS_INPUT_POINTER_MOVE &&
                sketch.drawing && sketch_is_shape_tool()) {
         sketch.preview_x = x < 0 ? 0 :
-            (x >= layout->canvas_width ? layout->canvas_width - 1 : x);
+            (x >= sketch.canvas.width ? sketch.canvas.width - 1 : x);
         sketch.preview_y = y < 0 ? 0 :
-            (y >= layout->canvas_height ? layout->canvas_height - 1 : y);
+            (y >= sketch.canvas.height ? sketch.canvas.height - 1 : y);
         sketch.render_pending = true;
     } else if (pointer->action == SOLAR_OS_INPUT_POINTER_RELEASE &&
                sketch.drawing) {
         if (sketch_is_shape_tool()) {
             const int end_x = x < 0 ? 0 :
-                (x >= layout->canvas_width ? layout->canvas_width - 1 : x);
+                (x >= sketch.canvas.width ? sketch.canvas.width - 1 : x);
             const int end_y = y < 0 ? 0 :
-                (y >= layout->canvas_height ? layout->canvas_height - 1 : y);
+                (y >= sketch.canvas.height ? sketch.canvas.height - 1 : y);
             sketch_draw_shape(&sketch.canvas, end_x, end_y);
             sketch.dirty = true;
         }
@@ -1256,6 +1281,7 @@ static void sketch_suspend(solar_os_context_t *ctx)
 
 static void sketch_resume(solar_os_context_t *ctx)
 {
+    sketch.drawing = false;
     sketch.suspended = false;
     sketch.render_pending = true;
     solar_os_context_set_graphics_active(ctx, true);

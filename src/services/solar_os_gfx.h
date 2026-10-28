@@ -139,6 +139,11 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
                               const uint8_t *bitmap,
                               size_t bitmap_size,
                               const solar_os_gfx_color_t palette[4]);
+void solar_os_gfx_bitmap_2bpp_scaled(solar_os_gfx_t *gfx,
+    int x, int y, int width, int height,
+    const uint8_t *bitmap, size_t bitmap_size,
+    int source_width, int source_height,
+    const solar_os_gfx_color_t palette[4]);
 /* Draw an opaque grayscale or RGB raster with nearest-neighbour scaling.
  * A NULL clip uses the full display bounds. */
 esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx,
