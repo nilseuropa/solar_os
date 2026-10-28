@@ -459,6 +459,12 @@ hint = "0x6a|0x6b"
 required = true
 allowed = [0x6a, 0x6b]
 
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
 [drivers.mgc3130]
 summary = "MGC3130 3D gesture and hover sensor"
 package = "driver_mgc3130"

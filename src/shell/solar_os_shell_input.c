@@ -464,7 +464,7 @@ static void gesture_bind(solar_os_shell_io_t *io, int argc, char **argv)
                                             "gesture bind",
                                             "gesture",
                                             value,
-                                            "flick, circle, wave, hold, presence, tap, double-tap, or airwheel",
+                                            "flick, circle, wave, hold, presence, tap, double-tap, airwheel, swipe, tilt, wake, or free-fall",
                                             gesture_bind_usage,
                                             false);
                 return;

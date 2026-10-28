@@ -75,5 +75,38 @@ int main(void) {
     assert(lsm6ds3trc_deinit(&device) == ESP_OK && !device.initialized);
     assert(bus.registers[0x10] == 0 && bus.registers[0x11] == 0);
     assert(lsm6ds3trc_read_sample(&device, &sample) == ESP_ERR_INVALID_ARG);
+    for (int write = 0; write < 10; write++) {
+        bus = fresh(); assert(init(&bus, &device) == ESP_OK);
+        bus.fail_write = bus.writes + write;
+        assert(lsm6ds3trc_enable_gestures(&device) == ESP_FAIL);
+        assert(!device.gestures_enabled && bus.registers[0x10] == 0x40);
+        assert(!bus.registers[0x58] && !bus.registers[0x19]);
+        assert(!bus.registers[0x5e] && !bus.registers[0x5f]);
+    }
+    bus = fresh(); assert(init(&bus, &device) == ESP_OK);
+    assert(lsm6ds3trc_enable_gestures(&device) == ESP_OK);
+    assert(device.gestures_enabled && bus.registers[0x10] == 0x60 && bus.registers[0x11] == 0x40);
+    assert(bus.registers[0x58] == 0x8f && bus.registers[0x59] == 0x0c);
+    assert(bus.registers[0x5a] == 0x7f && bus.registers[0x5b] == 0x82);
+    assert(bus.registers[0x5c] == 0x20 && bus.registers[0x5d] == 0x33);
+    assert(bus.registers[0x19] == 0x0c && bus.registers[0x5e] == 0x7a && bus.registers[0x5f] == 0x7a);
+    const unsigned writes = bus.writes;
+    assert(lsm6ds3trc_enable_gestures(&device) == ESP_OK && bus.writes == writes);
+    lsm6ds3trc_events_t events;
+    for (unsigned flags = 0; flags < 32; flags++) {
+        bus.registers[0x1b] = ((flags & 8) ? 0x08 : 0) | ((flags & 16) ? 0x20 : 0);
+        bus.registers[0x1c] = ((flags & 1) ? 0x60 : 0) | ((flags & 2) ? 0x50 : 0);
+        bus.registers[0x53] = (flags & 4) ? 0x20 : 0;
+        assert(lsm6ds3trc_read_events(&device, &events) == ESP_OK);
+        assert(events.flags == ((flags & 2) ? flags & ~1U : flags));
+    }
+    const lsm6ds3trc_events_t saved = events;
+    bus.fail_read = 0x53;
+    assert(lsm6ds3trc_read_events(&device, &events) == ESP_FAIL);
+    assert(!memcmp(&saved, &events, sizeof(events)));
+    bus.fail_read = -1;
+    assert(lsm6ds3trc_deinit(&device) == ESP_OK);
+    assert(!bus.registers[0x58] && !bus.registers[0x19]);
+    assert(!bus.registers[0x5e] && !bus.registers[0x5f]);
     return 0;
 }

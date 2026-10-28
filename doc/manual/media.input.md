@@ -128,6 +128,14 @@ foreground application. A binding can match one source or every source, one
 gesture kind, and optionally one direction. Commands run one at a time. The
 cooldown suppresses repeated reports and defaults to 250 ms.
 
+An LSM6DS3TR-C attached with `irq=<pin>` registers a gesture source alongside
+its IMU measurements. It reports `tap`, `double-tap`, `tilt`, `wake`, and
+`free-fall`, with direction `none`. Single taps wait 650 ms so a double tap
+produces one double-tap event. Values are 1, or 2 for double-tap. The raw word
+contains WAKE_UP_SRC in bits 0..7, TAP_SRC in bits 8..15, and FUNC_SRC1 in bits
+16..23. `wake` is a motion event; power behavior requires an explicit binding.
+No gesture commands are assigned automatically.
+
 ```text
 gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
 gesture bind source=gesture0 gesture=flick direction=west cooldown=400 -- input emit ALT+LEFT

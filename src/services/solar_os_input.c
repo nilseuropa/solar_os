@@ -262,6 +262,9 @@ static const char *const input_gesture_names[] = {
     [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
     [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
     [SOLAR_OS_INPUT_GESTURE_SWIPE] = "swipe",
+    [SOLAR_OS_INPUT_GESTURE_TILT] = "tilt",
+    [SOLAR_OS_INPUT_GESTURE_WAKE] = "wake",
+    [SOLAR_OS_INPUT_GESTURE_FREE_FALL] = "free-fall",
 };
 
 static const char *const input_gesture_direction_names[] = {

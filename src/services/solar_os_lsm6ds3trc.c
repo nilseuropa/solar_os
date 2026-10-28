@@ -8,22 +8,36 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lsm6ds3trc.h"
 #include "solar_os_buses.h"
 #include "solar_os_imu.h"
+#include "solar_os_input.h"
+#include "solar_os_task.h"
 
 #define LSM6DS3TRC_DEVICE_MAX 2U
+#define LSM6DS3TRC_POLL_MS 10U
+#define LSM6DS3TRC_TAP_WAIT_US 650000ULL
 #define LSM6DS3TRC_SAMPLE_CAPABILITIES \
     (SOLAR_OS_IMU_CAP_ACCELERATION | SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY)
 
 typedef struct {
     bool active;
+    bool registered;
+    volatile bool stop_requested, worker_done;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     uint8_t address;
+    int irq_pin;
+    solar_os_input_source_t source;
+    TaskHandle_t worker_task;
+    uint8_t previous_events;
+    bool tap_pending;
+    uint64_t tap_at;
+    uint32_t tap_raw;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
     lsm6ds3trc_t chip;
@@ -31,6 +45,73 @@ typedef struct {
 
 static const char *TAG = "lsm6ds3trc";
 static EXT_RAM_BSS_ATTR lsm6ds3trc_device_t devices[LSM6DS3TRC_DEVICE_MAX];
+
+static void publish_event(lsm6ds3trc_device_t *device,
+    solar_os_input_gesture_t gesture, uint32_t raw)
+{
+    const bool double_tap = gesture == SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP;
+    const solar_os_input_gesture_event_t event = {
+        .gesture=gesture, .direction=SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE,
+        .flags=double_tap ? SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE : 0,
+        .value=double_tap ? 2 : 1, .raw=raw,
+    };
+    (void)solar_os_input_write_gesture(device->source, &event);
+}
+
+static void poll_gestures(lsm6ds3trc_device_t *device)
+{
+    const uint64_t now = esp_timer_get_time();
+    if (device->tap_pending && now - device->tap_at >= LSM6DS3TRC_TAP_WAIT_US) {
+        publish_event(device, SOLAR_OS_INPUT_GESTURE_TAP, device->tap_raw);
+        device->tap_pending = false;
+    }
+    if (!gpio_get_level(device->irq_pin)) {
+        device->previous_events = 0;
+        return;
+    }
+    lsm6ds3trc_events_t events;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    const esp_err_t ret = lsm6ds3trc_read_events(&device->chip, &events);
+    xSemaphoreGive(device->mutex);
+    if (ret != ESP_OK) return;
+    const unsigned fresh = events.flags & ~device->previous_events;
+    device->previous_events = events.flags;
+    const uint32_t raw = events.wake | ((uint32_t)events.tap << 8U) |
+        ((uint32_t)events.function << 16U);
+    if (fresh & LSM6DS3TRC_EVENT_DOUBLE_TAP) {
+        device->tap_pending = false;
+        publish_event(device, SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP, raw);
+    } else if (fresh & LSM6DS3TRC_EVENT_TAP) {
+        device->tap_pending = true;
+        device->tap_at = now;
+        device->tap_raw = raw;
+    }
+    if (fresh & LSM6DS3TRC_EVENT_TILT) publish_event(device, SOLAR_OS_INPUT_GESTURE_TILT, raw);
+    if (fresh & LSM6DS3TRC_EVENT_WAKE) publish_event(device, SOLAR_OS_INPUT_GESTURE_WAKE, raw);
+    if (fresh & LSM6DS3TRC_EVENT_FREE_FALL) publish_event(device, SOLAR_OS_INPUT_GESTURE_FREE_FALL, raw);
+}
+
+static void gesture_worker(void *arg)
+{
+    lsm6ds3trc_device_t *device = arg;
+    while (!device->stop_requested) {
+        poll_gestures(device);
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(LSM6DS3TRC_POLL_MS));
+    }
+    device->worker_done = true;
+    solar_os_task_delete_internal(NULL);
+}
+
+static bool stop_worker(lsm6ds3trc_device_t *device)
+{
+    if (!device->worker_task) return true;
+    device->stop_requested = true;
+    (void)xTaskNotifyGive(device->worker_task);
+    if (!solar_os_task_wait_done(device->worker_task, &device->worker_done,
+                                 SOLAR_OS_TASK_STOP_WAIT_MS)) return false;
+    device->worker_task = NULL;
+    return true;
+}
 
 static esp_err_t chip_read(void *context,
                            uint8_t reg,
@@ -109,13 +190,15 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *i2c_bus,
                                 size_t i2c_bus_len,
-                                uint8_t *address)
+                                uint8_t *address, int *irq_pin)
 {
     bool have_i2c = false;
     bool have_address = false;
-    if (bindings == NULL || i2c_bus == NULL || address == NULL) {
+    bool have_irq = false;
+    if (bindings == NULL || i2c_bus == NULL || address == NULL || irq_pin == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    *irq_pin = -1;
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
         if (binding->kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS && !have_i2c) {
@@ -127,6 +210,10 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                     binding->value == LSM6DS3TRC_I2C_ADDRESS_HIGH)) {
             *address = (uint8_t)binding->value;
             have_address = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !have_irq &&
+                   strcmp(binding->role, "irq") == 0 && GPIO_IS_VALID_GPIO(binding->value)) {
+            *irq_pin = binding->value;
+            have_irq = true;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
@@ -139,6 +226,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 static void clear_device(lsm6ds3trc_device_t *device)
 {
     if (device == NULL) return;
+    if (device->source) solar_os_input_source_close(device->source);
     if (device->mutex != NULL) vSemaphoreDelete(device->mutex);
     memset(device, 0, sizeof(*device));
 }
@@ -160,17 +248,19 @@ esp_err_t solar_os_lsm6ds3trc_attach(
 
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
     uint8_t address = 0U;
+    int irq_pin = -1;
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
                                        i2c_bus,
                                        sizeof(i2c_bus),
-                                       &address),
+                                       &address, &irq_pin),
                         TAG,
                         "invalid bindings");
 
     memset(device, 0, sizeof(*device));
     device->active = true;
     device->address = address;
+    device->irq_pin = irq_pin;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->i2c_bus, i2c_bus, sizeof(device->i2c_bus));
     device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);
@@ -193,6 +283,33 @@ esp_err_t solar_os_lsm6ds3trc_attach(
         return ret;
     }
 
+    if (irq_pin >= 0) {
+        const gpio_config_t config = {
+            .pin_bit_mask=1ULL << irq_pin, .mode=GPIO_MODE_INPUT,
+            .pull_up_en=GPIO_PULLUP_DISABLE, .pull_down_en=GPIO_PULLDOWN_DISABLE,
+            .intr_type=GPIO_INTR_DISABLE,
+        };
+        ret = gpio_config(&config);
+        if (ret == ESP_OK) ret = lsm6ds3trc_enable_gestures(&device->chip);
+        if (ret == ESP_OK) ret = solar_os_input_source_open_typed(name,
+            SOLAR_OS_INPUT_SOURCE_GESTURE, SOLAR_OS_INPUT_CAP_GESTURE_EVENTS,
+            true, &device->source);
+        const uint32_t gestures = SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TILT) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_WAKE) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FREE_FALL);
+        if (ret == ESP_OK) ret = solar_os_input_source_set_gestures(device->source, gestures);
+        if (ret == ESP_OK && solar_os_task_create_pinned_internal(gesture_worker,
+            name, 3072U, device, tskIDLE_PRIORITY + 1, &device->worker_task,
+            tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) ret = ESP_ERR_NO_MEM;
+        if (ret != ESP_OK) {
+            (void)lsm6ds3trc_deinit(&device->chip);
+            clear_device(device);
+            return ret;
+        }
+    }
+
     const solar_os_imu_registration_t registration = {
         .name = name,
         .driver = "lsm6ds3tr-c",
@@ -203,10 +320,12 @@ esp_err_t solar_os_lsm6ds3trc_attach(
     ret = solar_os_imu_register(&registration);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "%s IMU registration failed: %s", name, esp_err_to_name(ret));
+        if (!stop_worker(device)) return ESP_ERR_TIMEOUT;
         (void)lsm6ds3trc_deinit(&device->chip);
         clear_device(device);
         return ret;
     }
+    device->registered = true;
 
     ESP_LOGI(TAG,
              "%s attached on %s addr=0x%02x who=0x%02x",
@@ -222,9 +341,11 @@ esp_err_t solar_os_lsm6ds3trc_detach(const char *name)
     if (name == NULL) return ESP_ERR_INVALID_ARG;
     for (size_t i = 0; i < LSM6DS3TRC_DEVICE_MAX; i++) {
         if (devices[i].active && strcmp(devices[i].name, name) == 0) {
-            ESP_RETURN_ON_ERROR(solar_os_imu_unregister(name),
+            if (devices[i].registered) ESP_RETURN_ON_ERROR(solar_os_imu_unregister(name),
                                 TAG,
                                 "unregister failed");
+            devices[i].registered = false;
+            if (!stop_worker(&devices[i])) return ESP_ERR_TIMEOUT;
             const esp_err_t ret = lsm6ds3trc_deinit(&devices[i].chip);
             clear_device(&devices[i]);
             return ret;

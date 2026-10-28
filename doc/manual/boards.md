@@ -1406,7 +1406,12 @@ The direct MONO1 frame presenter supports scaled animation and games at a prefer
 10 presentations per second. Pulse settling continues asynchronously.
 
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
-`imu0`, sampled at 104 Hz with data-ready polling. It does not provide fused orientation.
+`imu0`. Its GPIO7 interrupt also supplies hardware `tap`, `double-tap`, `tilt`,
+`wake`, and `free-fall` input gestures. With gestures enabled, acceleration runs
+at 416 Hz and angular velocity at 104 Hz. Single taps wait 650 ms for a possible
+double tap. Use `input test imu0` to inspect events and `gesture bind source=imu0`
+to assign actions. `wake` reports motion; it does not automatically wake the OS.
+Fused orientation is not provided.
 The microphone provides `mic0.capture`: 16 kHz, signed 16-bit mono PCM through
 I2S0's PDM receiver. GPIO38 and capture DMA are enabled only while its stream
 is open; capture can run alongside the PWM buzzer output. Use `audio mic 1000`

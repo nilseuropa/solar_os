@@ -772,6 +772,21 @@ int main(void)
     assert(gesture_observer_calls[1] == 2U);
     solar_os_input_gesture_observer_unregister(
         observe_gesture, &gesture_observer_calls[1]);
+    assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 1);
+    assert(solar_os_input_source_set_gestures(gesture_source,
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TILT) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_WAKE) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_FREE_FALL)) == ESP_OK);
+    const char *motion_names[] = {"tilt", "wake", "free-fall"};
+    for (unsigned i = 0; i < 3; i++) {
+        assert(solar_os_input_parse_gesture(motion_names[i], &parsed_gesture));
+        gesture = (solar_os_input_gesture_event_t){.gesture=parsed_gesture,
+            .direction=SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE, .value=1};
+        assert(solar_os_input_write_gesture(gesture_source, &gesture) == ESP_OK);
+        assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 1);
+        assert(gesture_read.source == gesture_source && gesture_read.gesture == parsed_gesture);
+        assert(!strcmp(solar_os_input_gesture_name(gesture_read.gesture), motion_names[i]));
+    }
     solar_os_input_source_close(gesture_source);
     assert(solar_os_input_read_gesture_events(&gesture_read, 1) == 0);
     assert(gesture_queue_frees == 4);

@@ -1992,7 +1992,7 @@ sources = [
   "services/solar_os_lsm6ds3trc.c",
   "services/solar_os_lsm6ds3trc_driver.c",
 ]
-requires = ["esp_timer"]
+requires = ["esp_timer", "esp_driver_gpio"]
 capabilities = ["i2c"]
 
 [packages.drv2605]
