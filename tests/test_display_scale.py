@@ -15,6 +15,9 @@ class DisplayScaleTest(unittest.TestCase):
 #include <string.h>
 #include "solar_os_terminal_internal.h"
 static size_t requested_rows, requested_cols, pushed;
+static unsigned saved;
+static bool terminal_orientation_is_valid(uint16_t value) {return value%90==0 && value<=270;}
+static esp_err_t solar_os_terminal_profile_save_orientation(uint16_t value) {(void)value;saved++;return ESP_OK;}
 static size_t terminal_rows(const solar_os_terminal_t *t) {return t->rows;}
 static void scrollback_push(solar_os_terminal_t *t, const solar_os_terminal_cell_t *line,
     const uint32_t *bold, const uint32_t *italic, const uint32_t *underline, const uint32_t *inverse) {
@@ -31,20 +34,28 @@ void solar_os_terminal_clear_line_from(solar_os_terminal_t *t, size_t row, size_
 }
 '''
         source += production_functions((ROOT / "src/services/solar_os_terminal.c").read_text(),
-                                       ("scroll_up", "terminal_apply_scale_geometry"))
+                                       ("scroll_up", "terminal_apply_geometry",
+                                        "solar_os_terminal_set_orientation",
+                                        "solar_os_terminal_set_orientation_transient"))
         source += r'''
 int main(void) {
     solar_os_terminal_t *t=calloc(1,sizeof(*t));
     t->rows=10;t->cols=20;t->cursor_row=8;t->cursor_col=12;
     for(unsigned row=0;row<10;row++){t->lines[row][0]='A'+row;t->bold[row][0]=row+1;}
-    requested_rows=4;requested_cols=8;terminal_apply_scale_geometry(t);
+    requested_rows=4;requested_cols=8;terminal_apply_geometry(t);
     assert(pushed==5 && t->cursor_row==3 && t->cursor_col==8);
     for(unsigned row=0;row<4;row++){
         assert(t->lines[row][0]=='F'+row && t->bold[row][0]==row+6);
     }
-    requested_rows=8;terminal_apply_scale_geometry(t);
+    requested_rows=8;terminal_apply_geometry(t);
     assert(pushed==5 && t->cursor_row==3 && t->cursor_col==8);
     for(unsigned row=4;row<8;row++)assert(t->lines[row][0]==0);
+    t->orientation_degrees=0;
+    assert(solar_os_terminal_set_orientation_transient(t,90)==ESP_OK && saved==0);
+    assert(t->lines[0][0]=='F' && t->cursor_row==3 && t->cursor_col==8);
+    assert(solar_os_terminal_set_orientation(t,180)==ESP_OK && saved==1);
+    assert(t->lines[0][0]=='F' && t->cursor_row==3);
+    assert(solar_os_terminal_set_orientation(t,45)==ESP_ERR_INVALID_ARG && saved==1);
     free(t);return 0;
 }
 '''

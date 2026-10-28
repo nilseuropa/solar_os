@@ -107,6 +107,7 @@ typedef enum {
     SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP = 0,
     SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
     SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
+    SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
 } solar_os_session_operation_type_t;
 
 typedef struct {
@@ -119,6 +120,7 @@ typedef struct {
     uint8_t close_session_id;
     uint8_t command_session_id;
     const char *command;
+    solar_os_terminal_profile_t display_profile;
     solar_os_shell_io_t *caller_io;
     SemaphoreHandle_t complete;
     esp_err_t result;
@@ -2079,7 +2081,11 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
     if (session->terminal_redraw_requested) {
         session->terminal_redraw_requested = false;
         session_prepare_context(session);
-        if (session->app->resume != NULL) {
+        if (session->graphics_active && solar_os_gfx_surface(session_effective_gfx(session)))
+            solar_os_gfx_prepare_surface(session_effective_gfx(session));
+        if (session->app == solar_os_shell_app() && session->shell_session != NULL) {
+            solar_os_shell_session_redraw_prompt(session_state.ctx, session->shell_session);
+        } else if (session->app->resume != NULL) {
             if (session->app->flags & SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT)
                 session_restore_graphics_snapshot(session);
             session->app->resume(session_state.ctx);
@@ -2381,7 +2387,7 @@ static bool session_terminal_layout_changed(
          before->status_bar_visible != after->status_bar_visible);
 }
 
-esp_err_t solar_os_sessions_set_display_terminal_profile(
+static esp_err_t session_set_display_terminal_profile_internal(
     const char *target_name,
     const solar_os_terminal_profile_t *profile)
 {
@@ -2418,10 +2424,10 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
         if (err == ESP_OK && apply_err != ESP_OK) {
             err = apply_err;
         }
-        if (apply_err == ESP_OK && session->started && !session->suspended &&
-            !session->graphics_active && session->app != solar_os_shell_app() &&
-            session_terminal_layout_changed(&previous_profile, profile)) {
-            session->terminal_redraw_requested = true;
+        if (apply_err == ESP_OK && session_terminal_layout_changed(&previous_profile, profile)) {
+            session_discard_graphics_snapshot(session);
+            if (session->started && !session->suspended)
+                session->terminal_redraw_requested = true;
         }
         if (session->terminal == session_state.shell_terminal) {
             shell_terminal_applied = true;
@@ -2443,6 +2449,31 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
         }
     }
     return err;
+}
+
+esp_err_t solar_os_sessions_set_display_terminal_profile(
+    const char *target_name, const solar_os_terminal_profile_t *profile)
+{
+    if (!target_name || !profile) return ESP_ERR_INVALID_ARG;
+    if (xTaskGetCurrentTaskHandle() == session_scheduler_task)
+        return session_set_display_terminal_profile_internal(target_name, profile);
+    if (!session_operation_queue || solar_os_shutdown_requested()) return ESP_ERR_INVALID_STATE;
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
+        .target_name = target_name,
+        .display_profile = *profile,
+        .complete = xSemaphoreCreateBinary(),
+    };
+    if (!request.complete) return ESP_ERR_NO_MEM;
+    solar_os_session_operation_request_t *queued_request = &request;
+    if (xQueueSend(session_operation_queue, &queued_request, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        vSemaphoreDelete(request.complete);
+        return ESP_ERR_TIMEOUT;
+    }
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    const esp_err_t result = request.result;
+    vSemaphoreDelete(request.complete);
+    return result;
 }
 
 esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, uint8_t scale)
@@ -3130,6 +3161,10 @@ static void session_process_operation_requests(void)
                 session_send_command_internal(request->command_session_id,
                                               request->command,
                                               request->caller_io);
+            break;
+        case SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE:
+            request->result = session_set_display_terminal_profile_internal(
+                request->target_name, &request->display_profile);
             break;
         default:
             request->result = ESP_ERR_INVALID_ARG;

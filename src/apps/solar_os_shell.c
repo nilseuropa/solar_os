@@ -4335,12 +4335,30 @@ static void shell_format_display_path(const char *path,
     }
 }
 
-static void shell_prompt(solar_os_context_t *ctx)
+static void shell_write_prompt(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
     char identity[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
     char display_path[SHELL_PATH_MAX];
     char prompt[SHELL_PATH_MAX + sizeof(identity) + 4];
+    if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
+        shell_reset_cwd(shell_session(ctx));
+    }
+    shell_format_display_path(shell_session(ctx)->cwd,
+                               display_path,
+                               sizeof(display_path),
+                               solar_os_shell_io_cols(io));
+    solar_os_identity_format(identity, sizeof(identity));
+    snprintf(prompt, sizeof(prompt), "%s:%s ", identity, display_path);
+    solar_os_shell_io_set_cursor_visible(io, true);
+    solar_os_shell_io_write_bold(io, prompt);
+    shell_session(ctx)->input_row = solar_os_shell_io_cursor_row(io);
+    shell_session(ctx)->input_col = solar_os_shell_io_cursor_col(io);
+}
+
+static void shell_prompt(solar_os_context_t *ctx)
+{
+    solar_os_shell_io_t *io = shell_io(ctx);
     char status_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
 
     shell_session(ctx)->input_len = 0;
@@ -4377,19 +4395,7 @@ static void shell_prompt(solar_os_context_t *ctx)
         solar_os_shell_io_writeln(io, status_message);
     }
 
-    if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
-        shell_reset_cwd(shell_session(ctx));
-    }
-    shell_format_display_path(shell_session(ctx)->cwd,
-                               display_path,
-                               sizeof(display_path),
-                               solar_os_shell_io_cols(io));
-    solar_os_identity_format(identity, sizeof(identity));
-    snprintf(prompt, sizeof(prompt), "%s:%s ", identity, display_path);
-    solar_os_shell_io_set_cursor_visible(io, true);
-    solar_os_shell_io_write_bold(io, prompt);
-    shell_session(ctx)->input_row = solar_os_shell_io_cursor_row(io);
-    shell_session(ctx)->input_col = solar_os_shell_io_cursor_col(io);
+    shell_write_prompt(ctx);
 }
 
 static char *shell_trim_line(char *line)
@@ -4471,6 +4477,19 @@ static void shell_render_input(solar_os_context_t *ctx)
                                         shell_session(ctx)->input + shell_session(ctx)->input_view_offset,
                                         visible_len,
                                         cursor_col);
+}
+
+void solar_os_shell_session_redraw_prompt(solar_os_context_t *ctx,
+                                         solar_os_shell_session_t *session)
+{
+    if (!ctx || !session || session->watch_active || session->log_follow_active ||
+        session->foreground_app) return;
+    solar_os_shell_io_t *io = shell_io(ctx);
+    const size_t row = solar_os_shell_io_cursor_row(io);
+    solar_os_shell_io_clear_line_from(io, row, 0);
+    solar_os_shell_io_set_cursor(io, row, 0);
+    shell_write_prompt(ctx);
+    shell_render_input(ctx);
 }
 
 static void shell_replace_input(solar_os_context_t *ctx, const char *text)

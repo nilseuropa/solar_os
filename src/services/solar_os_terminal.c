@@ -604,30 +604,6 @@ static void terminal_apply_settings(solar_os_terminal_t *terminal, bool clear_sc
     if (clear_screen) {
         solar_os_terminal_clear(terminal);
     } else {
-        for (size_t row = 0; row < SOLAR_OS_TERMINAL_MAX_ROWS; row++) {
-            terminal->lines[row][cols] = '\0';
-            terminal_bold_clear_from(terminal->bold[row], cols);
-            terminal_italic_clear_from(terminal->italic[row], cols);
-            terminal_underline_clear_from(terminal->underline[row], cols);
-            terminal_inverse_clear_from(terminal->inverse[row], cols);
-        }
-        for (size_t row = 0; row < terminal->scrollback_capacity; row++) {
-            if (terminal->scrollback != NULL) {
-                terminal->scrollback[row][cols] = '\0';
-            }
-            if (terminal->scrollback_bold != NULL) {
-                terminal_bold_clear_from(terminal->scrollback_bold[row], cols);
-            }
-            if (terminal->scrollback_italic != NULL) {
-                terminal_italic_clear_from(terminal->scrollback_italic[row], cols);
-            }
-            if (terminal->scrollback_underline != NULL) {
-                terminal_underline_clear_from(terminal->scrollback_underline[row], cols);
-            }
-            if (terminal->scrollback_inverse != NULL) {
-                terminal_inverse_clear_from(terminal->scrollback_inverse[row], cols);
-            }
-        }
         if (terminal->scrollback_offset > terminal->scrollback_count) {
             terminal->scrollback_offset = terminal->scrollback_count;
         }
@@ -754,7 +730,7 @@ static void scrollback_push(solar_os_terminal_t *terminal,
     } else {
         memset(terminal->scrollback[slot], 0, sizeof(terminal->scrollback[slot]));
     }
-    terminal->scrollback[slot][terminal_cols(terminal)] = 0;
+    terminal->scrollback[slot][SOLAR_OS_TERMINAL_MAX_COLS] = 0;
     if (bold != NULL) {
         memcpy(terminal->scrollback_bold[slot],
                bold,
@@ -1662,6 +1638,8 @@ uint16_t solar_os_terminal_orientation(const solar_os_terminal_t *terminal)
     return terminal != NULL ? terminal->orientation_degrees : 0;
 }
 
+static void terminal_apply_geometry(solar_os_terminal_t *terminal);
+
 esp_err_t solar_os_terminal_set_orientation(solar_os_terminal_t *terminal, uint16_t degrees)
 {
     if (terminal == NULL || !terminal_orientation_is_valid(degrees)) {
@@ -1672,7 +1650,7 @@ esp_err_t solar_os_terminal_set_orientation(solar_os_terminal_t *terminal, uint1
     }
 
     terminal->orientation_degrees = degrees;
-    terminal_apply_settings(terminal, true);
+    terminal_apply_geometry(terminal);
     return solar_os_terminal_profile_save_orientation(degrees);
 }
 
@@ -1687,7 +1665,7 @@ esp_err_t solar_os_terminal_set_orientation_transient(solar_os_terminal_t *termi
     }
 
     terminal->orientation_degrees = degrees;
-    terminal_apply_settings(terminal, true);
+    terminal_apply_geometry(terminal);
     return ESP_OK;
 }
 
@@ -1842,7 +1820,7 @@ void solar_os_terminal_get_profile(const solar_os_terminal_t *terminal,
     };
 }
 
-static void terminal_apply_scale_geometry(solar_os_terminal_t *terminal)
+static void terminal_apply_geometry(solar_os_terminal_t *terminal)
 {
     const size_t old_rows = terminal->rows;
     const size_t cursor_row = terminal->cursor_row;
@@ -1886,7 +1864,7 @@ esp_err_t solar_os_terminal_apply_profile_transient(
         err = solar_os_terminal_set_status_bar_visible_transient(
             terminal, profile->status_bar_visible);
     }
-    if (err == ESP_OK && scale_changed) terminal_apply_scale_geometry(terminal);
+    if (err == ESP_OK && scale_changed) terminal_apply_geometry(terminal);
     return err;
 }
 

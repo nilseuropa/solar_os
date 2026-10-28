@@ -516,8 +516,28 @@ esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *gfx)
 
 void solar_os_gfx_prepare_surface(solar_os_gfx_t *gfx)
 {
-    if (!gfx_ready(gfx) || gfx_uses_index8(gfx)) {
+    if (!gfx_ready(gfx)) {
         return;
+    }
+    if (gfx_uses_index8(gfx)) {
+        solar_os_display_surface_t *surface = &gfx->index8->surface;
+        const uint16_t width = u8g2_GetDisplayWidth(gfx->u8g2);
+        const uint16_t height = u8g2_GetDisplayHeight(gfx->u8g2);
+        const solar_os_display_rotation_t rotation = gfx_rotation(gfx->u8g2);
+        if (surface->width == width && surface->height == height && surface->rotation == rotation)
+            return;
+        if ((size_t)width * height == surface->data_size) {
+            surface->width = width;
+            surface->height = height;
+            surface->stride = width;
+            surface->rotation = rotation;
+            gfx_mark_index8_all_dirty(gfx);
+            if (surface->presented_hashes)
+                memset(surface->presented_hashes, 0, surface->presented_hash_count * sizeof(uint32_t));
+            gfx->dirty = true;
+            return;
+        }
+        solar_os_gfx_release_surface(gfx);
     }
 
     char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
