@@ -769,6 +769,42 @@ static esp_err_t ssd1677_refresh(epd_ssd1677_t *d)
     return err;
 }
 
+esp_err_t epd_ssd1677_present_mono_xbm(epd_ssd1677_t *d,
+    const uint8_t *bitmap, size_t bitmap_size, uint16_t x, uint16_t y,
+    uint16_t width, uint16_t height, uint16_t stride, bool palette_inverted)
+{
+    if (!d || !d->buffer || !bitmap || !width || !height ||
+        stride < ((size_t)width + 7U) / 8U || height > SIZE_MAX / stride ||
+        bitmap_size < (size_t)height * stride ||
+        (uint32_t)x + width > u8g2_GetDisplayWidth(&d->u8g2) ||
+        (uint32_t)y + height > u8g2_GetDisplayHeight(&d->u8g2)) return ESP_ERR_INVALID_ARG;
+    const u8g2_cb_t *rotation = d->u8g2.cb;
+    if (rotation != U8G2_R0 && rotation != U8G2_R1 &&
+        rotation != U8G2_R2 && rotation != U8G2_R3) return ESP_ERR_NOT_SUPPORTED;
+    if (!d->powered || d->suspended || d->power_state_present || d->relax.storage ||
+        !d->spi || !d->line_buffer || d->buffer_size < SSD1677_BUFFER_BYTES)
+        return ESP_ERR_INVALID_STATE;
+    /* Compose without the panel lock; async scanning uses an immutable snapshot. */
+    memset(d->buffer, palette_inverted ? 0 : 0xff, SSD1677_BUFFER_BYTES);
+    for (unsigned row = 0; row < height; row++) {
+        const uint8_t *source = bitmap + (size_t)row * stride;
+        for (unsigned column = 0; column < width; column++) {
+            const unsigned lx = x + column, ly = y + row;
+            unsigned nx = lx, ny = ly;
+            if (rotation == U8G2_R1) { nx = SSD1677_WIDTH - 1U - ly; ny = lx; }
+            else if (rotation == U8G2_R2) {
+                nx = SSD1677_WIDTH - 1U - lx; ny = SSD1677_HEIGHT - 1U - ly;
+            } else if (rotation == U8G2_R3) { nx = ly; ny = SSD1677_HEIGHT - 1U - lx; }
+            uint8_t *destination = d->buffer + (ny / 8U) * SSD1677_WIDTH + nx;
+            const uint8_t mask = (uint8_t)(1U << (ny & 7U));
+            const bool black = (source[column / 8U] & (1U << (column & 7U))) != 0;
+            if (black == palette_inverted) *destination |= mask;
+            else *destination &= (uint8_t)~mask;
+        }
+    }
+    return ssd1677_refresh(d);
+}
+
 static esp_err_t ssd1677_sleep(epd_ssd1677_t *display)
 {
     display->suspended = true;

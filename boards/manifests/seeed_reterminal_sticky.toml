@@ -26,7 +26,7 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
+  "psram", "simd", "display", "gfx", "streaming_display", "uart", "sd", "i2c", "spi",
   "rtc", "battery", "wifi", "ble", "gpio", "key", "buttons", "pointer",
   "temperature", "humidity", "audio", "audio_input", "pwm", "expansion_i2s",
   "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio", "expansion_pwm",
@@ -49,7 +49,7 @@ SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "480"
 SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
 SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "0"
-SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "10000000"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "20000000"
 SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_13"
 SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_14"

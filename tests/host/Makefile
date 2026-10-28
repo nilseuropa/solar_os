@@ -24,6 +24,7 @@ TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
+TARGETS += ssd1677_expansion_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
@@ -295,6 +296,13 @@ epd_uc8279_test: epd_uc8279_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
 		epd_uc8279_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+
+ssd1677_expansion_test: ssd1677_expansion_test.c $(ROOT)/src/services/solar_os_ssd1677.c \
+        $(ROOT)/src/services/solar_os_ssd1677_driver.c $(ROOT)/src/drivers/epd_ssd1677.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib ssd1677_expansion_test.c -o $@
 
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h

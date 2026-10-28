@@ -556,6 +556,70 @@ static void test_startup_profile(void)
     }
 }
 
+static void test_mono_raster(void)
+{
+    const u8g2_cb_t *rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
+    const uint8_t bitmap[] = {0xf5, 0xee, 0xea, 0xdd};
+    uint8_t expected[SSD1677_BUFFER_BYTES];
+    for (unsigned r = 0; r < 4; r++) {
+        epd_ssd1677_t d;
+        epd_ssd1677_config_t config = {
+            .spi_bus = "spi0", .spi_host = SPI2_HOST,
+            .cs_pin = 10, .dc_pin = 9, .reset_pin = 46,
+            .busy_pin = 3, .power_pin = -1, .busy_level = 1,
+            .spi_clock_hz = 20000000, .panel = EPD_SSD1677_PANEL_STICKY,
+            .rotation = rotations[r],
+        };
+        command_count = 0;
+        assert(epd_ssd1677_init(&d, &config) == ESP_OK);
+        u8g2_t reference = d.u8g2;
+        u8g2_SetupBuffer(&reference, expected, SSD1677_TILE_HEIGHT,
+            u8g2_ll_hvline_vertical_top_lsb, rotations[r]);
+        for (unsigned inverted = 0; inverted < 2; inverted++) {
+            const unsigned x = inverted ? u8g2_GetDisplayWidth(&d.u8g2) - 5U : 3U;
+            const unsigned y = inverted ? u8g2_GetDisplayHeight(&d.u8g2) - 2U : 9U;
+            memset(expected, inverted ? 0 : 0xff, sizeof(expected));
+            for (unsigned row = 0; row < 2; row++) {
+                for (unsigned column = 0; column < 5; column++) {
+                    const bool black = (bitmap[row * 2U] & (1U << column)) != 0;
+                    u8g2_SetDrawColor(&reference, black == (bool)inverted);
+                    u8g2_DrawPixel(&reference, x + column, y + row);
+                }
+            }
+            command_count = 0;
+            busy_panel_lock = d.lock;
+            assert(epd_ssd1677_present_mono_xbm(&d, bitmap, sizeof(bitmap),
+                x, y, 5, 2, 2, inverted) == ESP_OK);
+            busy_panel_lock = NULL;
+            assert(!command_count && memcmp(d.buffer, expected, sizeof(expected)) == 0);
+            assert(memcmp(d.scan_worker.latest, expected, sizeof(expected)) == 0);
+            assert(worker_tick(&d.scan_worker) == ESP_OK);
+            assert(memcmp(d.shadow, expected, sizeof(expected)) == 0);
+        }
+        command_count = 0;
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 3, 0, 0, 5, 2, 2, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 9, 2, 1, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 5, 2, 0, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 0, 2, 2, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 5, 0, 2, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, UINT16_MAX, 0, 5, 2, 2, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, UINT16_MAX, 5, 2, 2, false) == ESP_ERR_INVALID_ARG);
+        assert(epd_ssd1677_present_mono_xbm(&d, NULL, 4, 0, 0, 5, 2, 2, false) == ESP_ERR_INVALID_ARG);
+        const u8g2_cb_t unsupported = *U8G2_R0;
+        d.u8g2.cb = &unsupported;
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 5, 2, 2, false) == ESP_ERR_NOT_SUPPORTED);
+        d.u8g2.cb = rotations[r];
+        d.power_state_present = true;
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 5, 2, 2, false) == ESP_ERR_INVALID_STATE);
+        d.power_state_present = false;
+        d.suspended = true;
+        assert(epd_ssd1677_present_mono_xbm(&d, bitmap, 4, 0, 0, 5, 2, 2, false) == ESP_ERR_INVALID_STATE);
+        d.suspended = false;
+        assert(!command_count && memcmp(d.buffer, expected, sizeof(expected)) == 0);
+        epd_ssd1677_deinit(&d);
+    }
+}
+
 int main(void)
 {
     test_initial_full();
@@ -572,6 +636,7 @@ int main(void)
     test_pulse_window_clears_previous_mask();
     test_pulse_byte_diff_coordinates();
     test_startup_profile();
+    test_mono_raster();
     puts("epd_ssd1677_test: PASS");
     return 0;
 }

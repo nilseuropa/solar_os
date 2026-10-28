@@ -216,6 +216,8 @@ esp_err_t solar_os_bus_i2c_receive(const char *, uint8_t, uint8_t *, size_t);
         devices = {device["name"]: device for device in board["devices"]}
         self.assertEqual(devices["display0"]["bindings"]["panel"], 1)
         self.assertEqual(devices["display0"]["bindings"]["clock"], 20000)
+        self.assertIn("streaming_display", board["build"]["capabilities"])
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ"], "20000000")
         self.assertEqual((buses["i2c0"]["sda"], buses["i2c0"]["scl"]), (1, 0))
         self.assertEqual((buses["i2c1"]["sda"], buses["i2c1"]["scl"]), (3, 2))
         self.assertEqual(devices["touch0"]["bindings"]["i2c"], "i2c1")

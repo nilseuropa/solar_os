@@ -102,6 +102,9 @@ esp_err_t epd_ssd1677_present_power_state(epd_ssd1677_t *display);
 void epd_ssd1677_deinit(epd_ssd1677_t *display);
 esp_err_t epd_ssd1677_relax(epd_ssd1677_t *display, solar_os_display_relax_phase_t phase);
 u8g2_t *epd_ssd1677_get_u8g2(epd_ssd1677_t *display);
+esp_err_t epd_ssd1677_present_mono_xbm(epd_ssd1677_t *display,
+    const uint8_t *bitmap, size_t bitmap_size, uint16_t x, uint16_t y,
+    uint16_t width, uint16_t height, uint16_t stride, bool palette_inverted);
 const char *epd_ssd1677_controller_mode(const epd_ssd1677_t *display);
 const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *display);
 esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *display,
