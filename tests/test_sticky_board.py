@@ -90,14 +90,21 @@ int main(void) {
                 "-I", str(ROOT / "src/drivers"), str(path), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
-    def test_up_hold_consumes_release_and_down_stays_an_arrow(self):
+    def test_button_holds_pair_or_exit_and_consume_release(self):
         board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
         source = (ROOT / "tests/host/buttons_test.c").read_text().split("int main(void)", 1)[0]
+        source += '#include "solar_os_board.h"\n'
         source += r'''
-static unsigned pairings;
-static bool pair_button(gpio_num_t pin, void *user) {
-    assert(pin == 5 && user == &pairings); pairings++; return true;
+static unsigned pairings, exits;
+static solar_os_input_source_t key_source;
+static void handle_key_pairing(void) { pairings++; }
+static void handle_key_input(uint8_t key) {
+    assert(key == SOLAR_OS_KEY_APP_EXIT); exits++;
+    assert(solar_os_input_write_char(key_source, (char)key) == ESP_OK);
 }
+'''
+        source += production_functions((ROOT / "src/main.c").read_text(), ("board_button_long_press",))
+        source += r'''
 static void poll_after(unsigned ms) { now_us += ms * 1000ULL; solar_os_buttons_poll(); }
 static void press(int pin) { levels[pin] = 0; poll_after(1); poll_after(25); }
 static void release(int pin) { levels[pin] = 1; poll_after(1); poll_after(25); }
@@ -109,8 +116,9 @@ static void expect_arrow(uint8_t key) {
 }
 int main(void) {
     assert(solar_os_input_init() == ESP_OK);
+    assert(solar_os_input_key_source_open("key", SOLAR_OS_INPUT_SOURCE_BUTTONS, &key_source) == ESP_OK);
     levels[5] = 0; levels[6] = 1;
-    solar_os_buttons_set_long_press_handler(pair_button, &pairings);
+    solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
     assert(solar_os_buttons_init() == ESP_OK);
     poll_after(5000); expect_no_events(); assert(pairings == 0);
     release(5); expect_no_events();
@@ -121,6 +129,11 @@ int main(void) {
     poll_after(5000); assert(pairings == 1);
     release(5); expect_no_events();
     press(6); poll_after(100); release(6); expect_arrow(SOLAR_OS_KEY_DOWN);
+    press(6); poll_after(1999); expect_no_events(); assert(exits == 0);
+    poll_after(1); expect_arrow(SOLAR_OS_KEY_APP_EXIT); assert(exits == 1);
+    poll_after(5000); expect_no_events(); assert(exits == 1);
+    release(6); expect_no_events();
+    press(6); poll_after(100); release(6); expect_arrow(SOLAR_OS_KEY_DOWN);
     press(5); poll_after(100); release(5); expect_arrow(SOLAR_OS_KEY_UP);
     assert(pairings == 1);
     return 0;
@@ -129,7 +142,8 @@ int main(void) {
         with tempfile.TemporaryDirectory() as tmp:
             definitions = re.sub(r"GPIO_NUM_(\d+)", r"\1", board["defines"]["SOLAR_OS_BOARD_BUTTONS"])
             Path(tmp, "solar_os_board.h").write_text('#pragma once\n#include "solar_os_keys.h"\n'
-                '#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n#define SOLAR_OS_BOARD_BUTTONS ' + definitions + '\n')
+                '#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n#define SOLAR_OS_BOARD_PIN_BLE_PAIR 5\n'
+                '#define SOLAR_OS_BOARD_PIN_APP_EXIT 6\n#define SOLAR_OS_BOARD_BUTTONS ' + definitions + '\n')
             path, binary = Path(tmp, "buttons.c"), Path(tmp, "buttons")
             path.write_text(source)
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",

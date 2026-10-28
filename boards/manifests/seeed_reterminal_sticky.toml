@@ -78,7 +78,8 @@ SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_4"
 SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SLEEP"
 SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN"
 SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_5"
-SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
+SOLAR_OS_BOARD_PIN_APP_EXIT = "GPIO_NUM_6"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}}'
 SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
 SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
@@ -207,7 +208,7 @@ role = "UP button / hold for BLE pairing"
 [[pins]]
 gpio = 6
 policy = "fixed"
-role = "DOWN button"
+role = "DOWN button / hold for app exit"
 [[pins]]
 gpio = 8
 policy = "fixed"

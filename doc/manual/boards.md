@@ -1368,7 +1368,7 @@ Seeed hardware overview:
 
 - E-paper: SCK GPIO13, MOSI GPIO14, CS GPIO15, DC GPIO16, RST GPIO17, BUSY GPIO18, EN GPIO47
 - Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42; 180-degree panel alignment before display rotation.
-- Buttons: AI/Power GPIO4 (tap: light sleep/wake, hold: shutdown), Up GPIO5 (tap: Up arrow, hold for two seconds: BLE pairing), Down GPIO6 (tap: Down arrow); all active-low.
+- Buttons: AI/Power GPIO4 (tap: light sleep/wake, hold: shutdown), Up GPIO5 (tap: Up arrow, hold for two seconds: BLE pairing), Down GPIO6 (tap: Down arrow, hold for two seconds: app exit); all active-low.
 - Power: PWR_HOLD GPIO45, PWR_LOCK GPIO46
 - Console: UART0 GPIO43/44 (CH343 USB-C bridge), DIO flash
 - Sensor I2C: SCL GPIO0, SDA GPIO1; PCF8563 RTC at `0x51`, SHT40 at `0x44`, BQ27220 at `0x55`

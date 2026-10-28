@@ -1279,16 +1279,6 @@ static void handle_key_pairing(void)
 #endif
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
-static bool board_button_long_press(gpio_num_t pin, void *user)
-{
-    (void)user;
-    if (pin != SOLAR_OS_BOARD_PIN_BLE_PAIR) return false;
-    handle_key_pairing();
-    return true;
-}
-#endif
-
 static void handle_key_input(uint8_t key)
 {
     const esp_err_t err = solar_os_input_write_char(key_input_source, (char)key);
@@ -1296,6 +1286,27 @@ static void handle_key_input(uint8_t key)
         SOLAR_OS_LOGW(TAG, "KEY input failed: %s", esp_err_to_name(err));
     }
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+static bool board_button_long_press(gpio_num_t pin, void *user)
+{
+    (void)user;
+#ifdef SOLAR_OS_BOARD_PIN_BLE_PAIR
+    if (pin == SOLAR_OS_BOARD_PIN_BLE_PAIR) {
+        handle_key_pairing();
+        return true;
+    }
+#endif
+#ifdef SOLAR_OS_BOARD_PIN_APP_EXIT
+    if (pin == SOLAR_OS_BOARD_PIN_APP_EXIT) {
+        handle_key_input(SOLAR_OS_KEY_APP_EXIT);
+        return true;
+    }
+#endif
+    return false;
+}
+#endif
 
 static void handle_key_action(solar_os_power_key_action_t action, const char *reason)
 {
@@ -2152,7 +2163,8 @@ void app_main(void)
     solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
-#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && defined(SOLAR_OS_BOARD_PIN_BLE_PAIR)
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
     solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
 #endif
 
