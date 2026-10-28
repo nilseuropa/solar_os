@@ -18,6 +18,7 @@ static int checked_semaphore_take(SemaphoreHandle_t semaphore, unsigned timeout)
 typedef struct {
     uint8_t command;
     size_t length;
+    size_t transfers;
     uint8_t data[SSD1677_BUFFER_BYTES];
 } captured_command_t;
 
@@ -90,7 +91,7 @@ static esp_err_t worker_tick(epd_scan_worker_t *w)
 }
 
 static uint8_t frame[SSD1677_BUFFER_BYTES], shadow[SSD1677_BUFFER_BYTES];
-static uint8_t line[SSD1677_PANEL_ROW_BYTES];
+static uint8_t line[SSD1677_TRANSFER_BYTES];
 static StaticSemaphore_t panel_lock;
 
 void vTaskDelay(TickType_t ticks)
@@ -128,6 +129,7 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t device, spi_transactio
     } else {
         assert(command_count > 0);
         captured_command_t *command = &commands[command_count - 1U];
+        ++command->transfers;
         assert(command->length + length <= sizeof(command->data));
         memcpy(command->data + command->length, data, length);
         command->length += length;
@@ -199,6 +201,8 @@ static void test_initial_full(void)
     const captured_command_t *current = find_command(0x24, 0);
     const captured_command_t *baseline = find_command(0x26, 0);
     assert(current->length == sizeof(frame) && baseline->length == sizeof(frame));
+    assert(current->transfers == SSD1677_HEIGHT / 8U);
+    assert(baseline->transfers == SSD1677_HEIGHT / 8U);
     assert(current->data[0] == 0x7f && current->data[99] == 0xfe);
     assert(current->data[sizeof(frame) - 1U] == 0xfe);
     for (size_t i = 0; i < sizeof(frame); i++) {
@@ -679,8 +683,53 @@ static void test_packed_mono_raster(void)
     }
 }
 
+static void test_packed_plane_upload(void)
+{
+    epd_ssd1677_t d = make_display();
+    uint32_t random = 0x84334797U;
+    for (size_t i = 0; i < sizeof(frame); i++) {
+        random = random * 1664525U + 1013904223U;
+        frame[i] = random >> 24U;
+    }
+    const ssd1677_window_t windows[] = {
+        {0,99,0,479}, {0,0,0,0}, {99,99,479,479}, {3,17,3,21},
+        {2,88,7,8}, {4,33,8,23}, {11,62,1,477},
+    };
+    uint8_t guarded[SSD1677_TRANSFER_BYTES + 16U];
+    for (unsigned capacity = SSD1677_PANEL_ROW_BYTES;
+         capacity <= SSD1677_TRANSFER_BYTES; capacity *= 2U) {
+        for (unsigned w = 0; w < sizeof(windows) / sizeof(windows[0]); w++) {
+            for (unsigned inverted = 0; inverted < 2; inverted++) {
+                memset(guarded, 0xa5, sizeof(guarded));
+                d.line_buffer = guarded + 8U;
+                d.line_buffer_size = capacity;
+                command_count = 0;
+                const ssd1677_window_t *window = &windows[w];
+                assert(ssd1677_write_plane(&d, 0x24, frame, window, inverted) == ESP_OK);
+                const captured_command_t *plane = find_command(0x24, 0);
+                const unsigned stride = window->x_end_byte - window->x_start_byte + 1U;
+                assert(plane->length == stride * (window->y_end - window->y_start + 1U));
+                for (unsigned y = window->y_start; y <= window->y_end; y++) {
+                    for (unsigned x = window->x_start_byte * 8U;
+                         x < (window->x_end_byte + 1U) * 8U; x++) {
+                        const unsigned expected =
+                            ((frame[(y / 8U) * SSD1677_WIDTH + x] >> (y & 7U)) & 1U) ^ inverted;
+                        const unsigned index = (y - window->y_start) * stride + x / 8U - window->x_start_byte;
+                        assert(((plane->data[index] >> (7U - (x & 7U))) & 1U) == expected);
+                    }
+                }
+                for (unsigned i = 0; i < 8U; i++) {
+                    assert(guarded[i] == 0xa5);
+                    assert(guarded[capacity + 8U + i] == 0xa5);
+                }
+            }
+        }
+    }
+}
+
 int main(void)
 {
+    test_packed_plane_upload();
     test_initial_full();
     test_partial_and_cleanup();
     test_generic_preserves_native_sequence();

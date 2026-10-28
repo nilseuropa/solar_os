@@ -22,6 +22,7 @@
 #define SSD1677_BUFFER_ROW_BYTES (SSD1677_TILE_WIDTH * 8U)
 #define SSD1677_BUFFER_BYTES (SSD1677_BUFFER_ROW_BYTES * SSD1677_TILE_HEIGHT)
 #define SSD1677_PANEL_ROW_BYTES (SSD1677_WIDTH / 8U)
+#define SSD1677_TRANSFER_BYTES (SSD1677_PANEL_ROW_BYTES * 8U)
 #define SSD1677_BUSY_TIMEOUT_MS 30000U
 #define SSD1677_AUTO_FULL_INTERVAL 20U
 
@@ -30,6 +31,8 @@ static const char *TAG = "epd_ssd1677";
 
 static esp_err_t scan_process(void *context, const uint8_t *source,
                               bool fresh, bool *pending, bool *scanned);
+static uint8_t reverse_byte(uint8_t value);
+static void transpose_block(uint32_t *low, uint32_t *high);
 
 static void scan_accepting(epd_ssd1677_t *d)
 {
@@ -291,23 +294,25 @@ static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
     return ESP_OK;
 }
 
-static void ssd1677_convert_row(epd_ssd1677_t *display,
-                                const uint8_t *source,
-                                uint16_t y, size_t first_byte, size_t end_byte)
+static void ssd1677_convert_rows(epd_ssd1677_t *display,
+    const uint8_t *source, unsigned y, unsigned rows,
+    size_t first_byte, size_t end_byte, bool invert)
 {
-    const uint8_t row_bit = (uint8_t)(1U << (y & 7U));
-    const uint8_t *tile_row = source +
-        (size_t)(y >> 3) * SSD1677_BUFFER_ROW_BYTES;
+    const uint8_t *tile_row = source + (y / 8U) * SSD1677_BUFFER_ROW_BYTES;
+    const size_t stride = end_byte - first_byte + 1U;
     for (size_t byte = first_byte; byte <= end_byte; byte++) {
-        uint8_t panel_pixels = 0;
         const uint8_t *columns = tile_row + byte * 8U;
-        for (unsigned bit = 0; bit < 8U; bit++) {
-            if ((columns[bit] & row_bit) != 0) {
-                panel_pixels |= (uint8_t)(0x80U >> bit);
-            }
+        uint32_t low, high;
+        memcpy(&low, columns, sizeof(low));
+        memcpy(&high, columns + 4U, sizeof(high));
+        transpose_block(&low, &high);
+        for (unsigned row = 0; row < rows; row++) {
+            const unsigned bit = (y & 7U) + row;
+            const uint8_t pixels = reverse_byte((uint8_t)(
+                (bit < 4U ? low : high) >> ((bit & 3U) * 8U)));
+            display->line_buffer[row * stride + byte - first_byte] =
+                invert ? (uint8_t)~pixels : pixels;
         }
-        /* SolarOS display targets use set bits for white by default. */
-        display->line_buffer[byte] = panel_pixels;
     }
 }
 
@@ -381,17 +386,17 @@ static esp_err_t ssd1677_write_plane(epd_ssd1677_t *display,
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1),
                         TAG, "D/C frame data failed");
     const size_t row_bytes = window->x_end_byte - window->x_start_byte + 1U;
-    for (uint16_t y = window->y_start; y <= window->y_end; y++) {
-        ssd1677_convert_row(display, source, y, window->x_start_byte, window->x_end_byte);
-        if (invert) {
-            for (size_t byte = window->x_start_byte; byte <= window->x_end_byte; byte++) {
-                display->line_buffer[byte] = (uint8_t)~display->line_buffer[byte];
-            }
-        }
-        ESP_RETURN_ON_ERROR(ssd1677_tx_bytes(display,
-                                             display->line_buffer + window->x_start_byte,
-                                             row_bytes),
+    if (display->line_buffer_size < row_bytes) return ESP_ERR_INVALID_SIZE;
+    for (unsigned y = window->y_start; y <= window->y_end;) {
+        unsigned rows = 8U - (y & 7U);
+        if (rows > window->y_end - y + 1U) rows = window->y_end - y + 1U;
+        if (rows > display->line_buffer_size / row_bytes)
+            rows = display->line_buffer_size / row_bytes;
+        ssd1677_convert_rows(display, source, y, rows,
+            window->x_start_byte, window->x_end_byte, invert);
+        ESP_RETURN_ON_ERROR(ssd1677_tx_bytes(display, display->line_buffer, row_bytes * rows),
                             TAG, "frame transmit failed");
+        y += rows;
     }
     return ESP_OK;
 }
@@ -1031,7 +1036,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
             .sclk_io_num = config->sclk_pin,
             .quadwp_io_num = GPIO_NUM_NC,
             .quadhd_io_num = GPIO_NUM_NC,
-            .max_transfer_sz = SSD1677_PANEL_ROW_BYTES,
+            .max_transfer_sz = SSD1677_TRANSFER_BYTES,
         };
         ret = spi_bus_initialize(config->spi_host, &bus_config, SPI_DMA_CH_AUTO);
         if (ret == ESP_OK) {
@@ -1044,7 +1049,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
         return ret;
     }
 
-    display->line_buffer_size = SSD1677_PANEL_ROW_BYTES;
+    display->line_buffer_size = SSD1677_TRANSFER_BYTES;
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     display->buffer_size = SSD1677_BUFFER_BYTES;
