@@ -137,7 +137,8 @@ with directions `north`, `east`, `south`, and `west` and values 0, 90, 180, and
 quarter-turns; these directions stay fixed when the display rotates. Sticky
 uses `rotation=1`. Hold the screen upright and turn it; flat poses do not
 select an orientation. The detector uses a filtered 60-degree threshold and
-does not repeat an unchanged orientation. Single taps wait 650 ms so a double tap
+does not repeat an unchanged orientation. Orientation state is checked every
+50 ms independently of the interrupt pin. Single taps wait 650 ms so a double tap
 produces one double-tap event. Values are 1, or 2 for double-tap. The raw word
 contains WAKE_UP_SRC in bits 0..7, TAP_SRC in bits 8..15, and FUNC_SRC1 in bits
 16..23, and D6D_SRC in bits 24..31. `wake` is a motion event; power behavior requires an explicit binding.

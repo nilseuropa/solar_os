@@ -10,6 +10,7 @@
 #define REG_CTRL10_C 0x19U
 #define REG_CTRL8_XL 0x17U
 #define REG_WAKE_UP_SRC 0x1BU
+#define REG_D6D_SRC 0x1DU
 #define REG_FUNC_SRC1 0x53U
 #define REG_TAP_CFG 0x58U
 #define REG_TAP_THS_6D 0x59U
@@ -152,4 +153,9 @@ esp_err_t lsm6ds3trc_read_events(lsm6ds3trc_t *device, lsm6ds3trc_events_t *even
     *events = (lsm6ds3trc_events_t){.flags=flags, .wake=sources[0], .tap=sources[1],
         .function=function, .orientation=sources[2]};
     return ESP_OK;
+}
+
+esp_err_t lsm6ds3trc_read_orientation(lsm6ds3trc_t *device, uint8_t *source) {
+    if (!valid(device) || !device->gestures_enabled || !source) return ESP_ERR_INVALID_ARG;
+    return device->io.read(device->io.ctx, REG_D6D_SRC, source, 1);
 }

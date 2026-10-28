@@ -48,3 +48,4 @@ esp_err_t lsm6ds3trc_data_ready(lsm6ds3trc_t *device, bool *ready);
 esp_err_t lsm6ds3trc_read_sample(lsm6ds3trc_t *device, lsm6ds3trc_sample_t *sample);
 esp_err_t lsm6ds3trc_enable_gestures(lsm6ds3trc_t *device);
 esp_err_t lsm6ds3trc_read_events(lsm6ds3trc_t *device, lsm6ds3trc_events_t *events);
+esp_err_t lsm6ds3trc_read_orientation(lsm6ds3trc_t *device, uint8_t *source);

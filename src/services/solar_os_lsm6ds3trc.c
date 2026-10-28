@@ -20,6 +20,7 @@
 
 #define LSM6DS3TRC_DEVICE_MAX 2U
 #define LSM6DS3TRC_POLL_MS 10U
+#define LSM6DS3TRC_ORIENTATION_POLL_US 50000ULL
 #define LSM6DS3TRC_TAP_WAIT_US 650000ULL
 #define LSM6DS3TRC_SAMPLE_CAPABILITIES \
     (SOLAR_OS_IMU_CAP_ACCELERATION | SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY)
@@ -34,6 +35,7 @@ typedef struct {
     int irq_pin;
     uint8_t rotation, last_orientation;
     bool orientation_valid;
+    uint64_t next_orientation_at;
     solar_os_input_source_t source;
     TaskHandle_t worker_task;
     uint8_t previous_events;
@@ -86,7 +88,7 @@ static void publish_orientation(lsm6ds3trc_device_t *device, uint8_t source, uin
     }
 }
 
-static void poll_gestures(lsm6ds3trc_device_t *device)
+static void poll_motion_events(lsm6ds3trc_device_t *device)
 {
     const uint64_t now = esp_timer_get_time();
     if (device->tap_pending && now - device->tap_at >= LSM6DS3TRC_TAP_WAIT_US) {
@@ -119,6 +121,19 @@ static void poll_gestures(lsm6ds3trc_device_t *device)
     if (fresh & LSM6DS3TRC_EVENT_TILT) publish_event(device, SOLAR_OS_INPUT_GESTURE_TILT, raw);
     if (fresh & LSM6DS3TRC_EVENT_WAKE) publish_event(device, SOLAR_OS_INPUT_GESTURE_WAKE, raw);
     if (fresh & LSM6DS3TRC_EVENT_FREE_FALL) publish_event(device, SOLAR_OS_INPUT_GESTURE_FREE_FALL, raw);
+}
+
+static void poll_gestures(lsm6ds3trc_device_t *device)
+{
+    poll_motion_events(device);
+    const uint64_t now = esp_timer_get_time();
+    if (now < device->next_orientation_at) return;
+    device->next_orientation_at = now + LSM6DS3TRC_ORIENTATION_POLL_US;
+    uint8_t orientation;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    const esp_err_t ret = lsm6ds3trc_read_orientation(&device->chip, &orientation);
+    xSemaphoreGive(device->mutex);
+    if (ret == ESP_OK) publish_orientation(device, orientation, (uint32_t)orientation << 24U);
 }
 
 static void gesture_worker(void *arg)

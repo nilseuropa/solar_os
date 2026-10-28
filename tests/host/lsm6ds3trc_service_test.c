@@ -157,20 +157,20 @@ int main(void) {
     assert(events[4].flags == SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE);
     poll_events(1,0,0x50,0,10);assert(event_count == 5);
     poll_events(0,0,0,0,700);assert(event_count == 5);
-    const uint8_t positions[] = {0x41, 0x48, 0x42, 0x44};
+    const uint8_t positions[] = {0x01, 0x08, 0x02, 0x04};
     const solar_os_input_gesture_direction_t directions[] = {
         SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
         SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST,
     };
     for (unsigned i = 0; i < 4; i++) {
         registers[0x1d] = positions[i];
-        poll_events(1,0,0,0,10);
+        poll_events(0,0,0,0,50);
         assert(event_count == 6 + i);
         assert(events[5 + i].gesture == SOLAR_OS_INPUT_GESTURE_TILT);
         assert(events[5 + i].direction == directions[i]);
         assert(events[5 + i].value == (int)(i * 90U));
         assert(events[5 + i].raw == (uint32_t)positions[i] << 24U);
-        poll_events(1,0,0,0,10);
+        poll_events(0,0,0,0,50);
         assert(event_count == 6 + i);
     }
     for (unsigned i = 0; i < 3; i++) {
