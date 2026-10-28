@@ -29,6 +29,7 @@ int main(void)
     for (int zoom = 0; zoom <= 4; zoom++) {
         assert(solar_os_doc_layout_build(&layout, &doc, 384, zoom) == ESP_OK);
         assert(layout.line_count > 8000 && layout.run_count > 8000);
+        assert(layout.height > INT16_MAX && layout.lines[layout.line_count - 1].y > INT16_MAX);
         int x, y, height;
         size_t offset;
         assert(solar_os_doc_layout_source_to_xy(&layout, 0, &x, &y, &height));
@@ -37,6 +38,7 @@ int main(void)
         assert(solar_os_doc_layout_source_to_xy(&layout, end, &x, &y, &height));
         assert(y > 0 && height > 0);
     }
+    assert(solar_os_doc_layout_build(&layout, &doc, INT16_MAX + 1, 1) == ESP_ERR_INVALID_ARG);
     const size_t used = doc_test_memory_used();
     doc_test_memory_budget(used);
     assert(solar_os_doc_layout_build(&layout, &doc, 384, 4) == ESP_OK);

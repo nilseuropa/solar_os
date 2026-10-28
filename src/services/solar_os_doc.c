@@ -2887,7 +2887,7 @@ esp_err_t solar_os_doc_layout_build_ex(solar_os_doc_layout_t *layout,
                                        const solar_os_doc_reveal_range_t *reveal_ranges,
                                        size_t reveal_range_count)
 {
-    if (layout == NULL || doc == NULL || width <= 0 ||
+    if (layout == NULL || doc == NULL || width <= 0 || width > INT16_MAX ||
         (reveal_ranges == NULL && reveal_range_count > 0)) {
         return ESP_ERR_INVALID_ARG;
     }

@@ -94,21 +94,21 @@ typedef struct {
 } solar_os_doc_view_t;
 
 typedef struct {
-    int x;
     int y;
-    int width;
-    int height;
-    int baseline;
     size_t block_index;
     size_t run_index;
     size_t text_offset;
     size_t text_len;
     size_t source_start;
     size_t source_end;
-    uint8_t style;
     solar_os_gfx_font_t font;
-    int char_w;
+    int16_t x;
+    int16_t width;
+    int16_t height;
+    int16_t baseline;
+    int16_t char_w;
     uint16_t pixel_size;
+    uint8_t style;
     uint8_t face;
     bool raw_source;
     char literal[8];
@@ -120,16 +120,16 @@ typedef struct {
 } solar_os_doc_reveal_range_t;
 
 typedef struct {
-    int x;
     int y;
-    int width;
-    int height;
-    int baseline;
     size_t block_index;
     size_t run_start;
     size_t run_count;
     size_t source_start;
     size_t source_end;
+    int16_t x;
+    int16_t width;
+    int16_t height;
+    int16_t baseline;
 } solar_os_doc_layout_line_t;
 
 typedef struct {
