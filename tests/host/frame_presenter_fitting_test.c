@@ -29,18 +29,20 @@ static uint16_t display_stack_bytes;
 static bool fail_allocation;
 static bool rgb565_worker;
 static bool rotate_during_present;
+static bool native_view;
 static solar_os_display_raster_t captured;
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
-{ assert(gfx); return display_width; }
+{ assert(gfx); return native_view ? display_width * 2 : display_width; }
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
-{ assert(gfx); return display_height; }
+{ assert(gfx); return native_view ? display_height * 2 : display_height; }
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx, char *name, size_t size)
 { assert(gfx && size >= sizeof("display0")); strcpy(name, "display0"); return true; }
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target)
 {
     assert(!strcmp(name, "display0"));
     *target = (solar_os_display_target_t){
+        .width = display_width, .height = display_height,
         .frame_formats = display_formats, .preferred_stream_fps = 25,
         .presentation_stack_bytes = display_stack_bytes,
     };
@@ -173,6 +175,10 @@ static void check_runtime_rotation(void)
         }
         display_width = 400; display_height = 240;
         assert(frame_refresh_output(p) == ESP_OK);
+        native_view = true;
+        assert(frame_present_current_output(p) == ESP_OK);
+        assert(p->output_width == 320 && p->output_height == 240);
+        native_view = false;
         rotate_during_present = true;
         assert(frame_present_current_output(p) == ESP_OK);
         assert(!rotate_during_present && p->viewport_width == 240 && p->viewport_height == 400);

@@ -447,12 +447,9 @@ static void frame_presenter_worker(void *arg)
     solar_os_task_delete_internal(NULL);
 }
 
-static void frame_choose_output(solar_os_frame_presenter_t *presenter)
+static void frame_choose_output(solar_os_frame_presenter_t *presenter,
+    uint16_t display_width, uint16_t display_height)
 {
-    const uint16_t display_width = (uint16_t)solar_os_gfx_width(
-        presenter->config.gfx);
-    const uint16_t display_height = (uint16_t)solar_os_gfx_height(
-        presenter->config.gfx);
     if (presenter->config.fit == SOLAR_OS_FRAME_FIT_HEIGHT ||
         presenter->config.width > display_width ||
         presenter->config.height > display_height) {
@@ -537,11 +534,12 @@ static esp_err_t frame_prepare_mono_output(
 
 static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
 {
-    const size_t width = solar_os_gfx_width(presenter->config.gfx);
-    const size_t height = solar_os_gfx_height(presenter->config.gfx);
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(presenter->target_name, &target)) return ESP_ERR_NOT_FOUND;
+    const uint16_t width = target.width, height = target.height;
     if (width == presenter->viewport_width && height == presenter->viewport_height)
         return ESP_OK;
-    frame_choose_output(presenter);
+    frame_choose_output(presenter, width, height);
     if (!presenter->output_width || !presenter->output_height ||
         presenter->output_width > width || presenter->output_height > height)
         return ESP_ERR_NOT_SUPPORTED;
@@ -555,17 +553,16 @@ static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
 
 static esp_err_t frame_present_current_output(solar_os_frame_presenter_t *presenter)
 {
-    esp_err_t err;
-    do {
-        const size_t width = solar_os_gfx_width(presenter->config.gfx);
-        const size_t height = solar_os_gfx_height(presenter->config.gfx);
-        err = frame_refresh_output(presenter);
-        if (err == ESP_OK) err = frame_present(presenter);
-        if (err == ESP_OK || presenter->stop_requested) break;
-        if (width == solar_os_gfx_width(presenter->config.gfx) &&
-            height == solar_os_gfx_height(presenter->config.gfx)) break;
-    } while (true);
-    return err;
+    while (true) {
+        esp_err_t err = frame_refresh_output(presenter);
+        if (err != ESP_OK) return err;
+        err = frame_present(presenter);
+        if (err == ESP_OK) return err;
+        solar_os_display_target_t target;
+        if (!solar_os_display_find_target(presenter->target_name, &target) ||
+            (presenter->viewport_width == target.width &&
+             presenter->viewport_height == target.height)) return err;
+    }
 }
 
 esp_err_t solar_os_frame_presenter_init(
@@ -613,10 +610,10 @@ esp_err_t solar_os_frame_presenter_init(
     if (presenter->present_fps == 0U) presenter->present_fps = 25U;
     if (presenter->present_fps > 30U) presenter->present_fps = 30U;
     /* Fit the source before checking whether its output fits the display. */
-    frame_choose_output(presenter);
+    frame_choose_output(presenter, presenter->target.width, presenter->target.height);
     if (presenter->output_width == 0U || presenter->output_height == 0U ||
-        presenter->output_width > solar_os_gfx_width(config->gfx) ||
-        presenter->output_height > solar_os_gfx_height(config->gfx)) {
+        presenter->output_width > presenter->target.width ||
+        presenter->output_height > presenter->target.height) {
         solar_os_memory_free(presenter);
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -663,13 +660,7 @@ esp_err_t solar_os_frame_presenter_resume(
     if (presenter->task != NULL) {
         return ESP_OK;
     }
-    frame_choose_output(presenter);
-    if (presenter->output_width == 0U || presenter->output_height == 0U ||
-        presenter->output_width > solar_os_gfx_width(presenter->config.gfx) ||
-        presenter->output_height > solar_os_gfx_height(presenter->config.gfx)) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    const esp_err_t mono_err = frame_prepare_mono_output(presenter);
+    const esp_err_t mono_err = frame_refresh_output(presenter);
     if (mono_err != ESP_OK) {
         return mono_err;
     }
