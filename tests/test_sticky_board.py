@@ -11,6 +11,85 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StickyBoardTest(unittest.TestCase):
+    def test_touch_landscape_axes_and_scale(self):
+        board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
+        touch = next(device for device in board["devices"] if device["name"] == "touch0")
+        source = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include "solar_os_input.h"
+#include "gt911.h"
+#define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
+typedef struct {
+    bool active, pressed, home_pressed, swap_xy;
+    uint8_t rotation, pointer_id, home_key;
+    uint16_t width, height;
+    int16_t x, y;
+    solar_os_input_source_t source;
+} gt911_device_t;
+static gt911_sample_t sample;
+static solar_os_input_pointer_event_t event;
+static unsigned events;
+static size_t strlcpy(char *out, const char *in, size_t size) {
+    size_t length=strlen(in);assert(length<size);memcpy(out,in,length+1);return length;
+}
+esp_err_t gt911_read(gt911_sample_t *out) { *out=sample; return ESP_OK; }
+esp_err_t solar_os_input_write_pointer(solar_os_input_source_t id, const solar_os_input_pointer_event_t *out) {
+    assert(id==1);event=*out;events++;return ESP_OK;
+}
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t id, uint16_t physical, uint16_t usage, uint8_t key, uint8_t modifiers) {
+    (void)id;(void)physical;(void)usage;(void)key;(void)modifiers;assert(false);return ESP_FAIL;
+}
+'''
+        source += production_functions((ROOT / "src/services/solar_os_gt911.c").read_text(), ("poll_device",))
+        source += production_functions((ROOT / "src/services/solar_os_input.c").read_text(),
+            ("solar_os_input_pointer_apply_orientation", "solar_os_input_pointer_apply_display_transform"))
+        source += r'''
+static solar_os_input_pointer_event_t point(gt911_device_t *device, unsigned x, unsigned y, unsigned scale) {
+    sample=(gt911_sample_t){.valid=true,.touched=true,.x=x,.y=y};
+    unsigned before=events;poll_device(device);assert(events==before+1);
+    solar_os_input_pointer_event_t result=event;
+    assert(!strcmp(result.target,"display0"));
+    assert(solar_os_input_pointer_apply_display_transform(&result,800,480,0,scale)==ESP_OK);
+    return result;
+}
+int main(void) {
+    for(unsigned scale=1;scale<=2;scale++) {
+        gt911_device_t device={.active=true,.source=1,.width=800,.height=480,
+            .rotation=TOUCH_ROTATION,.swap_xy=TOUCH_SWAP_XY};
+        solar_os_input_pointer_event_t right=point(&device,240,100,scale);
+        solar_os_input_pointer_event_t left=point(&device,240,700,scale);
+        assert(left.x<right.x && left.y==right.y && left.delta_x<0 && left.delta_y==0);
+        solar_os_input_pointer_event_t top=point(&device,400,400,scale);
+        solar_os_input_pointer_event_t bottom=point(&device,100,400,scale);
+        assert(bottom.x==top.x && bottom.y>top.y && bottom.delta_x==0 && bottom.delta_y>0);
+        solar_os_input_pointer_event_t corner=point(&device,0,0,scale);
+        assert(corner.x==(int)(799/scale) && corner.y==(int)(479/scale));
+        corner=point(&device,479,799,scale);
+        assert(corner.x==0 && corner.y==0);
+        unsigned before=events;sample.x=480;poll_device(&device);assert(events==before);
+        sample.x=479;sample.y=800;poll_device(&device);assert(events==before);
+        sample=(gt911_sample_t){.valid=true};poll_device(&device);
+        assert(events==before+1 && event.action==SOLAR_OS_INPUT_POINTER_RELEASE);
+    }
+    gt911_device_t generic={.active=true,.source=1,.width=800,.height=480};
+    solar_os_input_pointer_event_t unchanged=point(&generic,799,479,1);
+    assert(unchanged.x==799 && unchanged.y==479);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            path, binary = Path(tmp, "touch.c"), Path(tmp, "touch")
+            path.write_text(source)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", f'-DTOUCH_ROTATION={touch["bindings"]["rotation"]}',
+                f'-DTOUCH_SWAP_XY={touch["bindings"].get("swap_xy", 0)}',
+                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "src/drivers"), str(path), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_up_hold_consumes_release_and_down_stays_an_arrow(self):
         board = tomllib.loads((ROOT / "boards/manifests/seeed_reterminal_sticky.toml").read_text())
         source = (ROOT / "tests/host/buttons_test.c").read_text().split("int main(void)", 1)[0]

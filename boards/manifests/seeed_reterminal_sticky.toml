@@ -143,7 +143,7 @@ bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, 
 [[devices]]
 driver = "gt911"
 name = "touch0"
-bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 2 }
+bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 2, swap_xy = 1 }
 
 [[devices]]
 driver = "pcf8563"

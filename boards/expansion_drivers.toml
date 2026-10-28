@@ -1664,6 +1664,13 @@ hint = "key"
 min = 0
 max = 255
 
+[[drivers.gt911.bindings]]
+key = "swap_xy"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.pcf85063]
 summary = "I2C real-time clock"
 package = "driver_pcf85063"

@@ -1397,6 +1397,7 @@ worker snapshots). Optical contrast and ghosting depend on the panel.
 Returning to a native mode releases the pulse buffers, snapshots, and worker.
 `pulse-scan=sync` releases the asynchronous worker and its snapshots.
 The native framebuffer prefers PSRAM; SPI DMA staging stays in internal SRAM.
+Touch swaps the GT911 axes before its 180-degree board rotation to match landscape.
 The direct MONO1 frame presenter supports scaled animation and games at a preferred
 10 presentations per second. Pulse settling continues asynchronously.
 
