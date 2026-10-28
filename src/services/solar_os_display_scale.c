@@ -276,15 +276,21 @@ esp_err_t solar_os_display_scale_bitmap(solar_os_display_scale_t *state,
     const solar_os_display_raster_t *source, solar_os_display_raster_t *output)
 {
     if (source->data == NULL || source->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
-        source->source_width != source->width || source->source_height != source->height ||
+        source->source_width == 0U || source->source_height == 0U ||
         source->width == 0U || source->height == 0U ||
-        source->source_stride < (source->width + 7U) / 8U ||
-        source->data_size < (size_t)source->source_stride * source->height ||
+        source->source_stride < (source->source_width + 7U) / 8U ||
+        source->source_height > SIZE_MAX / source->source_stride ||
+        source->data_size < (size_t)source->source_stride * source->source_height ||
         (uint32_t)source->x + source->width > u8g2_GetDisplayWidth(state->canvas) ||
         (uint32_t)source->y + source->height > u8g2_GetDisplayHeight(state->canvas))
         return ESP_ERR_INVALID_ARG;
-    esp_err_t ret = solar_os_display_scale_raster(state, source, output);
-    if (ret != ESP_OK || state->factor == 1U) return ret;
+    solar_os_display_raster_t geometry = *source;
+    geometry.source_width = source->width;
+    geometry.source_height = source->height;
+    esp_err_t ret = solar_os_display_scale_raster(state, &geometry, output);
+    if (ret != ESP_OK) return ret;
+    if (state->factor == 1U && source->source_width == source->width &&
+        source->source_height == source->height) return ESP_OK;
     const size_t stride = (output->width + 7U) / 8U;
     const size_t bytes = stride * output->height;
     if (bytes > state->raster_capacity) {
@@ -296,10 +302,27 @@ esp_err_t solar_os_display_scale_bitmap(solar_os_display_scale_t *state,
     }
     memset(state->raster_buffer, 0, bytes);
     for (unsigned y = 0; y < output->height; y++) {
-        const uint8_t *row = source->data + (y / state->factor) * source->source_stride;
+        const unsigned sy = (uint32_t)y * source->source_height / output->height;
+        const uint8_t *row = source->data + (size_t)sy * source->source_stride;
         uint8_t *out = state->raster_buffer + (size_t)y * stride;
+        if (y && sy == (uint32_t)(y - 1U) * source->source_height / output->height) {
+            memcpy(out, out - stride, stride);
+            continue;
+        }
+        if (state->factor > 1U && output->width == source->source_width * state->factor) {
+            const unsigned source_bytes = (source->source_width + 7U) / 8U;
+            for (unsigned i = 0; i < source_bytes; i++) {
+                const uint32_t bits = expand_byte(row[i], state->factor);
+                for (unsigned part = 0; part < state->factor; part++) {
+                    const unsigned byte = i * state->factor + part;
+                    if (byte < stride) out[byte] = (uint8_t)(bits >> (part * 8U));
+                }
+            }
+            if (output->width & 7U) out[stride - 1U] &= (1U << (output->width & 7U)) - 1U;
+            continue;
+        }
         for (unsigned x = 0; x < output->width; x++) {
-            const unsigned sx = x / state->factor;
+            const unsigned sx = (uint32_t)x * source->source_width / output->width;
             if (row[sx / 8U] & (1U << (sx & 7U))) out[x / 8U] |= (uint8_t)(1U << (x & 7U));
         }
     }

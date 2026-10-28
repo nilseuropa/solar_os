@@ -1943,7 +1943,9 @@ esp_err_t solar_os_display_present_frame(
     }
     solar_os_display_raster_t physical_frame;
     display_target_slot_t *scaled_slot = &display_targets[slot_index];
-    esp_err_t ret = solar_os_display_scale_raster(&scaled_slot->scale, frame, &physical_frame);
+    esp_err_t ret = frame->format == SOLAR_OS_DISPLAY_FORMAT_MONO1 ?
+        solar_os_display_scale_bitmap(&scaled_slot->scale, frame, &physical_frame) :
+        solar_os_display_scale_raster(&scaled_slot->scale, frame, &physical_frame);
     solar_os_display_scale_begin_native(&scaled_slot->scale);
     if (ret == ESP_OK) ret = presenter(frame_context, &physical_frame);
     if (ret == ESP_OK) display_publish_rgb_frame(u8g2, &physical_frame);

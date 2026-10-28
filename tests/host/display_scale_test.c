@@ -167,7 +167,7 @@ static void exercise(unsigned width, unsigned height)
     }
     solar_os_memory_free(state.raster_buffer);
     state.raster_buffer=NULL;state.raster_capacity=0;
-    for (unsigned factor=2;factor<=4;factor++) {
+    for (unsigned factor=1;factor<=4;factor++) {
         assert(solar_os_display_scale_prepare(&state,factor)==ESP_OK);
         solar_os_display_scale_apply(&state,factor);
         for(unsigned rotation=0;rotation<4;rotation++) {
@@ -176,14 +176,24 @@ static void exercise(unsigned width, unsigned height)
             solar_os_display_raster_t raster={.data=bitmap,.data_size=sizeof(bitmap),
                 .source_width=7,.source_height=3,.source_stride=2,.x=1,.y=2,
                 .width=7,.height=3,.format=SOLAR_OS_DISPLAY_FORMAT_MONO1}, enlarged;
-            fail_allocation=true;
-            assert(solar_os_display_scale_bitmap(&state,&raster,&enlarged)==ESP_ERR_NO_MEM);
-            fail_allocation=false;
+            if (factor > 1U) {
+                fail_allocation=true;
+                assert(solar_os_display_scale_bitmap(&state,&raster,&enlarged)==ESP_ERR_NO_MEM);
+                fail_allocation=false;
+            }
             assert(solar_os_display_scale_bitmap(&state,&raster,&enlarged)==ESP_OK);
             assert(enlarged.source_width==7*factor && enlarged.source_height==3*factor);
             for(unsigned y=0;y<enlarged.height;y++)for(unsigned x=0;x<enlarged.width;x++)
                 assert(((enlarged.data[y*enlarged.source_stride+x/8]>>(x%8))&1U)==
                     ((bitmap[(y/factor)*2]>>(x/factor))&1U));
+            raster.width=5; raster.height=7;
+            assert(solar_os_display_scale_bitmap(&state,&raster,&enlarged)==ESP_OK);
+            assert(enlarged.source_width==5*factor && enlarged.source_height==7*factor);
+            for(unsigned y=0;y<enlarged.height;y++)for(unsigned x=0;x<enlarged.width;x++) {
+                unsigned sx=x*7U/enlarged.width,sy=y*3U/enlarged.height;
+                assert(((enlarged.data[y*enlarged.source_stride+x/8]>>(x%8))&1U)==
+                    ((bitmap[sy*2]>>sx)&1U));
+            }
             raster.data_size=1;
             assert(solar_os_display_scale_bitmap(&state,&raster,&enlarged)==ESP_ERR_INVALID_ARG);
             solar_os_memory_free(state.raster_buffer);
