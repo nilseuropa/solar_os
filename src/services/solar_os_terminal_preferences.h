@@ -7,6 +7,8 @@ void solar_os_terminal_profile_load_preferences(solar_os_terminal_profile_t *pro
 uint8_t solar_os_terminal_profile_load_scale(const char *display);
 esp_err_t solar_os_terminal_profile_save_scale(const char *display, uint8_t scale);
 esp_err_t solar_os_terminal_profile_save_orientation(uint16_t degrees);
+uint16_t solar_os_terminal_profile_load_display_orientation(const char *display, uint16_t fallback);
+esp_err_t solar_os_terminal_profile_save_display_orientation(const char *display, uint16_t degrees);
 esp_err_t solar_os_terminal_profile_save_font(solar_os_terminal_font_t font);
 esp_err_t solar_os_terminal_profile_save_text_size(
     solar_os_terminal_text_size_t text_size);

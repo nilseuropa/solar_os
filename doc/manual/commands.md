@@ -285,6 +285,8 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
+| `display` | `display orientation <target> [0\|90\|180\|270] [--temporary]` | Show or change orientation for text, graphics and touch. Changes are saved in NVS unless `--temporary` is supplied. |
+| `display` | `display scale <target> [1..4]` | Show or change integer pixel scaling for the display and save it in NVS. |
 | `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -332,9 +334,9 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; scale is persistent, other targeted settings are volatile. |
-| `setterm` | `setterm scale [1..4]` | Set integer pixel scaling for the display, including text, graphics and touch coordinates. |
-| `setterm` | `setterm orientation [0\|90\|180\|270]` | Show or set primary-display orientation. |
+| `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
+| `setterm` | `setterm scale [1..4]` | Alias for `display scale` on the current display, or `display0` from a port shell. |
+| `setterm` | `setterm orientation [0\|90\|180\|270] [--temporary]` | Alias for `display orientation` on the current display, or `display0` from a port shell. |
 | `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
@@ -674,7 +676,7 @@ them from a port shell. `profile` controls terminal escape sequences;
 `charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
 drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
 blocks, arrows, and punctuation are replaced with readable ASCII characters.
-Display layout settings (`orientation`, `font`, `textsize`, `palette`, and
+Terminal settings (`font`, `textsize`, `palette`, and
 `statusbar`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
@@ -693,9 +695,9 @@ owns that display. The target profile uses global defaults and the scale saved
 for that display name. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
 mounting even when their drivers use different U8g2 rotations. Display-targeted
-absolute pointer coordinates follow this logical orientation. Except for
-`scale`, targeted changes apply to current and future sessions until reboot
-or display removal and do not change saved preferences. Without a setting,
+absolute pointer coordinates follow this logical orientation. Orientation and
+scale are saved per display and restored after reboot. Other targeted changes
+apply to current and future sessions until reboot or display removal. Without a setting,
 the command prints the target's complete profile. For example:
 
 ```text
@@ -704,7 +706,13 @@ setterm --display oled0 textsize 10
 setterm --display oled0 palette inverted
 ```
 
-`setterm scale` shows the display's integer pixel scale. Values `1` through
+`display orientation display0 90` rotates the shell, running graphical apps
+and touch coordinates together. Shell output, history and unfinished input are
+preserved. Use `--temporary` for live changes such as IMU auto-rotation without
+changing the saved preference. `setterm orientation` and the settings TUI use
+the same display operations and retain existing saved settings.
+
+`display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
 spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
 a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
@@ -712,10 +720,10 @@ uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
 Touch coordinates follow the same scale and orientation.
 
 Scale is saved separately for each display name, including changes made with
-`setterm --display display0 scale 2`. Close graphical applications, dismiss
+`display scale display0 2` and the `setterm scale` alias. Close graphical applications, dismiss
 display overlays, and remove layouts using that target before changing scale.
 Text and graphical applications
-opened afterward use the new logical dimensions. Use `setterm scale 1` to
+opened afterward use the new logical dimensions. Use `display scale display0 1` to
 return to native resolution. External VT100 terminal geometry is unchanged.
 
 Text size `8` selects a fixed bitmap face with 6×8 pixel cells for both font

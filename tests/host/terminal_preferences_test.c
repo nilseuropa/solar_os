@@ -23,6 +23,9 @@ static stored_value_t stored_values[] = {
 static unsigned commit_count;
 static uint8_t display_scales[2];
 static esp_err_t scale_write_error;
+static uint16_t display_orientations[2];
+static bool orientation_present[2];
+static esp_err_t orientation_write_error;
 
 static stored_value_t *find_value(const char *key)
 {
@@ -36,14 +39,19 @@ static stored_value_t *find_value(const char *key)
 
 esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
 {
-    assert(strcmp(name, "terminal") == 0 || strcmp(name, "display_scale") == 0);
+    assert(strcmp(name, "terminal") == 0 || strcmp(name, "display_scale") == 0 || !strcmp(name,"display_orient"));
     (void)mode;
-    *handle = strcmp(name, "terminal") == 0 ? 1 : 2;
+    *handle = strcmp(name, "terminal") == 0 ? 1 : !strcmp(name,"display_scale") ? 2 : 3;
     return ESP_OK;
 }
 
 esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *value)
 {
+    if (handle == 3) {
+        const unsigned index = !strcmp(key,"lcd0");
+        if (!orientation_present[index]) return ESP_ERR_NVS_NOT_FOUND;
+        *value=display_orientations[index];return ESP_OK;
+    }
     assert(handle == 1);
     stored_value_t *stored = find_value(key);
     if (stored == NULL || !stored->present) {
@@ -55,6 +63,11 @@ esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *value)
 
 esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value)
 {
+    if (orientation_write_error != ESP_OK) return orientation_write_error;
+    if (handle == 3) {
+        const unsigned index = !strcmp(key,"lcd0");
+        orientation_present[index]=true;display_orientations[index]=value;return ESP_OK;
+    }
     assert(handle == 1);
     stored_value_t *stored = find_value(key);
     assert(stored != NULL);
@@ -65,14 +78,14 @@ esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value)
 
 esp_err_t nvs_commit(nvs_handle_t handle)
 {
-    assert(handle == 1 || handle == 2);
+    assert(handle >= 1 && handle <= 3);
     commit_count++;
     return ESP_OK;
 }
 
 void nvs_close(nvs_handle_t handle)
 {
-    assert(handle == 1 || handle == 2);
+    assert(handle >= 1 && handle <= 3);
 }
 
 esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value)
@@ -158,5 +171,26 @@ int main(void)
     assert(solar_os_terminal_profile_save_scale("abcdefghijklmnop",2)==ESP_ERR_INVALID_ARG);
     display_scales[0]=99;
     assert(solar_os_terminal_profile_load_scale("display0")==1);
+    assert(solar_os_terminal_profile_load_display_orientation("display0",0)==0);
+    assert(solar_os_terminal_profile_save_display_orientation("display0",270)==ESP_OK);
+    assert(find_value("orientation")->value==270);
+    solar_os_terminal_profile_load_preferences(&profile);
+    assert(profile.orientation_degrees==270);
+    assert(solar_os_terminal_profile_load_display_orientation("oled0",0)==0);
+    assert(solar_os_terminal_profile_save_display_orientation("oled0",90)==ESP_OK);
+    assert(solar_os_terminal_profile_save_display_orientation("lcd0",180)==ESP_OK);
+    assert(solar_os_terminal_profile_load_display_orientation("oled0",0)==90);
+    assert(solar_os_terminal_profile_load_display_orientation("lcd0",0)==180);
+    assert(solar_os_terminal_profile_load_display_orientation("display0",0)==270);
+    commits=commit_count;
+    assert(solar_os_terminal_profile_save_display_orientation("oled0",90)==ESP_OK && commit_count==commits);
+    orientation_write_error=ESP_FAIL;
+    assert(solar_os_terminal_profile_save_display_orientation("oled0",270)==ESP_FAIL);
+    assert(solar_os_terminal_profile_load_display_orientation("oled0",0)==90);
+    assert(solar_os_terminal_profile_save_display_orientation("oled0",45)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_save_display_orientation("",90)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_terminal_profile_save_display_orientation("abcdefghijklmnop",90)==ESP_ERR_INVALID_ARG);
+    display_orientations[0]=45;
+    assert(solar_os_terminal_profile_load_display_orientation("oled0",180)==180);
     return 0;
 }

@@ -19,6 +19,7 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_keys.h"
 #include "solar_os_terminal_internal.h"
+#include "solar_os_terminal_preferences.h"
 #include "solar_os_tui_widgets.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -2387,6 +2388,17 @@ static bool session_terminal_layout_changed(
          before->status_bar_visible != after->status_bar_visible);
 }
 
+static void session_apply_display_orientation(const char *name, uint16_t degrees)
+{
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target) || !target.u8g2) return;
+    static const u8g2_cb_t *const rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
+    unsigned base = 0;
+    for (unsigned i = 1; i < 4; i++)
+        if (target.base_rotation == rotations[i]) base = i;
+    u8g2_SetDisplayRotation(target.u8g2, rotations[(base + degrees / 90U) % 4U]);
+}
+
 static esp_err_t session_set_display_terminal_profile_internal(
     const char *target_name,
     const solar_os_terminal_profile_t *profile)
@@ -2407,6 +2419,7 @@ static esp_err_t session_set_display_terminal_profile_internal(
         return err;
     }
 
+    session_apply_display_orientation(target_name, profile->orientation_degrees);
     bool shell_terminal_applied = false;
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
@@ -2481,6 +2494,12 @@ esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, ui
     char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
     if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
+    return solar_os_sessions_set_display_scale(target, scale);
+}
+
+esp_err_t solar_os_sessions_set_display_scale(const char *target, uint8_t scale)
+{
+    if (scale < 1 || scale > 4) return ESP_ERR_INVALID_ARG;
     solar_os_terminal_profile_t profile;
     esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
     if (err != ESP_OK) return err;
@@ -2491,26 +2510,22 @@ esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, ui
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
                                                      uint16_t degrees)
 {
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
-    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
-        solar_os_terminal_set_orientation(terminal, degrees) :
-        solar_os_terminal_set_orientation_transient(terminal, degrees);
-    if (err == ESP_ERR_INVALID_ARG) {
-        return err;
-    }
-    session_store_terminal_profile(owner, terminal);
+    if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
+    return solar_os_sessions_set_display_orientation(target, degrees, true);
+}
 
-    if (owner != NULL) {
-        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
-            solar_os_session_entry_t *peer = &session_state.sessions[i];
-            if (peer->used &&
-                peer->terminal != NULL &&
-                peer->terminal != terminal &&
-                session_uses_same_display(owner, peer)) {
-                (void)solar_os_terminal_set_orientation_transient(peer->terminal, degrees);
-            }
-        }
-    }
+esp_err_t solar_os_sessions_set_display_orientation(const char *target, uint16_t degrees, bool save)
+{
+    if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) return ESP_ERR_INVALID_ARG;
+    solar_os_terminal_profile_t profile;
+    esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
+    if (err != ESP_OK) return err;
+    profile.orientation_degrees = degrees;
+    err = solar_os_sessions_set_display_terminal_profile(target, &profile);
+    if (err == ESP_OK && save)
+        err = solar_os_terminal_profile_save_display_orientation(target, degrees);
     return err;
 }
 

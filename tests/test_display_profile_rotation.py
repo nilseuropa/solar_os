@@ -91,6 +91,7 @@ static esp_err_t solar_os_display_set_terminal_profile(const char *name,const so
 static void solar_os_terminal_get_profile(solar_os_terminal_t *t,solar_os_terminal_profile_t *p) {*p=t->profile;}
 static esp_err_t solar_os_terminal_apply_profile_transient(solar_os_terminal_t *t,const solar_os_terminal_profile_t *p) {t->profile=*p;return ESP_OK;}
 static void session_discard_graphics_snapshot(solar_os_session_entry_t *s) {s->snapshot=false;}
+static void session_apply_display_orientation(const char *name,unsigned degrees) {(void)name;(void)degrees;}
 '''
         source += production_functions((ROOT / 'src/services/solar_os_sessions.c').read_text(),
                                        ('session_terminal_layout_changed', 'session_set_display_terminal_profile_internal'))

@@ -1305,7 +1305,7 @@ The built-in `waveshare_esp32_s3_epaper_3_97` target covers Waveshare's 3.97-inc
 board with an ESP32-S3-WROOM-1-N16R8 module. SolarOS presents the native
 800x480 monochrome SSD1677 panel with a 480x800 portrait base orientation.
 The display defaults to 800x480 landscape, rotated 90 degrees counterclockwise
-from that portrait orientation (`setterm orientation 270`). A saved orientation
+from that portrait orientation (`display orientation display0 270`). A saved orientation
 preference takes precedence over this factory default. The fixed
 devices include four-bit SDMMC storage, a PCF85063 RTC, an SHTC3 temperature and
 humidity sensor, and ES8311 duplex speaker/microphone audio. Native USB provides

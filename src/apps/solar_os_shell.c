@@ -804,6 +804,7 @@ static bool shell_builtin_command_exists(const char *name)
 static const char * const setterm_subcommands[] = {
     "--display",
     "orientation",
+    "scale",
     "font",
     "textsize",
     "palette",
@@ -829,10 +830,12 @@ static const char * const setterm_subcommands[] = {
 };
 
 static const char * const setterm_display_settings[] = {
-    "orientation", "font", "textsize", "palette", "statusbar",
+    "orientation", "scale", "font", "textsize", "palette", "statusbar",
 };
 
-static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
+static const char * const display_orientation_values[] = {"0", "90", "180", "270"};
+static const char * const display_scale_values[] = {"1", "2", "3", "4"};
+static const char * const display_orientation_options[] = {"--temporary"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
 static const char * const setterm_palette_values[] = {"normal", "inverted"};
@@ -1974,6 +1977,8 @@ static const char * const path_setterm_display_statusbar[] = {
     "setterm", "--display", SHELL_COMPLETION_ANY, "statusbar",
 };
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
+static const char * const path_setterm_scale[] = {"setterm", "scale"};
+static const char * const path_setterm_display_scale[] = {"setterm", "--display", SHELL_COMPLETION_ANY, "scale"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
 static const char * const path_setterm_palette[] = {"setterm", "palette"};
@@ -2008,6 +2013,11 @@ static const char * const path_dlp_stream[] = {"dlp", "serve", SHELL_COMPLETION_
 #endif
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
+static const char * const path_display_orientation[] = {"display", "orientation"};
+static const char * const path_display_scale[] = {"display", "scale"};
+static const char * const path_display_orientation_target[] = {"display", "orientation", SHELL_COMPLETION_ANY};
+static const char * const path_display_scale_target[] = {"display", "scale", SHELL_COMPLETION_ANY};
+static const char * const path_display_orientation_value[] = {"display", "orientation", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
 static const char * const path_display_relax[] = {"display", "relax"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
 static const char * const path_display_join_name[] = {"display", "join", SHELL_COMPLETION_ANY};
@@ -3358,12 +3368,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm, setterm_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_setterm_display),
     SHELL_COMPLETION_STATIC(path_setterm_display_target, setterm_display_settings),
-    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, display_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_palette, setterm_palette_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_statusbar, setterm_statusbar_values),
-    SHELL_COMPLETION_STATIC(path_setterm_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_orientation, display_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_scale, display_scale_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_scale, display_scale_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_palette, setterm_palette_values),
@@ -3420,6 +3432,11 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_gesture_unbind, gesture_unbind_values),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_orientation),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_scale),
+    SHELL_COMPLETION_STATIC(path_display_orientation_target, display_orientation_values),
+    SHELL_COMPLETION_STATIC(path_display_scale_target, display_scale_values),
+    SHELL_COMPLETION_OPTIONS(path_display_orientation_value, display_orientation_options),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_relax),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
     SHELL_COMPLETION_STATIC(path_display_join_name, display_layout_axes),

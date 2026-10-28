@@ -593,6 +593,8 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     }
     solar_os_terminal_profile_t terminal_profile;
     solar_os_terminal_profile_load_preferences(&terminal_profile);
+    terminal_profile.orientation_degrees = solar_os_terminal_profile_load_display_orientation(
+        target->name, terminal_profile.orientation_degrees);
 
     portENTER_CRITICAL(&display_targets_lock);
     if (display_find_slot_locked(target->name) >= 0 ||
