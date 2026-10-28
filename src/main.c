@@ -1721,6 +1721,13 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     dispatch_input_chars(&text_key, 1);
 }
 
+static uint16_t input_display_orientation(const char *target)
+{
+    solar_os_terminal_profile_t profile;
+    return solar_os_display_get_terminal_profile(target, &profile) == ESP_OK
+        ? profile.orientation_degrees : 0;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -2147,6 +2154,7 @@ void app_main(void)
     }
 #endif
     const esp_err_t input_err = solar_os_input_init();
+    solar_os_input_set_display_orientation_resolver(input_display_orientation);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }

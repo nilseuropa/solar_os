@@ -303,6 +303,10 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event);
 esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
     const solar_os_input_pointer_sample_t *sample);
+/* Queried outside the input lock when a touch contact starts; NULL uses 0 degrees. */
+typedef uint16_t (*solar_os_input_display_orientation_resolver_t)(const char *target);
+void solar_os_input_set_display_orientation_resolver(
+    solar_os_input_display_orientation_resolver_t resolver);
 /* The runtime input pump advances timed recognition for all input sources.
  * Producers only submit ordinary input samples. */
 void solar_os_input_poll(void);

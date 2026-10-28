@@ -100,8 +100,9 @@ interval and within 24 pixels on each axis of the first release. A stationary
 contact produces one `hold` after 600 ms; release does not produce another
 gesture. A swipe completes within 1000 ms, moves at least 40 pixels, and has a
 dominant axis at least 1.5 times the other axis. Its direction is `west`,
-`east`, `north`, or `south` in calibrated source coordinates, before display
-`display orientation` is applied. Other touch gestures use direction `none`.
+`east`, `north`, or `south` relative to the target display's orientation when
+the contact starts. Without a target display, calibrated source directions apply.
+IMU directions remain board-relative. Other touch gestures use direction `none`.
 Touch gesture `value` is 1 for tap, 2 for double-tap, 600 milliseconds for hold,
 or the dominant-axis distance in pixels for swipe, capped at 32767. `raw` is
 zero; double-tap sets the double flag. Pinch and rotation are not supported.
