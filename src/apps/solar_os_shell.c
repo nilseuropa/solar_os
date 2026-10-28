@@ -862,6 +862,8 @@ static const char * const display_subcommands[] = {
     "layouts",
     "test",
     "mode",
+    "orientation",
+    "scale",
     "relax",
     "join",
     "unjoin",
