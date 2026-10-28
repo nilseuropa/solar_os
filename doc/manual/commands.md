@@ -1540,7 +1540,8 @@ manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
 planes for full cleanup. Generic profiles retain their differential full-frame
 sequence. Pulse mode uses the controller's 105-byte LUT,
 nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
-are asynchronous, 100 ms between new images, three drive cycles, eight scan
+are asynchronous, 100 ms between new images, five drive cycles on Sticky
+(three on other profiles), eight scan
 frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup
 with baseline 64. `waveform-fr=<1..8>` selects a nibble repeated across its
 five frame-rate bytes. It supports `pulse-period=<67..1000>`,

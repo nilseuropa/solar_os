@@ -541,10 +541,11 @@ static void test_startup_profile(void)
             assert(d.refresh_mode == (pulse ? EPD_SSD1677_REFRESH_PULSE : EPD_SSD1677_REFRESH_AUTO));
             assert((d.scan_worker.task != NULL) == pulse);
             assert((d.pixel_budget.pixels != NULL) == pulse);
+            assert(d.pulse_tuning.drive_cycles == (panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3));
             if (pulse) {
                 assert(d.scan_async && d.scan_worker.enabled && d.scan_submit_ready);
                 assert(d.pulse_spi_clock_hz == 20000000);
-                assert(d.pulse_tuning.drive_cycles == 3 && d.pulse_tuning.pulse_frames == 8);
+                assert(d.pulse_tuning.pulse_frames == 8);
                 assert(d.pulse_tuning.waveform_fr == 8 && d.scan_period_ms == 100);
                 assert(ssd1677_refresh(&d) == ESP_OK);
                 assert(worker_tick(&d.scan_worker) == ESP_OK && d.shadow_valid);

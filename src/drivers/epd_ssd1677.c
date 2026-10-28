@@ -893,7 +893,8 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     display->lock = xSemaphoreCreateMutexStatic(&display->lock_storage);
     display->mode_lock = xSemaphoreCreateMutexStatic(&display->mode_lock_storage);
     if (!display->lock || !display->mode_lock) return ESP_ERR_NO_MEM;
-    display->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=3, .pulse_frames=8,
+    display->pulse_tuning = (epd_pulse_tuning_t){
+        .drive_cycles = config->panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3, .pulse_frames=8,
         .waveform_fr=8, .cleanup_every=64, .cleanup_adaptive=true};
     display->scan_async = true;
     display->scan_period_ms = 100;

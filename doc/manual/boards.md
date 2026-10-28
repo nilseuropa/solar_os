@@ -1388,7 +1388,7 @@ The display starts with asynchronous `refresh=pulse` / `waveform=fastwave` at 20
 The Sticky panel profile (`panel=1`) uses matching black/white data in both RAM
 planes for its factory full-refresh waveform.
 Pulse mode uses short monochrome drives with per-pixel settling budgets.
-Defaults are 100 ms between new images, three drive cycles, eight scan frames, frame-rate
+Defaults are 100 ms between new images, five drive cycles, eight scan frames, frame-rate
 code 8, retained supplies during settling, and adaptive cleanup with baseline 64.
 `refresh=fast` aliases native `refresh=partial`; `waveform=otp` restores auto.
 If pulse resources cannot be allocated at startup, native auto mode remains available.
