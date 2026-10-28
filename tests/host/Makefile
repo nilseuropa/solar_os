@@ -16,6 +16,7 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += can_twai_test
+TARGETS += doc_memory_test
 
 can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ican_stubs -Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
@@ -587,11 +588,11 @@ writer_buffer_test: writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c 
 	$(CC) $(CFLAGS) -DSOLAR_OS_WRITER_HOST_TEST -I. -I$(WRITER_DIR) \
 		writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c -o $@
 
-doc_layout_test: doc_layout_test.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h
+doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
 		-D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services \
-		doc_layout_test.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c \
+		$@.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c \
 		-Wl,--gc-sections -o $@
 
 writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(WRITER_DIR)/solar_os_writer_files.h esp_err.h
@@ -1230,6 +1231,7 @@ test: $(TARGETS)
 	./gfx_icons_test
 	./text_search_test
 	./doc_layout_test
+	./doc_memory_test
 	./shell_parse_test
 	./shell_launch_test
 	./shell_line_test
