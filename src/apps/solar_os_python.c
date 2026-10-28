@@ -8791,24 +8791,27 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_end_obj, solaros_gfx_end);
 
 static mp_obj_t solaros_gfx_width(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
-    return mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_width(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
+    return mp_obj_new_int_from_uint(width);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_width_obj, solaros_gfx_width);
 
 static mp_obj_t solaros_gfx_height(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
-    return mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
+    return mp_obj_new_int_from_uint(height);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_height_obj, solaros_gfx_height);
 
 static mp_obj_t solaros_gfx_size(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
     mp_obj_t items[2] = {
-        mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_width(gfx) : 0),
-        mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_height(gfx) : 0),
+        mp_obj_new_int_from_uint(width),
+        mp_obj_new_int_from_uint(height),
     };
     return mp_obj_new_tuple(2, items);
 }

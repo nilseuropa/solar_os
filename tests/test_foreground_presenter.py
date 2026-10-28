@@ -132,7 +132,7 @@ class ForegroundPresenterTest(unittest.TestCase):
     def test_literal_graphics_palette_and_monochrome_polarity(self):
         source = (ROOT / "src/services/solar_os_frame_presenter.c").read_text()
         functions = production_functions(source, (
-            "frame_palette_index", "rgb565_luma", "frame_convert_native_mono_row", "frame_convert_indexed_to_mono", "frame_convert_rgb565_to_mono", "frame_convert_to_mono",
+            "frame_palette_index", "rgb565_luma", "frame_convert_native_mono_row", "frame_convert_indexed_to_mono", "frame_convert_native_rgb565_row", "frame_convert_rgb565_to_mono", "frame_convert_to_mono",
             "frame_prepare_mono_palette", "frame_present"))
         bayer = re.search(r"static const uint8_t bayer4\[4\]\[4\] = \{.*?\};",
                           source, re.S).group()
@@ -157,8 +157,8 @@ class ForegroundPresenterTest(unittest.TestCase):
                           source, re.S).group()
         functions = production_functions(source, (
             "frame_minimum_stride", "frame_palette_valid", "frame_palette_index",
-            "rgb565_luma", "frame_convert_native_mono_row", "frame_convert_indexed_to_mono", "frame_convert_rgb565_to_mono", "frame_convert_to_mono", "frame_prepare_mono_palette",
-            "frame_present", "frame_choose_output", "frame_prepare_mono_output",
+            "rgb565_luma", "frame_convert_native_mono_row", "frame_convert_indexed_to_mono", "frame_convert_native_rgb565_row", "frame_convert_rgb565_to_mono", "frame_convert_to_mono", "frame_prepare_mono_palette",
+            "frame_present", "frame_choose_output", "frame_prepare_mono_output", "frame_refresh_output", "frame_present_current_output",
             "solar_os_frame_presenter_init", "solar_os_frame_presenter_resume",
             "solar_os_frame_presenter_deinit", "solar_os_frame_presenter_redraw",
             "solar_os_frame_presenter_submit", "solar_os_frame_presenter_acquire",

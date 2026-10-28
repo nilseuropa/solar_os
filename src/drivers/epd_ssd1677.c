@@ -1,6 +1,9 @@
 #include "epd_ssd1677.h"
+#include "epd_ssd1677_waveform.h"
 
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -19,10 +22,40 @@
 #define SSD1677_BUFFER_ROW_BYTES (SSD1677_TILE_WIDTH * 8U)
 #define SSD1677_BUFFER_BYTES (SSD1677_BUFFER_ROW_BYTES * SSD1677_TILE_HEIGHT)
 #define SSD1677_PANEL_ROW_BYTES (SSD1677_WIDTH / 8U)
+#define SSD1677_TRANSFER_BYTES (SSD1677_PANEL_ROW_BYTES * 8U)
 #define SSD1677_BUSY_TIMEOUT_MS 30000U
 #define SSD1677_AUTO_FULL_INTERVAL 20U
 
 static const char *TAG = "epd_ssd1677";
+#define TRY(call) do { esp_err_t result_ = (call); if (result_ != ESP_OK) return result_; } while (0)
+
+static esp_err_t scan_process(void *context, const uint8_t *source,
+                              bool fresh, bool *pending, bool *scanned);
+static uint8_t reverse_byte(uint8_t value);
+static void transpose_block(uint32_t *low, uint32_t *high);
+
+static void scan_accepting(epd_ssd1677_t *d)
+{
+    const bool enabled = d->refresh_mode == EPD_SSD1677_REFRESH_PULSE &&
+        d->scan_async && !d->suspended && !d->power_state_present &&
+        !d->relax.storage && d->powered && d->controller_ready;
+    epd_scan_worker_enable(&d->scan_worker, enabled);
+    __atomic_store_n(&d->scan_submit_ready, enabled, __ATOMIC_RELEASE);
+}
+
+static void scan_disable(epd_ssd1677_t *d)
+{
+    __atomic_store_n(&d->scan_submit_ready, false, __ATOMIC_RELEASE);
+    epd_scan_worker_enable(&d->scan_worker, false);
+}
+
+static void delay_ms(unsigned ms)
+{
+    TickType_t ticks = pdMS_TO_TICKS(ms);
+    vTaskDelay(ticks ? ticks : 1);
+}
+
+
 
 typedef struct {
     uint16_t x_start_byte;
@@ -67,6 +100,7 @@ static esp_err_t ssd1677_tx_byte(epd_ssd1677_t *display, uint8_t value)
 {
     spi_transaction_t transaction = {
         .flags = SPI_TRANS_USE_TXDATA,
+        .override_freq_hz = display->refresh_mode == EPD_SSD1677_REFRESH_PULSE ? display->pulse_spi_clock_hz : 0,
         .length = 8,
         .tx_data = {value},
     };
@@ -89,6 +123,7 @@ static esp_err_t ssd1677_tx_bytes(epd_ssd1677_t *display,
         spi_transaction_t transaction = {
             .length = chunk * 8U,
             .tx_buffer = display->line_buffer,
+            .override_freq_hz = display->refresh_mode == EPD_SSD1677_REFRESH_PULSE ? display->pulse_spi_clock_hz : 0,
         };
         ESP_RETURN_ON_ERROR(spi_device_polling_transmit(display->spi, &transaction),
                             TAG,
@@ -126,13 +161,14 @@ static esp_err_t ssd1677_wait_ready(const epd_ssd1677_t *display)
 {
     const int64_t deadline = esp_timer_get_time() +
         (int64_t)SSD1677_BUSY_TIMEOUT_MS * 1000LL;
-    vTaskDelay(pdMS_TO_TICKS(100));
+    const bool pulse = display->fastwave_loaded;
+    delay_ms(pulse ? 1 : 100);
     while (gpio_get_level((gpio_num_t)display->busy_pin) == display->busy_level) {
         if (esp_timer_get_time() >= deadline) {
             ESP_LOGE(TAG, "BUSY timeout");
             return ESP_ERR_TIMEOUT;
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        delay_ms(pulse ? 1 : 20);
     }
     return ESP_OK;
 }
@@ -219,6 +255,9 @@ static esp_err_t ssd1677_set_full_address(epd_ssd1677_t *display)
 
 static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
 {
+    display->controller_ready = display->analog_on = display->fastwave_loaded = false;
+    display->pulse_needs_cleanup = display->pulse_mask_dirty = true;
+    display->pulse_window_valid = false;
     ESP_RETURN_ON_ERROR(ssd1677_set_power(display, true), TAG, "panel power-on failed");
     ssd1677_hardware_reset(display);
     ESP_RETURN_ON_ERROR(ssd1677_wait_ready(display), TAG, "reset wait failed");
@@ -255,23 +294,25 @@ static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
     return ESP_OK;
 }
 
-static void ssd1677_convert_row(epd_ssd1677_t *display,
-                                const uint8_t *source,
-                                uint16_t y)
+static void ssd1677_convert_rows(epd_ssd1677_t *display,
+    const uint8_t *source, unsigned y, unsigned rows,
+    size_t first_byte, size_t end_byte, bool invert)
 {
-    const uint8_t row_bit = (uint8_t)(1U << (y & 7U));
-    const uint8_t *tile_row = source +
-        (size_t)(y >> 3) * SSD1677_BUFFER_ROW_BYTES;
-    for (size_t byte = 0; byte < SSD1677_PANEL_ROW_BYTES; byte++) {
-        uint8_t panel_pixels = 0;
+    const uint8_t *tile_row = source + (y / 8U) * SSD1677_BUFFER_ROW_BYTES;
+    const size_t stride = end_byte - first_byte + 1U;
+    for (size_t byte = first_byte; byte <= end_byte; byte++) {
         const uint8_t *columns = tile_row + byte * 8U;
-        for (unsigned bit = 0; bit < 8U; bit++) {
-            if ((columns[bit] & row_bit) != 0) {
-                panel_pixels |= (uint8_t)(0x80U >> bit);
-            }
+        uint32_t low, high;
+        memcpy(&low, columns, sizeof(low));
+        memcpy(&high, columns + 4U, sizeof(high));
+        transpose_block(&low, &high);
+        for (unsigned row = 0; row < rows; row++) {
+            const unsigned bit = (y & 7U) + row;
+            const uint8_t pixels = reverse_byte((uint8_t)(
+                (bit < 4U ? low : high) >> ((bit & 3U) * 8U)));
+            display->line_buffer[row * stride + byte - first_byte] =
+                invert ? (uint8_t)~pixels : pixels;
         }
-        /* SolarOS display targets use set bits for white by default. */
-        display->line_buffer[byte] = panel_pixels;
     }
 }
 
@@ -345,27 +386,28 @@ static esp_err_t ssd1677_write_plane(epd_ssd1677_t *display,
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1),
                         TAG, "D/C frame data failed");
     const size_t row_bytes = window->x_end_byte - window->x_start_byte + 1U;
-    for (uint16_t y = window->y_start; y <= window->y_end; y++) {
-        ssd1677_convert_row(display, source, y);
-        if (invert) {
-            for (size_t byte = window->x_start_byte; byte <= window->x_end_byte; byte++) {
-                display->line_buffer[byte] = (uint8_t)~display->line_buffer[byte];
-            }
-        }
-        ESP_RETURN_ON_ERROR(ssd1677_tx_bytes(display,
-                                             display->line_buffer + window->x_start_byte,
-                                             row_bytes),
+    if (display->line_buffer_size < row_bytes) return ESP_ERR_INVALID_SIZE;
+    for (unsigned y = window->y_start; y <= window->y_end;) {
+        unsigned rows = 8U - (y & 7U);
+        if (rows > window->y_end - y + 1U) rows = window->y_end - y + 1U;
+        if (rows > display->line_buffer_size / row_bytes)
+            rows = display->line_buffer_size / row_bytes;
+        ssd1677_convert_rows(display, source, y, rows,
+            window->x_start_byte, window->x_end_byte, invert);
+        ESP_RETURN_ON_ERROR(ssd1677_tx_bytes(display, display->line_buffer, row_bytes * rows),
                             TAG, "frame transmit failed");
+        y += rows;
     }
     return ESP_OK;
 }
 
-static esp_err_t ssd1677_activate(epd_ssd1677_t *display)
+static esp_err_t ssd1677_activate(epd_ssd1677_t *display, bool full)
 {
-    /* SSD1677 differential update: 0x24 is new, 0x26 is the baseline. */
+    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
+    /* Sticky's full OTP waveform uses matching monochrome bitplanes. */
     static const uint8_t control[] = {0x00};
-    static const uint8_t border[] = {0xc0};
-    static const uint8_t update_mode[] = {0xfc};
+    const uint8_t border[] = {mode1 ? 0x01 : 0xc0};
+    const uint8_t update_mode[] = {mode1 ? 0xf7 : 0xfc};
     ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x21, control, sizeof(control)),
                         TAG, "update control failed");
     ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x3c, border, sizeof(border)),
@@ -375,12 +417,14 @@ static esp_err_t ssd1677_activate(epd_ssd1677_t *display)
                                          sizeof(update_mode)),
                         TAG, "update mode failed");
     ESP_RETURN_ON_ERROR(ssd1677_cmd(display, 0x20), TAG, "update activation failed");
+    display->analog_on = !mode1;
     return ssd1677_wait_ready(display);
 }
 
 static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *source, bool force_full)
 {
-    if (!display->controller_ready) {
+    if (!display->controller_ready || display->fastwave_loaded) {
+        display->shadow_valid = false;
         ESP_RETURN_ON_ERROR(ssd1677_controller_init(display), TAG, "controller resume failed");
     }
     if (!force_full && display->shadow_valid && display->shadow != NULL &&
@@ -395,6 +439,7 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     const bool partial = !full && display->shadow != NULL &&
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO ||
          display->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL);
+    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
     if (partial && !ssd1677_find_change_window(display, &window)) {
         memcpy(display->shadow, source, display->buffer_size);
         return ESP_OK;
@@ -424,12 +469,11 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     }
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, source, &window, false),
                         TAG, "current frame write failed");
-    /* A complemented baseline forces every pixel to transition on full updates. */
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x26,
                                            partial ? display->shadow : source,
-                                           &window, !partial),
+                                           &window, !partial && !mode1),
                         TAG, "previous frame write failed");
-    esp_err_t ret = ssd1677_activate(display);
+    esp_err_t ret = ssd1677_activate(display, full);
     if (ret == ESP_OK) {
         /* Keep both controller planes aligned with the displayed frame. */
         ret = ssd1677_write_plane(display, 0x24, source, &window, false);
@@ -457,14 +501,388 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     return ESP_OK;
 }
 
-static esp_err_t ssd1677_refresh(epd_ssd1677_t *display)
+
+static esp_err_t pulse_powerdown(epd_ssd1677_t *d)
 {
-    if (display->relax.storage) return ESP_OK;
-    return ssd1677_refresh_image(display, display->buffer, false);
+    if (!d->analog_on) return ESP_OK;
+    TRY(ssd1677_cmd_data(d, 0x22, (uint8_t[]){0x03}, 1));
+    TRY(ssd1677_cmd(d, 0x20));
+    TRY(ssd1677_wait_ready(d));
+    d->analog_on = false;
+    return ESP_OK;
+}
+
+static esp_err_t load_fastwave(epd_ssd1677_t *d)
+{
+    if (d->fastwave_loaded) return ESP_OK;
+    uint8_t lut[SOLAR_OS_SSD1677_LUT_BYTES];
+    if (!solar_os_ssd1677_waveform_build(lut, d->pulse_tuning.pulse_frames,
+                                         d->pulse_tuning.waveform_fr, d->invert))
+        return ESP_ERR_INVALID_ARG;
+    TRY(ssd1677_cmd_data(d, 0x22, (uint8_t[]){0x80}, 1));
+    TRY(ssd1677_cmd(d, 0x20));
+    TRY(ssd1677_wait_ready(d));
+    TRY(ssd1677_cmd_data(d, 0x32, lut, sizeof(lut)));
+    /* Nominal vendor rails and VCOM; no OTP writes or source overdrive. */
+    TRY(ssd1677_cmd_data(d, 0x03, (uint8_t[]){0x17}, 1));
+    TRY(ssd1677_cmd_data(d, 0x04, (uint8_t[]){0x41, 0xa8, 0x32}, 3));
+    TRY(ssd1677_cmd_data(d, 0x2c, (uint8_t[]){0x30}, 1));
+    TRY(ssd1677_cmd_data(d, 0x3c, (uint8_t[]){0x80}, 1));
+    TRY(ssd1677_cmd_data(d, 0x37, (uint8_t[10]){0}, 10));
+    d->fastwave_loaded = true;
+    return ESP_OK;
+}
+
+static void free_budget(epd_ssd1677_t *d)
+{
+    d->pulse_window_valid = false;
+    heap_caps_free(d->pixel_budget.active);
+    heap_caps_free(d->pixel_budget.drive_history);
+    heap_caps_free(d->pixel_budget.pixels);
+    memset(&d->pixel_budget, 0, sizeof(d->pixel_budget));
+    heap_caps_free(d->pulse_planes);
+    d->pulse_planes = NULL;
+}
+
+static esp_err_t allocate_budget(epd_ssd1677_t *d)
+{
+    if (d->pixel_budget.pixels) return ESP_OK;
+    if (!d->shadow) return ESP_ERR_NO_MEM;
+    const size_t count = SSD1677_WIDTH * SSD1677_HEIGHT;
+    const unsigned caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    uint8_t *pixels = heap_caps_malloc(count, caps);
+    uint32_t *active = heap_caps_malloc(count * sizeof(*active), caps);
+    uint16_t *history = heap_caps_malloc(count * sizeof(*history), caps);
+    d->pulse_planes = heap_caps_malloc(SSD1677_BUFFER_BYTES * 2U, caps);
+    if (!pixels || !active || !history || !d->pulse_planes) {
+        heap_caps_free(pixels); heap_caps_free(active); heap_caps_free(history);
+        heap_caps_free(d->pulse_planes); d->pulse_planes = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    TRY(epd_pixel_budget_init(&d->pixel_budget, pixels, count));
+    TRY(epd_pixel_budget_set_active_storage(&d->pixel_budget, active, count));
+    TRY(epd_pixel_budget_set_drive_history(&d->pixel_budget, history, count));
+    d->pulse_needs_cleanup = true;
+    return ESP_OK;
+}
+
+static bool pixel_white(const uint8_t *source, size_t p)
+{
+    const size_t x = p % SSD1677_WIDTH, y = p / SSD1677_WIDTH;
+    return (source[(y / 8U) * SSD1677_WIDTH + x] & (1U << (y % 8U))) != 0;
+}
+
+static bool cleanup_due(const epd_ssd1677_t *d)
+{
+    const epd_pulse_tuning_t *t = &d->pulse_tuning;
+    return d->pulse_updates >= t->cleanup_every * (t->cleanup_adaptive ? 4U : 1U) ||
+        (t->cleanup_adaptive && d->pixel_budget.peak_drive_cycles >= t->cleanup_every * t->drive_cycles);
+}
+
+static esp_err_t pulse_prepare(epd_ssd1677_t *d, const uint8_t *source,
+                                bool fresh, bool *baseline)
+{
+    *baseline = false;
+    TRY(allocate_budget(d));
+    if (!d->controller_ready || !d->shadow_valid || d->pulse_needs_cleanup || cleanup_due(d)) {
+        TRY(ssd1677_refresh_image(d, source, true));
+        epd_pixel_budget_reset(&d->pixel_budget);
+        for (size_t p = 0; p < d->pixel_budget.count; ++p)
+            epd_pixel_budget_seed(&d->pixel_budget, p, pixel_white(source, p));
+        d->pulse_needs_cleanup = false;
+        d->pulse_mask_dirty = true;
+        d->pulse_window_valid = false;
+        d->pulse_updates = 0;
+        d->pulse_last_frame_start = 0;
+        *baseline = true;
+        return ESP_OK;
+    }
+    if (fresh && memcmp(source, d->shadow, SSD1677_BUFFER_BYTES) != 0) {
+        if (!d->scan_async && d->pulse_last_frame_start) {
+            const int64_t due = d->pulse_last_frame_start + (int64_t)d->scan_period_ms * 1000;
+            while (esp_timer_get_time() < due) delay_ms(1);
+        }
+        d->pulse_last_frame_start = esp_timer_get_time();
+        for (size_t i = 0; i < SSD1677_BUFFER_BYTES; ++i) {
+            const uint8_t changed = source[i] ^ d->shadow[i];
+            if (!changed) continue;
+            const size_t x = i % SSD1677_WIDTH, y = i / SSD1677_WIDTH * 8U;
+            for (unsigned bit = 0; bit < 8U; bit++) {
+                if (changed & (1U << bit)) {
+                    const size_t p = (y + bit) * SSD1677_WIDTH + x;
+                    epd_pixel_budget_target(&d->pixel_budget, p,
+                        (source[i] & (1U << bit)) != 0, d->pulse_tuning.drive_cycles);
+                }
+            }
+        }
+        memcpy(d->shadow, source, SSD1677_BUFFER_BYTES);
+        ++d->pulse_updates; /* changed targets, never physical settling scans */
+        d->pulse_mask_dirty = true;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t pulse_cycle(epd_ssd1677_t *d)
+{
+    TRY(load_fastwave(d));
+    if (d->pulse_mask_dirty || d->pulse_mask_pending != d->pixel_budget.pending) {
+        ssd1677_window_t active = {SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U, 0};
+        bool changed = false;
+        uint8_t *black = d->pulse_planes, *white = black + SSD1677_BUFFER_BYTES;
+        memset(d->pulse_planes, 0, SSD1677_BUFFER_BYTES * 2U);
+        for (size_t i = 0; i < d->pixel_budget.active_count; ++i) {
+            const size_t p = d->pixel_budget.active[i];
+            const epd_pixel_drive_t drive = epd_pixel_budget_drive(&d->pixel_budget, p);
+            if (drive == EPD_PIXEL_HOLD) continue;
+            const size_t x = p % SSD1677_WIDTH, y = p / SSD1677_WIDTH;
+            const unsigned byte = x / 8U;
+            if (byte < active.x_start_byte) active.x_start_byte = byte;
+            if (byte > active.x_end_byte) active.x_end_byte = byte;
+            if (y < active.y_start) active.y_start = y;
+            if (y > active.y_end) active.y_end = y;
+            changed = true;
+            const size_t offset = (y / 8U) * SSD1677_WIDTH + x;
+            (drive == EPD_PIXEL_DRIVE_BLACK ? black : white)[offset] |= (uint8_t)(1U << (y % 8U));
+        }
+        if (!changed) return ESP_ERR_INVALID_STATE;
+        ssd1677_window_t window = {0, SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U};
+        if (d->pulse_window_valid) {
+            window = active;
+            /* Clear pixels from the preceding mask as they finish settling. */
+            if (d->pulse_x_start < window.x_start_byte) window.x_start_byte = d->pulse_x_start;
+            if (d->pulse_x_end > window.x_end_byte) window.x_end_byte = d->pulse_x_end;
+            if (d->pulse_y_start < window.y_start) window.y_start = d->pulse_y_start;
+            if (d->pulse_y_end > window.y_end) window.y_end = d->pulse_y_end;
+        }
+        TRY(ssd1677_cmd_data(d, 0x21, (uint8_t[]){0}, 1));
+        TRY(ssd1677_write_plane(d, 0x26, black, &window, false));
+        TRY(ssd1677_write_plane(d, 0x24, white, &window, false));
+        d->pulse_x_start = active.x_start_byte;
+        d->pulse_x_end = active.x_end_byte;
+        d->pulse_y_start = active.y_start;
+        d->pulse_y_end = active.y_end;
+        d->pulse_window_valid = true;
+        d->pulse_mask_dirty = false;
+        d->pulse_mask_pending = d->pixel_budget.pending;
+    }
+    /* Mode 2 with the MCU LUT: omit temperature/LUT reload stages. */
+    const uint8_t update = d->pulse_power_hold ? (d->analog_on ? 0x0c : 0xcc) : 0xcf;
+    TRY(ssd1677_cmd_data(d, 0x22, &update, 1));
+    TRY(ssd1677_cmd(d, 0x20));
+    d->analog_on = d->pulse_power_hold;
+    const int64_t deadline = esp_timer_get_time() + 50000;
+    while (gpio_get_level(d->busy_pin) != d->busy_level) {
+        if (esp_timer_get_time() >= deadline) return ESP_ERR_TIMEOUT;
+        delay_ms(1);
+    }
+    TRY(ssd1677_wait_ready(d));
+    epd_pixel_budget_advance(&d->pixel_budget);
+    return ESP_OK;
+}
+
+static void pulse_failed(epd_ssd1677_t *d)
+{
+    scan_disable(d);
+    d->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
+    d->controller_ready = d->shadow_valid = false;
+    d->pulse_needs_cleanup = true;
+}
+
+static esp_err_t scan_process(void *context, const uint8_t *source,
+                              bool fresh, bool *pending, bool *scanned)
+{
+    epd_ssd1677_t *d = context;
+    *pending = *scanned = false;
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    if (__atomic_load_n(&d->scan_submit_ready, __ATOMIC_ACQUIRE) && !d->suspended &&
+        d->refresh_mode == EPD_SSD1677_REFRESH_PULSE && d->scan_async) {
+        bool baseline;
+        err = pulse_prepare(d, source, fresh, &baseline);
+        if (err == ESP_OK && !baseline && d->pixel_budget.pending) {
+            err = pulse_cycle(d);
+            *scanned = err == ESP_OK;
+        }
+        if (err == ESP_OK && !d->pixel_budget.pending) err = pulse_powerdown(d);
+        if (err != ESP_OK) {
+            pulse_failed(d);
+            /* Recover the newest accepted image even if the app stops painting. */
+            xSemaphoreTake(d->scan_worker.lock, portMAX_DELAY);
+            memcpy(d->scan_worker.snapshot, d->scan_worker.latest, SSD1677_BUFFER_BYTES);
+            xSemaphoreGive(d->scan_worker.lock);
+            if (ssd1677_refresh_image(d, d->scan_worker.snapshot, true) != ESP_OK)
+                d->controller_ready = d->shadow_valid = false;
+        } else *pending = d->pixel_budget.pending != 0 || cleanup_due(d);
+        d->last_error = err;
+    }
+    if (d->lock) xSemaphoreGive(d->lock);
+    return err;
+}
+
+static esp_err_t refresh_frame(epd_ssd1677_t *d)
+{
+    if (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE)
+        return ssd1677_refresh_image(d, d->buffer, false);
+    bool baseline;
+    TRY(pulse_prepare(d, d->buffer, true, &baseline));
+    if (!baseline) while (d->pixel_budget.pending) TRY(pulse_cycle(d));
+    TRY(pulse_powerdown(d));
+    if (cleanup_due(d)) TRY(pulse_prepare(d, d->buffer, false, &baseline));
+    return ESP_OK;
+}
+
+esp_err_t epd_ssd1677_present_power_state(epd_ssd1677_t *d)
+{
+    if (!d || !d->spi || !d->buffer || !d->line_buffer || !d->lock)
+        return ESP_ERR_INVALID_STATE;
+    scan_disable(d);
+    xSemaphoreTake(d->lock, portMAX_DELAY);
+    d->power_state_present = true;
+    /* Join the current scan, then discard any target it re-enabled. A full
+     * native refresh must finish before suspend or system power-off. */
+    scan_disable(d);
+    const esp_err_t err = d->suspended ? ESP_ERR_INVALID_STATE :
+        ssd1677_refresh_image(d, d->buffer, true);
+    if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
+    d->last_error = err;
+    xSemaphoreGive(d->lock);
+    return err;
+}
+
+static esp_err_t ssd1677_refresh(epd_ssd1677_t *d)
+{
+    if (!d) return ESP_ERR_INVALID_STATE;
+    if (__atomic_load_n(&d->scan_submit_ready, __ATOMIC_ACQUIRE) &&
+        epd_scan_worker_submit(&d->scan_worker, d->buffer) == ESP_OK) return ESP_OK;
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    if (d->suspended || !d->spi || !d->buffer || !d->line_buffer) {
+        if (d->lock) xSemaphoreGive(d->lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (d->relax.storage) {
+        if (d->lock) xSemaphoreGive(d->lock);
+        return ESP_OK;
+    }
+    esp_err_t err = refresh_frame(d);
+    if (err != ESP_OK) {
+        if (d->refresh_mode == EPD_SSD1677_REFRESH_PULSE) pulse_failed(d);
+        else d->controller_ready = d->shadow_valid = false;
+    }
+    d->last_error = err;
+    if (err == ESP_OK) scan_accepting(d);
+    if (d->lock) xSemaphoreGive(d->lock);
+    return err;
+}
+
+static uint8_t reverse_byte(uint8_t value)
+{
+    value = ((value & 0x55U) << 1U) | ((value >> 1U) & 0x55U);
+    value = ((value & 0x33U) << 2U) | ((value >> 2U) & 0x33U);
+    return (value << 4U) | (value >> 4U);
+}
+
+static void transpose_block(uint32_t *low, uint32_t *high)
+{
+    uint32_t a = *low, b = *high;
+    uint32_t swap = (a ^ (a >> 7U)) & 0x00aa00aaU;
+    a ^= swap ^ (swap << 7U);
+    swap = (b ^ (b >> 7U)) & 0x00aa00aaU;
+    b ^= swap ^ (swap << 7U);
+    swap = (a ^ (a >> 14U)) & 0x0000ccccU;
+    a ^= swap ^ (swap << 14U);
+    swap = (b ^ (b >> 14U)) & 0x0000ccccU;
+    b ^= swap ^ (swap << 14U);
+    swap = (a ^ (b << 4U)) & 0xf0f0f0f0U;
+    *low = a ^ swap;
+    *high = b ^ (swap >> 4U);
+}
+
+static bool blit_mono_packed(epd_ssd1677_t *d, const uint8_t *bitmap,
+    unsigned x, unsigned y, unsigned width, unsigned height, unsigned stride,
+    const u8g2_cb_t *rotation, bool inverted)
+{
+    if (rotation == U8G2_R0 || rotation == U8G2_R2) {
+        if ((y | height) & 7U) return false;
+        for (unsigned row = 0; row < height; row += 8U) {
+            const unsigned native_y = rotation == U8G2_R0 ? y + row :
+                SSD1677_HEIGHT - y - row - 8U;
+            uint8_t *out = d->buffer + (native_y / 8U) * SSD1677_WIDTH;
+            for (unsigned column = 0; column < width; column += 8U) {
+                const uint8_t *source = bitmap + row * stride + column / 8U;
+                uint32_t low = (uint32_t)source[0] | ((uint32_t)source[stride] << 8U) |
+                    ((uint32_t)source[2U * stride] << 16U) | ((uint32_t)source[3U * stride] << 24U);
+                uint32_t high = (uint32_t)source[4U * stride] | ((uint32_t)source[5U * stride] << 8U) |
+                    ((uint32_t)source[6U * stride] << 16U) | ((uint32_t)source[7U * stride] << 24U);
+                transpose_block(&low, &high);
+                const unsigned count = width - column < 8U ? width - column : 8U;
+                for (unsigned i = 0; i < count; i++) {
+                    uint8_t value = (uint8_t)((i < 4U ? low : high) >> ((i & 3U) * 8U));
+                    const unsigned nx = rotation == U8G2_R0 ? x + column + i :
+                        SSD1677_WIDTH - 1U - x - column - i;
+                    if (rotation == U8G2_R2) value = reverse_byte(value);
+                    out[nx] = inverted ? value : (uint8_t)~value;
+                }
+            }
+        }
+    } else {
+        if ((x | width) & 7U) return false;
+        for (unsigned row = 0; row < height; row++) {
+            const uint8_t *source = bitmap + row * stride;
+            const unsigned nx = rotation == U8G2_R1 ? SSD1677_WIDTH - 1U - y - row : y + row;
+            for (unsigned column = 0; column < width; column += 8U) {
+                const unsigned ny = rotation == U8G2_R1 ? x + column : SSD1677_HEIGHT - x - column - 8U;
+                uint8_t value = source[column / 8U];
+                if (rotation == U8G2_R3) value = reverse_byte(value);
+                d->buffer[(ny / 8U) * SSD1677_WIDTH + nx] = inverted ? value : (uint8_t)~value;
+            }
+        }
+    }
+    return true;
+}
+
+esp_err_t epd_ssd1677_present_mono_xbm(epd_ssd1677_t *d,
+    const uint8_t *bitmap, size_t bitmap_size, uint16_t x, uint16_t y,
+    uint16_t width, uint16_t height, uint16_t stride, bool palette_inverted)
+{
+    if (!d || !d->buffer || !bitmap || !width || !height ||
+        stride < ((size_t)width + 7U) / 8U || height > SIZE_MAX / stride ||
+        bitmap_size < (size_t)height * stride ||
+        (uint32_t)x + width > u8g2_GetDisplayWidth(&d->u8g2) ||
+        (uint32_t)y + height > u8g2_GetDisplayHeight(&d->u8g2)) return ESP_ERR_INVALID_ARG;
+    const u8g2_cb_t *rotation = d->u8g2.cb;
+    if (rotation != U8G2_R0 && rotation != U8G2_R1 &&
+        rotation != U8G2_R2 && rotation != U8G2_R3) return ESP_ERR_NOT_SUPPORTED;
+    if (!d->powered || d->suspended || d->power_state_present || d->relax.storage ||
+        !d->spi || !d->line_buffer || d->buffer_size < SSD1677_BUFFER_BYTES)
+        return ESP_ERR_INVALID_STATE;
+    /* Compose without the panel lock; async scanning uses an immutable snapshot. */
+    memset(d->buffer, palette_inverted ? 0 : 0xff, SSD1677_BUFFER_BYTES);
+    if (!blit_mono_packed(d, bitmap, x, y, width, height, stride, rotation, palette_inverted)) {
+        for (unsigned row = 0; row < height; row++) {
+            const uint8_t *source = bitmap + (size_t)row * stride;
+            for (unsigned column = 0; column < width; column++) {
+                const unsigned lx = x + column, ly = y + row;
+                unsigned nx = lx, ny = ly;
+                if (rotation == U8G2_R1) { nx = SSD1677_WIDTH - 1U - ly; ny = lx; }
+                else if (rotation == U8G2_R2) {
+                    nx = SSD1677_WIDTH - 1U - lx; ny = SSD1677_HEIGHT - 1U - ly;
+                } else if (rotation == U8G2_R3) { nx = ly; ny = SSD1677_HEIGHT - 1U - lx; }
+                uint8_t *destination = d->buffer + (ny / 8U) * SSD1677_WIDTH + nx;
+                const uint8_t mask = (uint8_t)(1U << (ny & 7U));
+                const bool black = (source[column / 8U] & (1U << (column & 7U))) != 0;
+                if (black == palette_inverted) *destination |= mask;
+                else *destination &= (uint8_t)~mask;
+            }
+        }
+    }
+    return ssd1677_refresh(d);
 }
 
 static esp_err_t ssd1677_sleep(epd_ssd1677_t *display)
 {
+    display->suspended = true;
+    scan_disable(display);
+    TRY(pulse_powerdown(display));
     if (display->controller_ready) {
         static const uint8_t sleep_mode[] = {0x01};
         ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x10,
@@ -508,23 +926,31 @@ static uint8_t ssd1677_u8x8_display_cb(u8x8_t *u8x8,
     if (display == NULL) {
         return 0;
     }
+    if (message == U8X8_MSG_DISPLAY_DRAW_TILE) return 1;
     esp_err_t err = ESP_OK;
+    if (message == U8X8_MSG_DISPLAY_REFRESH) {
+        err = ssd1677_refresh(display);
+        display->last_error = err;
+        return err == ESP_OK;
+    }
+    if (display->lock) xSemaphoreTake(display->lock, portMAX_DELAY);
     switch (message) {
     case U8X8_MSG_DISPLAY_INIT:
         err = ssd1677_controller_init(display);
         break;
     case U8X8_MSG_DISPLAY_SET_POWER_SAVE:
-        err = arg_int != 0 ? ssd1677_sleep(display) :
-            (display->controller_ready ? ESP_OK : ssd1677_controller_init(display));
-        break;
-    case U8X8_MSG_DISPLAY_DRAW_TILE:
-        return 1;
-    case U8X8_MSG_DISPLAY_REFRESH:
-        err = ssd1677_refresh(display);
+        if (arg_int) err = ssd1677_sleep(display);
+        else {
+            display->suspended = display->power_state_present = false;
+            err = display->controller_ready ? ESP_OK : ssd1677_controller_init(display);
+            if (err == ESP_OK) scan_accepting(display);
+        }
         break;
     default:
+        if (display->lock) xSemaphoreGive(display->lock);
         return 0;
     }
+    if (display->lock) xSemaphoreGive(display->lock);
     display->last_error = err;
     return err == ESP_OK ? 1 : 0;
 }
@@ -539,7 +965,8 @@ static bool ssd1677_config_valid(const epd_ssd1677_config_t *config)
     if (config == NULL || !ssd1677_pin_valid(config->cs_pin) ||
         !ssd1677_pin_valid(config->dc_pin) || !ssd1677_pin_valid(config->reset_pin) ||
         !ssd1677_pin_valid(config->busy_pin) || config->spi_clock_hz <= 0 ||
-        config->rotation == NULL || (config->busy_level != 0 && config->busy_level != 1) ||
+        config->rotation == NULL || config->panel > EPD_SSD1677_PANEL_STICKY ||
+        (config->busy_level != 0 && config->busy_level != 1) ||
         (config->power_active_level != 0 && config->power_active_level != 1)) {
         return false;
     }
@@ -571,6 +998,17 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     memset(display, 0, sizeof(*display));
     display->last_error = ESP_OK;
     display->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
+    display->panel = config->panel;
+    display->lock = xSemaphoreCreateMutexStatic(&display->lock_storage);
+    display->mode_lock = xSemaphoreCreateMutexStatic(&display->mode_lock_storage);
+    if (!display->lock || !display->mode_lock) return ESP_ERR_NO_MEM;
+    display->pulse_tuning = (epd_pulse_tuning_t){
+        .drive_cycles = config->panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3, .pulse_frames=8,
+        .waveform_fr=8, .cleanup_every=64, .cleanup_adaptive=true};
+    display->scan_async = true;
+    display->scan_period_ms = 100;
+    display->pulse_power_hold = true;
+    display->pulse_spi_clock_hz = config->spi_clock_hz;
     display->dc_pin = config->dc_pin;
     display->reset_pin = config->reset_pin;
     display->busy_pin = config->busy_pin;
@@ -598,7 +1036,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
             .sclk_io_num = config->sclk_pin,
             .quadwp_io_num = GPIO_NUM_NC,
             .quadhd_io_num = GPIO_NUM_NC,
-            .max_transfer_sz = SSD1677_PANEL_ROW_BYTES,
+            .max_transfer_sz = SSD1677_TRANSFER_BYTES,
         };
         ret = spi_bus_initialize(config->spi_host, &bus_config, SPI_DMA_CH_AUTO);
         if (ret == ESP_OK) {
@@ -611,11 +1049,14 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
         return ret;
     }
 
-    display->line_buffer_size = SSD1677_PANEL_ROW_BYTES;
+    display->line_buffer_size = SSD1677_TRANSFER_BYTES;
     display->line_buffer = heap_caps_malloc(display->line_buffer_size,
                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     display->buffer_size = SSD1677_BUFFER_BYTES;
-    display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
+    display->buffer = heap_caps_calloc(1, display->buffer_size,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (display->buffer == NULL)
+        display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
     display->shadow_size = display->buffer_size;
     display->shadow = heap_caps_malloc(display->shadow_size,
                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -649,6 +1090,10 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     }
     if (ret != ESP_OK) {
         epd_ssd1677_deinit(display);
+    } else if (display->panel == EPD_SSD1677_PANEL_STICKY) {
+        const esp_err_t pulse = epd_ssd1677_set_controller_mode(display, "refresh=pulse");
+        if (pulse != ESP_OK)
+            ESP_LOGW(TAG, "startup pulse unavailable err=0x%x; retaining refresh=auto", (unsigned)pulse);
     }
     return ret;
 }
@@ -658,15 +1103,24 @@ esp_err_t epd_ssd1677_resume(epd_ssd1677_t *display)
     if (display == NULL || display->spi == NULL || display->buffer == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    ESP_RETURN_ON_ERROR(ssd1677_configure_pins(display), TAG, "resume pin config failed");
-    display->last_error = ESP_OK;
+    scan_disable(display);
+    if (display->lock) xSemaphoreTake(display->lock, portMAX_DELAY);
+    display->suspended = display->power_state_present = false;
+    esp_err_t err = ssd1677_configure_pins(display);
     display->shadow_valid = false;
-    return ssd1677_controller_init(display);
+    if (err == ESP_OK) err = ssd1677_controller_init(display);
+    display->last_error = err;
+    if (err == ESP_OK) scan_accepting(display);
+    if (display->lock) xSemaphoreGive(display->lock);
+    return err;
 }
 
 void epd_ssd1677_deinit(epd_ssd1677_t *display)
 {
     if (display == NULL) return;
+    scan_disable(display);
+    epd_scan_worker_deinit(&display->scan_worker);
+    free_budget(display);
     epd_relax_dispose(&display->relax);
     if (display->spi != NULL && display->powered) (void)ssd1677_sleep(display);
     if (display->spi != NULL) {
@@ -699,38 +1153,45 @@ u8g2_t *epd_ssd1677_get_u8g2(epd_ssd1677_t *display)
     return display == NULL ? NULL : &display->u8g2;
 }
 
-const char *epd_ssd1677_controller_mode(const epd_ssd1677_t *display)
+const char *epd_ssd1677_controller_mode(const epd_ssd1677_t *d)
 {
-    if (display == NULL) return NULL;
-    switch (display->refresh_mode) {
-    case EPD_SSD1677_REFRESH_PARTIAL: return "refresh=partial";
-    case EPD_SSD1677_REFRESH_FULL: return "refresh=full";
-    case EPD_SSD1677_REFRESH_AUTO:
-    default: return "refresh=auto";
-    }
+    if (!d) return NULL;
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    const char *refresh = d->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL ? "partial" :
+        d->refresh_mode == EPD_SSD1677_REFRESH_FULL ? "full" :
+        d->refresh_mode == EPD_SSD1677_REFRESH_PULSE ? "pulse" : "auto";
+    /* Same per-instance description pattern as the other e-paper drivers. */
+    char *description = ((epd_ssd1677_t *)d)->mode_description;
+    const epd_scan_stats_t stats = epd_scan_worker_stats(&((epd_ssd1677_t *)d)->scan_worker);
+    snprintf(description, sizeof(d->mode_description),
+             "refresh=%s waveform=%s drive-cycles=%u pulse-frames=%u waveform-fr=%u "
+             "cleanup-every=%u cleanup-policy=%s cleanup-peak-cycles=%u cleanup-limit-cycles=%u cleanup-age=%u "
+             "pulse-scan=%s pulse-period=%u pulse-power=%s pulse-spi-khz=%u invert=%s "
+             "scan-last-us=%lld scan-interval-us=%lld scan-count=%u frame-count=%u frame-interval-us=%lld "
+             "scan-submitted=%u scan-coalesced=%u pending=%u",
+             refresh, d->refresh_mode == EPD_SSD1677_REFRESH_PULSE ? "fastwave" : "otp",
+             d->pulse_tuning.drive_cycles, d->pulse_tuning.pulse_frames, d->pulse_tuning.waveform_fr,
+             d->pulse_tuning.cleanup_every, d->pulse_tuning.cleanup_adaptive ? "adaptive" : "fixed",
+             (unsigned)d->pixel_budget.peak_drive_cycles,
+             d->pulse_tuning.cleanup_every * d->pulse_tuning.drive_cycles, (unsigned)d->pulse_updates,
+             d->scan_async ? "async" : "sync", d->scan_period_ms,
+             d->pulse_power_hold ? "hold" : "cycle",
+             (unsigned)(d->pulse_spi_clock_hz / 1000), d->invert ? "true" : "false",
+             (long long)stats.last_scan_us, (long long)stats.last_interval_us, (unsigned)stats.scans,
+             (unsigned)stats.frames, (long long)stats.last_frame_interval_us,
+             (unsigned)stats.submitted, (unsigned)stats.coalesced, (unsigned)d->pixel_budget.pending);
+    if (d->lock) xSemaphoreGive(d->lock);
+    return description;
 }
 
-const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *display)
+const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *d)
 {
-    (void)display;
-    return "refresh=<auto,partial,full>";
-}
-
-esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *display,
-                                          const char *mode)
-{
-    if (display == NULL || mode == NULL) return ESP_ERR_INVALID_ARG;
-    if (display->relax.storage) return ESP_ERR_INVALID_STATE;
-    if (strcmp(mode, "refresh=auto") == 0) {
-        display->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
-    } else if (strcmp(mode, "refresh=partial") == 0) {
-        display->refresh_mode = EPD_SSD1677_REFRESH_PARTIAL;
-    } else if (strcmp(mode, "refresh=full") == 0) {
-        display->refresh_mode = EPD_SSD1677_REFRESH_FULL;
-    } else {
-        return ESP_ERR_INVALID_ARG;
-    }
-    return ESP_OK;
+    (void)d;
+    return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
+           "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..8> "
+           "cleanup-every=<1..128> cleanup-policy=<adaptive,fixed> "
+           "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<cycle,hold> "
+           "pulse-spi-khz=<100..20000> invert=<false,true>";
 }
 
 static esp_err_t relax_native(void *context, solar_os_display_relax_phase_t phase,
@@ -738,20 +1199,135 @@ static esp_err_t relax_native(void *context, solar_os_display_relax_phase_t phas
 {
     epd_ssd1677_t *d = context;
     if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN) {
-        d->controller_ready = d->shadow_valid = false;
-        return ESP_OK;
+        scan_disable(d);
+        esp_err_t err = pulse_powerdown(d);
+        if (err == ESP_OK) err = ssd1677_controller_init(d);
+        if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
+        return err;
     }
-    const esp_err_t err = d->powered ? ssd1677_refresh_image(d, image, true) : ESP_ERR_INVALID_STATE;
+    const esp_err_t err = !d->powered || d->suspended ? ESP_ERR_INVALID_STATE : ssd1677_refresh_image(d, image, true);
     if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_END) {
+        if (err == ESP_OK && d->pixel_budget.pixels) {
+            epd_pixel_budget_reset(&d->pixel_budget);
+            for (size_t p = 0; p < d->pixel_budget.count; ++p)
+                epd_pixel_budget_seed(&d->pixel_budget, p, pixel_white(image, p));
+        }
+        d->pulse_updates = 0;
+        d->pulse_needs_cleanup = err != ESP_OK;
+        d->pulse_mask_dirty = true;
+        d->pulse_last_frame_start = 0;
+    }
     return err;
 }
 
 esp_err_t epd_ssd1677_relax(epd_ssd1677_t *d, solar_os_display_relax_phase_t phase)
 {
     if (!d || !d->buffer || (unsigned)phase > SOLAR_OS_DISPLAY_RELAX_END) return ESP_ERR_INVALID_ARG;
-    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN && !d->powered) return ESP_ERR_INVALID_STATE;
-    const esp_err_t err = epd_relax_apply(&d->relax, d->buffer, d->buffer_size,
-                                         phase, relax_native, d);
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    esp_err_t err = phase == SOLAR_OS_DISPLAY_RELAX_BEGIN && (!d->powered || d->suspended) ? ESP_ERR_INVALID_STATE :
+        epd_relax_apply(&d->relax, d->buffer, SSD1677_BUFFER_BYTES, phase, relax_native, d);
     d->last_error = err;
+    scan_accepting(d);
+    if (d->lock) xSemaphoreGive(d->lock);
+    return err;
+}
+
+static bool parse_tuning(const char *text, unsigned maximum, unsigned *value)
+{
+    if (*text < '0' || *text > '9') return false;
+    char *end;
+    const unsigned long parsed = strtoul(text, &end, 10);
+    if (*end || parsed < 1 || parsed > maximum) return false;
+    *value = (unsigned)parsed;
+    return true;
+}
+
+static esp_err_t set_controller_mode(epd_ssd1677_t *d, const char *mode)
+{
+    if (d->relax.storage) return ESP_ERR_INVALID_STATE;
+    const epd_ssd1677_refresh_mode_t before = d->refresh_mode;
+    bool restart = false;
+    if (strcmp(mode, "refresh=auto") == 0 || strcmp(mode, "waveform=otp") == 0)
+        d->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
+    else if (strcmp(mode, "refresh=partial") == 0 || strcmp(mode, "refresh=fast") == 0)
+        d->refresh_mode = EPD_SSD1677_REFRESH_PARTIAL;
+    else if (strcmp(mode, "refresh=full") == 0) d->refresh_mode = EPD_SSD1677_REFRESH_FULL;
+    else if (strcmp(mode, "refresh=pulse") == 0 || strcmp(mode, "waveform=fastwave") == 0) {
+        const bool allocated = d->pixel_budget.pixels != NULL;
+        TRY(allocate_budget(d));
+        if (d->scan_async && !d->scan_worker.task) {
+            const esp_err_t err = epd_scan_worker_init(&d->scan_worker, SSD1677_BUFFER_BYTES, scan_process, d);
+            if (err != ESP_OK) {
+                if (!allocated) free_budget(d);
+                return err;
+            }
+            TRY(epd_scan_worker_set_period(&d->scan_worker, d->scan_period_ms));
+        }
+        d->refresh_mode = EPD_SSD1677_REFRESH_PULSE;
+        restart = before != d->refresh_mode;
+    } else if (strcmp(mode, "pulse-scan=async") == 0) {
+        if (!d->scan_worker.task) {
+            TRY(epd_scan_worker_init(&d->scan_worker, SSD1677_BUFFER_BYTES, scan_process, d));
+            TRY(epd_scan_worker_set_period(&d->scan_worker, d->scan_period_ms));
+        }
+        restart = !d->scan_async;
+        d->scan_async = true;
+    } else if (strcmp(mode, "pulse-scan=sync") == 0) {
+        restart = d->scan_async;
+        d->scan_async = false;
+    } else if (strcmp(mode, "pulse-power=hold") == 0 || strcmp(mode, "pulse-power=cycle") == 0) {
+        d->pulse_power_hold = strcmp(mode, "pulse-power=hold") == 0;
+        restart = true;
+    } else if (strncmp(mode, "pulse-period=", 13) == 0 || strncmp(mode, "pulse-spi-khz=", 14) == 0) {
+        const bool spi = mode[6] == 's';
+        unsigned value;
+        if (!parse_tuning(mode + (spi ? 14 : 13), spi ? 20000 : 1000, &value) ||
+            value < (spi ? 100U : 67U)) return ESP_ERR_INVALID_ARG;
+        if (spi) d->pulse_spi_clock_hz = value * 1000U;
+        else {
+            if (d->scan_worker.task) TRY(epd_scan_worker_set_period(&d->scan_worker, value));
+            d->scan_period_ms = (uint16_t)value;
+        }
+    } else if (strcmp(mode, "invert=true") == 0 || strcmp(mode, "invert=false") == 0) {
+        d->invert = strcmp(mode, "invert=true") == 0;
+        restart = true;
+    } else {
+        const epd_pulse_tuning_t previous = d->pulse_tuning;
+        TRY(epd_pulse_tuning_set(&d->pulse_tuning, mode));
+        if (d->pulse_tuning.waveform_fr > 8) {
+            d->pulse_tuning = previous;
+            return ESP_ERR_INVALID_ARG;
+        }
+        restart = previous.pulse_frames != d->pulse_tuning.pulse_frames ||
+            previous.waveform_fr != d->pulse_tuning.waveform_fr;
+    }
+    if (restart || (before == EPD_SSD1677_REFRESH_PULSE && before != d->refresh_mode))
+        d->pulse_needs_cleanup = true;
+    if (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE && d->pixel_budget.pixels) {
+        scan_disable(d);
+        TRY(pulse_powerdown(d));
+        d->controller_ready = d->shadow_valid = false;
+        free_budget(d);
+    }
+    scan_accepting(d);
+    if (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE || !d->scan_async)
+        TRY(pulse_powerdown(d));
+    return ESP_OK;
+}
+
+esp_err_t epd_ssd1677_set_controller_mode(epd_ssd1677_t *d, const char *mode)
+{
+    if (!d || !mode) return ESP_ERR_INVALID_ARG;
+    if (d->mode_lock) xSemaphoreTake(d->mode_lock, portMAX_DELAY);
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    const esp_err_t err = set_controller_mode(d, mode);
+    const bool stop_worker = err == ESP_OK &&
+        (d->refresh_mode != EPD_SSD1677_REFRESH_PULSE || !d->scan_async);
+    if (stop_worker) scan_disable(d);
+    if (d->lock) xSemaphoreGive(d->lock);
+    /* Joining under the panel lock would deadlock an in-flight scan. */
+    if (stop_worker) epd_scan_worker_deinit(&d->scan_worker);
+    if (d->mode_lock) xSemaphoreGive(d->mode_lock);
     return err;
 }

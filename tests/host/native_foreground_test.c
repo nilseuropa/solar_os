@@ -30,7 +30,7 @@ static size_t strlcpy(char *out, const char *in, size_t size) {
 typedef struct {
     const foreground_slot_t *slot;
     _Atomic(TaskHandle_t) worker;
-    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset;
+    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset, redraw_requested;
     uint64_t stop_deadline_us;
     bool worker_started, keyboard_captured, themed_index2;
     int result, exit_code;
@@ -137,6 +137,8 @@ static void setup(void) {
 }
 int main(void) {
     setup(); char busy[32];
+    foreground_resume(&contexts[0]);
+    assert(atomic_load(&first.redraw_requested) && !atomic_load(&first.suspended));
     bool available = true;
     solar_os_native_foreground_pointer_v1_t pointer;
     assert(foreground_read_pointer(&pointer, &available) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !available);

@@ -17,7 +17,7 @@ static unsigned allocations,claims,leases,attempts,presented;
 static int fail_at=-1;
 static bool installed=true,join_ok=true,release_ok=true,display_busy=false,bad_api=false;
 static bool legacy_api;
-static bool terminal_blocked;
+static bool terminal_blocked,orientation_locked;
 static solar_os_jet_api_v1_t provider;
 static uint8_t image[64*48*2];
 struct solar_os_frame_presenter {
@@ -58,10 +58,13 @@ esp_err_t solar_os_display_claim(const char *name,const char *owner,char *detail
     assert(!claims);++claims;return ESP_OK;
 }
 esp_err_t solar_os_display_release(const char *name,const char *owner) {
-    assert(!strcmp(name,"display0")&&*owner&&claims&&!terminal_blocked);--claims;return ESP_OK;
+    assert(!strcmp(name,"display0")&&*owner&&claims&&!terminal_blocked&&!orientation_locked);--claims;return ESP_OK;
 }
 esp_err_t solar_os_display_set_terminal_blocked(const char *name,const char *owner,bool blocked) {
     assert(!strcmp(name,"display0")&&*owner&&claims);terminal_blocked=blocked;return ESP_OK;
+}
+esp_err_t solar_os_display_set_orientation_locked(const char *name,const char *owner,bool locked) {
+    assert(!strcmp(name,"display0")&&*owner&&claims);orientation_locked=locked;return ESP_OK;
 }
 esp_err_t solar_os_display_open_gfx(const char *name,const char *owner,solar_os_gfx_t **out,char *detail,size_t size) {
     esp_err_t err=solar_os_display_claim(name,owner,detail,size);if(!err)*out=&gfx;return err;

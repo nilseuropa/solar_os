@@ -7783,23 +7783,26 @@ static int solua_gfx_end(lua_State *L)
 
 static int solua_gfx_width(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_width(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, width);
     return 1;
 }
 
 static int solua_gfx_height(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, height);
     return 1;
 }
 
 static int solua_gfx_size(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_width(gfx) : 0);
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, width);
+    lua_pushinteger(L, height);
     return 2;
 }
 

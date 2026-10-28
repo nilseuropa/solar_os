@@ -830,7 +830,7 @@ static void power_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  power status");
     solar_os_shell_io_writeln(term, "  power profile [performance|balanced|battery|lowpower]");
     solar_os_shell_io_writeln(term, "  power idle [off|seconds]");
-    solar_os_shell_io_writeln(term, "  power key [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]");
+    solar_os_shell_io_writeln(term, "  power key [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]");
     solar_os_shell_io_writeln(term, "  power sleep");
     solar_os_shell_io_writeln(term, "  power suspend");
 }

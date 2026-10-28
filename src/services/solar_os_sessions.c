@@ -19,6 +19,7 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_keys.h"
 #include "solar_os_terminal_internal.h"
+#include "solar_os_terminal_preferences.h"
 #include "solar_os_tui_widgets.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -107,6 +108,7 @@ typedef enum {
     SOLAR_OS_SESSION_OPERATION_CREATE_DISPLAY_APP = 0,
     SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
     SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
+    SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
 } solar_os_session_operation_type_t;
 
 typedef struct {
@@ -119,6 +121,7 @@ typedef struct {
     uint8_t close_session_id;
     uint8_t command_session_id;
     const char *command;
+    solar_os_terminal_profile_t display_profile;
     solar_os_shell_io_t *caller_io;
     SemaphoreHandle_t complete;
     esp_err_t result;
@@ -2079,7 +2082,11 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
     if (session->terminal_redraw_requested) {
         session->terminal_redraw_requested = false;
         session_prepare_context(session);
-        if (session->app->resume != NULL) {
+        if (session->graphics_active && solar_os_gfx_surface(session_effective_gfx(session)))
+            solar_os_gfx_prepare_surface(session_effective_gfx(session));
+        if (session->app == solar_os_shell_app() && session->shell_session != NULL) {
+            solar_os_shell_session_redraw_prompt(session_state.ctx, session->shell_session);
+        } else if (session->app->resume != NULL) {
             if (session->app->flags & SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT)
                 session_restore_graphics_snapshot(session);
             session->app->resume(session_state.ctx);
@@ -2375,20 +2382,44 @@ static bool session_terminal_layout_changed(
 {
     return before != NULL && after != NULL &&
         (before->orientation_degrees != after->orientation_degrees ||
+         before->scale != after->scale ||
          before->font != after->font ||
          before->text_size != after->text_size ||
          before->status_bar_visible != after->status_bar_visible);
 }
 
-esp_err_t solar_os_sessions_set_display_terminal_profile(
+static void session_apply_display_orientation(const char *name, uint16_t degrees)
+{
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target) || !target.u8g2) return;
+    static const u8g2_cb_t *const rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
+    unsigned base = 0;
+    for (unsigned i = 1; i < 4; i++)
+        if (target.base_rotation == rotations[i]) base = i;
+    u8g2_SetDisplayRotation(target.u8g2, rotations[(base + degrees / 90U) % 4U]);
+}
+
+static esp_err_t session_set_display_terminal_profile_internal(
     const char *target_name,
     const solar_os_terminal_profile_t *profile)
 {
+    solar_os_terminal_profile_t current;
+    if (profile != NULL && solar_os_display_get_terminal_profile(target_name, &current) == ESP_OK &&
+        (profile->scale ? profile->scale : 1) != (current.scale ? current.scale : 1)) {
+        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+            const solar_os_session_entry_t *session = &session_state.sessions[i];
+            char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+            if (session->used && session->graphics_active && !session->suspended &&
+                session_terminal_target_name(session, session->terminal, target, sizeof(target)) &&
+                strcmp(target, target_name) == 0) return ESP_ERR_INVALID_STATE;
+        }
+    }
     esp_err_t err = solar_os_display_set_terminal_profile(target_name, profile);
     if (err != ESP_OK) {
         return err;
     }
 
+    session_apply_display_orientation(target_name, profile->orientation_degrees);
     bool shell_terminal_applied = false;
     for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
         solar_os_session_entry_t *session = &session_state.sessions[i];
@@ -2406,10 +2437,10 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
         if (err == ESP_OK && apply_err != ESP_OK) {
             err = apply_err;
         }
-        if (apply_err == ESP_OK && session->started && !session->suspended &&
-            !session->graphics_active && session->app != solar_os_shell_app() &&
-            session_terminal_layout_changed(&previous_profile, profile)) {
-            session->terminal_redraw_requested = true;
+        if (apply_err == ESP_OK && session_terminal_layout_changed(&previous_profile, profile)) {
+            session_discard_graphics_snapshot(session);
+            if (session->started && !session->suspended)
+                session->terminal_redraw_requested = true;
         }
         if (session->terminal == session_state.shell_terminal) {
             shell_terminal_applied = true;
@@ -2433,29 +2464,70 @@ esp_err_t solar_os_sessions_set_display_terminal_profile(
     return err;
 }
 
+esp_err_t solar_os_sessions_set_display_terminal_profile(
+    const char *target_name, const solar_os_terminal_profile_t *profile)
+{
+    if (!target_name || !profile) return ESP_ERR_INVALID_ARG;
+    if (xTaskGetCurrentTaskHandle() == session_scheduler_task)
+        return session_set_display_terminal_profile_internal(target_name, profile);
+    if (!session_operation_queue || solar_os_shutdown_requested()) return ESP_ERR_INVALID_STATE;
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
+        .target_name = target_name,
+        .display_profile = *profile,
+        .complete = xSemaphoreCreateBinary(),
+    };
+    if (!request.complete) return ESP_ERR_NO_MEM;
+    solar_os_session_operation_request_t *queued_request = &request;
+    if (xQueueSend(session_operation_queue, &queued_request, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        vSemaphoreDelete(request.complete);
+        return ESP_ERR_TIMEOUT;
+    }
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    const esp_err_t result = request.result;
+    vSemaphoreDelete(request.complete);
+    return result;
+}
+
+esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, uint8_t scale)
+{
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
+    if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
+    return solar_os_sessions_set_display_scale(target, scale, true);
+}
+
+esp_err_t solar_os_sessions_set_display_scale(const char *target, uint8_t scale, bool save)
+{
+    if (scale < 1 || scale > 4) return ESP_ERR_INVALID_ARG;
+    solar_os_terminal_profile_t profile;
+    esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
+    if (err != ESP_OK) return err;
+    profile.scale = scale;
+    err = solar_os_sessions_set_display_terminal_profile(target, &profile);
+    if (err == ESP_OK && save) err = solar_os_terminal_profile_save_scale(target, scale);
+    return err;
+}
+
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
                                                      uint16_t degrees)
 {
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
-    const esp_err_t err = session_terminal_setting_is_persistent(owner) ?
-        solar_os_terminal_set_orientation(terminal, degrees) :
-        solar_os_terminal_set_orientation_transient(terminal, degrees);
-    if (err == ESP_ERR_INVALID_ARG) {
-        return err;
-    }
-    session_store_terminal_profile(owner, terminal);
+    if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
+    return solar_os_sessions_set_display_orientation(target, degrees, true);
+}
 
-    if (owner != NULL) {
-        for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
-            solar_os_session_entry_t *peer = &session_state.sessions[i];
-            if (peer->used &&
-                peer->terminal != NULL &&
-                peer->terminal != terminal &&
-                session_uses_same_display(owner, peer)) {
-                (void)solar_os_terminal_set_orientation_transient(peer->terminal, degrees);
-            }
-        }
-    }
+esp_err_t solar_os_sessions_set_display_orientation(const char *target, uint16_t degrees, bool save)
+{
+    if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) return ESP_ERR_INVALID_ARG;
+    solar_os_terminal_profile_t profile;
+    esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
+    if (err != ESP_OK) return err;
+    profile.orientation_degrees = degrees;
+    err = solar_os_sessions_set_display_terminal_profile(target, &profile);
+    if (err == ESP_OK && save)
+        err = solar_os_terminal_profile_save_display_orientation(target, degrees);
     return err;
 }
 
@@ -3106,6 +3178,10 @@ static void session_process_operation_requests(void)
                 session_send_command_internal(request->command_session_id,
                                               request->command,
                                               request->caller_io);
+            break;
+        case SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE:
+            request->result = session_set_display_terminal_profile_internal(
+                request->target_name, &request->display_profile);
             break;
         default:
             request->result = ESP_ERR_INVALID_ARG;

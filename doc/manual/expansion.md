@@ -252,6 +252,12 @@ The `sdspi` attach command prints the card probe result to the invoking shell.
 The report includes the card identity, type, negotiated speed, capacity, CSD/SSR
 details, mount point, and any underlying block-I/O or FatFs mount error.
 
+After replacing or reinserting an SD card, run `disk mount` to initialize and
+mount it again. For a board-defined SDSPI or SDMMC device, repeating
+`expansion attach storage0` also recovers the card without releasing its bus
+bindings. These commands check the cached card and discard stale SD mounts
+before probing again. Unmount disk images backed by the card first.
+
 GT911 attachments can additionally bind `reset=gpioN`, `power=gpioN`, and
 `active=0|1` for reset/address selection and touch-rail control. The default
 power active level is high. Optional `home_key=<numeric-key>` maps the

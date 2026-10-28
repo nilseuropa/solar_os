@@ -33,6 +33,14 @@ int main(void)
     assert((xbm[0] & 0x04U) == 0U);
     assert(xbm[1] == 0U);
 
+    uint8_t scaled[3] = {0xa5U, 0, 0xa5U};
+    const uint8_t original = pixels[0];
+    assert(solar_os_sketch_canvas_render_xbm_scaled(&canvas, scaled + 1, 1, 2, 1));
+    assert(scaled[0] == 0xa5U && scaled[2] == 0xa5U);
+    assert(scaled[1] == 3U && pixels[0] == original);
+    assert(!solar_os_sketch_canvas_render_xbm_scaled(&canvas, scaled + 1, 0, 2, 1));
+    assert(!solar_os_sketch_canvas_render_xbm_scaled(&canvas, scaled + 1, 1, 0, 1));
+
     FILE *file = tmpfile();
     assert(file != NULL);
     assert(solar_os_sketch_canvas_write_png(file, &canvas) == ESP_OK);

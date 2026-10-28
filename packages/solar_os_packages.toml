@@ -637,6 +637,11 @@ label = "QMI8658 IMU"
 category = "Expansion hardware"
 members = ["qmi8658"]
 
+[groups.lsm6ds3trc]
+label = "LSM6DS3TR-C IMU"
+category = "Expansion hardware"
+members = ["lsm6ds3trc"]
+
 [groups.drv2605]
 label = "DRV2605 haptic controller"
 category = "Expansion hardware"
@@ -721,6 +726,11 @@ members = ["expansion_pcm5102"]
 label = "PCM1808 audio input"
 category = "Expansion hardware"
 members = ["expansion_pcm1808"]
+
+[groups.audio_pdm]
+label = "PDM microphone"
+category = "Expansion hardware"
+members = ["expansion_audio_pdm"]
 
 [groups.inmp441]
 label = "INMP441 microphone and shared I2S playback"
@@ -895,6 +905,7 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
   "services/solar_os_frame_presenter.c",
@@ -1790,10 +1801,11 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "expansion.ssd1677"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_ssd1677_expansion_driver"]
-depends = ["axp2101", "service_expansion", "service_spi"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",
+  "drivers/epd_ssd1677_waveform.c",
   "services/solar_os_ssd1677.c",
   "services/solar_os_ssd1677_driver.c",
 ]
@@ -1968,6 +1980,19 @@ sources = [
   "services/solar_os_qmi8658_driver.c",
 ]
 requires = ["esp_timer"]
+capabilities = ["i2c"]
+
+[packages.lsm6ds3trc]
+label = "expansion.lsm6ds3trc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_lsm6ds3trc_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = [
+  "drivers/lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc_driver.c",
+]
+requires = ["esp_timer", "esp_driver_gpio"]
 capabilities = ["i2c"]
 
 [packages.drv2605]
@@ -2318,6 +2343,19 @@ sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
   "services/solar_os_pcm5102_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
+
+[packages.expansion_audio_pdm]
+label = "expansion.audio_pdm"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_audio_pdm_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_pdm.c",
+  "services/solar_os_audio_pdm.c",
+  "services/solar_os_audio_pdm_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
@@ -3332,10 +3370,11 @@ members = ["expansion_x4pro"]
 label = "expansion.x4pro"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_x4pro_expansion_driver"]
-depends = ["driver_epd_ultrachip", "service_expansion", "service_spi"]
+depends = ["driver_epd_ultrachip", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",
+  "drivers/epd_ssd1677_waveform.c",
   "drivers/epd_uc8179.c",
   "drivers/epd_uc8279.c",
   "drivers/epd_xteink_identify.c",

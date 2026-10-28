@@ -129,6 +129,8 @@ that render text or other display-sized content can allocate a matching frame
 instead of assuming a board's resolution. Request a service table large enough
 to include this method. Fixed-resolution emulators can still submit their own
 frame size and use the presenter's aspect-preserving fit.
+Runtime display rotation refits the retained frame without reopening video or
+changing the guest's frame buffers.
 
 `present` copies a submitted frame. For rendering into host-owned buffers, check
 for `video_acquire` and `video_exchange`. Acquire once after opening video, fill

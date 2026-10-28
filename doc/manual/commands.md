@@ -285,6 +285,8 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
+| `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
+| `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
 | `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -332,8 +334,9 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm --display <target> [orientation\|font\|textsize\|palette\|statusbar] [value]` | Show or change the volatile terminal profile of a named display target. |
-| `setterm` | `setterm orientation [0\|90\|180\|270]` | Show or set primary-display orientation. |
+| `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
+| `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
+| `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
@@ -569,7 +572,8 @@ off.
 
 ```text
 setterm
-setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]
+setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
+setterm scale [1..4]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [8|10|12|14|16|18|20]
@@ -582,7 +586,7 @@ setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
 setterm keyboard [us|de]
-setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]
+setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
 setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
@@ -632,18 +636,20 @@ setterm powerkey short enter
 setterm powerkey long suspend
 setterm powerkey long sleep
 setterm powerkey long deepsleep
+setterm powerkey long shutdown
 setterm powerkey long ble-pair
 setterm powerkey long default
 ```
 
 The action choices are `default`, `off`, `enter`, `app-exit`, `sleep`, `suspend`,
-`deepsleep`, and `ble-pair`. `off` disables the awake action; it does not cut
-power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
+`deepsleep`, `shutdown`, and `ble-pair`. `off` disables the awake action; it
+does not cut power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
 turns off the display while jobs and services continue. `deepsleep` enters deep
-sleep and starts a fresh boot on wake. `ble-pair` forgets the remembered BLE
-keyboard and starts pairing when BLE is enabled for the current boot.
+sleep and starts a fresh boot on wake. `shutdown` performs cleanup and powers
+off where supported. `ble-pair` forgets the remembered BLE keyboard and starts
+pairing when BLE is enabled for the current boot.
 
-A hold is recognized after 1.2 seconds; light and deep sleep begin after KEY is
+A hold is recognized after 1.2 seconds; sleep and shutdown begin after KEY is
 released. Any KEY press resumes suspend or wakes sleep,
 regardless of its duration. The wake press is consumed until release, so it
 cannot also type Enter, start pairing, or put the device back to sleep.
@@ -652,6 +658,7 @@ cannot also type Enter, start pairing, or put the device back to sleep.
 suspend for a hold. Other boards retain their normal short-press mapping; holds
 default to suspend on targets with a board-owned wired keyboard and BLE pairing
 on targets without one. Connecting a BLE keyboard does not change these defaults.
+Sticky defaults to light sleep for a tap and shutdown for a hold.
 Valid saved choices take precedence over defaults, including older short-press
 settings. Changes persist and apply immediately. `setterm powerkey sleep` remains
 shorthand for `setterm powerkey short sleep`; `setterm key` is also accepted.
@@ -669,7 +676,7 @@ them from a port shell. `profile` controls terminal escape sequences;
 `charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
 drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
 blocks, arrows, and punctuation are replaced with readable ASCII characters.
-Display layout settings (`orientation`, `font`, `textsize`, `palette`, and
+Terminal settings (`font`, `textsize`, `palette`, and
 `statusbar`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
@@ -682,23 +689,42 @@ does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
 
-`setterm --display <target>` reads or changes the volatile terminal profile of
+`setterm --display <target>` reads or changes the profile of
 a named runtime display target, even when a TUI application rather than a shell
-owns that display. The target profile is initialized from the single global NVS
-parameter set when the display registers. Orientation is relative to the
+owns that display. The target profile uses global defaults and the scale saved
+for that display name. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
 mounting even when their drivers use different U8g2 rotations. Display-targeted
-absolute pointer coordinates follow this logical orientation. A targeted change
-applies to current and future sessions on that display until reboot or until the
-display target is unregistered; it does not create or update per-display NVS
-keys. Without a setting, the command prints the target's complete volatile
-profile. For example:
+absolute pointer coordinates follow this logical orientation. Orientation and
+scale are saved per display and restored after reboot. Other targeted changes
+apply to current and future sessions until reboot or display removal. Without a setting,
+the command prints the target's complete profile. For example:
 
 ```text
 setterm --display oled0 statusbar hide
 setterm --display oled0 textsize 10
 setterm --display oled0 palette inverted
 ```
+
+`display orientation display0 90` rotates the shell, running graphical apps
+and touch coordinates together. Shell output, history and unfinished input are
+preserved. Both `display orientation` and `display scale` are runtime-only,
+including changes made by gesture bindings. `setterm orientation`, `setterm scale`
+and the settings TUI use the same display operations and save their values in NVS.
+
+`display scale display0` shows the display's integer pixel scale. Values `1` through
+`4` apply to the entire display canvas, including text, graphics, icons and
+spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
+a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
+uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
+Touch coordinates follow the same scale and orientation.
+
+Use `setterm scale 2` or `setterm --display display0 scale 2` to save scale
+for that display name. `display scale display0 2` changes only the current runtime. Close graphical applications, dismiss
+display overlays, and remove layouts using that target before changing scale.
+Text and graphical applications
+opened afterward use the new logical dimensions. Use `display scale display0 1` to
+return to native resolution. External VT100 terminal geometry is unchanged.
 
 Text size `8` selects a fixed bitmap face with 6×8 pixel cells for both font
 families. It uses the same upright glyphs for regular, bold, and italic text.
@@ -1514,12 +1540,29 @@ factory `refresh=auto|partial|full` modes. In auto mode,
 cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 `refresh=fast` is an alias for it.
 
+SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
+`refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
+Sticky (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
+profiles start in native auto mode. The Sticky panel profile uses the
+manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
+planes for full cleanup. Generic profiles retain their differential full-frame
+sequence. Pulse mode uses the controller's 105-byte LUT,
+nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
+are asynchronous, 100 ms between new images, five drive cycles on Sticky
+(three on other profiles), eight scan
+frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup
+with baseline 64. `waveform-fr=<1..8>` selects a nibble repeated across its
+five frame-rate bytes. It supports `pulse-period=<67..1000>`,
+`pulse-spi-khz=<100..20000>`, `pulse-power=<cycle,hold>`, and
+`invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
+restores native auto. Pulse memory is allocated in PSRAM on demand.
+
 The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker,
-Waveshare 4.2-inch V2/revision-2.2, and SSD1685 GDEY029T71H profiles provide the
+Waveshare 4.2-inch V2/revision-2.2, SSD1677, and SSD1685 GDEY029T71H profiles provide the
 `refresh=pulse` monochrome mode. `display mode <target> drive-cycles=<1..32>`
 sets the per-pixel budget, `pulse-frames=<1..32>` sets each drive phase's scan
 duration, `waveform-fr=<1..12>` selects a raw frame-rate code (the dual SSD1683
-accepts only 1–5 or 9–12), and
+accepts only 1–5 or 9–12; SSD1677 accepts 1–8), and
 `cleanup-every=<1..128>` sets the cleanup baseline.
 `cleanup-policy=adaptive` tracks actual successful drives per pixel.
 It cleans up when the most-driven pixel reaches `cleanup-every * drive-cycles`
@@ -1537,7 +1580,7 @@ also controlling its native auto-mode cleanup interval. They are listed by
 cycles before returning. `pulse-scan=async` runs one cycle per scan in a
 persistent worker and accepts new targets while earlier pixels settle.
 `pulse-period=<10..1000>` requests the minimum new-image interval in milliseconds;
-the dual-SSD1683, Elecrow green-sticker, and SSD1685 profiles instead accept 67–1000 ms.
+the dual-SSD1683, Elecrow green-sticker, SSD1677, and SSD1685 profiles instead accept 67–1000 ms.
 Settling drives run as BUSY permits without consuming new-image slots. A new
 target can replace the current target between drives when its image slot is due;
 unchanged pixels keep their remaining budgets. Identical submissions do not

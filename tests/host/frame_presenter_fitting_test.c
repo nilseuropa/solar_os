@@ -28,18 +28,21 @@ static uint32_t display_formats;
 static uint16_t display_stack_bytes;
 static bool fail_allocation;
 static bool rgb565_worker;
+static bool rotate_during_present;
+static bool native_view;
 static solar_os_display_raster_t captured;
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
-{ assert(gfx); return display_width; }
+{ assert(gfx); return native_view ? display_width * 2 : display_width; }
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
-{ assert(gfx); return display_height; }
+{ assert(gfx); return native_view ? display_height * 2 : display_height; }
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx, char *name, size_t size)
 { assert(gfx && size >= sizeof("display0")); strcpy(name, "display0"); return true; }
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target)
 {
     assert(!strcmp(name, "display0"));
     *target = (solar_os_display_target_t){
+        .width = display_width, .height = display_height,
         .frame_formats = display_formats, .preferred_stream_fps = 25,
         .presentation_stack_bytes = display_stack_bytes,
     };
@@ -50,13 +53,15 @@ bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx)
 esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame)
 {
     assert(gfx && frame && frame->width && frame->height);
+    if (rotate_during_present) {
+        rotate_during_present = false;
+        display_width = 240; display_height = 400;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     assert((size_t)frame->x + frame->width <= display_width);
     assert((size_t)frame->y + frame->height <= display_height);
     if (frame->format == SOLAR_OS_DISPLAY_FORMAT_MONO1) {
-        /* Match ST7305's requirement: conversion has already scaled the data. */
-        assert(frame->source_width == frame->width);
-        assert(frame->source_height == frame->height);
-        assert(frame->data_size == (size_t)frame->source_stride * frame->height);
+        assert(frame->data_size == (size_t)frame->source_stride * frame->source_height);
     }
     captured = *frame;
     return ESP_OK;
@@ -137,8 +142,55 @@ static void check_fit(uint16_t width, uint16_t height, uint16_t output_width,
     assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
 }
 
+static void check_runtime_rotation(void)
+{
+    uint16_t palette[256] = {0};
+    const unsigned formats[] = {SOLAR_OS_DISPLAY_FORMAT_INDEX2,
+        SOLAR_OS_DISPLAY_FORMAT_INDEX8, SOLAR_OS_DISPLAY_FORMAT_RGB565,
+        SOLAR_OS_DISPLAY_FORMAT_MONO1};
+    for (unsigned f = 0; f < 4; f++) for (unsigned mono = 0; mono < 2; mono++) {
+        display_formats = mono ? SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT :
+            SOLAR_OS_DISPLAY_FORMAT_BIT(formats[f]);
+        rgb565_worker = formats[f] == SOLAR_OS_DISPLAY_FORMAT_RGB565;
+        display_width = 400; display_height = 240;
+        solar_os_frame_presenter_config_t config = {
+            .gfx = (solar_os_gfx_t *)&captured, .format = formats[f],
+            .width = 320, .height = 240,
+            .stride = frame_minimum_stride(formats[f], 320),
+            .palette_rgb565 = palette, .palette_size = 256,
+            .allow_mono_fallback = true,
+        };
+        solar_os_frame_presenter_t *p = NULL;
+        assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+        memset(p->presenting, 0, p->source_size);
+        uint8_t *source = p->presenting;
+        for (unsigned rotation = 0; rotation < 8; rotation++) {
+            display_width = rotation & 1 ? 240 : 400;
+            display_height = rotation & 1 ? 400 : 240;
+            assert(frame_refresh_output(p) == ESP_OK);
+            assert(p->presenting == source && p->task);
+            assert(p->output_width == (rotation & 1 ? 240 : 320));
+            assert(p->output_height == (rotation & 1 ? 180 : 240));
+            assert(frame_present_current_output(p) == ESP_OK);
+        }
+        display_width = 400; display_height = 240;
+        assert(frame_refresh_output(p) == ESP_OK);
+        native_view = true;
+        assert(frame_present_current_output(p) == ESP_OK);
+        assert(p->output_width == 320 && p->output_height == 240);
+        native_view = false;
+        rotate_during_present = true;
+        assert(frame_present_current_output(p) == ESP_OK);
+        assert(!rotate_during_present && p->viewport_width == 240 && p->viewport_height == 400);
+
+        assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
+    }
+    rgb565_worker = false;
+}
+
 int main(void)
 {
+    check_runtime_rotation();
     display_width = 384; display_height = 168;
     check_fit(320, 240, 224, 168, true, SOLAR_OS_FRAME_FIT_HEIGHT); /* CL32 DOOM */
     check_fit(640, 480, 224, 168, true, SOLAR_OS_FRAME_FIT_HEIGHT); /* Both axes larger */
@@ -175,7 +227,9 @@ int main(void)
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
     display_height = 168;
     config.fit = SOLAR_OS_FRAME_FIT_DEFAULT;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
+    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+    assert(p->output_width == 224 && p->output_height == 168);
+    assert(solar_os_frame_presenter_deinit(p) == ESP_OK); p = NULL;
     config.fit = SOLAR_OS_FRAME_FIT_HEIGHT; config.width = 1; config.height = UINT16_MAX;
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
 

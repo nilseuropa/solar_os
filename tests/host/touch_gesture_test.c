@@ -5,6 +5,16 @@
 
 static unsigned observed;
 static solar_os_input_gesture_event_t last_observed;
+static uint16_t display_orientation;
+static const char *pointer_target = "display0";
+
+static uint16_t resolve_orientation(const char *target)
+{
+    solar_os_input_source_info_t info;
+    assert(solar_os_input_source_find("touch", &info));
+    if (!strcmp(target, "display0")) return display_orientation;
+    return !strcmp(target, "aux") ? 270 : 0;
+}
 
 static void touch_observer(const solar_os_input_gesture_event_t *event, void *context)
 {
@@ -23,10 +33,12 @@ static void pointer_at(solar_os_input_source_t source, uint32_t ms,
     const solar_os_input_pointer_sample_t sample = {
         .time_ms = ms,
         .event = {.mode = SOLAR_OS_INPUT_POINTER_ABSOLUTE, .action = action,
-            .x = x, .y = y, .pointer_id = id, .target = "display0",
+            .x = x, .y = y, .pointer_id = id,
             .buttons = action == SOLAR_OS_INPUT_POINTER_RELEASE ? 0 : 1},
     };
-    assert(solar_os_input_write_pointer_sample(source, &sample) == ESP_OK);
+    solar_os_input_pointer_sample_t targeted = sample;
+    strcpy(targeted.event.target, pointer_target);
+    assert(solar_os_input_write_pointer_sample(source, &targeted) == ESP_OK);
     solar_os_input_pointer_event_t event;
     assert(solar_os_input_read_pointer_events(&event, 1) == 1);
     assert(event.source == source && event.x == x && event.y == y && event.action == action);
@@ -258,6 +270,57 @@ int main(void)
     assert(solar_os_input_read_gesture_events(batch, 2) == 2);
     assert(batch[0].gesture == SOLAR_OS_INPUT_GESTURE_TAP && batch[0].source == source);
     assert(batch[1].gesture == SOLAR_OS_INPUT_GESTURE_TAP && batch[1].source == other);
+
+    /* Foreground events, binding observers and diagnostics agree at every rotation. */
+    solar_os_input_set_display_orientation_resolver(resolve_orientation);
+    const solar_os_input_gesture_direction_t rotated[4][4] = {
+        {SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST, SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST,
+         SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH},
+        {SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH,
+         SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST},
+        {SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST,
+         SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH},
+        {SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH, SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH,
+         SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST, SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST},
+    };
+    for (unsigned r = 0; r < 4; r++) {
+        display_orientation = 90 * r;
+        for (unsigned d = 0; d < 4; d++) {
+            uint32_t start = 30000 + 1000 * (r * 4 + d);
+            pointer_at(source, start, SOLAR_OS_INPUT_POINTER_PRESS, 100, 100, 0);
+            pointer_at(source, start + 100, SOLAR_OS_INPUT_POINTER_RELEASE, ends[d][0], ends[d][1], 0);
+            assert(expect_gesture(source, SOLAR_OS_INPUT_GESTURE_SWIPE, rotated[r][d]).value == 60);
+            solar_os_input_source_diagnostics_t diagnostics;
+            assert(solar_os_input_source_get_diagnostics(source, &diagnostics));
+            assert(diagnostics.last_gesture.direction == rotated[r][d]);
+        }
+    }
+    /* Resolve the event's target, and hold its orientation for the whole stroke. */
+    display_orientation = 90;
+    pointer_target = "aux";
+    pointer_at(source, 47000, SOLAR_OS_INPUT_POINTER_PRESS, 100, 100, 0);
+    pointer_at(source, 47100, SOLAR_OS_INPUT_POINTER_RELEASE, 160, 100, 0);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH);
+    pointer_target = "missing";
+    pointer_at(source, 48000, SOLAR_OS_INPUT_POINTER_PRESS, 100, 100, 0);
+    pointer_at(source, 48100, SOLAR_OS_INPUT_POINTER_RELEASE, 160, 100, 0);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    pointer_target = "display0";
+    pointer_at(source, 49000, SOLAR_OS_INPUT_POINTER_PRESS, 100, 100, 0);
+    display_orientation = 180;
+    pointer_at(source, 49100, SOLAR_OS_INPUT_POINTER_RELEASE, 160, 100, 0);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
+    solar_os_input_source_t imu;
+    assert(solar_os_input_source_open_typed("imu", SOLAR_OS_INPUT_SOURCE_GESTURE,
+        SOLAR_OS_INPUT_CAP_GESTURE_EVENTS, true, &imu) == ESP_OK);
+    assert(solar_os_input_source_set_gestures(imu,
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TILT)) == ESP_OK);
+    const solar_os_input_gesture_event_t tilt = {.gesture = SOLAR_OS_INPUT_GESTURE_TILT,
+        .direction = SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST};
+    assert(solar_os_input_write_gesture(imu, &tilt) == ESP_OK);
+    expect_gesture(imu, SOLAR_OS_INPUT_GESTURE_TILT, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    solar_os_input_source_close(imu);
+    solar_os_input_set_display_orientation_resolver(NULL);
     solar_os_input_source_close(source);
     solar_os_input_source_close(other);
     puts("touch gesture tests: ok");

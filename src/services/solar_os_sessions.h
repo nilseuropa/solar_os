@@ -32,6 +32,7 @@ bool solar_os_sessions_has_display_shell(void);
 void solar_os_sessions_set_status_bar(const solar_os_status_bar_t *status);
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,
                                                      uint16_t degrees);
+esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, uint8_t scale);
 esp_err_t solar_os_sessions_set_terminal_font(solar_os_terminal_t *terminal,
                                               solar_os_terminal_font_t font);
 esp_err_t solar_os_sessions_set_terminal_text_size(solar_os_terminal_t *terminal,
@@ -43,6 +44,8 @@ esp_err_t solar_os_sessions_set_terminal_status_bar_visible(solar_os_terminal_t 
 esp_err_t solar_os_sessions_set_display_terminal_profile(
     const char *target_name,
     const solar_os_terminal_profile_t *profile);
+esp_err_t solar_os_sessions_set_display_orientation(const char *target, uint16_t degrees, bool save);
+esp_err_t solar_os_sessions_set_display_scale(const char *target, uint8_t scale, bool save);
 void solar_os_sessions_attach_tui(solar_os_shell_io_t *io, solar_os_tui_t *tui);
 void solar_os_sessions_detach_tui(solar_os_shell_io_t *io, const solar_os_tui_t *tui);
 

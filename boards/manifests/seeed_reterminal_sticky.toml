@@ -15,6 +15,7 @@ drivers = [
   "uart_esp_idf",
   "display_ssd1677",
   "battery_expansion",
+  "audio_expansion",
   "storage_expansion",
   "pointer_gt911",
   "i2c_esp_idf",
@@ -22,12 +23,13 @@ drivers = [
   "rtc_pcf8563",
   "sensors_sht40",
   "gpio_esp_idf",
+  "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
-  "rtc", "battery", "wifi", "ble", "gpio", "buttons", "pointer",
-  "temperature", "humidity",
-  "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio",
+  "psram", "simd", "display", "gfx", "streaming_display", "uart", "sd", "i2c", "spi",
+  "rtc", "battery", "wifi", "ble", "gpio", "key", "buttons", "pointer",
+  "temperature", "humidity", "audio", "audio_input", "pwm", "expansion_i2s",
+  "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio", "expansion_pwm",
 ]
 required_packages = []
 psram_bytes = 8388608
@@ -36,8 +38,10 @@ psram_bytes = 8388608
 includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 
 [defines]
+SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"board-power"'
+SOLAR_OS_BOARD_POWER_LATCH_PINS = '{GPIO_NUM_45, GPIO_NUM_46}'
 # Assert the latch and peripheral rails before display or storage access.
-SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}}'
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}, {.pin = GPIO_NUM_38, .level = 0}}'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480"
@@ -45,7 +49,7 @@ SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "480"
 SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
 SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "0"
-SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "10000000"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "20000000"
 SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_13"
 SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_14"
@@ -71,8 +75,14 @@ SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_21"
 SOLAR_OS_BOARD_PIN_TOUCH_RST = "GPIO_NUM_41"
 SOLAR_OS_BOARD_PIN_TOUCH_EN = "GPIO_NUM_42"
 SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_4"
+SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SLEEP"
+SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN"
 SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_5"
-SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_4, .name = "AI-PWR", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP}}'
+SOLAR_OS_BOARD_PIN_APP_EXIT = "GPIO_NUM_6"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_5, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_6, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}}'
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_PIN_PWR_HOLD = "GPIO_NUM_45"
 SOLAR_OS_BOARD_PIN_PWR_LOCK = "GPIO_NUM_46"
 SOLAR_OS_BOARD_PIN_CHG_EN = "GPIO_NUM_39"
@@ -85,6 +95,7 @@ SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
 
 [runtime]
 uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_0"]
 
 
 [[buses]]
@@ -128,12 +139,12 @@ max_transfer_size = 4096
 [[devices]]
 driver = "ssd1677"
 name = "display0"
-bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 10000, rotation = 0 }
+bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 20000, rotation = 0, panel = 1 }
 
 [[devices]]
 driver = "gt911"
 name = "touch0"
-bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 0 }
+bindings = { i2c = "i2c1", addr = 0x5d, alt_addr = 0x14, irq = 21, reset = 41, power = 42, active = 1, rotation = 2, swap_xy = 1 }
 
 [[devices]]
 driver = "pcf8563"
@@ -151,9 +162,24 @@ name = "battery0"
 bindings = { i2c = "i2c0", addr = 0x55 }
 
 [[devices]]
+driver = "lsm6ds3tr-c"
+name = "imu0"
+bindings = { i2c = "i2c0", addr = 0x6a, irq = 7, rotation = 1 }
+
+[[devices]]
 driver = "sdspi"
 name = "storage0"
-bindings = { spi = "spi0", cs = 8, power = 10 }
+bindings = { spi = "spi0", cs = 8 }
+
+[[devices]]
+driver = "audio-pwm"
+name = "audio0"
+bindings = { pwm = 48 }
+
+[[devices]]
+driver = "audio-pdm"
+name = "mic0"
+bindings = { i2s = 0, clk = 19, din = 20, power = 38, slot = 0 }
 
 [[pins]]
 gpio = 0
@@ -178,11 +204,11 @@ role = "AI / power button"
 [[pins]]
 gpio = 5
 policy = "fixed"
-role = "up button (hold = BLE pair)"
+role = "UP button / hold for BLE pairing"
 [[pins]]
 gpio = 6
 policy = "fixed"
-role = "down button"
+role = "DOWN button / hold for app exit"
 [[pins]]
 gpio = 8
 policy = "fixed"
