@@ -594,6 +594,16 @@ static void sketch_render_canvas(solar_os_gfx_t *gfx,
                                  const sketch_layout_t *layout)
 {
     const sketch_layout_t view = sketch_canvas_viewport(layout);
+    const bool fitted = view.canvas_width != layout->canvas_width ||
+        view.canvas_height != layout->canvas_height;
+    if (fitted) {
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
+        solar_os_gfx_fill_rect(gfx, layout->canvas_x, layout->canvas_y,
+            layout->canvas_width, layout->canvas_height);
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        solar_os_gfx_fill_rect(gfx, view.canvas_x, view.canvas_y,
+            view.canvas_width, view.canvas_height);
+    }
     solar_os_sketch_canvas_t preview = sketch.canvas;
     const solar_os_sketch_canvas_t *render_canvas = &sketch.canvas;
     if (sketch.drawing && sketch_is_shape_tool() &&
@@ -624,6 +634,11 @@ static void sketch_render_canvas(solar_os_gfx_t *gfx,
         solar_os_gfx_bitmap(gfx, view.canvas_x, view.canvas_y,
                             view.canvas_width, view.canvas_height,
                             sketch.canvas_bitmap);
+    }
+    if (fitted) {
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        solar_os_gfx_rect(gfx, view.canvas_x - 1, view.canvas_y - 1,
+            view.canvas_width + 2, view.canvas_height + 2);
     }
 }
 

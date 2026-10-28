@@ -2116,6 +2116,7 @@ documents as interoperable indexed-color PNG files. Color TFTs show the native
 palette; one-bit displays use the existing dithered rendering path.
 Runtime rotation preserves the drawing and its saved dimensions. The canvas
 fits inside the new viewport, and pointer input follows the fitted image.
+Gray margins mark space outside the drawable canvas after rotation.
 
 Usage:
 
