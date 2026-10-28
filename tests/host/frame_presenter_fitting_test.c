@@ -28,6 +28,7 @@ static uint32_t display_formats;
 static uint16_t display_stack_bytes;
 static bool fail_allocation;
 static bool rgb565_worker;
+static bool rotate_during_present;
 static solar_os_display_raster_t captured;
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
@@ -50,6 +51,11 @@ bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx)
 esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame)
 {
     assert(gfx && frame && frame->width && frame->height);
+    if (rotate_during_present) {
+        rotate_during_present = false;
+        display_width = 240; display_height = 400;
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     assert((size_t)frame->x + frame->width <= display_width);
     assert((size_t)frame->y + frame->height <= display_height);
     if (frame->format == SOLAR_OS_DISPLAY_FORMAT_MONO1) {
@@ -163,8 +169,14 @@ static void check_runtime_rotation(void)
             assert(p->presenting == source && p->task);
             assert(p->output_width == (rotation & 1 ? 240 : 320));
             assert(p->output_height == (rotation & 1 ? 180 : 240));
-            assert(frame_present(p) == ESP_OK);
+            assert(frame_present_current_output(p) == ESP_OK);
         }
+        display_width = 400; display_height = 240;
+        assert(frame_refresh_output(p) == ESP_OK);
+        rotate_during_present = true;
+        assert(frame_present_current_output(p) == ESP_OK);
+        assert(!rotate_during_present && p->viewport_width == 240 && p->viewport_height == 400);
+
         assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
     }
     rgb565_worker = false;

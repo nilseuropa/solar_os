@@ -158,7 +158,7 @@ class ForegroundPresenterTest(unittest.TestCase):
         functions = production_functions(source, (
             "frame_minimum_stride", "frame_palette_valid", "frame_palette_index",
             "rgb565_luma", "frame_convert_native_mono_row", "frame_convert_indexed_to_mono", "frame_convert_native_rgb565_row", "frame_convert_rgb565_to_mono", "frame_convert_to_mono", "frame_prepare_mono_palette",
-            "frame_present", "frame_choose_output", "frame_prepare_mono_output", "frame_refresh_output",
+            "frame_present", "frame_choose_output", "frame_prepare_mono_output", "frame_refresh_output", "frame_present_current_output",
             "solar_os_frame_presenter_init", "solar_os_frame_presenter_resume",
             "solar_os_frame_presenter_deinit", "solar_os_frame_presenter_redraw",
             "solar_os_frame_presenter_submit", "solar_os_frame_presenter_acquire",

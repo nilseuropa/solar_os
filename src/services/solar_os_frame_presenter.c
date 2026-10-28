@@ -53,6 +53,7 @@ struct solar_os_frame_presenter {
 
 static const char *TAG = "solar_os_frame_presenter";
 static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter);
+static esp_err_t frame_present_current_output(solar_os_frame_presenter_t *presenter);
 static const uint8_t bayer4[4][4] = {
     {0, 8, 2, 10},
     {12, 4, 14, 6},
@@ -413,8 +414,7 @@ static void frame_presenter_worker(void *arg)
         xSemaphoreGive(presenter->mutex);
 
         const int64_t started_us = esp_timer_get_time();
-        esp_err_t err = frame_refresh_output(presenter);
-        if (err == ESP_OK) err = frame_present(presenter);
+        const esp_err_t err = frame_present_current_output(presenter);
         const uint64_t elapsed_us =
             (uint64_t)(esp_timer_get_time() - started_us);
         if (xSemaphoreTake(presenter->mutex, portMAX_DELAY) == pdTRUE) {
@@ -551,6 +551,21 @@ static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
     presenter->viewport_height = height;
     presenter->clear_background_pending |= presenter->config.clear_background_on_resume;
     return ESP_OK;
+}
+
+static esp_err_t frame_present_current_output(solar_os_frame_presenter_t *presenter)
+{
+    esp_err_t err;
+    do {
+        const size_t width = solar_os_gfx_width(presenter->config.gfx);
+        const size_t height = solar_os_gfx_height(presenter->config.gfx);
+        err = frame_refresh_output(presenter);
+        if (err == ESP_OK) err = frame_present(presenter);
+        if (err == ESP_OK || presenter->stop_requested) break;
+        if (width == solar_os_gfx_width(presenter->config.gfx) &&
+            height == solar_os_gfx_height(presenter->config.gfx)) break;
+    } while (true);
+    return err;
 }
 
 esp_err_t solar_os_frame_presenter_init(
