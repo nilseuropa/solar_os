@@ -2494,17 +2494,19 @@ esp_err_t solar_os_sessions_set_terminal_scale(solar_os_terminal_t *terminal, ui
     char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     solar_os_session_entry_t *owner = session_find_by_terminal(terminal);
     if (!session_terminal_target_name(owner, terminal, target, sizeof(target))) return ESP_ERR_NOT_SUPPORTED;
-    return solar_os_sessions_set_display_scale(target, scale);
+    return solar_os_sessions_set_display_scale(target, scale, true);
 }
 
-esp_err_t solar_os_sessions_set_display_scale(const char *target, uint8_t scale)
+esp_err_t solar_os_sessions_set_display_scale(const char *target, uint8_t scale, bool save)
 {
     if (scale < 1 || scale > 4) return ESP_ERR_INVALID_ARG;
     solar_os_terminal_profile_t profile;
     esp_err_t err = solar_os_display_get_terminal_profile(target, &profile);
     if (err != ESP_OK) return err;
     profile.scale = scale;
-    return solar_os_sessions_set_display_terminal_profile(target, &profile);
+    err = solar_os_sessions_set_display_terminal_profile(target, &profile);
+    if (err == ESP_OK && save) err = solar_os_terminal_profile_save_scale(target, scale);
+    return err;
 }
 
 esp_err_t solar_os_sessions_set_terminal_orientation(solar_os_terminal_t *terminal,

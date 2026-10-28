@@ -157,10 +157,10 @@ gesture unbind 2
 To rotate Sticky's display when held in each of its four orientations:
 
 ```text
-gesture bind source=imu0 gesture=tilt direction=north -- display orientation display0 0 --temporary
-gesture bind source=imu0 gesture=tilt direction=east -- display orientation display0 90 --temporary
-gesture bind source=imu0 gesture=tilt direction=south -- display orientation display0 180 --temporary
-gesture bind source=imu0 gesture=tilt direction=west -- display orientation display0 270 --temporary
+gesture bind source=imu0 gesture=tilt direction=north -- display orientation display0 0
+gesture bind source=imu0 gesture=tilt direction=east -- display orientation display0 90
+gesture bind source=imu0 gesture=tilt direction=south -- display orientation display0 180
+gesture bind source=imu0 gesture=tilt direction=west -- display orientation display0 270
 job start gestures
 ```
 
@@ -188,7 +188,7 @@ the next binding ID to 1. Background commands may use shell built-ins or invoke
 scripts, but they cannot launch a foreground application. Stopping the job
 prevents new gesture actions and discards queued actions; a command already
 executing is allowed to finish. Use an explicit display target for display
-actions, for example `display orientation display0 90 --temporary`.
+actions, for example `display orientation display0 90`.
 
 Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute

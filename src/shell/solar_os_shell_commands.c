@@ -781,13 +781,12 @@ static void display_cmd_relax(solar_os_context_t *ctx, solar_os_shell_io_t *term
                              result.cancelled ? "stopped" : "done", (unsigned)result.cycles);
 }
 
-static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **argv)
+static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **argv, bool save)
 {
     const bool orientation = strcmp(argv[1], "orientation") == 0;
     const char *usage = orientation ?
-        "display orientation <target> [0|90|180|270] [--temporary]" : "display scale <target> [1..4]";
-    if (argc < 3 || argc > (orientation ? 5 : 4) ||
-        (argc == 5 && strcmp(argv[4], "--temporary") != 0)) {
+        "display orientation <target> [0|90|180|270]" : "display scale <target> [1..4]";
+    if (argc < 3 || argc > 4) {
         solar_os_shell_io_printf(term, "usage: %s\n", usage);
         return;
     }
@@ -810,11 +809,11 @@ static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **arg
             orientation ? "0, 90, 180, or 270" : "1, 2, 3, or 4", usage, false);
         return;
     }
-    err = orientation ? solar_os_sessions_set_display_orientation(argv[2], (uint16_t)value, argc != 5) :
-        solar_os_sessions_set_display_scale(argv[2], (uint8_t)value);
+    err = orientation ? solar_os_sessions_set_display_orientation(argv[2], (uint16_t)value, save) :
+        solar_os_sessions_set_display_scale(argv[2], (uint8_t)value, save);
     if (err == ESP_OK) {
         solar_os_shell_io_printf(term, "%s %s: %u%s\n", argv[2], argv[1], (unsigned)value,
-            argc == 5 ? " (temporary)" : " (saved)");
+            save ? " (saved)" : " (temporary)");
     } else {
         solar_os_shell_diag_esp(term, "display", err, NULL, NULL);
     }
@@ -825,7 +824,7 @@ void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc >= 2 && (strcmp(argv[1], "orientation") == 0 || strcmp(argv[1], "scale") == 0)) {
-        display_cmd_geometry(term, argc, argv);
+        display_cmd_geometry(term, argc, argv, false);
         return;
     }
 
@@ -2164,7 +2163,7 @@ static void setterm_geometry_alias(solar_os_context_t *ctx, solar_os_shell_io_t 
     }
     char *geometry_args[] = {"display", argv[1], (char *)display_target,
         argc >= 3 ? argv[2] : NULL, argc >= 4 ? argv[3] : NULL};
-    display_cmd_geometry(term, argc + 1, geometry_args);
+    display_cmd_geometry(term, argc + 1, geometry_args, true);
 }
 
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)

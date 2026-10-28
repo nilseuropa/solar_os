@@ -285,8 +285,8 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
-| `display` | `display orientation <target> [0\|90\|180\|270] [--temporary]` | Show or change orientation for text, graphics and touch. Changes are saved in NVS unless `--temporary` is supplied. |
-| `display` | `display scale <target> [1..4]` | Show or change integer pixel scaling for the display and save it in NVS. |
+| `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
+| `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
 | `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -335,8 +335,8 @@ job for periodic polling.
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
-| `setterm` | `setterm scale [1..4]` | Alias for `display scale` on the current display, or `display0` from a port shell. |
-| `setterm` | `setterm orientation [0\|90\|180\|270] [--temporary]` | Alias for `display orientation` on the current display, or `display0` from a port shell. |
+| `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
+| `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
@@ -708,9 +708,9 @@ setterm --display oled0 palette inverted
 
 `display orientation display0 90` rotates the shell, running graphical apps
 and touch coordinates together. Shell output, history and unfinished input are
-preserved. Use `--temporary` for live changes such as IMU auto-rotation without
-changing the saved preference. `setterm orientation` and the settings TUI use
-the same display operations and retain existing saved settings.
+preserved. Both `display orientation` and `display scale` are runtime-only,
+including changes made by gesture bindings. `setterm orientation`, `setterm scale`
+and the settings TUI use the same display operations and save their values in NVS.
 
 `display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
@@ -719,8 +719,8 @@ a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
 uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
 Touch coordinates follow the same scale and orientation.
 
-Scale is saved separately for each display name, including changes made with
-`display scale display0 2` and the `setterm scale` alias. Close graphical applications, dismiss
+Use `setterm scale 2` or `setterm --display display0 scale 2` to save scale
+for that display name. `display scale display0 2` changes only the current runtime. Close graphical applications, dismiss
 display overlays, and remove layouts using that target before changing scale.
 Text and graphical applications
 opened afterward use the new logical dimensions. Use `display scale display0 1` to

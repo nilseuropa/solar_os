@@ -848,7 +848,6 @@ esp_err_t solar_os_display_set_terminal_profile(
             strncmp(slot->target.owner, "display-layout:", 15U) == 0;
         portEXIT_CRITICAL(&display_targets_lock);
         err = busy ? ESP_ERR_INVALID_STATE : solar_os_display_scale_prepare(&slot->scale, factor);
-        if (err == ESP_OK) err = solar_os_terminal_profile_save_scale(name, factor);
         if (err == ESP_OK) {
             solar_os_gfx_release_surface(&slot->gfx);
             solar_os_display_scale_apply(&slot->scale, factor);
