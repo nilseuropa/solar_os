@@ -47,7 +47,7 @@ typedef struct {
     solar_os_display_rotation_t rotation;
     bool black_is_one;
     bool color;
-    uint8_t *raw_response;
+    solar_os_memory_buffer_t *raw_response;
     size_t raw_response_size;
     QueueHandle_t input;
     uint32_t frame_requests;
@@ -91,7 +91,7 @@ static esp_err_t displayd_release_resources(void)
         solar_os_display_stop_frame_export(displayd.target);
     }
 
-    solar_os_memory_free(displayd.raw_response);
+    if (!solar_os_memory_buffer_destroy(displayd.raw_response)) return ESP_ERR_INVALID_STATE;
     displayd.raw_response = NULL;
     displayd.raw_response_size = 0;
     solar_os_queue_delete(displayd.input);
@@ -450,13 +450,20 @@ static esp_err_t displayd_send_raw_frame(httpd_req_t *req, void *user, bool colo
                                    HTTPD_500_INTERNAL_SERVER_ERROR,
                                    "raw response buffer unavailable");
     }
-    memcpy(state->raw_response, frame_data, frame_size);
+    uint8_t *response = solar_os_memory_buffer_pin(state->raw_response);
+    if (!response) {
+        solar_os_display_release_frame(&frame);
+        return displayd_send_503(req, "response buffer unavailable");
+    }
+    memcpy(response, frame_data, frame_size);
     solar_os_display_release_frame(&frame);
 
     (void)httpd_resp_set_type(req, "application/octet-stream");
     (void)httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     (void)httpd_resp_set_hdr(req, "ETag", etag);
-    return httpd_resp_send(req, (const char *)state->raw_response, frame_size);
+    const esp_err_t result = httpd_resp_send(req, (const char *)response, frame_size);
+    (void)solar_os_memory_buffer_unpin(state->raw_response);
+    return result;
 }
 
 static esp_err_t displayd_raw_handler(httpd_req_t *req, void *user)
@@ -684,9 +691,7 @@ static esp_err_t displayd_job_start(solar_os_context_t *ctx, int argc, char **ar
                 initial_frame.rgb565_size : initial_frame.data_size;
             solar_os_display_release_frame(&initial_frame);
             displayd.raw_response =
-                solar_os_memory_alloc(displayd.raw_response_size,
-                                      SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-                                      "displayd.raw");
+                solar_os_memory_buffer_create(displayd.raw_response_size, "displayd.raw");
             if (displayd.raw_response == NULL) {
                 err = ESP_ERR_NO_MEM;
             }

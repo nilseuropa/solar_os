@@ -516,8 +516,28 @@ esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *gfx)
 
 void solar_os_gfx_prepare_surface(solar_os_gfx_t *gfx)
 {
-    if (!gfx_ready(gfx) || gfx_uses_index8(gfx)) {
+    if (!gfx_ready(gfx)) {
         return;
+    }
+    if (gfx_uses_index8(gfx)) {
+        solar_os_display_surface_t *surface = &gfx->index8->surface;
+        const uint16_t width = u8g2_GetDisplayWidth(gfx->u8g2);
+        const uint16_t height = u8g2_GetDisplayHeight(gfx->u8g2);
+        const solar_os_display_rotation_t rotation = gfx_rotation(gfx->u8g2);
+        if (surface->width == width && surface->height == height && surface->rotation == rotation)
+            return;
+        if ((size_t)width * height == surface->data_size) {
+            surface->width = width;
+            surface->height = height;
+            surface->stride = width;
+            surface->rotation = rotation;
+            gfx_mark_index8_all_dirty(gfx);
+            if (surface->presented_hashes)
+                memset(surface->presented_hashes, 0, surface->presented_hash_count * sizeof(uint32_t));
+            gfx->dirty = true;
+            return;
+        }
+        solar_os_gfx_release_surface(gfx);
     }
 
     char target_name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
@@ -830,6 +850,24 @@ size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
 {
     return gfx_ready(gfx) ? u8g2_GetDisplayHeight(gfx->u8g2) : 0;
+}
+
+bool solar_os_gfx_dimensions(const solar_os_gfx_t *gfx, uint16_t *width, uint16_t *height)
+{
+    if (width == NULL || height == NULL) return false;
+    *width = *height = 0;
+    if (!gfx_ready(gfx)) return false;
+    char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_display_target_t target;
+    if (solar_os_gfx_display_target_name(gfx, name, sizeof(name)) &&
+        solar_os_display_find_target(name, &target)) {
+        *width = target.width;
+        *height = target.height;
+    } else {
+        *width = u8g2_GetDisplayWidth(gfx->u8g2);
+        *height = u8g2_GetDisplayHeight(gfx->u8g2);
+    }
+    return *width != 0 && *height != 0;
 }
 
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
@@ -1330,11 +1368,21 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
                               size_t bitmap_size,
                               const solar_os_gfx_color_t palette[4])
 {
-    const size_t pixels = width > 0 && height > 0 ?
-        (size_t)width * (size_t)height : 0U;
+    solar_os_gfx_bitmap_2bpp_scaled(gfx, x, y, width, height, bitmap,
+        bitmap_size, width, height, palette);
+}
+
+void solar_os_gfx_bitmap_2bpp_scaled(solar_os_gfx_t *gfx,
+    int x, int y, int width, int height,
+    const uint8_t *bitmap, size_t bitmap_size,
+    int source_width, int source_height,
+    const solar_os_gfx_color_t palette[4])
+{
+    const size_t pixels = source_width > 0 && source_height > 0 ?
+        (size_t)source_width * (size_t)source_height : 0U;
     const size_t required = (pixels + 3U) / 4U;
     if (!gfx_ready(gfx) || bitmap == NULL || palette == NULL ||
-        pixels == 0 || bitmap_size < required) {
+        pixels == 0 || width <= 0 || height <= 0 || bitmap_size < required) {
         return;
     }
 
@@ -1354,7 +1402,8 @@ void solar_os_gfx_bitmap_2bpp(solar_os_gfx_t *gfx,
             if (target_x < 0 || target_x >= (int)solar_os_gfx_width(gfx)) {
                 continue;
             }
-            const size_t pixel = (size_t)row * (size_t)width + (size_t)column;
+            const size_t pixel = ((size_t)row * source_height / height) * source_width +
+                (size_t)column * source_width / width;
             const uint8_t value = (uint8_t)((bitmap[pixel >> 2U] >>
                 ((pixel & 3U) * 2U)) & 3U);
             if (gfx_uses_index8(gfx)) {

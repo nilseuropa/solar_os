@@ -151,11 +151,32 @@ esp_err_t solar_os_storage_init(void)
 #endif
 }
 
+#if SOLAR_OS_STORAGE_HAS_REMOVABLE
+static esp_err_t storage_unmount_locked(void);
+
+static esp_err_t storage_prepare_sd_mount_locked(void)
+{
+    if (!solar_os_board_storage_needs_reinit()) return ESP_OK;
+    bool had_mounts = false;
+    for (size_t i = 0; i < solar_os_board_storage_block_count(); i++) {
+        solar_os_board_storage_block_t block;
+        if (solar_os_board_storage_get_block(i, &block) && block.mounted) {
+            had_mounts = true;
+            break;
+        }
+    }
+    const esp_err_t err = storage_unmount_locked();
+    if (had_mounts && err == ESP_OK) solar_os_storage_notify_changed();
+    return !had_mounts && err == ESP_ERR_INVALID_STATE ? ESP_OK : err;
+}
+#endif
+
 static esp_err_t storage_mount_locked(void)
 {
 #if SOLAR_OS_STORAGE_HAS_REMOVABLE
     if (solar_os_board_storage_available()) {
-        return solar_os_board_storage_mount();
+        const esp_err_t err = storage_prepare_sd_mount_locked();
+        return err == ESP_OK ? solar_os_board_storage_mount() : err;
     }
 #endif
     return flash_storage_mount(storage_flash_default_mount_point());
@@ -185,7 +206,8 @@ static esp_err_t storage_mount_volume_locked(const char *name, const char *mount
     }
 #if SOLAR_OS_STORAGE_HAS_REMOVABLE
     if (solar_os_board_storage_available()) {
-        return solar_os_board_storage_mount_volume(name, mount_point);
+        const esp_err_t err = storage_prepare_sd_mount_locked();
+        return err == ESP_OK ? solar_os_board_storage_mount_volume(name, mount_point) : err;
     }
 #endif
     (void)name;

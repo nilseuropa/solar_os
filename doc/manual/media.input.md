@@ -100,8 +100,9 @@ interval and within 24 pixels on each axis of the first release. A stationary
 contact produces one `hold` after 600 ms; release does not produce another
 gesture. A swipe completes within 1000 ms, moves at least 40 pixels, and has a
 dominant axis at least 1.5 times the other axis. Its direction is `west`,
-`east`, `north`, or `south` in calibrated source coordinates, before display
-`setterm orientation` is applied. Other touch gestures use direction `none`.
+`east`, `north`, or `south` relative to the target display's orientation when
+the contact starts. Without a target display, calibrated source directions apply.
+IMU directions remain board-relative. Other touch gestures use direction `none`.
 Touch gesture `value` is 1 for tap, 2 for double-tap, 600 milliseconds for hold,
 or the dominant-axis distance in pixels for swipe, capped at 32767. `raw` is
 zero; double-tap sets the double flag. Pinch and rotation are not supported.
@@ -116,7 +117,7 @@ Pointer events contain the source, pointer ID, absolute or
 relative mode, action, coordinates, deltas, buttons, and optional display
 target. A non-empty target routes to the active opted-in application on that
 display. Its absolute coordinates and deltas follow the target's current
-`setterm orientation`; orientation `0` is the device driver's normal mounting.
+`display orientation`; orientation `0` is the device driver's normal mounting.
 An empty target follows local input focus. Axis events contain the source,
 X/Y/Z/RX/RY/RZ axis, normalized value, and delta and follow local input focus.
 Gesture events contain the recognized kind, direction, flags, optional value,
@@ -127,6 +128,22 @@ Gesture bindings observe the same events without taking them away from the
 foreground application. A binding can match one source or every source, one
 gesture kind, and optionally one direction. Commands run one at a time. The
 cooldown suppresses repeated reports and defaults to 250 ms.
+The command after `--` accepts separate arguments or one quoted command line.
+
+An LSM6DS3TR-C attached with `irq=<pin>` registers a gesture source alongside
+its IMU measurements. It reports `tap`, `double-tap`, `tilt`, `wake`, and
+`free-fall`, with direction `none`. Its hardware 4D detector also reports `tilt`
+with directions `north`, `east`, `south`, and `west` and values 0, 90, 180, and
+270 degrees. The optional `rotation=0..3` binding corrects sensor mounting in
+quarter-turns; these directions stay fixed when the display rotates. Sticky
+uses `rotation=1`. Hold the screen upright and turn it; flat poses do not
+select an orientation. The detector uses a filtered 60-degree threshold and
+does not repeat an unchanged orientation. Orientation state is checked every
+50 ms independently of the interrupt pin. Single taps wait 650 ms so a double tap
+produces one double-tap event. Values are 1, or 2 for double-tap. The raw word
+contains WAKE_UP_SRC in bits 0..7, TAP_SRC in bits 8..15, and FUNC_SRC1 in bits
+16..23, and D6D_SRC in bits 24..31. `wake` is a motion event; power behavior requires an explicit binding.
+No gesture commands are assigned automatically.
 
 ```text
 gesture bind source=gesture0 gesture=flick direction=east -- input emit ALT+RIGHT
@@ -136,6 +153,16 @@ job start gestures
 gesture bindings
 job stop gestures
 gesture unbind 2
+```
+
+To rotate Sticky's display when held in each of its four orientations:
+
+```text
+gesture bind source=imu0 gesture=tilt direction=north -- display orientation display0 0
+gesture bind source=imu0 gesture=tilt direction=east -- display orientation display0 90
+gesture bind source=imu0 gesture=tilt direction=south -- display orientation display0 180
+gesture bind source=imu0 gesture=tilt direction=west -- display orientation display0 270
+job start gestures
 ```
 
 To use horizontal swipes for previous/next foreground sessions and vertical
@@ -162,7 +189,7 @@ the next binding ID to 1. Background commands may use shell built-ins or invoke
 scripts, but they cannot launch a foreground application. Stopping the job
 prevents new gesture actions and discards queued actions; a command already
 executing is allowed to finish. Use an explicit display target for display
-actions, for example `setterm --display display0 orientation 90`.
+actions, for example `display orientation display0 90`.
 
 Foreground Python and Lua scripts receive the same structured pointer, axis, and gesture
 events through `solaros.input.read([timeout_ms])`. Touch events expose absolute

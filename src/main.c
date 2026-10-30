@@ -1287,6 +1287,27 @@ static void handle_key_input(uint8_t key)
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+static bool board_button_long_press(gpio_num_t pin, void *user)
+{
+    (void)user;
+#ifdef SOLAR_OS_BOARD_PIN_BLE_PAIR
+    if (pin == SOLAR_OS_BOARD_PIN_BLE_PAIR) {
+        handle_key_pairing();
+        return true;
+    }
+#endif
+#ifdef SOLAR_OS_BOARD_PIN_APP_EXIT
+    if (pin == SOLAR_OS_BOARD_PIN_APP_EXIT) {
+        handle_key_input(SOLAR_OS_KEY_APP_EXIT);
+        return true;
+    }
+#endif
+    return false;
+}
+#endif
+
 static void handle_key_action(solar_os_power_key_action_t action, const char *reason)
 {
     switch (action) {
@@ -1316,6 +1337,11 @@ static void handle_key_action(solar_os_power_key_action_t action, const char *re
     case SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR:
         handle_key_pairing();
         break;
+    case SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN: {
+        const esp_err_t err = solar_os_shutdown_request();
+        if (err != ESP_OK) SOLAR_OS_LOGW(TAG, "KEY shutdown request failed: %s", esp_err_to_name(err));
+        break;
+    }
     default:
         SOLAR_OS_LOGW(TAG, "KEY action invalid");
         break;
@@ -1433,7 +1459,8 @@ static void poll_key_button(void)
     solar_os_power_status_t status;
     solar_os_power_get_status(&status);
     if (status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SLEEP ||
-        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP) {
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP ||
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN) {
         /* RTC wake is level-triggered. Wait for release without blocking the
          * runtime or expiring the sleep path's stable-release timeout. */
         key_release_action = status.key_long_action;
@@ -1694,6 +1721,13 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     dispatch_input_chars(&text_key, 1);
 }
 
+static uint16_t input_display_orientation(const char *target)
+{
+    solar_os_terminal_profile_t profile;
+    return solar_os_display_get_terminal_profile(target, &profile) == ESP_OK
+        ? profile.orientation_degrees : 0;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -1707,11 +1741,11 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         solar_os_terminal_profile_t profile;
         if (solar_os_display_find_target(pointer->target, &target) &&
             solar_os_display_get_terminal_profile(pointer->target, &profile) == ESP_OK) {
-            (void)solar_os_input_pointer_apply_orientation(
+            (void)solar_os_input_pointer_apply_display_transform(
                 &oriented_pointer,
-                target.width,
-                target.height,
-                profile.orientation_degrees);
+                target.native_width ? target.native_width : target.width,
+                target.native_height ? target.native_height : target.height,
+                profile.orientation_degrees, profile.scale ? profile.scale : 1);
         }
     }
 
@@ -2106,6 +2140,7 @@ static void start_headless_shell_if_needed(void)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(solar_os_board_boot_init());
     solar_os_memory_init();
     ESP_ERROR_CHECK(init_nvs());
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -2119,6 +2154,7 @@ void app_main(void)
     }
 #endif
     const esp_err_t input_err = solar_os_input_init();
+    solar_os_input_set_display_orientation_resolver(input_display_orientation);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }
@@ -2135,6 +2171,10 @@ void app_main(void)
     solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+    solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
+#endif
 
     const bool reserve_port_shell =
         !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);

@@ -25,6 +25,7 @@
 #include "solar_os_audio_backend.h"
 #endif
 #include "solar_os_task.h"
+#include "solar_os_work.h"
 #include "esp_timer.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
@@ -40,7 +41,7 @@
 #define AUDIO_WAV_HEADER_BYTES 44U
 #define AUDIO_WAV_BUFFER_BYTES 4096U
 #define AUDIO_WAV_PCM_FORMAT 1U
-#define AUDIO_TONE_WORKER_STACK 6144U
+#define AUDIO_TONE_WORKER_STACK 8192U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
 /* Allow amplifier/codec startup before the first audible sample. The tail
@@ -146,12 +147,10 @@ static uint8_t audio_resolve_playback_volume(uint8_t volume)
     return volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL ? audio_global_volume : volume;
 }
 
-#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 static uint8_t clamp_percent_u32(uint32_t value)
 {
     return value > 100U ? 100U : (uint8_t)value;
 }
-#endif
 
 static esp_err_t audio_ensure_mutexes(void)
 {
@@ -212,12 +211,10 @@ static void audio_tone_unlock(void)
 
 static void audio_tone_cancel_all(void);
 
-#if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 static uint32_t audio_abs_i16(int16_t value)
 {
     return value < 0 ? (uint32_t)(-(int32_t)value) : (uint32_t)value;
 }
-#endif
 
 static uint16_t audio_get_u16le(const uint8_t *data)
 {
@@ -2212,6 +2209,63 @@ void solar_os_audio_tone_queue_get_status(solar_os_audio_tone_queue_status_t *st
     audio_tone_unlock();
 }
 
+static esp_err_t audio_measure_capture_stream(uint32_t duration_ms, int channel,
+                                              solar_os_audio_level_t *level)
+{
+    if (!level || duration_ms == 0 || duration_ms > SOLAR_OS_AUDIO_TEST_MAX_MS)
+        return ESP_ERR_INVALID_ARG;
+    memset(level, 0, sizeof(*level));
+    const solar_os_stream_open_options_t options = {
+        .direction=SOLAR_OS_STREAM_DIRECTION_SOURCE, .timeout_ms=0,
+        .requested_audio={.sample_format=SOLAR_OS_STREAM_AUDIO_S16_LE, .bits_per_sample=16},
+    };
+    solar_os_stream_handle_t stream = SOLAR_OS_STREAM_HANDLE_INIT;
+    esp_err_t ret = solar_os_audio_open_default(SOLAR_OS_STREAM_DIRECTION_SOURCE,
+        "audio.mic", &options, &stream, NULL);
+    if (ret != ESP_OK) return ret;
+    const unsigned channels = stream.audio.channels;
+    if (stream.audio.sample_format != SOLAR_OS_STREAM_AUDIO_S16_LE ||
+        stream.audio.bits_per_sample != 16 || !stream.audio.sample_rate ||
+        !channels || channels > SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS) {
+        solar_os_stream_close(&stream);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (channel >= (int)channels) {
+        solar_os_stream_close(&stream);
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t frames_left = ((uint64_t)stream.audio.sample_rate * duration_ms + 999U) / 1000U;
+    int16_t samples[AUDIO_LEVEL_BUFFER_SAMPLES];
+    uint64_t sum = 0;
+    uint32_t peak = 0;
+    while (frames_left) {
+        size_t frames = AUDIO_LEVEL_BUFFER_SAMPLES / channels;
+        if (frames > frames_left) frames = frames_left;
+        const size_t bytes = frames * channels * sizeof(samples[0]);
+        size_t received = 0;
+        ret = solar_os_stream_read(&stream, samples, bytes, 1000, &received);
+        if (ret != ESP_OK) break;
+        if (!received || received > bytes || received % (channels * sizeof(samples[0]))) {
+            ret = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        for (size_t i = 0; i < received / sizeof(samples[0]); i++) {
+            if (channel >= 0 && i % channels != (unsigned)channel) continue;
+            const uint32_t value = audio_abs_i16(samples[i]);
+            if (value > peak) peak = value;
+            sum += value;
+            level->samples++;
+        }
+        frames_left -= received / (channels * sizeof(samples[0]));
+    }
+    solar_os_stream_close(&stream);
+    if (ret == ESP_OK && level->samples) {
+        level->peak_percent = clamp_percent_u32(peak * 100U / 32767U);
+        level->average_percent = clamp_percent_u32((uint32_t)(sum / level->samples) * 100U / 32767U);
+    }
+    return ret;
+}
+
 #if SOLAR_OS_AUDIO_BACKEND_PACKAGE
 static esp_err_t audio_measure_level_locked(uint32_t duration_ms,
                                             solar_os_audio_level_t *level)
@@ -2266,7 +2320,7 @@ static esp_err_t audio_measure_level_locked(uint32_t duration_ms,
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms, solar_os_audio_level_t *level)
 {
     if (!solar_os_audio_backend_has_input()) {
-        return ESP_ERR_NOT_SUPPORTED;
+        return audio_measure_capture_stream(duration_ms, -1, level);
     }
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
@@ -2340,7 +2394,7 @@ esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                solar_os_audio_level_t *level)
 {
     if (!solar_os_audio_backend_has_input()) {
-        return ESP_ERR_NOT_SUPPORTED;
+        return audio_measure_capture_stream(duration_ms, channel, level);
     }
     esp_err_t ret = audio_operation_take(portMAX_DELAY);
     if (ret != ESP_OK) {
@@ -2537,19 +2591,14 @@ esp_err_t solar_os_audio_unregister_streams(const char *id)
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms,
                                        solar_os_audio_level_t *level)
 {
-    (void)duration_ms;
-    (void)level;
-    return ESP_ERR_NOT_SUPPORTED;
+    return audio_measure_capture_stream(duration_ms, -1, level);
 }
 
 esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                uint32_t duration_ms,
                                                solar_os_audio_level_t *level)
 {
-    (void)channel;
-    (void)duration_ms;
-    (void)level;
-    return ESP_ERR_NOT_SUPPORTED;
+    return audio_measure_capture_stream(duration_ms, channel, level);
 }
 
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume)
@@ -3569,7 +3618,10 @@ static esp_err_t audio_play_mp3_stream(const char *path,
     const uint32_t progress_interval_ms = audio_wav_progress_interval_ms(options);
     int64_t next_progress_us = esp_timer_get_time() + ((int64_t)progress_interval_ms * 1000);
 
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     while (ret == ESP_OK) {
+        solar_os_work_checkpoint(&work);
         if (audio_wav_should_cancel(options)) {
             cancelled = true;
             ret = ESP_ERR_TIMEOUT;

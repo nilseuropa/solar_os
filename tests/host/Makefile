@@ -16,6 +16,12 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += can_twai_test
+TARGETS += doc_memory_test
+TARGETS += paged_array_test
+
+paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
+TARGETS += gesture_command_test
 
 can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ican_stubs -Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
@@ -24,6 +30,7 @@ TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
+TARGETS += ssd1677_expansion_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
@@ -296,6 +303,13 @@ epd_uc8279_test: epd_uc8279_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
 		epd_uc8279_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
+ssd1677_expansion_test: ssd1677_expansion_test.c $(ROOT)/src/services/solar_os_ssd1677.c \
+        $(ROOT)/src/services/solar_os_ssd1677_driver.c $(ROOT)/src/drivers/epd_ssd1677.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib ssd1677_expansion_test.c -o $@
+
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
@@ -331,10 +345,13 @@ epd_uc8179_test: epd_uc8179_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
 		epd_uc8179_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 epd_ssd1677_test: epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677.c $(ROOT)/src/drivers/epd_ssd1677.h \
+	$(ROOT)/src/drivers/epd_ssd1677_waveform.c $(ROOT)/src/drivers/epd_ssd1677_waveform.h \
+	$(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(ROOT)/src/drivers/epd_scan_worker.h \
+	$(EPD_U8G2_TEST_SOURCES) \
 	$(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_ssd1677_test.c -Wl,--gc-sections -o $@
+		epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 irc_protocol_test: irc_protocol_test.c $(ROOT)/src/services/solar_os_irc_protocol.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services $^ -o $@
@@ -394,6 +411,7 @@ IMLIB_SOURCES := $(wildcard $(IMLIB_DIR)/upstream/*.c)
 IMLIB_FLAGS := -DCMSIS_MCU_H=\"cmsis_compiler.h\" -I$(IMLIB_DIR)/include -I$(IMLIB_DIR)/upstream \
     -ffunction-sections -fdata-sections -fno-strict-aliasing -Wno-error -Wno-sign-compare -Wno-unused-parameter
 TARGETS += native_image_api_test native_inference_api_test native_video_api_test native_video_rtsp_api_test
+native_image_api_test native_inference_api_test native_video_api_test native_video_rtsp_api_test: native_memory_test_support.c
 native_image_api_test: native_image_api_test.c imlib_test.c vision_test.c \
         $(ROOT)/src/services/solar_os_native_media.c $(ROOT)/src/services/solar_os_imlib.c \
         $(ROOT)/src/services/solar_os_raster_image.c $(ROOT)/src/services/solar_os_vision.c $(IMLIB_SOURCES) $(QUIRC_HOST_OBJECTS)
@@ -576,11 +594,11 @@ writer_buffer_test: writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c 
 	$(CC) $(CFLAGS) -DSOLAR_OS_WRITER_HOST_TEST -I. -I$(WRITER_DIR) \
 		writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c -o $@
 
-doc_layout_test: doc_layout_test.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h
+doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
 		-D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services \
-		doc_layout_test.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c \
+		$@.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_paged_array.c \
 		-Wl,--gc-sections -o $@
 
 writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(WRITER_DIR)/solar_os_writer_files.h esp_err.h
@@ -691,6 +709,11 @@ input_test touch_gesture_test: %: %.c input_test.c $(ROOT)/src/services/solar_os
 input_action_match_test: input_action_match_test.c $(ROOT)/src/services/solar_os_input_action_match.c $(ROOT)/src/services/solar_os_input_action_match.h $(ROOT)/src/services/solar_os_input_actions.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
 		input_action_match_test.c $(ROOT)/src/services/solar_os_input_action_match.c -o $@
+
+gesture_command_test: gesture_command_test.c $(ROOT)/src/shell/solar_os_shell_input.c $(ROOT)/src/shell/solar_os_shell_parse.c
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -include compat.h \
+		-I. -I$(ROOT)/src -I$(ROOT)/src/shell -I$(ROOT)/src/services \
+		$< $(ROOT)/src/shell/solar_os_shell_parse.c -Wl,--gc-sections -o $@
 
 unistroke_test: unistroke_test.c $(ROOT)/src/services/solar_os_unistroke.c $(ROOT)/src/services/solar_os_unistroke.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -1219,6 +1242,8 @@ test: $(TARGETS)
 	./gfx_icons_test
 	./text_search_test
 	./doc_layout_test
+	./doc_memory_test
+	./gesture_command_test
 	./shell_parse_test
 	./shell_launch_test
 	./shell_line_test

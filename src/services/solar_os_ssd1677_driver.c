@@ -13,6 +13,7 @@ static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "power_addr", .value_hint = "0x34", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "power_addr", .allowed_values = power_addresses, .allowed_value_count = sizeof(power_addresses) / sizeof(power_addresses[0])},
     {.key = "clock", .value_hint = "khz", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "clock", .has_value_range = true, .min_value = 100, .max_value = 20000},
     {.key = "rotation", .value_hint = "0..3", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "rotation", .has_value_range = true, .min_value = 0, .max_value = 3},
+    {.key = "panel", .value_hint = "0=generic,1=Sticky", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .has_value_range = true, .min_value = 0, .max_value = 1},
 };
 
 const solar_os_expansion_driver_t solar_os_ssd1677_expansion_driver = {

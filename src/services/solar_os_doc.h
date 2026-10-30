@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "solar_os_gfx.h"
 #include "solar_os_storage.h"
+#include "solar_os_paged_array.h"
 
 typedef enum {
     SOLAR_OS_DOC_BLOCK_PARAGRAPH,
@@ -94,21 +95,21 @@ typedef struct {
 } solar_os_doc_view_t;
 
 typedef struct {
-    int x;
     int y;
-    int width;
-    int height;
-    int baseline;
     size_t block_index;
     size_t run_index;
     size_t text_offset;
     size_t text_len;
     size_t source_start;
     size_t source_end;
-    uint8_t style;
     solar_os_gfx_font_t font;
-    int char_w;
+    int16_t x;
+    int16_t width;
+    int16_t height;
+    int16_t baseline;
+    int16_t char_w;
     uint16_t pixel_size;
+    uint8_t style;
     uint8_t face;
     bool raw_source;
     char literal[8];
@@ -120,29 +121,41 @@ typedef struct {
 } solar_os_doc_reveal_range_t;
 
 typedef struct {
-    int x;
     int y;
-    int width;
-    int height;
-    int baseline;
     size_t block_index;
     size_t run_start;
     size_t run_count;
     size_t source_start;
     size_t source_end;
+    int16_t x;
+    int16_t width;
+    int16_t height;
+    int16_t baseline;
 } solar_os_doc_layout_line_t;
 
 typedef struct {
-    solar_os_doc_layout_line_t *lines;
+    solar_os_paged_array_t lines;
     size_t line_count;
     size_t line_capacity;
-    solar_os_doc_layout_run_t *runs;
+    solar_os_paged_array_t runs;
     size_t run_count;
     size_t run_capacity;
     int width;
     int height;
     int zoom;
 } solar_os_doc_layout_t;
+
+static inline solar_os_doc_layout_line_t *solar_os_doc_layout_line(
+    const solar_os_doc_layout_t *layout, size_t index)
+{
+    return solar_os_paged_array_at(&layout->lines, index);
+}
+
+static inline solar_os_doc_layout_run_t *solar_os_doc_layout_run(
+    const solar_os_doc_layout_t *layout, size_t index)
+{
+    return solar_os_paged_array_at(&layout->runs, index);
+}
 
 void solar_os_doc_init(solar_os_doc_t *doc);
 void solar_os_doc_free(solar_os_doc_t *doc);

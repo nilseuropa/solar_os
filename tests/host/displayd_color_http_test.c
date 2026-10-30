@@ -22,6 +22,11 @@ typedef struct {
     uint32_t frame_requests;
 } displayd_state_t;
 typedef struct { int status; bool cached; size_t sent; } httpd_req_t;
+static bool response_pinned;
+static void *solar_os_memory_buffer_pin(uint8_t *buffer)
+{ assert(!response_pinned); response_pinned = true; return buffer; }
+static bool solar_os_memory_buffer_unpin(uint8_t *buffer)
+{ (void)buffer; assert(response_pinned); response_pinned = false; return true; }
 static uint8_t mono[] = {0x12, 0x34}, color[] = {0xf8, 0, 0x07, 0xe0};
 static solar_os_display_frame_t snapshot;
 static bool acquired;
@@ -61,6 +66,7 @@ static esp_err_t httpd_resp_set_type(httpd_req_t *req, const char *type)
 static esp_err_t httpd_resp_send(httpd_req_t *req, const char *data, size_t size)
 {
     assert(!acquired);
+    assert(!size || response_pinned);
     static const uint8_t expected_color[] = {0xf8, 0, 0x07, 0xe0};
     static const uint8_t expected_mono[] = {0x12, 0x34};
     if (size == sizeof(color)) assert(!memcmp(data, expected_color, size));
@@ -76,6 +82,7 @@ static void reset(void)
     color[0] = 0xf8; color[1] = 0; color[2] = 0x07; color[3] = 0xe0;
     snapshot = (solar_os_display_frame_t){.data = mono, .data_size = sizeof(mono),
         .rgb565_data = color, .rgb565_size = sizeof(color), .target_generation = 7, .frame_id = 9};
+    assert(!response_pinned);
     acquired = false; releases = 0; acquire_error = ESP_OK;
 }
 int main(void)

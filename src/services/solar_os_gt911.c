@@ -16,7 +16,7 @@
 #define GT911_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
 
 typedef struct {
-    bool active, pressed;
+    bool active, pressed, swap_xy;
     bool home_pressed;
     volatile bool stop_requested;
     volatile bool worker_done;
@@ -40,7 +40,7 @@ static void worker(void *arg);
 static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t count,
                        gt911_device_t *device)
 {
-    bool bus=false, addr=false, alternate_addr=false, irq=false, rotation=false;
+    bool bus=false, addr=false, alternate_addr=false, irq=false, rotation=false, swap=false;
     if (!bindings || !device) return ESP_ERR_INVALID_ARG;
     device->irq_pin = -1;
     device->reset_pin = device->power_pin = -1;
@@ -75,6 +75,9 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !home &&
                    strcmp(b->role, "home_key") == 0 && b->value >= 0 && b->value <= 255) {
             device->home_key=(uint8_t)b->value; home=true;
+        } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !swap &&
+                   strcmp(b->role, "swap_xy") == 0 && b->value >= 0 && b->value <= 1) {
+            device->swap_xy = b->value != 0; swap = true;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !rotation &&
                    strcmp(b->role, "rotation") == 0 && b->value >= 0 && b->value <= 3) {
             device->rotation=(uint8_t)b->value; rotation=true;
@@ -103,7 +106,8 @@ esp_err_t solar_os_gt911_attach(const char *name,
     solar_os_display_target_t target;
     if (!solar_os_display_find_target(SOLAR_OS_DISPLAY_PRIMARY_TARGET, &target) ||
         !target.width || !target.height) return ESP_ERR_NOT_FOUND;
-    candidate.width=target.width; candidate.height=target.height;
+    candidate.width=target.native_width ? target.native_width : target.width;
+    candidate.height=target.native_height ? target.native_height : target.height;
     esp_err_t err = gt911_init_with_reset(candidate.bus,
                                    candidate.address,
                                    candidate.alternate_address,
@@ -152,12 +156,14 @@ static void poll_device(gt911_device_t *device)
     if (raw.touched) {
         const uint16_t nw=(device->rotation&1U)?device->height:device->width;
         const uint16_t nh=(device->rotation&1U)?device->width:device->height;
-        if (raw.x>=nw || raw.y>=nh) return;
+        const uint16_t rx = device->swap_xy ? raw.y : raw.x;
+        const uint16_t ry = device->swap_xy ? raw.x : raw.y;
+        if (rx>=nw || ry>=nh) return;
         switch (device->rotation) {
-        case 0: x=raw.x; y=raw.y; break;
-        case 1: x=raw.y; y=(nw-1U)-raw.x; break;
-        case 2: x=(nw-1U)-raw.x; y=(nh-1U)-raw.y; break;
-        default: x=(nh-1U)-raw.y; y=raw.x; break;
+        case 0: x=rx; y=ry; break;
+        case 1: x=ry; y=(nw-1U)-rx; break;
+        case 2: x=(nw-1U)-rx; y=(nh-1U)-ry; break;
+        default: x=(nh-1U)-ry; y=rx; break;
         }
     }
     solar_os_input_pointer_action_t action;

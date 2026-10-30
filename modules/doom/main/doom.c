@@ -49,6 +49,12 @@ int main(int argc, char **argv)
     solar_os_doom_epoch = solar_os_doom_app->time_us();
     if (!setjmp(solar_os_doom_trap)) {
         if (solar_os_doom_app->enable_suspend()) solar_os_doom_exit(1);
+        extern size_t solar_os_doom_reclaim(void *user);
+        if (solar_os_doom_app->struct_size >=
+            offsetof(solar_os_native_foreground_api_v1_t, set_memory_reclaimer) +
+            sizeof(solar_os_doom_app->set_memory_reclaimer) && solar_os_doom_app->set_memory_reclaimer &&
+            solar_os_doom_app->set_memory_reclaimer(solar_os_doom_reclaim, NULL))
+            solar_os_doom_exit(1);
         /* Validate the directory before the legacy engine uses its counts. */
         extern void solar_os_doom_validate_wad(void);
         solar_os_doom_validate_wad();

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shlex
 from pathlib import Path
 import shutil
@@ -20,6 +21,7 @@ from solaros_build_lock import acquire_project_build_lock
 from solaros_update_layout import select_layout
 from solaros_keymap import PROFILE_DIR, load_profile, merge, read_json
 from solaros_keymap_build import OPTIONS, dependencies, resolve_selection
+from check_memory_contracts import inventory as memory_inventory
 
 
 def _selected_flavor() -> str:
@@ -81,6 +83,11 @@ def _remove_path(path: Path) -> None:
 
 
 build_dir = Path(env.subst("$BUILD_DIR"))
+memory_report, memory_errors = memory_inventory(project_dir)
+if memory_errors:
+    raise SystemExit("\n".join(memory_errors))
+build_dir.mkdir(parents=True, exist_ok=True)
+(build_dir / "memory-contracts.json").write_text(json.dumps(memory_report, indent=2) + "\n")
 # PlatformIO preprocesses memory.ld.in in two stages without tracking its
 # sdkconfig.h include. Memory-layout changes must invalidate both stages.
 env.Depends("$BUILD_DIR/esp-idf/esp_system/ld/memory.ld.in", "$BUILD_DIR/config/sdkconfig.h")

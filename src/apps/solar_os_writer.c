@@ -11,6 +11,8 @@
 #include <unistd.h>
 
 #include "esp_attr.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_clipboard.h"
 #include "solar_os_doc.h"
 #include "solar_os_gfx.h"
@@ -48,6 +50,7 @@ typedef struct {
     solar_os_writer_buffer_t buffer;
     solar_os_doc_t doc;
     solar_os_doc_layout_t layout;
+    solar_os_memory_reclaimer_t layout_reclaimer;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     char display_name[SOLAR_OS_STORAGE_PATH_MAX];
     char state_dir[SOLAR_OS_STORAGE_PATH_MAX];
@@ -84,6 +87,24 @@ typedef struct {
 
 static void *writer_state;
 #define writer (*(writer_state_t *)writer_state)
+
+static size_t writer_reclaim_layout(const solar_os_memory_pressure_request_t *request, void *user)
+{
+    (void)request;
+    writer_state_t *state = user;
+    size_t bytes = solar_os_paged_array_bytes(&state->layout.lines) +
+                   solar_os_paged_array_bytes(&state->layout.runs);
+    solar_os_doc_layout_free(&state->layout);
+    state->layout_pending = true;
+    state->render_pending = true;
+    state->content_height = 0;
+    return bytes;
+}
+
+static void writer_detach_reclaimer(void)
+{
+    while (!solar_os_memory_unregister_reclaimer(&writer.layout_reclaimer)) vTaskDelay(1);
+}
 
 static uint32_t writer_hash_bytes(uint32_t hash, const char *data, size_t len)
 {
@@ -228,6 +249,8 @@ static esp_err_t writer_write_synced_file(const char *path, const char *data, si
 
 static size_t writer_scroll_anchor(void)
 {
+    if (writer.suspended && writer.saved_scroll_anchor != SIZE_MAX)
+        return writer.saved_scroll_anchor;
     size_t anchor = writer.cursor;
     if (writer.layout.line_count > 0) {
         (void)solar_os_doc_layout_hit_test(&writer.layout, 0, writer.scroll_y, &anchor);
@@ -1211,7 +1234,7 @@ static void writer_draw_highlight(solar_os_gfx_t *gfx, const solar_os_doc_view_t
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
     for (size_t i = 0; i < writer.layout.run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &writer.layout.runs[i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&writer.layout, i);
         if (run->source_end <= start || run->source_start >= end || run->text_len == 0) {
             continue;
         }
@@ -1410,6 +1433,10 @@ static esp_err_t writer_start(solar_os_context_t *ctx)
     solar_os_writer_buffer_init(&writer.buffer);
     solar_os_doc_init(&writer.doc);
     solar_os_doc_layout_init(&writer.layout);
+    writer.layout_reclaimer = (solar_os_memory_reclaimer_t){
+        .owner = "writer.layout", .priority = 100,
+        .reclaim = writer_reclaim_layout, .user = writer_state,
+    };
     writer.selection_anchor = SIZE_MAX;
     writer.saved_scroll_anchor = SIZE_MAX;
     writer.zoom = 1;
@@ -1490,12 +1517,16 @@ static void writer_suspend(solar_os_context_t *ctx)
 {
     (void)writer_write_recovery();
     writer_save_metadata();
+    writer.saved_scroll_anchor = writer_scroll_anchor();
     writer.suspended = true;
     solar_os_context_set_graphics_active(ctx, false);
+    if (!solar_os_memory_register_reclaimer(&writer.layout_reclaimer))
+        (void)writer_reclaim_layout(NULL, writer_state);
 }
 
 static void writer_resume(solar_os_context_t *ctx)
 {
+    writer_detach_reclaimer();
     writer.suspended = false;
     writer_wake_cursor();
     solar_os_context_set_graphics_active(ctx, true);
@@ -1508,6 +1539,7 @@ static void writer_resume(solar_os_context_t *ctx)
 
 static void writer_stop(solar_os_context_t *ctx)
 {
+    writer_detach_reclaimer();
     if (writer.dirty && !writer.discard_on_stop) {
         (void)writer_write_recovery();
     }
@@ -1528,6 +1560,7 @@ static bool writer_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         writer_resume(ctx);
         return true;
     }
+    if (writer.suspended) return false;
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         return writer_handle_char(ctx, (uint8_t)event->data.ch);
     }
@@ -1590,6 +1623,7 @@ const solar_os_app_t solar_os_writer_app = {
     .state_slot = &writer_state,
     .state_size = sizeof(writer_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .state_release_cleanup = writer_detach_reclaimer,
     .tick_interval_ms = 40,
     .tick_deadline_ms = 40,
 };

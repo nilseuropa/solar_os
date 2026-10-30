@@ -439,6 +439,40 @@ hint = "0x6a|0x6b"
 required = true
 allowed = [0x6a, 0x6b]
 
+[drivers.lsm6ds3tr-c]
+summary = "LSM6DS3TR-C six-axis IMU"
+package = "lsm6ds3trc"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+default_name = "imu0"
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6a|0x6b"
+required = true
+allowed = [0x6a, 0x6b]
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[[drivers.lsm6ds3tr-c.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+
 [drivers.mgc3130]
 summary = "MGC3130 3D gesture and hover sensor"
 package = "driver_mgc3130"
@@ -920,6 +954,14 @@ hint = "0..3"
 role = "rotation"
 min = 0
 max = 3
+
+[[drivers.ssd1677.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "0=generic,1=Sticky"
+role = "panel"
+min = 0
+max = 1
 
 [drivers.sdspi]
 summary = "SPI microSD"
@@ -1636,6 +1678,13 @@ hint = "key"
 min = 0
 max = 255
 
+[[drivers.gt911.bindings]]
+key = "swap_xy"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.pcf85063]
 summary = "I2C real-time clock"
 package = "driver_pcf85063"
@@ -1727,6 +1776,26 @@ kind = "i2c_address"
 hint = "0x70"
 required = true
 allowed = [0x70]
+
+[drivers.sht40]
+summary = "SHT40 temperature/humidity"
+package = "driver_sht40"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+board_capabilities = ["temperature", "humidity"]
+board_driver = "sensors_sht40"
+default_name = "environment0"
+[[drivers.sht40.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.sht40.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x44"
+required = true
+allowed = [0x44]
 
 [drivers.battery-adc]
 summary = "ADC battery monitor"
@@ -1839,6 +1908,42 @@ key = "rck"
 kind = "gpio"
 hint = "gpio"
 required = true
+
+[drivers.audio-pdm]
+summary = "PDM mono microphone capture"
+package = "expansion_audio_pdm"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "mic0"
+
+[[drivers.audio-pdm.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0"
+required = true
+allowed = [0]
+[[drivers.audio-pdm.bindings]]
+key = "clk"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.audio-pdm.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.audio-pdm.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.audio-pdm.bindings]]
+key = "slot"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
 
 [drivers.pcm1808]
 summary = "I2S stereo audio input"

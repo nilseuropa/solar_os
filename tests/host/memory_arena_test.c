@@ -6,6 +6,16 @@
 #include "solar_os_memory_arena.h"
 
 static unsigned random_state = 1123;
+static void *movable[64];
+static void relocated(void *user, void *old_pointer, void *new_pointer)
+{
+    (void)user;
+    for (unsigned i = 0; i < 64; ++i) if (movable[i] == old_pointer) {
+        movable[i] = new_pointer;
+        return;
+    }
+    assert(!"unregistered relocation");
+}
 static unsigned random_value(void)
 { random_state = random_state * 1664525U + 1013904223U; return random_state; }
 
@@ -18,6 +28,25 @@ int main(void)
     solar_os_memory_arena_status_t initial, status;
     solar_os_memory_arena_status(&arena, &initial);
     assert(initial.free == initial.largest && initial.free == arena.free);
+
+    /* Overlapping movement through a smaller hole, with a raw pinned guard. */
+    void *hole = solar_os_memory_arena_alloc(&arena, 512, false);
+    movable[0] = solar_os_memory_arena_alloc(&arena, 100000, false);
+    void *pinned = solar_os_memory_arena_alloc(&arena, 1000, false);
+    assert(hole && movable[0] && pinned);
+    memset(movable[0], 0x39, 100000); memset(pinned, 0x47, 1000);
+    void *original = movable[0];
+    assert(solar_os_memory_arena_describe(&arena, movable[0], 7, true));
+    assert(solar_os_memory_arena_free(&arena, hole));
+    assert(solar_os_memory_arena_compact(&arena, relocated, NULL) == 100000);
+    assert(movable[0] != original && movable[0] == hole);
+    assert(((unsigned char *)movable[0])[99999] == 0x39);
+    assert(((unsigned char *)pinned)[999] == 0x47);
+    assert(solar_os_memory_arena_free(&arena, movable[0]));
+    assert(solar_os_memory_arena_free(&arena, pinned));
+    movable[0] = NULL;
+    solar_os_memory_arena_status(&arena, &status);
+    assert(status.free == initial.free && status.largest == initial.largest);
 
     /* The temporary ELF buffer must not leave a hole below its resident code. */
     void *file = solar_os_memory_arena_alloc(&arena, 1137024, false);
@@ -46,6 +75,39 @@ int main(void)
     solar_os_memory_arena_status(&arena, &status);
     assert(status.free == initial.free && status.largest == initial.free);
 
+    /* Reflow can grow into its adjacent hole or shrink with no second buffer.
+     * Failed growth must preserve data, neighbors, and all accounting. */
+    void *left = solar_os_memory_arena_alloc(&arena, 100000, false);
+    void *right = solar_os_memory_arena_alloc(&arena, 100000, false);
+    void *guard = solar_os_memory_arena_alloc(&arena, 100000, false);
+    assert(left && right && guard);
+    memset(left, 0x63, 100000); memset(guard, 0x64, 100000);
+    solar_os_memory_arena_status(&arena, &status);
+    size_t free_before = status.free;
+    assert(!solar_os_memory_arena_resize(&arena, left, 200000));
+    assert(arena.free == free_before && solar_os_memory_arena_size(&arena, left) == 100000);
+    assert(solar_os_memory_arena_free(&arena, right));
+    assert(solar_os_memory_arena_resize(&arena, left, 180000));
+    assert(((unsigned char *)left)[99999] == 0x63 && ((unsigned char *)guard)[99999] == 0x64);
+    assert(solar_os_memory_arena_resize(&arena, left, 32));
+    assert(solar_os_memory_arena_size(&arena, left) == 32);
+    assert(!solar_os_memory_arena_resize(&arena, left, SIZE_MAX));
+    assert(!solar_os_memory_arena_resize(&arena, left, 0));
+    assert(!solar_os_memory_arena_resize(&arena, (unsigned char *)left + 16, 32));
+    assert(solar_os_memory_arena_free(&arena, left));
+    assert(solar_os_memory_arena_free(&arena, guard));
+    void *whole = solar_os_memory_arena_alloc(&arena, initial.largest, true);
+    assert(whole && arena.free == 0);
+    assert(solar_os_memory_arena_resize(&arena, whole, initial.largest - 1));
+    assert(arena.free == 0 && arena.resident == initial.largest - 1);
+    assert(solar_os_memory_arena_resize(&arena, whole, 100000));
+    assert(arena.resident == 100000);
+    assert(solar_os_memory_arena_resize(&arena, whole, initial.largest));
+    assert(arena.free == 0 && arena.resident == initial.largest);
+    assert(solar_os_memory_arena_free(&arena, whole));
+    solar_os_memory_arena_status(&arena, &status);
+    assert(status.free == initial.free && status.largest == initial.free && !status.resident);
+
     /* JSON-sized allocations must not search thousands of live blocks. This
      * also exercises direct-header free in reverse and fragmented orders. */
     enum { OBJECTS = 20000 };
@@ -73,7 +135,34 @@ int main(void)
      * stay valid, live buffers never overlap, and teardown recovers the region. */
     void *pointers[64] = {0}; size_t sizes[64] = {0};
     for (unsigned iteration = 0; iteration < 20000; iteration++) {
+        if (iteration % 17U == 0) {
+            void *fixed[64];
+            memcpy(fixed, pointers, sizeof(fixed));
+            memcpy(movable, pointers, sizeof(movable));
+            for (unsigned i = 0; i < 64; ++i) if (pointers[i])
+                assert(solar_os_memory_arena_describe(&arena, pointers[i], i + 1U, i % 3U != 0));
+            (void)solar_os_memory_arena_compact(&arena, relocated, NULL);
+            memcpy(pointers, movable, sizeof(pointers));
+            for (unsigned i = 0; i < 64; ++i) if (pointers[i]) {
+                if (i % 3U == 0) assert(pointers[i] == fixed[i]);
+                for (size_t j = 0; j < sizes[i]; ++j)
+                    assert(((unsigned char *)pointers[i])[j] == (unsigned char)i);
+            }
+        }
         unsigned slot = random_value() % 64;
+        if (pointers[slot] && random_value() % 2) {
+            const size_t next_size = 1U + random_value() % 65536;
+            const size_t old_size = sizes[slot];
+            if (solar_os_memory_arena_resize(&arena, pointers[slot], next_size)) {
+                const size_t kept = old_size < next_size ? old_size : next_size;
+                for (size_t i = 0; i < kept; ++i)
+                    assert(((unsigned char *)pointers[slot])[i] == (unsigned char)slot);
+                sizes[slot] = next_size;
+                memset(pointers[slot], (unsigned char)slot, next_size);
+            } else {
+                assert(solar_os_memory_arena_size(&arena, pointers[slot]) == old_size);
+            }
+        }
         if (pointers[slot]) {
             for (size_t i = 0; i < sizes[slot]; i++)
                 assert(((unsigned char *)pointers[slot])[i] == (unsigned char)slot);

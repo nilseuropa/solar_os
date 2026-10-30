@@ -33,6 +33,8 @@ include(scripts/cxx_sdkconfig.cmake)
 solar_os_enable_required_cxx_exceptions()
 include(scripts/sdkconfig_minimums.cmake)
 solar_os_apply_sdkconfig_minimums()
+include(scripts/classic_psram_sdkconfig.cmake)
+solar_os_enable_classic_psram_workaround()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(
     COMPILE_DEFINITIONS
@@ -41,6 +43,7 @@ idf_build_set_property(
 )
 idf_build_set_property(COMPILE_DEFINITIONS "MEMP_NUM_PPP_PCB=2" APPEND)
 project(solar_os)
+solar_os_check_classic_psram_workaround()
 idf_build_get_property(solar_os_elf EXECUTABLE)
 # SDK/prebuilt consumers share large PSRAM storage and can release OS-owned
 # pointers. Constrained requests and pointers outside the arena retain SDK behavior.

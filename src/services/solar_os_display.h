@@ -69,6 +69,8 @@ typedef struct {
     void *power_state_context;
     esp_err_t (*relax)(void *context, solar_os_display_relax_phase_t phase);
     void *relax_context;
+    uint16_t native_width;
+    uint16_t native_height;
 } solar_os_display_target_t;
 
 typedef struct {
@@ -142,6 +144,7 @@ esp_err_t solar_os_display_release(const char *name, const char *owner);
  * changing the terminal's saved preferences. Release the block after joining
  * presentation. The epoch makes terminals repaint fully when drawing resumes. */
 esp_err_t solar_os_display_set_terminal_blocked(const char *name, const char *owner, bool blocked);
+esp_err_t solar_os_display_set_orientation_locked(const char *name, const char *owner, bool locked);
 bool solar_os_display_terminal_draw_state(const u8g2_t *u8g2, uint32_t *epoch);
 bool solar_os_display_brightness_supported(void);
 esp_err_t solar_os_display_get_brightness(uint8_t *percent);

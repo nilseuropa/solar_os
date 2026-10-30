@@ -17,7 +17,7 @@ struct solar_os_jet {
     uint16_t *depth;
     uint8_t *writing;
     size_t bytes;
-    bool claimed, registered, foreground, paused, terminal_blocked;
+    bool claimed, registered, foreground, paused, terminal_blocked, orientation_locked;
     char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     char owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
     solar_os_jet_status_t stats;
@@ -58,6 +58,10 @@ esp_err_t solar_os_jet_close(solar_os_jet_t **instance) {
         s->presenter=NULL;
     }
     if(s->claimed) {
+        if(s->orientation_locked) {
+            err=solar_os_display_set_orientation_locked(s->target,s->owner,false); if(err!=ESP_OK) return err;
+            s->orientation_locked=false;
+        }
         if(s->terminal_blocked) {
             err=solar_os_display_set_terminal_blocked(s->target,s->owner,false); if(err!=ESP_OK) return err;
             s->terminal_blocked=false;
@@ -109,6 +113,8 @@ esp_err_t solar_os_jet_open(const solar_os_jet_options_t *o,solar_os_gfx_t *fore
     s->claimed=true;
     err=solar_os_display_set_terminal_blocked(name,s->owner,true); if(err!=ESP_OK) goto fail;
     s->terminal_blocked=true;
+    err=solar_os_display_set_orientation_locked(name,s->owner,true); if(err!=ESP_OK) goto fail;
+    s->orientation_locked=true;
     size_t width=solar_os_gfx_width(s->gfx),height=solar_os_gfx_height(s->gfx);
     if(!width || !height || width%8 || width>1024 || height>1024) {err=ESP_ERR_INVALID_SIZE;goto fail;}
     s->stats.width=width; s->stats.height=height; s->bytes=width*height*2;
@@ -153,6 +159,11 @@ esp_err_t solar_os_jet_suspend(solar_os_jet_t *s) {
     esp_err_t err=solar_os_frame_presenter_suspend_checked(s->presenter);
     if(err==ESP_OK) {
         s->paused=true;
+        if(s->orientation_locked) {
+            err=solar_os_display_set_orientation_locked(s->target,s->owner,false);
+            if(err!=ESP_OK) return err;
+            s->orientation_locked=false;
+        }
         if(s->terminal_blocked) {
             err=solar_os_display_set_terminal_blocked(s->target,s->owner,false);
             if(err!=ESP_OK) return err;
@@ -178,7 +189,10 @@ esp_err_t solar_os_jet_resume(solar_os_jet_t *s) {
         if(err!=ESP_OK) return err;
         s->terminal_blocked=true;
     }
-    esp_err_t err=solar_os_frame_presenter_resume(s->presenter);
+    esp_err_t err=solar_os_display_set_orientation_locked(s->target,s->owner,true);
+    if(err!=ESP_OK) return err;
+    s->orientation_locked=true;
+    err=solar_os_frame_presenter_resume(s->presenter);
     if(err==ESP_OK) s->paused=false;
     return err;
 }

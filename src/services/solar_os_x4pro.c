@@ -169,6 +169,16 @@ static esp_err_t shutdown(solar_os_board_display_t *display)
     return err;
 }
 
+static esp_err_t present_power_state(solar_os_board_display_t *display)
+{
+    if (!display || !display->driver) return ESP_ERR_INVALID_STATE;
+    x4pro_device_t *d = display->driver;
+    if (d->controller == EPD_XTEINK_SSD1677)
+        return epd_ssd1677_present_power_state(&d->panel.ssd);
+    u8g2_SendBuffer(display->u8g2);
+    return d->panel.uc.last_error;
+}
+
 static const solar_os_board_display_ops_t ops = {
     .runtime_ready = runtime_ready, .resume = resume, .deinit = deinit,
     .set_power_save = set_power_save,
@@ -178,6 +188,7 @@ static const solar_os_board_display_ops_t ops = {
     .controller_mode = controller_mode, .controller_mode_values = controller_mode_values,
     .set_controller_mode = set_controller_mode,
     .relax = relax,
+    .present_power_state = present_power_state,
 };
 
 esp_err_t solar_os_x4pro_attach(const char *name,

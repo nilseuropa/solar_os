@@ -804,6 +804,7 @@ static bool shell_builtin_command_exists(const char *name)
 static const char * const setterm_subcommands[] = {
     "--display",
     "orientation",
+    "scale",
     "font",
     "textsize",
     "palette",
@@ -829,10 +830,11 @@ static const char * const setterm_subcommands[] = {
 };
 
 static const char * const setterm_display_settings[] = {
-    "orientation", "font", "textsize", "palette", "statusbar",
+    "orientation", "scale", "font", "textsize", "palette", "statusbar",
 };
 
-static const char * const setterm_orientation_values[] = {"0", "90", "180", "270"};
+static const char * const display_orientation_values[] = {"0", "90", "180", "270"};
+static const char * const display_scale_values[] = {"1", "2", "3", "4"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
 static const char * const setterm_palette_values[] = {"normal", "inverted"};
@@ -846,10 +848,10 @@ static const char * const setterm_keyboard_values[] = {"us", "de"};
 static const char * const setterm_ble_values[] = {"default", "on", "off"};
 #endif
 static const char * const powerkey_action_values[] = {
-    "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+    "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
 };
 static const char * const setterm_powerkey_values[] = {
-    "short", "long", "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "ble-pair",
+    "short", "long", "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
 };
 static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
@@ -860,6 +862,8 @@ static const char * const display_subcommands[] = {
     "layouts",
     "test",
     "mode",
+    "orientation",
+    "scale",
     "relax",
     "join",
     "unjoin",
@@ -889,7 +893,7 @@ static const char * const gesture_unbind_values[] = {"all"};
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
-static const char * const mem_subcommands[] = {"policy", "reclaim"};
+static const char * const mem_subcommands[] = {"policy", "reclaim", "compact", "owners"};
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const pkg_subcommands[] = {
     "system", "available", "installed", "install", "remove", "unload",
@@ -1974,6 +1978,8 @@ static const char * const path_setterm_display_statusbar[] = {
     "setterm", "--display", SHELL_COMPLETION_ANY, "statusbar",
 };
 static const char * const path_setterm_orientation[] = {"setterm", "orientation"};
+static const char * const path_setterm_scale[] = {"setterm", "scale"};
+static const char * const path_setterm_display_scale[] = {"setterm", "--display", SHELL_COMPLETION_ANY, "scale"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
 static const char * const path_setterm_palette[] = {"setterm", "palette"};
@@ -2008,6 +2014,10 @@ static const char * const path_dlp_stream[] = {"dlp", "serve", SHELL_COMPLETION_
 #endif
 static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
+static const char * const path_display_orientation[] = {"display", "orientation"};
+static const char * const path_display_scale[] = {"display", "scale"};
+static const char * const path_display_orientation_target[] = {"display", "orientation", SHELL_COMPLETION_ANY};
+static const char * const path_display_scale_target[] = {"display", "scale", SHELL_COMPLETION_ANY};
 static const char * const path_display_relax[] = {"display", "relax"};
 static const char * const path_display_mode_target[] = {"display", "mode", SHELL_COMPLETION_ANY};
 static const char * const path_display_join_name[] = {"display", "join", SHELL_COMPLETION_ANY};
@@ -3358,12 +3368,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm, setterm_subcommands),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_setterm_display),
     SHELL_COMPLETION_STATIC(path_setterm_display_target, setterm_display_settings),
-    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_orientation, display_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_palette, setterm_palette_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_statusbar, setterm_statusbar_values),
-    SHELL_COMPLETION_STATIC(path_setterm_orientation, setterm_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_orientation, display_orientation_values),
+    SHELL_COMPLETION_STATIC(path_setterm_scale, display_scale_values),
+    SHELL_COMPLETION_STATIC(path_setterm_display_scale, display_scale_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_palette, setterm_palette_values),
@@ -3420,6 +3432,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_gesture_unbind, gesture_unbind_values),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_test),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_orientation),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_scale),
+    SHELL_COMPLETION_STATIC(path_display_orientation_target, display_orientation_values),
+    SHELL_COMPLETION_STATIC(path_display_scale_target, display_scale_values),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_relax),
     SHELL_COMPLETION_DISPLAY_MODES(path_display_mode_target),
     SHELL_COMPLETION_STATIC(path_display_join_name, display_layout_axes),
@@ -4335,12 +4351,30 @@ static void shell_format_display_path(const char *path,
     }
 }
 
-static void shell_prompt(solar_os_context_t *ctx)
+static void shell_write_prompt(solar_os_context_t *ctx)
 {
     solar_os_shell_io_t *io = shell_io(ctx);
     char identity[SOLAR_OS_IDENTITY_USER_MAX + SOLAR_OS_IDENTITY_HOSTNAME_MAX + 2];
     char display_path[SHELL_PATH_MAX];
     char prompt[SHELL_PATH_MAX + sizeof(identity) + 4];
+    if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
+        shell_reset_cwd(shell_session(ctx));
+    }
+    shell_format_display_path(shell_session(ctx)->cwd,
+                               display_path,
+                               sizeof(display_path),
+                               solar_os_shell_io_cols(io));
+    solar_os_identity_format(identity, sizeof(identity));
+    snprintf(prompt, sizeof(prompt), "%s:%s ", identity, display_path);
+    solar_os_shell_io_set_cursor_visible(io, true);
+    solar_os_shell_io_write_bold(io, prompt);
+    shell_session(ctx)->input_row = solar_os_shell_io_cursor_row(io);
+    shell_session(ctx)->input_col = solar_os_shell_io_cursor_col(io);
+}
+
+static void shell_prompt(solar_os_context_t *ctx)
+{
+    solar_os_shell_io_t *io = shell_io(ctx);
     char status_message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
 
     shell_session(ctx)->input_len = 0;
@@ -4377,19 +4411,7 @@ static void shell_prompt(solar_os_context_t *ctx)
         solar_os_shell_io_writeln(io, status_message);
     }
 
-    if (!shell_path_has_storage_prefix(shell_session(ctx)->cwd)) {
-        shell_reset_cwd(shell_session(ctx));
-    }
-    shell_format_display_path(shell_session(ctx)->cwd,
-                               display_path,
-                               sizeof(display_path),
-                               solar_os_shell_io_cols(io));
-    solar_os_identity_format(identity, sizeof(identity));
-    snprintf(prompt, sizeof(prompt), "%s:%s ", identity, display_path);
-    solar_os_shell_io_set_cursor_visible(io, true);
-    solar_os_shell_io_write_bold(io, prompt);
-    shell_session(ctx)->input_row = solar_os_shell_io_cursor_row(io);
-    shell_session(ctx)->input_col = solar_os_shell_io_cursor_col(io);
+    shell_write_prompt(ctx);
 }
 
 static char *shell_trim_line(char *line)
@@ -4471,6 +4493,19 @@ static void shell_render_input(solar_os_context_t *ctx)
                                         shell_session(ctx)->input + shell_session(ctx)->input_view_offset,
                                         visible_len,
                                         cursor_col);
+}
+
+void solar_os_shell_session_redraw_prompt(solar_os_context_t *ctx,
+                                         solar_os_shell_session_t *session)
+{
+    if (!ctx || !session || session->watch_active || session->log_follow_active ||
+        session->foreground_app) return;
+    solar_os_shell_io_t *io = shell_io(ctx);
+    const size_t row = solar_os_shell_io_cursor_row(io);
+    solar_os_shell_io_clear_line_from(io, row, 0);
+    solar_os_shell_io_set_cursor(io, row, 0);
+    shell_write_prompt(ctx);
+    shell_render_input(ctx);
 }
 
 static void shell_replace_input(solar_os_context_t *ctx, const char *text)

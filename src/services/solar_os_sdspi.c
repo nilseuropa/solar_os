@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "sd_card.h"
 #include "solar_os_gpio_controller.h"
+#include "solar_os_storage.h"
 
 typedef struct {
     bool active;
@@ -92,8 +93,12 @@ esp_err_t solar_os_sdspi_attach(const char *name,
     solar_os_gpio_line_ref_t power_line = {0};
     solar_os_expansion_spi_bus_t bus;
 
-    if (name == NULL || name[0] == '\0' || sdspi.active) {
+    if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (sdspi.active) {
+        return strcmp(sdspi.name, name) == 0 ?
+            solar_os_storage_mount() : ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = parse_bindings(bindings,
                                    binding_count,
