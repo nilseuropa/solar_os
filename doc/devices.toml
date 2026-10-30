@@ -76,6 +76,15 @@ power = "AXP2101 battery and charger monitoring."
 sensors = "PCF85063 RTC; SHTC3 temperature/humidity sensor; QMI8658 six-axis IMU."
 expansion = "I2C and UART expansion."
 
+[devices.seeed_reterminal_sticky]
+display = "3.97-inch 800×480 SSD1677 monochrome e-paper with Fastwave pulse refresh."
+keyboard = "GT911 capacitive touch and three physical buttons; no built-in keyboard."
+sound = "PWM buzzer output and 16 kHz PDM microphone capture."
+storage = "microSD over shared SPI; nearly 18 MiB of internal FAT storage on 32 MiB flash."
+connectivity = "Wi-Fi, BLE, and CH343 USB-to-UART console."
+power = "BQ27220 battery gauge; power-key sleep/wake and shutdown."
+sensors = "PCF8563 RTC; SHT40 temperature/humidity sensor; LSM6DS3TR-C six-axis IMU and hardware gestures."
+
 [devices.xteink_x4_pro]
 display = "800×480 landscape e-paper; SSD1677/UC8179/UC8279 controller identification; fixed-mix frontlight brightness."
 keyboard = "GT911 touch, Home pad, and navigation buttons; no built-in keyboard."
