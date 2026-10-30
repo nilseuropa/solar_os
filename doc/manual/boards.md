@@ -27,7 +27,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `waveshare_esp32_s3_epaper_3_97` | `waveshare_esp32_s3_epaper_3_97` | [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97) | ESP32-S3-WROOM-1-N16R8 target with an SSD1677 e-paper display that defaults to 800x480 landscape, AXP2101 battery/charger monitoring, QMI8658 six-axis IMU, four-bit SDMMC, native USB CDC, UART, PCF85063 RTC, SHTC3 temperature/humidity sensor, ES8311 speaker/microphone audio, rotary navigation, Wi-Fi, BLE, and expansion I2C/UART. |
-| `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 SSD1677 monochrome e-paper, GT911 capacitive touch, three physical buttons (AI/Power: sleep/wake on tap, shutdown on hold; Up: arrow on tap, BLE pairing on hold; Down: arrow on tap), Wi-Fi, and BLE. Console is UART0 (CH343). |
+| `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 monochrome e-paper with SSD1677/SSD2677 startup detection, GT911 capacitive touch, three physical buttons (AI/Power: sleep/wake on tap, shutdown on hold; Up: arrow on tap, BLE pairing on hold; Down: arrow on tap), Wi-Fi, and BLE. Console is UART0 (CH343). |
 | `xteink_x4_pro` | `xteink_x4_pro` | Xteink X4 Pro | ESP32-S3 target with 16 MB flash, 8 MB OPI PSRAM, an 800x480 landscape e-paper display with cached SSD1677/UC8179/UC8279 identification, fixed-mix frontlight brightness, GT911 touch and Home pad, one-bit SDMMC, BM8563-compatible RTC, CW2017 gauge, native USB CDC, UART0, navigation buttons, Wi-Fi, and BLE. |
 | `cl_32` | `cl_32` | Pi0cket CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
 | `cl32_epd` | `cl32_epd` | Pi0cket CL-32 EPD | CL-32 with a 384x168 SSD1685 GDEY029T71H e-paper display. Keyboard, battery monitor, storage, audio, RTC, connectivity, and expansion wiring are shared with `cl_32`. |
@@ -1361,10 +1361,14 @@ pio run -e waveshare_esp32_s3_epaper_3_97
 ## Seeed Studio reTerminal Sticky
 
 The `seeed_reterminal_sticky` target uses an ESP32-S3R8 with 32 MB flash and
-8 MB PSRAM. It defaults to the `full` flavor. Its 3.97-inch 800x480 SSD1677
-e-paper panel defaults to native landscape orientation. This target selects
-SSD1677; SSD2677 panels require a separate display driver. Pins follow the
-Seeed hardware overview:
+8 MB PSRAM. It defaults to the `full` flavor. Its 3.97-inch 800x480 e-paper
+panel defaults to native landscape orientation. The `sticky-display` device
+identifies SSD1677 and SSD2677 panels at startup, then registers the selected
+controller and driver under `display0`. Detection checks command `0x70` and
+stable post-reset BUSY polarity twice. BUSY polarity also supports panels
+without working SPI readback; floating or inconsistent BUSY signals fail
+attachment. The result is checked on every attachment rather than cached in NVS.
+Pins follow the Seeed hardware overview:
 
 - E-paper: SCK GPIO13, MOSI GPIO14, CS GPIO15, DC GPIO16, RST GPIO17, BUSY GPIO18, EN GPIO47
 - Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42; 180-degree panel alignment before display rotation.
@@ -1388,7 +1392,7 @@ The SD rail stays powered while the shared display SPI bus is active. Use
 `expansion attach storage0` after insertion or reinsertion to attach the slot
 or recover its mounted card.
 
-The display starts with asynchronous `refresh=pulse` / `waveform=fastwave` at 20 MHz.
+An SSD1677 display starts with asynchronous `refresh=pulse` / `waveform=fastwave` at 20 MHz.
 The Sticky panel profile (`panel=1`) uses matching black/white data in both RAM
 planes for its factory full-refresh waveform.
 Pulse mode uses short monochrome drives with per-pixel settling budgets.
@@ -1403,7 +1407,53 @@ Returning to a native mode releases the pulse buffers, snapshots, and worker.
 The native framebuffer prefers PSRAM; SPI DMA staging stays in internal SRAM.
 Touch swaps the GT911 axes before its 180-degree board rotation to match landscape.
 The direct MONO1 frame presenter supports scaled animation and games at a preferred
-10 presentations per second. Pulse settling continues asynchronously.
+10 presentations per second on SSD1677. Pulse settling continues asynchronously.
+
+SSD2677 uses its own Sticky 3D97 V2 monochrome profile at 20 MHz. Sticky's
+`panel=1` starts in asynchronous `refresh=pulse` / `waveform=fastwave`.
+The driver uploads an SSD2677-specific 535-byte RAM waveform and uses the same
+pixel-budget and scan worker as SSD1677. Defaults are `drive-cycles=8`,
+`pulse-frames=4`, `waveform-fr=5` (85 Hz), `pulse-period=100`,
+`pulse-power=hold`, and adaptive cleanup every 64 changed targets. Static
+pixels continue settling after the application stops painting; newer frames
+replace queued targets without waiting for every preceding frame to settle.
+`drive-cycles` and `pulse-frames` accept 1..32. SSD2677 `waveform-fr` accepts
+1..5, corresponding to 25, 50, 65, 75, and 85 Hz. Other pulse tuning, cleanup,
+inversion, synchronous scan, and SPI-rate controls follow SSD1677 semantics.
+The panel's own OTP supplies analog voltage settings. Full cleanup, recovery,
+and final power-state images use factory waveforms.
+Pulse mode uses aligned RAM windows around active pixels, including the preceding
+mask so settled pixels are cleared to HOLD. The first mask initializes the full
+visible RAM; subsequent transfers cover only that window.
+
+Both Sticky controller revisions default to `display0` scale 2 (a 400x240
+logical canvas on the 800x480 panel). A saved per-display scale takes precedence.
+
+Native `refresh=auto|fast|partial|full` modes remain available. The `panel=0`
+alias starts in auto mode. `refresh=partial` selects factory partial refresh;
+`refresh=fast` selects partial refresh with a fixed 85 Hz scan rate.
+`refresh=full` forces factory full refresh. Auto and fast modes perform a full
+cleanup after 19 changed partial updates; explicit partial mode bypasses periodic
+cleanup. Full refreshes always use factory scan timing. Unchanged frames are
+skipped. This profile transmits full-frame old/new two-bit transition pairs.
+The panel scans 680 gate lines
+while accepting the 480 visible image rows. Temperature readings select the
+vendor waveform bucket, with a 25 C fallback for unavailable readback. Partial
+updates reuse that selection and resample temperature every five seconds;
+full refreshes always resample temperature and reload the factory waveform.
+The MONO1 raster presenter supports all four rotations, palette inversion,
+scaled animation and games, with a preferred rate of ten presentations per
+second. Actual scan time depends on the waveform, transfer cost, and temperature.
+`display mode display0` reports scan/submission/coalescing statistics, pending
+pixels, the configured SPI rate, and the last native refresh, transfer, and panel
+drive times in microseconds.
+The driver reverses the V2 gate-row order while preserving the source X
+direction so the default orientation and touch calibration match SSD1677 units.
+Recovery (`display relax`), final power-state presentation, and
+sleep/resume use native full refreshes. The driver restores its short RAM
+waveform after the next pulse baseline. The SSD1677 LUT/register format cannot
+be used directly on SSD2677.
+This profile does not support generic SSD2677 color panels.
 
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through
 `imu0`. Its GPIO7 interrupt also supplies hardware `tap`, `double-tap`, `tilt`,

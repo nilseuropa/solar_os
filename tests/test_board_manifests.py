@@ -50,6 +50,23 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(specs["clock"].maximum, 10000)
         self.assertEqual((specs["rotation"].minimum, specs["rotation"].maximum), (0, 3))
 
+    def test_sticky_selects_both_display_backends(self) -> None:
+        board = load_board_manifest(self.manifest_dir / "seeed_reterminal_sticky.toml")
+        validate_board(board, self.drivers)
+        display = next(device for device in board["devices"] if device["name"] == "display0")
+        self.assertEqual(display["driver"], "sticky-display")
+        self.assertEqual(display["bindings"]["panel"], 1)
+        self.assertIn("display_sticky", board["build"]["drivers"])
+        self.assertIn("expansion_sticky_display", required_packages(board, self.drivers))
+        header = generate_header(board, self.drivers)
+        self.assertIn('SOLAR_OS_BOARD_DISPLAY_CONTROLLER "SSD1677/SSD2677"', header)
+        self.assertIn('.driver = "sticky-display", .name = "display0"', header)
+        packages = tomllib.loads((ROOT / "packages/solar_os_packages.toml").read_text())["packages"]
+        self.assertEqual(set(packages["expansion_sticky_display"]["depends"]),
+                         {"expansion_ssd1677", "expansion_ssd2677"})
+        self.assertTrue(self.drivers["sticky-display"].early)
+        self.assertTrue(self.drivers["ssd2677"].early)
+
     def test_all_manifests_validate(self) -> None:
         for path in self.manifest_dir.glob("*.toml"):
             with self.subTest(path=path.name):

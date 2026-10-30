@@ -2,6 +2,11 @@
 
 ## 4.x
 
+- **4.17.2** — 2026-10-30 — Added SSD2677 support for Sticky V2 with
+  automatic display-controller detection, Fastwave pulse refresh, native-app
+  raster output and sleep/resume. Improved V2 refresh response and reduced
+  ghosting with windowed transfers and revised settling. Both Sticky revisions
+  now default to display scale 2, while retaining saved scale preferences.
 - **4.17.1** — 2026-10-30 — Added Seeed reTerminal Sticky support with
   Fastwave e-paper refresh, touch, IMU gestures, PDM microphone capture and
   battery monitoring. Added runtime display rotation and integer scaling,

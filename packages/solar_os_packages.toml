@@ -577,6 +577,16 @@ label = "SSD1677 e-paper display"
 category = "Expansion hardware"
 members = ["expansion_ssd1677"]
 
+[groups.ssd2677]
+label = "SSD2677 Sticky V2 e-paper display"
+category = "Expansion hardware"
+members = ["expansion_ssd2677"]
+
+[groups.sticky_display]
+label = "Sticky automatic e-paper display"
+category = "Expansion hardware"
+members = ["expansion_sticky_display"]
+
 [groups.ssd1306]
 label = "SSD1306 OLED display"
 category = "Expansion hardware"
@@ -1811,6 +1821,30 @@ sources = [
   "services/solar_os_ssd1677_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx"]
+
+[packages.expansion_ssd2677]
+label = "expansion.ssd2677"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_ssd2677_expansion_driver"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_ssd2677.c",
+  "drivers/epd_ssd2677_waveform.c",
+  "services/solar_os_ssd2677.c",
+  "services/solar_os_ssd2677_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx"]
+
+[packages.expansion_sticky_display]
+label = "expansion.sticky-display"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_sticky_display_expansion_driver"]
+depends = ["expansion_ssd1677", "expansion_ssd2677"]
+sources = ["drivers/epd_sticky_identify.c", "services/solar_os_sticky_display.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer"]
 capabilities = ["gfx"]
 
 [packages.driver_axp2101]

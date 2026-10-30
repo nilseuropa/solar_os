@@ -716,7 +716,9 @@ and the settings TUI use the same display operations and save their values in NV
 
 `display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
-spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
+spacing. The default is `1`, except Sticky's primary display defaults to `2`
+on both controller revisions. Saved per-display settings take precedence.
+On an 800x480 panel, scale `2` gives applications
 a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
 uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
 Touch coordinates follow the same scale and orientation.
@@ -1542,9 +1544,28 @@ factory `refresh=auto|partial|full` modes. In auto mode,
 cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 `refresh=fast` is an alias for it.
 
+SSD2677 Sticky V2 starts in asynchronous `refresh=pulse` / `waveform=fastwave`
+with its own 535-byte RAM waveform, shared pixel budgets, background settling,
+and adaptive native cleanup. Defaults are `drive-cycles=8`, `pulse-frames=4`,
+`waveform-fr=5`, `pulse-period=100`, `pulse-power=hold`, and
+`cleanup-every=64`. Pulse tuning follows SSD1677, except `waveform-fr` accepts
+1..5 (25, 50, 65, 75, 85 Hz). `pulse-frames` and `drive-cycles` accept 1..32.
+`pulse-scan=sync` waits for settling; `pulse-scan=async` coalesces new targets
+and continues settling after the application stops painting.
+
+SSD2677 also exposes native `refresh=auto|fast|partial|full` and `waveform=otp`.
+`refresh=partial` sends a full-frame old/new differential image using factory
+scan timing. `refresh=fast` uses an 85 Hz scan rate for partial updates. Auto
+and fast modes perform a full cleanup after 19 changed partial updates;
+explicit partial mode bypasses periodic cleanup. Full refreshes retain factory
+scan timing and also restore the baseline after errors,
+sleep, or display recovery. Sticky identifies its controller at startup;
+`display list` reports the selected SSD1677 or SSD2677 driver. SSD2677 mode output
+includes the SPI rate and last refresh, transfer, and drive times in microseconds.
+
 SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
 `refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
-Sticky (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
+Sticky SSD1677 (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
 profiles start in native auto mode. The Sticky panel profile uses the
 manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
 planes for full cleanup. Generic profiles retain their differential full-frame

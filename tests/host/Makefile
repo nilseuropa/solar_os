@@ -31,6 +31,8 @@ TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += ssd1677_expansion_test
+TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
+TARGETS += epd_sticky_identify_test sticky_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
@@ -309,6 +311,31 @@ ssd1677_expansion_test: ssd1677_expansion_test.c $(ROOT)/src/services/solar_os_s
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
 		-I$(ROOT)/components/u8g2/src/clib ssd1677_expansion_test.c -o $@
+
+ssd2677_expansion_test: ssd2677_expansion_test.c ssd2677_memory_stubs.h $(ROOT)/src/services/solar_os_ssd2677.c \
+        $(ROOT)/src/services/solar_os_ssd2677_driver.c $(ROOT)/src/drivers/epd_ssd2677.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib ssd2677_expansion_test.c -o $@
+
+epd_ssd2677_test: epd_ssd2677_test.c ssd2677_memory_stubs.h $(ROOT)/src/drivers/epd_ssd2677.c \
+        $(ROOT)/src/drivers/epd_ssd2677.h $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_ssd2677_waveform.h \
+        $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_scan_worker.h \
+        $(ROOT)/src/drivers/epd_relax.h $(EPD_U8G2_TEST_SOURCES) \
+        $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
+		epd_ssd2677_test.c $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+epd_ssd2677_test: override CFLAGS += -I$(ROOT)/src
+
+epd_sticky_identify_test: epd_sticky_identify_test.c $(ROOT)/src/drivers/epd_sticky_identify.c $(ROOT)/src/drivers/epd_sticky_identify.h
+	$(CC) $(CFLAGS) -Iepd_stubs -I. -I$(ROOT)/src/services $< -o $@
+
+sticky_display_test: sticky_display_test.c $(ROOT)/src/services/solar_os_sticky_display.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
 
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
@@ -1115,7 +1142,8 @@ app_exit_result_test: app_exit_result_test.c $(ROOT)/src/solar_os.c $(ROOT)/src/
 		$(ROOT)/src/solar_os.c $(ROOT)/src/shell/solar_os_shell_io.c \
 		-Wl,--gc-sections -o $@
 
-terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
+terminal_preferences_sticky_test: override CFLAGS += -DSOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE=2
+terminal_preferences_test terminal_preferences_sticky_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
 
@@ -1352,6 +1380,11 @@ test: $(TARGETS)
 	./bq25896_test
 	./axp2101_test
 	./epd_ssd1677_test
+	./epd_ssd2677_test
+	./terminal_preferences_sticky_test
+	./ssd2677_expansion_test
+	./epd_sticky_identify_test
+	./sticky_display_test
 	./frontlight_pwm_test
 	./pwm_servo_test
 	./pwm_provider_test
