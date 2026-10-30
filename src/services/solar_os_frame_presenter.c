@@ -11,8 +11,9 @@
 #include "solar_os_memory.h"
 #include "solar_os_task.h"
 
-#define FRAME_PRESENTER_STACK 3072U
-#define FRAME_PRESENTER_RGB565_STACK 6144U
+/* Rotation, allocation pressure/reclaim, and formatted error logging share
+ * this internal stack. Admission must provide the entire failure-path budget. */
+#define FRAME_PRESENTER_STACK 8192U
 #define FRAME_PRESENTER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define FRAME_PRESENTER_HPM_HZ_TENTHS 255U
 
@@ -682,10 +683,8 @@ esp_err_t solar_os_frame_presenter_resume(
             presenter->config.clear_background_on_resume;
         xSemaphoreGive(presenter->mutex);
     }
-    const uint32_t minimum_stack = presenter->config.format == SOLAR_OS_DISPLAY_FORMAT_RGB565 ?
-        FRAME_PRESENTER_RGB565_STACK : FRAME_PRESENTER_STACK;
-    const uint32_t stack_bytes = presenter->target.presentation_stack_bytes > minimum_stack ?
-        presenter->target.presentation_stack_bytes : minimum_stack;
+    const uint32_t stack_bytes = presenter->target.presentation_stack_bytes > FRAME_PRESENTER_STACK ?
+        presenter->target.presentation_stack_bytes : FRAME_PRESENTER_STACK;
     const BaseType_t created = solar_os_task_create_pinned_internal(
         frame_presenter_worker, "frame_present", stack_bytes,
         presenter, FRAME_PRESENTER_PRIORITY, &presenter->task,

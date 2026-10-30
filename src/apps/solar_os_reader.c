@@ -1325,6 +1325,8 @@ static bool reader_parse_args(solar_os_context_t *ctx, const char **target)
     return *target != NULL;
 }
 
+static void reader_stop(solar_os_context_t *ctx);
+
 static esp_err_t reader_start(solar_os_context_t *ctx)
 {
     memset(&reader, 0, sizeof(reader));
@@ -1397,6 +1399,10 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
         if (err != ESP_OK) {
             snprintf(reader.message, sizeof(reader.message), "reader: epub open failed: %s", esp_err_to_name(err));
             solar_os_context_finish(ctx, 1, reader.message);
+            if (err == ESP_ERR_NO_MEM) {
+                reader_stop(ctx);
+                return err;
+            }
             return ESP_OK;
         }
         reader.epub_chapter_count = solar_os_epub_spine_count(reader.epub_book);
@@ -1420,6 +1426,12 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
     if (err != ESP_OK) {
         snprintf(reader.message, sizeof(reader.message), "reader: load failed: %s", esp_err_to_name(err));
         solar_os_context_finish(ctx, 1, reader.message);
+        if (err == ESP_ERR_NO_MEM) {
+            /* A failed start releases the cold state without calling stop.
+             * Release partial documents before returning the typed error. */
+            reader_stop(ctx);
+            return err;
+        }
         return ESP_OK;
     }
 

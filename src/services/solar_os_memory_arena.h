@@ -23,6 +23,8 @@ bool solar_os_memory_arena_init(solar_os_memory_arena_t *arena, void *buffer, si
 void *solar_os_memory_arena_alloc(solar_os_memory_arena_t *arena, size_t size, bool resident);
 bool solar_os_memory_arena_contains(const solar_os_memory_arena_t *arena, const void *pointer);
 size_t solar_os_memory_arena_size(const solar_os_memory_arena_t *arena, const void *pointer);
+/* Resize without moving. Failure leaves the allocation and contents intact. */
+bool solar_os_memory_arena_resize(solar_os_memory_arena_t *arena, void *pointer, size_t size);
 bool solar_os_memory_arena_free(solar_os_memory_arena_t *arena, void *pointer);
 void solar_os_memory_arena_status(const solar_os_memory_arena_t *arena,
                                    solar_os_memory_arena_status_t *status);

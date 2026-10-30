@@ -13,8 +13,7 @@ typedef int BaseType_t;
 #define pdPASS 1
 #define portMAX_DELAY UINT32_MAX
 #define tskNO_AFFINITY 0
-#define FRAME_PRESENTER_STACK 3072U
-#define FRAME_PRESENTER_RGB565_STACK 6144U
+#define FRAME_PRESENTER_STACK 8192U
 #define FRAME_PRESENTER_PRIORITY 1U
 #define FRAME_PRESENTER_HPM_HZ_TENTHS 255U
 #define SOLAR_OS_TASK_ROLE_FOREGROUND 0
@@ -27,7 +26,7 @@ static size_t display_width, display_height;
 static uint32_t display_formats;
 static uint16_t display_stack_bytes;
 static bool fail_allocation;
-static bool rgb565_worker;
+static bool fail_task_creation;
 static bool rotate_during_present;
 static bool native_view;
 static solar_os_display_raster_t captured;
@@ -86,8 +85,9 @@ static int solar_os_task_create_pinned_internal(void (*worker)(void *), const ch
 {
     (void)name; (void)priority; (void)core; (void)role;
     assert(worker == frame_presenter_worker && arg);
-    unsigned minimum = rgb565_worker ? FRAME_PRESENTER_RGB565_STACK : FRAME_PRESENTER_STACK;
+    unsigned minimum = FRAME_PRESENTER_STACK;
     assert(stack == (display_stack_bytes > minimum ? display_stack_bytes : minimum));
+    if (fail_task_creation) return 0;
     *task = arg;
     return pdPASS;
 }
@@ -151,7 +151,6 @@ static void check_runtime_rotation(void)
     for (unsigned f = 0; f < 4; f++) for (unsigned mono = 0; mono < 2; mono++) {
         display_formats = mono ? SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT :
             SOLAR_OS_DISPLAY_FORMAT_BIT(formats[f]);
-        rgb565_worker = formats[f] == SOLAR_OS_DISPLAY_FORMAT_RGB565;
         display_width = 400; display_height = 240;
         solar_os_frame_presenter_config_t config = {
             .gfx = (solar_os_gfx_t *)&captured, .format = formats[f],
@@ -185,7 +184,6 @@ static void check_runtime_rotation(void)
 
         assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
     }
-    rgb565_worker = false;
 }
 
 int main(void)
@@ -199,7 +197,7 @@ int main(void)
     display_width = 320; display_height = 240;
     check_fit(640, 480, 320, 240, false, SOLAR_OS_FRAME_FIT_HEIGHT); /* Direct raster */
     check_fit(320, 240, 320, 240, false, SOLAR_OS_FRAME_FIT_DEFAULT);
-    display_stack_bytes = 8192; /* DLP needs deeper protocol and socket calls. */
+    display_stack_bytes = 12288; /* A target can require a larger stack. */
     check_fit(320, 240, 320, 240, false, SOLAR_OS_FRAME_FIT_DEFAULT);
     display_stack_bytes = 1024; /* A target cannot reduce the worker's default. */
     check_fit(320, 240, 320, 240, false, SOLAR_OS_FRAME_FIT_DEFAULT);
@@ -234,6 +232,12 @@ int main(void)
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
 
     config.width = 320; config.height = 240;
+    fail_task_creation = true;
+    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NO_MEM);
+    assert(p && !p->task);
+    assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
+    p = NULL;
+    fail_task_creation = false;
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
     uint8_t *writing = (void *)1;
     size_t bytes = 1;
@@ -310,7 +314,6 @@ int main(void)
     };
     p = NULL;
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
-    rgb565_worker = true;
     config.allow_mono_fallback = true;
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK && p->mono_fallback);
     assert(solar_os_frame_presenter_acquire(p, &writing, &bytes) == ESP_OK);

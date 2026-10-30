@@ -847,13 +847,16 @@ static void foreground_worker(void *arg)
 static esp_err_t foreground_admit(const foreground_slot_t *slot)
 {
     solar_os_memory_status_t memory;
-    solar_os_memory_get_status(&memory);
     const solar_os_native_app_manifest_v2_t *manifest = &slot->manifest;
-    if (memory.external.free < manifest->minimum_psram_bytes ||
-        memory.internal.free < memory.internal_reserve + manifest->minimum_internal_bytes + manifest->worker_stack_bytes ||
-        !solar_os_task_admit(manifest->id, manifest->worker_stack_bytes,
-                             SOLAR_OS_TASK_ROLE_FOREGROUND, false)) return ESP_ERR_NO_MEM;
-    return ESP_OK;
+    for (unsigned attempt = 0; attempt < 2U; ++attempt) {
+        solar_os_memory_get_status(&memory);
+        if (memory.external.free >= manifest->minimum_psram_bytes &&
+            memory.internal.free >= memory.internal_reserve + manifest->minimum_internal_bytes + manifest->worker_stack_bytes &&
+            solar_os_task_admit(manifest->id, manifest->worker_stack_bytes,
+                                SOLAR_OS_TASK_ROLE_FOREGROUND, false)) return ESP_OK;
+        if (attempt != 0U || !solar_os_memory_reclaim()) break;
+    }
+    return ESP_ERR_NO_MEM;
 }
 
 

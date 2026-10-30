@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -36,6 +37,7 @@ typedef struct { solar_os_native_elf_info_t elf; } solar_os_native_run_result_t;
 typedef struct { int type; size_t size_bytes; } solar_os_storage_metadata_t;
 typedef struct { bool live; } esp_elf_t;
 static atomic_bool native_running;
+static _Thread_local bool native_operation_locked;
 struct native_run_scope;
 static _Thread_local struct native_run_scope *native_run_scope_top;
 static int outer, inner, foreign, active_images, cleanup_count, allocation_count;
@@ -46,6 +48,7 @@ static esp_err_t solar_os_storage_stat(const char *p, solar_os_storage_metadata_
     (void)p; *m = (solar_os_storage_metadata_t){1, 64}; return ESP_OK;
 }
 static void *solar_os_memory_alloc(size_t n, int cls, const char *tag) {
+    assert(native_operation_locked && atomic_load(&native_running));
     (void)cls; (void)tag; allocation_count++; return malloc(n);
 }
 static void solar_os_memory_free(void *p) { if (p) allocation_count--; free(p); }
@@ -63,7 +66,8 @@ static int esp_elf_init(esp_elf_t *elf) {
     elf->live = true; active_images++; return 0;
 }
 static int esp_elf_relocate(esp_elf_t *elf, const void *data) {
-    (void)elf; (void)data; return fail_relocate ? -1 : 0;
+    assert(native_operation_locked && atomic_load(&native_running));
+    (void)elf; (void)data; return fail_relocate;
 }
 static int esp_elf_request(esp_elf_t *, int, int, char **);
 static void esp_elf_deinit(esp_elf_t *elf) {
@@ -130,6 +134,10 @@ int main(void) {
     assert(solar_os_native_run("bad", 1, argv, &opts, NULL, NULL, 0) == ESP_FAIL);
     fail_init = 0; fail_relocate = 1;
     assert(solar_os_native_run("bad", 1, argv, &opts, NULL, NULL, 0) == ESP_ERR_INVALID_RESPONSE);
+    fail_relocate = -ENOMEM;
+    char detail[160];
+    assert(solar_os_native_run("no-memory", 1, argv, &opts, NULL, detail, sizeof(detail)) == ESP_ERR_NO_MEM);
+    assert(strstr(detail, "not enough memory"));
     fail_relocate = 0; foreground_image = true;
     assert(solar_os_native_run("foreground", 1, argv, &opts, NULL, NULL, 0) == ESP_ERR_INVALID_STATE);
     assert(!active_images && !allocation_count && !native_run_scope_top && !atomic_load(&native_running));

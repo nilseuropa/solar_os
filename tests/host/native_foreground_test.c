@@ -107,6 +107,13 @@ typedef struct {size_t free;} memory_region_t;
 typedef struct {memory_region_t internal, external; size_t internal_reserve;} solar_os_memory_status_t;
 static solar_os_memory_status_t memory_status;
 static bool task_admitted;
+static unsigned reclaim_calls;
+static size_t reclaim_external_bytes;
+static size_t solar_os_memory_reclaim(void) {
+    ++reclaim_calls;
+    memory_status.external.free += reclaim_external_bytes;
+    return reclaim_external_bytes ? 1 : 0;
+}
 #define SOLAR_OS_TASK_ROLE_FOREGROUND 1
 static void solar_os_memory_get_status(solar_os_memory_status_t *out) {*out=memory_status;}
 static bool solar_os_task_admit(const char *id, size_t stack, int role, bool external) {
@@ -176,12 +183,24 @@ int main(void) {
     slots[0].manifest.minimum_psram_bytes=262144;
     memory_status=(solar_os_memory_status_t){.internal={65536},.external={1048576},.internal_reserve=32768};
     task_admitted=true;assert(foreground_admit(&slots[0])==ESP_OK);
+    assert(reclaim_calls == 0);
     memory_status.internal.free=32768+16384+8192-1;
     assert(foreground_admit(&slots[0])==ESP_ERR_NO_MEM);
     memory_status.internal.free=65536;memory_status.external.free=262143;
     assert(foreground_admit(&slots[0])==ESP_ERR_NO_MEM);
     memory_status.external.free=1048576;task_admitted=false;
     assert(foreground_admit(&slots[0])==ESP_ERR_NO_MEM);
+    memory_status.external.free=262143;task_admitted=true;
+    reclaim_external_bytes=1;
+    unsigned calls_before = reclaim_calls;
+    assert(foreground_admit(&slots[0])==ESP_OK);
+    assert(reclaim_calls == calls_before + 1);
+    /* Released memory is not sufficient merely because a provider unloaded. */
+    memory_status.external.free=0;
+    calls_before = reclaim_calls;
+    assert(foreground_admit(&slots[0])==ESP_ERR_NO_MEM);
+    assert(reclaim_calls == calls_before + 1);
+    reclaim_external_bytes=0;
     assert(solar_os_native_foreground_entry(&apps[0]) == &slots[0].registry);
     assert(solar_os_native_foreground_claim(&apps[0], "session1", busy, sizeof(busy)) == ESP_OK);
     assert(solar_os_native_foreground_claim(&apps[1], "session2", busy, sizeof(busy)) == ESP_OK);

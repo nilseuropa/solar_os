@@ -60,26 +60,22 @@ static void *memory_external_alloc(size_t size, bool zero, bool resident)
 {
     void *pointer = NULL;
     const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    if (arena_mutex && (resident || size >= SOLAR_OS_PSRAM_BULK_MIN_BYTES)) {
-        arena_lock();
-        pointer = solar_os_memory_arena_alloc(&memory_arena, size, resident);
-        arena_unlock();
-        /* Both regions remain usable; do not reclaim an idle provider while
-         * the ordinary PSRAM heap can already satisfy this request. */
-        if (!pointer) pointer = __real_heap_caps_aligned_alloc(16U, size, caps);
-        if (!pointer && solar_os_memory_reclaim()) {
+    for (unsigned attempt = 0; attempt < 2U; ++attempt) {
+        if (arena_mutex && (resident || size >= SOLAR_OS_PSRAM_BULK_MIN_BYTES)) {
             arena_lock();
             pointer = solar_os_memory_arena_alloc(&memory_arena, size, resident);
             arena_unlock();
+            /* Try both regions before releasing an idle provider. */
             if (!pointer) pointer = __real_heap_caps_aligned_alloc(16U, size, caps);
+        } else {
+            pointer = __real_heap_caps_aligned_alloc(16U, size, caps);
+            if (!pointer && arena_mutex) {
+                arena_lock();
+                pointer = solar_os_memory_arena_alloc(&memory_arena, size, true);
+                arena_unlock();
+            }
         }
-    } else {
-        pointer = __real_heap_caps_aligned_alloc(16U, size, caps);
-        if (!pointer && arena_mutex) {
-            arena_lock();
-            pointer = solar_os_memory_arena_alloc(&memory_arena, size, true);
-            arena_unlock();
-        }
+        if (pointer || attempt != 0U || !solar_os_memory_reclaim()) break;
     }
     if (pointer && zero) memset(pointer, 0, size);
     return pointer;
@@ -444,7 +440,21 @@ void *solar_os_memory_realloc(void *ptr,
         if (solar_os_memory_arena_contains(&memory_arena, ptr)) {
             arena_lock();
             before = solar_os_memory_arena_size(&memory_arena, ptr);
+            /* Preserve capability/class migrations. External classes can
+             * reuse their block instead of requiring two complete buffers. */
+            const bool external_class =
+                memory_class == SOLAR_OS_MEMORY_EXTERNAL_REQUIRED ||
+                memory_class == SOLAR_OS_MEMORY_EXTERNAL_RESIDENT ||
+                memory_class == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED ||
+                memory_class == SOLAR_OS_MEMORY_TRANSIENT;
+            const bool resized = external_class &&
+                solar_os_memory_arena_resize(&memory_arena, ptr, size);
             arena_unlock();
+            if (resized) {
+                memory_record_request(memory_class, size);
+                memory_record_success(memory_class, false);
+                return ptr;
+            }
         } else {
             before = heap_caps_get_allocated_size(ptr);
         }

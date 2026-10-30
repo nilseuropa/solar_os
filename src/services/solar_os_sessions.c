@@ -80,6 +80,8 @@ typedef struct {
     void *user;
     const solar_os_app_t *foreground_app;
     bool foreground_app_claimed;
+    /* Scheduler-owned result of the current display-app launch. */
+    esp_err_t app_start_error;
     solar_os_tui_t *legacy_tui;
     solar_os_session_entry_t sessions[SOLAR_OS_SESSION_MAX];
     solar_os_session_entry_t *foreground_session;
@@ -1348,6 +1350,7 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
             const esp_err_t app_err =
                 solar_os_app_start(session->app, session_state.ctx);
             if (app_err != ESP_OK) {
+                session_state.app_start_error = app_err;
                 SOLAR_OS_LOGE(TAG,
                               "App %s failed to start: %s",
                               app_display_name(session->app),
@@ -1428,6 +1431,7 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
             const esp_err_t app_err =
                 solar_os_app_start(session->app, session_state.ctx);
             if (app_err != ESP_OK) {
+                session_state.app_start_error = app_err;
                 SOLAR_OS_LOGE(TAG,
                               "Detached app %s failed to start: %s",
                               app_display_name(session->app),
@@ -3643,10 +3647,12 @@ static esp_err_t session_create_display_app_internal(
         return ESP_FAIL;
     }
 
+    session_state.app_start_error = ESP_FAIL;
     const bool started = parent == session_state.foreground_session ?
         switch_to_display_app(app, parent, true) :
         launch_detached_child(parent, app, SOLAR_OS_LAUNCH_CHILD_RETURN);
     if (!started) {
+        const esp_err_t start_error = session_state.app_start_error;
         if (created_parent && parent->used) {
             (void)close_session(parent, true);
         }
@@ -3661,7 +3667,7 @@ static esp_err_t session_create_display_app_internal(
             }
             return ESP_ERR_INVALID_STATE;
         }
-        return ESP_FAIL;
+        return start_error;
     }
 
     solar_os_session_entry_t *session = session_find_by_app(app);

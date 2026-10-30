@@ -21,6 +21,20 @@ cannot fit there. `mem policy` also reports free and largest blocks in the SDK
 heap separately. Allocation searches skip live managed objects; freeing an
 object locates its header directly and merges adjacent holes.
 
+Managed reallocations shrink in place and return their unused tail to the
+region, or grow into an adjacent free block. They allocate and copy only when
+the existing block cannot grow. A failed resize preserves the original buffer.
+Live pointers remain stable unless their owner explicitly reallocates them;
+there is no moving heap compaction.
+
+Both small and bulk PSRAM allocations try the SDK heap and managed region
+before reclaiming idle native libraries and retrying once. Native foreground
+admission also reclaims and rechecks before reporting insufficient memory.
+The task holding the native loader operation can reclaim idle libraries during
+ELF allocation; other tasks remain excluded from loader operations. Active
+library leases and shutdown refusals prevent reclamation. ELF code/data
+allocation failures report `ESP_ERR_NO_MEM`.
+
 The ESP-DL backend keeps weights and tensor metadata resident, but leases its
 activation workspace only for execution. It copies outputs before releasing
 the lease. Preprocessing can use that space while the model is idle. This
@@ -151,6 +165,11 @@ create UART and USB CDC port-shell workers on demand, leaving that internal
 stack unallocated until a port shell is requested.
 
 ## FreeRTOS objects
+
+Frame presentation workers require at least 8 KiB of internal stack for display
+conversion, allocation/reclamation, and error logging. A display target can
+request a larger stack. If the full stack cannot be admitted, presentation
+startup returns `ESP_ERR_NO_MEM`.
 
 ESP-IDF deliberately allocates ordinary dynamic FreeRTOS task stacks and queues
 from internal SRAM. SolarOS therefore owns their placement:

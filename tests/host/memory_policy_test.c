@@ -220,6 +220,40 @@ int main(void)
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "pressure");
     assert(large && !idle_library && reclaim_calls == 1);
     solar_os_memory_free(large);
+
+    /* With both heaps full, shrinking and same-capacity reflows need no new
+     * allocation. A capability migration still cannot reuse PSRAM. */
+    solar_os_memory_get_status(&after);
+    large = solar_os_memory_alloc(after.arena.largest,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "whole-arena");
+    assert(large); memset(large, 0x45, 100000);
+    fail_raw = true;
+    assert(solar_os_memory_realloc(large, 100000,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "shrink-full") == large);
+    assert(((unsigned char *)large)[99999] == 0x45);
+    assert(solar_os_memory_realloc(large, 300000,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "grow-hole") == large);
+    assert(!solar_os_memory_realloc(large, 300000,
+        SOLAR_OS_MEMORY_INTERNAL_CRITICAL, "internal-migration"));
+    assert(((unsigned char *)large)[99999] == 0x45);
+    solar_os_memory_free(large);
+    fail_raw = false;
+
+    /* Small allocations also reclaim when neither PSRAM region can fit. */
+    idle_library = solar_os_memory_elf_alloc(100000);
+    solar_os_memory_get_status(&after);
+    large = solar_os_memory_alloc(after.arena.largest,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "fill-arena");
+    assert(idle_library && large);
+    fail_raw = true;
+    unsigned calls_before = reclaim_calls;
+    small = solar_os_memory_calloc(1, 128,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "small-pressure");
+    assert(small && !idle_library && reclaim_calls == calls_before + 1);
+    assert(((unsigned char *)small)[127] == 0);
+    solar_os_memory_free(small);
+    solar_os_memory_free(large);
+
     fail_raw = true;
     small = solar_os_memory_alloc(32, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "small-fallback");
     assert(small && ((uintptr_t)small & 15U) == 0);

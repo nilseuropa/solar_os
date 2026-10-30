@@ -37,8 +37,13 @@
 #endif
 
 static atomic_bool native_running;
+/* Only the task holding the loader operation may reclaim idle images inside
+ * it. Public module operations remain serialized and non-reentrant. */
+static _Thread_local bool native_operation_locked;
 static atomic_bool native_symbols_registered;
 static size_t native_reclaim_unused_libraries(void);
+static esp_err_t native_module_deactivate_locked(solar_os_module_type_t type,
+    const char *id, char *detail, size_t detail_len);
 typedef struct native_run_scope {
     struct native_run_scope *next;
     TaskHandle_t task;
@@ -850,7 +855,12 @@ static size_t native_reclaim_unused_libraries(void)
     for (size_t i = 0; i < count; i++) {
         /* Deactivation rechecks leases under lock and honors shutdown refusal.
          * An acquisition racing this snapshot therefore remains protected. */
-        if (solar_os_native_library_unload(ids[i]) == SOLAR_OS_NATIVE_OK) released++;
+        const esp_err_t err = native_operation_locked ?
+            native_module_deactivate_locked(SOLAR_OS_MODULE_TYPE_LIBRARY,
+                ids[i], NULL, 0) :
+            solar_os_native_module_deactivate(SOLAR_OS_MODULE_TYPE_LIBRARY,
+                ids[i], NULL, 0);
+        if (err == ESP_OK) released++;
     }
     return released;
 }
@@ -1115,9 +1125,12 @@ static esp_err_t native_load_resident(native_resident_slot_t *slot,
         goto done;
     }
     slot->elf_initialized = true;
-    if (esp_elf_relocate(&slot->elf, data) != 0) {
-        native_set_detail(detail, detail_len, "ELF relocation or symbol resolution failed");
-        err = ESP_ERR_INVALID_RESPONSE;
+    const int relocation = esp_elf_relocate(&slot->elf, data);
+    if (relocation != 0) {
+        native_set_detail(detail, detail_len, relocation == -ENOMEM ?
+            "not enough memory for ELF code and data" :
+            "ELF relocation or symbol resolution failed");
+        err = relocation == -ENOMEM ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_RESPONSE;
         goto done;
     }
 
@@ -1230,6 +1243,7 @@ esp_err_t solar_os_native_run(const char *path,
 
     esp_err_t err = ESP_OK;
     bool operation_locked = true;
+    native_operation_locked = true;
     bool scope_linked = false;
     native_run_scope_t scope = {
         .task = xTaskGetCurrentTaskHandle(), .options = *options,
@@ -1304,8 +1318,10 @@ esp_err_t solar_os_native_run(const char *path,
 
     loader_ret = esp_elf_relocate(&elf, data);
     if (loader_ret != 0) {
-        native_set_detail(detail, detail_len, "ELF relocation or symbol resolution failed");
-        err = ESP_ERR_INVALID_RESPONSE;
+        native_set_detail(detail, detail_len, loader_ret == -ENOMEM ?
+            "not enough memory for ELF code and data" :
+            "ELF relocation or symbol resolution failed");
+        err = loader_ret == -ENOMEM ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_RESPONSE;
         goto done;
     }
 
@@ -1315,6 +1331,7 @@ esp_err_t solar_os_native_run(const char *path,
     data = NULL;
     native_run_scope_add(&scope);
     scope_linked = true;
+    native_operation_locked = false;
     atomic_store(&native_running, false);
     operation_locked = false;
     loader_ret = esp_elf_request(&elf, 0, argc, argv);
@@ -1335,7 +1352,10 @@ done:
         esp_elf_deinit(&elf);
     }
     solar_os_memory_free(data);
-    if (operation_locked) atomic_store(&native_running, false);
+    if (operation_locked) {
+        native_operation_locked = false;
+        atomic_store(&native_running, false);
+    }
     return err;
 }
 
@@ -1363,6 +1383,7 @@ esp_err_t solar_os_native_module_activate(solar_os_module_type_t type,
         return ESP_ERR_INVALID_STATE;
     }
 
+    native_operation_locked = true;
     esp_err_t err = ESP_OK;
     native_resident_slot_t *slot = NULL;
     bool slot_linked = false;
@@ -1417,6 +1438,7 @@ done:
         }
         solar_os_memory_free(slot);
     }
+    native_operation_locked = false;
     atomic_store(&native_running, false);
     return err;
 }
@@ -1436,9 +1458,18 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
         native_set_detail(detail, detail_len, "another native module operation is running");
         return ESP_ERR_INVALID_STATE;
     }
+    native_operation_locked = true;
+    const esp_err_t err = native_module_deactivate_locked(type, id, detail, detail_len);
+    native_operation_locked = false;
+    atomic_store(&native_running, false);
+    return err;
+}
+
+static esp_err_t native_module_deactivate_locked(solar_os_module_type_t type,
+    const char *id, char *detail, size_t detail_len)
+{
     native_resident_slot_t *slot = native_find_slot(type, id);
     if (slot == NULL) {
-        atomic_store(&native_running, false);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -1446,7 +1477,6 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
     if (type == SOLAR_OS_MODULE_TYPE_LIBRARY && slot->callback_refs != 0U) {
         portEXIT_CRITICAL(&native_resident_lock);
         native_set_detail(detail, detail_len, "library is in use; release all clients and workers before unloading");
-        atomic_store(&native_running, false);
         return ESP_ERR_INVALID_STATE;
     }
     slot->deactivating = true;
@@ -1463,7 +1493,6 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
                           type == SOLAR_OS_MODULE_TYPE_LIBRARY ?
                               "library shutdown refused; it remains loaded" :
                               "detach all devices before removing their driver module");
-        atomic_store(&native_running, false);
         return err;
     }
 
@@ -1481,7 +1510,6 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
         esp_elf_deinit(&slot->elf);
     }
     solar_os_memory_free(slot);
-    atomic_store(&native_running, false);
     return ESP_OK;
 }
 

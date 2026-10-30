@@ -138,6 +138,45 @@ static void merge(solar_os_memory_arena_t *a, solar_os_memory_arena_block_t *b)
     n->cookie = 0;
 }
 
+bool solar_os_memory_arena_resize(solar_os_memory_arena_t *a, void *p, size_t size)
+{
+    if (!a || !size || size > SIZE_MAX - ARENA_HEADER - 15U) return false;
+    solar_os_memory_arena_block_t *b = find(a, p);
+    if (!b) return false;
+    const size_t needed = ARENA_HEADER + ((size + 15U) & ~(size_t)15U);
+    if (needed > b->span) {
+        solar_os_memory_arena_block_t *next = b->next;
+        if (!next || next->requested || next->span < needed - b->span)
+            return false;
+        const size_t span = next->span;
+        free_remove(a, next);
+        /* merge() also works with a live left block; its cookie stays valid. */
+        merge(a, b);
+        a->free -= span;
+    }
+    const size_t remainder = b->span - needed;
+    if (remainder >= ARENA_HEADER + ARENA_ALIGNMENT) {
+        solar_os_memory_arena_block_t *tail = (void *)((uintptr_t)b + needed);
+        *tail = (solar_os_memory_arena_block_t){
+            .previous = b, .next = b->next, .span = remainder,
+        };
+        if (tail->next) tail->next->previous = tail;
+        else a->last = tail;
+        b->next = tail;
+        b->span = needed;
+        a->free += remainder - ARENA_HEADER;
+        if (tail->next && !tail->next->requested) {
+            free_remove(a, tail->next);
+            merge(a, tail);
+        }
+        free_insert(a, tail);
+    }
+    if (b->resident) a->resident = a->resident - b->requested + size;
+    b->requested = size;
+    if (a->free < a->minimum_free) a->minimum_free = a->free;
+    return true;
+}
+
 bool solar_os_memory_arena_free(solar_os_memory_arena_t *a, void *p)
 {
     solar_os_memory_arena_block_t *b = find(a, p);
