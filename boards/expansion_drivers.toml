@@ -662,6 +662,68 @@ role = "max_mv"
 min = 482
 max = 5060
 
+[drivers.sy6974]
+summary = "Silergy SY6974B battery charger"
+package = "sy6974"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "charger0"
+[[drivers.sy6974.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.sy6974.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6b"
+required = true
+allowed = [0x6b]
+[[drivers.sy6974.bindings]]
+key = "input_voltage"
+kind = "parameter"
+hint = "3900..5400mV/100"
+role = "input_voltage"
+min = 3900
+max = 5400
+[[drivers.sy6974.bindings]]
+key = "input_current"
+kind = "parameter"
+hint = "100..3200mA/100"
+role = "input_current"
+min = 100
+max = 3200
+[[drivers.sy6974.bindings]]
+key = "charge_current"
+kind = "parameter"
+hint = "0..3000mA/60"
+role = "charge_current"
+min = 0
+max = 3000
+[[drivers.sy6974.bindings]]
+key = "charge_voltage"
+kind = "parameter"
+hint = "3856..4624mV/32"
+role = "charge_voltage"
+min = 3856
+max = 4624
+[[drivers.sy6974.bindings]]
+key = "adc"
+kind = "adc"
+hint = "gpio"
+[[drivers.sy6974.bindings]]
+key = "divider"
+kind = "parameter"
+hint = "1000..10000"
+role = "divider"
+min = 1000
+max = 10000
+[[drivers.sy6974.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
 [drivers.bq25896]
 summary = "TI BQ25896 battery charger"
 package = "bq25896"
@@ -867,6 +929,81 @@ hint = "0|1"
 role = "startup-pulse"
 min = 0
 max = 1
+
+[drivers.it8951]
+summary = "IT8951 ED103TC2 1872x1404 16-gray e-paper"
+package = "expansion_it8951"
+targets = ["esp32s3"]
+capabilities = ["gfx", "psram", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_it8951"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"IT8951/ED103TC2"' }
+early = true
+default_name = "display0"
+
+[[drivers.it8951.display_profiles]]
+name = "ed103tc2"
+label = "ED103TC2 1872x1404"
+width = 1872
+height = 1404
+rotation = 0
+default = true
+
+[[drivers.it8951.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "ite_power"
+kind = "gpio"
+hint = "gpio"
+role = "ite_power"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..10000"
+role = "clock"
+min = 100
+max = 10000
+
+[[drivers.it8951.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
 
 [drivers.ssd1677]
 summary = "SSD1677 800x480 e-paper"

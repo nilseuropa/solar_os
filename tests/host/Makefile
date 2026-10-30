@@ -33,6 +33,16 @@ TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_tes
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
 TARGETS += epd_sticky_identify_test sticky_display_test
+TARGETS += epd_it8951_test
+TARGETS += sy6974_test
+TARGETS += sy6974_service_test
+
+sy6974_service_test: sy6974_service_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/src/services/solar_os_sy6974.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ie1003_stubs -Iepd_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
+
+sy6974_test: sy6974_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/src/drivers/sy6974.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers sy6974_test.c $(ROOT)/src/drivers/sy6974.c -o $@
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
@@ -289,6 +299,11 @@ OLED_U8G2_TEST_SOURCES := $(EPD_U8G2_TEST_SOURCES) $(addprefix $(ROOT)/component
         u8x8_d_ssd1306_48x64.c \
         u8x8_d_sh1106_64x32.c \
         u8x8_d_sh1106_72x40.c)
+epd_it8951_test: epd_it8951_test.c $(ROOT)/src/drivers/epd_it8951.c $(ROOT)/src/drivers/epd_it8951.h $(EPD_U8G2_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Iepd_stubs -I. -I$(ROOT)/src -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
+		epd_it8951_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+
 ssd1306_named_bus_test: ssd1306_named_bus_test.c $(ROOT)/src/drivers/ssd1306.c $(ROOT)/src/drivers/ssd1306.h \
         $(ROOT)/src/services/solar_os_ssd1306.c $(ROOT)/src/services/solar_os_ssd1306.h $(OLED_U8G2_TEST_SOURCES)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -Wno-unused-parameter -ffunction-sections -fdata-sections \

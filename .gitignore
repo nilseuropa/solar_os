@@ -42,6 +42,9 @@ tests/host/power_key_input_test
 tests/host/power_key_custom_test
 
 /tests/host/epd_uc8179_test
+/tests/host/epd_it8951_test
+/tests/host/sy6974_test
+/tests/host/sy6974_service_test
 /tests/host/uc8179_expansion_test
 /tests/host/epd_ssd1685_test
 /tests/host/ssd1685_expansion_test

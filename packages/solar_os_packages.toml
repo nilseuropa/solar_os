@@ -572,6 +572,11 @@ label = "SSD1683 e-paper display"
 category = "Expansion hardware"
 members = ["expansion_ssd1683"]
 
+[groups.it8951]
+label = "IT8951 ED103TC2 e-paper display"
+category = "Expansion hardware"
+members = ["expansion_it8951"]
+
 [groups.ssd1677]
 label = "SSD1677 e-paper display"
 category = "Expansion hardware"
@@ -666,6 +671,11 @@ members = ["pca9685"]
 label = "DRV8830 DC motor driver"
 category = "Expansion hardware"
 members = ["drv8830"]
+
+[groups.sy6974]
+label = "SY6974B battery charger"
+category = "Expansion hardware"
+members = ["sy6974"]
 
 [groups.bq25896]
 label = "BQ25896 battery charger"
@@ -1808,6 +1818,19 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.expansion_it8951]
+label = "expansion.it8951"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_it8951_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_it8951.c",
+  "services/solar_os_it8951.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "psram"]
+
 [packages.expansion_ssd1677]
 label = "expansion.ssd1677"
 targets = ["esp32s3"]
@@ -2066,6 +2089,15 @@ sources = [
   "services/solar_os_drv8830.c",
   "services/solar_os_drv8830_driver.c",
 ]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["expansion_i2c"]
+
+[packages.sy6974]
+label = "expansion.sy6974"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sy6974_expansion_driver"]
+depends = ["service_charger", "service_expansion", "service_i2c", "service_adc", "service_battery"]
+sources = ["drivers/sy6974.c", "services/solar_os_sy6974.c", "services/solar_os_sy6974_driver.c"]
 requires = ["esp_driver_i2c", "esp_driver_gpio"]
 capabilities = ["expansion_i2c"]
 

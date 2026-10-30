@@ -27,6 +27,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `waveshare_esp32_s3_epaper_3_97` | `waveshare_esp32_s3_epaper_3_97` | [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97) | ESP32-S3-WROOM-1-N16R8 target with an SSD1677 e-paper display that defaults to 800x480 landscape, AXP2101 battery/charger monitoring, QMI8658 six-axis IMU, four-bit SDMMC, native USB CDC, UART, PCF85063 RTC, SHTC3 temperature/humidity sensor, ES8311 speaker/microphone audio, rotary navigation, Wi-Fi, BLE, and expansion I2C/UART. |
+| `seeed_reterminal_e1003` | `seeed_reterminal_e1003` | [Seeed Studio reTerminal E1003](https://wiki.seeedstudio.com/getting_started_with_reterminal_e1003/) | ESP32-S3R8, 32 MB flash, 8 MB PSRAM, 1872x1404 IT8951/ED103TC2 e-paper with 16 gray levels, GT911 touch, SHT40, PCF8563, SY6974B charger and battery ADC, PDM microphone, PWM buzzer, shared-SPI microSD, buttons, and UART console over the USB bridge. |
 | `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 monochrome e-paper with SSD1677/SSD2677 startup detection, GT911 capacitive touch, three physical buttons (AI/Power: sleep/wake on tap, shutdown on hold; Up: arrow on tap, BLE pairing on hold; Down: arrow on tap), Wi-Fi, and BLE. Console is UART0 (CH343). |
 | `xteink_x4_pro` | `xteink_x4_pro` | Xteink X4 Pro | ESP32-S3 target with 16 MB flash, 8 MB OPI PSRAM, an 800x480 landscape e-paper display with cached SSD1677/UC8179/UC8279 identification, fixed-mix frontlight brightness, GT911 touch and Home pad, one-bit SDMMC, BM8563-compatible RTC, CW2017 gauge, native USB CDC, UART0, navigation buttons, Wi-Fi, and BLE. |
 | `cl_32` | `cl_32` | Pi0cket CL-32 | ESP32-S3-WROOM-1-N16R8 target with a 384x168 ST7305 reflective LCD, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
@@ -1357,6 +1358,58 @@ Build the target with:
 pio run -e waveshare_esp32_s3_epaper_3_97
 ```
 
+
+## Seeed Studio reTerminal E1003
+
+The `seeed_reterminal_e1003` target uses an ESP32-S3R8, 32 MB flash, 8 MB
+PSRAM, and the 10.3-inch ED103TC2 panel with an IT8951 controller. Its native
+landscape geometry is 1872x1404. The default display scale is 3, giving a
+624x468 logical canvas. The USB-C connector exposes the UART bridge;
+UART0 on GPIO43/44 starts a separate console shell alongside the display shell.
+Native USB CDC is disabled because
+GPIO19/20 carry the onboard I2C bus.
+
+| Peripheral | Connections |
+| --- | --- |
+| Display and SD SPI | SCLK 7, MISO 8, MOSI 9; display CS 10, SD CS 14 |
+| IT8951 controls | Panel power 11, reset 12, HRDY 13, controller power 21; no DC pin |
+| I2C | SDA 19, SCL 20; SHT40 `0x44`, PCF8563 `0x51`, SY6974B `0x6b`, GT911 `0x5d` or `0x14` |
+| Touch | Interrupt 2, reset 48; coordinates follow display rotation |
+| Battery | ADC GPIO1, divider 2:1, measurement enable 40; capacity 3000 mAh |
+| MicroSD | Power enable 39, card detect 15; shared SPI with the display |
+| Microphone | PDM clock 42, data 41, power enable 38 |
+| Buzzer and LED | PWM buzzer 45; active-low green LED 16 |
+| Buttons | GPIO3 confirm/wake; GPIO4 up, hold for BLE pairing; GPIO5 down, hold for app exit |
+| J2 | 3.3 V, ground, GPIO47, GPIO6/ADC, SCL20, SDA19; header power enable 46 |
+
+GPIO47 has no ADC function. Only GPIO6 and GPIO47 are free GPIO/PWM slots;
+GPIO6 is also an ADC slot. The I2C pins on J2 remain owned by `i2c0`.
+
+The display provider uses PSRAM for its monochrome canvas, packed gray image,
+and comparison image. Its transfer buffer uses DMA memory. It reads the
+controller geometry before configuring the panel's -1.4 V VCOM. Indexed and
+RGB565 graphics are converted to 16 gray levels.
+`display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
+GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
+Display sleep waits for the refresh engine, issues sleep, and disables both
+display power enables. Wake resets and reinitializes the controller.
+
+The `charger0` provider configures a 1000 mA input limit, 4100 mV input voltage
+threshold, 480 mA charge current, and 4208 mV charge voltage.
+`charger status charger0` reads hardware status;
+`battery` reports calibrated ADC voltage and actual charging/external-power
+flags. Battery percentage is estimated from voltage. The ADC divider is powered
+only while sampling. The microphone remains off until recording starts.
+
+Build with `pio run -e seeed_reterminal_e1003`. Its `full` flavor uses the
+32 MB partition layout and supports USB serial installation and later OTA.
+
+The factory firmware uses a different storage layout. Back up its flash before
+installing SolarOS. If `/flash` has no FAT filesystem after installation,
+`disk format flash --force` erases the old data in that internal storage
+partition and creates FAT; `disk mount flash` mounts it. This does not format
+the SD card. If the factory RTC date is invalid, set `date YYYY-MM-DD` before
+`time HH:MM:SS`; `setterm timezone Europe/Berlin` selects local time.
 
 ## Seeed Studio reTerminal Sticky
 
