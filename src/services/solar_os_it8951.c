@@ -5,6 +5,7 @@
 #include "solar_os_buses.h"
 #include "solar_os_display.h"
 #include "solar_os_expansion.h"
+#include "solar_os_sensors.h"
 
 typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
@@ -14,6 +15,18 @@ typedef struct {
 } it8951_device_t;
 
 static it8951_device_t *devices[2];
+
+static esp_err_t read_temperature(int16_t *temperature_c)
+{
+    float sample;
+    const esp_err_t err = solar_os_sensors_read_temperature(NULL,&sample);
+    if (err != ESP_OK) return err;
+    /* Comparisons also reject NaN. Keep the declared temperature in the
+     * ED103TC2 operating range; retain the last valid value on sensor failure. */
+    if (!(sample >= 0 && sample <= 50)) return ESP_ERR_INVALID_RESPONSE;
+    *temperature_c = (int16_t)(sample+0.5f);
+    return ESP_OK;
+}
 
 static esp_err_t runtime_ready(solar_os_board_display_t *display)
 {
@@ -44,7 +57,7 @@ static esp_err_t target_set_mode(void *driver, const char *mode) { return solar_
 static const char *mode(const solar_os_board_display_t *d) { return target_mode(d->driver); }
 static const char *modes(const solar_os_board_display_t *d) { return target_modes(d->driver); }
 static esp_err_t set_mode(solar_os_board_display_t *d, const char *s) { return target_set_mode(d->driver, s); }
-static esp_err_t target_power_state(void *driver) { return solar_os_it8951_present(driver); }
+static esp_err_t target_power_state(void *driver) { return solar_os_it8951_present_sync(driver); }
 static esp_err_t power_state(solar_os_board_display_t *d) { return target_power_state(d->driver); }
 static esp_err_t target_frame(void *driver, const solar_os_display_raster_t *f)
 { return solar_os_it8951_present_frame(driver, f); }
@@ -86,7 +99,8 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     }
     if (slot == 2) return ESP_ERR_NO_MEM;
     solar_os_it8951_config_t cfg = {.cs = -1, .reset = -1, .busy = -1, .power = -1,
-        .ite_power = -1, .clock_hz = 10000000, .vcom_mv = 1400};
+        .ite_power = -1, .clock_hz = 10000000, .vcom_mv = 1400,
+        .read_temperature = read_temperature};
     unsigned seen = 0;
     const char *cs_bus = NULL;
     for (size_t i = 0; i < count; i++) {

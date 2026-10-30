@@ -1391,6 +1391,29 @@ controller geometry before configuring the panel's -1.4 V VCOM. Indexed and
 RGB565 graphics are converted to 16 gray levels.
 `display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
 GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
+Automatic updates upload and refresh only the changed rectangle, aligned to
+the controller's source-driver boundaries. Binary images use packed 1-bit
+transfers; grayscale uses packed 4-bit transfers. A change between those formats,
+startup, recovery, and periodic cleanup use the full panel. `display mode display0`
+reports the last refresh time, upload/preparation time, waveform wait, rectangle,
+and transfer bit depth. These timings cover the driver refresh, after rendering.
+Native monochrome presentations use the shared e-paper worker: input processing
+continues during panel updates, and newer frames replace queued older frames.
+The worker uses two queued monochrome snapshots and one saved monochrome image
+in PSRAM. The saved image limits conversion and comparison work to changed tiles
+and rectangles. Raster changes are detected as pixels are converted into the
+retained packed image, without a second full grayscale image, so the native
+INDEX8 graphics surface still fits in PSRAM. The worker is stopped and
+joined before synchronous grayscale/raster presentation, mode changes, or power
+transitions; the next native presentation starts it again. Final power-state
+overlays are flushed synchronously. Mode status includes worker counters and
+the last complete worker time, including monochrome conversion.
+If snapshot allocation fails, native presentation falls back to synchronous
+updates; mode status shows `scan=sync`.
+Waveform temperature follows the default environmental temperature provider
+(the onboard SHT40 on this board), sampled at most every 30 seconds. Startup
+uses 25 C until the provider is available; failed or out-of-range samples retain
+the last valid setting. Mode status reports the declared temperature.
 Display sleep waits for the refresh engine, issues sleep, and disables both
 display power enables. Wake resets and reinitializes the controller.
 

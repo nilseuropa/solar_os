@@ -1822,7 +1822,7 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "expansion.it8951"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_it8951_expansion_driver"]
-depends = ["service_expansion", "service_spi"]
+depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_it8951.c",
