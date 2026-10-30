@@ -207,6 +207,38 @@ recent tagged failure. A task failure retains its allocation-time free and
 largest-block snapshot, so later heap recovery does not hide fragmentation at
 the point of failure.
 
+## Classic ESP32 PSRAM access
+
+Classic ESP32 builds supporting silicon before revision 3 select the SDK's
+duplicate load/store PSRAM workaround for code compiled across the OS and SDK.
+Existing generated configurations migrate to this strategy at configure time;
+a build guard also checks the SDK's derived volatile-spinlock setting. ESP32-S3,
+other chip families and configurations requiring revision 3 or newer retain
+their own settings.
+Precompiled vendor libraries retain the SDK's supplied workarounds.
+The SDK disables incompatible hardware crypto acceleration for this strategy;
+the corresponding cryptographic operations use their software implementations.
+
+This protects PSRAM state against lost updates from nearby stores and reloads
+on affected silicon, including filesystem control objects. Keep the compiler
+workaround enabled wherever external memory is used. See Espressif's
+[CPU-3.9 erratum](https://docs.espressif.com/projects/esp-chip-errata/en/latest/esp32/03-errata-description/esp32/cpu-read-and-write-errors-related-to-access-sequence.html).
+
+## CPU work budgets
+
+Long synchronous work uses the shared `solar_os_work_budget_t` checkpoint API.
+Document parsing, layout and teardown, static HTTP transfers, and MP3 playback
+check their budgets between bounded work units. After an 8 ms slice, a
+checkpoint blocks for at least one full scheduler tick before starting the next
+slice. Short operations continue without sleeping. This allows lower-priority
+and idle tasks to run under concurrent document, storage, network and audio load.
+
+Each operation owns its budget. Checkpoints run in task context, outside
+critical sections and locks needed by other workers. They do not dispatch app
+events, change task affinity or priority, or feed or relax the watchdog. A
+checkpoint cannot bound a single blocking driver call or work unit; new long
+loops still need checkpoints at suitable boundaries.
+
 ## Task admission
 
 PSRAM does not make an arbitrary FreeRTOS task stack safe in external memory.

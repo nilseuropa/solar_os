@@ -6,3 +6,4 @@ void doc_test_memory_largest(size_t bytes);
 void doc_test_memory_fail_after(int allocations);
 size_t doc_test_memory_used(void);
 size_t doc_test_memory_peak(void);
+size_t doc_test_work_checkpoints(void);

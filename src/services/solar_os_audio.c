@@ -25,6 +25,7 @@
 #include "solar_os_audio_backend.h"
 #endif
 #include "solar_os_task.h"
+#include "solar_os_work.h"
 #include "esp_timer.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
@@ -3617,7 +3618,10 @@ static esp_err_t audio_play_mp3_stream(const char *path,
     const uint32_t progress_interval_ms = audio_wav_progress_interval_ms(options);
     int64_t next_progress_us = esp_timer_get_time() + ((int64_t)progress_interval_ms * 1000);
 
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     while (ret == ESP_OK) {
+        solar_os_work_checkpoint(&work);
         if (audio_wav_should_cancel(options)) {
             cancelled = true;
             ret = ESP_ERR_TIMEOUT;

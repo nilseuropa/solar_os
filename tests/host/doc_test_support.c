@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_work.h"
 #include "doc_test_support.h"
 
 typedef union {
@@ -17,6 +18,12 @@ typedef union {
 static size_t memory_used, memory_peak, memory_budget = SIZE_MAX;
 static size_t memory_largest = SIZE_MAX;
 static int memory_fail_after = -1;
+static size_t work_checkpoints;
+
+void solar_os_work_begin(solar_os_work_budget_t *budget) { budget->last_yield_us = 0; }
+void solar_os_work_checkpoint(solar_os_work_budget_t *budget)
+{ (void)budget; work_checkpoints++; }
+size_t doc_test_work_checkpoints(void) { return work_checkpoints; }
 
 void doc_test_memory_budget(size_t bytes) { memory_budget = bytes; }
 void doc_test_memory_largest(size_t bytes) { memory_largest = bytes; }

@@ -14,6 +14,7 @@
 #include "solar_os_config.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_work.h"
 
 #if SOLAR_OS_PACKAGE_APP_READER || SOLAR_OS_PACKAGE_APP_WEB
 #include "solar_os_stb_image.h"
@@ -75,7 +76,10 @@ static void doc_clear(solar_os_doc_t *doc, bool keep_assets)
     }
 
     solar_os_doc_asset_provider_t assets = doc->assets;
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     for (size_t i = 0; i < doc->block_count; i++) {
+        solar_os_work_checkpoint(&work);
         doc_free(doc->blocks[i].text);
         doc_free(doc->blocks[i].image.gray);
     }
@@ -431,7 +435,10 @@ static esp_err_t doc_parse_inline_block(solar_os_doc_t *doc,
     size_t segment_start = 0;
     size_t i = 0;
 
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     while (i < raw_len) {
+        solar_os_work_checkpoint(&work);
         const char ch = raw_text[i];
         const bool can_parse_marker = i == 0 || !isalnum((unsigned char)raw_text[i - 1U]);
         const char *marker = NULL;
@@ -1145,7 +1152,10 @@ esp_err_t solar_os_doc_parse_text(solar_os_doc_t *doc,
     doc->source[source_len] = '\0';
     doc->source_len = source_len;
 
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     for (size_t offset = 0; offset < source_len;) {
+        solar_os_work_checkpoint(&work);
         const size_t line_start = offset;
         const size_t line_end = doc_line_end(source, source_len, offset);
         const size_t next_line = doc_next_line(source, source_len, offset);
@@ -1171,6 +1181,7 @@ esp_err_t solar_os_doc_parse_text(solar_os_doc_t *doc,
         size_t last_line_end = line_end;
         size_t scan = next_line;
         while (scan < source_len) {
+            solar_os_work_checkpoint(&work);
             const size_t candidate_start = scan;
             const size_t candidate_end = doc_line_end(source, source_len, scan);
             if (!doc_text_lines_joinable(source,
@@ -1190,6 +1201,7 @@ esp_err_t solar_os_doc_parse_text(solar_os_doc_t *doc,
         size_t paragraph_len = 0;
         size_t paragraph_cap = 0;
         for (size_t line = para_start; line <= last_line_start && line < source_len;) {
+            solar_os_work_checkpoint(&work);
             const size_t current_end = doc_line_end(source, source_len, line);
             const size_t text_start = doc_trim_start(source, line, current_end);
             const size_t text_end = doc_trim_end(source, text_start, current_end);
@@ -1275,7 +1287,10 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
     size_t pre_start = 0;
     size_t pre_raw_start = 0;
 
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     for (size_t offset = 0; offset < source_len;) {
+        solar_os_work_checkpoint(&work);
         const size_t line_start = offset;
         const size_t line_end = doc_line_end(source, source_len, offset);
         const size_t next_line = doc_next_line(source, source_len, offset);
@@ -1851,6 +1866,7 @@ typedef struct {
     bool measuring;
     solar_os_doc_layout_line_t line;
     solar_os_doc_layout_run_t run;
+    solar_os_work_budget_t work;
 } doc_layout_builder_t;
 
 static solar_os_doc_layout_line_t *doc_layout_line(doc_layout_builder_t *builder, size_t index)
@@ -1879,6 +1895,7 @@ static esp_err_t doc_layout_begin_line(doc_layout_builder_t *builder,
                                        const doc_style_t *style,
                                        size_t *line_index)
 {
+    solar_os_work_checkpoint(&builder->work);
     solar_os_doc_layout_t *layout = builder->layout;
     esp_err_t ret = builder->measuring ? ESP_OK :
         doc_layout_reserve_lines(layout, layout->line_count + 1U);
@@ -2159,6 +2176,7 @@ static esp_err_t doc_layout_wrapped_block(doc_layout_builder_t *builder,
 
     size_t offset = 0;
     while (offset < len) {
+        solar_os_work_checkpoint(&builder->work);
         size_t word_end = 0;
         size_t word = doc_next_word(text, len, offset, &word_end);
         if (word >= len) {
@@ -2761,6 +2779,7 @@ static esp_err_t doc_layout_build(doc_layout_builder_t *builder,
                                        size_t reveal_range_count)
 {
     solar_os_doc_layout_t *layout = builder->layout;
+    solar_os_work_begin(&builder->work);
 
     layout->line_count = 0;
     layout->run_count = 0;
@@ -2773,6 +2792,7 @@ static esp_err_t doc_layout_build(doc_layout_builder_t *builder,
 
     for (size_t i = 0; i < doc->block_count; i++) {
         const solar_os_doc_block_t *block = &doc->blocks[i];
+        solar_os_work_checkpoint(&builder->work);
         esp_err_t ret = ESP_OK;
 
         if (doc_block_is_revealed(doc,

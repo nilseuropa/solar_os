@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "solar_os_doc.h"
+#include "doc_test_support.h"
 
 static size_t find_block(const solar_os_doc_t *doc, solar_os_doc_block_type_t type, size_t after)
 {
@@ -231,11 +232,36 @@ static void test_adjacent_heading_navigation(void)
     solar_os_doc_free(&doc);
 }
 
+static void test_long_block_cooperation(void)
+{
+    char source[5001];
+    for (size_t i = 0; i < 5000; ++i) source[i] = "word "[i % 5];
+    source[5000] = '\0';
+    solar_os_doc_t doc;
+    solar_os_doc_layout_t layout;
+    solar_os_doc_init(&doc);
+    solar_os_doc_layout_init(&layout);
+    size_t checkpoints = doc_test_work_checkpoints();
+    assert(solar_os_doc_parse_markdown(&doc, source, 5000, "long.md") == ESP_OK);
+    assert(strcmp(doc.source, source) == 0);
+    assert(doc_test_work_checkpoints() > checkpoints + 1000);
+    checkpoints = doc_test_work_checkpoints();
+    assert(solar_os_doc_layout_build(&layout, &doc, 160, 1) == ESP_OK);
+    assert(layout.line_count > 100);
+    assert(doc_test_work_checkpoints() > checkpoints + 1000);
+    solar_os_doc_layout_free(&layout);
+    checkpoints = doc_test_work_checkpoints();
+    solar_os_doc_free(&doc);
+    assert(doc_test_work_checkpoints() > checkpoints);
+    assert(doc_test_memory_used() == 0);
+}
+
 int main(void)
 {
     test_raw_ranges_and_reader_wrapper();
     test_reveal_round_trip();
     test_adjacent_heading_navigation();
+    test_long_block_cooperation();
     puts("document reveal layout tests: ok");
     return 0;
 }

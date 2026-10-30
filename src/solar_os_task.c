@@ -1,10 +1,12 @@
 #include "solar_os_task.h"
 #include "solar_os_shutdown.h"
+#include "solar_os_work.h"
 
 #include <stddef.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "freertos/idf_additions.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
@@ -38,6 +40,22 @@ static uint32_t task_wait_cancellations;
 static StaticSemaphore_t task_launch_mutex_storage;
 static SemaphoreHandle_t task_launch_mutex;
 static portMUX_TYPE task_launch_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
+
+void solar_os_work_begin(solar_os_work_budget_t *budget)
+{
+    budget->last_yield_us = (uint64_t)esp_timer_get_time();
+}
+
+void solar_os_work_checkpoint(solar_os_work_budget_t *budget)
+{
+    const uint64_t now = (uint64_t)esp_timer_get_time();
+    if (now - budget->last_yield_us < SOLAR_OS_WORK_SLICE_US) return;
+    /* One tick can expire immediately at a tick boundary. Include a complete
+     * tick of blocked time so yielding is useful even under sustained load. */
+    const TickType_t ticks = pdMS_TO_TICKS(1U);
+    vTaskDelay((ticks > 0U ? ticks : 1U) + 1U);
+    budget->last_yield_us = (uint64_t)esp_timer_get_time();
+}
 
 static bool task_role_valid(solar_os_task_role_t role)
 {

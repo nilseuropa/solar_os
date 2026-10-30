@@ -9,6 +9,7 @@
 #include "solar_os_audio_pcm.h"
 #include "solar_os_audio_player.h"
 #include "solar_os_memory.h"
+#include "solar_os_work.h"
 #include "minimp3.h"
 
 #define AUDIO_WAV_BUFFER_BYTES 4096U
@@ -25,6 +26,7 @@ static bool cancel_now;
 static unsigned allocations;
 static unsigned allocation_calls, fail_allocation, cancel_calls, cancel_after;
 static unsigned pcm_decodes, header_scans;
+static unsigned work_checkpoints;
 int __real_mp3dec_decode_frame(mp3dec_t *, const uint8_t *, int, int16_t *, mp3dec_frame_info_t *);
 int __wrap_mp3dec_decode_frame(mp3dec_t *d, const uint8_t *bytes, int len,
                               int16_t *pcm, mp3dec_frame_info_t *info)
@@ -52,6 +54,9 @@ static bool solar_os_storage_is_mounted(void) { return true; }
 static bool audio_playback_use_buffered_player(void) { return false; }
 static int64_t esp_timer_get_time(void) { return 0; }
 static void vTaskDelay(unsigned ticks) { (void)ticks; }
+void solar_os_work_begin(solar_os_work_budget_t *budget) { budget->last_yield_us = 0; }
+void solar_os_work_checkpoint(solar_os_work_budget_t *budget)
+{ (void)budget; work_checkpoints++; }
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "test"; }
 
 esp_err_t solar_os_audio_player_create(const solar_os_audio_player_options_t *options,
@@ -155,5 +160,6 @@ int main(int argc, char **argv)
     run(argv[3], true);
     run(argv[4], true);
     run(argv[5], true);
+    assert(work_checkpoints > 0);
     puts("WAV/CBR MP3/VBR MP3 seek positions, PCM, end clamp and cancellation passed");
 }
