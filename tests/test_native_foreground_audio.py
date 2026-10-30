@@ -19,5 +19,6 @@ class ForegroundAudioTest(unittest.TestCase):
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                             "-I", tmp, "-I", str(ROOT / "include"), "-I", str(ROOT / "tests/host"),
                             "-I", str(ROOT / "src/services"),
+                            "-I", str(ROOT / "src"),
                             str(ROOT / "tests/host/native_foreground_audio_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

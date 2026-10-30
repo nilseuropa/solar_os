@@ -61,7 +61,7 @@ static void test_raw_ranges_and_reader_wrapper(void)
 
     assert(solar_os_doc_layout_build(&layout, &doc, 180, 1) == ESP_OK);
     for (size_t i = 0; i < layout.run_count; i++) {
-        assert(!layout.runs[i].raw_source);
+        assert(!solar_os_doc_layout_run(&layout, i)->raw_source);
     }
 
     solar_os_doc_layout_free(&layout);
@@ -107,7 +107,7 @@ static void test_reveal_round_trip(void)
     const size_t paragraph_offset = (size_t)(strstr(markdown, "paragraph") - markdown);
     const size_t paragraph_end = list_offset;
     for (size_t i = 0; i < layout.run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &layout.runs[i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&layout, i);
         if (!run->raw_source) {
             continue;
         }

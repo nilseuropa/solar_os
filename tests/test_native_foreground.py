@@ -15,6 +15,18 @@ def native_key_pulse_includes(directory):
     Path(directory, "native_key_pulse_read.inc").write_text(production_functions(source, ("foreground_read_key",)))
 
 class NativeForegroundTest(unittest.TestCase):
+    def test_cache_reclaim_and_resume_are_serialized(self):
+        source = (ROOT / "src/services/solar_os_native_foreground.c").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "native_cache.inc").write_text(production_functions(source,
+                ("foreground_cache_reclaim", "foreground_cache_close")))
+            binary = Path(tmp, "cache-race")
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
+                            "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                            "-I", tmp, "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
+                            str(ROOT / "tests/host/native_cache_race_test.c"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_logical_taps_and_physical_key_streams(self):
         with tempfile.TemporaryDirectory() as tmp:
             native_key_pulse_includes(tmp)
@@ -63,6 +75,7 @@ class NativeForegroundTest(unittest.TestCase):
         source = (ROOT / "src/services/solar_os_native_foreground.c").read_text()
         names = ("foreground_current", "foreground_context_state", "foreground_caller",
                  "foreground_result", "foreground_video_dimensions", "foreground_enable_suspend", "foreground_suspend_requested",
+                 "foreground_cache_reclaim", "foreground_cache_close", "foreground_set_memory_reclaimer",
                  "foreground_guest_suspend", "foreground_get_service", "foreground_worker_cleanup",
                  "solar_os_native_foreground_entry", "solar_os_native_foreground_owner",
                  "solar_os_native_foreground_claim", "solar_os_native_foreground_release",
@@ -75,5 +88,6 @@ class NativeForegroundTest(unittest.TestCase):
                             "-I", tmp, "-I", str(ROOT / "include"),
                             "-I", str(ROOT / "tests/host"),
                             str(ROOT / "tests/host/native_foreground_test.c"),
+                            "-I", str(ROOT / "src"),
                             "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

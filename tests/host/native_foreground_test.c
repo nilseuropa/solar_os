@@ -6,6 +6,7 @@
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_native_app_abi.h"
+#include "../../src/services/solar_os_memory.h"
 #define FOREGROUND_STOP_WAIT_US 5000000ULL
 #define SOLAR_OS_TASK_STOP_POLL_MS 20U
 #define SOLAR_OS_TASK_REAP_WAIT_MS 100U
@@ -31,6 +32,10 @@ typedef struct {
     const foreground_slot_t *slot;
     _Atomic(TaskHandle_t) worker;
     atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset, redraw_requested;
+    atomic_bool cache_ready, cache_reclaiming;
+    solar_os_memory_reclaimer_t cache_reclaimer;
+    size_t (*cache_release)(void *user);
+    void *cache_user;
     uint64_t stop_deadline_us;
     bool worker_started, keyboard_captured, themed_index2;
     int result, exit_code;
@@ -38,6 +43,12 @@ typedef struct {
     void *gfx, *keys, *pointers, *presenter, *audio;
 } foreground_state_t;
 static foreground_state_t first, second;
+static unsigned cache_calls;
+static size_t release_cache(void *user) { assert(user == &first); cache_calls++; return 4096; }
+bool solar_os_memory_register_reclaimer(solar_os_memory_reclaimer_t *entry)
+{ return entry->owner && entry->reclaim; }
+bool solar_os_memory_unregister_reclaimer(solar_os_memory_reclaimer_t *entry)
+{ assert(!entry->references); return true; }
 static foreground_slot_t slots[2];
 static void *states[2];
 static solar_os_app_t apps[2];
@@ -103,19 +114,17 @@ static void vQueueDelete(void *queue) { assert(queue); deletions++; }
 static foreground_slot_t *foreground_find_slot(const solar_os_app_t *app) {
     return app == &apps[0] ? &slots[0] : app == &apps[1] ? &slots[1] : NULL;
 }
-typedef struct {size_t free;} memory_region_t;
-typedef struct {memory_region_t internal, external; size_t internal_reserve;} solar_os_memory_status_t;
 static solar_os_memory_status_t memory_status;
 static bool task_admitted;
 static unsigned reclaim_calls;
 static size_t reclaim_external_bytes;
-static size_t solar_os_memory_reclaim(void) {
+size_t solar_os_memory_reclaim(void) {
     ++reclaim_calls;
     memory_status.external.free += reclaim_external_bytes;
     return reclaim_external_bytes ? 1 : 0;
 }
 #define SOLAR_OS_TASK_ROLE_FOREGROUND 1
-static void solar_os_memory_get_status(solar_os_memory_status_t *out) {*out=memory_status;}
+void solar_os_memory_get_status(solar_os_memory_status_t *out) {*out=memory_status;}
 static bool solar_os_task_admit(const char *id, size_t stack, int role, bool external) {
     assert(id && stack==8192 && role==1 && !external);return task_admitted;
 }
@@ -144,6 +153,19 @@ static void setup(void) {
 }
 int main(void) {
     setup(); char busy[32];
+    assert(foreground_set_memory_reclaimer(release_cache, &first) == SOLAR_OS_NATIVE_OK);
+    assert(foreground_set_memory_reclaimer(release_cache, &first) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(foreground_cache_reclaim(NULL, &first) == 0 && cache_calls == 0);
+    atomic_store(&first.cache_ready, true);
+    assert(foreground_cache_reclaim(NULL, &first) == 4096 && cache_calls == 1);
+    atomic_store(&first.cache_reclaiming, true);
+    assert(foreground_cache_reclaim(NULL, &first) == 0 && cache_calls == 1);
+    atomic_store(&first.cache_reclaiming, false);
+    foreground_cache_close(&first);
+    assert(foreground_cache_reclaim(NULL, &first) == 0 && cache_calls == 1);
+    foreground_worker_cleanup(&first);
+    assert(!first.cache_release);
+    setup();
     foreground_resume(&contexts[0]);
     assert(atomic_load(&first.redraw_requested) && !atomic_load(&first.suspended));
     bool available = true;
@@ -181,7 +203,7 @@ int main(void) {
     slots[0].manifest.worker_stack_bytes=8192;
     slots[0].manifest.minimum_internal_bytes=16384;
     slots[0].manifest.minimum_psram_bytes=262144;
-    memory_status=(solar_os_memory_status_t){.internal={65536},.external={1048576},.internal_reserve=32768};
+    memory_status=(solar_os_memory_status_t){.internal={.free=65536},.external={.free=1048576},.internal_reserve=32768};
     task_admitted=true;assert(foreground_admit(&slots[0])==ESP_OK);
     assert(reclaim_calls == 0);
     memory_status.internal.free=32768+16384+8192-1;

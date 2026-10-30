@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "solar_os_gfx.h"
 #include "solar_os_storage.h"
+#include "solar_os_paged_array.h"
 
 typedef enum {
     SOLAR_OS_DOC_BLOCK_PARAGRAPH,
@@ -133,16 +134,28 @@ typedef struct {
 } solar_os_doc_layout_line_t;
 
 typedef struct {
-    solar_os_doc_layout_line_t *lines;
+    solar_os_paged_array_t lines;
     size_t line_count;
     size_t line_capacity;
-    solar_os_doc_layout_run_t *runs;
+    solar_os_paged_array_t runs;
     size_t run_count;
     size_t run_capacity;
     int width;
     int height;
     int zoom;
 } solar_os_doc_layout_t;
+
+static inline solar_os_doc_layout_line_t *solar_os_doc_layout_line(
+    const solar_os_doc_layout_t *layout, size_t index)
+{
+    return solar_os_paged_array_at(&layout->lines, index);
+}
+
+static inline solar_os_doc_layout_run_t *solar_os_doc_layout_run(
+    const solar_os_doc_layout_t *layout, size_t index)
+{
+    return solar_os_paged_array_at(&layout->runs, index);
+}
 
 void solar_os_doc_init(solar_os_doc_t *doc);
 void solar_os_doc_free(solar_os_doc_t *doc);

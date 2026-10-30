@@ -1836,30 +1836,45 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
     solar_os_memory_status_t status;
 
-    if (argc == 2 && strcmp(argv[1], "reclaim") == 0) {
+    if (argc == 2 && strcmp(argv[1], "owners") == 0) {
+        const size_t capacity = 513U;
+        solar_os_memory_owner_status_t *owners = solar_os_memory_calloc(capacity,
+            sizeof(*owners), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "mem.diagnostics");
+        if (!owners) { solar_os_shell_io_table_writeln(term, "Not enough memory for owner snapshot"); return; }
+        size_t count = solar_os_memory_get_owners(owners, capacity);
+        solar_os_shell_io_table_writeln(term, "MANAGED OWNER            BYTES   OBJECTS MOVABLE  LARGEST");
+        for (size_t i = 0; i < count; ++i)
+            solar_os_shell_io_table_printf(term, "%-23s %7u %7u %7u %7u\n", owners[i].owner,
+                (unsigned)owners[i].bytes, (unsigned)owners[i].allocations,
+                (unsigned)owners[i].movable_bytes, (unsigned)owners[i].largest);
+        solar_os_memory_free(owners);
+        return;
+    }
+    if (argc == 2 && (strcmp(argv[1], "reclaim") == 0 || strcmp(argv[1], "compact") == 0)) {
         solar_os_memory_status_t before;
         solar_os_memory_get_status(&before);
-        const size_t released = solar_os_memory_reclaim();
+        const bool compact = strcmp(argv[1], "compact") == 0;
+        const size_t changed = compact ? solar_os_memory_compact() : solar_os_memory_reclaim();
         solar_os_memory_get_status(&status);
         solar_os_shell_io_table_printf(term,
-            "Released %u unused libraries\nPSRAM free: %u -> %u bytes\n"
+            "%s %u bytes\nPSRAM free: %u -> %u bytes\n"
             "Largest free block: %u -> %u bytes\n",
-            (unsigned)released, (unsigned)before.external.free,
+            compact ? "Moved" : "Released", (unsigned)changed, (unsigned)before.external.free,
             (unsigned)status.external.free, (unsigned)before.external.largest_free,
             (unsigned)status.external.largest_free);
         return;
     }
     if (argc > 2 || (argc == 2 && strcmp(argv[1], "policy") != 0)) {
         if (argc > 2) {
-            solar_os_shell_diag_unexpected(term, "mem", argv[2], "mem [policy|reclaim]");
+            solar_os_shell_diag_unexpected(term, "mem", argv[2], "mem [policy|reclaim|compact|owners]");
         } else {
-            static const char * const values[] = {"policy", "reclaim"};
+            static const char * const values[] = {"policy", "reclaim", "compact", "owners"};
             solar_os_shell_diag_unknown(term,
                                         "mem",
                                         "argument",
                                         argv[1],
-                                        solar_os_shell_suggest(argv[1], values, 2),
-                                        "mem [policy|reclaim]");
+                                        solar_os_shell_suggest(argv[1], values, 4),
+                                        "mem [policy|reclaim|compact|owners]");
         }
         return;
     }
@@ -1882,6 +1897,13 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
 
     solar_os_shell_io_table_printf(term, "SDK PSRAM: free %u largest %u bytes\n",
         (unsigned)status.external_sdk.free, (unsigned)status.external_sdk.largest_free);
+    solar_os_memory_pressure_stats_t pressure;
+    solar_os_memory_get_pressure_stats(&pressure);
+    solar_os_shell_io_table_printf(term,
+        "Pressure: passes %u callbacks %u busy %u low-stack %u released %u moved %u bytes\n",
+        (unsigned)pressure.requests, (unsigned)pressure.callbacks, (unsigned)pressure.busy,
+        (unsigned)pressure.low_stack,
+        (unsigned)pressure.released_bytes, (unsigned)pressure.moved_bytes);
 
     char reserve[16];
     char fallback_max[16];

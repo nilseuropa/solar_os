@@ -9,6 +9,13 @@ agent_reference_sections = true
 +++
 # Native foreground apps
 
+The optional `set_memory_reclaimer` hook lets an app release rebuildable caches
+while suspended. The host joins audio/presentation before enabling the hook and
+waits for reclamation before resume or unload. The callback may free owner-safe
+data only; it must not allocate, wait, or call foreground APIs. Check table size
+before registering. Ordinary module pointers remain fixed. See
+[memory policy](../memory-policy.md) for the shared buffer and paging contracts.
+
 Native foreground apps are trusted ESP32-S3 modules. They use the same sessions,
 display ownership, keyboard shortcuts and cold-state lifecycle as built-in apps.
 Emulators such as [Apple II Plus](app.apple2.md), [Game Boy](app.gameboy.md)
@@ -77,8 +84,9 @@ no app-specific startup hook runs at boot.
 
 Large OS buffers use a managed PSRAM region that groups bulk buffers separately
 from resident executable images. `mem` shows its free space and largest block.
-Reclamation releases unused libraries; it does not discard running or suspended
-app state. A workload can still be refused when its allocations do not fit.
+Reclamation releases unused libraries and registered rebuildable caches, including
+suspended document layouts. Authoritative app state and unsaved edits remain
+resident. A workload can still be refused when its allocations do not fit.
 
 ## Suspend, resume and close
 

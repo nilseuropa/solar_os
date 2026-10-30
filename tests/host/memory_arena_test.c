@@ -6,6 +6,16 @@
 #include "solar_os_memory_arena.h"
 
 static unsigned random_state = 1123;
+static void *movable[64];
+static void relocated(void *user, void *old_pointer, void *new_pointer)
+{
+    (void)user;
+    for (unsigned i = 0; i < 64; ++i) if (movable[i] == old_pointer) {
+        movable[i] = new_pointer;
+        return;
+    }
+    assert(!"unregistered relocation");
+}
 static unsigned random_value(void)
 { random_state = random_state * 1664525U + 1013904223U; return random_state; }
 
@@ -18,6 +28,25 @@ int main(void)
     solar_os_memory_arena_status_t initial, status;
     solar_os_memory_arena_status(&arena, &initial);
     assert(initial.free == initial.largest && initial.free == arena.free);
+
+    /* Overlapping movement through a smaller hole, with a raw pinned guard. */
+    void *hole = solar_os_memory_arena_alloc(&arena, 512, false);
+    movable[0] = solar_os_memory_arena_alloc(&arena, 100000, false);
+    void *pinned = solar_os_memory_arena_alloc(&arena, 1000, false);
+    assert(hole && movable[0] && pinned);
+    memset(movable[0], 0x39, 100000); memset(pinned, 0x47, 1000);
+    void *original = movable[0];
+    assert(solar_os_memory_arena_describe(&arena, movable[0], 7, true));
+    assert(solar_os_memory_arena_free(&arena, hole));
+    assert(solar_os_memory_arena_compact(&arena, relocated, NULL) == 100000);
+    assert(movable[0] != original && movable[0] == hole);
+    assert(((unsigned char *)movable[0])[99999] == 0x39);
+    assert(((unsigned char *)pinned)[999] == 0x47);
+    assert(solar_os_memory_arena_free(&arena, movable[0]));
+    assert(solar_os_memory_arena_free(&arena, pinned));
+    movable[0] = NULL;
+    solar_os_memory_arena_status(&arena, &status);
+    assert(status.free == initial.free && status.largest == initial.largest);
 
     /* The temporary ELF buffer must not leave a hole below its resident code. */
     void *file = solar_os_memory_arena_alloc(&arena, 1137024, false);
@@ -106,6 +135,20 @@ int main(void)
      * stay valid, live buffers never overlap, and teardown recovers the region. */
     void *pointers[64] = {0}; size_t sizes[64] = {0};
     for (unsigned iteration = 0; iteration < 20000; iteration++) {
+        if (iteration % 17U == 0) {
+            void *fixed[64];
+            memcpy(fixed, pointers, sizeof(fixed));
+            memcpy(movable, pointers, sizeof(movable));
+            for (unsigned i = 0; i < 64; ++i) if (pointers[i])
+                assert(solar_os_memory_arena_describe(&arena, pointers[i], i + 1U, i % 3U != 0));
+            (void)solar_os_memory_arena_compact(&arena, relocated, NULL);
+            memcpy(pointers, movable, sizeof(pointers));
+            for (unsigned i = 0; i < 64; ++i) if (pointers[i]) {
+                if (i % 3U == 0) assert(pointers[i] == fixed[i]);
+                for (size_t j = 0; j < sizes[i]; ++j)
+                    assert(((unsigned char *)pointers[i])[j] == (unsigned char)i);
+            }
+        }
         unsigned slot = random_value() % 64;
         if (pointers[slot] && random_value() % 2) {
             const size_t next_size = 1U + random_value() % 65536;

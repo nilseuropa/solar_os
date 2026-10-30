@@ -11,6 +11,13 @@ class MemoryPolicyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "freertos").mkdir()
+            (root / "freertos/idf_additions.h").write_text(
+                '#include <stdint.h>\nextern int test_low_stack;\n'
+                'static inline uint8_t *pxTaskGetStackStart(void *task) { (void)task; return test_low_stack ? 0 : (uint8_t *)1; }\n')
+            (root / "esp_private").mkdir()
+            (root / "esp_private/cache_utils.h").write_text(
+                '#include <stdbool.h>\nextern int test_cache_disabled;\n'
+                'static inline bool spi_flash_cache_enabled(void) { return !test_cache_disabled; }\n')
             (root / "freertos/portmacro.h").write_text(
                 '#include "freertos/FreeRTOS.h"\nextern int test_isr;\n#define xPortInIsrContext() test_isr\n')
             (root / "esp_attr.h").write_text("#define IRAM_ATTR\n")
@@ -55,3 +62,4 @@ size_t strlcpy(char *, const char *, size_t);
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
+            subprocess.run([str(binary), "no-psram"], check=True)

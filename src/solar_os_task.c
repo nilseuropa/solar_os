@@ -265,6 +265,10 @@ bool solar_os_task_admit(const char *name,
     if (stack_depth == 0 || !task_role_valid(role)) {
         return false;
     }
+    /* Reclaim before taking the launch mutex: callbacks must never run while
+     * another owner needs this mutex to finish a launch or shutdown. */
+    if (!solar_os_task_can_create(stack_depth, role, external_stack))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return false;
     }
@@ -291,6 +295,9 @@ bool solar_os_task_admit_managed(const char *name,
     }
     admission->launch_locked = false;
     admission->external_stack = external_stack;
+    if (stack_depth && task_role_valid(role) &&
+        !solar_os_task_can_create(stack_depth, role, external_stack))
+        (void)solar_os_memory_reclaim();
     if (stack_depth == 0 || !task_role_valid(role) || !task_launch_lock()) {
         return false;
     }
@@ -371,6 +378,8 @@ BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
     if (task == NULL || stack_depth == 0 || !task_role_valid(role)) {
         return pdFAIL;
     }
+    if (!solar_os_task_can_create(stack_depth, role, false))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return pdFAIL;
     }
@@ -414,6 +423,8 @@ BaseType_t solar_os_task_create_pinned_external(TaskFunction_t task,
     if (task == NULL || stack_depth == 0 || !task_role_valid(role)) {
         return pdFAIL;
     }
+    if (!solar_os_task_can_create(stack_depth, role, true))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return pdFAIL;
     }

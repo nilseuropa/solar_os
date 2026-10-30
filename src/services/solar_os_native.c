@@ -42,6 +42,14 @@ static atomic_bool native_running;
 static _Thread_local bool native_operation_locked;
 static atomic_bool native_symbols_registered;
 static size_t native_reclaim_unused_libraries(void);
+static size_t native_pressure_reclaim(const solar_os_memory_pressure_request_t *request, void *user)
+{
+    (void)request; (void)user;
+    return native_reclaim_unused_libraries();
+}
+static solar_os_memory_reclaimer_t native_reclaimer = {
+    .owner = "native.libraries", .reclaim = native_pressure_reclaim, .priority = 200,
+};
 static esp_err_t native_module_deactivate_locked(solar_os_module_type_t type,
     const char *id, char *detail, size_t detail_len);
 typedef struct native_run_scope {
@@ -667,7 +675,10 @@ static esp_err_t native_register_symbols(char *detail, size_t detail_len)
         return ESP_FAIL;
     }
     atomic_store(&native_symbols_registered, true);
-    solar_os_memory_set_reclaimer(native_reclaim_unused_libraries);
+    if (!solar_os_memory_register_reclaimer(&native_reclaimer)) {
+        atomic_store(&native_symbols_registered, false);
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 

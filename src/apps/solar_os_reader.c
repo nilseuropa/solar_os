@@ -12,6 +12,8 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "solar_os_doc.h"
 #include "solar_os_epub.h"
 #include "solar_os_gfx.h"
@@ -42,6 +44,9 @@ typedef struct {
 typedef struct {
     solar_os_doc_t doc;
     solar_os_doc_layout_t layout;
+    solar_os_memory_reclaimer_t layout_reclaimer;
+    size_t suspended_anchor;
+    bool suspended_anchor_valid;
     solar_os_epub_book_t *epub_book;
     bool loaded;
     bool suspended;
@@ -77,6 +82,25 @@ typedef struct {
 
 static void *reader_state;
 #define reader (*(reader_state_t *)reader_state)
+
+static size_t reader_reclaim_layout(const solar_os_memory_pressure_request_t *request, void *user)
+{
+    (void)request;
+    reader_state_t *state = user;
+    size_t bytes = solar_os_paged_array_bytes(&state->layout.lines) +
+                   solar_os_paged_array_bytes(&state->layout.runs);
+    solar_os_doc_layout_free(&state->layout);
+    state->layout_valid = false;
+    state->content_height = 0;
+    return bytes;
+}
+
+static void reader_detach_reclaimer(void)
+{
+    /* Close the gate and join any broker reference before using/freeing state.
+     * No reader/layout locks are held while another pressure task finishes. */
+    while (!solar_os_memory_unregister_reclaimer(&reader.layout_reclaimer)) vTaskDelay(1);
+}
 
 static esp_err_t reader_state_path(char *path, size_t path_len, const char *leaf)
 {
@@ -404,9 +428,9 @@ static bool reader_current_search_position(size_t *block_index, size_t *text_off
         return reader.doc.block_count > 0;
     }
 
-    const solar_os_doc_layout_line_t *line = &reader.layout.lines[0];
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(&reader.layout, 0);
     for (size_t i = 0; i < reader.layout.line_count; i++) {
-        line = &reader.layout.lines[i];
+        line = solar_os_doc_layout_line(&reader.layout, i);
         if (line->y + line->height > reader.scroll_y) {
             break;
         }
@@ -415,7 +439,7 @@ static bool reader_current_search_position(size_t *block_index, size_t *text_off
     *block_index = line->block_index;
     *text_offset = 0;
     for (size_t i = 0; i < line->run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &reader.layout.runs[line->run_start + i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&reader.layout, line->run_start + i);
         if (run->block_index == line->block_index && run->text_offset != SIZE_MAX) {
             *text_offset = run->text_offset;
             return true;
@@ -700,9 +724,9 @@ static size_t reader_anchor_offset_for_scroll(void)
         return 0;
     }
 
-    const solar_os_doc_layout_line_t *best = &reader.layout.lines[0];
+    const solar_os_doc_layout_line_t *best = solar_os_doc_layout_line(&reader.layout, 0);
     for (size_t i = 0; i < reader.layout.line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &reader.layout.lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(&reader.layout, i);
         if (line->y + line->height > reader.scroll_y) {
             best = line;
             break;
@@ -784,8 +808,13 @@ static void reader_save_position(solar_os_context_t *ctx)
         return;
     }
 
-    reader_update_measure(solar_os_context_gfx(ctx));
-    const size_t offset = reader_anchor_offset_for_scroll();
+    size_t offset;
+    if (!reader.layout_valid && reader.suspended_anchor_valid) {
+        offset = reader.suspended_anchor;
+    } else {
+        reader_update_measure(solar_os_context_gfx(ctx));
+        offset = reader_anchor_offset_for_scroll();
+    }
 
     FILE *source = fopen(positions_path, "r");
     FILE *dest = fopen(tmp_path, "w");
@@ -890,7 +919,7 @@ static bool reader_line_for_scroll(size_t *line_index)
 
     size_t best = 0;
     for (size_t i = 0; i < reader.layout.line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &reader.layout.lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(&reader.layout, i);
         if (line->y + line->height > reader.scroll_y) {
             *line_index = i;
             return true;
@@ -912,7 +941,7 @@ static void reader_scroll_to_line(solar_os_context_t *ctx, size_t line_index)
     if (line_index >= reader.layout.line_count) {
         line_index = reader.layout.line_count - 1U;
     }
-    reader.scroll_y = reader.layout.lines[line_index].y;
+    reader.scroll_y = solar_os_doc_layout_line(&reader.layout, line_index)->y;
     reader_clamp_scroll(gfx);
 }
 
@@ -954,7 +983,7 @@ static bool reader_match_to_y(int *out_y, int *out_height)
     const size_t match_start = reader.match.text_offset;
     const size_t match_end = reader.match.text_offset + reader.match.text_len;
     for (size_t i = 0; i < reader.layout.run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &reader.layout.runs[i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&reader.layout, i);
         if (run->block_index != reader.match.block_index || run->text_offset == SIZE_MAX) {
             continue;
         }
@@ -972,7 +1001,7 @@ static bool reader_match_to_y(int *out_y, int *out_height)
     }
 
     for (size_t i = 0; i < reader.layout.line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &reader.layout.lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(&reader.layout, i);
         if (line->block_index == reader.match.block_index) {
             if (out_y != NULL) {
                 *out_y = line->y;
@@ -1099,7 +1128,7 @@ static void reader_draw_match(solar_os_gfx_t *gfx, const solar_os_doc_view_t *vi
     }
 
     for (size_t i = 0; i < reader.layout.run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &reader.layout.runs[i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&reader.layout, i);
         size_t start = 0;
         size_t end = 0;
         if (!reader_run_overlaps_match(run, &start, &end) || start >= end || end > block_len) {
@@ -1338,6 +1367,10 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
     };
     solar_os_doc_set_asset_provider(&reader.doc, &assets);
     solar_os_doc_layout_init(&reader.layout);
+    reader.layout_reclaimer = (solar_os_memory_reclaimer_t){
+        .owner = "reader.layout", .priority = 100,
+        .reclaim = reader_reclaim_layout, .user = reader_state,
+    };
     reader.zoom = 1;
     reader.suspended = false;
 
@@ -1458,6 +1491,7 @@ static esp_err_t reader_start(solar_os_context_t *ctx)
 
 static void reader_stop(solar_os_context_t *ctx)
 {
+    reader_detach_reclaimer();
     reader_save_position(ctx);
     solar_os_doc_free(&reader.doc);
     solar_os_doc_layout_free(&reader.layout);
@@ -1469,14 +1503,23 @@ static void reader_stop(solar_os_context_t *ctx)
 static void reader_suspend(solar_os_context_t *ctx)
 {
     reader_save_position(ctx);
+    reader.suspended_anchor = reader_anchor_offset_for_scroll();
+    reader.suspended_anchor_valid = reader.layout_valid;
     reader.suspended = true;
     solar_os_context_set_graphics_active(ctx, false);
+    if (!solar_os_memory_register_reclaimer(&reader.layout_reclaimer))
+        (void)reader_reclaim_layout(NULL, reader_state);
 }
 
 static void reader_resume(solar_os_context_t *ctx)
 {
+    reader_detach_reclaimer();
     reader.suspended = false;
     solar_os_context_set_graphics_active(ctx, true);
+    if (reader.suspended_anchor_valid) {
+        reader_scroll_to_anchor(ctx, reader.suspended_anchor);
+        if (reader.layout_valid) reader.suspended_anchor_valid = false;
+    }
     reader_render(ctx);
 }
 
@@ -1499,7 +1542,7 @@ static size_t reader_last_visible_line(size_t first_line, int view_h)
     size_t last_line = first_line;
 
     for (size_t i = first_line; i < reader.layout.line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &reader.layout.lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(&reader.layout, i);
         if (line->y >= view_bottom) {
             break;
         }
@@ -1512,16 +1555,16 @@ static size_t reader_last_visible_line(size_t first_line, int view_h)
 
 static size_t reader_previous_page_line(size_t first_line, int view_h)
 {
-    const solar_os_doc_layout_line_t *current = &reader.layout.lines[first_line];
+    const solar_os_doc_layout_line_t *current = solar_os_doc_layout_line(&reader.layout, first_line);
     const solar_os_doc_layout_line_t *next =
         first_line + 1U < reader.layout.line_count ?
-            &reader.layout.lines[first_line + 1U] : NULL;
+            solar_os_doc_layout_line(&reader.layout, first_line + 1U) : NULL;
     size_t target_line = first_line;
 
     for (size_t i = first_line + 1U; i > 0; i--) {
         const size_t candidate_index = i - 1U;
         const solar_os_doc_layout_line_t *candidate =
-            &reader.layout.lines[candidate_index];
+            solar_os_doc_layout_line(&reader.layout, candidate_index);
         const int view_bottom = candidate->y + view_h;
         if (current->y >= view_bottom) {
             break;
@@ -1675,6 +1718,7 @@ static bool reader_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         reader_resume(ctx);
         return true;
     }
+    if (reader.suspended) return false;
     if (event->type != SOLAR_OS_EVENT_CHAR) {
         return true;
     }
@@ -1700,4 +1744,5 @@ const solar_os_app_t solar_os_reader_app = {
     .state_slot = &reader_state,
     .state_size = sizeof(reader_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
+    .state_release_cleanup = reader_detach_reclaimer,
 };

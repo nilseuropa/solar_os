@@ -893,7 +893,7 @@ static const char * const gesture_unbind_values[] = {"all"};
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
 static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
-static const char * const mem_subcommands[] = {"policy", "reclaim"};
+static const char * const mem_subcommands[] = {"policy", "reclaim", "compact", "owners"};
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const pkg_subcommands[] = {
     "system", "available", "installed", "install", "remove", "unload",

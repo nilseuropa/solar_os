@@ -3,10 +3,13 @@
 SolarOS uses ESP-IDF capability heaps for internal RAM and constrained driver
 allocations. On boards with sufficient PSRAM, it reserves one contiguous region
 at boot for bulk buffers and resident objects. Bulk scratch and large unconstrained SDK buffers grow from one end;
-executable images and persistent terminal metadata grow from the other. Live allocations keep their addresses. Adjacent freed
-blocks merge automatically; unused native libraries can be released under
-allocation pressure or with `mem reclaim`. Active library leases and application
-sessions keep their state.
+executable images and persistent terminal metadata grow from the other.
+Ordinary pointers keep their addresses. Adjacent freed blocks merge automatically.
+Allocation failure triggers shared pressure handling: compact eligible buffers,
+ask registered owners to release rebuildable data, compact released holes, then
+retry once. This applies to existing apps, jobs, services, native host allocations
+and eligible SDK PSRAM allocations. Internal and DMA policy allocations also ask
+reclaimers before final failure. Task admission reclaims before its launch lock.
 
 `SOLAR_OS_PSRAM_GENERAL_RESERVE_BYTES` leaves 512 KiB outside the region by default
 for capability-constrained SDK and driver allocations; zero disables the region.
@@ -24,16 +27,97 @@ object locates its header directly and merges adjacent holes.
 Managed reallocations shrink in place and return their unused tail to the
 region, or grow into an adjacent free block. They allocate and copy only when
 the existing block cannot grow. A failed resize preserves the original buffer.
-Live pointers remain stable unless their owner explicitly reallocates them;
-there is no moving heap compaction.
+Raw pointers remain stable unless their owner explicitly reallocates them.
+Compaction moves only explicitly movable handle payloads. Pinned objects remain
+barriers: free bytes on opposite sides cannot necessarily satisfy a contiguous
+request. Failure still returns NULL or `ESP_ERR_NO_MEM`.
 
 Both small and bulk PSRAM allocations try the SDK heap and managed region
-before reclaiming idle native libraries and retrying once. Native foreground
+before shared pressure handling and retrying once. Native foreground
 admission also reclaims and rechecks before reporting insufficient memory.
 The task holding the native loader operation can reclaim idle libraries during
 ELF allocation; other tasks remain excluded from loader operations. Active
 library leases and shutdown refusals prevent reclamation. ELF code/data
 allocation failures report `ESP_ERR_NO_MEM`.
+
+## Ownership and fragmentation
+
+Every feature has a pinned default contract, including existing native modules,
+interpreter heaps, providers and SDK objects. Code, stacks, DMA, ISR state and
+objects with borrowed raw pointers keep fixed addresses. Arbitrary C pointer
+graphs cannot safely participate in transparent moving compaction.
+
+Use `solar_os_memory_buffer_create()` for byte buffers that can lend temporary
+pointers. Match every `buffer_pin()` with `buffer_unpin()` on all return paths.
+Pointers stay stable across nested pins and expire after the final unpin.
+Compaction updates handles under the arena lock. Destruction refuses outstanding
+pins; owners serialize handle lifetime against other callers. Payloads outside
+the managed region remain fixed. Displayd pins its HTTP response copy through
+the complete send, then permits movement while idle.
+
+Use `solar_os_paged_array` for indexed metadata without a contiguous-storage
+requirement. Records occupy pages of at most 8 KiB, indexed by a separate pointer
+directory. Growth preserves existing record addresses; failed growth frees only
+new pages and preserves the old array. Reader and Writer share this container
+for document lines and runs, including rotation and zoom reflow. Source text
+and other pointer graphs retain their own pinned contracts and may still report
+insufficient contiguous memory.
+
+`solar_os_memory_register_reclaimer()` accepts a named, caller-owned descriptor.
+Lower priorities run first. Callbacks run outside allocator locks, use
+nonblocking ownership checks, and release only rebuildable idle data. They must
+not wait for another allocating worker, launch tasks or retain the request
+pointer. Descriptors are immutable while registered. Unregister returns false
+while a pressure pass references the descriptor: retain its storage and callback
+code, then retry outside allocator locks. Recursive/concurrent passes are
+skipped. Allocation pressure skips remaining owners once the request fits;
+manual `mem reclaim` asks all owners. Active library leases prevent unloading.
+
+Reader and Writer register their derived document layouts only while suspended.
+Any pressure request, including another app's launch admission, can release
+those pages. Parsed documents, unsaved editor text, cursors and source-position
+anchors stay resident. Resume or close unregisters and joins broker references
+before touching the layout or freeing the app's state. Resume rebuilds the
+layout and restores its source anchor. If registration is unavailable, suspend
+drops the derived layout immediately. Active document caches are never reclaimed.
+
+Native foreground apps can register an optional `set_memory_reclaimer` hook.
+The host enables it after suspend joins audio/presentation workers. Resume
+closes this gate and waits for in-flight reclamation; cleanup also unregisters
+before module unload. This hook runs on the pressure caller and must only free
+owner-safe cache entries. DOOM releases unlocked WAD mappings through it; locked
+engine pointers stay valid. Old modules retain their pinned contract; using the
+hook requires a rebuilt module.
+
+The native memory service appends opaque buffer operations to ABI 1. Check
+`struct_size` before using optional fields. Release pins and destroy handles
+before module unload. Lua continues to use tagged allocation policy;
+MicroPython collects within its fixed VM heap. VM heaps stay pinned to the host.
+
+## Diagnostics and coverage
+
+`mem compact` moves eligible payloads without eviction. `mem reclaim` reports
+recovered bytes and free/largest PSRAM before and after. `mem owners` reports
+managed-region bytes, counts, movable bytes and largest object by copied owner
+tag. Untagged SDK objects appear as `sdk.pinned`; SDK-region totals remain in
+`mem policy`. Owner diagnostics are best effort, with 512 names truncated to
+23 characters. `mem policy` also reports pressure passes, callbacks, busy passes
+and released/moved bytes.
+Pressure recovery checks at least 4 KiB of current task-stack headroom before
+entering the broker and owner callbacks. Shallow workers skip reclamation and
+report allocation failure; `low-stack` counts these skips. This guard protects
+the shared recovery path. It does not make an arbitrary callback or unrelated
+recursive code safe. Reclaim callbacks must keep their own stack use bounded.
+
+`scripts/check_memory_contracts.py` inventories every package and owned source
+file, including native ports and files without allocation calls. PlatformIO runs
+it and writes `memory-contracts.json` into each environment's build directory.
+Existing raw capability/SDK/RTOS and host-test sites have exact API counts and
+pinned reasons in `packages/memory_contracts.json`. Adding a raw site, including
+one inside an existing feature, fails the check until it uses shared APIs or
+has a reviewed pinned exception. Vendor/interpreter boundaries are explicit.
+This lexical check shows coverage; it does not prove every runtime failure path
+or every combination of features safe.
 
 The ESP-DL backend keeps weights and tensor metadata resident, but leases its
 activation workspace only for execution. It copies outputs before releasing

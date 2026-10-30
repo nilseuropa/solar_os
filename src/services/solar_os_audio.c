@@ -40,7 +40,7 @@
 #define AUDIO_WAV_HEADER_BYTES 44U
 #define AUDIO_WAV_BUFFER_BYTES 4096U
 #define AUDIO_WAV_PCM_FORMAT 1U
-#define AUDIO_TONE_WORKER_STACK 6144U
+#define AUDIO_TONE_WORKER_STACK 8192U
 #define AUDIO_TONE_WORKER_PRIORITY (tskIDLE_PRIORITY + 1U)
 #define AUDIO_TONE_CANCEL_POLL_MS 10U
 /* Allow amplifier/codec startup before the first audible sample. The tail

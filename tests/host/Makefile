@@ -17,6 +17,10 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
+TARGETS += paged_array_test
+
+paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
 TARGETS += gesture_command_test
 
 can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
@@ -407,6 +411,7 @@ IMLIB_SOURCES := $(wildcard $(IMLIB_DIR)/upstream/*.c)
 IMLIB_FLAGS := -DCMSIS_MCU_H=\"cmsis_compiler.h\" -I$(IMLIB_DIR)/include -I$(IMLIB_DIR)/upstream \
     -ffunction-sections -fdata-sections -fno-strict-aliasing -Wno-error -Wno-sign-compare -Wno-unused-parameter
 TARGETS += native_image_api_test native_inference_api_test native_video_api_test native_video_rtsp_api_test
+native_image_api_test native_inference_api_test native_video_api_test native_video_rtsp_api_test: native_memory_test_support.c
 native_image_api_test: native_image_api_test.c imlib_test.c vision_test.c \
         $(ROOT)/src/services/solar_os_native_media.c $(ROOT)/src/services/solar_os_imlib.c \
         $(ROOT)/src/services/solar_os_raster_image.c $(ROOT)/src/services/solar_os_vision.c $(IMLIB_SOURCES) $(QUIRC_HOST_OBJECTS)
@@ -589,11 +594,11 @@ writer_buffer_test: writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c 
 	$(CC) $(CFLAGS) -DSOLAR_OS_WRITER_HOST_TEST -I. -I$(WRITER_DIR) \
 		writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c -o $@
 
-doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h
+doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
 		-D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services \
-		$@.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c \
+		$@.c doc_test_support.c $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_paged_array.c \
 		-Wl,--gc-sections -o $@
 
 writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(WRITER_DIR)/solar_os_writer_files.h esp_err.h

@@ -26,10 +26,12 @@ int main(void)
     assert(solar_os_doc_parse_markdown(&doc, source, length, "book.md") == ESP_OK);
     free(source);
     const size_t parsed_bytes = doc_test_memory_used();
+    /* Enough total memory, but no contiguous allocation larger than a page. */
+    doc_test_memory_largest(8192);
     for (int zoom = 0; zoom <= 4; zoom++) {
         assert(solar_os_doc_layout_build(&layout, &doc, 384, zoom) == ESP_OK);
         assert(layout.line_count > 8000 && layout.run_count > 8000);
-        assert(layout.height > INT16_MAX && layout.lines[layout.line_count - 1].y > INT16_MAX);
+        assert(layout.height > INT16_MAX && solar_os_doc_layout_line(&layout, layout.line_count - 1)->y > INT16_MAX);
         int x, y, height;
         size_t offset;
         assert(solar_os_doc_layout_source_to_xy(&layout, 0, &x, &y, &height));
@@ -48,7 +50,7 @@ int main(void)
     for (int failure = 0; failure < 2; failure++) {
         doc_test_memory_fail_after(failure);
         assert(solar_os_doc_layout_build(&layout, &doc, 96, 4) == ESP_ERR_NO_MEM);
-        assert(!layout.lines && !layout.runs && !layout.line_count && !layout.run_count);
+        assert(!layout.lines.pages && !layout.runs.pages && !layout.line_count && !layout.run_count);
         assert(doc_test_memory_used() == parsed_bytes);
         doc_test_memory_fail_after(-1);
         assert(solar_os_doc_layout_build(&layout, &doc, 384, 1) == ESP_OK);

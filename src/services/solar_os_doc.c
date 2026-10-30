@@ -56,14 +56,6 @@ static void *doc_calloc(size_t count, size_t size)
                                   "doc");
 }
 
-static void *doc_realloc(void *ptr, size_t size)
-{
-    return solar_os_memory_realloc(ptr,
-                                   size,
-                                   SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-                                   "doc");
-}
-
 static void doc_free(void *ptr)
 {
     solar_os_memory_free(ptr);
@@ -1838,6 +1830,8 @@ void solar_os_doc_layout_init(solar_os_doc_layout_t *layout)
 {
     if (layout != NULL) {
         memset(layout, 0, sizeof(*layout));
+        (void)solar_os_paged_array_init(&layout->lines, sizeof(solar_os_doc_layout_line_t), "doc.lines");
+        (void)solar_os_paged_array_init(&layout->runs, sizeof(solar_os_doc_layout_run_t), "doc.runs");
     }
 }
 
@@ -1847,9 +1841,9 @@ void solar_os_doc_layout_free(solar_os_doc_layout_t *layout)
         return;
     }
 
-    doc_free(layout->lines);
-    doc_free(layout->runs);
-    memset(layout, 0, sizeof(*layout));
+    solar_os_paged_array_clear(&layout->lines);
+    solar_os_paged_array_clear(&layout->runs);
+    solar_os_doc_layout_init(layout);
 }
 
 typedef struct {
@@ -1861,52 +1855,20 @@ typedef struct {
 
 static solar_os_doc_layout_line_t *doc_layout_line(doc_layout_builder_t *builder, size_t index)
 {
-    return builder->measuring ? &builder->line : &builder->layout->lines[index];
+    return builder->measuring ? &builder->line : solar_os_doc_layout_line(builder->layout, index);
 }
 
 static esp_err_t doc_layout_reserve_lines(solar_os_doc_layout_t *layout, size_t need)
 {
-    if (layout->line_capacity >= need) {
-        return ESP_OK;
-    }
-
-    size_t next = layout->line_capacity > 0 ? layout->line_capacity * 2U : 64U;
-    while (next < need) {
-        next *= 2U;
-    }
-    const size_t old_capacity = layout->line_capacity;
-    solar_os_doc_layout_line_t *lines = doc_realloc(layout->lines, next * sizeof(lines[0]));
-    if (lines == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    if (next > old_capacity) {
-        memset(&lines[old_capacity], 0, (next - old_capacity) * sizeof(lines[0]));
-    }
-    layout->lines = lines;
-    layout->line_capacity = next;
+    if (!solar_os_paged_array_reserve(&layout->lines, need)) return ESP_ERR_NO_MEM;
+    layout->line_capacity = layout->lines.capacity;
     return ESP_OK;
 }
 
 static esp_err_t doc_layout_reserve_runs(solar_os_doc_layout_t *layout, size_t need)
 {
-    if (layout->run_capacity >= need) {
-        return ESP_OK;
-    }
-
-    size_t next = layout->run_capacity > 0 ? layout->run_capacity * 2U : 128U;
-    while (next < need) {
-        next *= 2U;
-    }
-    const size_t old_capacity = layout->run_capacity;
-    solar_os_doc_layout_run_t *runs = doc_realloc(layout->runs, next * sizeof(runs[0]));
-    if (runs == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    if (next > old_capacity) {
-        memset(&runs[old_capacity], 0, (next - old_capacity) * sizeof(runs[0]));
-    }
-    layout->runs = runs;
-    layout->run_capacity = next;
+    if (!solar_os_paged_array_reserve(&layout->runs, need)) return ESP_ERR_NO_MEM;
+    layout->run_capacity = layout->runs.capacity;
     return ESP_OK;
 }
 
@@ -1992,7 +1954,7 @@ static esp_err_t doc_layout_add_run(doc_layout_builder_t *builder,
 
     const doc_style_t style = doc_style_for(style_zoom, style_bits);
     solar_os_doc_layout_run_t *run = builder->measuring ? &builder->run :
-        &layout->runs[layout->run_count];
+        solar_os_doc_layout_run(layout, layout->run_count);
     layout->run_count++;
     *run = (solar_os_doc_layout_run_t){
         .x = x,
@@ -2773,7 +2735,7 @@ static esp_err_t doc_layout_raw_block(doc_layout_builder_t *builder,
             if (ret != ESP_OK) {
                 return ret;
             }
-            if (!builder->measuring) layout->runs[layout->run_count - 1U].raw_source = true;
+            if (!builder->measuring) solar_os_doc_layout_run(layout, layout->run_count - 1U)->raw_source = true;
             *y += doc_layout_line(builder, line_index)->height;
             emitted_line = true;
             emitted_any = true;
@@ -2898,20 +2860,12 @@ esp_err_t solar_os_doc_layout_build_ex(solar_os_doc_layout_t *layout,
     esp_err_t ret = doc_layout_build(&builder, doc, width, zoom, reveal_ranges, reveal_range_count);
     if (ret != ESP_OK) return ret;
     if (sizing.line_count > layout->line_capacity || sizing.run_count > layout->run_capacity) {
-        if (sizing.line_count > SIZE_MAX / sizeof(layout->lines[0]) ||
-            sizing.run_count > SIZE_MAX / sizeof(layout->runs[0]))
-            return ESP_ERR_INVALID_SIZE;
-        const size_t lines = sizing.line_count;
-        const size_t runs = sizing.run_count;
         solar_os_doc_layout_free(layout);
-        if (runs) layout->runs = doc_malloc(runs * sizeof(layout->runs[0]));
-        if (lines) layout->lines = doc_malloc(lines * sizeof(layout->lines[0]));
-        if ((lines && !layout->lines) || (runs && !layout->runs)) {
+        if (doc_layout_reserve_runs(layout, sizing.run_count) != ESP_OK ||
+            doc_layout_reserve_lines(layout, sizing.line_count) != ESP_OK) {
             solar_os_doc_layout_free(layout);
             return ESP_ERR_NO_MEM;
         }
-        layout->line_capacity = lines;
-        layout->run_capacity = runs;
     }
     builder.layout = layout;
     builder.measuring = false;
@@ -2986,7 +2940,7 @@ static bool doc_layout_is_first_line_of_block(const solar_os_doc_layout_t *layou
     if (line_index == 0) {
         return true;
     }
-    return layout->lines[line_index - 1U].block_index != layout->lines[line_index].block_index;
+    return solar_os_doc_layout_line(layout, line_index - 1U)->block_index != solar_os_doc_layout_line(layout, line_index)->block_index;
 }
 
 static bool doc_layout_block_bounds(const solar_os_doc_layout_t *layout,
@@ -3006,7 +2960,7 @@ static bool doc_layout_block_bounds(const solar_os_doc_layout_t *layout,
     int max_x = 0;
     int max_y = 0;
     for (size_t i = 0; i < layout->line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &layout->lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, i);
         if (line->block_index != block_index) {
             continue;
         }
@@ -3162,9 +3116,9 @@ static void doc_render_line_decor(solar_os_gfx_t *gfx,
                                   const solar_os_doc_view_t *view,
                                   size_t line_index)
 {
-    const solar_os_doc_layout_line_t *line = &layout->lines[line_index];
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, line_index);
     if (line->run_count > 0 &&
-        layout->runs[line->run_start].raw_source) {
+        solar_os_doc_layout_run(layout, line->run_start)->raw_source) {
         return;
     }
     const solar_os_doc_block_t *block = &doc->blocks[line->block_index];
@@ -3251,7 +3205,7 @@ void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
     }
 
     for (size_t i = 0; i < layout->line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &layout->lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, i);
         const int screen_y = view->y + line->y - view->scroll_y;
         if (screen_y + line->height < view->y) {
             continue;
@@ -3263,7 +3217,7 @@ void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
         doc_render_line_decor(gfx, doc, layout, view, i);
 
         for (size_t r = 0; r < line->run_count; r++) {
-            const solar_os_doc_layout_run_t *run = &layout->runs[line->run_start + r];
+            const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(layout, line->run_start + r);
             const int draw_x = view->x + run->x;
             const int draw_y = view->y + run->y - view->scroll_y;
             if (draw_x >= view->x + view->width || draw_x + run->width < view->x) {
@@ -3352,7 +3306,7 @@ bool solar_os_doc_layout_source_to_xy(const solar_os_doc_layout_t *layout,
 
     const solar_os_doc_layout_run_t *best = NULL;
     for (size_t i = 0; i < layout->run_count; i++) {
-        const solar_os_doc_layout_run_t *run = &layout->runs[i];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(layout, i);
         if (run->text_offset == SIZE_MAX || run->source_start == SIZE_MAX) {
             continue;
         }
@@ -3401,13 +3355,13 @@ bool solar_os_doc_layout_source_to_xy(const solar_os_doc_layout_t *layout,
     }
 
     if (x != NULL) {
-        *x = layout->lines[0].x;
+        *x = solar_os_doc_layout_line(layout, 0)->x;
     }
     if (y != NULL) {
-        *y = layout->lines[0].y;
+        *y = solar_os_doc_layout_line(layout, 0)->y;
     }
     if (height != NULL) {
-        *height = layout->lines[0].height;
+        *height = solar_os_doc_layout_line(layout, 0)->height;
     }
     return true;
 }
@@ -3421,9 +3375,9 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
         return false;
     }
 
-    const solar_os_doc_layout_line_t *line = &layout->lines[0];
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, 0);
     for (size_t i = 0; i < layout->line_count; i++) {
-        const solar_os_doc_layout_line_t *candidate = &layout->lines[i];
+        const solar_os_doc_layout_line_t *candidate = solar_os_doc_layout_line(layout, i);
         if (y >= candidate->y && y < candidate->y + candidate->height) {
             line = candidate;
             break;
@@ -3435,7 +3389,7 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
 
     const solar_os_doc_layout_run_t *last = NULL;
     for (size_t r = 0; r < line->run_count; r++) {
-        const solar_os_doc_layout_run_t *run = &layout->runs[line->run_start + r];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(layout, line->run_start + r);
         if (run->text_offset == SIZE_MAX) {
             continue;
         }
@@ -3488,13 +3442,13 @@ static bool doc_layout_line_has_source(const solar_os_doc_layout_t *layout,
     if (layout == NULL || line_index >= layout->line_count) {
         return false;
     }
-    const solar_os_doc_layout_line_t *line = &layout->lines[line_index];
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, line_index);
     for (size_t r = 0; r < line->run_count; r++) {
         const size_t run_index = line->run_start + r;
         if (run_index >= layout->run_count) {
             break;
         }
-        const solar_os_doc_layout_run_t *run = &layout->runs[run_index];
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(layout, run_index);
         if (run->text_offset != SIZE_MAX && run->source_start != SIZE_MAX) {
             return true;
         }
@@ -3518,7 +3472,7 @@ bool solar_os_doc_layout_adjacent_source(const solar_os_doc_layout_t *layout,
 
     size_t current = 0;
     for (size_t i = 0; i < layout->line_count; i++) {
-        const solar_os_doc_layout_line_t *line = &layout->lines[i];
+        const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, i);
         if (y < line->y) {
             break;
         }
@@ -3545,7 +3499,7 @@ bool solar_os_doc_layout_adjacent_source(const solar_os_doc_layout_t *layout,
         } while (!doc_layout_line_has_source(layout, adjacent));
     }
 
-    const solar_os_doc_layout_line_t *line = &layout->lines[adjacent];
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, adjacent);
     const int target_y = line->y + (line->height > 1 ? line->height / 2 : 0);
     return solar_os_doc_layout_hit_test(layout, x, target_y, target_offset);
 }

@@ -303,7 +303,9 @@ job for periodic polling.
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap and managed PSRAM status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
-| `mem` | `mem reclaim` | Unload unused resident libraries and show recovered PSRAM and the largest free block before and after. Libraries in use and application sessions remain resident. |
+| `mem` | `mem reclaim` | Ask registered owners to release rebuildable idle data, compact eligible buffers, and show recovered bytes and the largest free block before and after. |
+| `mem` | `mem compact` | Compact unpinned movable buffers and show the largest free block before and after. Raw pointers, DMA and stacks stay fixed. |
+| `mem` | `mem owners` | Show managed-region bytes, allocation counts, movable bytes and largest object by owner tag. SDK-region totals remain in `mem policy`. |
 | `top` | `top` | Print a one-shot cumulative FreeRTOS task snapshot. Use `ltop` for live interval CPU, memory, and stack monitoring. |
 | `sleep` | `sleep` | Enter explicit light sleep. |
 | `deepsleep` | `deepsleep` | Turn off the ESP32 radios and enter deep sleep. KEY, an armed RTC or scheduled timer, or RESET starts a fresh boot. |

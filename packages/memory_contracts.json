@@ -1,0 +1,325 @@
+{
+  "schema": 1,
+  "default": "pinned",
+  "boundaries": {
+    "sdk": "ESP-IDF and linked/prebuilt consumers use capability/default heap wrappers. ISR, cache-disabled, DMA and stronger alignment keep the SDK path. Raw pointers never move.",
+    "interpreters": "Lua uses tagged policy. MicroPython owns a fixed GC heap; object collection stays inside the VM.",
+    "native": "Host memory/libc tables use shared policy. Guest pointer graphs stay pinned; handles and suspended cache hooks opt in explicitly.",
+    "vendor": "src/vendor and modules/*/main/vendor retain upstream contracts; linked SDK adapters or guest port shims handle their allocations."
+  },
+  "exceptions": {
+    "src/apps/solar_os_writer_buffer.c": {
+      "calls": {
+        "malloc": 1
+      },
+      "reason": "Host-test branch only; device branch uses tagged policy."
+    },
+    "src/drivers/audio_dac_board.c": {
+      "calls": {
+        "heap_caps_malloc": 2
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/cvbs_pal.c": {
+      "calls": {
+        "heap_caps_calloc": 4
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_relax.h": {
+      "calls": {
+        "heap_caps_malloc": 2
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_scan_worker.c": {
+      "calls": {
+        "heap_caps_malloc": 2,
+        "xTaskCreate": 1
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_ssd1677.c": {
+      "calls": {
+        "heap_caps_malloc": 7,
+        "heap_caps_calloc": 2
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_ssd1683.c": {
+      "calls": {
+        "heap_caps_malloc": 9,
+        "heap_caps_calloc": 1
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_ssd1685.c": {
+      "calls": {
+        "heap_caps_malloc": 7,
+        "heap_caps_calloc": 1
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/epd_ultrachip.c": {
+      "calls": {
+        "heap_caps_malloc": 3,
+        "heap_caps_calloc": 1
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/rlcd_st7305.c": {
+      "calls": {
+        "heap_caps_malloc": 3
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/sd_card.c": {
+      "calls": {
+        "heap_caps_malloc": 4
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/tft_ili9341.c": {
+      "calls": {
+        "heap_caps_malloc": 4
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/drivers/vga32.c": {
+      "calls": {
+        "heap_caps_calloc": 2,
+        "xTaskCreatePinnedToCore": 1,
+        "heap_caps_malloc": 2
+      },
+      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+    },
+    "src/services/solar_os_audio_codec.c": {
+      "calls": {
+        "malloc": 1
+      },
+      "reason": "Host-test branch only; device branch uses tagged policy."
+    },
+    "src/services/solar_os_ble.c": {
+      "calls": {
+        "calloc": 2
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_ble_hid.c": {
+      "calls": {
+        "xQueueCreate": 1
+      },
+      "reason": "Existing internal SDK event queues; preserve their placement and fixed pointer contract."
+    },
+    "src/services/solar_os_ble_nimble.c": {
+      "calls": {
+        "calloc": 2,
+        "realloc": 1
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_ble_nimble_coc.inc": {
+      "calls": {
+        "calloc": 1
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_ble_nimble_server.inc": {
+      "calls": {
+        "calloc": 17
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_ble_stream.c": {
+      "calls": {
+        "calloc": 2
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_cvbs_display.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_disk_image.c": {
+      "calls": {
+        "calloc": 2
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_dsp.c": {
+      "calls": {
+        "calloc": 1
+      },
+      "reason": "Host-test branch only; device branch uses tagged policy."
+    },
+    "src/services/solar_os_espnow.c": {
+      "calls": {
+        "xQueueCreate": 2
+      },
+      "reason": "Existing internal SDK event queues; preserve their placement and fixed pointer contract."
+    },
+    "src/services/solar_os_hid.c": {
+      "calls": {
+        "xQueueCreate": 1
+      },
+      "reason": "Existing internal SDK event queues; preserve their placement and fixed pointer contract."
+    },
+    "src/services/solar_os_inference_espdl.cpp": {
+      "calls": {
+        "new": 3
+      },
+      "reason": "C++ model objects have borrowed internal pointers; load catches bad_alloc and returns no memory."
+    },
+    "src/services/solar_os_memory.c": {
+      "calls": {
+        "heap_caps_calloc": 6,
+        "heap_caps_malloc": 6,
+        "heap_caps_realloc": 8
+      },
+      "reason": "Capability routing and retry implementation; SDK entry points break wrapper recursion."
+    },
+    "src/services/solar_os_meshcore.cpp": {
+      "calls": {
+        "new": 1
+      },
+      "reason": "Placement new into tagged owned memory; creates no additional allocation."
+    },
+    "src/services/solar_os_native.c": {
+      "calls": {
+        "xTaskCreateStaticPinnedToCore": 1
+      },
+      "reason": "Native worker TCB and stack use an owned internal-critical block, joined before freeing."
+    },
+    "src/services/solar_os_native_foreground.c": {
+      "calls": {
+        "xQueueCreate": 2
+      },
+      "reason": "Existing internal SDK event queues; preserve their placement and fixed pointer contract."
+    },
+    "src/services/solar_os_neopixel.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_net_session.c": {
+      "calls": {
+        "calloc": 1,
+        "malloc": 1
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_nmea_gnss.c": {
+      "calls": {
+        "xTaskCreate": 1
+      },
+      "reason": "Existing internal UART worker stack; creation reports no memory and stop joins the reader."
+    },
+    "src/services/solar_os_ppp.c": {
+      "calls": {
+        "calloc": 1
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_rotary_encoder.c": {
+      "calls": {
+        "xQueueCreateStatic": 1
+      },
+      "reason": "Static internal ISR edge queue; control and data addresses stay fixed."
+    },
+    "src/services/solar_os_ssd1677.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_ssd1683.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_ssd1685.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_ssh.c": {
+      "calls": {
+        "xQueueCreateStatic": 1
+      },
+      "reason": "Static queue control uses internal-critical allocation; queue data uses tagged memory policy."
+    },
+    "src/services/solar_os_st7305_display.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_tft_display.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_uc8179.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_uc8279.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_vga32_display.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/services/solar_os_wireguard.c": {
+      "calls": {
+        "calloc": 2
+      },
+      "reason": "Existing service records and callback buffers; default SDK allocations share PSRAM pressure handling, with fixed pointers until owner teardown."
+    },
+    "src/services/solar_os_x4pro.c": {
+      "calls": {
+        "heap_caps_calloc": 1
+      },
+      "reason": "Hardware provider owns this device or transfer storage; retain explicit capabilities and fixed addresses until teardown."
+    },
+    "src/solar_os_queue.c": {
+      "calls": {
+        "xQueueCreateWithCaps": 1,
+        "xQueueCreate": 2
+      },
+      "reason": "Queue placement policy implementation; paired capability-aware creation and deletion."
+    },
+    "src/solar_os_task.c": {
+      "calls": {
+        "xTaskCreatePinnedToCore": 1,
+        "xTaskCreatePinnedToCoreWithCaps": 1
+      },
+      "reason": "Task placement policy implementation. Stacks stay pinned, with strict capability and admission checks."
+    },
+    "modules/amiga/main/port.h": {
+      "calls": {
+        "heap_caps_malloc": 1
+      },
+      "reason": "Module port macro/shim delegates to the host memory service; guest pointers stay fixed."
+    },
+    "modules/doom/main/video.c": {
+      "calls": {
+        "malloc": 1
+      },
+      "reason": "Module port macro/shim delegates to the host memory service; guest pointers stay fixed."
+    }
+  }
+}

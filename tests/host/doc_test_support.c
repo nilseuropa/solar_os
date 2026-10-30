@@ -15,9 +15,11 @@ typedef union {
 } memory_header_t;
 
 static size_t memory_used, memory_peak, memory_budget = SIZE_MAX;
+static size_t memory_largest = SIZE_MAX;
 static int memory_fail_after = -1;
 
 void doc_test_memory_budget(size_t bytes) { memory_budget = bytes; }
+void doc_test_memory_largest(size_t bytes) { memory_largest = bytes; }
 void doc_test_memory_fail_after(int allocations) { memory_fail_after = allocations; }
 size_t doc_test_memory_used(void) { return memory_used; }
 size_t doc_test_memory_peak(void) { return memory_peak; }
@@ -45,7 +47,7 @@ void *solar_os_memory_alloc(size_t size,
 {
     (void)memory_class;
     (void)tag;
-    if (memory_fail_after == 0 || memory_used > memory_budget ||
+    if (memory_fail_after == 0 || size > memory_largest || memory_used > memory_budget ||
         size > memory_budget - memory_used ||
         size > SIZE_MAX - sizeof(memory_header_t)) return NULL;
     memory_header_t *header = malloc(sizeof(*header) + size);
