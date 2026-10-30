@@ -9,6 +9,8 @@
 #include "freertos/semphr.h"
 #include "u8g2.h"
 #include "epd_relax.h"
+#include "epd_pixel_budget.h"
+#include "epd_scan_worker.h"
 
 #define EPD_SSD2677_PANEL_GENERIC 0U
 #define EPD_SSD2677_PANEL_STICKY 1U
@@ -17,6 +19,8 @@ typedef enum {
     EPD_SSD2677_REFRESH_AUTO,
     EPD_SSD2677_REFRESH_PARTIAL,
     EPD_SSD2677_REFRESH_FULL,
+    EPD_SSD2677_REFRESH_FAST,
+    EPD_SSD2677_REFRESH_PULSE,
 } epd_ssd2677_refresh_mode_t;
 
 typedef esp_err_t (*epd_ssd2677_power_fn_t)(void *context, bool on);
@@ -45,14 +49,31 @@ typedef struct {
     epd_relax_t relax;
     StaticSemaphore_t lock_storage;
     SemaphoreHandle_t lock;
+    StaticSemaphore_t mode_lock_storage;
+    SemaphoreHandle_t mode_lock;
+    epd_pulse_tuning_t pulse_tuning;
+    epd_pixel_budget_t pixel_budget;
+    epd_scan_worker_t scan_worker;
+    uint8_t *pulse_planes;
+    size_t pulse_mask_pending;
+    uint32_t pulse_updates, scan_submit_ready, pulse_spi_clock_hz;
+    uint16_t scan_period_ms;
+    int64_t pulse_last_frame_start;
+    bool scan_async, pulse_power_hold, fastwave_loaded, pulse_needs_cleanup;
+    bool pulse_mask_dirty, invert;
     int dc_pin, reset_pin, busy_pin, power_pin, power_active_level;
+    uint32_t spi_clock_hz, spi_applied_hz;
     epd_ssd2677_power_fn_t set_power;
     void *power_context;
     unsigned partial_refresh_count;
     uint8_t temperature;
+    uint8_t waveform;
+    int64_t temperature_read_us;
+    uint32_t last_frame_us, last_transfer_us, last_drive_us;
+    bool temperature_valid, waveform_valid, waveform_partial;
     bool bus_initialized, controller_ready, shadow_valid, powered, analog_on;
     bool suspended, power_state_present;
-    char mode_description[128];
+    char mode_description[896];
 } epd_ssd2677_t;
 
 esp_err_t epd_ssd2677_init(epd_ssd2677_t *display, const epd_ssd2677_config_t *config);

@@ -1,0 +1,29 @@
+SSD2677 RAM LUT transport parameters and drive selectors were adapted from
+Free-Ink/freeink-sdk f1e1d2be2594cc4750d4f9114d13c80845691775,
+libs/display/FreeInkDisplay/src/lut/Ssd2677Luts.h and driver/Ssd2677Driver.cpp.
+The reference tables describe the Onyx Picco SE0400NQW47 firmware, build 2912.
+SolarOS calibrates its own bounded short pulses for Sticky V2, keeps the
+panel's OTP analog settings, and reuses its existing shared pulse accounting.
+Source: https://github.com/Free-Ink/freeink-sdk
+
+MIT License
+
+Copyright (c) 2026 FreeInk
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

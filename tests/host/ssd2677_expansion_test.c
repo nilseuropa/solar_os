@@ -155,7 +155,7 @@ int main(void)
     assert(solar_os_ssd2677_attach("epd0", bindings, 6) == ESP_OK);
     assert(target.width == 800 && target.height == 480 && !target.black_is_one);
     assert(strcmp(target.driver, "ssd2677") == 0 && strcmp(target.controller, "SSD2677") == 0);
-    assert(target.frame_formats == SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT && target.preferred_stream_fps == 1);
+    assert(target.frame_formats == SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT && target.preferred_stream_fps == 10);
     test_raster_forwarding(target.frame_context, target.present_frame);
     assert(raster_driver == target.frame_context);
     assert(target.present_power_state(target.power_state_context) == ESP_OK);
@@ -175,7 +175,7 @@ int main(void)
     assert(solar_os_ssd2677_attach("display0", bindings, 6) == ESP_OK);
     assert(primary_display->ready && strcmp(primary_display->controller, "SSD2677") == 0);
     assert(primary_display->frame_formats == SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT);
-    assert(primary_display->preferred_stream_fps == 1 && primary_display->ops->present_mono_xbm);
+    assert(primary_display->preferred_stream_fps == 10 && primary_display->ops->present_mono_xbm);
     test_raster_forwarding(primary_display, primary_present);
     assert(raster_driver == primary_display->driver);
     assert(primary_display->ops->present_power_state(primary_display) == ESP_OK);

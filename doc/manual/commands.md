@@ -1542,13 +1542,24 @@ factory `refresh=auto|partial|full` modes. In auto mode,
 cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 `refresh=fast` is an alias for it.
 
-SSD2677 Sticky V2 exposes `refresh=auto|fast|partial|full` and `waveform=otp`.
-`refresh=fast` aliases native partial refresh, which sends a full-frame
-old/new differential image. Auto mode performs a full cleanup after 19 changed
-partial updates. Native full refresh also restores the baseline after errors,
-sleep, or display recovery. SSD2677 does not implement Fastwave/pulse; those
-requests return unsupported. Sticky identifies its controller at startup;
-`display list` reports the selected SSD1677 or SSD2677 driver.
+SSD2677 Sticky V2 starts in asynchronous `refresh=pulse` / `waveform=fastwave`
+with its own 535-byte RAM waveform, shared pixel budgets, background settling,
+and adaptive native cleanup. Defaults are `drive-cycles=12`, `pulse-frames=2`,
+`waveform-fr=5`, `pulse-period=100`, `pulse-power=hold`, and
+`cleanup-every=64`. Pulse tuning follows SSD1677, except `waveform-fr` accepts
+1..5 (25, 50, 65, 75, 85 Hz). `pulse-frames` and `drive-cycles` accept 1..32.
+`pulse-scan=sync` waits for settling; `pulse-scan=async` coalesces new targets
+and continues settling after the application stops painting.
+
+SSD2677 also exposes native `refresh=auto|fast|partial|full` and `waveform=otp`.
+`refresh=partial` sends a full-frame old/new differential image using factory
+scan timing. `refresh=fast` uses an 85 Hz scan rate for partial updates. Auto
+and fast modes perform a full cleanup after 19 changed partial updates;
+explicit partial mode bypasses periodic cleanup. Full refreshes retain factory
+scan timing and also restore the baseline after errors,
+sleep, or display recovery. Sticky identifies its controller at startup;
+`display list` reports the selected SSD1677 or SSD2677 driver. SSD2677 mode output
+includes the SPI rate and last refresh, transfer, and drive times in microseconds.
 
 SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
 `refresh=auto|partial|full` and `refresh=fast` as an alias for partial.

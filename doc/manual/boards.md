@@ -1409,23 +1409,44 @@ Touch swaps the GT911 axes before its 180-degree board rotation to match landsca
 The direct MONO1 frame presenter supports scaled animation and games at a preferred
 10 presentations per second on SSD1677. Pulse settling continues asynchronously.
 
-SSD2677 uses its own Sticky 3D97 V2 monochrome profile at 20 MHz and starts in
-native `refresh=auto`. `refresh=partial` (also `refresh=fast`) selects factory
-fast partial refresh; `refresh=full` forces factory full refresh. Auto mode
-performs a full cleanup after 19 changed partial updates. Unchanged frames are
-skipped. Partial updates transmit full-frame old/new two-bit transition pairs;
-this controller has no rectangular RAM window. The panel scans 680 gate lines
+SSD2677 uses its own Sticky 3D97 V2 monochrome profile at 20 MHz. Sticky's
+`panel=1` starts in asynchronous `refresh=pulse` / `waveform=fastwave`.
+The driver uploads an SSD2677-specific 535-byte RAM waveform and uses the same
+pixel-budget and scan worker as SSD1677. Defaults are `drive-cycles=12`,
+`pulse-frames=2`, `waveform-fr=5` (85 Hz), `pulse-period=100`,
+`pulse-power=hold`, and adaptive cleanup every 64 changed targets. Static
+pixels continue settling after the application stops painting; newer frames
+replace queued targets without waiting for every preceding frame to settle.
+`drive-cycles` and `pulse-frames` accept 1..32. SSD2677 `waveform-fr` accepts
+1..5, corresponding to 25, 50, 65, 75, and 85 Hz. Other pulse tuning, cleanup,
+inversion, synchronous scan, and SPI-rate controls follow SSD1677 semantics.
+The panel's own OTP supplies analog voltage settings. Full cleanup, recovery,
+and final power-state images use factory waveforms.
+
+Native `refresh=auto|fast|partial|full` modes remain available. The `panel=0`
+alias starts in auto mode. `refresh=partial` selects factory partial refresh;
+`refresh=fast` selects partial refresh with a fixed 85 Hz scan rate.
+`refresh=full` forces factory full refresh. Auto and fast modes perform a full
+cleanup after 19 changed partial updates; explicit partial mode bypasses periodic
+cleanup. Full refreshes always use factory scan timing. Unchanged frames are
+skipped. This profile transmits full-frame old/new two-bit transition pairs.
+The panel scans 680 gate lines
 while accepting the 480 visible image rows. Temperature readings select the
-vendor waveform bucket, with a 25 C fallback for unavailable readback.
+vendor waveform bucket, with a 25 C fallback for unavailable readback. Partial
+updates reuse that selection and resample temperature every five seconds;
+full refreshes always resample temperature and reload the factory waveform.
 The MONO1 raster presenter supports all four rotations, palette inversion,
-scaled animation and games, with a preferred rate of one presentation per
-second; actual refresh time depends on the waveform and temperature.
+scaled animation and games, with a preferred rate of ten presentations per
+second. Actual scan time depends on the waveform, transfer cost, and temperature.
+`display mode display0` reports scan/submission/coalescing statistics, pending
+pixels, the configured SPI rate, and the last native refresh, transfer, and panel
+drive times in microseconds.
 The driver reverses the V2 gate-row order while preserving the source X
 direction so the default orientation and touch calibration match SSD1677 units.
 Recovery (`display relax`), final power-state presentation, and
-sleep/resume use native full refreshes. SSD2677 Fastwave and pulse modes are
-not implemented: requests return unsupported, and the mode list exposes only
-native refresh options. The SSD1677 custom LUT format cannot be used on SSD2677.
+sleep/resume use native full refreshes. The driver restores its short RAM
+waveform after the next pulse baseline. The SSD1677 LUT/register format cannot
+be used directly on SSD2677.
 This profile does not support generic SSD2677 color panels.
 
 The LSM6DS3TR-C at `0x6a` supplies acceleration and angular velocity through

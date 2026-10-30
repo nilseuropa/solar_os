@@ -1827,10 +1827,11 @@ capabilities = ["gfx"]
 label = "expansion.ssd2677"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_ssd2677_expansion_driver"]
-depends = ["axp2101", "service_expansion", "service_spi"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd2677.c",
+  "drivers/epd_ssd2677_waveform.c",
   "services/solar_os_ssd2677.c",
   "services/solar_os_ssd2677_driver.c",
 ]

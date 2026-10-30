@@ -4,8 +4,8 @@
 #include "../../src/drivers/epd_ssd2677.c"
 #include "ssd2677_memory_stubs.h"
 
-typedef struct { uint8_t cmd; size_t size; uint8_t data[SSD2677_BUFFER_BYTES * 2U]; } captured_t;
-static captured_t captured[64];
+typedef struct { uint8_t cmd; size_t size, transfers; uint8_t data[SSD2677_BUFFER_BYTES * 2U]; } captured_t;
+static captured_t captured[128];
 static size_t command_count;
 static int dc_level, fail_after = -1;
 static int64_t now_us, busy_until;
@@ -14,6 +14,7 @@ static uint8_t sensor_temperature = 25;
 static unsigned removed, freed_bus;
 static unsigned reset_pins;
 static bool private_bus;
+static uint32_t spi_hz, spi_configured_hz;
 
 esp_err_t gpio_config(const gpio_config_t *gpio) { assert(gpio); return ESP_OK; }
 esp_err_t gpio_reset_pin(gpio_num_t pin) { (void)pin; reset_pins++; return ESP_OK; }
@@ -30,6 +31,7 @@ esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_
     (void)host;
     assert((config->flags & (SPI_DEVICE_3WIRE | SPI_DEVICE_HALFDUPLEX)) ==
         (SPI_DEVICE_3WIRE | SPI_DEVICE_HALFDUPLEX));
+    spi_hz = spi_configured_hz = config->clock_speed_hz;
     *spi = (void *)1; return ESP_OK;
 }
 esp_err_t solar_os_bus_spi_add_device(const char *bus, const spi_device_interface_config_t *config, spi_device_handle_t *spi)
@@ -39,27 +41,80 @@ esp_err_t spi_bus_free(spi_host_device_t host) { (void)host; freed_bus++; return
 esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t *tx)
 {
     assert(spi);
+    if (tx->override_freq_hz) spi_hz = tx->override_freq_hz;
     if (fail_after == 0) { fail_after = -1; return ESP_FAIL; }
     if (fail_after > 0) fail_after--;
     if (tx->rxlength) {
-        assert(tx->rxlength == 8 && tx->override_freq_hz == 1000000);
+        assert(tx->rxlength == 8 && spi_hz <= 1000000);
         *(uint8_t *)tx->rx_buffer = sensor_temperature;
         return ESP_OK;
     }
+    assert(spi_hz == spi_configured_hz); /* every write uses the configured rate */
     const uint8_t *data = tx->flags & SPI_TRANS_USE_TXDATA ? tx->tx_data : tx->tx_buffer;
     const size_t size = tx->length / 8U;
     if (!dc_level) {
-        assert(size == 1 && command_count < 64);
+        assert(size == 1 && command_count < 128);
         captured[command_count++] = (captured_t){.cmd = data[0]};
         if (data[0] == 0x12 || data[0] == 0x04 || data[0] == 0x02 || data[0] == 0xa5)
             busy_until = now_us + 30000;
     } else {
         assert(command_count);
         captured_t *c = &captured[command_count - 1];
+        c->transfers++;
         assert(c->size + size <= sizeof(c->data));
         memcpy(c->data + c->size, data, size); c->size += size;
     }
     return ESP_OK;
+}
+
+static bool worker_init_fail, worker_pending, worker_snapshot_valid;
+esp_err_t epd_scan_worker_init(epd_scan_worker_t *w, size_t n, epd_scan_process_fn fn, void *ctx)
+{
+    if (worker_init_fail) return ESP_ERR_NO_MEM;
+    memset(w, 0, sizeof(*w));
+    w->latest = calloc(1, n); w->snapshot = calloc(1, n);
+    assert(w->latest && w->snapshot);
+    w->lock = xSemaphoreCreateMutexStatic(&w->lock_storage);
+    w->task = (void *)1; w->frame_size = n; w->process = fn; w->context = ctx;
+    worker_pending = worker_snapshot_valid = false;
+    return ESP_OK;
+}
+void epd_scan_worker_enable(epd_scan_worker_t *w, bool enabled)
+{
+    if (!w->task) return;
+    if (w->enabled != enabled) { ++w->generation; worker_snapshot_valid = false; }
+    w->enabled = enabled;
+    if (!enabled) w->has_target = false;
+}
+esp_err_t epd_scan_worker_submit(epd_scan_worker_t *w, const uint8_t *frame)
+{
+    if (!w->task || !w->enabled) return ESP_ERR_INVALID_STATE;
+    if (w->has_target) ++w->stats.coalesced;
+    memcpy(w->latest, frame, w->frame_size); w->has_target = true;
+    ++w->stats.submitted; return ESP_OK;
+}
+esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *w, unsigned ms)
+{
+    if (!w->task) return ESP_ERR_INVALID_STATE;
+    if (ms < 10 || ms > 1000) return ESP_ERR_INVALID_ARG;
+    w->period_ms = ms; return ESP_OK;
+}
+epd_scan_stats_t epd_scan_worker_stats(epd_scan_worker_t *w) { return w->stats; }
+void epd_scan_worker_deinit(epd_scan_worker_t *w)
+{
+    free(w->latest); free(w->snapshot); w->latest = w->snapshot = NULL; w->task = NULL;
+}
+static esp_err_t worker_tick(epd_scan_worker_t *w)
+{
+    bool fresh = w->has_target && (!worker_snapshot_valid ||
+        memcmp(w->latest, w->snapshot, w->frame_size) != 0);
+    bool scanned = false;
+    if (fresh) memcpy(w->snapshot, w->latest, w->frame_size);
+    w->has_target = false;
+    esp_err_t err = w->process(w->context, w->snapshot, fresh, &worker_pending, &scanned);
+    if (fresh && err == ESP_OK) { ++w->stats.frames; worker_snapshot_valid = true; }
+    if (scanned) ++w->stats.scans;
+    return err;
 }
 
 static const captured_t *find(uint8_t command)
@@ -74,13 +129,14 @@ static epd_ssd2677_t make_display(void)
     const epd_ssd2677_config_t config = {
         .spi_bus = private_bus ? NULL : "spi0", .spi_host = SPI2_HOST, .sclk_pin = 13, .mosi_pin = 14,
         .cs_pin = 15, .dc_pin = 9, .reset_pin = 17, .busy_pin = 18, .power_pin = 47,
-        .busy_level = 0, .power_active_level = 1, .panel = 1,
+        .busy_level = 0, .power_active_level = 1, .panel = 0,
         .spi_clock_hz = 20000000, .rotation = U8G2_R0,
     };
     command_count = 0;
     assert(epd_ssd2677_init(&d,&config) == ESP_OK);
     /* A returned static semaphore pointer must refer to this instance. */
     d.lock = xSemaphoreCreateMutexStatic(&d.lock_storage);
+    d.mode_lock = xSemaphoreCreateMutexStatic(&d.mode_lock_storage);
     assert(find(0x61)->size == 4 && !memcmp(find(0x61)->data, (uint8_t[]){3,32,2,168},4));
     assert(find(0x00)->data[0] == 0x2f && !find(0x12));
     memset(d.buffer,0xff,d.buffer_size);
@@ -110,6 +166,7 @@ static void test_refresh_and_cleanup(void)
     assert(refresh(&d) == ESP_OK && d.shadow_valid && !d.analog_on);
     assert(find(0xe6)->data[0] == 0xee && find(0x04) && find(0x12) && find(0x02));
     check_wire(&d,NULL);
+    assert(find(0x10)->transfers == 60);
     assert((find(0x10)->data[95800] & 0xc0U) == 0); /* logical top-left */
     assert((find(0x10)->data[199] & 3U) == 0); /* logical bottom-right */
     assert((find(0x10)->data[95602] & 0x0cU) == 0); /* physical x=10, y=478 */
@@ -123,7 +180,8 @@ static void test_refresh_and_cleanup(void)
     for (unsigned n = 1; n <= 19; n++) {
         command_count = 0; d.buffer[1] ^= 1;
         assert(refresh(&d) == ESP_OK);
-        assert(find(0xe6)->data[0] == (n == 19 ? 0xee : 0x19));
+        if (n == 19) assert(find(0xe6)->data[0] == 0xee);
+        else assert(!find(0xe6) && d.waveform == 0x19 && d.waveform_partial);
     }
     assert(d.partial_refresh_count == 0 && !d.analog_on);
     epd_ssd2677_deinit(&d);
@@ -145,6 +203,25 @@ static void test_temperature(void)
     command_count = 0; epd_ssd2677_deinit(&d);
 }
 
+static void test_random_frame_encoding(void)
+{
+    epd_ssd2677_t d = make_display();
+    uint32_t random = 0x2677;
+    uint8_t old[48000];
+    for (unsigned frame = 0; frame < 3; frame++) {
+        if (frame) memcpy(old,d.shadow,sizeof(old));
+        for (size_t i = 0; i < d.buffer_size; i++) {
+            random ^= random << 13U; random ^= random >> 17U; random ^= random << 5U;
+            d.buffer[i] = (uint8_t)random;
+        }
+        command_count = 0;
+        assert(refresh(&d) == ESP_OK);
+        check_wire(&d,frame ? old : NULL);
+        assert(find(0x10)->transfers == 60);
+    }
+    command_count = 0; epd_ssd2677_deinit(&d);
+}
+
 static void test_failure_power_modes(void)
 {
     epd_ssd2677_t d = make_display();
@@ -159,10 +236,11 @@ static void test_failure_power_modes(void)
     stuck_busy = false; command_count = 0;
     assert(refresh(&d) == ESP_OK && d.shadow_valid);
     assert(epd_ssd2677_set_controller_mode(&d,"refresh=fast") == ESP_OK);
-    assert(d.refresh_mode == EPD_SSD2677_REFRESH_PARTIAL);
-    assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_ERR_NOT_SUPPORTED);
-    assert(epd_ssd2677_set_controller_mode(&d,"waveform=fastwave") == ESP_ERR_NOT_SUPPORTED);
-    assert(d.refresh_mode == EPD_SSD2677_REFRESH_PARTIAL);
+    assert(d.refresh_mode == EPD_SSD2677_REFRESH_FAST);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"waveform=fastwave") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=fast") == ESP_OK);
+    assert(d.refresh_mode == EPD_SSD2677_REFRESH_FAST);
     command_count = 0;
     assert(epd_ssd2677_present_power_state(&d) == ESP_OK && find(0x02));
     command_count = 0;
@@ -239,6 +317,118 @@ static void test_raster_rotations(void)
     }
 }
 
+static void test_spi_clock_restoration(void)
+{
+    epd_ssd2677_t d = make_display();
+    assert(refresh(&d) == ESP_OK && spi_hz == 20000000);
+    command_count = 0;
+    uint8_t read = 0;
+    spi_transaction_t rx = {.rxlength=8,.rx_buffer=&read};
+    fail_after = 0;
+    assert(transmit(&d,&rx,1000000) == ESP_FAIL);
+    assert(spi_hz == 1000000 && d.spi_applied_hz == 0);
+    assert(command(&d,0x30,(uint8_t[]){8},1) == ESP_OK);
+    assert(spi_hz == 20000000 && d.spi_applied_hz == 20000000);
+    command_count = 0;
+    epd_ssd2677_deinit(&d);
+}
+
+static void test_waveform_cache_and_fast_cleanup(void)
+{
+    epd_ssd2677_t d = make_display();
+    assert(refresh(&d) == ESP_OK);
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && find(0xe6)->data[0] == 0x19);
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && !find(0x40) && !find(0xa5));
+    now_us += 6000000; sensor_temperature = 15;
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && find(0x40) && find(0xe6)->data[0] == 0x0f);
+    now_us += 6000000; sensor_temperature = 16;
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && find(0x40) && !find(0xa5));
+    sensor_temperature = 25;
+    command_count = 0;
+    assert(epd_ssd2677_resume(&d) == ESP_OK && !d.waveform_valid && !d.temperature_valid);
+    command_count = 0;
+    assert(refresh(&d) == ESP_OK && find(0xe6)->data[0] == 0xee);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=fast") == ESP_OK);
+    for (unsigned i = 0; i < 20; i++) {
+        command_count = 0; d.buffer[10] ^= 1;
+        assert(refresh(&d) == ESP_OK);
+        assert(d.partial_refresh_count == (i == 19 ? 0 : i+1));
+        assert(find(0x30)->data[0] == (i == 19 ? 0x08 : 0x05));
+    }
+    assert(strstr(epd_ssd2677_controller_mode(&d),"refresh=fast"));
+    assert(epd_ssd2677_set_controller_mode(&d,"waveform=otp") == ESP_OK);
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && find(0x30)->data[0] == 0x08);
+    command_count = 0; epd_ssd2677_deinit(&d);
+}
+
+static void test_pulse_waveform_contract(void)
+{
+    uint8_t lut[SOLAR_OS_SSD2677_LUT_BYTES];
+    const unsigned counts[] = {1,2,4,8,16,32};
+    const uint8_t encodings[] = {0xef,0x7f,0xbf,0xfd,0xfe,0xf7};
+    assert(!solar_os_ssd2677_waveform_build(lut,0,false));
+    assert(!solar_os_ssd2677_waveform_build(lut,33,false));
+    for (unsigned i = 0; i < 6; i++) {
+        assert(solar_os_ssd2677_waveform_build(lut,counts[i],false));
+        for (unsigned b = 0; b < 6; b++) assert(lut[7+b*88] == encodings[i]);
+    }
+    assert(solar_os_ssd2677_waveform_build(lut,1,false));
+    assert(!memcmp(lut+7,lut+95,11) && !memcmp(lut+7,lut+359,11)); /* HOLD */
+    assert(lut[184] == 0xd5 && lut[272] == 0xba); /* white/black selectors */
+    assert(lut[16] == 0xef && lut[17] == 0xef); /* calibrated active phase */
+    assert(solar_os_ssd2677_waveform_build(lut,1,true));
+    assert(lut[184] == 0xba && lut[272] == 0xd5);
+}
+
+static void test_pulse_settling_async_and_recovery(void)
+{
+    epd_ssd2677_t d = make_display();
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=sync") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"drive-cycles=3") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_OK);
+    assert(refresh(&d) == ESP_OK && d.shadow_valid); /* native optical baseline */
+    command_count = 0; d.buffer[10] ^= 1;
+    assert(refresh(&d) == ESP_OK && !d.pixel_budget.pending);
+    assert(find(0x20) && find(0x20)->size == SOLAR_OS_SSD2677_LUT_BYTES);
+    assert(d.pixel_budget.drive_history[10] == 3);
+    const captured_t *wire = find(0x10);
+    assert(((wire->data[479*200+10/4] >> (6-(10%4)*2)) & 3U) == 2U);
+    assert(!d.analog_on && d.fastwave_loaded);
+    command_count = 0;
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=async") == ESP_OK);
+    assert(refresh(&d) == ESP_OK && !command_count);
+    assert(worker_tick(&d.scan_worker) == ESP_OK); /* new async baseline */
+    command_count = 0; d.buffer[20] ^= 1;
+    assert(refresh(&d) == ESP_OK && !command_count);
+    assert(refresh(&d) == ESP_OK && d.scan_worker.stats.coalesced);
+    assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
+    assert(d.pixel_budget.drive_history[20] == 1);
+    command_count = 0;
+    assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
+    assert(!find(0x10) && !find(0x20)); /* reuse unchanged drive mask and LUT */
+    assert(worker_tick(&d.scan_worker) == ESP_OK && !d.pixel_budget.pending);
+    assert(d.pixel_budget.drive_history[20] == 3 && !d.analog_on);
+    assert(strstr(epd_ssd2677_controller_mode(&d),"waveform=fastwave"));
+    assert(epd_ssd2677_set_controller_mode(&d,"waveform-fr=6") == ESP_ERR_INVALID_ARG);
+    assert(d.pulse_tuning.waveform_fr == 5);
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-frames=33") == ESP_ERR_INVALID_ARG);
+    command_count = 0;
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=sync") == ESP_OK);
+    assert(!d.scan_worker.task);
+    assert(refresh(&d) == ESP_OK);
+    command_count = 0; d.buffer[30] ^= 1; fail_after = 0;
+    assert(refresh(&d) == ESP_FAIL && d.refresh_mode == EPD_SSD2677_REFRESH_AUTO);
+    assert(!d.shadow_valid && !d.scan_submit_ready);
+    command_count = 0;
+    assert(refresh(&d) == ESP_OK && find(0xe6)->data[0] == 0xee);
+    command_count = 0; epd_ssd2677_deinit(&d);
+}
+
 int main(void)
 {
     epd_ssd2677_t rejected = {0};
@@ -248,6 +438,11 @@ int main(void)
     assert(reset_pins == 0); /* no peripheral GPIO reset on rejected bindings */
     test_refresh_and_cleanup(); test_temperature(); test_failure_power_modes();
     test_relax_and_shadow_failure(); test_raster_rotations();
+    test_spi_clock_restoration();
+    test_waveform_cache_and_fast_cleanup();
+    test_random_frame_encoding();
+    test_pulse_waveform_contract();
+    test_pulse_settling_async_and_recovery();
     private_bus = true;
     epd_ssd2677_t d = make_display(); epd_ssd2677_deinit(&d);
     const unsigned released_pins = reset_pins;

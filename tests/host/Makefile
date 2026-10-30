@@ -320,11 +320,13 @@ ssd2677_expansion_test: ssd2677_expansion_test.c ssd2677_memory_stubs.h $(ROOT)/
 		-I$(ROOT)/components/u8g2/src/clib ssd2677_expansion_test.c -o $@
 
 epd_ssd2677_test: epd_ssd2677_test.c ssd2677_memory_stubs.h $(ROOT)/src/drivers/epd_ssd2677.c \
-        $(ROOT)/src/drivers/epd_ssd2677.h $(ROOT)/src/drivers/epd_relax.h $(EPD_U8G2_TEST_SOURCES) \
+        $(ROOT)/src/drivers/epd_ssd2677.h $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_ssd2677_waveform.h \
+        $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_scan_worker.h \
+        $(ROOT)/src/drivers/epd_relax.h $(EPD_U8G2_TEST_SOURCES) \
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_ssd2677_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_ssd2677_test.c $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 epd_ssd2677_test: override CFLAGS += -I$(ROOT)/src
 
 epd_sticky_identify_test: epd_sticky_identify_test.c $(ROOT)/src/drivers/epd_sticky_identify.c $(ROOT)/src/drivers/epd_sticky_identify.h

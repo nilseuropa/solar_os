@@ -346,7 +346,7 @@ static esp_err_t register_auxiliary(solar_os_ssd2677_device_t *device)
     target.present_power_state = target_present_power_state;
     target.power_state_context = &device->driver;
     target.frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
-    target.preferred_stream_fps = 1U;
+    target.preferred_stream_fps = 10U;
     target.present_frame = target_present_frame;
     target.frame_context = &device->driver;
     return solar_os_display_register_target(&target);
@@ -414,7 +414,7 @@ esp_err_t solar_os_ssd2677_attach(const char *name,
         .u8g2 = u8g2,
         .controller = "SSD2677",
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT,
-        .preferred_stream_fps = 1U,
+        .preferred_stream_fps = 10U,
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
         .ready = true,
