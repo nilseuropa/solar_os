@@ -2,6 +2,16 @@
 
 ## 4.x
 
+- **4.17.1** — 2026-10-30 — Added Seeed reTerminal Sticky support with
+  Fastwave e-paper refresh, touch, IMU gestures, PDM microphone capture and
+  battery monitoring. Added runtime display rotation and integer scaling,
+  with improved app redraw, touch direction and Sketch canvas preservation.
+  Added LR11xx radio support and ThinkNode M9 radio bindings, fixed keypad
+  backlight PWM, and added authenticated RTSP streaming. Improved shared
+  memory reclamation, safe compaction, document layout memory use and
+  out-of-memory reporting. Fixed presenter stack overflows, CPU starvation
+  during document, audio and HTTP processing, and lost PSRAM updates on
+  affected classic ESP32 chips.
 - **4.17.0** — 2026-10-27 — Added Sealed Chat (SC2) with end-to-end
   encrypted direct messages and named private rooms, authenticated room
   invitations, signed public rooms, safety-number verification, readable
