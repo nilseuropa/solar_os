@@ -64,4 +64,6 @@ bool solar_os_shell_run_script(solar_os_context_t *ctx,
 esp_err_t solar_os_shell_run_background_script(const char *path);
 /* Run one command without a terminal. Foreground application launches are rejected. */
 esp_err_t solar_os_shell_run_background_command(const char *command);
+void solar_os_shell_session_redraw_prompt(solar_os_context_t *ctx,
+                                         solar_os_shell_session_t *session);
 esp_err_t solar_os_shell_set_cwd(solar_os_context_t *ctx, const char *path);

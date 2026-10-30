@@ -14,6 +14,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_work.h"
 
 #define HTTPD_JOB_ROOT_MAX SOLAR_OS_STORAGE_PATH_MAX
 #define HTTPD_JOB_PATH_MAX 256
@@ -270,7 +271,10 @@ static esp_err_t send_file(httpd_req_t *req, const char *path)
     (void)httpd_resp_set_type(req, content_type_for_path(path));
 
     esp_err_t ret = ESP_OK;
+    solar_os_work_budget_t work;
+    solar_os_work_begin(&work);
     while (true) {
+        solar_os_work_checkpoint(&work);
         const size_t read_len = fread(chunk, 1, HTTPD_JOB_CHUNK_SIZE, file);
         if (read_len > 0) {
             ret = httpd_resp_send_chunk(req, chunk, read_len);

@@ -9,6 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SmallDisplayAppsTest(unittest.TestCase):
+    def test_synth_full_play_controls_stay_above_piano(self):
+        source = (ROOT / "src/apps/solar_os_synth_app.c").read_text()
+        functions = production_functions(source, (
+            "synth_envelope_value_index", "synth_draw_knob", "synth_draw_envelope",
+            "synth_draw_volume_button", "synth_editor_bottom", "synth_visualizer_extra_height",
+            "synth_play_graph_height", "synth_draw_keyboard", "synth_use_compact_layout",
+            "synth_draw_play"))
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            (tmp / "synth_play_view.inc").write_text(functions)
+            binary = tmp / "synth-view"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                "-I" + str(tmp), "-I" + str(ROOT / "tests/host"),
+                "-I" + str(ROOT / "src/services"),
+                str(ROOT / "tests/host/synth_play_view_test.c"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_media_app_views(self):
         widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
         helpers = widgets[widgets.index("static void media_transport_triangle"):

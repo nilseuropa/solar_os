@@ -48,7 +48,8 @@
 #define STC8H_COMPOSE_TIMEOUT_US 2000000LL
 
 #define STC8H_POLL_MS 15U
-#define STC8H_BACKLIGHT_PWM_HZ 5000U
+/* Must match the display backlight's frequency: all PWM pins share one LEDC timer. */
+#define STC8H_BACKLIGHT_PWM_HZ 20000U
 #define STC8H_TASK_STACK 3072U
 #define STC8H_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
 

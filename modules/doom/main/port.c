@@ -247,6 +247,13 @@ static bool evict_mapping(void)
     solar_os_doom_free(map);
     return true;
 }
+size_t solar_os_doom_reclaim(void *user)
+{
+    (void)user;
+    size_t bytes = cached_bytes;
+    while (evict_mapping()) {}
+    return bytes;
+}
 void *I_Mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
     file_at(fd);

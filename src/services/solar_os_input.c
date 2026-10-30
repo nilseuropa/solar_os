@@ -45,6 +45,7 @@
 typedef struct {
     bool pressed, moved, held, pending_tap, second_tap;
     uint8_t pointer_id;
+    uint16_t orientation_degrees;
     int16_t start_x, start_y, tap_x, tap_y;
     uint32_t pressed_ms, tap_ms;
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
@@ -138,6 +139,7 @@ static solar_os_input_keyboard_layout_t input_keyboard_layout =
 static input_repeat_state_t input_repeat;
 static solar_os_input_pointer_filter_t input_pointer_filter;
 static void *input_pointer_filter_context;
+static solar_os_input_display_orientation_resolver_t input_display_orientation_resolver;
 static input_gesture_observer_slot_t
     input_gesture_observers[INPUT_GESTURE_OBSERVER_MAX];
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -262,6 +264,9 @@ static const char *const input_gesture_names[] = {
     [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
     [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
     [SOLAR_OS_INPUT_GESTURE_SWIPE] = "swipe",
+    [SOLAR_OS_INPUT_GESTURE_TILT] = "tilt",
+    [SOLAR_OS_INPUT_GESTURE_WAKE] = "wake",
+    [SOLAR_OS_INPUT_GESTURE_FREE_FALL] = "free-fall",
 };
 
 static const char *const input_gesture_direction_names[] = {
@@ -737,6 +742,7 @@ esp_err_t solar_os_input_init(void)
     }
     input_pointer_filter = NULL;
     input_pointer_filter_context = NULL;
+    input_display_orientation_resolver = NULL;
     memset(input_gesture_observers, 0, sizeof(input_gesture_observers));
     portEXIT_CRITICAL(&input_lock);
     return repeat_err != ESP_OK ? repeat_err : layout_err;
@@ -1711,7 +1717,7 @@ static void input_touch_tick_locked(solar_os_input_source_t source, uint32_t now
 
 static void input_touch_pointer_locked(solar_os_input_source_t source,
     const solar_os_input_pointer_event_t *event, uint32_t now,
-    input_touch_delivery_t *delivery)
+    uint16_t orientation_degrees, input_touch_delivery_t *delivery)
 {
     if (!input_touch_available_locked(source) ||
         event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE) return;
@@ -1735,6 +1741,7 @@ static void input_touch_pointer_locked(solar_os_input_source_t source,
         touch->pressed = true;
         touch->moved = touch->held = false;
         touch->pointer_id = event->pointer_id;
+        touch->orientation_degrees = orientation_degrees;
         touch->start_x = event->x; touch->start_y = event->y;
         touch->pressed_ms = now;
         memcpy(touch->target, event->target, sizeof(touch->target));
@@ -1769,9 +1776,16 @@ static void input_touch_pointer_locked(solar_os_input_source_t source,
     } else if (duration <= INPUT_TOUCH_SWIPE_MS &&
                ((ax >= INPUT_TOUCH_SWIPE_DISTANCE && ax * 2 >= ay * 3) ||
                 (ay >= INPUT_TOUCH_SWIPE_DISTANCE && ay * 2 >= ax * 3))) {
-        const solar_os_input_gesture_direction_t direction = ax > ay
-            ? (dx > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST : SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST)
-            : (dy > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH : SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
+        int32_t screen_dx = dx, screen_dy = dy;
+        switch (touch->orientation_degrees) {
+        case 90: screen_dx = dy; screen_dy = -dx; break;
+        case 180: screen_dx = -dx; screen_dy = -dy; break;
+        case 270: screen_dx = -dy; screen_dy = dx; break;
+        default: break;
+        }
+        const solar_os_input_gesture_direction_t direction = input_touch_abs(screen_dx) > input_touch_abs(screen_dy)
+            ? (screen_dx > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST : SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST)
+            : (screen_dy > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH : SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
         const int32_t distance = ax > ay ? ax : ay;
         input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_SWIPE, direction,
             distance > INT16_MAX ? INT16_MAX : (int16_t)distance, delivery);
@@ -1801,6 +1815,14 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
     return solar_os_input_write_pointer_sample(source, &sample);
 }
 
+void solar_os_input_set_display_orientation_resolver(
+    solar_os_input_display_orientation_resolver_t resolver)
+{
+    portENTER_CRITICAL(&input_lock);
+    input_display_orientation_resolver = resolver;
+    portEXIT_CRITICAL(&input_lock);
+}
+
 esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
     const solar_os_input_pointer_sample_t *sample)
 {
@@ -1812,6 +1834,14 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
         return ESP_ERR_INVALID_ARG;
     }
 
+    uint16_t orientation_degrees = 0;
+    if (event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
+        event->action == SOLAR_OS_INPUT_POINTER_PRESS && event->target[0] != '\0') {
+        portENTER_CRITICAL(&input_lock);
+        solar_os_input_display_orientation_resolver_t resolver = input_display_orientation_resolver;
+        portEXIT_CRITICAL(&input_lock);
+        if (resolver != NULL) orientation_degrees = resolver(event->target);
+    }
     esp_err_t result = ESP_OK;
     input_touch_delivery_t delivery = {0};
     portENTER_CRITICAL(&input_lock);
@@ -1861,7 +1891,8 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
             memset(&input_sources[source - 1U].touch, 0,
                    sizeof(input_sources[source - 1U].touch));
         } else {
-            input_touch_pointer_locked(source, &queued, sample->time_ms, &delivery);
+            input_touch_pointer_locked(source, &queued, sample->time_ms,
+                orientation_degrees, &delivery);
             input_increment_counter(&diagnostics->pointer_events);
             diagnostics->has_pointer = true;
             diagnostics->last_pointer.event = queued;
@@ -1972,6 +2003,28 @@ bool solar_os_input_pointer_is_captured(solar_os_input_source_t source)
     const bool captured = input_source_valid_locked(source) && pointer_captures[source - 1U].owner != NULL;
     portEXIT_CRITICAL(&input_lock);
     return captured;
+}
+
+esp_err_t solar_os_input_pointer_apply_display_transform(
+    solar_os_input_pointer_event_t *event, uint16_t width, uint16_t height,
+    uint16_t orientation_degrees, uint8_t scale)
+{
+    if (event == NULL || scale == 0 || width / scale == 0 || height / scale == 0 ||
+        width / scale > INT16_MAX || height / scale > INT16_MAX ||
+        event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE ||
+        (orientation_degrees != 0 && orientation_degrees != 90 &&
+         orientation_degrees != 180 && orientation_degrees != 270)) return ESP_ERR_INVALID_ARG;
+    int previous_x = event->x - event->delta_x;
+    int previous_y = event->y - event->delta_y;
+    event->x /= scale; event->y /= scale;
+    const int logical_width = width / scale, logical_height = height / scale;
+    if (event->x < 0) event->x = 0;
+    if (event->y < 0) event->y = 0;
+    if (event->x >= logical_width) event->x = logical_width - 1;
+    if (event->y >= logical_height) event->y = logical_height - 1;
+    event->delta_x = event->x - previous_x / scale;
+    event->delta_y = event->y - previous_y / scale;
+    return solar_os_input_pointer_apply_orientation(event, logical_width, logical_height, orientation_degrees);
 }
 
 esp_err_t solar_os_input_pointer_apply_orientation(

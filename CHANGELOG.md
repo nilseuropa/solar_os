@@ -2,6 +2,37 @@
 
 ## 4.x
 
+- **4.17.1** — 2026-10-30 — Added Seeed reTerminal Sticky support with
+  Fastwave e-paper refresh, touch, IMU gestures, PDM microphone capture and
+  battery monitoring. Added runtime display rotation and integer scaling,
+  with improved app redraw, touch direction and Sketch canvas preservation.
+  Added LR11xx radio support and ThinkNode M9 radio bindings, fixed keypad
+  backlight PWM, and added authenticated RTSP streaming. Improved shared
+  memory reclamation, safe compaction, document layout memory use and
+  out-of-memory reporting. Fixed presenter stack overflows, CPU starvation
+  during document, audio and HTTP processing, and lost PSRAM updates on
+  affected classic ESP32 chips.
+- **4.17.0** — 2026-10-27 — Added Sealed Chat (SC2) with end-to-end
+  encrypted direct messages and named private rooms, authenticated room
+  invitations, signed public rooms, safety-number verification, readable
+  sender labels, and shell completion. Added signed relay discovery, relay
+  key pinning, fallback relays, and Python/Lua SC2 APIs. The `sc2-sync`
+  worker follows explicit job start/stop controls. `chatd` can host a small
+  SC2 relay alongside legacy v1. Added configurable low-voltage actions to
+  `batmon` and CAN bus management in the I/O app. Fixed CL-32 sleep/wake
+  behavior and power splash screens.
+- **4.16.32** — 2026-10-26 — Added a tabbed messaging manager and direct Chat
+  access from Contacts. Fixed MeshCore send stack usage. Added Pi0cket CL-32
+  e-paper board support alongside RLCD, with held modifiers, session shortcuts,
+  and keyboard wake from sleep. Added the reusable SSD1685 driver with Fastwave,
+  native-app raster output, and pulse refresh by default. Extended `display relax`
+  to all supported e-paper displays. Added named display profiles and improved
+  runtime attachment with resolution and rotation lists. The function generator
+  now fits smaller displays.
+- **4.16.31** — 2026-10-25 — Chat now retains received and sent messages
+  on disk with fast channel switching and access to older history. Added TWAI
+  CAN expansion support and shell controls. Improved BLE keyboard compatibility,
+  fixed large-display rendering, and preserved full color in browser mirroring.
 - **4.16.30** — 2026-10-24 — Faster native-app discovery at boot and reduced
   alert-tone SRAM use. Added Jet background caching and Python/Lua access to
   terminal colors. Display snapshots now mirror unscaled full-screen RGB565

@@ -29,7 +29,7 @@ class PowerKeyTest(unittest.TestCase):
 static bool down, key_interrupt_ready, key_irq_pending, key_pressed;
 static bool key_long_press_fired, key_ignore_until_released, ble_enabled = true;
 static uint32_t now, key_pressed_ms, last_status_update_ms;
-static unsigned chars, pairs, forgets, suspends, wakes, sleeps, deeps;
+static unsigned chars, pairs, forgets, suspends, wakes, sleeps, deeps, shutdowns;
 static uint8_t last_char;
 static int key_input_source = 1;
 static solar_os_power_status_t status;
@@ -42,6 +42,7 @@ void solar_os_power_note_activity(uint32_t ms) { status.last_activity_ms = ms; }
 static bool solar_os_ble_keyboard_enabled_for_current_boot(void) { return ble_enabled; }
 static esp_err_t solar_os_ble_keyboard_forget(void) { forgets++; return ESP_OK; }
 static esp_err_t solar_os_ble_keyboard_start_pairing(void) { pairs++; return ESP_OK; }
+esp_err_t solar_os_shutdown_request(void) { shutdowns++; return ESP_OK; }
 static void update_status(void) { }
 static void draw_terminal_if_needed(void) { }
 static esp_err_t solar_os_input_write_char(int src, char ch) {
@@ -115,6 +116,11 @@ int main(void) {
     tap(); assert(deeps == 2U);
     status.key_action = SOLAR_OS_POWER_KEY_ACTION_DEFAULT;
     tap(); assert(chars == 3U && last_char == 0x09);
+    status.key_long_action = SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN;
+    poll(true, 10U); poll(true, 1200U); poll(true, 5000U);
+    assert(shutdowns == 0U);
+    poll(false, 10U);
+    assert(shutdowns == 1U && chars == 3U);
 }
 ''', *FLAGS)
 

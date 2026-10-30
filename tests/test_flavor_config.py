@@ -44,6 +44,25 @@ class FlavorConfigTest(unittest.TestCase):
             board.board_id: board for board in flavor_config.load_board_contexts()
         }
 
+    def test_cl32_variants_use_their_own_build_environments(self):
+        self.assertNotIn("cl32_base", self.boards)
+        for board_id, package, other in (
+            ("cl_32", "driver_display_st7305", "expansion_ssd1685"),
+            ("cl32_epd", "expansion_ssd1685", "driver_display_st7305"),
+        ):
+            with self.subTest(board=board_id):
+                board = self.boards[board_id]
+                self.assertEqual(board.environment, board_id)
+                self.assertIn(package, board.required_packages)
+                self.assertNotIn(other, board.required_packages)
+
+    def test_cl32_custom_overlay_keeps_public_build_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = Path(directory) / "custom.toml"
+            overlay.write_text('schema = 1\nextends = "cl32_epd"\n[board]\nid = "custom"\n')
+            self.assertEqual(flavor_config._base_manifest_id(
+                overlay, REPOSITORY / "boards" / "manifests"), "cl32_epd")
+
     def test_visible_choices_are_granular_groups(self):
         groups = flavor_config.visible_groups(self.catalog)
         names = {
@@ -158,6 +177,12 @@ class FlavorConfigTest(unittest.TestCase):
         self.assertEqual(rover.app_bytes, 0x3D0000)
 
     def test_update_layouts_follow_board_flash_capacity(self):
+        sticky = self.boards["seeed_reterminal_sticky"]
+        self.assertEqual(sticky.flash_bytes, 32 * 1024 * 1024)
+        self.assertEqual(
+            [(layout.key, layout.app_bytes) for layout in sticky.layouts],
+            [("ota", 0x700000), ("single", 0xE00000)],
+        )
         solar_term = self.boards["solar_term"]
         self.assertEqual(
             [(layout.key, layout.app_bytes) for layout in solar_term.layouts],
@@ -175,6 +200,9 @@ class FlavorConfigTest(unittest.TestCase):
         )
 
     def test_platformio_layout_selection_uses_the_same_layout_model(self):
+        self.assertEqual(select_layout("partitions_32mb.csv").key, "ota")
+        self.assertEqual(select_layout("partitions_32mb.csv", "single").partition_file,
+                         "partitions_32mb_single.csv")
         self.assertEqual(select_layout("partitions.csv").key, "ota")
         self.assertEqual(select_layout("partitions_8mb.csv", "single").app_bytes,
                          0x700000)

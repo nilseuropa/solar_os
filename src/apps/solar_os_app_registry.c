@@ -25,6 +25,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
 #include "solar_os_chat_app.h"
+#include "solar_os_messages_app.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
 #include "solar_os_contacts_app.h"
@@ -185,6 +186,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_CHAT
     APP_ENTRY("chat", "provider-neutral conversation client", &solar_os_chat_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "chat [instance|class|conversation-id]", 1, 2),
+    APP_ENTRY("messages", "manage messaging instances, connections, and history", &solar_os_messages_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "messages", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CONTACTS
     APP_ENTRY("contacts", "provider-neutral address book", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "contacts", 1, 1),

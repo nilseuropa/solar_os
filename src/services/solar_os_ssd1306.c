@@ -61,10 +61,15 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *i2c_bus,
                                 size_t i2c_bus_len,
-                                uint8_t *address)
+                                uint8_t *address,
+                                unsigned *panel,
+                                unsigned *rotation,
+                                ssd1306_controller_t controller)
 {
     bool have_i2c = false;
     bool have_address = false;
+    bool have_panel = false;
+    bool have_rotation = false;
 
     if (bindings == NULL || i2c_bus == NULL || address == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -72,6 +77,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 
     i2c_bus[0] = '\0';
     *address = 0;
+    *panel = 0;
+    *rotation = 0;
 
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -89,6 +96,20 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             }
             *address = (uint8_t)binding->value;
             have_address = true;
+            break;
+        case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+            if (strcmp(binding->role, "panel") == 0 && !have_panel &&
+                binding->value >= 0 &&
+                binding->value <= (controller == SSD1306_CONTROLLER_SH1106 ? 3 : 7)) {
+                *panel = (unsigned)binding->value;
+                have_panel = true;
+            } else if (strcmp(binding->role, "rotation") == 0 && !have_rotation &&
+                       binding->value >= 0 && binding->value <= 3) {
+                *rotation = (unsigned)binding->value;
+                have_rotation = true;
+            } else {
+                return ESP_ERR_INVALID_ARG;
+            }
             break;
         default:
             return ESP_ERR_INVALID_ARG;
@@ -141,6 +162,7 @@ static esp_err_t attach_display(const char *name,
 {
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
     uint8_t address = 0;
+    unsigned panel = 0, rotation = 0;
 
     if (name == NULL ||
         name[0] == '\0' ||
@@ -152,7 +174,10 @@ static esp_err_t attach_display(const char *name,
                                        binding_count,
                                        i2c_bus,
                                        sizeof(i2c_bus),
-                                       &address),
+                                       &address,
+                                       &panel,
+                                       &rotation,
+                                       controller),
                         TAG,
                         "invalid bindings");
 
@@ -168,7 +193,8 @@ static esp_err_t attach_display(const char *name,
     strlcpy(device->i2c_bus, i2c_bus, sizeof(device->i2c_bus));
 
     const ssd1306_io_t io = {.probe = probe, .transmit = transmit, .ctx = device};
-    esp_err_t ret = ssd1306_init_with_io(&device->display, address, controller, &io);
+    esp_err_t ret = ssd1306_init_profile_with_io(&device->display, address, controller,
+                                                 panel, rotation, &io);
     if (ret == ESP_OK) {
         ret = register_display_target(device);
     }

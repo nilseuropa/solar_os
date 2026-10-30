@@ -31,6 +31,13 @@ transmitting. Set `listen=0` for normal bus participation. Optional
 multiplexer; `active=0|1` selects its enabled level (default 1). Detaching
 releases selection and all resource claims.
 
+In the `io` app, press `n`, select `can`, and set the controller name, TX/RX
+GPIOs, bitrate, and mode. An optional Select GPIO and Active level control a
+transceiver enable pin. CAN controllers appear in the Buses view, where runtime
+controllers have `Autostart` and `Remove CAN bus` actions. The CAN option is
+available when the `twai-can` driver is installed and supported by the board.
+Use `expansion attach` for selection through an external GPIO controller.
+
 Frames carry up to eight data bytes. IDs default to standard 11-bit form;
 add `ext` for a 29-bit ID. Hex data contains two digits per byte, without
 spaces; `-` sends a zero-length frame. Add `rtr` for a remote request; its DLC

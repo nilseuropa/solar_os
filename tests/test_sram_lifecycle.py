@@ -129,6 +129,7 @@ class SramLifecycleTest(unittest.TestCase):
 #define CHATD_MAX_CHANNELS 32
 #define CHATD_DEFAULT_CHANNEL "main"
 #define CHATD_DEFAULT_PORT 5555
+#define CHATD_SC2 0
 #define CHATD_TASK_STACK 8192
 #define CHATD_TASK_PRIORITY 1
 #define CHATD_STOP_WAIT_MS 100
@@ -142,9 +143,10 @@ static chatd_job_state_t *chatd_state;
 static const struct { const char *name; } solar_os_chatd_job = {"chatd"};
 static int parse_error, buffer_error, listener_error, task_failure, worker_finishes;
 static int shutdowns;
+typedef struct { bool v1; bool sc2; const char *sc2_id; } chatd_opts_t;
 static esp_err_t chatd_parse_args(int n, char **args, uint16_t *port,
-                                 const char **token, const char **history) {
-    (void)n; (void)args; (void)port; (void)token; (void)history; return parse_error;
+                                 const char **token, const char **history, chatd_opts_t *opts) {
+    (void)n; (void)args; (void)port; (void)token; (void)history; opts->v1 = true; return parse_error;
 }
 static esp_err_t chatd_alloc_buffers(chatd_job_state_t *s) {(void)s; return buffer_error;}
 static void chatd_free_buffers(chatd_job_state_t *s) {(void)s;}

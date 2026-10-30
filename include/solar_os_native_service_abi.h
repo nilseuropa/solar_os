@@ -23,6 +23,7 @@ typedef bool (*solar_os_native_cancel_fn)(void *user);
 
 #define SOLAR_OS_NATIVE_MEMORY_SERVICE "memory"
 #define SOLAR_OS_NATIVE_MEMORY_ABI 1U
+typedef struct solar_os_native_memory_buffer solar_os_native_memory_buffer_t;
 /* Request-owned PSRAM. Allocation failure returns NULL. Release all buffers
  * before module unload. Standard C helpers may read/write these buffers. */
 typedef struct {
@@ -36,4 +37,12 @@ typedef struct {
     bool (*is_external)(const void *buffer);
     size_t (*free_bytes)(bool external);
     size_t (*largest_free_bytes)(bool external);
+    /* Optional movable buffers. Test struct_size before using appended fields.
+     * pin returns a temporary contiguous pointer; never retain it after unpin.
+     * destroy returns false while pinned. Serialize handle lifetime, release all
+     * leases and destroy all handles before module unload. Raw alloc stays fixed. */
+    solar_os_native_memory_buffer_t *(*buffer_create)(size_t bytes);
+    void *(*buffer_pin)(solar_os_native_memory_buffer_t *buffer);
+    bool (*buffer_unpin)(solar_os_native_memory_buffer_t *buffer);
+    bool (*buffer_destroy)(solar_os_native_memory_buffer_t *buffer);
 } solar_os_native_memory_api_v1_t;

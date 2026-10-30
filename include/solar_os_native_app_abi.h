@@ -156,6 +156,12 @@ typedef struct {
     /* CPU-work checkpoint. The host can coalesce successive requests to yield
      * periodically; use sleep_ms for timed waits. Keep polling stop/suspend. */
     void (*cooperate)(void);
+    /* Optional rebuildable cache hook, called only after suspend joins the
+     * presenter/audio workers. Resume and unload wait for an in-flight hook.
+     * It runs on the pressure caller: free only, no allocation, host foreground
+     * APIs, blocking waits or retained pointers to its released data. Register
+     * once from the guest worker; the host unregisters before module unload. */
+    int (*set_memory_reclaimer)(size_t (*reclaim)(void *user), void *user);
 } solar_os_native_foreground_api_v1_t;
 
 static inline bool solar_os_native_foreground_has_exchange(

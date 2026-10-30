@@ -642,6 +642,11 @@ label = "QMI8658 IMU"
 category = "Expansion hardware"
 members = ["qmi8658"]
 
+[groups.lsm6ds3trc]
+label = "LSM6DS3TR-C IMU"
+category = "Expansion hardware"
+members = ["lsm6ds3trc"]
+
 [groups.drv2605]
 label = "DRV2605 haptic controller"
 category = "Expansion hardware"
@@ -726,6 +731,11 @@ members = ["expansion_pcm5102"]
 label = "PCM1808 audio input"
 category = "Expansion hardware"
 members = ["expansion_pcm1808"]
+
+[groups.audio_pdm]
+label = "PDM microphone"
+category = "Expansion hardware"
+members = ["expansion_audio_pdm"]
 
 [groups.inmp441]
 label = "INMP441 microphone and shared I2S playback"
@@ -812,6 +822,11 @@ label = "SHTC3 environmental sensor"
 category = "Expansion hardware"
 members = ["driver_shtc3"]
 
+[groups.sht40]
+label = "SHT40 environmental sensor"
+category = "Expansion hardware"
+members = ["driver_sht40"]
+
 [groups.battery_adc]
 label = "ADC battery monitor"
 category = "Expansion hardware"
@@ -824,7 +839,7 @@ hidden = true
 members = ["service_hid"]
 
 [groups.cl32_core]
-label = "CL-32 board controller"
+label = "Pi0cket CL-32 board controller"
 category = "Internal"
 hidden = true
 members = ["board_cl32_core"]
@@ -843,6 +858,11 @@ members = ["tca8418"]
 label = "SX1262 LoRa radio"
 category = "Expansion hardware"
 members = ["sx1262"]
+
+[groups.lr11xx]
+label = "LR11xx LoRa radio"
+category = "Expansion hardware"
+members = ["lr11xx"]
 
 [groups.rotary_encoder]
 label = "Quadrature rotary encoder"
@@ -890,6 +910,7 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
   "services/solar_os_frame_presenter.c",
@@ -905,6 +926,7 @@ sources = [
   "services/solar_os_manual.c",
   "services/solar_os_memory.c",
   "services/solar_os_memory_arena.c",
+  "services/solar_os_paged_array.c",
   "services/solar_os_messaging_types.c",
   "services/solar_os_nvs_backup.c",
   "services/solar_os_port.c",
@@ -1803,10 +1825,11 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "expansion.ssd1677"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_ssd1677_expansion_driver"]
-depends = ["axp2101", "service_expansion", "service_spi"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",
+  "drivers/epd_ssd1677_waveform.c",
   "services/solar_os_ssd1677.c",
   "services/solar_os_ssd1677_driver.c",
 ]
@@ -1983,6 +2006,19 @@ sources = [
 requires = ["esp_timer"]
 capabilities = ["i2c"]
 
+[packages.lsm6ds3trc]
+label = "expansion.lsm6ds3trc"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_lsm6ds3trc_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = [
+  "drivers/lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc.c",
+  "services/solar_os_lsm6ds3trc_driver.c",
+]
+requires = ["esp_timer", "esp_driver_gpio"]
+capabilities = ["i2c"]
+
 [packages.drv2605]
 label = "expansion.drv2605"
 targets = ["esp32", "esp32s3"]
@@ -2121,6 +2157,19 @@ sources = [
   "drivers/sx1262.c",
   "services/solar_os_sx1262.c",
   "services/solar_os_sx1262_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["spi"]
+
+[packages.lr11xx]
+label = "expansion.lr11xx"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_lr11xx_expansion_driver"]
+depends = ["service_radio", "service_spi"]
+sources = [
+  "drivers/lr11xx.c",
+  "services/solar_os_lr11xx.c",
+  "services/solar_os_lr11xx_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi"]
 capabilities = ["spi"]
@@ -2318,6 +2367,19 @@ sources = [
   "drivers/pcm5102.c",
   "services/solar_os_pcm5102.c",
   "services/solar_os_pcm5102_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_i2s"]
+capabilities = ["expansion_i2s"]
+
+[packages.expansion_audio_pdm]
+label = "expansion.audio_pdm"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_audio_pdm_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = [
+  "drivers/audio_pdm.c",
+  "services/solar_os_audio_pdm.c",
+  "services/solar_os_audio_pdm_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
@@ -2554,6 +2616,18 @@ sources = [
 ]
 capabilities = ["i2c"]
 
+[packages.driver_sht40]
+label = "driver.sht40"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sht40_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_sensors"]
+sources = [
+  "drivers/sht40.c",
+  "services/solar_os_sht40.c",
+  "services/solar_os_sht40_driver.c",
+]
+capabilities = ["i2c"]
+
 [packages.driver_battery_adc]
 label = "driver.battery-adc"
 targets = ["esp32", "esp32s3"]
@@ -2766,6 +2840,7 @@ label = "app.chat"
 depends = ["service_messaging"]
 sources = [
   "apps/solar_os_chat.c",
+  "apps/solar_os_messages.c",
   "shell/solar_os_shell_messages.c",
 ]
 capabilities = ["psram"]
@@ -3249,6 +3324,26 @@ depends = ["service_meshcore_ble"]
 sources = ["jobs/solar_os_meshcore_ble_job.c"]
 capabilities = ["ble", "psram"]
 
+[groups.ssd1685]
+label = "SSD1685 e-paper expansion"
+description = "GDEY029T71H 168x384 monochrome panels"
+members = ["expansion_ssd1685"]
+
+[packages.expansion_ssd1685]
+label = "expansion.ssd1685"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ssd1685_expansion_driver"]
+depends = ["service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_ssd1685.c",
+  "drivers/epd_ssd1685_waveform.c",
+  "services/solar_os_ssd1685.c",
+  "services/solar_os_ssd1685_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
 [groups.uc8179]
 label = "UC8179 e-paper expansion"
 description = "800x480 UltraChip UC8179 panels"
@@ -3304,10 +3399,11 @@ members = ["expansion_x4pro"]
 label = "expansion.x4pro"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_x4pro_expansion_driver"]
-depends = ["driver_epd_ultrachip", "service_expansion", "service_spi"]
+depends = ["driver_epd_ultrachip", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",
+  "drivers/epd_ssd1677_waveform.c",
   "drivers/epd_uc8179.c",
   "drivers/epd_uc8279.c",
   "drivers/epd_xteink_identify.c",
@@ -3317,3 +3413,62 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_driver_ledc", "esp_timer", "nvs_flash", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[groups.sc2]
+label = "SC2 end-to-end chat security"
+category = "Messaging"
+members = ["service_sc2", "service_sc2_provider", "job_sc2_sync"]
+
+[packages.service_sc2]
+label = "messaging.sc2"
+sources = [
+  "services/solar_os_sc2.c",
+  "services/solar_os_sc2_engine.c",
+  "services/solar_os_sc2_selftest.c",
+  "shell/solar_os_shell_sc2.c",
+  "../protocol/sc2/src/sc2_aead.c",
+  "../protocol/sc2/src/sc2_codec.c",
+  "../protocol/sc2/src/sc2_commit.c",
+  "../protocol/sc2/src/sc2_common.c",
+  "../protocol/sc2/src/sc2_ed25519.c",
+  "../protocol/sc2/src/sc2_frame.c",
+  "../protocol/sc2/src/sc2_hash.c",
+  "../protocol/sc2/src/sc2_identity.c",
+  "../protocol/sc2/src/sc2_json.c",
+  "../protocol/sc2/src/sc2_minirelay.c",
+  "../protocol/sc2/src/sc2_mod.c",
+  "../protocol/sc2/src/sc2_ratchet.c",
+  "../protocol/sc2/src/sc2_relaykey.c",
+  "../protocol/sc2/src/sc2_room.c",
+  "../protocol/sc2/src/sc2_safety.c",
+  "../protocol/sc2/src/sc2_wordlist_en.c",
+  "../protocol/sc2/src/sc2_x25519.c",
+  "../protocol/sc2/src/sc2_x3dh.c",
+  # Shared with service_meshcore: identical paths are compiled once.
+  "vendor/meshcore/ed25519/fe.c",
+  "vendor/meshcore/ed25519/ge.c",
+  "vendor/meshcore/ed25519/sc.c",
+  "vendor/meshcore/ed25519/sha512.c",
+]
+# X25519 and ChaCha20-Poly1305 come from the WireGuard component, which is
+# linked once whether or not service_wireguard is selected.
+# No PSRAM requirement: work memory prefers PSRAM and falls back to internal
+# RAM, and builds without CONFIG_SPIRAM use the SC2_LOW_RAM profile (peak
+# work memory about 16 KiB, see protocol/sc2/README.md). The Messaging
+# provider below still needs PSRAM because service_messaging does.
+requires = ["mbedtls", "wireguard_lwip", "esp_timer"]
+
+[packages.service_sc2_provider]
+label = "messaging.sc2-provider"
+depends = ["service_sc2", "service_messaging"]
+sources = ["services/solar_os_sc2_provider.c"]
+capabilities = ["psram"]
+
+# Relay transport: sans-IO client plus the TCP/TLS worker.
+[packages.job_sc2_sync]
+label = "job.sc2-sync"
+depends = ["service_sc2_provider", "service_network"]
+sources = ["services/solar_os_sc2_client.c", "services/solar_os_sc2_sync.c", "services/solar_os_sc2_discover.c",
+           "jobs/solar_os_sc2_sync_job.c"]
+requires = ["esp-tls", "mbedtls", "esp_netif", "esp_http_client"]
+capabilities = ["psram", "wifi"]

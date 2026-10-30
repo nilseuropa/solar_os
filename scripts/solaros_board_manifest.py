@@ -75,6 +75,17 @@ class DriverBinding:
 
 
 @dataclass(frozen=True)
+class DisplayProfile:
+    name: str
+    label: str
+    width: int
+    height: int
+    bindings: dict[str, int]
+    rotation: int
+    default: bool
+
+
+@dataclass(frozen=True)
 class DriverDef:
     name: str
     summary: str
@@ -88,6 +99,102 @@ class DriverDef:
     default_name: str
     bindings: tuple[DriverBinding, ...]
     keyboard: bool = False
+    display_profiles: tuple[DisplayProfile, ...] = ()
+
+
+def _parameter_accepts(spec: DriverBinding, value: Any) -> bool:
+    return (type(value) is int and
+            (not spec.allowed or value in spec.allowed) and
+            (spec.minimum is None or value >= spec.minimum) and
+            (spec.maximum is None or value <= spec.maximum))
+
+
+def _load_display_profiles(raw: Any, bindings: list[DriverBinding],
+                           prefix: str) -> tuple[DisplayProfile, ...]:
+    if not isinstance(raw, list):
+        raise ManifestError(f"{prefix}.display_profiles must be an array of tables")
+    specs = {spec.key: spec for spec in bindings}
+    profiles: list[DisplayProfile] = []
+    names: set[str] = set()
+    selectors: set[str] | None = None
+    signatures: set[tuple[tuple[str, int], ...]] = set()
+    for index, entry in enumerate(raw):
+        path = f"{prefix}.display_profiles[{index}]"
+        if not isinstance(entry, dict):
+            raise ManifestError(f"{path} must be a table")
+        name = entry.get("name")
+        if not isinstance(name, str) or not DEVICE_NAME_RE.fullmatch(name) or name in names:
+            raise ManifestError(f"{path}.name is invalid or duplicated")
+        names.add(name)
+        width, height = entry.get("width"), entry.get("height")
+        if any(type(value) is not int or not 1 <= value <= 65535 for value in (width, height)):
+            raise ManifestError(f"{path} requires positive native width and height")
+        parameters = entry.get("bindings", {})
+        if not isinstance(parameters, dict):
+            raise ManifestError(f"{path}.bindings must be a table")
+        for key, value in parameters.items():
+            spec = specs.get(key)
+            if (spec is None or spec.kind != "parameter" or key == "rotation" or
+                    not _parameter_accepts(spec, value)):
+                raise ManifestError(f"{path}.bindings.{key} is not a supported panel parameter")
+        if selectors is not None and set(parameters) != selectors:
+            raise ManifestError(f"{path} must use the same selector bindings as other profiles")
+        selectors = set(parameters)
+        signature = tuple(sorted(parameters.items()))
+        if signature in signatures:
+            raise ManifestError(f"{path} duplicates another profile's selector bindings")
+        signatures.add(signature)
+        rotation = entry.get("rotation", 0)
+        rotation_spec = specs.get("rotation")
+        if (type(rotation) is not int or rotation not in range(4) or
+                (rotation_spec is not None and (rotation_spec.kind != "parameter" or
+                                                not _parameter_accepts(rotation_spec, rotation))) or
+                (rotation_spec is None and rotation != 0)):
+            raise ManifestError(f"{path}.rotation is unsupported by the driver")
+        default = entry.get("default", False)
+        if not isinstance(default, bool):
+            raise ManifestError(f"{path}.default must be a boolean")
+        label = entry.get("label", name)
+        if not isinstance(label, str) or not label:
+            raise ManifestError(f"{path}.label must be a nonempty string")
+        profiles.append(DisplayProfile(name, label, width, height, dict(parameters), rotation, default))
+    if profiles and sum(profile.default for profile in profiles) != 1:
+        raise ManifestError(f"{prefix}.display_profiles requires exactly one default")
+    return tuple(profiles)
+
+
+def display_profile_for_bindings(driver: DriverDef, bindings: dict[str, Any]) -> DisplayProfile | None:
+    if not driver.display_profiles:
+        return None
+    default = next(profile for profile in driver.display_profiles if profile.default)
+    selectors = {key: bindings.get(key, value) for key, value in default.bindings.items()}
+    for profile in driver.display_profiles:
+        if profile.bindings == selectors:
+            return profile
+    raise ManifestError(f"driver {driver.name} has no display profile for {selectors}")
+
+
+def board_defines_for_bindings(driver: DriverDef, bindings: dict[str, Any]) -> dict[str, str]:
+    defines = dict(driver.board_defines)
+    profile = display_profile_for_bindings(driver, bindings)
+    if profile is None or "display" not in driver.board_capabilities:
+        return defines
+    rotation = bindings.get("rotation", profile.rotation)
+    spec = next((spec for spec in driver.bindings if spec.key == "rotation"), None)
+    if (type(rotation) is not int or rotation not in range(4) or
+            (spec is not None and not _parameter_accepts(spec, rotation))):
+        raise ManifestError(f"driver {driver.name} has unsupported display rotation {rotation!r}")
+    width, height = profile.width, profile.height
+    if rotation % 2:
+        width, height = height, width
+    defines.update({
+        "SOLAR_OS_BOARD_DISPLAY_WIDTH": str(width),
+        "SOLAR_OS_BOARD_DISPLAY_HEIGHT": str(height),
+        "SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH": str(profile.width),
+        "SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT": str(profile.height),
+        "SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION": f"U8G2_R{rotation}",
+    })
+    return defines
 
 
 def _string_list(value: Any, path: str) -> list[str]:
@@ -196,6 +303,8 @@ def load_driver_catalog(path: Path) -> dict[str, DriverDef]:
             early=bool(raw.get("early", False)),
             default_name=str(raw.get("default_name") or name.replace("-", "")),
             bindings=tuple(bindings),
+            display_profiles=_load_display_profiles(
+                raw.get("display_profiles", []), bindings, prefix),
         )
     return result
 
@@ -277,6 +386,8 @@ def load_board_manifest(path: Path, manifest_dir: Path | None = None) -> dict[st
             if not isinstance(parent, str) or not BOARD_ID_RE.fullmatch(parent):
                 raise ManifestError(f"{current}: extends must be a board ID")
             parent_path = manifest_dir / f"{parent}.toml"
+            if not parent_path.is_file():
+                parent_path = manifest_dir / "common" / f"{parent}.toml"
             if not parent_path.is_file():
                 raise ManifestError(f"{current}: parent board does not exist: {parent_path}")
             resolved = merge_board_overlay(load(parent_path), raw)
@@ -574,6 +685,20 @@ def validate_board(board: dict[str, Any], drivers: dict[str, DriverDef]) -> None
                 if previous is not None:
                     raise ManifestError(f"GPIO{value} is shared by {previous} and {name}.{key}")
                 direct_pin_owners[value] = f"{name}.{key}"
+
+        if driver.display_profiles:
+            display_defines = board_defines_for_bindings(driver, bindings)
+            if (name == "display0" and "display" in capabilities and
+                    "display" in driver.board_capabilities):
+                for key in ("SOLAR_OS_BOARD_DISPLAY_WIDTH", "SOLAR_OS_BOARD_DISPLAY_HEIGHT"):
+                    try:
+                        matches = int(defines[key], 0) == int(display_defines[key], 0)
+                    except (KeyError, TypeError, ValueError):
+                        matches = False
+                    if not matches:
+                        raise ManifestError(
+                            f"{key} disagrees with display0's selected panel profile and rotation"
+                        )
 
 
 def required_packages(board: dict[str, Any], drivers: dict[str, DriverDef]) -> list[str]:

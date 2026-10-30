@@ -12,6 +12,10 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buses.h"
 #include "solar_os_config.h"
+#include "solar_os_expansion.h"
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+#include "solar_os_shell_expansion_internal.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
@@ -76,6 +80,14 @@ typedef struct {
 
 typedef struct {
     solar_os_bus_protocol_t protocol;
+    bool can;
+} io_protocol_t;
+
+typedef struct {
+    solar_os_bus_protocol_t protocol;
+    bool can;
+    bool listen_only;
+    bool select_active;
     char name[SOLAR_OS_BUS_NAME_MAX];
     char original_name[SOLAR_OS_BUS_NAME_MAX];
     int endpoint;
@@ -93,14 +105,15 @@ typedef struct {
     io_mode_t mode;
     size_t selected[IO_VIEW_COUNT];
     size_t protocol_selected;
-    solar_os_bus_protocol_t protocols[6];
+    io_protocol_t protocols[7];
     size_t protocol_count;
     io_action_t actions[IO_ACTION_MAX];
     size_t action_count;
     size_t action_selected;
     io_action_kind_t confirm_action;
     int selected_pin;
-    char selected_bus[SOLAR_OS_BUS_NAME_MAX];
+    char selected_bus[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
+    bool selected_can;
     char message[IO_MESSAGE_MAX];
     io_form_t form;
     size_t i2c_rate_selected;
@@ -113,6 +126,59 @@ static const uint32_t i2c_rates[] = {100000U, 400000U, 1000000U};
 static const uint32_t uart_rates[] = {9600U, 19200U, 38400U, 57600U, 115200U, 230400U, 460800U, 921600U};
 static const uint32_t midi_rates[] = {31250U, 38400U, 57600U, 115200U};
 static const uint32_t spi_sizes[] = {256U, 1024U, 4096U, 8192U, 16384U, 65536U};
+static const uint32_t can_rates[] = {25U, 50U, 100U, 125U, 250U, 500U, 800U, 1000U};
+
+/* CAN controllers belong to the expansion registry. Present them alongside
+ * named buses without registering a second owner for their pins. */
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static bool io_can_get(size_t index, solar_os_expansion_device_t *device)
+{
+    size_t current = 0U;
+    for (size_t i = 0U; i < solar_os_expansion_device_count(); i++) {
+        solar_os_expansion_device_t candidate;
+        if (solar_os_expansion_get_device(i, &candidate) &&
+            strcmp(candidate.driver, "twai-can") == 0 && current++ == index) {
+            if (device != NULL) {
+                *device = candidate;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool io_can_find(const char *name, solar_os_expansion_device_t *device)
+{
+    for (size_t i = 0U; io_can_get(i, device); i++) {
+        if (strcmp(device->name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int io_can_value(const solar_os_expansion_device_t *device,
+                         const char *role, int fallback)
+{
+    for (size_t i = 0U; i < device->binding_count; i++) {
+        if (strcmp(device->bindings[i].role, role) == 0) {
+            return device->bindings[i].value;
+        }
+    }
+    return fallback;
+}
+#endif
+
+static size_t io_bus_count(void)
+{
+    size_t count = solar_os_bus_count();
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    for (size_t i = 0U; io_can_get(i, NULL); i++) {
+        count++;
+    }
+#endif
+    return count;
+}
 
 static const char *io_view_name(io_view_t view)
 {
@@ -486,7 +552,7 @@ static size_t io_view_count(io_view_t view)
     case IO_VIEW_PINS:
         return io_expansion_pin_count();
     case IO_VIEW_BUSES:
-        return solar_os_bus_count();
+        return io_bus_count();
     case IO_VIEW_CLAIMS:
         return solar_os_resource_claim_count();
     default:
@@ -808,7 +874,7 @@ static void io_bus_description(const solar_os_bus_info_t *bus, char *buffer, siz
 
 static void io_render_buses(void)
 {
-    const size_t count = solar_os_bus_count();
+    const size_t count = io_bus_count();
     const size_t visible = io_content_rows();
     const size_t selected = io.selected[IO_VIEW_BUSES];
     const size_t start = io_scroll_start(selected, count, visible);
@@ -830,6 +896,22 @@ static void io_render_buses(void)
                 state, routing, leases};
             io_write_columns(2U + row, bus_columns, values, column_count, attr);
         }
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+        else if (index >= solar_os_bus_count()) {
+            solar_os_expansion_device_t device;
+            if (io_can_get(index - solar_os_bus_count(), &device)) {
+                char routing[80];
+                snprintf(routing, sizeof(routing), "TX=%d RX=%d @%d kbit/s %s",
+                         io_can_value(&device, "tx", -1),
+                         io_can_value(&device, "rx", -1),
+                         io_can_value(&device, "bitrate", 500),
+                         io_can_value(&device, "listen", 1) ? "listen" : "normal");
+                const char *values[] = {device.name, "can",
+                    device.ready ? "ready" : "attached", routing, "-"};
+                io_write_columns(2U + row, bus_columns, values, column_count, attr);
+            }
+        }
+#endif
     }
 }
 
@@ -1120,6 +1202,26 @@ static esp_err_t io_autostart_bus(const char *name, bool *added)
 {
     solar_os_bus_info_t bus;
     char command[IO_STARTUP_COMMAND_MAX];
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    if (io.selected_can) {
+        solar_os_expansion_device_t device;
+        if (!io_can_find(name, &device) ||
+            device.origin != SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+            return ESP_ERR_NOT_FOUND;
+        }
+        solar_os_expansion_driver_t driver;
+        for (size_t i = 0U; i < solar_os_expansion_driver_count(); i++) {
+            if (solar_os_expansion_get_driver(i, &driver) &&
+                strcmp(driver.name, device.driver) == 0) {
+                esp_err_t ret = solar_os_shell_expansion_attach_command(
+                    &driver, &device, command, sizeof(command));
+                return ret == ESP_OK
+                    ? solar_os_shell_startup_append_command(command, added) : ret;
+            }
+        }
+        return ESP_ERR_NOT_FOUND;
+    }
+#endif
     if (!io_find_bus(name, &bus)) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -1152,6 +1254,20 @@ static void io_build_bus_actions(const solar_os_bus_info_t *bus)
                       bus->lease_count == 0 ? "Remove bus" : "Remove bus (busy)");
     }
 }
+
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static void io_build_can_actions(const solar_os_expansion_device_t *device)
+{
+    io.selected_can = true;
+    strlcpy(io.selected_bus, device->name, sizeof(io.selected_bus));
+    if (device->origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME) {
+        io_action_add(IO_ACTION_BUS_AUTOSTART, "Autostart");
+        io_action_add(IO_ACTION_BUS_REMOVE, "Remove CAN bus");
+    } else if (device->detachable) {
+        io_action_add(IO_ACTION_BUS_DETACH, "Detach CAN bus");
+    }
+}
+#endif
 
 static void io_build_free_pin_actions(const solar_os_pin_info_t *pin,
                                       const solar_os_gpio_pin_info_t *gpio)
@@ -1186,12 +1302,21 @@ static void io_build_actions(void)
     io.action_selected = 0;
     io.selected_pin = -1;
     io.selected_bus[0] = '\0';
+    io.selected_can = false;
 
     if (io.view == IO_VIEW_BUSES) {
         solar_os_bus_info_t bus;
         if (io_selected_bus_info(&bus)) {
             io_build_bus_actions(&bus);
         }
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+        else if (io.selected[IO_VIEW_BUSES] >= solar_os_bus_count()) {
+            solar_os_expansion_device_t device;
+            if (io_can_get(io.selected[IO_VIEW_BUSES] - solar_os_bus_count(), &device)) {
+                io_build_can_actions(&device);
+            }
+        }
+#endif
         io_action_add(IO_ACTION_NEW_BUS, "Create new bus");
         return;
     }
@@ -1216,6 +1341,13 @@ static void io_build_actions(void)
     char assignment[48];
     const bool routed = io_find_bus_for_pin(pin.pin, &bus, assignment, sizeof(assignment));
     if (claimed) {
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+        solar_os_expansion_device_t device;
+        if (io_can_find(claim.owner, &device)) {
+            io_build_can_actions(&device);
+            return;
+        }
+#endif
         if (strncmp(claim.owner, "bus:", 4) == 0 && routed) {
             io_build_bus_actions(&bus);
         } else if (strncmp(claim.owner, "gpio:", 5) == 0) {
@@ -1262,6 +1394,12 @@ static void io_render_actions(void)
 
 static bool io_bus_name_exists(const char *name)
 {
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    solar_os_expansion_device_t device;
+    if (io_can_find(name, &device)) {
+        return true;
+    }
+#endif
     for (size_t i = 0; i < solar_os_bus_count(); i++) {
         solar_os_bus_info_t bus;
         if (solar_os_bus_get(i, &bus) && strcmp(bus.name, name) == 0) {
@@ -1271,9 +1409,11 @@ static bool io_bus_name_exists(const char *name)
     return false;
 }
 
-static void io_default_bus_name(solar_os_bus_protocol_t protocol, char *name, size_t name_size)
+static void io_default_bus_name(io_protocol_t selected, char *name, size_t name_size)
 {
-    const char *prefix = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? "i2c" :
+    const solar_os_bus_protocol_t protocol = selected.protocol;
+    const char *prefix = selected.can ? "can" :
+        protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? "i2c" :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? "spi" :
         protocol == SOLAR_OS_BUS_PROTOCOL_UART ? "uart" :
         protocol == SOLAR_OS_BUS_PROTOCOL_MIDI ? "midi" :
@@ -1336,12 +1476,16 @@ static int io_first_allowed_endpoint(solar_os_bus_protocol_t protocol)
     return -1;
 }
 
-static void io_form_begin(solar_os_bus_protocol_t protocol)
+static void io_form_begin(io_protocol_t selected)
 {
+    const solar_os_bus_protocol_t protocol = selected.protocol;
     memset(&io.form, 0, sizeof(io.form));
     io.form.protocol = protocol;
-    io.form.endpoint = io_first_allowed_endpoint(protocol);
-    io.form.rate = protocol == SOLAR_OS_BUS_PROTOCOL_MIDI
+    io.form.can = selected.can;
+    io.form.listen_only = true;
+    io.form.select_active = true;
+    io.form.endpoint = selected.can ? -1 : io_first_allowed_endpoint(protocol);
+    io.form.rate = selected.can ? 500U : protocol == SOLAR_OS_BUS_PROTOCOL_MIDI
         ? SOLAR_OS_BUS_MIDI_DEFAULT_BAUD_RATE
         : protocol == SOLAR_OS_BUS_PROTOCOL_UART
         ? SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE
@@ -1350,9 +1494,9 @@ static void io_form_begin(solar_os_bus_protocol_t protocol)
     for (size_t i = 0; i < sizeof(io.form.pins) / sizeof(io.form.pins[0]); i++) {
         io.form.pins[i] = -1;
     }
-    io_default_bus_name(protocol, io.form.name, sizeof(io.form.name));
+    io_default_bus_name(selected, io.form.name, sizeof(io.form.name));
 
-    size_t required = protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? 2U :
+    size_t required = selected.can || protocol == SOLAR_OS_BUS_PROTOCOL_I2C ? 2U :
         protocol == SOLAR_OS_BUS_PROTOCOL_SPI ? 4U :
         protocol == SOLAR_OS_BUS_PROTOCOL_UART ||
             protocol == SOLAR_OS_BUS_PROTOCOL_MIDI ||
@@ -1385,21 +1529,26 @@ static void io_protocols_build(void)
 {
     io.protocol_count = 0;
     if (solar_os_bus_runtime_protocol_available(SOLAR_OS_BUS_PROTOCOL_I2C)) {
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_I2C;
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_I2C};
     }
     if (solar_os_bus_runtime_protocol_available(SOLAR_OS_BUS_PROTOCOL_SPI)) {
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_SPI;
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_SPI};
     }
     if (solar_os_bus_runtime_protocol_available(SOLAR_OS_BUS_PROTOCOL_UART)) {
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_UART;
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_MIDI;
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_UART};
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_MIDI};
     }
     if (solar_os_bus_runtime_protocol_available(SOLAR_OS_BUS_PROTOCOL_ONEWIRE)) {
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_ONEWIRE;
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_ONEWIRE};
     }
     if (solar_os_bus_runtime_protocol_available(SOLAR_OS_BUS_PROTOCOL_PS2)) {
-        io.protocols[io.protocol_count++] = SOLAR_OS_BUS_PROTOCOL_PS2;
+        io.protocols[io.protocol_count++] = (io_protocol_t){.protocol = SOLAR_OS_BUS_PROTOCOL_PS2};
     }
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    if (solar_os_expansion_driver_supported("twai-can")) {
+        io.protocols[io.protocol_count++] = (io_protocol_t){.can = true};
+    }
+#endif
     if (io.protocol_selected >= io.protocol_count) {
         io.protocol_selected = 0;
     }
@@ -1414,14 +1563,17 @@ static void io_render_protocols(void)
     if (io.protocol_count == 0) {
         io_write_row(2, " No runtime-routable bus protocols on this board.", SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    for (size_t i = 0; i < io.protocol_count; i++) {
+    const size_t visible = solar_os_tui_screen_content_rows(&io.tui, 2U, 1U);
+    const size_t start = io_scroll_start(io.protocol_selected, io.protocol_count, visible);
+    for (size_t row = 0U; row < visible && start + row < io.protocol_count; row++) {
+        const size_t i = start + row;
         char line[48];
         snprintf(line,
                  sizeof(line),
                  " %c %s",
                  i == io.protocol_selected ? '>' : ' ',
-                 solar_os_bus_protocol_name(io.protocols[i]));
-        io_write_row(2U + i,
+                 io.protocols[i].can ? "can" : solar_os_bus_protocol_name(io.protocols[i].protocol));
+        io_write_row(2U + row,
                      line,
                      i == io.protocol_selected ? SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_NORMAL);
     }
@@ -1435,6 +1587,9 @@ static void io_render_protocols(void)
 
 static size_t io_form_field_count(void)
 {
+    if (io.form.can) {
+        return 8U;
+    }
     switch (io.form.protocol) {
     case SOLAR_OS_BUS_PROTOCOL_I2C:
         return 6U;
@@ -1464,6 +1619,29 @@ static void io_form_field(size_t index,
     if (index == 0) {
         strlcpy(label, "Name", label_size);
         strlcpy(value, io.form.name, value_size);
+        return;
+    }
+    if (io.form.can) {
+        if (index == 1U || index == 2U || index == 5U) {
+            const int pin = io.form.pins[index == 5U ? 2U : index - 1U];
+            strlcpy(label, index == 1U ? "TX" : index == 2U ? "RX" : "Select", label_size);
+            if (pin >= 0) {
+                snprintf(value, value_size, "GPIO%d", pin);
+            } else {
+                strlcpy(value, "none", value_size);
+            }
+        } else if (index == 3U) {
+            strlcpy(label, "Bitrate", label_size);
+            snprintf(value, value_size, "%" PRIu32 " kbit/s", io.form.rate);
+        } else if (index == 4U) {
+            strlcpy(label, "Mode", label_size);
+            strlcpy(value, io.form.listen_only ? "listen only" : "normal", value_size);
+        } else if (index == 6U) {
+            strlcpy(label, "Active", label_size);
+            strlcpy(value, io.form.select_active ? "high" : "low", value_size);
+        } else {
+            strlcpy(label, "Create", label_size);
+        }
         return;
     }
     switch (io.form.protocol) {
@@ -1560,7 +1738,8 @@ static void io_render_form(void)
     const size_t value_width = cols > label_width + 6U ? cols - label_width - 6U : 0U;
     size_t name_cursor = 0U;
     char title[64];
-    snprintf(title, sizeof(title), " Create %s bus", solar_os_bus_protocol_name(io.form.protocol));
+    snprintf(title, sizeof(title), " Create %s bus",
+             io.form.can ? "can" : solar_os_bus_protocol_name(io.form.protocol));
     solar_os_tui_clear(&io.tui);
     io_write_row(0, title, SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
     for (size_t row = 0; row < visible; row++) {
@@ -1698,6 +1877,20 @@ static int io_cycle_endpoint(int current, int delta)
 static void io_form_cycle(int delta)
 {
     const size_t field = io.form.selected;
+    if (io.form.can) {
+        if (field == 1U || field == 2U || field == 5U) {
+            const size_t pin = field == 5U ? 2U : field - 1U;
+            io.form.pins[pin] = io_cycle_pin(io.form.pins[pin], delta, field == 5U, pin);
+        } else if (field == 3U) {
+            io.form.rate = (uint32_t)io_cycle_list_value(io.form.rate, delta,
+                can_rates, sizeof(can_rates) / sizeof(can_rates[0]));
+        } else if (field == 4U) {
+            io.form.listen_only = !io.form.listen_only;
+        } else if (field == 6U) {
+            io.form.select_active = !io.form.select_active;
+        }
+        return;
+    }
     switch (io.form.protocol) {
     case SOLAR_OS_BUS_PROTOCOL_I2C:
         if (field == 1) {
@@ -1779,6 +1972,23 @@ static void io_form_cycle(int delta)
 
 static esp_err_t io_form_create(void)
 {
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    if (io.form.can) {
+        if (io_bus_name_exists(io.form.name)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        solar_os_expansion_binding_t bindings[] = {
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "tx", .value = io.form.pins[0]},
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "rx", .value = io.form.pins[1]},
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "bitrate", .value = (int)io.form.rate},
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "listen", .value = io.form.listen_only},
+            {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .value = io.form.select_active},
+            {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "select", .value = io.form.pins[2]},
+        };
+        return solar_os_expansion_attach("twai-can", io.form.name, bindings,
+                                         io.form.pins[2] >= 0 ? 6U : 5U);
+    }
+#endif
     solar_os_bus_definition_t definition = {
         .name = io.form.name,
         .protocol = io.form.protocol,
@@ -1971,6 +2181,12 @@ static void io_execute_action(io_action_kind_t action)
         err = solar_os_bus_attach(io.selected_bus);
         break;
     case IO_ACTION_BUS_DETACH:
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+        if (io.selected_can) {
+            err = solar_os_expansion_detach(io.selected_bus);
+            break;
+        }
+#endif
         err = solar_os_bus_detach(io.selected_bus);
         break;
     case IO_ACTION_BUS_I2C_SPEED: {
@@ -2237,7 +2453,8 @@ static void io_handle_form_key(uint8_t key)
             const esp_err_t err = io_form_create();
             if (err == ESP_OK) {
                 io.view = IO_VIEW_BUSES;
-                io.selected[IO_VIEW_BUSES] = solar_os_bus_count() > 0 ? solar_os_bus_count() - 1U : 0;
+                const size_t count = io.form.can ? io_bus_count() : solar_os_bus_count();
+                io.selected[IO_VIEW_BUSES] = count > 0U ? count - 1U : 0U;
                 io.mode = IO_MODE_BROWSE;
                 io_set_message("bus created");
             } else {
@@ -2276,13 +2493,23 @@ static void io_handle_i2c_speed_key(uint8_t key)
     io_render();
 }
 
+static esp_err_t io_remove_bus(void)
+{
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    if (io.selected_can) {
+        return solar_os_expansion_detach(io.selected_bus);
+    }
+#endif
+    return solar_os_bus_unregister(io.selected_bus);
+}
+
 static void io_handle_confirm_key(uint8_t key)
 {
     if (key == 'y' || key == 'Y') {
-        const esp_err_t err = solar_os_bus_unregister(io.selected_bus);
+        const esp_err_t err = io_remove_bus();
         io.mode = IO_MODE_BROWSE;
         if (err == ESP_OK) {
-            const size_t count = solar_os_bus_count();
+            const size_t count = io_bus_count();
             if (io.selected[IO_VIEW_BUSES] >= count && count > 0) {
                 io.selected[IO_VIEW_BUSES] = count - 1U;
             }

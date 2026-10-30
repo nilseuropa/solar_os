@@ -1,10 +1,12 @@
 #include "solar_os_task.h"
 #include "solar_os_shutdown.h"
+#include "solar_os_work.h"
 
 #include <stddef.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "freertos/idf_additions.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
@@ -38,6 +40,22 @@ static uint32_t task_wait_cancellations;
 static StaticSemaphore_t task_launch_mutex_storage;
 static SemaphoreHandle_t task_launch_mutex;
 static portMUX_TYPE task_launch_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
+
+void solar_os_work_begin(solar_os_work_budget_t *budget)
+{
+    budget->last_yield_us = (uint64_t)esp_timer_get_time();
+}
+
+void solar_os_work_checkpoint(solar_os_work_budget_t *budget)
+{
+    const uint64_t now = (uint64_t)esp_timer_get_time();
+    if (now - budget->last_yield_us < SOLAR_OS_WORK_SLICE_US) return;
+    /* One tick can expire immediately at a tick boundary. Include a complete
+     * tick of blocked time so yielding is useful even under sustained load. */
+    const TickType_t ticks = pdMS_TO_TICKS(1U);
+    vTaskDelay((ticks > 0U ? ticks : 1U) + 1U);
+    budget->last_yield_us = (uint64_t)esp_timer_get_time();
+}
 
 static bool task_role_valid(solar_os_task_role_t role)
 {
@@ -265,6 +283,10 @@ bool solar_os_task_admit(const char *name,
     if (stack_depth == 0 || !task_role_valid(role)) {
         return false;
     }
+    /* Reclaim before taking the launch mutex: callbacks must never run while
+     * another owner needs this mutex to finish a launch or shutdown. */
+    if (!solar_os_task_can_create(stack_depth, role, external_stack))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return false;
     }
@@ -291,6 +313,9 @@ bool solar_os_task_admit_managed(const char *name,
     }
     admission->launch_locked = false;
     admission->external_stack = external_stack;
+    if (stack_depth && task_role_valid(role) &&
+        !solar_os_task_can_create(stack_depth, role, external_stack))
+        (void)solar_os_memory_reclaim();
     if (stack_depth == 0 || !task_role_valid(role) || !task_launch_lock()) {
         return false;
     }
@@ -371,6 +396,8 @@ BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
     if (task == NULL || stack_depth == 0 || !task_role_valid(role)) {
         return pdFAIL;
     }
+    if (!solar_os_task_can_create(stack_depth, role, false))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return pdFAIL;
     }
@@ -414,6 +441,8 @@ BaseType_t solar_os_task_create_pinned_external(TaskFunction_t task,
     if (task == NULL || stack_depth == 0 || !task_role_valid(role)) {
         return pdFAIL;
     }
+    if (!solar_os_task_can_create(stack_depth, role, true))
+        (void)solar_os_memory_reclaim();
     if (!task_launch_lock()) {
         return pdFAIL;
     }

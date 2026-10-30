@@ -53,12 +53,32 @@ bool solar_os_hid_keyboard_report_update(
     size_t length,
     solar_os_hid_keyboard_report_state_t *state)
 {
-    if (tracker == NULL || data == NULL || state == NULL || length < 7U) {
+    return solar_os_hid_keyboard_report_update_with_layout(
+        tracker, map_index, report_id, data, length, NULL, state);
+}
+
+bool solar_os_hid_keyboard_report_update_with_layout(
+    solar_os_hid_keyboard_report_tracker_t *tracker,
+    uint8_t map_index,
+    uint16_t report_id,
+    const uint8_t *data,
+    size_t length,
+    const solar_os_hid_keyboard_report_layout_t *layout,
+    solar_os_hid_keyboard_report_state_t *state)
+{
+    if (tracker == NULL || data == NULL || state == NULL) {
         return false;
     }
 
-    const size_t key_offset = length == 7U ? 1U : 2U;
-    if (length < key_offset + SOLAR_OS_HID_KEYBOARD_REPORT_KEYS) {
+    const solar_os_hid_keyboard_report_layout_t legacy = {
+        .keys_offset = length == 7U ? 1U : 2U,
+        .key_count = SOLAR_OS_HID_KEYBOARD_REPORT_KEYS,
+        .report_size = length == 7U ? 7U : 8U,
+    };
+    if (layout == NULL) layout = &legacy;
+    if (!layout->key_count || length < layout->report_size ||
+        layout->modifiers_offset >= layout->report_size ||
+        (size_t)layout->keys_offset + layout->key_count > layout->report_size) {
         return false;
     }
     solar_os_hid_keyboard_report_stream_t *stream = report_stream(
@@ -68,10 +88,20 @@ bool solar_os_hid_keyboard_report_update(
     if (stream == NULL) {
         return false;
     }
-    stream->modifiers = data[0];
-    memcpy(stream->keys,
-           data + key_offset,
-           SOLAR_OS_HID_KEYBOARD_REPORT_KEYS);
+    stream->modifiers = data[layout->modifiers_offset];
+    memset(stream->keys, 0, sizeof(stream->keys));
+    size_t stream_key_count = 0;
+    for (size_t i = 0; i < layout->key_count; i++) {
+        const uint8_t key = data[layout->keys_offset + i];
+        if (!key) continue;
+        bool duplicate = false;
+        for (size_t j = 0; j < stream_key_count; j++) {
+            if (stream->keys[j] == key) duplicate = true;
+        }
+        if (!duplicate && stream_key_count < SOLAR_OS_HID_KEYBOARD_REPORT_KEYS) {
+            stream->keys[stream_key_count++] = key;
+        }
+    }
 
     memset(state, 0, sizeof(*state));
     size_t key_count = 0;

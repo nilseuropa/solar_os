@@ -110,6 +110,7 @@ DERIVED_ALIAS_OWNERS = {
     ("app.help", "help"): "help",
     ("app.inbox", "inbox"): "command.inbox",
     ("app.lua", "lua"): "lua",
+    ("app.messages", "messages"): "command.messages",
     ("app.playground", "playground"): "playground",
     ("app.python", "python"): "python",
     ("job.controls", "controls"): "controls",

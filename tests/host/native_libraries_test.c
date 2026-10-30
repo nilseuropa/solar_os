@@ -33,6 +33,9 @@ static uint32_t native_library_next_lease;
 static size_t native_library_lease_count;
 static pthread_mutex_t native_resident_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_bool native_running;
+static _Thread_local bool native_operation_locked;
+static esp_err_t native_module_deactivate_locked(solar_os_module_type_t,
+    const char *, char *, size_t);
 static atomic_int allocations, images, loads, shutdowns;
 static int fail_allocation, fail_load, bad_registration, fail_shutdown;
 #define portENTER_CRITICAL(lock) assert(pthread_mutex_lock(lock) == 0)
@@ -193,7 +196,15 @@ int main(void) {
     fail_shutdown = 1;
     assert(native_reclaim_unused_libraries() == 0); /* Failed shutdown keeps code resident. */
     fail_shutdown = 0;
+    /* A different loader task still excludes reclamation. The owner can
+     * reclaim inside its operation without releasing the global lock. */
+    atomic_store(&native_running, true);
+    assert(native_reclaim_unused_libraries() == 0);
+    native_operation_locked = true;
     assert(native_reclaim_unused_libraries() == 1);
+    assert(atomic_load(&native_running));
+    native_operation_locked = false;
+    atomic_store(&native_running, false);
     assert(solar_os_native_module_active(SOLAR_OS_MODULE_TYPE_APP, "retained"));
     native_slot_remove(&retained_app);
     assert(!allocations && !images);

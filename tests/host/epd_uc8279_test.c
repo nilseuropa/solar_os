@@ -216,8 +216,22 @@ static void test_lifecycle(void)
     epd_ultrachip_deinit(&d); /* idempotent cleanup */
 }
 
+#define RELAX_TYPE epd_ultrachip_t
+static bool relax_classic;
+#define RELAX_SETUP(d) ((d).panel = relax_classic ? &panel_classic : &panel_pro)
+#define RELAX_REFRESH epd_ultrachip_refresh
+#define RELAX_APPLY epd_ultrachip_relax
+#define RELAX_MODE epd_ultrachip_set_controller_mode
+#define RELAX_PARTIAL EPD_ULTRACHIP_REFRESH_PARTIAL
+#define RELAX_COUNT count
+#define RELAX_WIRE find(0x13, 0)->data + d.panel->gate_offset * EPD_ULTRACHIP_ROW_BYTES
+#include "epd_relax_contract.h"
+
 int main(void)
 {
     test_full_and_partial(); test_failures_and_sleep(); test_classic_profile(); test_lifecycle();
+    test_relax_transaction();
+    relax_classic = true;
+    test_relax_transaction();
     puts("epd_uc8279_test: PASS"); return 0;
 }

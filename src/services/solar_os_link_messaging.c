@@ -545,11 +545,40 @@ static void remove_finish(void *context, bool removed)
     xSemaphoreGive(instances_lock);
 }
 
+static const solar_os_messaging_setting_t link_settings_fields[] = {
+    {"Transport", "Existing Link transport name", SOLAR_OS_LINK_NAME_MAX, false, true},
+};
+static esp_err_t link_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    settings->label = "Link"; settings->fields = link_settings_fields; settings->count = 1;
+    if (context) {
+        link_messaging_state_t *state = context;
+        xSemaphoreTake(instances_lock, portMAX_DELAY);
+        settings->enabled = state->config.enabled;
+        solar_os_messaging_settings_value(settings, 0, state->config.link);
+        /* The transport is a resource of its radio-link / espnow-link job. */
+        strlcpy(settings->worker, state->config.link, sizeof(settings->worker));
+        settings->worker_is_resource = true;
+        xSemaphoreGive(instances_lock);
+    }
+    return ESP_OK;
+}
+static esp_err_t link_settings_write(void *context, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    const char *args[] = {settings->values[0]};
+    if (!context) return create_instance(name, 1, args, id);
+    *id = ((link_messaging_state_t *)context)->provider;
+    return settings->changed[0] ? configure_instance(context, 1, args) : ESP_OK;
+}
 static const solar_os_messaging_provider_class_t link_class = {
     .name = "link", .capabilities = SOLAR_OS_ENDPOINT_CAP_DIRECT | SOLAR_OS_ENDPOINT_CAP_BROADCAST | SOLAR_OS_ENDPOINT_CAP_ACK,
     .create = create_instance, .configure = configure_instance, .connect = connect_instance,
     .normalize_target = normalize_instance, .join_open = join_instance, .leave = leave_instance, .direct_open = direct_instance,
     .remove_prepare = remove_prepare, .remove_finish = remove_finish,
+    .settings_read = link_settings_read, .settings_write = link_settings_write,
 };
 
 esp_err_t solar_os_link_messaging_init(void)

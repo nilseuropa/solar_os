@@ -57,6 +57,11 @@ disk umount sd0p2
 `disk lsblk` names internal flash as `flash`, a removable card as `sd0`, and
 its partitions as `sd0p1`, `sd0p2`, and so on.
 
+After replacing or reinserting a card, close files that used it and run
+`disk mount` to recover storage. The command checks the cached card, clears
+stale SD mounts, and initializes the inserted card again. A board-defined
+SDSPI or SDMMC slot also supports `expansion attach storage0` for recovery.
+
 ## Disk images
 
 Mount a raw `.img` with a FAT12, FAT16, or FAT32 filesystem to edit its files:

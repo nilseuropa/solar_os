@@ -83,6 +83,8 @@ static void compare_rgb565_conversion(void)
     static const unsigned dimensions[][4] = {
         {1,1,1,1}, {7,5,7,5}, {13,11,7,5}, {321,17,321,31},
         {400,300,400,300}, {320,240,400,300}, {1024,768,64,64},
+        {127,4,127,4}, {128,4,128,4}, {129,4,129,4},
+        {255,4,255,4}, {256,4,256,4}, {257,4,257,4},
         /* Every RGB565 color at each of the sixteen dither thresholds. */
         {1024,256,1024,256},
     };

@@ -61,6 +61,23 @@ void nvs_close(nvs_handle_t handle) { (void)handle; }
 void solar_os_identity_get_user(char *out, size_t size) { strlcpy(out, "user", size); }
 void solar_os_identity_get_hostname(char *out, size_t size) { strlcpy(out, "device", size); }
 
+static bool record_message_security(const solar_os_messaging_message_t *message, void *user)
+{
+    *(uint32_t *)user |= message->security_flags;
+    return true;
+}
+
+static void check_gateway_v1_security(solar_os_conversation_id_t room)
+{
+    const uint32_t expected = SOLAR_OS_SECURITY_LEGACY_INSECURE | SOLAR_OS_SECURITY_TRANSPORT_SECURED;
+    solar_os_messaging_conversation_t conversation;
+    assert(solar_os_messaging_conversation_get(room, &conversation) == ESP_OK);
+    assert(conversation.security_flags == expected);
+    uint32_t message_flags = 0;
+    assert(solar_os_messaging_message_visit(room, 0, record_message_security, &message_flags, NULL) > 0);
+    assert(message_flags == expected);
+}
+
 static void reboot_gateway(void)
 {
     while (gateways.instances) {
@@ -125,6 +142,7 @@ int main(void)
     void *scope = solar_os_gateway_scope_enter(gateway_find(a));
     assert(solar_os_chat_send("shared", "from-a") == ESP_OK);
     solar_os_gateway_scope_leave(scope);
+    check_gateway_v1_security(room_a);
     scope = solar_os_gateway_scope_enter(gateway_find(b));
     solar_os_chat_command_t command;
     while (solar_os_chat_outbox_peek(&command) == ESP_OK) {
@@ -145,13 +163,40 @@ int main(void)
     scope = solar_os_gateway_scope_enter(gateway_find(b));
     assert(solar_os_chat_get_config(&config) == ESP_OK && !strcmp(config.token, "token-b"));
     solar_os_gateway_scope_leave(scope);
+    /* Form readback never returns secrets. Editing another field preserves the
+     * token, failed writes preserve it too, and an explicit empty edit clears. */
+    solar_os_messaging_settings_t form;
+    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
+    assert(form.count == 2 && form.enabled && form.present[1] && !form.values[1][0]);
+    assert(!strcmp(form.values[0], settings_b[0]) && !strcmp(form.worker, "gateway-sync"));
+    assert(solar_os_messaging_settings_read("link", b, 0, &form) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
+    form.changed[0] = true; strlcpy(form.values[0], "chats://edited.example:7443", sizeof(form.values[0]));
+    solar_os_messaging_provider_id_t result = 0;
+    assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_OK && result == b);
+    scope = solar_os_gateway_scope_enter(gateway_find(b));
+    assert(solar_os_chat_get_config(&config) == ESP_OK && !strcmp(config.token, "token-b") && config.enabled);
+    solar_os_gateway_scope_leave(scope);
+    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
+    form.changed[1] = true; strlcpy(form.values[1], "replacement", sizeof(form.values[1]));
+    fail_migration_promotion = true;
+    assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) != ESP_OK);
+    scope = solar_os_gateway_scope_enter(gateway_find(b));
+    assert(solar_os_chat_get_config(&config) == ESP_OK && !strcmp(config.token, "token-b"));
+    solar_os_gateway_scope_leave(scope);
+    memset(form.values[1], 0, sizeof(form.values[1]));
+    assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_OK);
+    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK && !form.present[1]);
+    memset(form.values[0], 'x', sizeof(form.values[0]));
+    assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_ERR_INVALID_SIZE);
+    solar_os_messaging_settings_clear(&form);
     assert(solar_os_messaging_instance_remove(b) == ESP_OK);
     assert(solar_os_messaging_instance_remove(SOLAR_OS_MESSAGING_PROVIDER_GATEWAY) == ESP_OK);
     reboot_gateway();
     assert(solar_os_chat_get_config(&config) == ESP_ERR_NOT_FOUND);
     assert(!solar_os_messaging_provider_find("gateway"));
     char path[160];
-    const char *files[] = {".chat/profiles/001.bin", ".chat/profiles/004.bin", ".chat/profiles/005.bin", ".messages/messages.bin"};
+    const char *files[] = {".chat/profiles/001.bin", ".chat/profiles/004.bin", ".chat/profiles/005.bin", ".messages/history.bin", ".messages/location"};
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         assert(solar_os_storage_default_path(files[i], path, sizeof(path)) == ESP_OK);
         assert(unlink(path) == 0);

@@ -42,6 +42,7 @@ struct solar_os_terminal {
     solar_os_terminal_vrule_t vrules[SOLAR_OS_TERMINAL_MAX_VRULES];
     size_t vrule_count;
     uint16_t orientation_degrees;
+    uint8_t scale;
     solar_os_terminal_font_t font;
     solar_os_terminal_text_size_t text_size;
     bool bold_enabled;

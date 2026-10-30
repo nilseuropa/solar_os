@@ -22,7 +22,7 @@ class NativeLibrariesTest(unittest.TestCase):
             "solar_os_native_library_release", "solar_os_native_library_unload",
             "native_reclaim_unused_libraries",
             "native_find_slot", "native_slot_count", "native_slot_add", "native_slot_remove",
-            "native_unregister_resident", "solar_os_native_module_activate",
+            "native_unregister_resident", "native_module_deactivate_locked", "solar_os_native_module_activate",
             "solar_os_native_module_deactivate", "solar_os_native_module_active"))
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "library_types.inc").write_text(structures)

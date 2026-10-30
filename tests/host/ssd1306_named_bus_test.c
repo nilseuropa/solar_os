@@ -10,13 +10,13 @@
 #include "ssd1306.h"
 
 typedef struct {
-    unsigned probes, writes;
+    unsigned probes, writes, init_sequences;
     size_t data_bytes;
     uint8_t last_command;
     uint8_t commands[SSD1306_I2C_TRANSFER_MAX];
     size_t command_bytes;
     const uint8_t *frame_bytes;
-    unsigned page, x_offset;
+    unsigned page, x_offset, width, pages;
     bool expect_data;
     esp_err_t probe_error, write_error;
 } bus_t;
@@ -71,20 +71,23 @@ esp_err_t solar_os_bus_i2c_transmit(const char *name, uint8_t address, const uin
     if (data[0] == 0x40) {
         bus->data_bytes += len - 1;
         if (bus->frame_bytes) {
-            assert(bus->expect_data && len == 129 && bus->page < 8);
-            assert(!memcmp(data + 1, bus->frame_bytes + bus->page * 128, 128));
+            assert(bus->expect_data && len == bus->width + 1U && bus->page < bus->pages);
+            assert(!memcmp(data + 1, bus->frame_bytes + bus->page * bus->width, bus->width));
             bus->page++;
             bus->expect_data = false;
         }
     } else {
         assert(data[0] == 0);
+        if (data[1] == 0xae && len > 2) bus->init_sequences++;
         bus->last_command = data[len - 1];
         bus->command_bytes = len - 1;
         memcpy(bus->commands, data + 1, len - 1);
         if (bus->frame_bytes) {
-            const uint8_t expected[] = {0x40, 0x10, bus->x_offset, 0xb0 | bus->page};
-            assert(!bus->expect_data && len == 5 && bus->page < 8);
-            assert(!memcmp(data + 1, expected, sizeof(expected)));
+            const uint8_t expected[] = {0x10 | (bus->x_offset >> 4),
+                bus->x_offset & 15U, 0xb0 | bus->page};
+            assert(!bus->expect_data && (len == 4 || len == 5) && bus->page < bus->pages);
+            if (len == 5) assert(data[1] == 0x40);
+            assert(!memcmp(data + len - sizeof(expected), expected, sizeof(expected)));
             bus->expect_data = true;
         }
     }
@@ -100,7 +103,9 @@ static solar_os_display_target_t *target(const char *name)
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *value)
 {
     if (register_error != ESP_OK) return register_error;
-    assert(!target(value->name) && value->width == 128 && value->height == 64 && value->ready && value->u8g2);
+    assert(!target(value->name) && value->ready && value->u8g2);
+    assert(value->width == u8g2_GetDisplayWidth(value->u8g2));
+    assert(value->height == u8g2_GetDisplayHeight(value->u8g2));
     assert(value->preferred_stream_fps == 25);
     for (unsigned i = 0; i < 2; i++) if (!targets[i].name[0]) { targets[i] = *value; return ESP_OK; }
     return ESP_ERR_NO_MEM;
@@ -128,17 +133,90 @@ static void frame(const char *name, unsigned index)
     const unsigned prior_writes = buses[index].writes;
     const size_t prior = buses[index].data_bytes;
     uint8_t *pixels = u8g2_GetBufferPtr(value->u8g2);
-    for (unsigned i = 0; i < SSD1306_BUFFER_SIZE; ++i) pixels[i] = (uint8_t)(i + i / 128 + prior_writes);
+    const u8x8_display_info_t *info = value->u8g2->u8x8.display_info;
+    const size_t bytes = (size_t)info->tile_width * info->tile_height * 8U;
+    for (unsigned i = 0; i < bytes; ++i) pixels[i] = (uint8_t)(i + i / info->pixel_width + prior_writes);
     buses[index].frame_bytes = pixels;
     buses[index].page = 0;
-    buses[index].x_offset = !strcmp(value->driver, "sh1106") ? 2 : 0;
+    buses[index].x_offset = info->default_x_offset;
+    buses[index].width = info->pixel_width;
+    buses[index].pages = info->tile_height;
     buses[index].expect_data = false;
     u8g2_SendBuffer(value->u8g2);
-    assert(buses[index].page == 8 && !buses[index].expect_data);
+    assert(buses[index].page == info->tile_height && !buses[index].expect_data);
     buses[index].frame_bytes = NULL;
-    assert(buses[index].writes == prior_writes + 16); /* Command group + data page, eight times. */
-    assert(buses[index].data_bytes == prior + SSD1306_BUFFER_SIZE);
+    assert(buses[index].writes == prior_writes + 2U * info->tile_height);
+    assert(buses[index].data_bytes == prior + bytes);
     assert(buses[index ^ 1U].writes == other_writes && legacy_calls == 0);
+}
+
+static void test_profiles(void)
+{
+    const struct { unsigned width, height, offset; } sizes[] = {
+        {128, 64, 0}, {128, 32, 0}, {64, 48, 32}, {64, 32, 32},
+        {96, 16, 0}, {96, 40, 0}, {72, 40, 28}, {48, 64, 40},
+        {128, 64, 2}, {128, 32, 2}, {64, 32, 32}, {72, 40, 30},
+    };
+    solar_os_expansion_binding_t b[5];
+    bindings(b, "i2c0");
+    b[2] = (solar_os_expansion_binding_t){.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "panel", .value = 2};
+    b[3] = (solar_os_expansion_binding_t){.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "rotation", .value = 1};
+    assert(solar_os_ssd1306_attach("oled0", b, 4) == ESP_OK);
+    bindings(b, "aux"); b[2].value = 3; b[3].value = 2;
+    assert(solar_os_sh1106_attach("oled1", b, 4) == ESP_OK);
+    assert(target("oled0")->width == 48 && target("oled1")->width == 72);
+    frame("oled0", 0); frame("oled1", 1); frame("oled0", 0);
+    assert(solar_os_ssd1306_detach("oled0") == ESP_OK);
+    assert(solar_os_ssd1306_detach("oled1") == ESP_OK);
+    for (unsigned controller = 0; controller < 2; ++controller) {
+        for (unsigned panel = 0; panel < (controller ? 4U : 8U); ++panel) {
+            const unsigned size = (controller ? 8 : 0) + panel;
+            for (unsigned rotation = 0; rotation < 4; ++rotation) {
+                bindings(b, "i2c0");
+                b[2] = (solar_os_expansion_binding_t){.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                    .role = "panel", .value = (int)panel};
+                b[3] = (solar_os_expansion_binding_t){.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+                    .role = "rotation", .value = (int)rotation};
+                unsigned inits = buses[0].init_sequences;
+                assert((controller ? solar_os_sh1106_attach : solar_os_ssd1306_attach)("oled0", b, 4) == ESP_OK);
+                assert(buses[0].init_sequences == inits + 1U);
+                solar_os_display_target_t *t = target("oled0");
+                assert(t && t->width == (rotation % 2 ? sizes[size].height : sizes[size].width));
+                assert(t->height == (rotation % 2 ? sizes[size].width : sizes[size].height));
+                assert(t->u8g2->u8x8.display_info->default_x_offset == sizes[size].offset);
+                uint8_t *pixels = u8g2_GetBufferPtr(t->u8g2);
+                const size_t bytes = sizes[size].width * sizes[size].height / 8U;
+                memset(pixels + bytes, 0xa5, SSD1306_BUFFER_SIZE - bytes);
+                u8g2_ClearBuffer(t->u8g2);
+                u8g2_SetDrawColor(t->u8g2, 1);
+                u8g2_DrawPixel(t->u8g2, 0, 0);
+                u8g2_DrawPixel(t->u8g2, t->width - 1, t->height - 1);
+                unsigned dots = 0;
+                for (size_t i = 0; i < bytes; ++i) dots += __builtin_popcount(pixels[i]);
+                assert(dots == 2);
+                frame("oled0", 0);
+                for (size_t i = bytes; i < SSD1306_BUFFER_SIZE; ++i) assert(pixels[i] == 0xa5);
+                assert(solar_os_ssd1306_detach("oled0") == ESP_OK);
+            }
+        }
+    }
+    /* Unknown, negative, and duplicate parameters fail before probing hardware. */
+    bindings(b, "i2c0");
+    b[2] = (solar_os_expansion_binding_t){.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER,
+        .role = "panel", .value = 8};
+    unsigned probes = buses[0].probes;
+    assert(solar_os_ssd1306_attach("bad", b, 3) == ESP_ERR_INVALID_ARG);
+    b[2].value = 4;
+    assert(solar_os_sh1106_attach("bad", b, 3) == ESP_ERR_INVALID_ARG);
+    b[2].value = -1;
+    assert(solar_os_ssd1306_attach("bad", b, 3) == ESP_ERR_INVALID_ARG);
+    b[2].value = 1; b[3] = b[2];
+    assert(solar_os_ssd1306_attach("bad", b, 4) == ESP_ERR_INVALID_ARG);
+    strlcpy(b[2].role, "rotation", sizeof(b[2].role)); b[2].value = 4;
+    assert(solar_os_sh1106_attach("bad", b, 3) == ESP_ERR_INVALID_ARG);
+    assert(buses[0].probes == probes && !target("bad"));
 }
 
 int main(void)
@@ -207,6 +285,7 @@ int main(void)
     assert(solar_os_sh1106_attach("oled0", b, 2) == ESP_OK);
     frame("oled0", 0);
     assert(solar_os_ssd1306_detach("oled0") == ESP_OK && legacy_calls == 0);
+    test_profiles();
     ssd1306_t legacy;
     assert(ssd1306_init(&legacy, 0x3c, SSD1306_CONTROLLER_SH1106) == ESP_ERR_NOT_SUPPORTED && legacy_calls == 1);
     legacy_init_error = ESP_OK;

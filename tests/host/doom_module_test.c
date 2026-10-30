@@ -21,6 +21,10 @@ static void *audio_user;
 static unsigned audio_starts, audio_closes, nonzero_samples, audio_blocks;
 static uint32_t audio_rate = 16000;
 static bool audio_probe, mixer_locked, mutex_ready, in_callback;
+static size_t (*memory_reclaimer)(void *user);
+static void *memory_reclaimer_user;
+static int set_memory_reclaimer(size_t (*reclaim)(void *), void *user)
+{ assert(reclaim && !memory_reclaimer); memory_reclaimer = reclaim; memory_reclaimer_user = user; return 0; }
 static void pump_audio(void)
 {
     if (!audio_render) return;
@@ -80,7 +84,16 @@ static int exchange_frame(uint8_t **pixels)
 static bool stop_requested(void) { return frames >= 120 && phase == 12; }
 static bool suspend_requested(void) { return frames >= 12 && !suspends; }
 static int suspend_app(void)
-{ assert(!audio_render); suspends++; now += 5000000; if (!strcmp(mode, "switch-rate")) audio_rate = 48000; return 0; }
+{
+    assert(!audio_render);
+    if (memory_reclaimer) {
+        (void)memory_reclaimer(memory_reclaimer_user);
+        assert(memory_reclaimer(memory_reclaimer_user) == 0);
+    } else assert(!strcmp(mode, "no-synth")); /* Older foreground table. */
+    suspends++; now += 5000000;
+    if (!strcmp(mode, "switch-rate")) audio_rate = 48000;
+    return 0;
+}
 static int enable_suspend(void) { return 0; }
 static int audio_open(uint32_t *rate, uint8_t *channels)
 {
@@ -122,6 +135,7 @@ static solar_os_native_foreground_api_v1_t app = {
     .suspend_requested = suspend_requested, .suspend = suspend_app,
     .audio_open = audio_open, .audio_close = audio_close, .synth_open = synth_open,
     .synth_lock = synth_lock, .synth_unlock = synth_unlock, .synth_close = synth_close,
+    .set_memory_reclaimer = set_memory_reclaimer,
 };
 static solar_os_native_memory_api_v1_t memory = {
     .abi_version = 1, .struct_size = sizeof(memory), .alloc = allocate, .free = release,

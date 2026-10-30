@@ -66,6 +66,7 @@ typedef struct {
     bool direct_palette_inverted;
     bool inverted;
     bool high_refresh_override;
+    bool power_state_present;
     const char *controller_mode;
     rlcd_st7305_config_t config;
 } rlcd_st7305_t;
@@ -73,6 +74,8 @@ typedef struct {
 esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
                            const rlcd_st7305_config_t *config);
 esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display);
+/* Finish scanning the current buffer, then retain its image in LPM. */
+esp_err_t rlcd_st7305_present_power_state(rlcd_st7305_t *display);
 void rlcd_st7305_deinit(rlcd_st7305_t *display);
 u8g2_t *rlcd_st7305_get_u8g2(rlcd_st7305_t *display);
 uint16_t rlcd_st7305_width(const rlcd_st7305_t *display);

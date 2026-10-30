@@ -181,6 +181,32 @@ credential file is unencrypted; access to its volume can recover these records.
 SSH keys, native-agent API keys, and existing tokens are not migrated into this
 service in this release.
 
+## Settings forms and messaging manager
+
+The `messages` foreground app uses the common TUI layer on display and VT100
+shells. It has Instances, Connections, and Messages tabs. Chat remains a separate
+app, launched with `SOLAR_OS_LAUNCH_CHILD_RETURN` so the manager retains its
+selected instance, view, and cursor.
+
+Settings use `solar_os_tui_draw_form`, the shared scrollable form widget. The
+widget renders the selected field's inline editor last and owns cursor position,
+visibility, horizontal input scrolling, and masking. Apps supply row labels and
+values, field actions, and save/cancel behavior. Draw surrounding screen elements
+before the form and refresh after it.
+
+Provider classes own `settings_read` and `settings_write` callbacks. A NULL
+context describes or creates an instance; non-NULL contexts are leased for the
+operation. Form indices enumerate backend variants. The generic settings API
+validates field lengths against the provider's schema before saving. Secret
+readback is empty with a separate presence flag; unchanged fields preserve saved
+values and explicitly edited empty secrets clear them. Settings forms and
+configuration copies belong in external memory, outside the foreground stack.
+
+`solar_os_messaging_message_page_filtered` provides bounded archive pages with
+optional unread filtering. Its offset counts matching messages. The browser
+deletes a selected message by its stable key through
+`solar_os_messaging_message_delete`; pending sends must be cancelled first.
+
 ## Conversations and messages
 
 Conversation kinds are `direct`, `group`, `room`, and `broadcast`. A snapshot
@@ -275,22 +301,42 @@ radio or companion transport without changing provider keys or message IDs.
 The outbox is volatile. Restored outbound `queued` and `sending` messages become
 `failed`, with an interruption reason, rather than implying pending work.
 
-Messages uses the same bounded fixed-slot and dual-header approach at
-`/.messages/messages.bin` only when the active storage has the large-history
-capacity already required by Chat. Small internal flash uses the compact
-records physically shared with Inbox as its internal history backend. This is
-reported as `compact internal` rather than exposed as an Inbox fallback.
-Deletions rewrite the compact store atomically. Full-history deletions use CRC-checked
-tombstones in their original fixed slots, so surviving records do not need to
-be copied during provider-scoped clearing.
+Messages retains received and sent records in `.messages/history.bin` on its
+selected disk volume. The 64-entry PSRAM cache is independent of disk retention.
+History grows with available disk space and does not overwrite older records.
+Disk readers support complete conversation visits and bounded history pages.
+Unread counts, replay cursors, deduplication, deletion, and delivery updates
+include records outside the cache.
 
-No `/.chat/messages.bin` records are migrated. After the new Messages store
-initializes successfully, the obsolete Chat store is removed. Existing Inbox
-notifications remain.
+Each conversation tracks its message count, replay cursor, and recent record
+offsets in bounded PSRAM indexes. Opening an empty conversation and marking an
+already-read conversation read require no archive reads. Recent pages reuse
+cached message bodies and read only missing records; older pages remain
+available from disk.
 
-Persistence snapshots carry a generation. Filesystem writes and `fsync` occur
-after releasing the service lock; the generation is rechecked before the
-result is committed as current.
+Each record has two CRC-checked copies. An update syncs the inactive copy before
+committing its state in memory. A fixed 256-bucket index in PSRAM follows
+on-disk links for message lookup. Disk transfers and syncing release the
+metadata mutex while a separate history mutex serializes history operations.
+Visitor callbacks run outside the history and metadata locks.
+
+New sends enter the volatile outbox only after their history record is durable.
+Storage errors are reported rather than evicting accepted messages. Explicit
+deletion writes a tombstone. Provider and conversation clearing compact the
+archive through a staged replacement; interrupted replacements recover the
+previous archive from its backup. Outbound IDs remain monotonic after clearing.
+
+The selected archive path is recorded in internal flash. If SD mounts after
+startup, an internal archive is copied, checked, and synced before the location
+record is replaced. The internal copy is removed only after that commit.
+Existing SD archives are not overwritten. A missing selected volume leaves
+history unavailable until it returns; status queries retry attachment without
+replacing the saved history with an empty store.
+
+The previous `.messages/messages.bin` ring and compact Inbox records migrate
+through a staged archive, including the internal Inbox when SD is mounted.
+Original files remain intact. The obsolete `.chat/messages.bin` format is not
+imported or removed.
 
 ## User interfaces and scripting
 
@@ -310,7 +356,7 @@ Inbox messages can be removed individually with `d` in either Inbox view or
 with `inbox delete <decimal-id>`. Shared retained messages can be removed with
 `messages delete <hex-message-id>`.
 
-Provider receive queues, event rings, and the compact persistence ring are
+Provider receive queues, event rings, Inbox notifications, and the RAM cache are
 bounded implementation details. They are not additional user mailboxes:
 Messaging owns conversations and history, Inbox shows inbound notifications,
 and Outbox shows pending sends.

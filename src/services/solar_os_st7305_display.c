@@ -184,6 +184,16 @@ static esp_err_t present_frame(solar_os_board_display_t *display,
                         frame->source_stride, frame->palette_inverted);
 }
 
+static esp_err_t target_present_power_state(void *context)
+{
+    return rlcd_st7305_present_power_state(context);
+}
+
+static esp_err_t present_power_state(solar_os_board_display_t *display)
+{
+    return display ? target_present_power_state(display->driver) : ESP_ERR_INVALID_STATE;
+}
+
 static const solar_os_board_display_ops_t display_ops = {
     .runtime_ready = runtime_ready,
     .resume = resume,
@@ -195,6 +205,7 @@ static const solar_os_board_display_ops_t display_ops = {
     .set_high_refresh_override = set_high_refresh,
     .present_mono_xbm = present_mono,
     .present_frame = present_frame,
+    .present_power_state = present_power_state,
 };
 
 static esp_err_t target_present_frame(
@@ -249,6 +260,8 @@ static esp_err_t register_auxiliary(st7305_device_t *attached)
     target.set_controller_mode = target_set_mode;
     target.frame_context = &attached->driver;
     target.present_frame = target_present_frame;
+    target.present_power_state = target_present_power_state;
+    target.power_state_context = &attached->driver;
     return solar_os_display_register_target(&target);
 }
 

@@ -12,6 +12,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
     {.key="active", .value_hint="0|1", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="active", .has_value_range=true, .min_value=0, .max_value=1},
     {.key="home_key", .value_hint="key", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="home_key", .has_value_range=true, .min_value=0, .max_value=255},
     {.key="rotation", .value_hint="0..3", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="rotation", .required=true, .has_value_range=true, .min_value=0, .max_value=3},
+    {.key="swap_xy", .value_hint="0|1", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="swap_xy", .has_value_range=true, .min_value=0, .max_value=1},
 };
 const solar_os_expansion_driver_t solar_os_gt911_expansion_driver = {
     .name = "gt911",

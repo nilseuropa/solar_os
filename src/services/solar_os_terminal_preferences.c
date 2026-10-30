@@ -1,4 +1,5 @@
 #include "solar_os_terminal_preferences.h"
+#include <string.h>
 
 #include "nvs.h"
 #include "solar_os_board.h"
@@ -35,7 +36,8 @@ bool solar_os_terminal_profile_is_valid(const solar_os_terminal_profile_t *profi
         profile->font >= SOLAR_OS_TERMINAL_FONT_MONO &&
         profile->font <= SOLAR_OS_TERMINAL_FONT_COMPACT &&
         profile->text_size >= SOLAR_OS_TERMINAL_TEXT_SIZE_14 &&
-        profile->text_size < SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT;
+        profile->text_size < SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT &&
+        profile->scale <= 4;
 }
 
 void solar_os_terminal_profile_load_preferences(solar_os_terminal_profile_t *profile)
@@ -50,6 +52,7 @@ void solar_os_terminal_profile_load_preferences(solar_os_terminal_profile_t *pro
         .text_size = TERM_DEFAULT_TEXT_SIZE,
         .palette_inverted = false,
         .status_bar_visible = true,
+        .scale = 1,
     };
 
     nvs_handle_t nvs;
@@ -96,10 +99,70 @@ static esp_err_t save_u16(const char *key, uint16_t value)
     return ret;
 }
 
+uint8_t solar_os_terminal_profile_load_scale(const char *display)
+{
+    if (display == NULL || display[0] == '\0' || strlen(display) > 15U) return 1;
+    nvs_handle_t nvs;
+    uint8_t scale = 1;
+    if (nvs_open("display_scale", NVS_READONLY, &nvs) == ESP_OK) {
+        if (nvs_get_u8(nvs, display, &scale) != ESP_OK || scale < 1U || scale > 4U) scale = 1;
+        nvs_close(nvs);
+    }
+    return scale;
+}
+
+esp_err_t solar_os_terminal_profile_save_scale(const char *display, uint8_t scale)
+{
+    if (display == NULL || display[0] == '\0' || strlen(display) > 15U || scale < 1U || scale > 4U)
+        return ESP_ERR_INVALID_ARG;
+    if (solar_os_terminal_profile_load_scale(display) == scale) return ESP_OK;
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open("display_scale", NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(nvs, display, scale);
+    if (err == ESP_OK) err = nvs_commit(nvs);
+    nvs_close(nvs);
+    return err;
+}
+
 esp_err_t solar_os_terminal_profile_save_orientation(uint16_t degrees)
 {
     return orientation_is_valid(degrees) ?
         save_u16(TERM_NVS_ORIENTATION_KEY, degrees) : ESP_ERR_INVALID_ARG;
+}
+
+uint16_t solar_os_terminal_profile_load_display_orientation(const char *display, uint16_t fallback)
+{
+    if (!display || !display[0] || strlen(display) > 15U) return fallback;
+    const bool primary = strcmp(display, "display0") == 0;
+    nvs_handle_t nvs;
+    uint16_t value = fallback;
+    if (nvs_open(primary ? TERM_NVS_NAMESPACE : "display_orient", NVS_READONLY, &nvs) == ESP_OK) {
+        if (nvs_get_u16(nvs, primary ? TERM_NVS_ORIENTATION_KEY : display, &value) != ESP_OK ||
+            !orientation_is_valid(value)) value = fallback;
+        nvs_close(nvs);
+    }
+    return value;
+}
+
+esp_err_t solar_os_terminal_profile_save_display_orientation(const char *display, uint16_t degrees)
+{
+    if (!display || !display[0] || strlen(display) > 15U || !orientation_is_valid(degrees))
+        return ESP_ERR_INVALID_ARG;
+    const bool primary = strcmp(display, "display0") == 0;
+    const char *key = primary ? TERM_NVS_ORIENTATION_KEY : display;
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(primary ? TERM_NVS_NAMESPACE : "display_orient", NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    uint16_t previous;
+    if (nvs_get_u16(nvs, key, &previous) == ESP_OK && previous == degrees) {
+        nvs_close(nvs);
+        return ESP_OK;
+    }
+    err = nvs_set_u16(nvs, key, degrees);
+    if (err == ESP_OK) err = nvs_commit(nvs);
+    nvs_close(nvs);
+    return err;
 }
 
 esp_err_t solar_os_terminal_profile_save_font(solar_os_terminal_font_t font)

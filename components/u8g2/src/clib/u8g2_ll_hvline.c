@@ -71,7 +71,7 @@
 */
 void u8g2_ll_hvline_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y, u8g2_uint_t len, uint8_t dir)
 {
-  uint16_t offset;
+  size_t offset;
   uint8_t *ptr;
   uint8_t bit_pos, mask;
   uint8_t or_mask, xor_mask;
@@ -99,7 +99,7 @@ void u8g2_ll_hvline_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y,
     xor_mask = mask;
 
 
-  offset = y;		/* y might be 8 or 16 bit, but we need 16 bit, so use a 16 bit variable */
+  offset = y;		/* Byte offsets can exceed 64 KiB on large displays. */
   offset &= ~7;
   offset *= u8g2_GetU8x8(u8g2)->display_info->tile_width;
   ptr = u8g2->tile_buf_ptr;
@@ -161,7 +161,7 @@ void u8g2_ll_hvline_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y,
 */
 static void u8g2_draw_pixel_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y)
 {
-  uint16_t offset;
+  size_t offset;
   uint8_t *ptr;
   uint8_t bit_pos, mask;
   
@@ -176,7 +176,7 @@ static void u8g2_draw_pixel_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_u
   mask = 1;
   mask <<= bit_pos;
 
-  offset = y;		/* y might be 8 or 16 bit, but we need 16 bit, so use a 16 bit variable */
+  offset = y;		/* Byte offsets can exceed 64 KiB on large displays. */
   offset &= ~7;
   offset *= u8g2_GetU8x8(u8g2)->display_info->tile_width;
   ptr = u8g2->tile_buf_ptr;
@@ -244,7 +244,7 @@ void u8g2_ll_hvline_vertical_top_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y,
 /* SH1122, LD7032, ST7920, ST7986, LC7981, T6963, SED1330, RA8835, MAX7219, LS0 */ 
 void u8g2_ll_hvline_horizontal_right_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y, u8g2_uint_t len, uint8_t dir)
 {
-  uint16_t offset;
+  size_t offset;
   uint8_t *ptr;
   uint8_t bit_pos;
   uint8_t mask;
@@ -255,7 +255,7 @@ void u8g2_ll_hvline_horizontal_right_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_
   mask = 128;
   mask >>= bit_pos;
 
-  offset = y;		/* y might be 8 or 16 bit, but we need 16 bit, so use a 16 bit variable */
+  offset = y;		/* Byte offsets can exceed 64 KiB on large displays. */
   offset *= tile_width;
   offset += x>>3;
   ptr = u8g2->tile_buf_ptr;
@@ -308,7 +308,7 @@ void u8g2_ll_hvline_horizontal_right_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_
 /* SH1122, LD7032, ST7920, ST7986, LC7981, T6963, SED1330, RA8835, MAX7219, LS0 */ 
 static void u8g2_draw_pixel_horizontal_right_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8g2_uint_t y)
 {
-  uint16_t offset;
+  size_t offset;
   uint8_t *ptr;
   uint8_t bit_pos, mask;
 
@@ -324,7 +324,7 @@ static void u8g2_draw_pixel_horizontal_right_lsb(u8g2_t *u8g2, u8g2_uint_t x, u8
   mask >>= bit_pos;
   x >>= 3;
 
-  offset = y;		/* y might be 8 or 16 bit, but we need 16 bit, so use a 16 bit variable */
+  offset = y;		/* Byte offsets can exceed 64 KiB on large displays. */
   offset *= u8g2_GetU8x8(u8g2)->display_info->tile_width;
   offset += x;
   ptr = u8g2->tile_buf_ptr;

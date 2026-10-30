@@ -16,6 +16,7 @@ esp_err_t sd_card_configure_sdmmc_power(int pin, int active)
 { assert(pin==5 && active==0 && configured); power_configured++; return power_error; }
 esp_err_t sd_card_clear_sdmmc_config(void) { cleared++; return ESP_OK; }
 esp_err_t sd_card_init(void) { mounted++; return mount_error; }
+esp_err_t solar_os_storage_mount(void) { mounted++; return mount_error; }
 esp_err_t sd_card_unmount(void) { return ESP_OK; }
 bool sd_card_has_mounts(void) { return has_mounts; }
 
@@ -29,6 +30,12 @@ int main(void)
         {.kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="active", .value=0},
     };
     assert(solar_os_sdmmc_attach("storage0",b,5)==ESP_OK && power_configured==1 && mounted==0);
+    assert(solar_os_sdmmc_attach("other",b,5)==ESP_ERR_INVALID_ARG);
+    mount_error=ESP_ERR_TIMEOUT;
+    assert(solar_os_sdmmc_attach("storage0",b,5)==ESP_ERR_TIMEOUT && configured==1);
+    mount_error=ESP_OK;
+    assert(solar_os_sdmmc_attach("storage0",b,5)==ESP_OK && configured==1);
+    mounted=0;
     has_mounts=true; assert(solar_os_sdmmc_detach("storage0")==ESP_ERR_INVALID_STATE);
     has_mounts=false; assert(solar_os_sdmmc_detach("storage0")==ESP_OK && cleared==1);
     power_error=ESP_FAIL;

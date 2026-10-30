@@ -9,7 +9,32 @@
 #include "i2c_bus.h"
 #include "u8x8.h"
 
-#define SSD1306_TILE_HEIGHT 8U
+static const u8g2_cb_t *rotation_callback(unsigned rotation)
+{
+    const u8g2_cb_t *const rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
+    return rotation < 4 ? rotations[rotation] : NULL;
+}
+
+static u8x8_msg_cb display_callback(ssd1306_controller_t controller, unsigned panel)
+{
+    static const u8x8_msg_cb ssd1306_panels[] = {
+        u8x8_d_ssd1306_128x64_noname, u8x8_d_ssd1306_128x32_univision,
+        u8x8_d_ssd1306_64x48_er, u8x8_d_ssd1306_64x32_noname,
+        u8x8_d_ssd1306_96x16_er, u8x8_d_ssd1306_96x40,
+        u8x8_d_ssd1306_72x40_er, u8x8_d_ssd1306_48x64_winstar,
+    };
+    static const u8x8_msg_cb sh1106_panels[] = {
+        u8x8_d_sh1106_128x64_noname, u8x8_d_sh1106_128x32_visionox,
+        u8x8_d_sh1106_64x32, u8x8_d_sh1106_72x40_wise,
+    };
+    if (controller == SSD1306_CONTROLLER_SSD1306 &&
+        panel < sizeof(ssd1306_panels) / sizeof(ssd1306_panels[0]))
+        return ssd1306_panels[panel];
+    if (controller == SSD1306_CONTROLLER_SH1106 &&
+        panel < sizeof(sh1106_panels) / sizeof(sh1106_panels[0]))
+        return sh1106_panels[panel];
+    return NULL;
+}
 
 static ssd1306_t *ssd1306_from_u8x8(u8x8_t *u8x8)
 {
@@ -169,15 +194,17 @@ static uint8_t ssd1306_u8x8_gpio_delay_cb(u8x8_t *u8x8,
     }
 }
 
-esp_err_t ssd1306_init_with_io(ssd1306_t *display,
-                               uint8_t address,
-                               ssd1306_controller_t controller,
-                               const ssd1306_io_t *io)
+esp_err_t ssd1306_init_profile_with_io(ssd1306_t *display,
+                                      uint8_t address,
+                                      ssd1306_controller_t controller,
+                                      unsigned panel,
+                                      unsigned rotation,
+                                      const ssd1306_io_t *io)
 {
+    const u8x8_msg_cb callback = display_callback(controller, panel);
     if (display == NULL ||
         (address != 0x3c && address != 0x3d) ||
-        (controller != SSD1306_CONTROLLER_SSD1306 &&
-         controller != SSD1306_CONTROLLER_SH1106) ||
+        callback == NULL || rotation_callback(rotation) == NULL ||
         io == NULL || io->probe == NULL || io->transmit == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -195,17 +222,21 @@ esp_err_t ssd1306_init_with_io(ssd1306_t *display,
     }
 
     u8g2_SetupDisplay(&display->u8g2,
-                      controller == SSD1306_CONTROLLER_SH1106
-                          ? u8x8_d_sh1106_128x64_noname
-                          : u8x8_d_ssd1306_128x64_noname,
+                      callback,
                       ssd1306_u8x8_cad_cb,
                       ssd1306_u8x8_byte_cb,
                       ssd1306_u8x8_gpio_delay_cb);
+    const u8x8_display_info_t *info = display->u8g2.u8x8.display_info;
+    display->buffer_size = (size_t)info->tile_width * info->tile_height * 8U;
+    if (display->buffer_size > sizeof(display->buffer)) {
+        memset(display, 0, sizeof(*display));
+        return ESP_ERR_INVALID_SIZE;
+    }
     u8g2_SetupBuffer(&display->u8g2,
                      display->buffer,
-                     SSD1306_TILE_HEIGHT,
+                     info->tile_height,
                      u8g2_ll_hvline_vertical_top_lsb,
-                     U8G2_R0);
+                     rotation_callback(rotation));
     u8x8_SetI2CAddress(&display->u8g2.u8x8, (uint8_t)(address << 1U));
     u8g2_InitDisplay(&display->u8g2);
     u8g2_SetPowerSave(&display->u8g2, 0);
@@ -217,6 +248,14 @@ esp_err_t ssd1306_init_with_io(ssd1306_t *display,
 
     display->initialized = true;
     return ESP_OK;
+}
+
+esp_err_t ssd1306_init_with_io(ssd1306_t *display,
+                              uint8_t address,
+                              ssd1306_controller_t controller,
+                              const ssd1306_io_t *io)
+{
+    return ssd1306_init_profile_with_io(display, address, controller, 0, 0, io);
 }
 
 static esp_err_t ssd1306_default_probe(void *ctx)

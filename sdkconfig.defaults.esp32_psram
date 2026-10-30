@@ -1,0 +1,5 @@
+# Affected classic ESP32 silicon needs protection for nearby 32-bit PSRAM
+# stores and reloads as well as byte accesses. Select the SDK's duplicate
+# load/store strategy across compiled OS and SDK components.
+CONFIG_SPIRAM_CACHE_WORKAROUND=y
+CONFIG_SPIRAM_CACHE_WORKAROUND_STRATEGY_DUPLDST=y

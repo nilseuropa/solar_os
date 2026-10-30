@@ -1503,6 +1503,29 @@ esp_err_t solar_os_expansion_attach_board_device(const char *name)
         if (strcmp(device->name, name) != 0) {
             continue;
         }
+        if (!devices_lock_take()) return ESP_ERR_NO_MEM;
+        expansion_device_node_t *node = find_device_locked(name);
+        if (node != NULL) {
+            const solar_os_expansion_driver_t *driver = find_driver(device->driver);
+            if (node->state != EXPANSION_SLOT_ACTIVE ||
+                node->device.origin != SOLAR_OS_EXPANSION_ORIGIN_BOARD ||
+                strcmp(node->device.driver, device->driver) != 0 || driver == NULL ||
+                driver->category != SOLAR_OS_EXPANSION_CATEGORY_STORAGE) {
+                devices_lock_give();
+                return ESP_ERR_INVALID_STATE;
+            }
+            /* Keep the slot reserved while refreshing removable media. */
+            node->state = EXPANSION_SLOT_ATTACHING;
+            devices_lock_give();
+            const esp_err_t ret = driver_attach_callback(driver, name,
+                node->device.bindings, node->device.binding_count);
+            if (!devices_lock_take()) return ESP_ERR_NO_MEM;
+            node->state = EXPANSION_SLOT_ACTIVE;
+            node->device.ready = ret == ESP_OK;
+            devices_lock_give();
+            return ret;
+        }
+        devices_lock_give();
         const esp_err_t ret = expansion_attach(device->driver,
                                                device->name,
                                                device->bindings,

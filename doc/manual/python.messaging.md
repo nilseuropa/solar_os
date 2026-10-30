@@ -18,7 +18,10 @@ Provider-neutral messaging builds expose:
 - `solaros.contacts.list()`: bounded contact summaries.
 - `solaros.contacts.get(contact_id)`: one contact with endpoint IDs, or `None`.
 - `solaros.messages.conversations()`: bounded conversation summaries.
-- `solaros.messages.list(conversation_id)`: retained messages.
+- `solaros.messages.list(conversation_id[, offset[, limit]])`: saved history
+  in chronological order. The default page contains the newest 64 messages.
+  Offset skips messages from the newest end; limit is 1 through 64. Increase
+  offset by the returned page length to read older pages.
 - `solaros.messages.send(conversation_id, body, allow_untrusted=False)`: queue
   a message and return its stable hexadecimal ID.
 - `solaros.messages.mark_read(conversation_id)`: mark linked message state read.

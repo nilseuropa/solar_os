@@ -220,10 +220,17 @@ esp_err_t audio_pwm_write_s16(const int16_t *samples,
             sample = (sample * volume) / 100;
             duties[i] = (uint8_t)((sample + 32768) >> 8);
         }
+        /* Blocking sends wake on every sample interrupt. */
+        size_t available;
+        while ((available = xStreamBufferSpacesAvailable(audio_pwm.samples)) < count) {
+            const TickType_t ticks = pdMS_TO_TICKS(
+                (count - available) * 1000U / AUDIO_PWM_SAMPLE_RATE);
+            vTaskDelay(ticks ? ticks : 1U);
+        }
         const size_t sent = xStreamBufferSend(audio_pwm.samples,
                                               duties,
                                               count,
-                                              portMAX_DELAY);
+                                              0U);
         if (sent != count) {
             return ESP_ERR_INVALID_SIZE;
         }

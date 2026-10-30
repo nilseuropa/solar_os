@@ -344,6 +344,97 @@ static esp_err_t messaging_instance_acquire(solar_os_messaging_provider_id_t id,
 static void messaging_instance_release(messaging_provider_node_t *node)
 { messaging_lock(); node->operations--; messaging_unlock(); }
 
+void solar_os_messaging_settings_clear(solar_os_messaging_settings_t *settings)
+{
+    if (!settings) return;
+    volatile unsigned char *p = (volatile unsigned char *)settings;
+    for (size_t i = 0; i < sizeof(*settings); i++) p[i] = 0;
+}
+
+void solar_os_messaging_settings_value(solar_os_messaging_settings_t *settings,
+    size_t field, const char *value)
+{
+    if (!settings || field >= settings->count || field >= SOLAR_OS_MESSAGING_SETTINGS_FIELDS) return;
+    settings->present[field] = value && value[0];
+    if (!settings->fields[field].secret)
+        strlcpy(settings->values[field], value ? value : "", sizeof(settings->values[field]));
+}
+
+static esp_err_t messaging_settings_acquire(const char *class_name,
+    solar_os_messaging_provider_id_t id, messaging_provider_node_t **node,
+    const solar_os_messaging_provider_class_t **type, void **context)
+{
+    *node = NULL; *context = NULL; *type = NULL;
+    if (!class_name) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_messaging_init();
+    if (error != ESP_OK) return error;
+    if (id) {
+        error = messaging_instance_acquire(id, node, type, context);
+        if (error != ESP_OK) return error;
+        if (*type && !strcmp((*type)->name, class_name) && *context) return ESP_OK;
+        messaging_instance_release(*node); *node = NULL;
+        return ESP_ERR_NOT_FOUND;
+    }
+    messaging_lock(); *type = messaging_class_locked(class_name); messaging_unlock();
+    return *type ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+static esp_err_t messaging_settings_read_leased(
+    const solar_os_messaging_provider_class_t *type, void *context, unsigned form,
+    solar_os_messaging_settings_t *settings)
+{
+    solar_os_messaging_settings_clear(settings);
+    esp_err_t error = type->settings_read ? type->settings_read(context, form, settings) : ESP_ERR_NOT_SUPPORTED;
+    if (error == ESP_OK && (!settings->fields || !settings->count ||
+        settings->count > SOLAR_OS_MESSAGING_SETTINGS_FIELDS)) error = ESP_ERR_INVALID_SIZE;
+    for (size_t i = 0; error == ESP_OK && i < settings->count; i++) {
+        const solar_os_messaging_setting_t *field = &settings->fields[i];
+        if (!field->label || !field->capacity || field->capacity > SOLAR_OS_MESSAGING_SETTING_MAX ||
+            !memchr(settings->values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
+        if (field->secret) memset(settings->values[i], 0, sizeof(settings->values[i]));
+        settings->changed[i] = false;
+    }
+    if (error != ESP_OK) solar_os_messaging_settings_clear(settings);
+    return error;
+}
+
+esp_err_t solar_os_messaging_settings_read(const char *class_name,
+    solar_os_messaging_provider_id_t id, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    solar_os_messaging_settings_clear(settings);
+    messaging_provider_node_t *node; const solar_os_messaging_provider_class_t *type; void *context;
+    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &type, &context);
+    if (error == ESP_OK) error = messaging_settings_read_leased(type, context, form, settings);
+    if (node) messaging_instance_release(node);
+    return error;
+}
+
+esp_err_t solar_os_messaging_settings_write(const char *class_name,
+    solar_os_messaging_provider_id_t id, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *result)
+{
+    if (!settings || !result || (!id && !messaging_text_valid(name, SOLAR_OS_MESSAGING_LABEL_MAX, false))) return ESP_ERR_INVALID_ARG;
+    messaging_provider_node_t *node; const solar_os_messaging_provider_class_t *type; void *context;
+    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &type, &context);
+    if (error != ESP_OK) return error;
+    solar_os_messaging_settings_t *schema = solar_os_memory_calloc(1, sizeof(*schema),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.settings");
+    if (!schema) error = ESP_ERR_NO_MEM;
+    else error = messaging_settings_read_leased(type, context, form, schema);
+    if (error == ESP_OK && schema->count != settings->count) error = ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; error == ESP_OK && i < schema->count; i++) {
+        const solar_os_messaging_setting_t *field = &schema->fields[i];
+        if (!memchr(settings->values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
+        else if (field->required && (!id || settings->changed[i]) && !settings->values[i][0]) error = ESP_ERR_INVALID_ARG;
+    }
+    if (error == ESP_OK) error = type->settings_write ?
+        type->settings_write(context, form, name, settings, result) : ESP_ERR_NOT_SUPPORTED;
+    solar_os_messaging_settings_clear(schema); solar_os_memory_free(schema);
+    if (node) messaging_instance_release(node);
+    return error;
+}
+
 esp_err_t solar_os_messaging_instance_retain(solar_os_messaging_provider_id_t id, void **lease)
 {
     if (!lease) return ESP_ERR_INVALID_ARG;

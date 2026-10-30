@@ -21,13 +21,45 @@ by its command name, with any arguments shown below.
 | Move local input between displays | `Ctrl+Alt+Arrow` | `session focus TARGET` |
 
 Either Alt key works, including AltGr. Apps may also provide `Esc` or `Q` to
-exit. In shared text menus, `Alt+Enter` toggles full screen; on CL-32 use
+exit. In shared text menus, `Alt+Enter` toggles full screen; on Pi0cket CL-32 use
 `File+OK`. Small text menus start in full screen automatically.
 
 Closing returns to the shell. Python/Lua stdout, errors, and tracebacks remain
 in shell scrollback; app screens are discarded. Errors return to the shell
 with a diagnostic. Run `status` to check the most recent app exit code: 0 means
 success. See [Sessions](sessions.apps.md) for switching and display focus.
+
+## messages
+
+Manage messaging instances, connections, and local message history on the display
+or a VT100 terminal. Run `messages` without arguments to open the TUI. Existing
+`messages` subcommands remain available for shell and scripting use.
+
+Press `Tab` to switch between **Instances**, **Connections**, and **Messages**.
+Use the arrow keys to select a row, `Enter` to open it, `a` for actions, and `?`
+for help. `f` selects an instance or **All instances**. The selected instance
+is shared between tabs. `Esc` returns to the previous view; `q` closes the TUI.
+
+- **Instances:** `n` adds an instance using a provider form, `e` edits its
+  settings, and `d` removes it after confirmation. Select a field and press
+  `Enter` to edit it in place with a visible insertion cursor; `s` saves the form.
+  The other fields remain visible. Unchanged secret fields keep their saved
+  values. Submitting an empty secret field clears it. Removal deletes local
+  history, queued sends, settings, and credentials for that instance.
+- **Connections:** `c` enables the selected instance and `x` disables it.
+  `Enter` shows connection state, worker state, and errors. Enabling an instance
+  does not start its worker; use `job start` with the appropriate worker settings.
+- **Messages:** `v` cycles through conversations, unread messages, and the
+  pending outbox. `Enter` opens conversation history or a message's full text.
+  `Page Up` loads older records and `Page Down` loads newer records. `c` opens
+  Chat for the selected conversation; closing Chat returns to this browser.
+  `r` marks the selected conversation read. `d` deletes one selected local message
+  after confirmation. A pending send must first be cancelled with `x` before its
+  history can be deleted. Local deletion does not retract a remote message.
+
+Message browsing uses the persistent Messaging archive. The universal Inbox
+also contains notifications from other applications; see `inbox` for those.
+See [Messaging](messaging.md) for provider settings, trust, and storage behavior.
 
 ## dlp
 
@@ -427,6 +459,11 @@ pulse, or noise output; frequency from 20 through 8000 Hz; amplitude; pulse
 width; a repeating linear sweep; sweep end frequency; sweep time; and playback
 stream. The TUI exposes the same controls. `--tui` forces it on a graphical
 shell.
+
+Small graphical displays show one selected control at a time, with its position
+in the eight-control sequence. The waveform remains visible when space allows.
+Short terminals scroll the controls to keep the selection visible. Long output
+names are clipped to the available width.
 
 Controls:
 
@@ -1128,8 +1165,14 @@ the selected endpoint addresses, capabilities, last-seen times, and bounded
 provider metadata summary, and `Esc` or `q` to leave. The footer shows
 `a Actions` and `? Help`, including on compact screens.
 
+When Chat is included, select a contact and press `c` to open their direct
+conversation. Closing Chat returns to Contacts. Chat uses the contact's
+preferred direct endpoint, favoring trusted endpoints; sending to a discovered
+endpoint still requires confirmation.
+
 Press `a` in the list or details to manage the selected contact:
 
+- `c`: open Chat for the selected contact, when Chat is included.
 - `t`: trust all endpoints or choose one endpoint.
 - `b`: block all endpoints or choose one endpoint.
 - `r`: edit the contact name, then `Enter` to save or `Esc` to cancel.
@@ -1262,13 +1305,20 @@ Controls:
 - Layout markers are `*` free, `~` releasable, `@` claimed, `!` fixed/control,
   `+` power, `-` ground, and `x` not connected.
 - `Enter` opens context-sensitive actions for a pin or bus.
-- `n` creates a board-approved named I2C, SPI, UART, MIDI, or 1-Wire bus.
+- `n` creates a board-approved named I2C, SPI, UART, MIDI, 1-Wire, PS/2, or
+  CAN bus, depending on the installed drivers.
 - Bus creation uses arrows to select fields and values; the generated bus name
   can be edited directly.
 - Runtime buses can be attached, detached, or removed when their lease state
   permits it. Their `Autostart` action idempotently appends the matching
   `expansion bus create ...` command to `/.shell/startup`. Direct GPIO and PWM
   assignments can be created and released from the Pins or Layout view.
+- CAN creation selects TX/RX GPIOs, bitrate in kbit/s, listen-only or normal
+  mode, and an optional transceiver-select GPIO with its active level. The
+  default is 500 kbit/s in listen-only mode. CAN controllers appear in Buses;
+  runtime controllers support removal and `Autostart`, which saves an
+  `expansion attach twai-can ...` command. A compatible CAN transceiver is
+  required; see `manual hardware.can`.
 - A selected I2C bus has a `Set I2C speed` action with 100 kHz, 400 kHz, and
   1 MHz choices. The change applies at runtime even while devices lease the bus.
 - `r` refreshes; `q`, `Esc`, or the app-exit key exits.
@@ -2064,6 +2114,9 @@ equal-sized button grid; color and pattern choices are
 in the bottom bar. Sketch uses a compact four-color canvas and stores finished
 documents as interoperable indexed-color PNG files. Color TFTs show the native
 palette; one-bit displays use the existing dithered rendering path.
+Runtime rotation preserves the drawing and its saved dimensions. The canvas
+fits inside the new viewport, and pointer input follows the fitted image.
+Gray margins mark space outside the drawable canvas after rotation.
 
 Usage:
 

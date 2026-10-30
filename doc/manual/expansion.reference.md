@@ -57,7 +57,7 @@ while remaining blocked from runtime use.
 | Elecrow CrowPanel ESP32-S3 5.79-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
 | SolarWriter | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO18, GPIO19, GPIO20, GPIO38 | GPIO18, GPIO19, GPIO20 | GPIO8/9 are shared fuel-gauge/RTC I2C, GPIO14–17 are shared audio, GPIO21 is reserved for jack detect, and GPIO3 is a strapping pin. |
 | Waveshare ESP32-S3-ePaper-3.97 | GPIO41-GPIO44 on the I2C/UART pads | None | None | GPIO41/GPIO42 belong to shared `i2c0`; GPIO43/GPIO44 belong to `uart0`. The board exposes no unmanaged general-purpose signal. |
-| CL-32 | GPIO1-GPIO4, GPIO8, GPIO15-GPIO21, GPIO35-GPIO44, GPIO46-GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18, GPIO21, GPIO38-GPIO42, GPIO47, GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18 | GPIO1/GPIO2 are shared I2C; GPIO3 is the shared peripheral interrupt; GPIO19/GPIO20 are USB; GPIO35-GPIO37 are Octal PSRAM; GPIO43/GPIO44 belong to `uart0`; GPIO46 is an input-only strapping signal. EX1 uses a proprietary M.2 pinout. |
+| Pi0cket CL-32 | GPIO1-GPIO4, GPIO8, GPIO15-GPIO21, GPIO35-GPIO44, GPIO46-GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18, GPIO21, GPIO38-GPIO42, GPIO47, GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18 | GPIO1/GPIO2 are shared I2C; GPIO3 is the shared peripheral interrupt; GPIO19/GPIO20 are USB; GPIO35-GPIO37 are Octal PSRAM; GPIO43/GPIO44 belong to `uart0`; GPIO46 is an input-only strapping signal. EX1 uses a proprietary M.2 pinout. |
 | T-LoRa-Pager | GPIO2, GPIO3, GPIO9, GPIO33-GPIO35, GPIO43, GPIO44, and CE on XL9555 P1.1 (`gpiox0:9`) | GPIO9 | GPIO9 | GPIO2/GPIO3 are shared I2C; GPIO33-GPIO35 are shared SPI; GPIO43/GPIO44 belong to releasable `uart0`; CE is an expanded digital control line, not ESP32 GPIO9. |
 | T-Deck Plus | None; the declared connector view contains internal peripheral wiring only | None | None | The board has no general-purpose expansion connector. All declared ESP32 pins belong to fixed display, input, storage, audio, radio, GNSS, battery, USB, or bus resources. |
 | ThinkNode M9 | None; the declared connector view contains internal peripheral wiring only | None | None | The board has no general-purpose expansion connector. All declared ESP32 pins belong to fixed display, input, storage, radio, GNSS, RTC, battery, buzzer, power, or bus resources. |
@@ -85,7 +85,7 @@ voltage and current requirements before connecting it.
 | Elecrow CrowPanel ESP32-S3 5.79-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal dual-SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
 | SolarWriter | `i2c0`: SDA GPIO8, SCL GPIO9; inherited CrowPanel SPI/UART buses | I2C on `i2c1`, UART on `uart1`/`uart2`, or 1-Wire, using GPIO18/19/20/38; SPI3 while microSD is unmounted | Fixed `audio0` owns I2S1 and GPIO14–17. `battery0` (`0x0b`) and DS3231 `rtc0` (`0x68`) share `i2c0`. RTC INT/SQW is unbound. GPIO21 is reserved for jack detect. |
 | Waveshare ESP32-S3-ePaper-3.97 | `i2c0`: SDA GPIO41, SCL GPIO42; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | External I2C devices can share `i2c0`; external UART devices can use `uart0` when the console releases it. | `spi0` is the fixed internal SSD1677 bus. All other GPIOs belong to fixed peripherals, native USB, controls, or power-management signals. |
-| CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, ST7305 display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
+| Pi0cket CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | Both `cl_32` and `cl32_epd`: EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
 | T-LoRa-Pager | `i2c0`: SDA GPIO3, SCL GPIO2; `spi0`: SCK GPIO35, MISO GPIO33, MOSI GPIO34, CS GPIO38/GPIO21/GPIO36/GPIO39/GPIO9; `uart0`: TX GPIO43, RX GPIO44; `gnss-uart`: TX GPIO12, RX GPIO4 | External devices can share `i2c0` or `spi0`; GPIO9 is the free SPI CS slot. `uart0` is releasable. | The extension header exposes the shared buses and console UART. Display, storage, radio, and NFC share `spi0`; GNSS owns its internal UART. There is no complete exposed pin set for another routed bus. |
 | T-Deck Plus | `uart0`: TX GPIO43, RX GPIO44, GNSS detection at 9600/38400 baud; internal `i2c0` and `spi0` | Grove UART after `expansion detach gnss0`; restore with `expansion attach gnss0` | Grove is the only expansion connector and shares its UART signals with always-on GNSS. Use `gnss disable gnss0` to silence supported receivers before detaching; reattachment restores output. Software release does not electrically disconnect GNSS TX, so an external transmitter needs suitable isolation. The I/O map shows Grove; display, storage, radio, keyboard, touch, and audio use internal wiring. |
 | ThinkNode M9 | `i2c0`: SDA GPIO20, SCL GPIO21; `i2c1`: SDA GPIO7, SCL GPIO6; `spi0`: SCK GPIO40, MISO GPIO38, MOSI GPIO47, CS GPIO16/GPIO48/GPIO39; `uart0`: TX GPIO43, RX GPIO44; `uart1`: TX GPIO3, RX GPIO2 at 115200 baud | None through an external connector | Display, storage, keyboard, RTC, battery, buzzer, and GNSS use fixed internal resources. `i2c0` is the keyboard bus and `i2c1` the peripheral bus; `uart0` is the CH340K USB console; `uart1` belongs to the GNSS receiver. The board has no general-purpose expansion connector. |
@@ -262,17 +262,19 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `rfm69h` | HopeRF RFM69HW/HCW high-power packet radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers a packet-radio target with PA_BOOST power from -2 through 20 dBm. |
 | `rfm95` | HopeRF RFM95W multimode radio | `spi=<bus> cs=<pin>`; optional `irq=<pin> reset=<pin>` | Registers an FSK/GFSK/MSK/GMSK/OOK/LoRa target for the `radio` command. |
 | `sx1262` | Semtech SX1262 packet radio | `spi=<bus> cs=<pin> busy=<pin>`; optional `reset=<pin> irq=<pin>` | Registers a LoRa/(G)FSK packet-radio target for the `radio` command. Sleep retains configuration; `radio state <name> standby` wakes the radio without receiving, and `radio state <name> rx` enables continuous reception. |
+| `lr11xx` | Semtech LR11xx packet radio (LR1110/LR1120/LR1121) | `spi=<bus> cs=<pin> busy=<pin>`; optional `reset=<pin> irq=<pin> freq=<mhz> tcxo=<mv>` | Registers a sub-GHz LoRa packet-radio target for the `radio` command. The part reports which family member it is, so one driver covers all three and the summary names the one fitted. `freq` is the board's SKU in MHz and `tcxo` its TCXO supply in millivolts, or 0 for a crystal. A board with an antenna switch also declares its DIO table as `SOLAR_OS_BOARD_LR11XX_RF_SWITCH`. GFSK, 2.4 GHz, GNSS scanning, and Wi-Fi scanning are not covered. |
 | `pcd8544` | 84x48 SPI LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>` | Registers an auxiliary display target. |
 | `stream-dlp` | Display Link Protocol byte-stream endpoint | `stream=<id> [timeout-ms=<ms>] [compressed=0\|1]` | Claims an existing exclusive duplex byte stream. |
 | `spi-dlp` | Display Link Protocol SPI endpoint | `spi=<bus> cs=<pin> [ready=<pin>] [reset=<pin>] [compressed=0\|1]` | Discovers geometry and negotiates a wire pixel format. |
 | `ssd1683` | SSD1683 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3> panel=<0..4> startup-pulse=<0|1>` | Registers an auxiliary target, or Elecrow's fixed `display0`, with auto, fast, and full refresh modes. Panel 0 auto-detects the 4.2-inch Elecrow revision; 1 is legacy Elecrow, 2 is green-sticker Elecrow, 3 is Waveshare V2, and 4 is Elecrow's 792x272 dual-controller panel. Panels 2, 3, and 4 also accept pulse mode and its runtime tuning controls. `startup-pulse=1` selects pulse at attach when supported; the default is native auto. |
 | `uc8279` | UC8279 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=<1..2>`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects X4 Pro glass and sets its PLL; panel 2 selects X4 Classic glass and preserves the panel's programmed PLL. Both address 600 gates with the visible rows at gates 120..599 and require programmed OTP/MTP waveforms. Active-low BUSY, automatic full cleanup every 20 changed frames, and selectable partial/full refresh. Controller and panel selection are explicit; UC8279 X3 792x528 and other variants require separate profiles. |
 | `x4pro` | Xteink X4 Pro primary display and frontlight | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> latch=<pin> cool=<pin> warm=<pin>` | Identifies SSD1677, UC8179, or UC8279 once and caches the controller ID in SolarOS NVS. Native 800x480 landscape, 10 MHz SPI, and 25 kHz dual PWM with a fixed 50/50 mix controlled by `setterm brightness`. The primary attachment holds the shared peripheral latch on. |
+| `ssd1685` | SSD1685 168x384 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=1`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects GDEY029T71H glass, including its source offset and OTP waveforms. Active-high BUSY, 10 MHz maximum SPI clock, full/partial refresh, and automatic full cleanup after five partial updates. Rotation 1 or 3 gives 384x168 landscape. |
 | `uc8179` | UC8179 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=1`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects Xteink 800x480 glass with 600 addressed gates and programmed OTP waveforms. Active-low BUSY, automatic full cleanup every 20 changed frames, and selectable partial/full refresh. No controller autodetection; other panel geometries and waveforms need their own profile. |
-| `ssd1677` | SSD1677 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3>` or paired `power_i2c=<bus> power_addr=0x34` through an attached AXP2101 service | Registers an auxiliary target, or Waveshare's fixed `display0`, with automatic dirty-window partial refresh plus selectable partial and full modes. Holds the PMIC attachment while using its ALDO3 rail. |
-| `ssd1306` | 128x64 I2C OLED | `i2c=<bus> addr=<address>` | Registers an auxiliary display target. |
-| `sh1106` | 128x64 I2C OLED with SH1106 addressing | `i2c=<bus> addr=<address>` | Registers an auxiliary display target with the two-column offset. |
-| `st7305` | 400x300 or 384x168 reflective LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>`; optional `panel=0|1 rotation=1|3` | ESP32 and ESP32-S3. Panel 0 is the native 300x400 Waveshare panel; panel 1 is the native 168x384 CL-32 panel. Both boards register their panel as fixed `display0`. |
+| `ssd1677` | SSD1677 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3> panel=<0,1>` or paired `power_i2c=<bus> power_addr=0x34` through an attached AXP2101 service | Panel 0 preserves the generic differential sequence; panel 1 selects Sticky's matching-plane full OTP refresh. Native auto/partial/full modes and Fastwave pulse mode with per-pixel settling, adaptive cleanup, and native recovery. Native mode releases pulse buffers and its worker. Holds the PMIC attachment while using ALDO3. |
+| `ssd1306` | SSD1306 I2C OLED | `i2c=<bus> addr=<address>`; optional `panel=<0..7> rotation=<0..3>` | Registers an auxiliary display target with the selected panel's geometry and addressing. Defaults to 128x64, rotation 0. |
+| `sh1106` | SH1106 I2C OLED | `i2c=<bus> addr=<address>`; optional `panel=<0..3> rotation=<0..3>` | Registers an auxiliary display target with panel-specific initialization and column offsets. Defaults to 128x64, rotation 0. |
+| `st7305` | 400x300 or 384x168 reflective LCD | `spi=<bus> cs=<pin> dc=<pin> reset=<pin>`; optional `panel=0|1 rotation=1|3` | ESP32 and ESP32-S3. Panel 0 is the native 300x400 Waveshare panel; panel 1 is the native 168x384 Pi0cket CL-32 panel. Both boards register their panel as fixed `display0`. |
 | `ili9341` | 320x240 color TFT | `spi=<bus> cs=<pin> dc=<pin>`; optional `reset=<pin> bl=<pin> active=0|1 pwm=0|1` | ESP32 and ESP32-S3; ODROID-GO registers it as fixed `display0`. |
 | `st7796` | 480x320 color TFT | `spi=<bus> cs=<pin> dc=<pin>`; optional `reset=<pin> bl=<pin> active=0|1 pwm=0|1` | ESP32 and ESP32-S3; Freenove registers it as fixed `display0`. |
 | `st7789` | 320x240 color TFT | `spi=<bus> cs=<pin> dc=<pin>`; optional `reset=<pin> bl=<pin> power=<pin> active=0|1 pwm=0|1` | ESP32-S3 driver; T-Deck Plus and the ThinkNode M9 register it as fixed `display0` with shared peripheral power and backlight control. A board with an active-low power rail sets `SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL` in its manifest. |
@@ -286,7 +288,7 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `tab5-keyboard` | M5Stack Tab5 70-key keyboard | `i2c=<bus> addr=0x6d [irq=<pin>]` | Normal-mode press/release events, runtime keymaps, optional active-low interrupt with polling fallback. Accepts an already configured address from `0x08` to `0x77`. |
 | `tca8418` | Generic TCA8418 matrix keyboard | `i2c=<bus> addr=0x34 [rows=1..8] [cols=1..10] [reset=<pin>] [irq=<pin>]` | Defaults to an 8x10 reference map; supports user mappings through `input keymap`. |
 | `lilygo-pager-keyboard` | LilyGO T-LoRa-Pager keyboard | `i2c=<bus> addr=0x34 [reset=<pin>] [irq=<pin>] [backlight=<pwm-pin>]` | Fixed 4x10 Pager wiring and symbol layer, with optional PWM backlight controlled by `setterm backlight`. |
-| `cl32-core` | Integrated CL-32 ATmega808 controller | `i2c=<bus> addr=0x08` | Fixed CL-32-only `core0`; polls keyboard press/release events into `keyboard0`, provides `battery0` from the AVR voltage, USB-power, and charging state, and controls keyboard illumination through `setterm backlight`. The AVR retains its keyboard-activity timeout and fade. It is not runtime-probeable or detachable. |
+| `cl32-core` | Integrated Pi0cket CL-32 ATmega808 controller | `i2c=<bus> addr=0x08` | Fixed Pi0cket CL-32-only `core0`; polls keyboard press/release events into `keyboard0`, provides `battery0` from the AVR voltage, USB-power, and charging state, and controls keyboard illumination through `setterm backlight`. The AVR retains its keyboard-activity timeout and fade. It is not runtime-probeable or detachable. |
 | `gpio-keys` | Active-low pull-up buttons | One or more `key:<name>=<gpio>` bindings | Publishes press/release keyboard events and releases all GPIO claims on detach. |
 | `ps2-keyboard` | PS/2 scan-code set 2 keyboard | `ps2=<bus>` | Publishes canonical keyboard press/release events from an exclusive PS/2 bus. |
 | `ps2-mouse` | Standard three-button PS/2 mouse | `ps2=<bus>` | Enables reporting and publishes relative pointer motion and button events. |
@@ -294,14 +296,14 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `analog-joystick` | Two-axis analog joystick | `x=<scalar-stream> y=<scalar-stream> min=<value> center=<value> max=<value>`; optional `deadzone=<value>` | Normalizes two scalar streams into X/Y axis events without generating keys. |
 | `rotary-encoder` | Quadrature rotary encoder | `a=<pin> b=<pin>` | Publishes Up or Down input for each decoded detent. |
 | `ft6336` | Board-integrated FT6336 touch controller | Board-defined I2C, address, reset, and IRQ bindings | Publishes absolute pointer events as a default board attachment. |
-| `gt911` | GT911 capacitive touch controller | `i2c=<bus> addr=0x5d irq=<pin> rotation=<0..3>`; optional `alt_addr=0x14 reset=<pin> power=<pin> active=<0|1> home_key=<numeric-key>` | Polls absolute pointer events into the shared input service and retains state between fresh frames. Optional reset performs interrupt-pin address selection; optional power controls the touch rail (default active high). Both declared addresses are claimed. The Home pad can emit a key tap on release. |
+| `gt911` | GT911 capacitive touch controller | `i2c=<bus> addr=0x5d irq=<pin> rotation=<0..3>`; optional `alt_addr=0x14 reset=<pin> power=<pin> active=<0|1> home_key=<numeric-key> swap_xy=<0|1>` | Polls absolute pointer events into the shared input service and retains state between fresh frames. Axis swapping precedes rotation and is off by default. Optional reset performs interrupt-pin address selection; optional power controls the touch rail (default active high). Both declared addresses are claimed. The Home pad can emit a key tap on release. |
 | `mgc3130` | MGC3130/Skywriter 3D gesture sensor | `i2c=<bus> addr=0x42|0x43 transfer=<pin> reset=<pin> rotation=<0..3>`; optional `airwheel=0|1` | Registers in the `gesture` input class and uses the open-drain transfer handshake to publish normalized X/Y/Z axes, recognized gesture/tap/AirWheel events, and buttonless display-scaled absolute hover motion. It is not registered as a touch source, because the five electrode regions do not provide a continuous drawing surface. AirWheel defaults on; set it to 0 to make the mutually exclusive circle gestures available. Use `gesture bind` to map its generic gesture events to local keys, scripts, or other shell commands. |
 | `pcf85063` | PCF85063 real-time clock | `i2c=<bus> addr=0x51`; optional `irq=<pin>` | Registers an RTC provider with wall-clock, alarm, timer, and optional interrupt support. |
 | `pcf8563` | PCF8563 / BM8563 real-time clock | `i2c=<bus> addr=0x51`; optional `irq=<pin>` | Registers an RTC provider with calendar, minute-resolution alarms, countdown, and optional active-low interrupt support. Calendar dates use 2000–2099 with the century bit cleared. Low-voltage status marks the clock unreliable until the date is set. Nonzero alarm seconds are unsupported; countdown accepts 1–255 seconds or whole minutes up to 255 minutes. |
 | `ds3231` | DS3231 real-time clock | `i2c=<bus> addr=0x68`; optional `irq=<pin>` | Registers an RTC provider with a 2000–2099 calendar, second-resolution Alarm 1, and optional active-low INT/SQW interrupt. Oscillator-stop status marks time unreliable until it is set. Reads accept 12-hour or 24-hour format; writes use 24-hour format. Countdown is unsupported; Alarm 2 interrupts are disabled. |
 | `shtc3` | SHTC3 temperature and humidity sensor | `i2c=<bus> addr=0x70` | Registers temperature and humidity providers. |
 | `battery-adc` | ADC battery monitor | `adc=<pin> divider=<1000..10000>` | Registers a battery provider using the configured divider ratio in thousandths. |
-| `bq27220` | BQ27220 fuel gauge | `i2c=<bus> addr=0x55` | Registers a battery provider backed by the fuel gauge. |
+| `bq27220` | BQ27220 fuel gauge | `i2c=<bus> addr=0x55` | Reads battery voltage and gauge-reported state of charge; charging state is inferred from the discharge flag. |
 | `lc709203f` | LC709203F single-cell Li-ion fuel gauge | `i2c=<bus> addr=0x0b`; optional `capacity=<mAh> profile=0|1 temp=<decic> apa=<value>` | CRC-checked voltage and state of charge; follows configured battery capacity. No charger-state measurement. |
 | `max17048` | MAX17048 fuel gauge | `i2c=<bus> addr=0x36` | Registers a battery provider with gauge-reported voltage and state of charge. The chip does not report charger or external-power state, so charging remains unknown unless another provider supplies it. |
 | `cw2017` | CW2017 fuel gauge | `i2c=<bus> addr=0x63` | Registers a battery provider with cell voltage and state of charge. Preserves the resident cell-specific BATINFO profile. Without a loaded profile or valid SOC, battery percentage uses the service's voltage estimate. Charging and external-power state are not reported by the gauge. |
@@ -313,6 +315,7 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `st25r3916` | ST25R3916 NFC-A reader | `spi=<bus> cs=<pin> irq=<pin>`; optional `power=<gpio-or-controller-line>` | Registers an NFC provider for ISO14443A discovery and card reads. |
 | `bhi260ap` | Bosch BHI260AP six-axis IMU | `i2c=<bus> addr=<address> irq=<pin>` | Uploads the sensor firmware during attachment and registers acceleration, angular-rate, and orientation measurements. |
 | `qmi8658` | QMI8658 six-axis IMU | `i2c=<bus> addr=0x6a|0x6b` | Polls data-ready status and registers SI-unit acceleration and angular-rate measurements. The Waveshare board uses fixed `imu0` at `0x6a`. |
+| `lsm6ds3tr-c` | LSM6DS3TR-C six-axis IMU | `i2c=<bus> addr=0x6a|0x6b`; optional `irq=<pin>` | Registers SI-unit acceleration and angular velocity at 104 Hz, ±2 g and ±250°/s. An IRQ binding enables hardware tap, double-tap, tilt, wake, and free-fall gestures and raises acceleration to 416 Hz. Sticky binds `imu0` at `0x6a` with IRQ GPIO7. |
 | `drv2605` | TI DRV2605 haptic controller | `i2c=<bus> addr=0x5a`; optional `power=<gpio-or-controller-line>` | Registers a haptic provider for the controller's ROM effects. |
 | `pcnt-encoder` | Hardware quadrature encoder | `a=<gpio> b=<gpio> mode=<1\|2\|4>`; optional `invert=<0\|1> pull=<0\|1\|2> filter_ns=<integer>` | Registers a named encoder with explicit x1/x2/x4 counting. See [Encoder counts](encoder.md). |
 | `drv8830` | TI DRV8830 brushed DC motor driver | `i2c=<bus> addr=<0x60..0x68>`; optional `int=<gpio> max_mv=<482..5060>` | Registers a motor endpoint for normalized drive, coast, brake and fault handling. Attaches in coast. See [Motor control](motor.md). |
@@ -321,6 +324,7 @@ Run `expansion drivers` on the device to see the exact registered set.
 | `sdspi` | SPI microSD card adapter | `spi=<bus> cs=<pin>` | On boards without built-in SD, mounts removable FAT storage at `/sdcard`; run `disk umount` before detach. |
 | `neopixel` | WS2812/NeoPixel GRB strip | `data=<pin> count=<1..256>` | Claims the data GPIO and registers a named strip for the `neopixel` command and script API. |
 | `audio-pwm` | LEDC PWM mono audio output | `pwm=<pin>` | Claims the PWM GPIO and registers a 16 kHz mono playback device. One instance can be attached. |
+| `audio-pdm` | PDM microphone input on ESP32-S3 | `i2s=i2s0 clk=<pin> din=<pin>`; optional `power=<pin> slot=0|1` | Registers `<name>.capture` as exclusive 16 kHz, signed 16-bit mono PCM. Power and DMA are enabled on stream open and released on close; slot 0 selects the left microphone channel. Sticky binds `mic0`. |
 | `esp32-camera` | DVP JPEG camera | `d0=<pin>` through `d7=<pin>`, `vsync=<pin> href=<pin> pclk=<pin> xclk=<pin>`; either `i2c=<bus>` or `siod=<pin> sioc=<pin>`; optional `pwdn=<pin> reset=<pin>` | ESP32-S3 with PSRAM; claims GPIOs and the single DVP capture peripheral. Named SCCB buses can be shared with other devices; direct-pin SCCB reserves the configured I2C controller. Registers the device name as an exclusive typed video source. Capture starts only on use. Busy owners or frames prevent detach. |
 | `pcm1808` | PCM1808 four-wire I2S ADC | `mclk=<pin> bck=<pin> ws=<pin> dout=<pin>` | Requires `expansion_i2s`, claims four GPIOs and a runtime I2S controller, then registers a 16 kHz stereo capture device and stream. One instance can be attached. |
 | `inmp441` | Three-wire I2S microphone, optional shared playback | `i2s=<port> bck=<pin> ws=<pin> din=<pin>`; optional `slot=0|1 dout=<pin>` | Registers mono 16 kHz capture. With `dout`, also registers stereo playback on the same clocks and controller. One instance can be attached. |
@@ -345,7 +349,7 @@ GPIO bindings. Supplying both modes, only one SCCB pin, or neither mode is
 rejected. With `i2c=i2c0`, the bus supplies SDA/SCL wiring and retains its other
 devices when the camera stops. The camera keeps a bus lease until detach;
 `d0`..`d7`, `vsync`, `href`, `pclk`, and `xclk` remain GPIO bindings.
-On CL32, the expansion connector's camera control signals use the board-owned
+On Pi0cket CL-32, the expansion connector's camera control signals use the board-owned
 `i2c0`, so select `i2c=i2c0` alongside the camera's DVP pin assignments. After
 attachment, `camera status` initializes and probes the camera, and
 `camera capture <path>` captures a JPEG. The direct-pin mode retains
@@ -620,6 +624,103 @@ display test lcd0
 Wire a module backlight according to the module board and use suitable current
 limiting when connecting it to 3V3.
 
+### GDEY029T71H e-paper (SSD1685)
+
+Use the `ssd1685` driver with `panel=1` for this 2.9-inch black-and-white
+panel. Supply 3.3 V and connect BUSY as an active-high input. The optional
+`power` GPIO controls an active-high module supply enable. SPI defaults to
+10 MHz; `clock` accepts 100 through 10000 kHz.
+
+On a named SPI bus with the following free control pins:
+
+```text
+expansion attach ssd1685 epd0 spi=spi0 cs=gpio10 dc=gpio17 reset=gpio16 busy=gpio15 panel=1 rotation=3
+display test epd0
+display mode epd0 refresh=full
+display mode epd0 refresh=auto
+expansion detach epd0
+```
+
+The native framebuffer is 168x384. Rotations 1 and 3 expose a 384x168 target.
+Primary and runtime SSD1685 displays accept MONO1 raster frames, including
+rotation, palette inversion, and background borders. The shared frame presenter
+converts indexed app frames to monochrome, including Game Boy's four-shade
+video. Pulse mode submits raster frames to the same asynchronous scan worker
+used for graphics drawing.
+
+All supported EPD drivers provide `display relax <target> [seconds]`, including
+SSD1683, SSD1685, SSD1677, UC8179, UC8279, and the X4 display wrapper. Recovery
+uses native full black/white refreshes, then restores the saved image and
+refresh settings. For example, `display relax display0 60` runs for about a
+minute; cancel between refreshes with Escape or Ctrl+C.
+
+In `refresh=auto`, the factory waveform starts with a full refresh, skips
+unchanged frames, and performs 64 partial updates before the next full cleanup
+by default.
+`cleanup-every=1..128` changes this OTP cleanup interval. `refresh=partial`
+(also accepted as `refresh=fast`) requests
+partial updates while a valid previous frame is available; initialization,
+sleep/resume, and transfer recovery always begin with a full refresh.
+`refresh=full` uses the panel's temperature-dependent full waveform.
+
+The default `refresh=pulse` uses an experimental SSD1685 Fastwave adapter
+with the shared per-pixel budgeting and scan worker used by the Elecrow boards.
+It retains factory source/gate voltages and sets VCOM to -0.2 V. Contrast,
+polarity, ghosting, and timing need validation on the installed panel.
+Repeated custom pulses can leave persistent staining.
+
+CL-32 EPD starts with these settings; inspect them with the last command:
+
+```text
+display mode display0 cleanup-every=64
+display mode display0 cleanup-policy=adaptive
+display mode display0 drive-cycles=3
+display mode display0 pulse-period=100
+display mode display0 refresh=pulse
+display mode display0
+```
+
+`drive-cycles=1..32` sets successful activations per changed pixel (default 3).
+`pulse-frames=1..32` sets the duration of each drive phase (default 10), and
+`waveform-fr=1..12` selects a frame-rate code (default 5, nominal 125 Hz).
+Identical frames do not refill budgets. `pulse-scan=async` is the default;
+settling pulses continue in the background, and newer targets can replace older
+ones between drives. `pulse-scan=sync` finishes the pending drives before
+returning. `pulse-period=67..1000` sets the minimum new-image interval in
+milliseconds (default 100), independently of settling pulses.
+
+In pulse mode, `cleanup-policy=fixed` schedules a full OTP cleanup every
+`cleanup-every` changed images. The default `cleanup-policy=adaptive` cleans
+up when a pixel reaches `cleanup-every * drive-cycles` successful drives or
+after `4 * cleanup-every` changed images. The default cleanup baseline is 64.
+Mode output reports cleanup age, peak drive
+exposure, pending pixels, and separate image and scan counters.
+
+`pulse-power=hold|cycle` selects retained supplies or cycling between drives
+(default `hold`). `pulse-ramp=normal|fast` changes booster startup duration
+(default `normal`). `pulse-spi-khz=100..10000` overrides the clock in pulse
+mode, initially using the attachment's SPI clock. `invert=true` swaps drive
+polarity for panel testing (default `false`). Use one setting per command.
+
+To return to the factory setup:
+
+```text
+display mode display0 refresh=auto
+```
+
+The aliases `waveform=fastwave` and `waveform=otp` select `refresh=pulse` and
+`refresh=auto`, respectively. Initialization, resume, and mode recovery establish
+a full-refresh baseline. An asynchronous failure returns to `refresh=auto`
+and attempts a full refresh of the latest accepted image. Pulse mode requires
+PSRAM for pixel budgets and worker snapshots, allocated during attachment.
+If they cannot be allocated, attachment fails. A later failed mode change
+leaves the previous refresh mode selected.
+
+CL-32's e-paper variant uses this panel with SCK GPIO9, MOSI GPIO10, CS GPIO6,
+DC GPIO13, reset GPIO12, and BUSY GPIO14. Build `cl32_epd` to attach it as the
+primary display at boot. The `cl_32` target selects the ST7305 RLCD on the
+same SPI/control pins.
+
 ### Waveshare 4.2-inch V2 e-paper on ESP32-S3-DevKitC-1
 
 This driver is for the monochrome 400x300 V2 module with the UC8176-compatible
@@ -889,6 +990,28 @@ The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
 binding can still be reserved for future interrupt-driven operation.
 
 ### SSD1306 or SH1106 on SolarTerm
+
+Both drivers accept `panel` and `rotation`. Panel numbers are specific to the
+controller; select the profile that matches the module:
+
+| Panel | SSD1306 | SH1106 |
+| --- | --- | --- |
+| `0` (default) | Generic 128x64 | Generic 128x64 |
+| `1` | Univision 128x32 | Visionox 128x32 |
+| `2` | EastRising 64x48 | 64x32 |
+| `3` | Generic 64x32 | Wise 72x40 |
+| `4` | EastRising 96x16 | |
+| `5` | 96x40 | |
+| `6` | EastRising 72x40 | |
+| `7` | Winstar 48x64 | |
+
+Rotations `0`, `1`, `2`, and `3` select 0, 90, 180, and 270 degrees.
+Rotations 1 and 3 swap the target's width and height. For example, a 128x32
+SSD1306 module can expose a 32x128 target:
+
+```text
+expansion attach ssd1306 oled0 i2c=i2c0 addr=0x3c panel=1 rotation=1
+```
 
 OLED attachments use the named I2C bus for the address probe, initialization,
 display updates, and shutdown. This also supports runtime-created buses on

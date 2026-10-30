@@ -1125,8 +1125,18 @@ static void test_relax_errors_and_other_profiles(void) {
     fail_command = 0x24;
     assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_END) == ESP_FAIL);
     assert(d.relax_storage == NULL && !d.shadow_valid && !d.controller_ready);
+    d = single_display();
     d.panel_variant = EPD_SSD1683_PANEL_LEGACY;
-    assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_ERR_NOT_SUPPORTED);
+    single_pixel(10, 10, false);
+    assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
+    capture_count = 0;
+    assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_BLACK) == ESP_OK);
+    assert(find(0x24, 0)->size == SSD1683_PANEL_ROW_BYTES * SSD1683_HEIGHT);
+    capture_count = 0;
+    assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_WHITE) == ESP_OK);
+    capture_count = 0;
+    assert(epd_ssd1683_relax(&d, SOLAR_OS_DISPLAY_RELAX_END) == ESP_OK);
+    assert(!d.relax_storage && d.shadow_valid && !single_ram_pixel(0, 10, 10));
 
     for (unsigned green = 0; green < 2; ++green) {
         d = green ? green_display() : single_display();

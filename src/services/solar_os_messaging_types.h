@@ -77,6 +77,12 @@ typedef enum {
     SOLAR_OS_SECURITY_SHARED_KEY = 1U << 3,
     SOLAR_OS_SECURITY_SENDER_UNVERIFIED = 1U << 4,
     SOLAR_OS_SECURITY_TRANSPORT_SECURED = 1U << 5,
+    /* Readable by anyone who can reach the room, but each message carries a
+     * sender signature that was checked (e.g. SC2 public rooms). */
+    SOLAR_OS_SECURITY_PUBLIC_SIGNED = 1U << 6,
+    /* Legacy protocol without end-to-end protection or sender authentication;
+     * the server sees and can alter content (gateway v1). */
+    SOLAR_OS_SECURITY_LEGACY_INSECURE = 1U << 7,
 } solar_os_message_security_flag_t;
 
 typedef enum {

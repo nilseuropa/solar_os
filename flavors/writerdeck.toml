@@ -50,6 +50,7 @@ chat = true
 chat_gateway = true
 gateway_sync = true
 irc = true
+sc2 = true
 chat_server = true
 agent = true
 espnow = true

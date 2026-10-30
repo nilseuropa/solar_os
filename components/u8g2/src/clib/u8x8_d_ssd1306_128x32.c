@@ -317,6 +317,8 @@ uint8_t u8x8_d_sh1106_128x32_visionox(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int
     {
       u8x8_d_helper_display_init(u8x8);
       u8x8_cad_SendSequence(u8x8, u8x8_d_sh1106_128x32_visionox_init_seq);    
+      /* Keep the Visionox settings; the generic INIT would overwrite them. */
+      return 1;
     }
     
     return u8x8_d_ssd1306_128x32_generic(u8x8, msg, arg_int, arg_ptr);

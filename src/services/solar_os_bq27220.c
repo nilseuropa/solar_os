@@ -9,22 +9,12 @@
 #include "solar_os_battery.h"
 #include "solar_os_buses.h"
 
-/*
- * TI BQ27220 Impedance Track fuel gauge, as fitted to the LilyGO T-LoRa-Pager.
- * Standard-command register offsets and the BatteryStatus() bit layout below
- * are taken from LilyGoLib's own GaugeBQ27220 driver
- * (SensorLib/src/REG/BQ27220Constants.h, GaugeBQ27220.hpp), not the datasheet
- * directly, to match what LilyGO's shipped firmware actually reads.
- *
- * This board also has a BQ25896 charger IC on the same bus, which is not
- * wired up here. Charging/external-power state below is inferred from the
- * gauge's own BatteryStatus() DSG bit (set = discharging, clear = charging
- * or relaxing) rather than measured at the charger, so it cannot distinguish
- * "charging" from "full and idle on USB power".
- */
+/* TI BQ27220 standard commands, SLUUBD4A. DSG cannot distinguish charging
+ * from a full battery or relaxation; charger state remains inferred. */
 
 #define BQ27220_REG_VOLTAGE 0x08U /* mV, uint16 LE */
 #define BQ27220_REG_BATTERY_STATUS 0x0AU /* bitmap, uint16 LE */
+#define BQ27220_REG_STATE_OF_CHARGE 0x2CU /* percent, uint16 LE */
 #define BQ27220_READ_LEN 4U /* covers REG_VOLTAGE and REG_BATTERY_STATUS in one transfer */
 
 #define BQ27220_STATUS_DSG_BIT 0x0001U /* LSB bit0: set while discharging */
@@ -97,10 +87,19 @@ static esp_err_t battery_read(void *user, solar_os_battery_sample_t *sample)
     const uint16_t voltage_mv = (uint16_t)(data[0] | (data[1] << 8));
     const uint16_t status = (uint16_t)(data[2] | (data[3] << 8));
     const bool discharging = (status & BQ27220_STATUS_DSG_BIT) != 0U;
+    uint8_t soc_data[2];
+    ESP_RETURN_ON_ERROR(
+        solar_os_bus_i2c_read_reg(device->i2c_bus, device->address,
+                                  BQ27220_REG_STATE_OF_CHARGE, soc_data, sizeof(soc_data)),
+        TAG, "state of charge read failed");
+    const uint16_t percent = (uint16_t)(soc_data[0] | (soc_data[1] << 8));
+    if (percent > 100U) return ESP_ERR_INVALID_RESPONSE;
 
     *sample = (solar_os_battery_sample_t) {
         .battery_mv = voltage_mv,
         .calibrated = true,
+        .percent_valid = true,
+        .percent = (uint8_t)percent,
         .external_power_valid = true,
         .external_power = !discharging,
         .charging_valid = true,

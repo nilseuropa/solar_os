@@ -1081,6 +1081,19 @@ static esp_err_t ssd1683_single_write_target(epd_ssd1683_t *display, const uint8
     return ESP_OK;
 }
 
+static esp_err_t ssd1683_legacy_write_target(epd_ssd1683_t *display, const uint8_t *source)
+{
+    ESP_RETURN_ON_ERROR(ssd1683_set_address(display), TAG, "native address failed");
+    ESP_RETURN_ON_ERROR(ssd1683_cmd(display, 0x24), TAG, "native RAM failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1), TAG, "native D/C failed");
+    for (unsigned y = 0; y < SSD1683_HEIGHT; ++y) {
+        ssd1683_convert_row(display, source, y);
+        ESP_RETURN_ON_ERROR(ssd1683_tx_bytes(display, display->line_buffer,
+                                            SSD1683_PANEL_ROW_BYTES), TAG, "native row failed");
+    }
+    return ESP_OK;
+}
+
 static esp_err_t ssd1683_single_write_pulse(epd_ssd1683_t *display)
 {
     const size_t plane_size = SSD1683_PANEL_ROW_BYTES * SSD1683_HEIGHT;
@@ -2339,7 +2352,6 @@ esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
     if (display == NULL || display->buffer == NULL || (unsigned)phase > SOLAR_OS_DISPLAY_RELAX_END)
         return ESP_ERR_INVALID_ARG;
     const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
-    if (profile == NULL) return ESP_ERR_NOT_SUPPORTED;
     if (display->lock != NULL) xSemaphoreTake(display->lock, portMAX_DELAY);
     esp_err_t err = ESP_OK;
     if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN) {
@@ -2348,6 +2360,7 @@ esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
         } else {
             uint8_t *storage = heap_caps_malloc(display->buffer_size * 2U,
                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (storage == NULL) storage = heap_caps_malloc(display->buffer_size * 2U, MALLOC_CAP_8BIT);
             if (storage == NULL) err = ESP_ERR_NO_MEM;
             else {
                 memcpy(storage, display->buffer, display->buffer_size);
@@ -2374,7 +2387,8 @@ esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
                    display->buffer_size);
         }
         if (!display->controller_ready) err = ssd1683_controller_init(display);
-        if (err == ESP_OK) err = profile->write_target(display, image);
+        if (err == ESP_OK) err = profile ? profile->write_target(display, image) :
+            ssd1683_legacy_write_target(display, image);
         if (err == ESP_OK) err = ssd1683_trigger_update(display, true, false);
         if (err != ESP_OK) {
             display->controller_ready = false;
@@ -2384,7 +2398,7 @@ esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
             if (err == ESP_OK && display->shadow != NULL) {
                 memcpy(display->shadow, image, display->buffer_size);
                 display->shadow_valid = true;
-                if (display->pixel_budget.pixels != NULL)
+                if (profile && display->pixel_budget.pixels != NULL)
                     ssd1683_pulse_seed_budget(display, image);
             }
             display->pulse_updates = 0;

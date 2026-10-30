@@ -17,6 +17,33 @@ static solar_os_endpoint_id_t affected_endpoint;
 static solar_os_contact_trust_t affected_trust;
 static esp_err_t mutation_error;
 static unsigned allocations;
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static unsigned direct_opens, chat_launches;
+static solar_os_contact_id_t chat_contact;
+static esp_err_t direct_error, launch_error;
+const solar_os_app_t solar_os_chat_app = {.name = "chat"};
+
+esp_err_t solar_os_messaging_direct_open(solar_os_contact_id_t contact,
+    solar_os_conversation_id_t *conversation)
+{
+    direct_opens++;
+    chat_contact = contact;
+    if (direct_error != ESP_OK) return direct_error;
+    *conversation = 100U + contact;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_context_request_launch_ex(solar_os_context_t *ctx,
+    const solar_os_app_t *app, int argc, char **argv, solar_os_launch_policy_t mode)
+{
+    assert(ctx != NULL && app == &solar_os_chat_app);
+    assert(argc == 2 && !strcmp(argv[0], "chat"));
+    assert(strtoul(argv[1], NULL, 10) == 100U + chat_contact);
+    assert(mode == SOLAR_OS_LAUNCH_CHILD_RETURN);
+    chat_launches++;
+    return launch_error;
+}
+#endif
 
 size_t strlcpy(char *dst, const char *src, size_t capacity)
 {
@@ -201,7 +228,7 @@ int main(void)
     key(SOLAR_OS_KEY_ESCAPE);
 
     /* Menu trust applies to all endpoints; selecting one affects only its ID. */
-    select_contact(1); key('a'); key('\r');
+    select_contact(1); key('a'); key('t');
     assert(state.mode == CONTACTS_ENDPOINTS && state.endpoint_count == 2U);
     key('\r'); assert(affected == 1U && affected_endpoint == 0U && affected_trust == SOLAR_OS_CONTACT_TRUST_TRUSTED);
     key('\r'); key('b'); key(SOLAR_OS_KEY_DOWN); key('\r');
@@ -232,6 +259,52 @@ int main(void)
     key('\r'); mutation_error = ESP_ERR_NOT_FOUND; key('t'); key('\r');
     assert(state.mode == CONTACTS_NOTICE && strstr(state.notice, "NOT_FOUND"));
     mutation_error = ESP_OK; key('\r');
+
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    /* Chat uses the selected contact and opens its conversation as a child. */
+    const unsigned before_chat = mutations;
+    select_contact(2); key('c');
+    assert(direct_opens == 1U && chat_launches == 1U && chat_contact == 2U);
+    assert(state.mode == CONTACTS_BROWSE && !context.exit_requested);
+    solar_os_contacts_app.resume(&context);
+    assert(state.contacts[state.visible[state.cursor]].id == 2U);
+    key('\r'); assert(state.detail); key('c');
+    assert(chat_launches == 2U && chat_contact == 2U && state.detail);
+    solar_os_contacts_app.resume(&context);
+    key(SOLAR_OS_KEY_ESCAPE);
+
+    /* The action menu freezes identity through provider updates. */
+    select_contact(1); key('a');
+    strlcpy(records[0].display_name, "New name", sizeof(records[0].display_name));
+    generation++; tick(); solar_os_contacts_app.resume(&context);
+    key('\r'); assert(chat_launches == 3U && chat_contact == 1U);
+    assert(state.mode == CONTACTS_BROWSE);
+
+    direct_error = ESP_ERR_INVALID_STATE;
+    key('c');
+    assert(chat_launches == 3U && state.mode == CONTACTS_NOTICE);
+    assert(strstr(state.notice, "Chat:"));
+    direct_error = ESP_OK; key('\r');
+    launch_error = ESP_ERR_NO_MEM;
+    key('c'); assert(chat_launches == 4U && state.mode == CONTACTS_NOTICE);
+    launch_error = ESP_OK; key('\r');
+
+    /* The shortcut remains ordinary text when editing or searching. */
+    const unsigned before_search = direct_opens;
+    key('/'); key('c');
+    assert(state.searching && !strcmp(state.search, "c"));
+    key(SOLAR_OS_KEY_ESCAPE);
+    key('r'); key('c'); assert(state.mode == CONTACTS_RENAME);
+    key(SOLAR_OS_KEY_ESCAPE); assert(direct_opens == before_search);
+    assert(mutations == before_chat);
+#else
+    /* Contacts-only firmware retains its actions without a Chat dependency. */
+    select_contact(1); key('a');
+    assert(contacts_actions[0][0] == 't');
+    key('c'); assert(state.mode == CONTACTS_ACTIONS);
+    key(SOLAR_OS_KEY_ESCAPE);
+#endif
+    select_contact(1);
 
     /* Details update after a trust change and after external provider changes. */
     key('\r'); assert(state.detail); key('t'); key(SOLAR_OS_KEY_DOWN); key('\r'); key('\r');
@@ -267,8 +340,11 @@ int main(void)
     for (size_t i = 0; i < 4; i++) endpoints[i].id = 0U;
     generation++; tick(); assert(!state.detail && state.visible_count == 0U);
     const unsigned before_empty = mutations;
-    for (const char *ch = "atbrld"; *ch; ch++) key((uint8_t)*ch);
+    for (const char *ch = "actbrld"; *ch; ch++) key((uint8_t)*ch);
     assert(state.mode == CONTACTS_BROWSE && mutations == before_empty);
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    assert(direct_opens == before_search);
+#endif
 
     /* Every screen stays inside the terminal and retains its footer at small sizes. */
     memset(state.edit, 'x', SOLAR_OS_CONTACT_NAME_MAX);
@@ -284,6 +360,12 @@ int main(void)
             bool footer = false;
             for (size_t col = 0; col < cols; col++) footer |= screen[rows - 1U][col] != ' ';
             assert(footer);
+#if SOLAR_OS_PACKAGE_APP_CHAT
+            if (mode == CONTACTS_BROWSE) {
+                assert(strstr(screen[rows - 1U], "c Chat"));
+                assert(strstr(screen[rows - 1U], "? Help"));
+            }
+#endif
         }
         contacts_app_mode(CONTACTS_BROWSE);
         state.searching = true;

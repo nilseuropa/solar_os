@@ -10,7 +10,12 @@
 #include <string.h>
 
 #include "esp_attr.h"
+#include "solar_os_config.h"
 #include "solar_os_contacts.h"
+#if SOLAR_OS_PACKAGE_APP_CHAT
+#include "solar_os_chat_app.h"
+#include "solar_os_messaging.h"
+#endif
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 #include "solar_os_terminal.h"
@@ -26,12 +31,18 @@ typedef enum {
 } contacts_app_mode_t;
 
 static const char * const contacts_actions[] = {
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    "c Chat",
+#endif
     "t Trust endpoints...", "b Block endpoints...", "r Rename...",
     "l Link contact here", "d Remove contact...",
 };
 static const char * const contacts_filters[] = {"All", "Discovered", "Trusted", "Blocked"};
 static const char * const contacts_help[] = {
     "Up/Down: move", "Enter/Right: details",
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    "c: chat with selected contact",
+#endif
     "a: contact actions", "t: trust endpoints",
     "b: block endpoints", "r: rename contact",
     "l: link contact here", "d: remove contact",
@@ -258,8 +269,16 @@ static void contacts_app_render_list(void)
         solar_os_tui_draw_input(&contacts_app.tui, rows - 1U, 0U, cols, "Search: /",
             contacts_app.search, &input, SOLAR_OS_TUI_ATTR_INVERSE);
     } else {
-        contacts_app_help_bar(cols < 38U ? "a Actions  ? Help" :
-            "a Actions  ? Help  Enter view  / Search");
+        contacts_app_help_bar(
+#if SOLAR_OS_PACKAGE_APP_CHAT
+            cols < 25U ? "c Chat a Acts ? Help" :
+            cols < 48U ? "c Chat  a Actions  ? Help" :
+            "c Chat  a Actions  ? Help  Enter view  / Search"
+#else
+            cols < 38U ? "a Actions  ? Help" :
+            "a Actions  ? Help  Enter view  / Search"
+#endif
+        );
     }
 }
 
@@ -363,8 +382,16 @@ static void contacts_app_render_detail(void)
                                 SOLAR_OS_TUI_ATTR_NORMAL);
     }
     if (rows > 0U) {
-        contacts_app_help_bar(cols < 38U ? "a Actions  ? Help" :
-                             "a Actions  ? Help  Up/Down scroll  Esc back");
+        contacts_app_help_bar(
+#if SOLAR_OS_PACKAGE_APP_CHAT
+            cols < 25U ? "c Chat a Acts ? Help" :
+            cols < 48U ? "c Chat  a Actions  ? Help" :
+            "c Chat  a Actions  ? Help  Up/Down scroll  Esc back"
+#else
+            cols < 38U ? "a Actions  ? Help" :
+            "a Actions  ? Help  Up/Down scroll  Esc back"
+#endif
+        );
     }
 }
 
@@ -580,13 +607,31 @@ static void contacts_app_result(const char *operation, esp_err_t error)
     contacts_app_mode(CONTACTS_NOTICE);
 }
 
-static void contacts_app_action(uint8_t ch)
+static void contacts_app_action(solar_os_context_t *ctx, uint8_t ch)
 {
+    (void)ctx;
     /* Freeze the contact ID before sorting, filtering, or provider updates. */
     if (contacts_app.mode == CONTACTS_BROWSE && !contacts_app.detail) {
         if (contacts_app.cursor >= contacts_app.visible_count) return;
         contacts_app.selected = contacts_app.contacts[contacts_app.visible[contacts_app.cursor]];
     }
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    if (ch == 'c') {
+        solar_os_conversation_id_t conversation = SOLAR_OS_CONVERSATION_ID_NONE;
+        esp_err_t error = solar_os_messaging_direct_open(contacts_app.selected.id,
+                                                         &conversation);
+        if (error == ESP_OK) {
+            char app[] = "chat", selector[16];
+            snprintf(selector, sizeof(selector), "%" PRIu32, conversation);
+            char *args[] = {app, selector};
+            error = solar_os_context_request_launch_ex(ctx, &solar_os_chat_app,
+                2, args, SOLAR_OS_LAUNCH_CHILD_RETURN);
+        }
+        if (error == ESP_OK) contacts_app_back();
+        else contacts_app_result("Chat", error);
+        return;
+    }
+#endif
     if (ch == 'a') contacts_app_mode(CONTACTS_ACTIONS);
     else if (ch == 't' || ch == 'b') {
         contacts_app.pending_trust = ch == 'b' ? SOLAR_OS_CONTACT_TRUST_BLOCKED : SOLAR_OS_CONTACT_TRUST_TRUSTED;
@@ -601,7 +646,7 @@ static void contacts_app_action(uint8_t ch)
     else if (ch == 'd') contacts_app_mode(CONTACTS_CONFIRM_REMOVE);
 }
 
-static void contacts_app_menu_event(uint8_t ch)
+static void contacts_app_menu_event(solar_os_context_t *ctx, uint8_t ch)
 {
     if (contacts_app.mode == CONTACTS_RENAME) {
         const size_t cols = solar_os_tui_cols(&contacts_app.tui);
@@ -628,8 +673,13 @@ static void contacts_app_menu_event(uint8_t ch)
         } else contacts_app_result("Link", solar_os_contacts_link(contacts_app.selected.id, contacts_app.link_source));
         return;
     }
-    if (contacts_app.mode == CONTACTS_ACTIONS && strchr("tbrld", ch) && ch != 0) {
-        contacts_app_action(ch);
+    if (contacts_app.mode == CONTACTS_ACTIONS && ch != 0 &&
+        strchr(
+#if SOLAR_OS_PACKAGE_APP_CHAT
+            "c"
+#endif
+            "tbrld", ch)) {
+        contacts_app_action(ctx, ch);
         return;
     }
     const bool enter = ch == '\r' || ch == '\n' || ch == SOLAR_OS_KEY_RIGHT;
@@ -641,7 +691,7 @@ static void contacts_app_menu_event(uint8_t ch)
     if (enter && contacts_app.menu.cursor < count) {
         const size_t item = contacts_app.menu.cursor;
         switch (contacts_app.mode) {
-        case CONTACTS_ACTIONS: contacts_app_action((uint8_t)contacts_actions[item][0]); break;
+        case CONTACTS_ACTIONS: contacts_app_action(ctx, (uint8_t)contacts_actions[item][0]); break;
         case CONTACTS_ENDPOINTS:
             contacts_app_result(contacts_app.pending_trust == SOLAR_OS_CONTACT_TRUST_BLOCKED ? "Block" : "Trust",
                 solar_os_contacts_set_trust(contacts_app.selected.id,
@@ -813,7 +863,7 @@ static bool contacts_app_event(solar_os_context_t *ctx,
         return true;
     }
     if (contacts_app.mode != CONTACTS_BROWSE) {
-        contacts_app_menu_event(ch);
+        contacts_app_menu_event(ctx, ch);
         contacts_app_render();
         return true;
     }
@@ -843,7 +893,10 @@ static bool contacts_app_event(solar_os_context_t *ctx,
         }
         break;
     case 'a': case 't': case 'b': case 'r': case 'l': case 'd':
-        contacts_app_action(ch);
+#if SOLAR_OS_PACKAGE_APP_CHAT
+    case 'c':
+#endif
+        contacts_app_action(ctx, ch);
         break;
     case '/':
         if (!contacts_app.detail) {

@@ -240,6 +240,30 @@ SOLAR_OS_SCRIPT_API_FUNCTION(sftpsync, sync, sync);
 SOLAR_OS_SCRIPT_API_MODULE_END(sftpsync);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(sc2);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, identity, identity);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, safety_number, safety_number);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, peer, peer);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, forget, forget);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, keys_publish, keys_publish);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, add_bundle, add_bundle);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, dm_encrypt, dm_encrypt);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, dm_decrypt, dm_decrypt);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_create, room_create);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_rotate, room_rotate);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_share, room_share);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_encrypt, room_encrypt);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_decrypt, room_decrypt);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_info, room_info);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, room_forget, room_forget);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, post_sign, post_sign);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, post_verify, post_verify);
+SOLAR_OS_SCRIPT_API_FUNCTION(sc2, selftest, selftest);
+SOLAR_OS_SCRIPT_API_MODULE_END(sc2);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(gpio);
 SOLAR_OS_SCRIPT_API_INT(gpio, INPUT, SOLAR_OS_GPIO_MODE_INPUT);

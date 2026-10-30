@@ -75,9 +75,10 @@ class FlavorPackagesTest(unittest.TestCase):
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
         self.assertEqual({key for key in compact_groups if compact_groups[key] != groups[key]},
-                         {"adc_dpad", "synth"})
+                         {"adc_dpad", "synth", "sc2"})
         self.assertEqual({key for key in compact_packages if compact_packages[key] != packages[key]},
-                         {"service_adc_dpad", "app_synth", "service_synth", "service_midi"})
+                         {"service_adc_dpad", "app_synth", "service_synth", "service_midi",
+                          "service_sc2", "service_sc2_provider", "job_sc2_sync"})
         self.assertTrue(packages["service_adc_dpad"])
         self.assertFalse(packages["app_lua"])
         self.assertTrue(packages["app_python"])
@@ -305,6 +306,22 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertFalse(unavailable["expansion_uc8279"])
 
+    def test_ssd1685_expansion_profile_and_package(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["ssd1685"])
+        self.assertTrue(packages["expansion_ssd1685"])
+        for caps, enabled in (
+            ({"gfx", "spi", "expansion_spi", "expansion_gpio"}, True),
+            ({"gfx", "spi", "expansion_spi"}, False),
+            ({"spi", "expansion_spi", "expansion_gpio"}, False),
+        ):
+            _, selected = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, packages, caps)
+            self.assertEqual(selected["expansion_ssd1685"], enabled)
+        for flavor in ("classic", "writerdeck"):
+            _, _, _, optional = self.resolve(flavor)
+            self.assertFalse(optional["expansion_ssd1685"])
+
     def test_uc8179_expansion_profile_and_package(self):
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["uc8179"])
@@ -470,6 +487,21 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("drivers/rtc_ds3231.c", sources)
         self.assertIn("services/solar_os_ds3231_driver.c", sources)
 
+    def test_cl32_epd_keeps_shared_pulse_sources_in_writerdeck(self):
+        from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
+        manifest_dir = REPOSITORY / "boards/manifests"
+        board = load_board_manifest(manifest_dir / "cl32_epd.toml", manifest_dir)
+        drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
+        _, _, groups, packages = self.resolve("writerdeck")
+        selected = generate_flavor_config.enable_required_packages(
+            self.catalog, packages, set(required_packages(board, drivers)))
+        groups, selected = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, selected, set(board["build"]["capabilities"]))
+        sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
+        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker"):
+            self.assertIn(f"drivers/{source}.c", sources)
+        self.assertNotIn("drivers/epd_ssd1683.c", sources)
+
     def test_unknown_board_required_package_is_rejected(self):
         _, _, _, packages = self.resolve("writerdeck")
         with self.assertRaisesRegex(ValueError, "unknown board-required package"):
@@ -570,6 +602,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "tca8418": "tca8418",
             "lilygo_pager_keyboard": "expansion_lilygo_pager_keyboard",
             "sx1262": "sx1262",
+            "lr11xx": "lr11xx",
             "rotary_encoder": "rotary_encoder",
             "bq27220": "bq27220",
             "bq25896": "bq25896",
@@ -599,6 +632,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_tca8418_expansion_driver",
             "solar_os_lilygo_pager_keyboard_expansion_driver",
             "solar_os_sx1262_expansion_driver",
+            "solar_os_lr11xx_expansion_driver",
             "solar_os_rotary_encoder_expansion_driver",
             "solar_os_bq27220_expansion_driver",
             "solar_os_bq25896_expansion_driver",
@@ -658,6 +692,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "driver_display_ili9341",
             "driver_display_st7796",
             "expansion_ssd1683",
+            "expansion_ssd1685",
             "expansion_uc8179",
             "expansion_uc8279",
         )
@@ -817,7 +852,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1677"].depends,
-            ("axp2101", "service_expansion", "service_spi"),
+            ("axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"),
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1677"].capabilities,
@@ -994,6 +1029,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "rfm69",
             "rfm95",
             "sx1262",
+            "lr11xx",
         ):
             self.assertFalse(groups[group], group)
         for package in (

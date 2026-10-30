@@ -18,6 +18,12 @@
 #endif
 #include "solar_os_contacts.h"
 #include "solar_os_keys.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER
+#include "solar_os_sc2.h"
+#define CHAT_SC2 1
+#else
+#define CHAT_SC2 0
+#endif
 #include "solar_os_memory.h"
 #include "solar_os_messaging.h"
 #include "solar_os_shell_parse.h"
@@ -41,6 +47,22 @@
 #define CHAT_APP_HISTORY_COUNT 16
 #define CHAT_APP_LINE_MAX 256
 #define CHAT_APP_STATUS_TEXT_MAX 256
+#define CHAT_APP_PANEL_MAX 640
+
+/* SC2 security label of a conversation (channel list and header). */
+enum {
+    CHAT_SC2_NONE = 0,
+    CHAT_SC2_DM_UNVERIFIED,
+    CHAT_SC2_DM_VERIFIED,
+    CHAT_SC2_PUBLIC,
+};
+
+/* Full-screen panels over the chat view (safety number, first-join notice). */
+typedef enum {
+    CHAT_PANEL_NONE = 0,
+    CHAT_PANEL_SAFETY,
+    CHAT_PANEL_NOTICE,
+} chat_panel_t;
 
 typedef enum {
     CHAT_APP_TAB_CHANNELS,
@@ -80,12 +102,13 @@ typedef struct {
     uint64_t last_message_ms;
     bool unread;
     bool system;
+    uint8_t sc2_label;
 } chat_app_channel_t;
 
 typedef struct {
     bool heading;
     uint8_t channel_index;
-    char label[SOLAR_OS_MESSAGING_TITLE_MAX + 2U];
+    char label[SOLAR_OS_MESSAGING_TITLE_MAX + 16U];
 } chat_app_channel_row_t;
 
 typedef struct {
@@ -111,11 +134,15 @@ typedef struct {
     uint8_t channel_count;
     uint8_t channel_scroll;
     size_t message_scroll;
+    size_t message_max_scroll;
+    size_t history_offset;
+    bool history_has_older;
     char status[CHAT_APP_STATUS_MAX];
     solar_os_message_key_t status_message_key;
     chat_app_channel_t channels[CHAT_APP_CHANNEL_COUNT];
     chat_app_channel_row_t channel_rows[CHAT_APP_CHANNEL_VIEW_COUNT];
     chat_app_message_t *messages;
+    solar_os_messaging_message_t *history_page;
     solar_os_messaging_event_t *messaging_event;
     uint32_t messaging_event_cursor;
     uint32_t messaging_generation;
@@ -127,6 +154,10 @@ typedef struct {
     char *pending_untrusted;
     size_t message_head;
     size_t message_count;
+    chat_panel_t panel;
+    size_t panel_scroll;
+    char *panel_text; /* CHAT_APP_PANEL_MAX, allocated while a panel is up */
+    char panel_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX]; /* peer device or room key */
 } chat_app_state_t;
 
 static chat_app_state_t *chat_app_state;
@@ -464,6 +495,17 @@ static void chat_refresh_conversations(void)
             strlcpy(conversation->provider_key,
                     snapshot[i].provider_key,
                     sizeof(conversation->provider_key));
+#if CHAT_SC2
+            if (solar_os_messaging_provider_is_class(snapshot[i].provider, "sc2")) {
+                bool verified = false;
+                if (snapshot[i].kind == SOLAR_OS_CONVERSATION_DIRECT) {
+                    (void)solar_os_sc2_verified_get(snapshot[i].provider_key, &verified);
+                    conversation->sc2_label = verified ? CHAT_SC2_DM_VERIFIED : CHAT_SC2_DM_UNVERIFIED;
+                } else if ((snapshot[i].security_flags & SOLAR_OS_SECURITY_PUBLIC_SIGNED) != 0u) {
+                    conversation->sc2_label = CHAT_SC2_PUBLIC;
+                }
+            }
+#endif
             if (!preferred_found ||
                 (snapshot[i].unread_count != 0 &&
                  chat_app.channels[preferred].unread_count == 0) ||
@@ -640,16 +682,24 @@ static void chat_reconcile_messaging(void)
     }
     chat_app.message_count = system_count;
     chat_app.message_head = (oldest + system_count) % CHAT_APP_MESSAGE_COUNT;
+    solar_os_conversation_id_t previous = chat_current_conversation_id();
     chat_refresh_conversations();
-    (void)solar_os_messaging_message_visit_consistent(
-        chat_app.initial_conversation_id,
-        chat_app.filter_provider,
-        chat_restore_message,
-        NULL,
-        &chat_app.messaging_event_cursor,
-        &chat_app.messaging_generation);
+    if (chat_current_conversation_id() != previous) chat_app.history_offset = 0;
     if (!chat_current_is_system()) {
         (void)solar_os_messaging_mark_read(chat_current_conversation_id());
+    }
+    /* Capture before reading: a concurrent arrival must trigger another refresh. */
+    solar_os_messaging_status_t status;
+    if (solar_os_messaging_get_status(&status) == ESP_OK) chat_app.messaging_generation = status.generation;
+    solar_os_messaging_message_t *page = chat_app.history_page;
+    if (page && !chat_current_is_system()) {
+        size_t count = 0;
+        esp_err_t error = solar_os_messaging_message_page(chat_current_conversation_id(),
+            chat_app.filter_provider, chat_app.history_offset, page, CHAT_APP_MESSAGE_COUNT,
+            &count, &chat_app.history_has_older);
+        if (error == ESP_OK) {
+            for (size_t i = 0; i < count; i++) (void)chat_restore_message(&page[i], NULL);
+        } else chat_set_status("history storage unavailable");
     }
     chat_app.messaging_dirty = false;
     chat_app.redraw = true;
@@ -1118,7 +1168,9 @@ static void chat_format_channel_label(const chat_app_channel_t *channel,
     if (channel == NULL) {
         return;
     }
-    strlcpy(label, channel->name, label_len);
+    static const char *const tags[] = {"", " (unverified)", " (verified)", " (public)"};
+    snprintf(label, label_len, "%s%s", channel->name,
+             channel->sc2_label < sizeof(tags) / sizeof(tags[0]) ? tags[channel->sc2_label] : "");
 }
 
 static size_t chat_build_channel_rows(chat_app_channel_row_t *rows,
@@ -1272,7 +1324,7 @@ static void chat_draw_messages(size_t start_row,
     if (chat_current_is_system()) {
         strlcpy(header, "system  messaging", sizeof(header));
     } else {
-        char label[SOLAR_OS_MESSAGING_TITLE_MAX + 2U];
+        char label[SOLAR_OS_MESSAGING_TITLE_MAX + 16U];
         const chat_app_channel_t *channel =
             &chat_app.channels[chat_app.current_channel];
         chat_format_channel_label(channel, label, sizeof(label));
@@ -1305,6 +1357,7 @@ static void chat_draw_messages(size_t start_row,
     }
 
     const size_t max_scroll = total_rows > text_rows ? total_rows - text_rows : 0;
+    chat_app.message_max_scroll = max_scroll;
     if (chat_app.message_scroll > max_scroll) {
         chat_app.message_scroll = max_scroll;
     }
@@ -1398,6 +1451,189 @@ static void chat_draw_channel_footer(size_t rows, size_t cols)
                              "UP/DOWN select  ENTER join/open  TAB chat  ESC exits");
 }
 
+#if CHAT_SC2
+/* ---------------- SC2 panels: safety number, first-join notice ---------------- */
+
+static bool chat_current_is_sc2_dm(void)
+{
+    return !chat_current_is_system() &&
+        (chat_app.channels[chat_app.current_channel].sc2_label == CHAT_SC2_DM_UNVERIFIED ||
+         chat_app.channels[chat_app.current_channel].sc2_label == CHAT_SC2_DM_VERIFIED);
+}
+
+static bool chat_panel_open(chat_panel_t panel, const char *key)
+{
+    if (chat_app.panel_text == NULL) {
+        chat_app.panel_text = chat_app_calloc(1, CHAT_APP_PANEL_MAX);
+    }
+    if (chat_app.panel_text == NULL) {
+        chat_set_status("no memory for panel");
+        return false;
+    }
+    chat_app.panel = panel;
+    chat_app.panel_scroll = 0;
+    strlcpy(chat_app.panel_key, key, sizeof(chat_app.panel_key));
+    chat_app.redraw = true;
+    return true;
+}
+
+static void chat_panel_close(void)
+{
+    if (chat_app.panel == CHAT_PANEL_NOTICE) {
+        (void)solar_os_sc2_notice_mark(chat_app.panel_key); /* shown once, once dismissed */
+    }
+    chat_app.panel = CHAT_PANEL_NONE;
+    solar_os_memory_free(chat_app.panel_text);
+    chat_app.panel_text = NULL;
+    chat_app.redraw = true;
+}
+
+static void chat_safety_fill(void)
+{
+    const char *peer = chat_app.panel_key;
+    sc2e_safety_t safety;
+    bool verified = false;
+    (void)solar_os_sc2_verified_get(peer, &verified);
+    if (solar_os_sc2_safety(peer, &safety) != ESP_OK) {
+        snprintf(chat_app.panel_text, CHAT_APP_PANEL_MAX,
+                 "Peer %s\n\nNo keys for this peer yet. Send a message first (the relay delivers the keys), "
+                 "then open /safety again.", peer);
+        return;
+    }
+    snprintf(chat_app.panel_text, CHAT_APP_PANEL_MAX,
+             "Peer %s\nStatus: %s\n\nShort code:\n%s\n\nWords:\n%s\n\nFull number:\n%s\n\n"
+             "Compare with the other device, in person or on a call you trust.%s",
+             peer, verified ? "VERIFIED" : "NOT verified", safety.short_form, safety.words, safety.full_form,
+             verified ? " U marks it unverified." : " Same on both screens? V marks it verified.");
+}
+
+static void chat_safety_open(const char *peer)
+{
+    if (chat_panel_open(CHAT_PANEL_SAFETY, peer)) {
+        chat_safety_fill();
+    }
+}
+
+static void chat_verify_set(const char *peer, bool verified)
+{
+    esp_err_t err = solar_os_sc2_verified_set(peer, verified);
+    chat_set_status(err == ESP_OK ? (verified ? "marked verified" : "marked not verified") :
+                    err == ESP_ERR_NOT_FOUND ? "no keys for this peer yet" : solar_os_sc2_err_text(err));
+    chat_refresh_conversations();
+    if (chat_app.panel == CHAT_PANEL_SAFETY) {
+        chat_safety_fill();
+    }
+    chat_app.redraw = true;
+}
+
+static void chat_notice_check(const chat_app_channel_t *channel)
+{
+    if (channel->sc2_label != CHAT_SC2_PUBLIC || chat_app.panel != CHAT_PANEL_NONE ||
+        solar_os_sc2_notice_seen(channel->provider_key) ||
+        !chat_panel_open(CHAT_PANEL_NOTICE, channel->provider_key)) {
+        return;
+    }
+    snprintf(chat_app.panel_text, CHAT_APP_PANEL_MAX, "%s\n\n%s", channel->name, SOLAR_OS_SC2_PUBLIC_NOTICE);
+}
+
+/* Word-wrap the panel text to width; draws lines [first, first + max) from
+ * row0 when max > 0. Returns the total line count. */
+static size_t chat_panel_lines(size_t width, size_t first, size_t max, size_t row0)
+{
+    char line[CHAT_APP_LINE_MAX];
+    size_t n = 0;
+    const char *p = chat_app.panel_text;
+    if (width >= sizeof(line)) {
+        width = sizeof(line) - 1U;
+    }
+    while (p != NULL && *p != '\0') {
+        const char *nl = strchr(p, '\n');
+        const size_t plen = nl != NULL ? (size_t)(nl - p) : strlen(p);
+        size_t off = 0;
+        do {
+            size_t take = plen - off;
+            if (take > width) {
+                size_t k = width;
+                while (k > 0 && p[off + k] != ' ') {
+                    k--;
+                }
+                take = k > 0 ? k : width;
+            }
+            if (max > 0 && n >= first && n < first + max) {
+                memcpy(line, p + off, take);
+                line[take] = '\0';
+                solar_os_tui_write_cell(&chat_app.tui, row0 + n - first, 0, width, line,
+                                        chat_app.panel == CHAT_PANEL_NOTICE ? SOLAR_OS_TUI_ATTR_BOLD :
+                                                                              SOLAR_OS_TUI_ATTR_NORMAL);
+            }
+            n++;
+            off += take;
+            while (off < plen && p[off] == ' ') {
+                off++;
+            }
+        } while (off < plen);
+        p += plen;
+        if (*p == '\n') {
+            p++;
+        }
+    }
+    return n;
+}
+
+static void chat_draw_panel(size_t rows, size_t cols)
+{
+    const size_t footer = solar_os_tui_screen_bottom_rows(&chat_app.tui, 1U);
+    const size_t body = rows > 1U + footer ? rows - 1U - footer : 0U;
+    const size_t total = chat_panel_lines(cols, 0, 0, 0);
+    const size_t max_scroll = total > body ? total - body : 0U;
+    if (chat_app.panel_scroll > max_scroll) {
+        chat_app.panel_scroll = max_scroll;
+    }
+    solar_os_tui_set_cursor_visible(&chat_app.tui, false);
+    solar_os_tui_write_cell(&chat_app.tui, 0, 0, cols,
+                            chat_app.panel == CHAT_PANEL_SAFETY ? "safety number" : "public room",
+                            SOLAR_OS_TUI_ATTR_INVERSE);
+    (void)chat_panel_lines(cols, chat_app.panel_scroll, body, 1U);
+    solar_os_tui_draw_footer(&chat_app.tui, chat_app.status,
+                             chat_app.panel == CHAT_PANEL_SAFETY ?
+                                 "V verify  U unverify  UP/DOWN scroll  ENTER/ESC close" :
+                                 "UP/DOWN scroll  ENTER/ESC ok");
+}
+
+/* Keys while a panel is up; every key is consumed. */
+static void chat_panel_key(uint8_t ch)
+{
+    switch (ch) {
+    case 'v':
+    case 'V':
+    case 'u':
+    case 'U':
+        if (chat_app.panel == CHAT_PANEL_SAFETY) {
+            chat_verify_set(chat_app.panel_key, ch == 'v' || ch == 'V');
+        }
+        break;
+    case SOLAR_OS_KEY_UP:
+        if (chat_app.panel_scroll > 0) {
+            chat_app.panel_scroll--;
+        }
+        break;
+    case SOLAR_OS_KEY_DOWN:
+        chat_app.panel_scroll++;
+        break;
+    case '\r':
+    case '\n':
+    case 'q':
+    case SOLAR_OS_KEY_ESCAPE:
+    case SOLAR_OS_KEY_APP_EXIT:
+        chat_panel_close();
+        break;
+    default:
+        break;
+    }
+    chat_app.redraw = true;
+}
+#endif
+
 static void chat_render(void)
 {
     const size_t rows = solar_os_tui_rows(&chat_app.tui);
@@ -1411,6 +1647,14 @@ static void chat_render(void)
     }
 
     solar_os_tui_clear(&chat_app.tui);
+#if CHAT_SC2
+    if (chat_app.panel != CHAT_PANEL_NONE) {
+        chat_draw_panel(rows, cols);
+        solar_os_tui_refresh(&chat_app.tui);
+        chat_app.redraw = false;
+        return;
+    }
+#endif
 
     chat_draw_tabs(cols);
     if (chat_app.tab == CHAT_APP_TAB_CHANNELS) {
@@ -1471,11 +1715,9 @@ static void chat_select_channel(uint8_t index, bool join)
     chat_app.status_message_key = SOLAR_OS_MESSAGE_KEY_NONE;
     chat_app.channels[index].unread = false;
     chat_app.channels[index].unread_count = 0;
-    if (!chat_app.channels[index].system) {
-        (void)solar_os_messaging_mark_read(
-            chat_app.channels[index].conversation_id);
-    }
     chat_app.message_scroll = 0;
+    chat_app.history_offset = 0;
+    chat_reconcile_messaging();
     if (join) {
         chat_app.tab = CHAT_APP_TAB_CHAT;
     }
@@ -1484,6 +1726,9 @@ static void chat_select_channel(uint8_t index, bool join)
     if (chat_app.channels[index].system) {
         chat_set_status("system events");
     }
+#if CHAT_SC2
+    chat_notice_check(&chat_app.channels[index]);
+#endif
 }
 
 static void chat_check_pending_join(void)
@@ -1562,11 +1807,10 @@ static void chat_show_status(void)
                         (unsigned)status.messages,
                         (unsigned)status.unread,
                         (unsigned)status.queued_outbox);
-    chat_append_statusf("history: %s cap=%u",
-                        status.persistent ?
-                            (status.inbox_backed ? "compact internal" : "full") :
-                            "volatile",
-                        (unsigned)status.persistent_capacity);
+    chat_append_statusf("history: %s; RAM cache=%u/%u",
+                        status.persistent ? "disk archive" : "unavailable",
+                        (unsigned)status.cached_messages,
+                        (unsigned)SOLAR_OS_MESSAGING_MESSAGE_CAPACITY);
     solar_os_messaging_provider_id_t provider = 0;
     solar_os_messaging_provider_status_t provider_status;
     while (solar_os_messaging_provider_next(&provider, &provider_status)) {
@@ -1596,6 +1840,9 @@ static void chat_execute_command(int argc, char **argv)
 #if SOLAR_OS_PACKAGE_SERVICE_IRC
         chat_append_statusf("/server instance host port nick");
         chat_append_statusf("/sasl instance account password");
+#endif
+#if CHAT_SC2
+        chat_append_statusf("/safety [peer] | /verify | /unverify (sc2 DM)");
 #endif
         chat_append_statusf("/status");
         chat_append_statusf("/quit");
@@ -1698,6 +1945,26 @@ static void chat_execute_command(int argc, char **argv)
         for (size_t i = 0; i < sizeof(*config); i++) wipe[i] = 0;
         solar_os_memory_free(config);
         chat_set_status(error == ESP_OK ? "SASL settings saved" : esp_err_to_name(error));
+#endif
+#if CHAT_SC2
+    } else if (strcasecmp(argv[0], "/safety") == 0 && argc <= 2) {
+        char peer[SC2_DEVICE_ID_HEX_LEN + 1];
+        if (argc == 2) {
+            esp_err_t error = solar_os_sc2_resolve_peer(argv[1], peer);
+            if (error != ESP_OK) { chat_set_status(solar_os_sc2_peer_ref_error(error)); return; }
+        } else if (chat_current_is_sc2_dm()) {
+            strlcpy(peer, chat_app.channels[chat_app.current_channel].provider_key, sizeof(peer));
+        } else {
+            chat_set_status("open an sc2 DM or give /safety <peer>"); return;
+        }
+        chat_safety_open(peer);
+    } else if ((strcasecmp(argv[0], "/verify") == 0 || strcasecmp(argv[0], "/unverify") == 0) && argc == 1) {
+        if (!chat_current_is_sc2_dm()) { chat_set_status("not an sc2 DM"); return; }
+        if (strcasecmp(argv[0], "/verify") == 0) {
+            chat_safety_open(chat_app.channels[chat_app.current_channel].provider_key); /* compare first */
+        } else {
+            chat_verify_set(chat_app.channels[chat_app.current_channel].provider_key, false);
+        }
 #endif
     } else if (strcasecmp(argv[0], "/status") == 0 || strcasecmp(argv[0], "/instances") == 0) {
         chat_show_status();
@@ -1906,6 +2173,13 @@ static void chat_handle_message_key(solar_os_context_t *ctx, uint8_t ch)
     case SOLAR_OS_KEY_PAGE_UP:
         {
             const size_t step = chat_message_scroll_step();
+            if (chat_app.message_scroll >= chat_app.message_max_scroll && chat_app.history_has_older) {
+                chat_app.history_offset += CHAT_APP_MESSAGE_COUNT;
+                chat_reconcile_messaging();
+                chat_app.message_scroll = 0;
+                chat_app.redraw = true;
+                break;
+            }
             chat_app.message_scroll = SIZE_MAX - chat_app.message_scroll >= step ?
                 chat_app.message_scroll + step : SIZE_MAX;
             chat_app.redraw = true;
@@ -1914,6 +2188,13 @@ static void chat_handle_message_key(solar_os_context_t *ctx, uint8_t ch)
     case SOLAR_OS_KEY_PAGE_DOWN:
         {
             const size_t step = chat_message_scroll_step();
+            if (chat_app.message_scroll == 0 && chat_app.history_offset) {
+                chat_app.history_offset -= CHAT_APP_MESSAGE_COUNT;
+                chat_reconcile_messaging();
+                chat_app.message_scroll = SIZE_MAX;
+                chat_app.redraw = true;
+                break;
+            }
             chat_app.message_scroll = chat_app.message_scroll > step ?
                 chat_app.message_scroll - step : 0;
             chat_app.redraw = true;
@@ -1988,6 +2269,8 @@ static void chat_app_free_state(void)
 
 static void chat_free_buffers(void)
 {
+    solar_os_memory_free(chat_app.history_page);
+    chat_app.history_page = NULL;
     if (chat_app.messages != NULL) {
         solar_os_memory_free(chat_app.messages);
         chat_app.messages = NULL;
@@ -2011,6 +2294,10 @@ static void chat_free_buffers(void)
     if (chat_app.pending_untrusted != NULL) {
         solar_os_memory_free(chat_app.pending_untrusted);
         chat_app.pending_untrusted = NULL;
+    }
+    if (chat_app.panel_text != NULL) {
+        solar_os_memory_free(chat_app.panel_text);
+        chat_app.panel_text = NULL;
     }
 }
 
@@ -2073,13 +2360,14 @@ static esp_err_t chat_start(solar_os_context_t *ctx)
     }
 
     chat_app.messages = chat_app_calloc(CHAT_APP_MESSAGE_COUNT, sizeof(chat_app_message_t));
+    chat_app.history_page = chat_app_calloc(CHAT_APP_MESSAGE_COUNT, sizeof(*chat_app.history_page));
     chat_app.history = chat_app_calloc(CHAT_APP_HISTORY_COUNT, sizeof(chat_app.history[0]));
     chat_app.input = chat_app_calloc(CHAT_APP_INPUT_MAX, 1);
     chat_app.history_draft = chat_app_calloc(CHAT_APP_INPUT_MAX, 1);
     chat_app.pending_untrusted = chat_app_calloc(CHAT_APP_INPUT_MAX, 1);
     chat_app.messaging_event =
         chat_app_calloc(1, sizeof(*chat_app.messaging_event));
-    if (chat_app.messages == NULL ||
+    if (chat_app.messages == NULL || chat_app.history_page == NULL ||
         chat_app.history == NULL ||
         chat_app.input == NULL ||
         chat_app.history_draft == NULL ||
@@ -2172,6 +2460,15 @@ static bool chat_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
 
     const uint8_t ch = (uint8_t)event->data.ch;
+#if CHAT_SC2
+    if (chat_app.panel != CHAT_PANEL_NONE) {
+        chat_panel_key(ch);
+        if (chat_app.redraw) {
+            chat_render();
+        }
+        return true;
+    }
+#endif
     if (ch == SOLAR_OS_KEY_APP_EXIT || ch == SOLAR_OS_KEY_ESCAPE) {
         solar_os_context_finish(ctx, 0, NULL);
         return true;

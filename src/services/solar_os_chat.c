@@ -192,11 +192,12 @@ static int chat_add_channel_locked(const char *channel,
 
 static uint32_t chat_security_flags(void)
 {
-    uint32_t flags = 0;
+    /* Gateway v1 has no end-to-end encryption or sender signatures. */
+    uint32_t flags = SOLAR_OS_SECURITY_LEGACY_INSECURE;
     chat_lock();
     if (strncmp(chat.url, "chats://", 8) == 0 ||
         strncmp(chat.url, "tls://", 6) == 0) {
-        flags = SOLAR_OS_SECURITY_TRANSPORT_SECURED;
+        flags |= SOLAR_OS_SECURITY_TRANSPORT_SECURED;
     }
     chat_unlock();
     return flags;
@@ -377,10 +378,41 @@ static esp_err_t gateway_configure(void *context, int argc, const char *const *a
     esp_err_t error = solar_os_chat_configure(argv[0], argc == 2 ? argv[1] : NULL);
     solar_os_gateway_scope_leave(previous); return error;
 }
+static const solar_os_messaging_setting_t gateway_settings_fields[] = {
+    {"URL", "Gateway URL", SOLAR_OS_CHAT_URL_MAX, false, true},
+    {"Token", "Empty clears token", SOLAR_OS_CHAT_TOKEN_MAX, true, false},
+};
+static esp_err_t gateway_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    settings->label = "Gateway"; settings->fields = gateway_settings_fields; settings->count = 2;
+    strlcpy(settings->worker, "gateway-sync", sizeof(settings->worker));
+    if (context) {
+        void *previous = solar_os_gateway_scope_enter(context);
+        chat_lock();
+        settings->enabled = chat.enabled;
+        solar_os_messaging_settings_value(settings, 0, chat.url);
+        solar_os_messaging_settings_value(settings, 1, chat.token);
+        chat_unlock(); solar_os_gateway_scope_leave(previous);
+    }
+    return ESP_OK;
+}
+static esp_err_t gateway_settings_write(void *context, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    if (!context) return solar_os_gateway_instance_create(name, settings->values[0], settings->values[1], id);
+    void *previous = solar_os_gateway_scope_enter(context);
+    esp_err_t error = solar_os_chat_configure(settings->changed[0] ? settings->values[0] : NULL,
+        settings->changed[1] ? settings->values[1] : NULL);
+    *id = solar_os_gateway_current_id();
+    solar_os_gateway_scope_leave(previous); return error;
+}
 static const solar_os_messaging_provider_class_t gateway_class = {
     .name = "gateway", .connection_oriented = true, .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM,
     .join = gateway_join, .leave = gateway_leave, .connect = gateway_connect,
     .create = gateway_create, .configure = gateway_configure,
+    .settings_read = gateway_settings_read, .settings_write = gateway_settings_write,
     .remove_prepare = gateway_remove_prepare, .remove_finish = gateway_remove_finish,
 };
 

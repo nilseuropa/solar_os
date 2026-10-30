@@ -35,7 +35,8 @@ class NativeVisionServicesTest(unittest.TestCase):
                             "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
                             "-I", str(ROOT / "tests/host/rtsp_stubs"), "-I", str(ROOT / "src"),
                             "-I", str(ROOT / "src/services"), str(source),
-                            str(ROOT / "src/services/solar_os_native_media.c"), "-o", str(binary)], check=True)
+                            str(ROOT / "src/services/solar_os_native_media.c"),
+                            str(ROOT / "tests/host/native_memory_test_support.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
     def test_application_host_extension_preserves_original_prefix(self):

@@ -21,6 +21,12 @@ class UpdateLayout:
 
 
 _LAYOUTS = {
+    32 * MIB: (
+        UpdateLayout("ota", "OTA updates", "two 7 MiB application slots",
+                     "partitions_32mb.csv", 0x700000, True),
+        UpdateLayout("single", "Serial updates", "one 14 MiB application slot",
+                     "partitions_32mb_single.csv", 0xE00000, False),
+    ),
     16 * MIB: (
         UpdateLayout("ota", "OTA updates", "two 7 MiB application slots",
                      "partitions.csv", 0x700000, True),

@@ -58,6 +58,11 @@ The host additionally exports the standard C helpers `memcpy`, `memset`,
 `memmove`, `memcmp` and `strlen`, including compiler-generated uses. Allocate
 dynamic module buffers through `memory.alloc`; they use PSRAM and must be
 released with `memory.free`. Zero-size allocation and exhaustion return NULL.
+Raw allocations keep fixed addresses. Optional `buffer_create`, `buffer_pin`,
+`buffer_unpin` and `buffer_destroy` fields provide movable buffers: check the
+table's `struct_size` before calling them. Retain a returned pointer only while
+pinned, balance every pin, and destroy handles before module unload. Destruction
+returns false while a pin is outstanding. See [memory policy](../memory-policy.md).
 
 ## Images and video
 

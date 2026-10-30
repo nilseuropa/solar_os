@@ -17,13 +17,26 @@ static raw_t *raws;
 static size_t used_external, used_internal;
 static void *idle_library;
 static unsigned reclaim_calls;
+static unsigned registered_calls;
+static size_t registered_reclaim(const solar_os_memory_pressure_request_t *request, void *user)
+{
+    solar_os_memory_reclaimer_t *self = user;
+    assert(!request || request->size);
+    assert(!solar_os_memory_unregister_reclaimer(self));
+    assert(solar_os_memory_reclaim() == 0);
+    registered_calls++;
+    return 0;
+}
 static bool fail_raw;
+static bool no_psram;
 int test_isr;
+int test_cache_disabled;
+int test_low_stack;
 #define EXTERNAL_BYTES (8U * 1024U * 1024U)
 #define INTERNAL_BYTES (256U * 1024U)
 
 size_t heap_caps_get_total_size(uint32_t caps)
-{ return caps & MALLOC_CAP_SPIRAM ? EXTERNAL_BYTES : INTERNAL_BYTES; }
+{ return caps & MALLOC_CAP_SPIRAM ? (no_psram ? 0 : EXTERNAL_BYTES) : INTERNAL_BYTES; }
 size_t heap_caps_get_free_size(uint32_t caps)
 { return heap_caps_get_total_size(caps) - (caps & MALLOC_CAP_SPIRAM ? used_external : used_internal); }
 size_t heap_caps_get_largest_free_block(uint32_t caps) { return heap_caps_get_free_size(caps); }
@@ -104,8 +117,25 @@ static size_t reclaim(void)
     return 1;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    no_psram = argc > 1 && !strcmp(argv[1], "no-psram");
+    if (no_psram) {
+        solar_os_memory_init();
+        solar_os_memory_buffer_t *buffer = solar_os_memory_buffer_create(8192, "test.internal");
+        assert(buffer);
+        unsigned char *pointer = solar_os_memory_buffer_pin(buffer);
+        assert(pointer && !solar_os_memory_is_external(pointer));
+        memset(pointer, 0x71, 8192);
+        assert(solar_os_memory_compact() == 0 && pointer[8191] == 0x71);
+        assert(!solar_os_memory_buffer_destroy(buffer));
+        assert(solar_os_memory_buffer_unpin(buffer));
+        assert(solar_os_memory_buffer_destroy(buffer));
+        assert(!used_internal && !raws);
+        assert(!solar_os_memory_alloc(INTERNAL_BYTES + 1U, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "test.oom"));
+        puts("no-PSRAM handles: fixed internal fallback, pin lifetime and recoverable OOM passed");
+        return 0;
+    }
     solar_os_memory_status_t before, after;
     solar_os_memory_init(); solar_os_memory_init();
     solar_os_memory_get_status(&before);
@@ -163,6 +193,13 @@ int main(void)
     void *interrupt = __wrap_heap_caps_malloc(100000, external_caps);
     test_isr = 0;
     assert(interrupt); __wrap_free(interrupt);
+    test_cache_disabled = 1;
+    void *cache_off = __wrap_heap_caps_malloc(100000, external_caps);
+    test_cache_disabled = 0;
+    assert(cache_off);
+    solar_os_memory_get_status(&after);
+    assert(after.arena.allocations == 0);
+    __wrap_free(cache_off);
     solar_os_memory_get_status(&after);
     assert(after.arena.free == before.arena.free);
 
@@ -220,6 +257,40 @@ int main(void)
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "pressure");
     assert(large && !idle_library && reclaim_calls == 1);
     solar_os_memory_free(large);
+
+    /* With both heaps full, shrinking and same-capacity reflows need no new
+     * allocation. A capability migration still cannot reuse PSRAM. */
+    solar_os_memory_get_status(&after);
+    large = solar_os_memory_alloc(after.arena.largest,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "whole-arena");
+    assert(large); memset(large, 0x45, 100000);
+    fail_raw = true;
+    assert(solar_os_memory_realloc(large, 100000,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "shrink-full") == large);
+    assert(((unsigned char *)large)[99999] == 0x45);
+    assert(solar_os_memory_realloc(large, 300000,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "grow-hole") == large);
+    assert(!solar_os_memory_realloc(large, 300000,
+        SOLAR_OS_MEMORY_INTERNAL_CRITICAL, "internal-migration"));
+    assert(((unsigned char *)large)[99999] == 0x45);
+    solar_os_memory_free(large);
+    fail_raw = false;
+
+    /* Small allocations also reclaim when neither PSRAM region can fit. */
+    idle_library = solar_os_memory_elf_alloc(100000);
+    solar_os_memory_get_status(&after);
+    large = solar_os_memory_alloc(after.arena.largest,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "fill-arena");
+    assert(idle_library && large);
+    fail_raw = true;
+    unsigned calls_before = reclaim_calls;
+    small = solar_os_memory_calloc(1, 128,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "small-pressure");
+    assert(small && !idle_library && reclaim_calls == calls_before + 1);
+    assert(((unsigned char *)small)[127] == 0);
+    solar_os_memory_free(small);
+    solar_os_memory_free(large);
+
     fail_raw = true;
     small = solar_os_memory_alloc(32, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "small-fallback");
     assert(small && ((uintptr_t)small & 15U) == 0);
@@ -227,8 +298,52 @@ int main(void)
     solar_os_memory_get_status(&after);
     assert(after.arena.free == before.arena.free && after.arena.largest == before.arena.largest);
     assert(after.external.free == before.external.free);
+    solar_os_memory_reclaimer_t entry = {
+        .owner = "test.cache", .reclaim = registered_reclaim, .priority = 1,
+    };
+    entry.user = &entry;
+    assert(solar_os_memory_register_reclaimer(&entry));
+    test_low_stack = 1;
+    solar_os_memory_pressure(NULL);
+    assert(registered_calls == 0);
+    test_low_stack = 0;
+    assert(solar_os_memory_register_reclaimer(&entry));
+    (void)solar_os_memory_reclaim();
+    assert(registered_calls == 1 && !entry.references);
+    assert(solar_os_memory_unregister_reclaimer(&entry));
+
+    fail_raw = false;
+    void *prefix = solar_os_memory_alloc(100000, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "test.hole");
+    solar_os_memory_buffer_t *handle = solar_os_memory_buffer_create(200000, "test.movable");
+    assert(prefix && handle);
+    unsigned char *data = solar_os_memory_buffer_pin(handle);
+    assert(data); memset(data, 0x5b, 200000);
+    assert(!solar_os_memory_buffer_destroy(handle));
+    solar_os_memory_free(prefix);
+    (void)solar_os_memory_compact();
+    assert(solar_os_memory_buffer_pin(handle) == data); /* Nested pin. */
+    assert(solar_os_memory_buffer_unpin(handle));
+    assert(solar_os_memory_buffer_unpin(handle));
+    assert(solar_os_memory_compact() >= 200000);
+    unsigned char *moved = solar_os_memory_buffer_pin(handle);
+    assert(moved != data && moved[0] == 0x5b && moved[199999] == 0x5b);
+    assert(solar_os_memory_buffer_unpin(handle));
+    assert(!solar_os_memory_buffer_unpin(handle));
+    solar_os_memory_owner_status_t owners[32];
+    size_t owners_count = solar_os_memory_get_owners(owners, 32);
+    bool found_owner = false;
+    for (size_t i = 0; i < owners_count; ++i)
+        if (!strcmp(owners[i].owner, "test.movable")) {
+            assert(owners[i].bytes == 200000 && owners[i].movable_bytes == 200000);
+            found_owner = true;
+        }
+    assert(found_owner);
+    assert(solar_os_memory_buffer_destroy(handle));
+    solar_os_memory_get_status(&after);
+    assert(after.arena.free == before.arena.free);
     /* The boot reservation intentionally remains allocated until reset. */
-    assert(raws && !raws->next);
-    __real_heap_caps_free(raws->pointer);
+    /* Boot reservations: managed region and copied owner names. */
+    assert(raws && raws->next && !raws->next->next);
+    while (raws) __real_heap_caps_free(raws->pointer);
     puts("policy routing, alignment, calloc, realloc ownership, free hooks and pressure retry passed");
 }

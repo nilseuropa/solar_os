@@ -50,7 +50,7 @@ static mp_obj_t field(mp_obj_t dict, const char *key)
 
 static void python_dict_store_int(mp_obj_t d, const char *k, int v) { store(d, k, number(v)); }
 static mp_obj_t mp_obj_new_float(double v) { return number(v); }
-static mp_obj_t mp_obj_new_int_from_ull(unsigned long long v) { return number((double)v); }
+static mp_obj_t python_u64_to_obj(uint64_t v) { return number((double)v); }
 static const char *python_key(const char *k) { return k; }
 static void mp_obj_dict_store(mp_obj_t d, const char *k, mp_obj_t v) { store(d, k, v); }
 #define MP_ERROR_TEXT(text) text

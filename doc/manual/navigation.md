@@ -170,7 +170,7 @@ the display. Alt+B does not save changes across reboots. When the configured
 brightness is zero, toggling on uses 50%. The `setterm backlight` query shows
 the configured brightness, including while the light is toggled off.
 
-## CL-32
+## Pi0cket CL-32
 
 | Control | Action |
 | --- | --- |
@@ -181,13 +181,19 @@ the configured brightness, including while the light is toggled off.
 | Hold Menu | Left Ctrl modifier. |
 | File + Left / Right | Previous / next retained session on the focused display. |
 | File+OK | Toggle full screen in shared text menus. |
-| Tap Shift or Fn | Cycle that modifier through one-shot, locked, and off. |
-| Fn active + keypad 1–9 / 0 | F1–F9 / F10. |
-| Fn active + Up / Down | Page Up / Page Down. |
-| Fn active + Left / Right | Home / End. |
+| Hold Shift | Shift modifier. |
+| Hold Fn | Select the alternate symbol and function-key layer. |
+| Fn + keypad 1–9 / 0 | F1–F9 / F10. |
+| Fn + Up / Down | Page Up / Page Down. |
+| Fn + Left / Right | Home / End. |
+| Fn + Yes (OK) / No (Cancel) | Previous / next retained session on the focused display, once per key press. |
 
-One-shot Shift or Fn applies to the next key. Locked Shift or Fn remains
-active until you turn it off.
+Shift and Fn stay active only while held. Release them to return to normal
+typing.
+
+The built-in keyboard resumes `suspend` and wakes `sleep` or `deepsleep`.
+Wake from `deepsleep` starts a fresh boot. Keyboard, USB-power, and charging
+notifications share the wake interrupt, so power changes can also wake sleep.
 
 ## ODROID-GO
 
@@ -219,6 +225,6 @@ T-Pager: wheel is Up/Down, press is Enter, Space+Enter is Escape, held Space
 selects symbols, and held Caps is Shift. Its default profile lacks Left,
 Right, Tab, and Ctrl. T-Deck Plus: trackball supplies arrows and Enter,
 Mic is Tab, Shift+Mic is Ctrl, Alt+C is Escape, and Alt+Q closes the app.
-CL-32: OK is Enter, Cancel is
+Pi0cket CL-32: OK is Enter, Cancel is
 Escape, File is Alt, and Menu is Ctrl. ODROID-GO: D-pad supplies arrows,
 A is Enter, B is Space, SELECT is Escape, and MENU closes the app.

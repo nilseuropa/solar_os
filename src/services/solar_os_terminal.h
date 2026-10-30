@@ -33,6 +33,7 @@ typedef struct {
     solar_os_terminal_text_size_t text_size;
     bool palette_inverted;
     bool status_bar_visible;
+    uint8_t scale;
 } solar_os_terminal_profile_t;
 
 typedef struct {

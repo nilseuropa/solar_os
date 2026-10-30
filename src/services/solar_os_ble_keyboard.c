@@ -1593,14 +1593,16 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
 static void handle_keyboard_report(uint8_t map_index,
                                    uint16_t report_id,
                                    const uint8_t *data,
-                                   uint16_t length)
+                                   uint16_t length,
+                                   const solar_os_hid_keyboard_report_layout_t *layout)
 {
     solar_os_hid_keyboard_report_state_t report_state;
-    if (!solar_os_hid_keyboard_report_update(&keyboard_report_tracker,
+    if (!solar_os_hid_keyboard_report_update_with_layout(&keyboard_report_tracker,
                                              map_index,
                                              report_id,
                                              data,
                                              length,
+                                             layout->key_count ? layout : NULL,
                                              &report_state)) {
         return;
     }
@@ -1827,7 +1829,8 @@ static void hidh_callback(solar_os_ble_hid_event_type_t id, solar_os_ble_hid_eve
             handle_keyboard_report(param->input.map_index,
                                    param->input.report_id,
                                    param->input.data,
-                                   param->input.length);
+                                   param->input.length,
+                                   &param->input.layout);
             set_status(BLE_KEYBOARD_CONNECTED, "connected %s", connected_name[0] ? connected_name : "keyboard");
         }
         break;

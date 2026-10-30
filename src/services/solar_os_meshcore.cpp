@@ -1128,7 +1128,7 @@ private:
 
     void processOutbound()
     {
-        solar_os_messaging_outbound_t outbound{};
+        auto &outbound = outbound_;
         if (solar_os_messaging_outbox_peek(
                 solar_os_meshcore_current_id(),
                 &outbound) != ESP_OK) {
@@ -1262,6 +1262,10 @@ private:
     SolarRadio &radio_;
     SolarPacketManager &packets_;
     SimpleMeshTables &tables_;
+    // The generic outbox includes a 4 KiB body. Keep the worker's scratch
+    // record in its PSRAM-backed context, leaving stack for crypto and I/O.
+    // Instance polling serializes access for this mesh.
+    solar_os_messaging_outbound_t outbound_{};
     PendingDirect direct_{};
     PendingGroup group_{};
     uint32_t channel_ids_[SOLAR_OS_MESHCORE_GROUP_CAPACITY]{};

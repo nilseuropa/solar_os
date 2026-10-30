@@ -2,14 +2,14 @@
 #include "solar_os_shell_common.h"
 
 static const char * const display_commands[] = {
-    "list", "layouts", "test", "mode", "relax", "join", "unjoin", "split", "unsplit",
+    "list", "layouts", "test", "mode", "orientation", "scale", "relax", "join", "unjoin", "split", "unsplit",
 };
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 static const char * const ota_commands[] = {"status", "check", "upgrade", "url", "flavor", "boot"};
 #endif
 static const char * const job_commands[] = {"status", "start", "stop"};
 static const char * const setterm_commands[] = {
-    "--display", "orientation", "font", "textsize", "palette", "foreground", "background", "statusbar",
+    "--display", "orientation", "scale", "font", "textsize", "palette", "foreground", "background", "statusbar",
     "brightness", "backlight",
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -289,6 +289,8 @@ static void display_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  display [list]");
+    solar_os_shell_io_writeln(term, "  display orientation <target> [0|90|180|270]");
+    solar_os_shell_io_writeln(term, "  display scale <target> [1..4]");
     solar_os_shell_io_writeln(term, "  display layouts");
     solar_os_shell_io_writeln(term, "  display test <target>");
     solar_os_shell_io_writeln(term, "  display mode <target> [mode]");
@@ -779,9 +781,52 @@ static void display_cmd_relax(solar_os_context_t *ctx, solar_os_shell_io_t *term
                              result.cancelled ? "stopped" : "done", (unsigned)result.cycles);
 }
 
+static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **argv, bool save)
+{
+    const bool orientation = strcmp(argv[1], "orientation") == 0;
+    const char *usage = orientation ?
+        "display orientation <target> [0|90|180|270]" : "display scale <target> [1..4]";
+    if (argc < 3 || argc > 4) {
+        solar_os_shell_io_printf(term, "usage: %s\n", usage);
+        return;
+    }
+    solar_os_terminal_profile_t profile;
+    esp_err_t err = solar_os_display_get_terminal_profile(argv[2], &profile);
+    if (err != ESP_OK) {
+        solar_os_shell_diag_esp(term, "display", err, NULL, NULL);
+        return;
+    }
+    if (argc == 3) {
+        solar_os_shell_io_printf(term, "%s %s: %u\n", argv[2], argv[1],
+            (unsigned)(orientation ? profile.orientation_degrees : (profile.scale ? profile.scale : 1)));
+        solar_os_shell_io_writeln(term, orientation ? "values: 0 90 180 270" : "values: 1 2 3 4");
+        return;
+    }
+    size_t value;
+    if (!parse_size_arg(argv[3], orientation ? 0 : 1, orientation ? 270 : 4, &value) ||
+        (orientation && value % 90U != 0)) {
+        solar_os_shell_diag_invalid(term, "display", argv[1], argv[3],
+            orientation ? "0, 90, 180, or 270" : "1, 2, 3, or 4", usage, false);
+        return;
+    }
+    err = orientation ? solar_os_sessions_set_display_orientation(argv[2], (uint16_t)value, save) :
+        solar_os_sessions_set_display_scale(argv[2], (uint8_t)value, save);
+    if (err == ESP_OK) {
+        solar_os_shell_io_printf(term, "%s %s: %u%s\n", argv[2], argv[1], (unsigned)value,
+            save ? " (saved)" : " (temporary)");
+    } else {
+        solar_os_shell_diag_esp(term, "display", err, NULL, NULL);
+    }
+}
+
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc >= 2 && (strcmp(argv[1], "orientation") == 0 || strcmp(argv[1], "scale") == 0)) {
+        display_cmd_geometry(term, argc, argv, false);
+        return;
+    }
 
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "list") == 0)) {
         display_print_targets(term);
@@ -1968,7 +2013,8 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  setterm");
-    solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
+    solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]");
+    solar_os_shell_io_writeln(term, "  setterm scale [1..4]");
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [8|10|12|14|16|18|20]");
@@ -1984,7 +2030,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
     solar_os_shell_io_writeln(term, "  setterm ble [default|on|off]");
 #endif
-    solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]");
+    solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]");
     solar_os_shell_io_writeln(term, "  setterm keyrate [off|1..60 [delay-ms]]");
     solar_os_shell_io_writeln(term, "  setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]");
     solar_os_shell_io_writeln(term, "  setterm startup [auto|flash|sd]");
@@ -2063,6 +2109,7 @@ static bool setterm_display_setting(const char *setting)
 {
     return setting != NULL &&
         (strcmp(setting, "orientation") == 0 ||
+         strcmp(setting, "scale") == 0 ||
          strcmp(setting, "font") == 0 ||
          strcmp(setting, "textsize") == 0 ||
          strcmp(setting, "palette") == 0 ||
@@ -2077,6 +2124,7 @@ static void setterm_print_display_profile(
     solar_os_shell_io_printf(term, "display: %s\n", target_name);
     solar_os_shell_io_printf(term, "orientation: %u\n",
                              (unsigned)profile->orientation_degrees);
+    solar_os_shell_io_printf(term, "scale: %u\n", (unsigned)(profile->scale ? profile->scale : 1));
     solar_os_shell_io_printf(term, "font: %s\n",
                              solar_os_terminal_font_name(profile->font));
     solar_os_shell_io_printf(
@@ -2104,6 +2152,20 @@ static void setterm_print_display_result(solar_os_shell_io_t *term,
     }
 }
 
+static void setterm_geometry_alias(solar_os_context_t *ctx, solar_os_shell_io_t *term,
+                                    int argc, char **argv, const char *display_target)
+{
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    if (display_target == NULL) {
+        if (ctx->gfx == NULL || !solar_os_gfx_display_target_name(ctx->gfx, target, sizeof(target)))
+            strlcpy(target, SOLAR_OS_DISPLAY_PRIMARY_TARGET, sizeof(target));
+        display_target = target;
+    }
+    char *geometry_args[] = {"display", argv[1], (char *)display_target,
+        argc >= 3 ? argv[2] : NULL, argc >= 4 ? argv[3] : NULL};
+    display_cmd_geometry(term, argc + 1, geometry_args, true);
+}
+
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -2116,7 +2178,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
             solar_os_shell_diag_missing(term,
                                         "setterm --display",
                                         "display target",
-                                        "setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]");
+                                        "setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]");
             return;
         }
         display_target = argv[2];
@@ -2147,7 +2209,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                 argv[1]);
             solar_os_shell_io_writeln(
                 term,
-                "values: orientation font textsize palette statusbar");
+                "values: orientation scale font textsize palette statusbar");
             return;
         }
     }
@@ -2162,42 +2224,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
-    if (strcmp(argv[1], "orientation") == 0) {
-        if (argc == 2) {
-            solar_os_shell_io_printf(term,
-                                     "orientation: %u\n",
-                                     (unsigned)(display_target != NULL ?
-                                         display_profile.orientation_degrees :
-                                         solar_os_terminal_orientation(display)));
-            solar_os_shell_io_writeln(term, "values: 0 90 180 270");
-            return;
-        }
-        if (argc != 3) {
-            solar_os_shell_diag_unexpected(term, "setterm orientation", argv[3],
-                                           "setterm orientation [0|90|180|270]");
-            return;
-        }
-
-        size_t degrees = 0;
-        if (!parse_size_arg(argv[2], 0, 270, &degrees) ||
-            !(degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270)) {
-            solar_os_shell_diag_invalid(term, "setterm orientation", "orientation", argv[2],
-                                        "0, 90, 180, or 270 degrees",
-                                        "setterm orientation [0|90|180|270]", false);
-            return;
-        }
-
-        const esp_err_t err =
-            display_target != NULL ?
-                (display_profile.orientation_degrees = (uint16_t)degrees,
-                 solar_os_sessions_set_display_terminal_profile(display_target,
-                                                                &display_profile)) :
-                solar_os_sessions_set_terminal_orientation(display, (uint16_t)degrees);
-        if (display_target != NULL) {
-            setterm_print_display_result(term, display_target, "orientation", argv[2], err);
-        } else {
-            setterm_print_save_result(term, "orientation", argv[2], err);
-        }
+    if (strcmp(argv[1], "orientation") == 0 || strcmp(argv[1], "scale") == 0) {
+        setterm_geometry_alias(ctx, term, argc, argv, display_target);
         return;
     }
 
@@ -2637,8 +2665,8 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 
     if (strcmp(argv[1], "powerkey") == 0 || strcmp(argv[1], "key") == 0) {
-        const char *usage = "setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]";
-        const char *values = "default off enter app-exit sleep suspend deepsleep ble-pair";
+        const char *usage = "setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]";
+        const char *values = "default off enter app-exit sleep suspend deepsleep shutdown ble-pair";
         const bool long_press = argc >= 3 && strcmp(argv[2], "long") == 0;
         const bool qualified = long_press || (argc >= 3 && strcmp(argv[2], "short") == 0);
         const int value_index = qualified ? 3 : 2;
@@ -2863,7 +2891,7 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                    "setterm",
                                    argc,
                                    argv,
-                                   "setterm orientation|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|ble|powerkey|keyrate|timezone|startup|otaurl",
+                                   "setterm orientation|scale|font|textsize|palette|foreground|background|statusbar|brightness|backlight|profile|charset|keyboard|ble|powerkey|keyrate|timezone|startup|otaurl",
                                    setterm_commands,
                                    sizeof(setterm_commands) / sizeof(setterm_commands[0]));
 }

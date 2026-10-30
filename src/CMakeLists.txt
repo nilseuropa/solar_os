@@ -41,6 +41,7 @@ if(EXISTS "${SOLAR_OS_BOARD_MANIFEST}")
         "${SOLAR_OS_GENERATED_DIR}/solar_os_board_generated.h")
     file(GLOB SOLAR_OS_BOARD_MANIFEST_INPUTS
         "${SOLAR_OS_BOARD_MANIFEST_DIR}/*.toml"
+        "${SOLAR_OS_BOARD_MANIFEST_DIR}/common/*.toml"
     )
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${SOLAR_OS_BOARD_GENERATOR}"
@@ -271,6 +272,20 @@ if(NOT SOLAR_OS_FLAVOR_GENERATE_RESULT EQUAL 0)
     message(FATAL_ERROR "SolarOS flavor generation failed")
 endif()
 include("${SOLAR_OS_GENERATED_CMAKE}")
+
+set(SOLAR_OS_EXPANSION_PROFILE_GENERATOR "${SOLAR_OS_PROJECT_DIR}/scripts/generate_expansion_profiles.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${SOLAR_OS_EXPANSION_PROFILE_GENERATOR}" "${SOLAR_OS_BOARD_DRIVER_CATALOG}")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_EXPANSION_PROFILE_GENERATOR}"
+            "--catalog" "${SOLAR_OS_BOARD_DRIVER_CATALOG}"
+            "--packages" "${SOLAR_OS_PACKAGE_ID_LIST}"
+            "--output" "${SOLAR_OS_GENERATED_DIR}/solar_os_expansion_profiles_generated.h"
+    RESULT_VARIABLE SOLAR_OS_EXPANSION_PROFILE_RESULT
+)
+if(NOT SOLAR_OS_EXPANSION_PROFILE_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS expansion profile generation failed")
+endif()
 
 # Compile profile defaults from the same descriptions used by the desktop CLI.
 # Empty options produce standard maps and remove overrides from previous builds.
@@ -506,6 +521,13 @@ if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
         "../src/vendor/meshcore/ed25519"
     )
 endif()
+if(SOLAR_OS_PACKAGE_SERVICE_SC2)
+    # SC2 core headers; Ed25519 field/group code is shared with MeshCore.
+    list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS
+        "../protocol/sc2/include"
+        "../src/vendor/meshcore/ed25519"
+    )
+endif()
 
 if(SOLAR_OS_PACKAGE_BHI260AP)
     list(APPEND SOLAR_OS_EXTRA_INCLUDE_DIRS "vendor/bhy2")
@@ -577,4 +599,13 @@ if(SOLAR_OS_PACKAGE_SERVICE_MESHCORE)
         MESH_DEBUG=0
         MESH_PACKET_LOGGING=0
     )
+endif()
+
+if(SOLAR_OS_PACKAGE_SERVICE_SC2)
+    # SC2 SHA-256/HMAC on the mbedTLS backend (see protocol/sc2/README.md).
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE SC2_USE_MBEDTLS=1)
+    # No PSRAM: SC2's low-RAM profile (protocol/sc2/README.md).
+    if(NOT CONFIG_SPIRAM)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE SC2_LOW_RAM=1)
+    endif()
 endif()

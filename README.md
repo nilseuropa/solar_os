@@ -107,6 +107,7 @@ pio run -e freenove_esp32_s3_display_4_0
 pio run -e qdtech_es3c28p
 pio run -e qdtech_es3n28p
 pio run -e cl_32
+pio run -e cl32_epd
 pio run -e t_lora_pager
 pio run -e t_deck_plus
 pio run -e thinknode_m9

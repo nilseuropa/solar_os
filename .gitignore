@@ -35,6 +35,8 @@ tests/host/nmea_test
 tests/host/nmea_gnss_test
 tests/host/shell_table_test
 tests/host/io_layout_test
+tests/host/io_layout_can_test
+tests/host/batmon_job_test
 tests/host/power_key_test
 tests/host/power_key_wired_test
 tests/host/power_key_input_test
@@ -42,6 +44,9 @@ tests/host/power_key_custom_test
 
 /tests/host/epd_uc8179_test
 /tests/host/uc8179_expansion_test
+/tests/host/epd_ssd1685_test
+/tests/host/ssd1685_expansion_test
+/tests/host/expansion_tui_test
 
 /tests/host/epd_uc8279_test
 /tests/host/uc8279_expansion_test
@@ -91,9 +96,15 @@ tests/host/indexed_raster_test
 tests/host/irc_protocol_test
 tests/host/gateway_config_test
 tests/host/messaging_service_test
+tests/host/messages_app_test
 tests/host/link_messaging_test
 tests/host/chat_settings_test
 tests/host/meshcore_instances_test
 tests/host/encoder_service_test
 tests/host/pcnt_encoder_test
 tests/host/ssd1306_named_bus_test
+# SC2 host tests (tests/host/Makefile, appended block)
+/tests/host/sc2_*_test
+/tests/host/sc2_vendor_*.o
+/protocol/sc2/tools/__pycache__/
+/protocol/sc2/build/

@@ -565,3 +565,36 @@ esp_err_t solar_os_tui_draw_input_ex(solar_os_tui_t *tui,
     if (err == ESP_OK) err = solar_os_tui_set_cursor_visible(tui, true);
     return err;
 }
+
+esp_err_t solar_os_tui_draw_form(solar_os_tui_t *tui, const solar_os_tui_form_t *form)
+{
+    if (!tui || !form || !form->viewport || (form->count && !form->row) ||
+        (form->edit_state && (!form->edit_label || !form->edit_text))) return ESP_ERR_INVALID_ARG;
+    const solar_os_tui_rect_t *bounds = &form->bounds;
+    size_t rows = solar_os_tui_rows(tui), cols = solar_os_tui_cols(tui);
+    if (!bounds->width || !bounds->height || bounds->row >= rows || bounds->col >= cols ||
+        bounds->height > rows - bounds->row || bounds->width > cols - bounds->col) return ESP_ERR_INVALID_ARG;
+    solar_os_tui_viewport_reconcile(form->viewport, form->count, bounds->height);
+    esp_err_t error = solar_os_tui_set_cursor_visible(tui, false);
+    if (error != ESP_OK) return error;
+    char line[SOLAR_OS_TERMINAL_MAX_COLS * 4U + 1U];
+    for (size_t row = 0; row < bounds->height; row++) {
+        size_t index = form->viewport->top + row;
+        line[0] = 0;
+        if (index < form->count) {
+            form->row(index, line, sizeof(line), form->user);
+            line[sizeof(line) - 1U] = 0;
+        } else if (!form->count && !row && form->empty_text) snprintf(line, sizeof(line), "%s", form->empty_text);
+        error = solar_os_tui_write_cell(tui, bounds->row + row, bounds->col, bounds->width,
+            line, index < form->count && index == form->viewport->cursor ?
+                SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_NORMAL);
+        if (error != ESP_OK) return error;
+    }
+    if (form->edit_state && form->count) {
+        return solar_os_tui_draw_input_ex(tui,
+            bounds->row + form->viewport->cursor - form->viewport->top,
+            bounds->col, bounds->width, form->edit_label, form->edit_text,
+            form->edit_state, SOLAR_OS_TUI_ATTR_INVERSE, form->masked);
+    }
+    return ESP_OK;
+}

@@ -9,6 +9,8 @@ struct solar_os_memory_arena_block {
     size_t span, requested;
     uintptr_t cookie;
     bool resident;
+    bool movable;
+    uint16_t owner;
 };
 #define ARENA_HEADER ((sizeof(solar_os_memory_arena_block_t) + 15U) & ~(size_t)15U)
 
@@ -95,6 +97,8 @@ void *solar_os_memory_arena_alloc(solar_os_memory_arena_t *a, size_t size, bool 
         }
         b->requested = size;
         b->resident = resident;
+        b->movable = false;
+        b->owner = 0;
         b->cookie = block_cookie(a, b);
         a->allocations++;
         if (resident) a->resident += size;
@@ -138,6 +142,45 @@ static void merge(solar_os_memory_arena_t *a, solar_os_memory_arena_block_t *b)
     n->cookie = 0;
 }
 
+bool solar_os_memory_arena_resize(solar_os_memory_arena_t *a, void *p, size_t size)
+{
+    if (!a || !size || size > SIZE_MAX - ARENA_HEADER - 15U) return false;
+    solar_os_memory_arena_block_t *b = find(a, p);
+    if (!b) return false;
+    const size_t needed = ARENA_HEADER + ((size + 15U) & ~(size_t)15U);
+    if (needed > b->span) {
+        solar_os_memory_arena_block_t *next = b->next;
+        if (!next || next->requested || next->span < needed - b->span)
+            return false;
+        const size_t span = next->span;
+        free_remove(a, next);
+        /* merge() also works with a live left block; its cookie stays valid. */
+        merge(a, b);
+        a->free -= span;
+    }
+    const size_t remainder = b->span - needed;
+    if (remainder >= ARENA_HEADER + ARENA_ALIGNMENT) {
+        solar_os_memory_arena_block_t *tail = (void *)((uintptr_t)b + needed);
+        *tail = (solar_os_memory_arena_block_t){
+            .previous = b, .next = b->next, .span = remainder,
+        };
+        if (tail->next) tail->next->previous = tail;
+        else a->last = tail;
+        b->next = tail;
+        b->span = needed;
+        a->free += remainder - ARENA_HEADER;
+        if (tail->next && !tail->next->requested) {
+            free_remove(a, tail->next);
+            merge(a, tail);
+        }
+        free_insert(a, tail);
+    }
+    if (b->resident) a->resident = a->resident - b->requested + size;
+    b->requested = size;
+    if (a->free < a->minimum_free) a->minimum_free = a->free;
+    return true;
+}
+
 bool solar_os_memory_arena_free(solar_os_memory_arena_t *a, void *p)
 {
     solar_os_memory_arena_block_t *b = find(a, p);
@@ -148,6 +191,8 @@ bool solar_os_memory_arena_free(solar_os_memory_arena_t *a, void *p)
     b->requested = 0;
     b->cookie = 0;
     b->resident = false;
+    b->movable = false;
+    b->owner = 0;
     if (b->next && !b->next->requested) {
         free_remove(a, b->next); merge(a, b);
     }
@@ -157,4 +202,69 @@ bool solar_os_memory_arena_free(solar_os_memory_arena_t *a, void *p)
     }
     free_insert(a, b);
     return true;
+}
+
+bool solar_os_memory_arena_describe(solar_os_memory_arena_t *a, void *p,
+                                    uint16_t owner, bool movable)
+{
+    solar_os_memory_arena_block_t *b = find(a, p);
+    if (!b) return false;
+    b->owner = owner;
+    b->movable = movable;
+    return true;
+}
+
+size_t solar_os_memory_arena_compact(solar_os_memory_arena_t *a,
+    solar_os_memory_arena_relocated_fn relocated, void *user)
+{
+    if (!a || !a->first || !relocated) return 0;
+    size_t moved = 0;
+    /* Slide only explicitly movable blocks into the preceding hole. memmove
+     * supports a hole smaller than the object, without a second full buffer.
+     * Rebuild the free list because overlapping moves invalidate its links. */
+    solar_os_memory_arena_block_t *b = a->first;
+    while (b && b->next) {
+        solar_os_memory_arena_block_t *next = b->next;
+        if (!b->requested && next->requested && next->movable) {
+            const size_t hole_span = b->span, live_span = next->span;
+            const size_t requested = next->requested;
+            solar_os_memory_arena_block_t *previous = b->previous;
+            solar_os_memory_arena_block_t *after = next->next;
+            void *old_pointer = (void *)((uintptr_t)next + ARENA_HEADER);
+            memmove(b, next, live_span);
+            solar_os_memory_arena_block_t *hole = (void *)((uintptr_t)b + live_span);
+            *hole = (solar_os_memory_arena_block_t){
+                .previous = b, .next = after, .span = hole_span,
+            };
+            b->previous = previous;
+            b->next = hole;
+            b->cookie = block_cookie(a, b);
+            if (previous) previous->next = b;
+            if (after) after->previous = hole;
+            else a->last = hole;
+            relocated(user, old_pointer, (void *)((uintptr_t)b + ARENA_HEADER));
+            moved += requested;
+            b = hole;
+        } else if (!b->requested && !next->requested) {
+            merge(a, b);
+        } else {
+            b = next;
+        }
+    }
+    a->free_blocks = NULL;
+    for (b = a->first; b; b = b->next) {
+        b->free_previous = b->free_next = NULL;
+        if (!b->requested) free_insert(a, b);
+    }
+    return moved;
+}
+
+void solar_os_memory_arena_visit(const solar_os_memory_arena_t *a,
+    solar_os_memory_arena_visit_fn visit, void *user)
+{
+    if (!a || !visit) return;
+    for (const solar_os_memory_arena_block_t *b = a->first; b; b = b->next) {
+        if (b->requested) visit(user, (const void *)((uintptr_t)b + ARENA_HEADER),
+                               b->requested, b->owner, b->movable);
+    }
 }

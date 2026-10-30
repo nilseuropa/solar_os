@@ -39,6 +39,7 @@ typedef struct {
 
 esp_err_t solar_os_board_storage_init(void);
 bool solar_os_board_storage_available(void);
+bool solar_os_board_storage_needs_reinit(void);
 esp_err_t solar_os_board_storage_mount(void);
 esp_err_t solar_os_board_storage_mount_volume(const char *name, const char *mount_point);
 esp_err_t solar_os_board_storage_unmount(void);

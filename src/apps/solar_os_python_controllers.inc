@@ -35,7 +35,7 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
     python_dict_store_float(dict, "d", info->state.d);
     python_dict_store_float(dict, "output", info->state.output);
     python_dict_store_float(dict, "measurement", info->measurement);
-    mp_obj_dict_store(dict, python_key("sample_ms"), mp_obj_new_int_from_ull(info->sample_ms));
+    mp_obj_dict_store(dict, python_key("sample_ms"), python_u64_to_obj(info->sample_ms));
     python_dict_store_uint(dict, "steps", info->steps);
     python_dict_store_uint(dict, "faults", info->faults);
     python_dict_store_int(dict, "last_error", info->last_error);

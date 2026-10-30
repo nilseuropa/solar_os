@@ -10,6 +10,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_battery.h"
+#include "solar_os_shutdown.h"
 
 #define BATMON_DEFAULT_INTERVAL_SEC 60U
 #define BATMON_MIN_INTERVAL_SEC 10U
@@ -18,14 +19,23 @@
 
 static const char *TAG = "solar_os_batmon";
 
+typedef enum {
+    BATMON_ACTION_SLEEP,
+    BATMON_ACTION_DEEPSLEEP,
+    BATMON_ACTION_SHUTDOWN,
+} batmon_action_t;
+
+static const char *const batmon_action_names[] = {"sleep", "deepsleep", "shutdown"};
+
 typedef struct {
     bool running;
+    batmon_action_t action;
     uint32_t interval_ms;
     uint32_t next_sample_ms;
     uint32_t success_count;
     uint32_t fail_count;
     uint8_t low_voltage_samples;
-    bool low_voltage_sleep_requested;
+    bool low_voltage_action_requested;
     esp_err_t last_error;
 } batmon_job_state_t;
 
@@ -53,6 +63,20 @@ static bool batmon_parse_interval(const char *text, uint32_t *seconds)
 
     *seconds = (uint32_t)parsed;
     return true;
+}
+
+static bool batmon_parse_action(const char *text, batmon_action_t *action)
+{
+    if (text == NULL) {
+        return false;
+    }
+    for (size_t i = 0U; i < sizeof(batmon_action_names) / sizeof(batmon_action_names[0]); i++) {
+        if (strcmp(text, batmon_action_names[i]) == 0) {
+            *action = (batmon_action_t)i;
+            return true;
+        }
+    }
+    return false;
 }
 
 static void batmon_format_minutes(uint32_t minutes, char *buffer, size_t buffer_len)
@@ -107,7 +131,7 @@ static void batmon_log_status(void)
              status.sample_count);
 }
 
-static void batmon_check_low_voltage_sleep(solar_os_context_t *ctx)
+static void batmon_check_low_voltage(solar_os_context_t *ctx)
 {
     solar_os_battery_config_t config;
     solar_os_battery_monitor_status_t status;
@@ -116,13 +140,13 @@ static void batmon_check_low_voltage_sleep(solar_os_context_t *ctx)
     solar_os_battery_monitor_get_status(&status);
     if (status.sample_count == 0 || status.last_voltage_mv > config.min_voltage_mv) {
         batmon.low_voltage_samples = 0;
-        batmon.low_voltage_sleep_requested = false;
+        batmon.low_voltage_action_requested = false;
         return;
     }
     if (status.trend != SOLAR_OS_BATTERY_TREND_DISCHARGING ||
         status.external_power) {
         batmon.low_voltage_samples = 0;
-        batmon.low_voltage_sleep_requested = false;
+        batmon.low_voltage_action_requested = false;
         return;
     }
 
@@ -141,18 +165,29 @@ static void batmon_check_low_voltage_sleep(solar_os_context_t *ctx)
         return;
     }
 
-    if (!batmon.low_voltage_sleep_requested) {
+    if (!batmon.low_voltage_action_requested) {
         SOLAR_OS_LOGW(TAG,
-                 "low voltage persisted for %u samples: %u.%03u V <= min %u.%03u V; requesting sleep",
+                 "low voltage persisted for %u samples: %u.%03u V <= min %u.%03u V; requesting %s",
                  (unsigned)BATMON_LOW_VOLTAGE_SAMPLE_LIMIT,
                  (unsigned)(status.last_voltage_mv / 1000U),
                  (unsigned)(status.last_voltage_mv % 1000U),
                  (unsigned)(config.min_voltage_mv / 1000U),
-                 (unsigned)(config.min_voltage_mv % 1000U));
+                 (unsigned)(config.min_voltage_mv % 1000U),
+                 batmon_action_names[batmon.action]);
     }
 
-    batmon.low_voltage_sleep_requested = true;
-    solar_os_context_request_sleep(ctx);
+    batmon.low_voltage_action_requested = true;
+    switch (batmon.action) {
+    case BATMON_ACTION_SLEEP:
+        solar_os_context_request_sleep(ctx);
+        break;
+    case BATMON_ACTION_DEEPSLEEP:
+        solar_os_context_request_deep_sleep(ctx);
+        break;
+    case BATMON_ACTION_SHUTDOWN:
+        (void)solar_os_shutdown_request();
+        break;
+    }
 }
 
 static esp_err_t batmon_start(solar_os_context_t *ctx, int argc, char **argv)
@@ -160,12 +195,17 @@ static esp_err_t batmon_start(solar_os_context_t *ctx, int argc, char **argv)
     (void)ctx;
     batmon.last_error = ESP_ERR_INVALID_ARG;
 
-    if (argc > 2) {
+    if (argc < 1 || argc > 3 || argv == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     uint32_t interval_sec = BATMON_DEFAULT_INTERVAL_SEC;
-    if (argc == 2 && !batmon_parse_interval(argv[1], &interval_sec)) {
+    batmon_action_t action = BATMON_ACTION_SLEEP;
+    if (argc >= 2 && !batmon_parse_interval(argv[1], &interval_sec) &&
+        (argc != 2 || !batmon_parse_action(argv[1], &action))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (argc == 3 && !batmon_parse_action(argv[2], &action)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -175,18 +215,22 @@ static esp_err_t batmon_start(solar_os_context_t *ctx, int argc, char **argv)
         return batmon.last_error;
     }
     batmon.running = true;
+    batmon.action = action;
     batmon.interval_ms = interval_sec * 1000U;
     batmon.next_sample_ms = 0;
     batmon.success_count = 0;
     batmon.fail_count = 0;
     batmon.low_voltage_samples = 0;
-    batmon.low_voltage_sleep_requested = false;
+    batmon.low_voltage_action_requested = false;
 
-    SOLAR_OS_LOGI(TAG, "started: interval=%" PRIu32 "s", interval_sec);
+    SOLAR_OS_LOGI(TAG, "started: interval=%" PRIu32 "s action=%s",
+                  interval_sec, batmon_action_names[action]);
+    char label[32];
+    snprintf(label, sizeof(label), "monitor: %s", batmon_action_names[action]);
     (void)solar_os_jobs_note_resource(solar_os_batmon_job.name,
                                       SOLAR_OS_JOB_RESOURCE_CUSTOM,
                                       "battery",
-                                      "monitor");
+                                      label);
     return batmon.last_error;
 }
 
@@ -195,6 +239,8 @@ static void batmon_error_detail(char *buffer, size_t buffer_len)
     if (buffer != NULL && buffer_len > 0U) {
         strlcpy(buffer, batmon.last_error == ESP_ERR_NOT_SUPPORTED ?
                     "battery provider unavailable; check expansion status and boot logs" :
+                    batmon.last_error == ESP_ERR_INVALID_ARG ?
+                    "usage: job start batmon [interval-sec] [sleep|deepsleep|shutdown]" :
                     "", buffer_len);
     }
 }
@@ -205,7 +251,7 @@ static void batmon_stop(solar_os_context_t *ctx)
 
     batmon.running = false;
     batmon.low_voltage_samples = 0;
-    batmon.low_voltage_sleep_requested = false;
+    batmon.low_voltage_action_requested = false;
     solar_os_battery_monitor_stop();
     SOLAR_OS_LOGI(TAG,
              "stopped: ok=%" PRIu32 " fail=%" PRIu32,
@@ -233,11 +279,11 @@ static bool batmon_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (err == ESP_OK) {
         batmon.success_count++;
         batmon_log_status();
-        batmon_check_low_voltage_sleep(ctx);
+        batmon_check_low_voltage(ctx);
     } else {
         batmon.fail_count++;
         batmon.low_voltage_samples = 0;
-        batmon.low_voltage_sleep_requested = false;
+        batmon.low_voltage_action_requested = false;
         SOLAR_OS_LOGW(TAG, "sample failed: %s", esp_err_to_name(err));
     }
     return true;

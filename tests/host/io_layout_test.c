@@ -7,10 +7,18 @@
 #define TEST_ROWS 20U
 #define TEST_COLS 160U
 static uint32_t screen[TEST_ROWS][TEST_COLS];
-static size_t screen_cols, cursor_col, cursor_row;
+static size_t screen_cols, screen_rows = TEST_ROWS, cursor_col, cursor_row;
 static bool cursor_visible;
 static io_state_t state;
 static solar_os_bus_info_t bus;
+static size_t test_pin_count = 1U;
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static bool can_supported = true, can_attached;
+static esp_err_t can_attach_result = ESP_OK, can_detach_result = ESP_OK;
+static size_t can_attach_calls;
+static solar_os_expansion_device_t can_device;
+static char startup_command[IO_STARTUP_COMMAND_MAX];
+#endif
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -32,7 +40,7 @@ size_t solar_os_tui_cols(const solar_os_tui_t *tui)
 size_t solar_os_tui_rows(const solar_os_tui_t *tui)
 {
     (void)tui;
-    return TEST_ROWS;
+    return screen_rows;
 }
 
 void solar_os_tui_clear(solar_os_tui_t *tui)
@@ -49,7 +57,7 @@ esp_err_t solar_os_tui_fill(solar_os_tui_t *tui, size_t row, size_t col,
 {
     (void)tui;
     (void)attr;
-    assert(row + height <= TEST_ROWS && col + width <= screen_cols);
+    assert(row + height <= screen_rows && col + width <= screen_cols);
     for (size_t y = row; y < row + height; y++)
         for (size_t x = col; x < col + width; x++) screen[y][x] = ch;
     return ESP_OK;
@@ -60,7 +68,7 @@ esp_err_t solar_os_tui_putch(solar_os_tui_t *tui, size_t row, size_t col,
 {
     (void)tui;
     (void)attr;
-    assert(row < TEST_ROWS && col < screen_cols);
+    assert(row < screen_rows && col < screen_cols);
     screen[row][col] = ch;
     return ESP_OK;
 }
@@ -75,7 +83,7 @@ esp_err_t solar_os_tui_set_cursor_visible(solar_os_tui_t *tui, bool visible)
 esp_err_t solar_os_tui_move(solar_os_tui_t *tui, size_t row, size_t col)
 {
     (void)tui;
-    assert(row < TEST_ROWS && col < screen_cols);
+    assert(row < screen_rows && col < screen_cols);
     cursor_row = row;
     cursor_col = col;
     return ESP_OK;
@@ -93,14 +101,27 @@ const char *solar_os_bus_protocol_name(solar_os_bus_protocol_t protocol)
     return protocol == SOLAR_OS_BUS_PROTOCOL_UART ? "uart" : "spi";
 }
 
-size_t solar_os_pin_count(void) { return 1U; }
+bool solar_os_bus_runtime_protocol_available(solar_os_bus_protocol_t protocol)
+{ (void)protocol; return true; }
+size_t solar_os_bus_runtime_endpoint_count(solar_os_bus_protocol_t protocol)
+{ (void)protocol; return 1U; }
+bool solar_os_bus_runtime_endpoint_get(solar_os_bus_protocol_t protocol, size_t index, int *endpoint)
+{ (void)protocol; if (index != 0U) return false; *endpoint = 1; return true; }
+esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
+{ (void)definition; return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t solar_os_bus_unregister(const char *name)
+{ (void)name; return ESP_ERR_NOT_SUPPORTED; }
+
+size_t solar_os_pin_count(void) { return test_pin_count; }
 bool solar_os_pin_get_info(size_t index, solar_os_pin_info_t *info)
 {
-    if (index != 0U) return false;
-    *info = (solar_os_pin_info_t){.pin = 43, .expansion = true,
+    if (index >= test_pin_count) return false;
+    *info = (solar_os_pin_info_t){.pin = 43 + (int)index, .expansion = true,
         .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "long pin role"};
     return true;
 }
+bool solar_os_pin_is_routable(int pin)
+{ return pin >= 43 && pin < 43 + (int)test_pin_count; }
 bool solar_os_pin_get_info_by_pin(int pin, solar_os_pin_info_t *info)
 {
     return pin == 43 && solar_os_pin_get_info(0U, info);
@@ -145,6 +166,64 @@ const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind)
     (void)kind;
     return "gpio";
 }
+
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+bool solar_os_expansion_driver_supported(const char *name)
+{ return can_supported && strcmp(name, "twai-can") == 0; }
+size_t solar_os_expansion_device_count(void) { return can_attached ? 2U : 1U; }
+bool solar_os_expansion_get_device(size_t index, solar_os_expansion_device_t *device)
+{
+    if (index == 0U) {
+        *device = (solar_os_expansion_device_t){.driver = "other", .name = "sensor0"};
+        return true;
+    }
+    if (index != 1U || !can_attached) return false;
+    *device = can_device;
+    return true;
+}
+esp_err_t solar_os_expansion_attach(const char *driver, const char *name,
+                                     const solar_os_expansion_binding_t *bindings, size_t count)
+{
+    assert(strcmp(driver, "twai-can") == 0 && count <= 6U);
+    can_attach_calls++;
+    if (can_attach_result != ESP_OK) return can_attach_result;
+    can_device = (solar_os_expansion_device_t){.active = true, .ready = true,
+        .detachable = true, .origin = SOLAR_OS_EXPANSION_ORIGIN_RUNTIME, .binding_count = count};
+    strlcpy(can_device.name, name, sizeof(can_device.name));
+    strlcpy(can_device.driver, driver, sizeof(can_device.driver));
+    memcpy(can_device.bindings, bindings, count * sizeof(*bindings));
+    can_attached = true;
+    return ESP_OK;
+}
+esp_err_t solar_os_expansion_detach(const char *name)
+{
+    assert(can_attached && strcmp(name, can_device.name) == 0);
+    if (can_detach_result == ESP_OK) can_attached = false;
+    return can_detach_result;
+}
+size_t solar_os_expansion_driver_count(void) { return 1U; }
+bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *driver)
+{
+    static const solar_os_expansion_binding_spec_t specs[] = {
+        {.key = "tx", .role = "tx", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {.key = "rx", .role = "rx", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {.key = "bitrate", .role = "bitrate", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER},
+        {.key = "listen", .role = "listen", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER},
+        {.key = "active", .role = "active", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER},
+        {.key = "select", .role = "select", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE},
+    };
+    if (index != 0U) return false;
+    *driver = (solar_os_expansion_driver_t){.name = "twai-can", .binding_specs = specs,
+        .binding_spec_count = sizeof(specs) / sizeof(specs[0])};
+    return true;
+}
+esp_err_t solar_os_shell_startup_append_command(const char *command, bool *added)
+{
+    *added = strcmp(startup_command, command) != 0;
+    strlcpy(startup_command, command, sizeof(startup_command));
+    return ESP_OK;
+}
+#endif
 bool solar_os_connector_layout_get_info(solar_os_connector_layout_info_t *info)
 {
     *info = (solar_os_connector_layout_info_t){.title = "Connectors", .view = "Top",
@@ -187,6 +266,7 @@ static void reset(size_t cols)
     memset(&state, 0, sizeof(state));
     io_state = &state;
     screen_cols = cols;
+    screen_rows = TEST_ROWS;
     solar_os_tui_clear(&state.tui);
 }
 
@@ -277,6 +357,94 @@ static void test_form(void)
     assert(strstr(row_text(TEST_ROWS - 1U), "Q:exit") != NULL);
 }
 
+static void test_protocols(void)
+{
+    reset(40U);
+    io_protocols_build();
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    assert(io.protocol_count == 7U && io.protocols[6].can);
+    can_supported = false;
+    io_protocols_build();
+    assert(io.protocol_count == 6U);
+    can_supported = true;
+#else
+    assert(io.protocol_count == 6U);
+#endif
+}
+
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+static void test_can(void)
+{
+    reset(80U);
+    test_pin_count = 3U;
+    io.selected_pin = 44;
+    io_form_begin((io_protocol_t){.can = true});
+    assert(strcmp(io.form.name, "can0") == 0 && io_form_field_count() == 8U);
+    assert(io.form.pins[0] == 44 && io.form.pins[1] == 43 && io.form.pins[2] == -1);
+    assert(io.form.rate == 500U && io.form.listen_only && io.form.select_active);
+    can_attach_result = ESP_ERR_INVALID_STATE;
+    assert(io_form_create() == ESP_ERR_INVALID_STATE && !can_attached);
+    can_attach_result = ESP_OK;
+    assert(io_form_create() == ESP_OK && can_attached);
+    assert(can_device.binding_count == 5U && io_can_value(&can_device, "listen", -1) == 1);
+    assert(io_bus_count() == 2U);
+    io_render_buses();
+    assert(strstr(row_text(3U), "can0") && strstr(row_text(3U), "can"));
+    size_t calls = can_attach_calls;
+    assert(io_form_create() == ESP_ERR_INVALID_STATE && can_attach_calls == calls);
+    io_build_can_actions(&can_device);
+    assert(io.selected_can && io.actions[0].kind == IO_ACTION_BUS_AUTOSTART);
+    assert(io.actions[1].kind == IO_ACTION_BUS_REMOVE);
+    bool added;
+    assert(io_autostart_bus("can0", &added) == ESP_OK && added);
+    assert(strstr(startup_command, "expansion attach twai-can can0"));
+    assert(strstr(startup_command, "bitrate=500") && strstr(startup_command, "listen=1"));
+    assert(io_autostart_bus("can0", &added) == ESP_OK && !added);
+    can_detach_result = ESP_ERR_INVALID_STATE;
+    assert(io_remove_bus() == ESP_ERR_INVALID_STATE && io_bus_count() == 2U);
+    can_detach_result = ESP_OK;
+    assert(io_remove_bus() == ESP_OK && io_bus_count() == 1U);
+
+    io.form.selected = 3U;
+    io_form_cycle(1);
+    assert(io.form.rate == 800U);
+    io.form.selected = 4U;
+    io_form_cycle(1);
+    assert(!io.form.listen_only);
+    io.form.selected = 5U;
+    io_form_cycle(1);
+    assert(io.form.pins[2] == 45);
+    io.form.selected = 6U;
+    io_form_cycle(1);
+    assert(!io.form.select_active);
+    strlcpy(io.form.name, "can test", sizeof(io.form.name));
+    assert(io_form_create() == ESP_OK && can_device.binding_count == 6U);
+    assert(io_can_value(&can_device, "select", -1) == 45);
+    io.selected_can = true;
+    assert(io_autostart_bus("can test", &added) == ESP_OK && added);
+    assert(strstr(startup_command, "\"can test\"") && strstr(startup_command, "select=gpio45"));
+    assert(strstr(startup_command, "listen=0") && strstr(startup_command, "active=0"));
+    /* Render the CAN form and controller row at every supported screen width. */
+    for (size_t cols = 1U; cols <= TEST_COLS; cols++) {
+        screen_cols = cols;
+        io_render_form();
+        io_render_buses();
+    }
+    screen_cols = 40U;
+    screen_rows = 8U;
+    io_protocols_build();
+    io.protocol_selected = 6U;
+    io_render_protocols();
+    assert(strstr(row_text(6U), "can") && strstr(row_text(7U), "Esc"));
+    io.form.selected = 7U;
+    io_render_form();
+    assert(strstr(row_text(5U), "Create") && strstr(row_text(7U), "Esc"));
+    screen_rows = TEST_ROWS;
+    can_attached = false;
+    test_pin_count = 1U;
+}
+#endif
+
 int main(void)
 {
     bus.protocol = SOLAR_OS_BUS_PROTOCOL_UART;
@@ -287,6 +455,10 @@ int main(void)
     strlcpy(bus.name, "receiver_long_name", sizeof(bus.name));
     test_tables();
     test_form();
+    test_protocols();
+#if SOLAR_OS_PACKAGE_CAN_TWAI
+    test_can();
+#endif
     puts("I/O layout tests passed");
     return 0;
 }

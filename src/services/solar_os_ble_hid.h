@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include "esp_hid_common.h"
+#include "solar_os_hid_keyboard_report.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdatomic.h>
@@ -30,6 +31,7 @@ typedef union {
         solar_os_ble_hid_device_t *dev;
         esp_hid_usage_t usage;
         uint8_t map_index, report_id;
+        solar_os_hid_keyboard_report_layout_t layout;
         uint16_t length;
         uint8_t data[64];
     } input;

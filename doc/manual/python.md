@@ -46,6 +46,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Input and clipboard](python.input.md) | `solaros.input`, `solaros.hid`, `solaros.clipboard` |
 | [Apps, jobs, and identity](python.system.md) | `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
 | [Contacts and messages](python.messaging.md) | `solaros.contacts`, `solaros.messages` |
+| [SC2 end-to-end chat security](python.sc2.md) | `solaros.sc2` |
 | [Text user interfaces](python.tui.md) | `solaros.tui` |
 | [Graphics, raster images, and DLP connections](python.gfx.md) | `solaros.gfx`, `solaros.image`, `solaros.dlp` |
 | [Camera, streams, and RTSP](python.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |

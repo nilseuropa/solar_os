@@ -56,6 +56,10 @@ typedef struct {
     /* Owned by the guest worker; reset is requested through input_reset. */
     foreground_key_pulse_t key_pulses[FOREGROUND_KEY_PULSE_MAX];
     atomic_bool resumable, suspend_requested, suspended;
+    atomic_bool cache_ready, cache_reclaiming;
+    solar_os_memory_reclaimer_t cache_reclaimer;
+    size_t (*cache_release)(void *user);
+    void *cache_user;
     uint64_t stop_deadline_us;
     uint64_t last_cooperate_us;
     bool worker_started;
@@ -727,6 +731,40 @@ static bool foreground_suspend_requested(void)
     return foreground_caller() && atomic_load(&state->suspend_requested);
 }
 
+static size_t foreground_cache_reclaim(const solar_os_memory_pressure_request_t *request, void *user)
+{
+    (void)request;
+    foreground_state_t *state = user;
+    if (!atomic_load(&state->cache_ready) || atomic_exchange(&state->cache_reclaiming, true)) return 0;
+    size_t released = 0;
+    if (atomic_load(&state->cache_ready) && !atomic_load(&state->stop_requested) && state->cache_release)
+        released = state->cache_release(state->cache_user);
+    atomic_store(&state->cache_reclaiming, false);
+    return released;
+}
+
+static void foreground_cache_close(foreground_state_t *state)
+{
+    atomic_store(&state->cache_ready, false);
+    while (atomic_load(&state->cache_reclaiming)) foreground_sleep_ms(1);
+}
+
+static int foreground_set_memory_reclaimer(size_t (*reclaim)(void *), void *user)
+{
+    foreground_state_t *state = foreground_current();
+    if (!foreground_caller() || !reclaim || state->cache_release)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    state->cache_release = reclaim;
+    state->cache_user = user;
+    state->cache_reclaimer = (solar_os_memory_reclaimer_t){
+        .owner = state->slot->manifest.id, .priority = 100,
+        .reclaim = foreground_cache_reclaim, .user = state,
+    };
+    if (solar_os_memory_register_reclaimer(&state->cache_reclaimer)) return SOLAR_OS_NATIVE_OK;
+    state->cache_release = NULL;
+    return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+}
+
 static int foreground_guest_suspend(void)
 {
     foreground_state_t *state = foreground_current();
@@ -737,10 +775,12 @@ static int foreground_guest_suspend(void)
      * The main task can then release the graphics surface and keyboard. */
     if (state->presenter && solar_os_frame_presenter_suspend_checked(state->presenter) != ESP_OK)
         esp_restart();
+    atomic_store(&state->cache_ready, true);
     atomic_store(&state->suspended, true);
     while (atomic_load(&state->suspend_requested) && !atomic_load(&state->stop_requested))
         foreground_sleep_ms(SOLAR_OS_TASK_STOP_POLL_MS);
     int result = SOLAR_OS_NATIVE_OK;
+    foreground_cache_close(state);
     if (state->themed_index2) foreground_refresh_index2_palette(state);
     if (!atomic_load(&state->stop_requested) && state->presenter)
         result = foreground_result(solar_os_frame_presenter_resume(state->presenter));
@@ -772,6 +812,7 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
     .read_pointer = foreground_read_pointer, .calendar_read = foreground_calendar_read,
     .video_acquire = foreground_video_acquire, .video_exchange = foreground_video_exchange,
     .cooperate = foreground_cooperate,
+    .set_memory_reclaimer = foreground_set_memory_reclaimer,
 };
 
 
@@ -800,6 +841,12 @@ static esp_err_t foreground_write(const char *text, size_t length, void *user)
 static void foreground_worker_cleanup(void *user)
 {
     foreground_state_t *state = user;
+    foreground_cache_close(state);
+    if (state->cache_release) {
+        while (!solar_os_memory_unregister_reclaimer(&state->cache_reclaimer)) foreground_sleep_ms(1);
+        state->cache_release = NULL;
+        state->cache_user = NULL;
+    }
     if (solar_os_disk_image_close_owner(state) != ESP_OK) {
         state->result = ESP_FAIL;
         state->exit_code = 1;
@@ -847,13 +894,16 @@ static void foreground_worker(void *arg)
 static esp_err_t foreground_admit(const foreground_slot_t *slot)
 {
     solar_os_memory_status_t memory;
-    solar_os_memory_get_status(&memory);
     const solar_os_native_app_manifest_v2_t *manifest = &slot->manifest;
-    if (memory.external.free < manifest->minimum_psram_bytes ||
-        memory.internal.free < memory.internal_reserve + manifest->minimum_internal_bytes + manifest->worker_stack_bytes ||
-        !solar_os_task_admit(manifest->id, manifest->worker_stack_bytes,
-                             SOLAR_OS_TASK_ROLE_FOREGROUND, false)) return ESP_ERR_NO_MEM;
-    return ESP_OK;
+    for (unsigned attempt = 0; attempt < 2U; ++attempt) {
+        solar_os_memory_get_status(&memory);
+        if (memory.external.free >= manifest->minimum_psram_bytes &&
+            memory.internal.free >= memory.internal_reserve + manifest->minimum_internal_bytes + manifest->worker_stack_bytes &&
+            solar_os_task_admit(manifest->id, manifest->worker_stack_bytes,
+                                SOLAR_OS_TASK_ROLE_FOREGROUND, false)) return ESP_OK;
+        if (attempt == 0U) (void)solar_os_memory_reclaim();
+    }
+    return ESP_ERR_NO_MEM;
 }
 
 
@@ -876,6 +926,8 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
         (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_RESUMABLE));
     atomic_init(&state->suspend_requested, false);
     atomic_init(&state->suspended, false);
+    atomic_init(&state->cache_ready, false);
+    atomic_init(&state->cache_reclaiming, false);
     state->stop_deadline_us = 0;
     state->worker_started = false;
     if (!ctx->gfx || ctx->argc < 1) {
@@ -978,7 +1030,10 @@ static void foreground_resume(solar_os_context_t *ctx)
     foreground_state_t *state = foreground_context_state(ctx);
     if (!state) return;
     if (atomic_load(&state->done)) return;
-    if (!atomic_load(&state->suspended)) return;
+    if (!atomic_load(&state->suspended)) {
+        atomic_store(&state->redraw_requested, true);
+        return;
+    }
     /* Restore graphics ownership before allowing the guest/presenter to run. */
     state->gfx = ctx->gfx;
     xQueueReset(state->keys);

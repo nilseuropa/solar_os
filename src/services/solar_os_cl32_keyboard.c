@@ -17,17 +17,6 @@ typedef struct {
     uint8_t key;
 } cl32_key_mapping_t;
 
-static void toggle_advance(solar_os_cl32_toggle_t *toggle)
-{
-    if (*toggle == SOLAR_OS_CL32_TOGGLE_OFF) {
-        *toggle = SOLAR_OS_CL32_TOGGLE_ONCE;
-    } else if (*toggle == SOLAR_OS_CL32_TOGGLE_ONCE) {
-        *toggle = SOLAR_OS_CL32_TOGGLE_LOCKED;
-    } else {
-        *toggle = SOLAR_OS_CL32_TOGGLE_OFF;
-    }
-}
-
 static bool base_mapping(uint8_t physical_key, cl32_key_mapping_t *mapping)
 {
     if (mapping == NULL) {
@@ -160,6 +149,14 @@ static bool fn_mapping(uint8_t physical_key, cl32_key_mapping_t *mapping)
         mapping->usage = 75U;
         mapping->key = SOLAR_OS_KEY_PAGE_UP;
         return true;
+    case CL32_KEY_OK:
+        mapping->usage = 80U;
+        mapping->key = SOLAR_OS_KEY_LEFT;
+        return true;
+    case CL32_KEY_CANCEL:
+        mapping->usage = 79U;
+        mapping->key = SOLAR_OS_KEY_RIGHT;
+        return true;
     default:
         return base_mapping(physical_key, mapping);
     }
@@ -190,22 +187,17 @@ solar_os_cl32_key_result_t solar_os_cl32_keyboard_decode(
     if (physical_key == 0U) {
         return SOLAR_OS_CL32_KEY_UNSUPPORTED;
     }
-    if (physical_key == CL32_KEY_SHIFT) {
-        if (pressed) {
-            toggle_advance(&keyboard->shift);
-        }
-        return SOLAR_OS_CL32_KEY_NONE;
-    }
     if (physical_key == CL32_KEY_FN) {
-        if (pressed) {
-            toggle_advance(&keyboard->fn);
-        }
+        keyboard->fn_held = pressed;
         return SOLAR_OS_CL32_KEY_NONE;
     }
 
     uint16_t modifier_usage = 0U;
     uint8_t modifier = 0U;
-    if (physical_key == CL32_KEY_FILE) {
+    if (physical_key == CL32_KEY_SHIFT) {
+        modifier_usage = 0xe1U;
+        modifier = SOLAR_OS_INPUT_MOD_LEFT_SHIFT;
+    } else if (physical_key == CL32_KEY_FILE) {
         modifier_usage = 0xe2U;
         modifier = SOLAR_OS_INPUT_MOD_LEFT_ALT;
     } else if (physical_key == CL32_KEY_MENU) {
@@ -232,18 +224,10 @@ solar_os_cl32_key_result_t solar_os_cl32_keyboard_decode(
         return SOLAR_OS_CL32_KEY_TRANSITION;
     }
 
-    const bool fn_active = keyboard->fn != SOLAR_OS_CL32_TOGGLE_OFF;
-    const bool shift_active = keyboard->shift != SOLAR_OS_CL32_TOGGLE_OFF;
-    const bool mapped = fn_active
+    const bool mapped = keyboard->fn_held
         ? fn_mapping(physical_key, &mapping)
         : base_mapping(physical_key, &mapping);
 
-    if (fn_active && keyboard->fn == SOLAR_OS_CL32_TOGGLE_ONCE) {
-        keyboard->fn = SOLAR_OS_CL32_TOGGLE_OFF;
-    } else if (!fn_active && shift_active &&
-               keyboard->shift == SOLAR_OS_CL32_TOGGLE_ONCE) {
-        keyboard->shift = SOLAR_OS_CL32_TOGGLE_OFF;
-    }
     if (!mapped) {
         return SOLAR_OS_CL32_KEY_UNSUPPORTED;
     }
@@ -251,9 +235,12 @@ solar_os_cl32_key_result_t solar_os_cl32_keyboard_decode(
     transition->usage = mapping.usage;
     transition->key = mapping.key;
     transition->modifiers = keyboard->held_modifiers;
-    if (!fn_active && shift_active &&
-        physical_key >= 4U && physical_key <= 29U) {
-        transition->modifiers |= SOLAR_OS_INPUT_MOD_LEFT_SHIFT;
+    if (keyboard->fn_held &&
+        (physical_key == CL32_KEY_OK || physical_key == CL32_KEY_CANCEL)) {
+        /* Use the desktop's session shortcut as a complete tap. No synthetic
+         * Alt hold or arrow repeat may survive a foreground session switch. */
+        transition->modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT;
+        return SOLAR_OS_CL32_KEY_TAP;
     }
     return SOLAR_OS_CL32_KEY_TRANSITION;
 }

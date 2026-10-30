@@ -352,6 +352,10 @@ def _base_manifest_id(path: Path, manifest_dir: Path) -> str:
         parent = raw.get("extends")
         if not parent:
             return str(raw["board"]["id"])
+        # Private templates share hardware without selecting a build environment.
+        if (not (manifest_dir / f"{parent}.toml").is_file() and
+                (manifest_dir / "common" / f"{parent}.toml").is_file()):
+            return str(raw["board"]["id"])
         current = manifest_dir / f"{parent}.toml"
 
 

@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "solar_os_native_app_abi.h"
 #include "solar_os_stream.h"
+#include "solar_os_memory.h"
 #define SOLAR_OS_PACKAGE_SERVICE_SYNTH 1
 #define SOLAR_OS_PACKAGE_SERVICE_AUDIO 1
 #define portMAX_DELAY 0U
@@ -18,6 +19,9 @@ typedef struct {
     foreground_slot_t *slot;
     _Atomic(TaskHandle_t) worker;
     atomic_bool done;
+    solar_os_memory_reclaimer_t cache_reclaimer;
+    size_t (*cache_release)(void *user);
+    void *cache_user;
     SemaphoreHandle_t synth_mutex;
     bool synth_running;
     solar_os_native_foreground_audio_render_v1_t synth_render;
@@ -27,6 +31,9 @@ typedef struct {
     int result, exit_code;
     char detail[160];
 } foreground_state_t;
+static void foreground_cache_close(foreground_state_t *state) { (void)state; }
+static void foreground_sleep_ms(uint32_t ms) { (void)ms; }
+bool solar_os_memory_unregister_reclaimer(solar_os_memory_reclaimer_t *entry) { (void)entry; return true; }
 typedef struct {
     const char *owner;
     solar_os_native_foreground_audio_render_v1_t render;

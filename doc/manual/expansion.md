@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "ds3231", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 ds3231 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "ds3231", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "lr11xx", "lr1110", "lr1120", "lr1121", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 ds3231 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 lr11xx lr1110 lr1120 lr1121 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -40,6 +40,12 @@ attachments and opens their details; detachable devices can be removed
 after confirmation. Its Drivers view groups drivers by category and opens an
 attachment form for drivers supported by the running board. Binding forms use
 existing named buses; create, attach, detach, or remove buses in the `io` app.
+Press Enter on a field to choose or edit its value. While editing the device
+name, Enter accepts the name and returns to the attachment menu.
+Display panel choices list their native resolutions and module names. Optional
+panel fields include a default choice. Rotation has its own selection list with
+degree labels and only the orientations supported by the driver. Leave its
+default choice selected to use the driver's default rotation.
 `expansion status` retains the textual capabilities, buses, devices, and claims
 report for scripts and terminal inspection.
 
@@ -52,6 +58,10 @@ From a script, inspect `solaros.expansion.drivers()` and
 physical device is attached.
 
 ## Attach deliberately
+
+Run `expansion attach <driver>` to list that driver's required and optional
+bindings. After entering a driver and device name, Tab completion offers its
+bindings and values, including display `panel` and `rotation` options.
 
 Use real bus and pin names returned by discovery:
 
@@ -241,6 +251,12 @@ peripheral resources.
 The `sdspi` attach command prints the card probe result to the invoking shell.
 The report includes the card identity, type, negotiated speed, capacity, CSD/SSR
 details, mount point, and any underlying block-I/O or FatFs mount error.
+
+After replacing or reinserting an SD card, run `disk mount` to initialize and
+mount it again. For a board-defined SDSPI or SDMMC device, repeating
+`expansion attach storage0` also recovers the card without releasing its bus
+bindings. These commands check the cached card and discard stale SD mounts
+before probing again. Unmount disk images backed by the card first.
 
 GT911 attachments can additionally bind `reset=gpioN`, `power=gpioN`, and
 `active=0|1` for reset/address selection and touch-rail control. The default

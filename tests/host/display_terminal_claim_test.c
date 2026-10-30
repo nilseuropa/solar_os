@@ -13,12 +13,14 @@ typedef struct { int id; } u8g2_t;
 typedef unsigned u8g2_uint_t;
 typedef uint16_t solar_os_terminal_cell_t;
 typedef struct {
-    bool active,terminal_blocked;
+    bool active,terminal_blocked,orientation_locked;
+    struct {unsigned orientation_degrees;} terminal_profile;
     uint32_t terminal_epoch;
     unsigned claim_refs;
     struct { char owner[32]; u8g2_t *u8g2; } target;
     int gfx;
 } display_target_slot_t;
+typedef struct {unsigned orientation_degrees;} solar_os_terminal_profile_t;
 static display_target_slot_t display_targets[2];
 static int display_targets_lock;
 static bool display_target_name_valid(const char *name,size_t max) {return name&&*name&&strlen(name)<max;}
@@ -83,6 +85,13 @@ int main(void) {
     assert(solar_os_display_set_terminal_blocked("display0","jet",true)==ESP_ERR_INVALID_STATE);
     display_targets[0].claim_refs=2;strcpy(display_targets[0].target.owner,"jet");
     assert(solar_os_display_set_terminal_blocked("display0","other",true)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_display_set_orientation_locked("display0","other",true)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_display_set_orientation_locked("display0","jet",true)==ESP_OK);
+    solar_os_terminal_profile_t same={0},rotated={90};
+    assert(display_profile_orientation_allowed(&display_targets[0],&same));
+    assert(!display_profile_orientation_allowed(&display_targets[0],&rotated));
+    assert(solar_os_display_set_orientation_locked("display0","jet",false)==ESP_OK);
+    assert(display_profile_orientation_allowed(&display_targets[0],&rotated));
     assert(solar_os_display_set_terminal_blocked("display0","jet",true)==ESP_OK);
     assert(solar_os_display_terminal_draw_state(&screens[1],NULL));
     assert(solar_os_display_terminal_draw_state(&screens[2],NULL));

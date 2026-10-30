@@ -32,7 +32,7 @@ is valid. Use uptime for monotonic intervals.
 Inspect `solaros.battery.status()` and `solaros.sensors.list()` rather than
 assuming a fixed voltage, temperature, or humidity source. Read the default or
 a named provider with `solaros.sensors.environment()`, `temperature()`, or
-`humidity()`. On CL-32,
+`humidity()`. On Pi0cket CL-32,
 `battery0` reads the voltage measured by the integrated AVR in 25 mV steps and
 reports its USB-power and charging states directly.
 On the Waveshare ESP32-S3-SIM7670G-4G target, the MAX17048 reports voltage and

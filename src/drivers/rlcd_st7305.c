@@ -1235,6 +1235,21 @@ static uint8_t rlcd_u8x8_byte_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg_int,
     return 1;
 }
 
+static esp_err_t rlcd_set_power_save(rlcd_st7305_t *display, bool enabled)
+{
+    rlcd_cancel_idle_lpm_timer(display);
+    if (!enabled && display->power_state_present) {
+        /* The power splash temporarily forced LPM without changing the user's
+         * policy. Restore that policy before resuming ordinary presentation. */
+        const esp_err_t err = rlcd_apply_frame_power_mode(display, true);
+        if (err != ESP_OK) return err;
+    }
+    if (!enabled) display->power_state_present = false;
+    rlcd_invalidate_shadow(display);
+    display->frame_content_changed = false;
+    return rlcd_checked_cmd(display, enabled ? 0x28 : 0x29) ? ESP_OK : display->last_error;
+}
+
 static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
                                            u8x8_t *u8x8,
                                            uint8_t message,
@@ -1248,10 +1263,7 @@ static uint8_t rlcd_u8x8_display_cb_locked(rlcd_st7305_t *display,
         return rlcd_full_init(display) == ESP_OK ? 1 : 0;
 
     case U8X8_MSG_DISPLAY_SET_POWER_SAVE:
-        rlcd_cancel_idle_lpm_timer(display);
-        rlcd_invalidate_shadow(display);
-        display->frame_content_changed = false;
-        return rlcd_checked_cmd(display, arg_int == 0 ? 0x29 : 0x28) ? 1 : 0;
+        return rlcd_set_power_save(display, arg_int != 0) == ESP_OK;
 
     case U8X8_MSG_DISPLAY_REFRESH:
         if (display->frame_content_changed) {
@@ -1660,6 +1672,35 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
     return display->last_error;
 }
 
+esp_err_t rlcd_st7305_present_power_state(rlcd_st7305_t *display)
+{
+    if (display == NULL || display->spi == NULL || display->buffer == NULL)
+        return ESP_ERR_INVALID_STATE;
+    if (!rlcd_take_lock(display, portMAX_DELAY)) return ESP_ERR_INVALID_STATE;
+    rlcd_cancel_idle_lpm_timer(display);
+    const uint8_t previous_policy = display->power_policy;
+    display->power_policy = RLCD_POWER_POLICY_HPM;
+    display->power_state_present = true;
+    display->last_error = ESP_OK;
+    esp_err_t err = rlcd_apply_controller_power_mode(display, &rlcd_controller_profiles[0]);
+    /* SendBuffer takes the driver lock for each tile. The display service's
+     * presentation mutex prevents another frame throughout this operation. */
+    rlcd_give_lock(display);
+    if (err == ESP_OK) u8g2_SendBuffer(&display->u8g2);
+    if (!rlcd_take_lock(display, portMAX_DELAY)) return ESP_ERR_INVALID_STATE;
+    if (err == ESP_OK) err = display->last_error;
+    if (err == ESP_OK) {
+        /* Two frames at the slowest HPM rate (16 Hz) cover an arbitrary
+         * scan phase before entering LPM or cutting system power. */
+        vTaskDelay(pdMS_TO_TICKS(130) + 1);
+        err = rlcd_apply_controller_power_mode(display, &rlcd_controller_profiles[1]);
+    }
+    display->power_policy = previous_policy;
+    display->last_error = err;
+    rlcd_give_lock(display);
+    return err;
+}
+
 esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display)
 {
     if (display == NULL || display->spi == NULL || display->buffer == NULL) {
@@ -1667,6 +1708,7 @@ esp_err_t rlcd_st7305_resume(rlcd_st7305_t *display)
     }
 
     rlcd_cancel_idle_lpm_timer(display);
+    display->power_state_present = false;
     display->frame_content_changed = false;
     ESP_RETURN_ON_ERROR(rlcd_configure_control_pins(display), TAG, "resume pin config failed");
     active_display = display;

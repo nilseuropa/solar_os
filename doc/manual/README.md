@@ -74,7 +74,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [man command](commands.md) — Read or search the package-aware SolarOS manual.
 - [mem command](commands.md) — Print heap and managed PSRAM status; policy also shows allocation-class counters, guarded fallback limits, and the last tagged failure.
 - [meshcore command](commands.md) — Show MeshCore identity, radio, packet, delivery, duplicate, memory, and stack state.
-- [messages command](commands.md) — Show bounded-store, persistence, drop, and live provider state.
+- [messages command](commands.md) — Open the tabbed instance, connection, and message manager.
 - [midi command](commands.md) — Show MIDI worker, traffic, parser, and queue status.
 - [mkdir command](commands.md) — Create directories.
 - [model command](commands.md) — Check engine availability and inspect resident models, interfaces, memory, mode, and references.
@@ -170,6 +170,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ltop application](apps.md#ltop) — Live text task monitor for display and port terminals. Unlike the top command's cumulative snapshot, ltop samples the FreeRTOS runtime counters once per second and reports the interval deltas. One progress bar shows the busy share of each CPU core, derived from that core's idle-task delta. Each task percentage is its share of one core, so the task total can approach 200% on a dual-core target. The title shows the current aggregate CPU load instead of the fixed maximum capacity.
 - [lua application](apps.md#lua) — Embedded Lua runtime. It can run an interactive REPL or execute .lua scripts from storage. Lua scripts can use SolarOS service bindings when the selected firmware includes the corresponding packages. Foreground scripts can consume touch coordinates, relative mouse motion, buttons, and joystick axes through solaros.input.
 - [Macintosh Plus application](app.mac.md) — Run Macintosh Plus software with the external foreground module
+- [messages application](apps.md#messages) — Manage messaging instances, connections, and local message history on the display or a VT100 terminal. Run messages without arguments to open the TUI. Existing messages subcommands remain available for shell and scripting use.
 - [Native SolarOS agent](agent.md) — Configure and use the resumable LLM agent and its typed tools
 - [notes application](apps.md#notes) — Markdown-backed checklist and category manager. It stores unchecked and checked items and supports one level of category folding. A persistent bottom help bar shows the available controls, with status or text input directly above it.
 - [player application](apps.md#player) — Interactive WAV/MP3 player and the user-facing counterpart to aplay. player keeps a persistent playlist under .player on the current storage root. Opening an audio file from Files adds it to that playlist, selects it, and starts playback. Missing files remain listed so removable media can be reattached.
@@ -201,7 +202,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [Background job reference](jobs.reference.md) — Configuration, ownership, and examples for every background job
 - [Background jobs](jobs.md) — Start, inspect, and stop background workers
-- [batmon job](jobs.reference.md#batmon) — Battery monitor. It periodically samples battery voltage, maintains a smoothed trend, estimates power state, and can request light sleep when the configured minimum voltage is reached.
+- [batmon job](jobs.reference.md#batmon) — Battery monitor. It periodically samples battery voltage, maintains a smoothed trend, estimates power state, and can request sleep, deep sleep, or shutdown when the configured minimum voltage is reached.
 - [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two byte-stream ports, or between one byte-stream port and an active SolarOS Link instance.
 - [cam-webd job](jobs.reference.md#cam-webd) — HTTP access to the fitted camera as one-shot JPEG images or a single-client MJPEG stream.
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
@@ -271,6 +272,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Lua buses and expansion API](lua.buses.md) — Buses and expansion: buses, expansion
 - [Lua camera, streams, and RTSP API](lua.media.md) — Owned local stream frames, camera snapshots, native images, and asynchronous RTSP sessions
 - [Lua contacts and messages API](lua.messaging.md) — Contacts and messages: contacts, messages
+- [Lua SC2 end-to-end chat security API](lua.sc2.md) — SC2 end-to-end encryption: sc2
 - [Lua gpio and peripherals API](lua.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, servo, motor, encoder, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Lua graphics API](lua.gfx.md) — Draw through SolarOS displays from Lua
 - [Lua input and clipboard API](lua.input.md) — Input and clipboard: input, hid, clipboard
@@ -292,6 +294,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Python buses and expansion API](python.buses.md) — Buses and expansion: buses, expansion
 - [Python camera, streams, and RTSP API](python.media.md) — Owned local stream frames, camera snapshots, native images, and asynchronous RTSP sessions
 - [Python contacts and messages API](python.messaging.md) — Contacts and messages: contacts, messages
+- [Python SC2 end-to-end chat security API](python.sc2.md) — SC2 end-to-end encryption: sc2
 - [Python gpio and peripherals API](python.hardware.md) — GPIO and peripherals: gpio, onewire, led, adc, pwm, servo, motor, encoder, i2c, spi, uart, neopixel, battery, charger, sensors, GNSS, haptic, IMU, NFC
 - [Python graphics API](python.gfx.md) — Draw through SolarOS displays from MicroPython
 - [Python input and clipboard API](python.input.md) — Input and clipboard: input, hid, clipboard

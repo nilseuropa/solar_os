@@ -71,6 +71,10 @@ typedef struct {
 typedef void (*solar_os_inbox_clear_observer_t)(void *user);
 
 esp_err_t solar_os_inbox_init(void);
+/* Read a legacy saved Inbox without initializing, modifying or resetting it.
+ * Used to migrate incoming message history across storage volumes. */
+esp_err_t solar_os_inbox_saved_snapshot(const char *path,
+    solar_os_inbox_entry_t *entries, size_t capacity, size_t *count);
 esp_err_t solar_os_inbox_publish(const solar_os_inbox_publish_t *message, uint32_t *id);
 esp_err_t solar_os_inbox_get(uint32_t id, solar_os_inbox_entry_t *entry, bool mark_read);
 esp_err_t solar_os_inbox_mark_read(uint32_t id, bool read);

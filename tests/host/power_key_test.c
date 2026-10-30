@@ -135,12 +135,16 @@ int main(void)
     status = boot();
     assert(status.key_action == short_default && status.key_long_action == long_default);
     for (int action = SOLAR_OS_POWER_KEY_ACTION_OFF;
-         action <= SOLAR_OS_POWER_KEY_ACTION_DEFAULT; action++) {
+         action <= SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN; action++) {
         solar_os_power_key_action_t parsed;
         assert(solar_os_power_parse_key_action(solar_os_power_key_action_name(action), &parsed));
         assert((int)parsed == action);
     }
     assert(!solar_os_power_parse_key_action("invalid", NULL));
+    assert(SOLAR_OS_POWER_KEY_ACTION_DEFAULT == 7);
+    assert(solar_os_power_set_key_long_action(SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN) == ESP_OK);
+    status = boot();
+    assert(status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN);
     assert(!solar_os_power_parse_key_action(NULL, NULL));
     assert(solar_os_power_set_key_long_action(255) == ESP_ERR_INVALID_ARG);
     puts("power KEY settings tests passed");

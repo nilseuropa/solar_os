@@ -39,6 +39,13 @@ int main(void)
     assert(solar_os_link_messaging_start("a") == ESP_ERR_INVALID_STATE);
     solar_os_messaging_provider_id_t a = find_link("a")->provider, b = find_link("b")->provider;
     assert(a == SOLAR_OS_MESSAGING_PROVIDER_LINK && a != b);
+    solar_os_messaging_settings_t form;
+    assert(solar_os_messaging_settings_read("link", a, 0, &form) == ESP_OK);
+    assert(form.enabled && form.count == 1 && !strcmp(form.values[0], "a") && form.worker_is_resource);
+    solar_os_messaging_provider_id_t saved;
+    assert(solar_os_messaging_settings_write("link", a, 0, NULL, &form, &saved) == ESP_OK && saved == a);
+    form.changed[0] = true; strlcpy(form.values[0], "b", sizeof(form.values[0]));
+    assert(solar_os_messaging_settings_write("link", a, 0, NULL, &form, &saved) == ESP_ERR_INVALID_STATE);
     solar_os_messaging_provider_id_t duplicate;
     const char *binding[] = {"b"};
     assert(solar_os_messaging_instance_add("link", "duplicate", 1, binding, &duplicate) == ESP_ERR_INVALID_STATE);
@@ -83,7 +90,7 @@ int main(void)
     assert(!find_link("a") && find_link("b")->provider == b && find_link("b")->config.enabled);
     assert(solar_os_link_messaging_start("b") == ESP_OK);
     assert(solar_os_messaging_instance_remove(b) == ESP_OK);
-    const char *files[] = {".chat/profiles/003.bin", ".chat/profiles/004.bin", ".contacts/contacts.bin", ".messages/messages.bin"};
+    const char *files[] = {".chat/profiles/003.bin", ".chat/profiles/004.bin", ".contacts/contacts.bin", ".messages/history.bin", ".messages/location"};
     char path[160];
     for (size_t i = 0; i < sizeof(files)/sizeof(files[0]); i++) {
         assert(solar_os_storage_default_path(files[i], path, sizeof(path)) == ESP_OK); assert(unlink(path) == 0);

@@ -13,6 +13,7 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_expansion_profiles_generated.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
 #include "solar_os_pins.h"
@@ -47,6 +48,21 @@ typedef struct {
 } expansion_tui_choice_t;
 
 typedef struct {
+    const char *driver;
+    int value;
+    const char *label;
+    bool is_default;
+} expansion_tui_panel_t;
+
+#define EXPANSION_PANEL(driver_, value_, label_, default_) \
+    {driver_, value_, label_, default_},
+static const expansion_tui_panel_t panel_choices[] = {
+    SOLAR_OS_EXPANSION_PANEL_CHOICES(EXPANSION_PANEL)
+    {NULL, 0, NULL, false},
+};
+#undef EXPANSION_PANEL
+
+typedef struct {
     solar_os_context_t *ctx;
     solar_os_tui_t tui;
     expansion_tui_view_t view;
@@ -74,6 +90,39 @@ static void *expansion_tui_state;
 
 static void expansion_tui_render(void);
 static bool expansion_tui_parse_int(const char *text, int min, int max, int *value);
+
+static bool expansion_tui_is_panel(const solar_os_expansion_binding_spec_t *spec)
+{
+    return spec != NULL && spec->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+        strcmp(spec->key, "panel") == 0;
+}
+
+static bool expansion_tui_is_rotation(const solar_os_expansion_binding_spec_t *spec)
+{
+    return spec != NULL && spec->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+        expansion_tui.driver.category == SOLAR_OS_EXPANSION_CATEGORY_DISPLAY &&
+        strcmp(spec->key, "rotation") == 0;
+}
+
+static const expansion_tui_panel_t *expansion_tui_panel(size_t index)
+{
+    for (size_t i = 0; panel_choices[i].driver != NULL; i++) {
+        if (strcmp(panel_choices[i].driver, expansion_tui.driver.name) == 0 && index-- == 0)
+            return &panel_choices[i];
+    }
+    return NULL;
+}
+
+static const expansion_tui_panel_t *expansion_tui_selected_panel(const char *value)
+{
+    int number;
+    if (value == NULL || !expansion_tui_parse_int(value, 0, INT_MAX, &number)) return NULL;
+    for (size_t i = 0; expansion_tui_panel(i) != NULL; i++) {
+        const expansion_tui_panel_t *panel = expansion_tui_panel(i);
+        if (panel->value == number) return panel;
+    }
+    return NULL;
+}
 
 static size_t expansion_tui_body_rows(void)
 {
@@ -235,7 +284,6 @@ static bool expansion_tui_get_driver(solar_os_expansion_category_t category,
 static void expansion_tui_render_devices(void)
 {
     solar_os_tui_t *tui = &expansion_tui.tui;
-    const size_t rows = solar_os_tui_rows(tui);
     const size_t cols = solar_os_tui_cols(tui);
     const size_t count = solar_os_expansion_device_count();
     solar_os_tui_clear(tui);
@@ -848,6 +896,21 @@ static void expansion_tui_form_label(size_t field, char *label, size_t label_len
     } else {
         const solar_os_expansion_binding_spec_t *spec =
             &expansion_tui.driver.binding_specs[field - 1U];
+        if (expansion_tui_is_rotation(spec) &&
+            !(expansion_tui.editing && expansion_tui.form.cursor == field)) {
+            snprintf(label, label_len, "%c rotation: ", spec->required ? '*' : '-');
+            return;
+        }
+        if (expansion_tui_is_panel(spec) && expansion_tui_panel(0) != NULL) {
+            if (expansion_tui.editing && expansion_tui.form.cursor == field) {
+                snprintf(label, label_len, "%c panel ID <%s>: ",
+                         spec->required ? '*' : '-',
+                         spec->value_hint != NULL ? spec->value_hint : "value");
+            } else {
+                snprintf(label, label_len, "%c panel: ", spec->required ? '*' : '-');
+            }
+            return;
+        }
         snprintf(label,
                  label_len,
                  "%c %s <%s>: ",
@@ -1079,6 +1142,9 @@ static void expansion_tui_format_discrete_choice(
         snprintf(choice->value, sizeof(choice->value), "%d", value);
     }
     strlcpy(choice->label, choice->value, sizeof(choice->label));
+    if (expansion_tui_is_rotation(spec)) {
+        snprintf(choice->label, sizeof(choice->label), "%d degrees", value * 90);
+    }
 }
 
 static bool expansion_tui_get_choice(size_t index,
@@ -1094,7 +1160,15 @@ static bool expansion_tui_get_choice(size_t index,
     if (!spec->required) {
         if (index == current) {
             choice->value[0] = '\0';
-            strlcpy(choice->label, "<not connected>", sizeof(choice->label));
+            strlcpy(choice->label, spec->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER ?
+                    "<default>" : "<not connected>", sizeof(choice->label));
+            if (expansion_tui_is_panel(spec)) {
+                for (size_t i = 0; expansion_tui_panel(i) != NULL; i++) {
+                    const expansion_tui_panel_t *panel = expansion_tui_panel(i);
+                    if (panel->is_default)
+                        snprintf(choice->label, sizeof(choice->label), "Default: %s", panel->label);
+                }
+            }
             return true;
         }
         current++;
@@ -1155,6 +1229,29 @@ static bool expansion_tui_get_choice(size_t index,
         return false;
     }
 
+    if (expansion_tui_is_rotation(spec)) {
+        for (int rotation = 0; rotation < 4; rotation++) {
+            if (!expansion_tui_spec_value_allowed(spec, rotation) ||
+                (spec->has_value_range &&
+                 (rotation < spec->min_value || rotation > spec->max_value))) continue;
+            if (index == current++) {
+                expansion_tui_format_discrete_choice(spec, rotation, choice);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (expansion_tui_is_panel(spec) && expansion_tui_panel(0) != NULL) {
+        for (size_t i = 0; expansion_tui_panel(i) != NULL; i++) {
+            if (index == current++) {
+                const expansion_tui_panel_t *panel = expansion_tui_panel(i);
+                snprintf(choice->value, sizeof(choice->value), "%d", panel->value);
+                strlcpy(choice->label, panel->label, sizeof(choice->label));
+                return true;
+            }
+        }
+        return false;
+    }
     for (size_t i = 0U; i < spec->allowed_value_count; i++) {
         if (index == current++) {
             expansion_tui_format_discrete_choice(spec,
@@ -1182,7 +1279,9 @@ static bool expansion_tui_field_has_choices(size_t field)
         expansion_tui_form_spec(field);
     solar_os_bus_protocol_t protocol;
     return spec != NULL &&
-        (expansion_tui_kind_is_pin(spec->kind) ||
+        (expansion_tui_is_rotation(spec) ||
+         (expansion_tui_is_panel(spec) && expansion_tui_panel(0) != NULL) ||
+         expansion_tui_kind_is_pin(spec->kind) ||
          expansion_tui_kind_protocol(spec->kind, &protocol) ||
          spec->kind == SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM ||
          spec->kind == SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM ||
@@ -1241,7 +1340,7 @@ static void expansion_tui_render_choices(void)
             expansion_tui.choice_field,
             &capacity);
         (void)capacity;
-        char line[EXPANSION_TUI_MESSAGE_MAX];
+        char line[sizeof(choice.label) + 3U];
         snprintf(line,
                  sizeof(line),
                  "%c %s",
@@ -1269,69 +1368,71 @@ static void expansion_tui_render_choices(void)
     expansion_tui_finish_render(false);
 }
 
+static void expansion_tui_attach_row(size_t index, char *line, size_t capacity, void *user)
+{
+    (void)user;
+    if (index == expansion_tui_form_input_count()) {
+        strlcpy(line, "[ attach device ]", capacity);
+        return;
+    }
+    char label[48];
+    expansion_tui_form_label(index, label, sizeof(label));
+    size_t value_capacity;
+    const char *value = expansion_tui_form_value(index, &value_capacity);
+    const solar_os_expansion_binding_spec_t *spec = expansion_tui_form_spec(index);
+    if (expansion_tui_is_rotation(spec)) {
+        int rotation;
+        if (expansion_tui_parse_int(value, 0, 3, &rotation)) {
+            snprintf(line, capacity, "%s%d degrees", label, rotation * 90);
+            return;
+        }
+        if (value != NULL && value[0] == '\0') {
+            snprintf(line, capacity, "%s<default>", label);
+            return;
+        }
+    }
+    if (expansion_tui_is_panel(spec)) {
+        const expansion_tui_panel_t *panel = expansion_tui_selected_panel(value);
+        if (panel != NULL) {
+            snprintf(line, capacity, "%c panel: %s", spec->required ? '*' : '-', panel->label);
+            return;
+        }
+    }
+    snprintf(line, capacity, "%s%s", label, value != NULL ? value : "");
+}
+
 static void expansion_tui_render_attach(void)
 {
     solar_os_tui_t *tui = &expansion_tui.tui;
-    const size_t cols = solar_os_tui_cols(tui);
     const size_t input_count = expansion_tui_form_input_count();
-    const size_t count = input_count + 1U;
+    solar_os_tui_set_cursor_visible(tui, false);
     solar_os_tui_clear(tui);
     solar_os_tui_draw_title(tui, "attach device", expansion_tui.driver.name);
     expansion_tui_draw_tabs(false);
-
-    const size_t visible = expansion_tui_body_rows();
-    solar_os_tui_viewport_reconcile(&expansion_tui.form, count, visible);
-    for (size_t row = 0U; row < visible; row++) {
-        const size_t index = expansion_tui.form.top + row;
-        if (index >= count) {
-            break;
-        }
-        if (index == input_count) {
-            solar_os_tui_write_cell(tui,
-                                    2U + row,
-                                    0U,
-                                    cols,
-                                    "[ Attach ]",
-                                    index == expansion_tui.form.cursor ?
-                                        SOLAR_OS_TUI_ATTR_BOLD |
-                                            SOLAR_OS_TUI_ATTR_INVERSE :
-                                        SOLAR_OS_TUI_ATTR_BOLD);
-            continue;
-        }
-
-        char label[48];
-        expansion_tui_form_label(index, label, sizeof(label));
-        size_t capacity = 0U;
-        char *value = expansion_tui_form_value(index, &capacity);
-        if (value == NULL) {
-            continue;
-        }
-        if (expansion_tui.editing && index == expansion_tui.form.cursor) {
-            solar_os_tui_draw_input(tui,
-                                    2U + row,
-                                    0U,
-                                    cols,
-                                    label,
-                                    value,
-                                    &expansion_tui.input,
-                                    SOLAR_OS_TUI_ATTR_INVERSE);
-        } else {
-            char line[EXPANSION_TUI_MESSAGE_MAX];
-            snprintf(line, sizeof(line), "%s%s", label, value);
-            solar_os_tui_write_cell(tui,
-                                    2U + row,
-                                    0U,
-                                    cols,
-                                    line,
-                                    index == expansion_tui.form.cursor ?
-                                        SOLAR_OS_TUI_ATTR_INVERSE :
-                                        SOLAR_OS_TUI_ATTR_NORMAL);
-        }
-    }
     expansion_tui_draw_help(expansion_tui.editing ?
-                                "type value  enter accepts  esc cancels edit" :
-                                "arrows select  enter choose  E manual  P pin map/buses  esc back");
-    expansion_tui_finish_render(expansion_tui.editing);
+        "type value  enter accepts  esc ends edit" :
+        "arrows select  enter choose  E manual  P pin map/buses  esc back");
+
+    char label[48] = "";
+    const char *edit_text = NULL;
+    if (expansion_tui.editing && expansion_tui.form.cursor < input_count) {
+        size_t capacity;
+        expansion_tui_form_label(expansion_tui.form.cursor, label, sizeof(label));
+        edit_text = expansion_tui_form_value(expansion_tui.form.cursor, &capacity);
+    }
+    solar_os_tui_form_t form = {
+        .bounds = {.row = 2U, .col = 0U, .width = solar_os_tui_cols(tui),
+                   .height = expansion_tui_body_rows()},
+        .viewport = &expansion_tui.form,
+        .count = input_count + 1U,
+        .row = expansion_tui_attach_row,
+        .edit_label = label,
+        .edit_text = edit_text,
+        .edit_state = expansion_tui.editing ? &expansion_tui.input : NULL,
+    };
+    /* The common form draws the active editor last and owns its cursor. */
+    solar_os_tui_draw_form(tui, &form);
+    solar_os_tui_refresh(tui);
 }
 
 static void expansion_tui_render(void)
@@ -1786,29 +1887,34 @@ static void expansion_tui_handle_driver_detail(uint8_t key)
     expansion_tui_render();
 }
 
+static void expansion_tui_edit_key(uint8_t key)
+{
+    size_t capacity = 0U;
+    char *value = expansion_tui_form_value(expansion_tui.form.cursor, &capacity);
+    char label[48];
+    expansion_tui_form_label(expansion_tui.form.cursor, label, sizeof(label));
+    const size_t cols = solar_os_tui_cols(&expansion_tui.tui);
+    const size_t label_width = strlen(label);
+    const solar_os_tui_input_action_t action = solar_os_tui_input_key(
+        value,
+        capacity,
+        &expansion_tui.input,
+        key == '\r' ? SOLAR_OS_KEY_ENTER : key,
+        cols > label_width ? cols - label_width : 1U);
+    if (action == SOLAR_OS_TUI_INPUT_CANCEL ||
+        action == SOLAR_OS_TUI_INPUT_SUBMIT) {
+        expansion_tui.editing = false;
+        expansion_tui.input = (solar_os_tui_input_state_t) {0};
+    } else if (action == SOLAR_OS_TUI_INPUT_CHANGED) {
+        expansion_tui_set_message("");
+    }
+}
+
 static void expansion_tui_handle_attach(uint8_t key)
 {
     const size_t input_count = expansion_tui_form_input_count();
     if (expansion_tui.editing) {
-        size_t capacity = 0U;
-        char *value = expansion_tui_form_value(expansion_tui.form.cursor, &capacity);
-        char label[48];
-        expansion_tui_form_label(expansion_tui.form.cursor, label, sizeof(label));
-        const size_t cols = solar_os_tui_cols(&expansion_tui.tui);
-        const size_t label_width = strlen(label);
-        const solar_os_tui_input_action_t action = solar_os_tui_input_key(
-            value,
-            capacity,
-            &expansion_tui.input,
-            key,
-            cols > label_width ? cols - label_width : 1U);
-        if (action == SOLAR_OS_TUI_INPUT_CANCEL ||
-            action == SOLAR_OS_TUI_INPUT_SUBMIT) {
-            expansion_tui.editing = false;
-            expansion_tui.input = (solar_os_tui_input_state_t) {0};
-        } else if (action == SOLAR_OS_TUI_INPUT_CHANGED) {
-            expansion_tui_set_message("");
-        }
+        expansion_tui_edit_key(key);
     } else if (key == SOLAR_OS_KEY_ESCAPE) {
         expansion_tui.view = EXPANSION_TUI_VIEW_DRIVER_DETAIL;
         expansion_tui_set_message("");

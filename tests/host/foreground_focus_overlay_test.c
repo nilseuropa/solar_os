@@ -48,6 +48,76 @@ static void dispatch_desktop_queue(void)
     for (size_t i = 0; i < count; ++i) dispatch_input_key(&events[i]);
 }
 
+#ifdef CL32_KEYBOARD_TEST
+#include "solar_os_cl32_keyboard.h"
+
+typedef struct {
+    solar_os_cl32_keyboard_t keyboard;
+    solar_os_input_source_t input_source;
+    uint32_t state_events, unsupported, transitions, dropped;
+} solar_os_cl32_core_device_t;
+
+#include "cl32_publish.inc"
+
+static void test_cl32_session_switching(void)
+{
+    solar_os_cl32_core_device_t device = {0};
+    assert(solar_os_input_keyboard_source_open("cl32", true, &device.input_source) == ESP_OK);
+    int owner;
+    for (unsigned captured = 0; captured < 2; captured++) {
+        char_input = captured == 0;
+        if (captured) assert(solar_os_input_capture_keyboard_with_shortcuts("cl32", &owner) == ESP_OK);
+        for (unsigned direction = 0; direction < 2; direction++) {
+            for (unsigned fn_first = 0; fn_first < 2; fn_first++) {
+                const uint8_t physical_key = direction ? 120U : 119U;
+                const unsigned previous = previous_sessions, next = next_sessions;
+                const unsigned guest_before = guest_events;
+                publish_wire_event(&device, 101U | 0x80U);
+                publish_wire_event(&device, physical_key | 0x80U);
+                dispatch_desktop_queue();
+                assert(previous_sessions == previous + (direction == 0));
+                assert(next_sessions == next + (direction != 0));
+                assert(guest_events == guest_before);
+                assert(!overlay_active && !session_switch_alt_held && session_switch_nav_held == 0);
+
+                /* Holding the physical key cannot repeat the synthetic chord. */
+                now_us += 2000000;
+                dispatch_desktop_queue();
+                assert(previous_sessions == previous + (direction == 0));
+                assert(next_sessions == next + (direction != 0));
+                solar_os_input_key_event_t held[2];
+                assert(solar_os_input_get_pressed(held, 2) == 0);
+
+                publish_wire_event(&device, fn_first ? 101U : physical_key);
+                publish_wire_event(&device, fn_first ? physical_key : 101U);
+                dispatch_desktop_queue();
+                assert(!overlay_active && !session_switch_alt_held && session_switch_nav_held == 0);
+                assert(!device.keyboard.fn_held && device.keyboard.held_modifiers == 0);
+            }
+        }
+        if (captured) {
+            solar_os_input_key_event_t event;
+            bool reset;
+            assert(!solar_os_input_read_captured_key(&owner, &event, &reset));
+            solar_os_input_release_keyboard(&owner);
+        }
+    }
+
+    /* Plain Yes/No still produce Enter/Escape after the shortcuts. */
+    for (uint8_t physical = 119U; physical <= 120U; physical++) {
+        publish_wire_event(&device, physical | 0x80U);
+        publish_wire_event(&device, physical);
+        solar_os_input_key_event_t events[2];
+        assert(solar_os_input_read_events(events, 2) == 2);
+        assert(events[0].key == (physical == 119U ? SOLAR_OS_KEY_ENTER : SOLAR_OS_KEY_ESCAPE));
+        assert(events[0].action == SOLAR_OS_INPUT_KEY_PRESS && events[0].modifiers == 0);
+        assert(events[1].action == SOLAR_OS_INPUT_KEY_RELEASE && events[1].modifiers == 0);
+    }
+    assert(device.dropped == 0 && device.unsupported == 0);
+    solar_os_input_source_close(device.input_source);
+}
+#endif
+
 #ifdef TDECK_TRACKBALL_TEST
 #include "solar_os_buttons.h"
 #include "solar_os_input_composition.h"
@@ -462,6 +532,9 @@ int main(void)
     assert(probe_char == SOLAR_OS_KEY_CTRL_LEFT);
     text_probe = false;
     solar_os_input_source_close(source);
+#ifdef CL32_KEYBOARD_TEST
+    test_cl32_session_switching();
+#endif
 #ifdef TDECK_TRACKBALL_TEST
     test_trackball_session_switching();
     test_matrix_trackball_text_navigation();

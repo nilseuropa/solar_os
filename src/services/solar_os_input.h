@@ -163,6 +163,9 @@ typedef enum {
     SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP,
     SOLAR_OS_INPUT_GESTURE_AIRWHEEL,
     SOLAR_OS_INPUT_GESTURE_SWIPE,
+    SOLAR_OS_INPUT_GESTURE_TILT,
+    SOLAR_OS_INPUT_GESTURE_WAKE,
+    SOLAR_OS_INPUT_GESTURE_FREE_FALL,
     SOLAR_OS_INPUT_GESTURE_COUNT,
 } solar_os_input_gesture_t;
 
@@ -300,6 +303,10 @@ esp_err_t solar_os_input_write_pointer(solar_os_input_source_t source,
                                        const solar_os_input_pointer_event_t *event);
 esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
     const solar_os_input_pointer_sample_t *sample);
+/* Queried outside the input lock when a touch contact starts; NULL uses 0 degrees. */
+typedef uint16_t (*solar_os_input_display_orientation_resolver_t)(const char *target);
+void solar_os_input_set_display_orientation_resolver(
+    solar_os_input_display_orientation_resolver_t resolver);
 /* The runtime input pump advances timed recognition for all input sources.
  * Producers only submit ordinary input samples. */
 void solar_os_input_poll(void);
@@ -313,6 +320,9 @@ void solar_os_input_release_pointer(solar_os_input_source_t source, const void *
 bool solar_os_input_pointer_is_captured(solar_os_input_source_t source);
 esp_err_t solar_os_input_read_captured_pointer(solar_os_input_source_t source,
     const void *owner, solar_os_input_pointer_sample_t *sample, bool *reset);
+esp_err_t solar_os_input_pointer_apply_display_transform(
+    solar_os_input_pointer_event_t *event, uint16_t width, uint16_t height,
+    uint16_t orientation_degrees, uint8_t scale);
 esp_err_t solar_os_input_pointer_apply_orientation(
     solar_os_input_pointer_event_t *event,
     uint16_t width,

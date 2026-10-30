@@ -6,6 +6,7 @@
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "u8g2.h"
+#include "epd_relax.h"
 
 /* Shared transport and monochrome framebuffer for 800x480 UltraChip panels.
  * Electrical settings and gate mapping belong to explicit panel profiles. */
@@ -46,6 +47,7 @@ struct epd_ultrachip {
     const epd_ultrachip_panel_t *panel;
     esp_err_t last_error;
     epd_ultrachip_refresh_mode_t refresh_mode;
+    epd_relax_t relax;
     unsigned partial_count;
     int dc_pin, reset_pin, busy_pin, power_pin;
     bool controller_ready, shadow_valid, powered, analog_on, pins_configured;
@@ -56,6 +58,7 @@ esp_err_t epd_ultrachip_init(epd_ultrachip_t *display,
                             const epd_ultrachip_panel_t *panel);
 esp_err_t epd_ultrachip_resume(epd_ultrachip_t *display);
 void epd_ultrachip_deinit(epd_ultrachip_t *display);
+esp_err_t epd_ultrachip_relax(epd_ultrachip_t *display, solar_os_display_relax_phase_t phase);
 u8g2_t *epd_ultrachip_get_u8g2(epd_ultrachip_t *display);
 const char *epd_ultrachip_controller_mode(const epd_ultrachip_t *display);
 const char *epd_ultrachip_controller_mode_values(const epd_ultrachip_t *display);

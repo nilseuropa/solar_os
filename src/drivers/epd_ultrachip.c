@@ -121,29 +121,29 @@ static esp_err_t write_plane(epd_ultrachip_t *d, uint8_t command,
     return err;
 }
 
-static esp_err_t refresh_frame(epd_ultrachip_t *d)
+static esp_err_t refresh_frame(epd_ultrachip_t *d, const uint8_t *source, bool force_full)
 {
     if (!d->controller_ready) TRY(controller_init(d));
     const bool baseline = d->shadow && d->shadow_valid;
-    if (baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
-        memcmp(d->shadow, d->buffer, EPD_ULTRACHIP_BUFFER_BYTES) == 0) return ESP_OK;
-    const bool partial = baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
+    if (!force_full && baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
+        memcmp(d->shadow, source, EPD_ULTRACHIP_BUFFER_BYTES) == 0) return ESP_OK;
+    const bool partial = !force_full && baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
         (d->refresh_mode == EPD_ULTRACHIP_REFRESH_PARTIAL ||
          d->partial_count + 1U < AUTO_FULL_INTERVAL);
-    TRY(write_plane(d, 0x13, d->buffer, false));
+    TRY(write_plane(d, 0x13, source, false));
     /* Full cleanup drives every visible pixel through a transition; a partial
      * uses the last successfully displayed frame, including erased ink. */
-    TRY(write_plane(d, 0x10, partial ? d->shadow : d->buffer, !partial));
+    TRY(write_plane(d, 0x10, partial ? d->shadow : source, !partial));
     TRY(d->panel->activate(d, partial));
     TRY(epd_ultrachip_wait_ready(d));
     if (partial) TRY(epd_ultrachip_command(d, 0x92, NULL, 0));
     if (d->panel->finish) TRY(d->panel->finish(d));
-    TRY(write_plane(d, 0x10, d->buffer, false));
+    TRY(write_plane(d, 0x10, source, false));
     TRY(epd_ultrachip_command(d, 0x02, NULL, 0));
     TRY(epd_ultrachip_wait_ready(d));
     d->analog_on = false;
     if (d->shadow) {
-        memcpy(d->shadow, d->buffer, EPD_ULTRACHIP_BUFFER_BYTES);
+        memcpy(d->shadow, source, EPD_ULTRACHIP_BUFFER_BYTES);
         d->shadow_valid = true;
     }
     d->partial_count = partial ? d->partial_count + 1U : 0;
@@ -154,7 +154,8 @@ esp_err_t epd_ultrachip_refresh(epd_ultrachip_t *d)
 {
     if (!d || !d->spi || !d->buffer || !d->line_buffer || !d->panel)
         return ESP_ERR_INVALID_STATE;
-    esp_err_t err = refresh_frame(d);
+    if (d->relax.storage) return ESP_OK;
+    esp_err_t err = refresh_frame(d, d->buffer, false);
     if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
     d->last_error = err;
     return err;
@@ -286,6 +287,7 @@ esp_err_t epd_ultrachip_resume(epd_ultrachip_t *d)
 void epd_ultrachip_deinit(epd_ultrachip_t *d)
 {
     if (!d) return;
+    epd_relax_dispose(&d->relax);
     if (d->spi && d->powered) (void)sleep_panel(d);
     if (d->spi) (void)spi_bus_remove_device(d->spi);
     heap_caps_free(d->line_buffer); heap_caps_free(d->buffer); heap_caps_free(d->shadow);
@@ -316,9 +318,33 @@ const char *epd_ultrachip_controller_mode_values(const epd_ultrachip_t *d)
 esp_err_t epd_ultrachip_set_controller_mode(epd_ultrachip_t *d, const char *mode)
 {
     if (!d || !mode) return ESP_ERR_INVALID_ARG;
+    if (d->relax.storage) return ESP_ERR_INVALID_STATE;
     if (strcmp(mode, "refresh=auto") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_AUTO;
     else if (strcmp(mode, "refresh=partial") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_PARTIAL;
     else if (strcmp(mode, "refresh=full") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_FULL;
     else return ESP_ERR_INVALID_ARG;
     return ESP_OK;
+}
+
+static esp_err_t relax_native(void *context, solar_os_display_relax_phase_t phase,
+                               const uint8_t *image)
+{
+    epd_ultrachip_t *d = context;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN) {
+        d->controller_ready = d->shadow_valid = false;
+        return ESP_OK;
+    }
+    const esp_err_t err = d->powered ? refresh_frame(d, image, true) : ESP_ERR_INVALID_STATE;
+    if (err != ESP_OK) d->controller_ready = d->shadow_valid = false;
+    return err;
+}
+
+esp_err_t epd_ultrachip_relax(epd_ultrachip_t *d, solar_os_display_relax_phase_t phase)
+{
+    if (!d || !d->buffer || (unsigned)phase > SOLAR_OS_DISPLAY_RELAX_END) return ESP_ERR_INVALID_ARG;
+    if (phase == SOLAR_OS_DISPLAY_RELAX_BEGIN && !d->powered) return ESP_ERR_INVALID_STATE;
+    const esp_err_t err = epd_relax_apply(&d->relax, d->buffer, EPD_ULTRACHIP_BUFFER_BYTES,
+                                         phase, relax_native, d);
+    d->last_error = err;
+    return err;
 }

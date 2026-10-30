@@ -321,11 +321,105 @@ static void remove_finish(void *context, bool removed)
     workers_unlock(); xSemaphoreGive(meshcore_instances.edit);
 }
 
+static const solar_os_messaging_setting_t meshcore_radio_fields[] = {
+    {"Radio", "Radio device name", 24, false, true},
+    {"Profile", "Radio profile name", 32, false, true},
+    {"Node name", "Advertised node name", 33, false, false},
+    {"Public channel", "on or off", 4, false, true},
+};
+static const solar_os_messaging_setting_t meshcore_ble_fields[] = {
+    {"Address", "AA:BB:CC:DD:EE:FF", 18, false, true},
+    {"Address type", "public/random/rpa_public/rpa_random", 12, false, true},
+    {"PIN", "Six digits; empty clears PIN", 7, true, false},
+    {"Node name", "Advertised node name", 33, false, false},
+    {"Public channel", "on or off", 4, false, true},
+};
+static unsigned meshcore_settings_backend(meshcore_instance_t *node, unsigned form)
+{
+    if (node && node->config.backend) return form ? 0 : node->config.backend;
+    for (unsigned backend = 1; backend <= 2; backend++)
+        if (meshcore_instances.backends[backend] && form-- == 0) return backend;
+    return 0;
+}
+static esp_err_t meshcore_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    meshcore_instance_t *node = context;
+    if (node) xSemaphoreTake(node->config_lock, portMAX_DELAY);
+    unsigned backend = meshcore_settings_backend(node, form);
+    if (!backend) { if (node) xSemaphoreGive(node->config_lock); return ESP_ERR_NOT_FOUND; }
+    settings->label = backend == 1 ? "MeshCore radio" : "MeshCore BLE";
+    settings->fields = backend == 1 ? meshcore_radio_fields : meshcore_ble_fields;
+    settings->count = backend == 1 ? 4 : 5;
+    strlcpy(settings->worker, backend == 1 ? "meshcore" : "meshcore-ble", sizeof(settings->worker));
+    if (backend == 2) strlcpy(settings->values[1], "public", sizeof(settings->values[1]));
+    strlcpy(settings->values[settings->count - 1], "on", sizeof(settings->values[0]));
+    if (node) {
+        const solar_os_meshcore_instance_config_t *config = &node->config;
+        settings->enabled = config->enabled;
+        if (backend == 1) {
+            solar_os_messaging_settings_value(settings, 0, config->radio);
+            solar_os_messaging_settings_value(settings, 1, config->profile);
+        } else if (config->backend == 2) {
+            snprintf(settings->values[0], sizeof(settings->values[0]), "%02X:%02X:%02X:%02X:%02X:%02X",
+                config->bda[0], config->bda[1], config->bda[2], config->bda[3], config->bda[4], config->bda[5]);
+            static const char *const types[] = {"public", "random", "rpa_public", "rpa_random"};
+            strlcpy(settings->values[1], types[config->addr_type], sizeof(settings->values[1]));
+            settings->present[2] = config->pin_supplied;
+        }
+        solar_os_messaging_settings_value(settings, settings->count - 2, config->name);
+        strlcpy(settings->values[settings->count - 1], config->public_channel ? "on" : "off", sizeof(settings->values[0]));
+        xSemaphoreGive(node->config_lock);
+    }
+    return ESP_OK;
+}
+static esp_err_t meshcore_settings_write(void *context, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+{
+    meshcore_instance_t *node = context;
+    xSemaphoreTake(meshcore_instances.edit, portMAX_DELAY); workers_lock();
+    if (node) xSemaphoreTake(node->config_lock, portMAX_DELAY);
+    unsigned backend = meshcore_settings_backend(node, form);
+    solar_os_meshcore_instance_config_t config = {.version = 1, .public_channel = true};
+    if (node) config = node->config;
+    char address[18], pin[7], radio[24], profile[32];
+    static const char *const types[] = {"public", "random", "rpa_public", "rpa_random"};
+    snprintf(address, sizeof(address), "%02X:%02X:%02X:%02X:%02X:%02X",
+        config.bda[0], config.bda[1], config.bda[2], config.bda[3], config.bda[4], config.bda[5]);
+    snprintf(pin, sizeof(pin), "%06" PRIu32, config.pin);
+    strlcpy(radio, config.radio, sizeof(radio)); strlcpy(profile, config.profile, sizeof(profile));
+    const char *args[4] = {backend == 1 ? "radio" : "ble", NULL, NULL, NULL};
+    int argc = 3;
+    if (backend == 1) {
+        args[1] = !node || settings->changed[0] ? settings->values[0] : radio;
+        args[2] = !node || settings->changed[1] ? settings->values[1] : profile;
+    } else {
+        args[1] = !node || settings->changed[0] ? settings->values[0] : address;
+        args[2] = !node || settings->changed[1] ? settings->values[1] : types[config.addr_type];
+        args[3] = !node || settings->changed[2] ? settings->values[2] : config.pin_supplied ? pin : "";
+        if (args[3][0]) argc = 4;
+    }
+    size_t count = backend == 1 ? 4 : 5;
+    esp_err_t error = backend ? parse_config(argc, args, &config) : ESP_ERR_NOT_FOUND;
+    if (error == ESP_OK && (!node || settings->changed[count - 2]))
+        strlcpy(config.name, settings->values[count - 2], sizeof(config.name));
+    if (error == ESP_OK && (!node || settings->changed[count - 1])) {
+        if (!strcmp(settings->values[count - 1], "on")) config.public_channel = true;
+        else if (!strcmp(settings->values[count - 1], "off")) config.public_channel = false;
+        else error = ESP_ERR_INVALID_ARG;
+    }
+    if (error == ESP_OK && binding_busy(node, &config)) error = ESP_ERR_INVALID_STATE;
+    if (error == ESP_OK && node) { *id = node->id; error = save_config(node, &config); }
+    else if (error == ESP_OK) error = create_locked(name, &config, id);
+    wipe(pin, sizeof(pin)); wipe(&config, sizeof(config));
+    if (node) { xSemaphoreGive(node->config_lock); if (error == ESP_OK) stop_instance(node); }
+    workers_unlock(); xSemaphoreGive(meshcore_instances.edit); return error;
+}
 static const solar_os_messaging_provider_class_t meshcore_class = {
     .name = "meshcore", .capabilities = SOLAR_OS_ENDPOINT_CAP_DIRECT | SOLAR_OS_ENDPOINT_CAP_GROUP | SOLAR_OS_ENDPOINT_CAP_ACK,
     .create = create_instance, .configure = configure_instance, .connect = connect_instance,
     .join_open = join_instance, .leave = leave_instance, .direct_open = direct_instance,
     .remove_prepare = remove_prepare, .remove_finish = remove_finish,
+    .settings_read = meshcore_settings_read, .settings_write = meshcore_settings_write,
 };
 
 static esp_err_t migrate_default(solar_os_meshcore_instance_config_t *config)

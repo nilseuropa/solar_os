@@ -77,12 +77,16 @@ static esp_err_t irc_remove_prepare(void *context);
 static void irc_remove_finish(void *context, bool removed);
 static esp_err_t irc_class_create(const char *name, int argc, const char *const *argv, solar_os_messaging_provider_id_t *id);
 static esp_err_t irc_class_configure(void *context, int argc, const char *const *argv);
+static esp_err_t irc_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings);
+static esp_err_t irc_settings_write(void *context, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id);
 static const solar_os_messaging_provider_class_t irc_class = {
     .name = "irc", .connection_oriented = true, .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM | SOLAR_OS_ENDPOINT_CAP_DIRECT,
     .join = irc_join, .leave = irc_leave, .direct_open = irc_direct, .connect = irc_connect,
     .normalize_target = irc_normalize,
     .remove_prepare = irc_remove_prepare, .remove_finish = irc_remove_finish,
     .create = irc_class_create, .configure = irc_class_configure,
+    .settings_read = irc_settings_read, .settings_write = irc_settings_write,
 };
 
 static uint32_t irc_now(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
@@ -265,6 +269,64 @@ static bool irc_parse_port(const char *text, uint16_t *port)
         value = value * 10 + *p - '0'; if (value > 65535) return false;
     }
     *port = value; return value != 0;
+}
+static const solar_os_messaging_setting_t irc_settings_fields[] = {
+    {"Host", "TLS server hostname", 128, false, true},
+    {"Port", "TLS port, usually 6697", 6, false, true},
+    {"Nickname", "IRC nickname", 32, false, true},
+    {"SASL account", "Empty disables SASL", 64, false, false},
+    {"SASL password", "Empty disables SASL", 128, true, false},
+    {"Server password", "Empty clears password", 128, true, false},
+    {"CA file", "Empty uses default CAs", 160, false, false},
+};
+static esp_err_t irc_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    settings->label = "IRC"; settings->fields = irc_settings_fields; settings->count = 7;
+    strlcpy(settings->worker, "irc-sync", sizeof(settings->worker));
+    if (!context) { strlcpy(settings->values[1], "6697", sizeof(settings->values[1])); return ESP_OK; }
+    irc_instance_t *node = context;
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    settings->enabled = node->config.enabled;
+    solar_os_messaging_settings_value(settings, 0, node->config.host);
+    snprintf(settings->values[1], sizeof(settings->values[1]), "%u", node->config.port);
+    solar_os_messaging_settings_value(settings, 2, node->config.nick);
+    solar_os_messaging_settings_value(settings, 3, node->config.account);
+    solar_os_messaging_settings_value(settings, 4, node->config.password);
+    solar_os_messaging_settings_value(settings, 5, node->config.server_password);
+    solar_os_messaging_settings_value(settings, 6, node->config.ca_file);
+    xSemaphoreGive(irc.lock); return ESP_OK;
+}
+static esp_err_t irc_settings_write(void *context, unsigned form, const char *name,
+    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    solar_os_irc_config_t *config = irc_config_alloc();
+    if (!config) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(irc.edit_lock, portMAX_DELAY);
+    irc_instance_t *node = context;
+    if (node) { xSemaphoreTake(irc.lock, portMAX_DELAY); *config = node->config; xSemaphoreGive(irc.lock); }
+    else config->version = 1;
+    char *destinations[] = {config->host, NULL, config->nick, config->account,
+        config->password, config->server_password, config->ca_file};
+    bool valid = true;
+    for (size_t i = 0; i < 7; i++) {
+        if (node && !settings->changed[i]) continue;
+        if (i == 1) valid = irc_parse_port(settings->values[i], &config->port) && valid;
+        else strlcpy(destinations[i], settings->values[i], irc_settings_fields[i].capacity);
+    }
+    if (node && ((settings->changed[3] && !config->account[0]) ||
+                 (settings->changed[4] && !config->password[0]))) {
+        irc_wipe(config->account, sizeof(config->account));
+        irc_wipe(config->password, sizeof(config->password));
+    }
+    esp_err_t error = valid && irc_config_valid(config) ? ESP_OK : ESP_ERR_INVALID_ARG;
+    if (error == ESP_OK && node) { *id = node->id; error = irc_save(node, config); }
+    else if (error == ESP_OK) {
+        error = solar_os_messaging_instance_create("irc", name, config, sizeof(*config), id);
+        if (error == ESP_OK) error = irc_attach(*id, config);
+    }
+    xSemaphoreGive(irc.edit_lock); irc_config_free(config); return error;
 }
 static esp_err_t irc_class_create(const char *name, int argc, const char *const *argv, solar_os_messaging_provider_id_t *id)
 {
@@ -582,7 +644,11 @@ static void irc_received(irc_instance_t *node, char *line)
             .timestamp_ms = (uint64_t)time(NULL) * 1000,
             .security_flags = SOLAR_OS_SECURITY_TRANSPORT_SECURED | SOLAR_OS_SECURITY_SENDER_UNVERIFIED,
             .sender = sender, .body = p[1]};
-        (void)solar_os_messaging_publish_inbound(&inbound, NULL, NULL);
+        esp_err_t error = solar_os_messaging_publish_inbound(&inbound, NULL, NULL);
+        if (error != ESP_OK) {
+            irc_status(node, error, "message history storage failed");
+            SOLAR_OS_LOGW("irc", "message history storage failed: %s", esp_err_to_name(error));
+        }
     }
 }
 

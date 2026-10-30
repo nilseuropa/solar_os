@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <time.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,19 +20,31 @@
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "solar_os_chat_protocol.h"
+#include "solar_os_config.h"
 #include "solar_os_jobs.h"
 #include "solar_os_json_scan.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+#include "esp_random.h"
+#include "sc2.h"
+#include "sc2_minirelay.h"
+#include "solar_os_sc2.h"
+#include "solar_os_sc2_engine.h"
+#define CHATD_SC2 1
+#else
+#define CHATD_SC2 0
+#endif
 
 #define CHATD_DEFAULT_PORT 7777U
 #define CHATD_MAX_CLIENTS 6U
 #define CHATD_MAX_CHANNELS 32U
 #define CHATD_LINE_MAX (SOLAR_OS_CHAT_TEXT_MAX * 6U + 768U)
 #define CHATD_RX_CHUNK_SIZE 384U
-#define CHATD_TASK_STACK 8192U
+/* 10 KiB with the SC2 mini-relay (Ed25519 verify on the worker stack). */
+#define CHATD_TASK_STACK (CHATD_SC2 ? 10240U : 8192U)
 #define CHATD_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define CHATD_SELECT_TIMEOUT_MS 250U
 #define CHATD_STOP_WAIT_MS 2000U
@@ -41,9 +54,12 @@
 
 static const char *TAG = "solar_os_chatd";
 
+enum { CHATD_PROTO_UNKNOWN = 0, CHATD_PROTO_V1, CHATD_PROTO_SC2 };
+
 typedef struct {
     bool active;
     bool authed;
+    uint8_t proto; /* CHATD_PROTO_*: decided by the first line */
     int fd;
     uint32_t joined_mask;
     char user[SOLAR_OS_CHAT_USER_MAX];
@@ -89,6 +105,12 @@ typedef struct {
     uint32_t message_count;
     uint32_t dropped_count;
     esp_err_t last_error;
+    bool legacy_v1; /* v1 clients accepted (default) */
+#if CHATD_SC2
+    bool sc2;       /* SC2 mini-relay (default when there is PSRAM for it) */
+    sc2_mr_t *mr;
+    char sc2_id[48];
+#endif
 } chatd_job_state_t;
 
 typedef struct {
@@ -877,6 +899,12 @@ static void chatd_close_client(chatd_job_state_t *state, size_t index, bool noti
         shutdown(client->fd, SHUT_RDWR);
         close(client->fd);
     }
+#if CHATD_SC2
+    if (state->mr != NULL) {
+        sc2_mr_close(state->mr, (unsigned)index);
+    }
+#endif
+    client->proto = CHATD_PROTO_UNKNOWN;
     client->active = false;
     client->authed = false;
     client->fd = -1;
@@ -943,11 +971,40 @@ static void chatd_handle_hello(chatd_job_state_t *state, size_t client_index, co
     SOLAR_OS_LOGI(TAG, "client connected: %s %s", client->peer, client->from);
 }
 
+/* SC2 mini-relay or v1: the first line decides. Returns true when the
+ * line was handled here. */
+static bool chatd_sc2_line(chatd_job_state_t *state, size_t client_index, const char *line)
+{
+    chatd_client_t *client = &state->clients[client_index];
+#if CHATD_SC2
+    if (state->mr != NULL && client->proto != CHATD_PROTO_V1) {
+        const int rc = sc2_mr_line(state->mr, (unsigned)client_index, line, strlen(line));
+        if (rc == SC2_MR_LEGACY) {
+            client->proto = CHATD_PROTO_V1; /* a v1 hello: the v1 server takes it */
+            return false;
+        }
+        client->proto = CHATD_PROTO_SC2;
+        if (rc == SC2_MR_CLOSE) {
+            chatd_close_client(state, client_index, false);
+        }
+        return true;
+    }
+#endif
+    if (client->proto == CHATD_PROTO_UNKNOWN) {
+        client->proto = CHATD_PROTO_V1;
+    }
+    return false;
+}
+
 static void chatd_process_line(chatd_job_state_t *state, size_t client_index, const char *line)
 {
     chatd_client_t *client = &state->clients[client_index];
     char type[24] = {0};
     char channel[SOLAR_OS_CHAT_CHANNEL_MAX] = {0};
+
+    if (chatd_sc2_line(state, client_index, line) || !client->active) {
+        return;
+    }
 
     if (!solar_os_json_scan_object_string(line, "type", type, sizeof(type), NULL)) {
         (void)chatd_send_event(state,
@@ -1103,7 +1160,13 @@ static void chatd_accept_client(chatd_job_state_t *state)
         return;
     }
 
-    const int slot = chatd_find_free_client(state);
+    int slot = chatd_find_free_client(state);
+#if CHATD_SC2
+    if (slot < 0 && state->mr != NULL && sc2_mr_evict(state->mr) >= 0) {
+        /* an SC2 session idle for a while was closed (503 evicted) to make room */
+        slot = chatd_find_free_client(state);
+    }
+#endif
     if (slot < 0) {
         static const char busy[] =
             "{\"type\":\"error\",\"text\":\"server full\",\"code\":503}\n";
@@ -1117,7 +1180,13 @@ static void chatd_accept_client(chatd_job_state_t *state)
     chatd_client_t *client = &state->clients[slot];
     client->active = true;
     client->authed = false;
+    client->proto = CHATD_PROTO_UNKNOWN;
     client->fd = fd;
+#if CHATD_SC2
+    if (state->mr != NULL) {
+        sc2_mr_open(state->mr, (unsigned)slot);
+    }
+#endif
     client->joined_mask = 0;
     client->line_len = 0;
     client->rx_count = 0;
@@ -1146,8 +1215,12 @@ static void chatd_close_all_sockets(chatd_job_state_t *state)
     }
 }
 
+static void chatd_sc2_stop(chatd_job_state_t *state);
+static void chatd_sc2_tick(chatd_job_state_t *state);
+
 static void chatd_free_buffers(chatd_job_state_t *state)
 {
+    chatd_sc2_stop(state);
     if (state->history_file != NULL) {
         fclose(state->history_file);
         state->history_file = NULL;
@@ -1210,6 +1283,7 @@ static void chatd_job_task(void *arg)
             .tv_usec = CHATD_SELECT_TIMEOUT_MS * 1000,
         };
         const int ready = select(max_fd + 1, &readfds, NULL, NULL, &timeout);
+        chatd_sc2_tick(state);
         if (ready < 0) {
             if (errno != EINTR && !state->stop_requested) {
                 state->last_error = ESP_FAIL;
@@ -1235,10 +1309,12 @@ static void chatd_job_task(void *arg)
     }
 
     SOLAR_OS_LOGI(TAG,
-                  "stopped: connections=%" PRIu32 " messages=%" PRIu32 " dropped=%" PRIu32,
+                  "stopped: connections=%" PRIu32 " messages=%" PRIu32 " dropped=%" PRIu32
+                  " stack_free=%u",
                   state->connection_count,
                   state->message_count,
-                  state->dropped_count);
+                  state->dropped_count,
+                  (unsigned)uxTaskGetStackHighWaterMark(NULL));
 
     chatd_close_all_sockets(state);
     chatd_free_buffers(state);
@@ -1270,23 +1346,60 @@ static bool chatd_parse_port(const char *text, uint16_t *port)
     return true;
 }
 
+typedef struct {
+    bool v1;
+    bool sc2;
+    const char *sc2_id;
+} chatd_opts_t;
+
+static bool chatd_on_off(const char *text, bool *out)
+{
+    if (strcmp(text, "on") == 0) {
+        *out = true;
+        return true;
+    }
+    if (strcmp(text, "off") == 0) {
+        *out = false;
+        return true;
+    }
+    return false;
+}
+
 static esp_err_t chatd_parse_args(int argc,
                                   char **argv,
                                   uint16_t *port,
                                   const char **token,
-                                  const char **history_path)
+                                  const char **history_path,
+                                  chatd_opts_t *opts)
 {
-    if (argc < 1 || argc > 6 || argv == NULL || port == NULL || token == NULL ||
-        history_path == NULL) {
+    if (argc < 1 || argc > 12 || argv == NULL || port == NULL || token == NULL ||
+        history_path == NULL || opts == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     *port = CHATD_DEFAULT_PORT;
     *token = NULL;
     *history_path = NULL;
+    opts->v1 = true; /* legacy v1 on by default, as in the self-hosted relay */
+    opts->sc2 = CHATD_SC2 != 0;
+    opts->sc2_id = NULL;
     bool port_set = false;
 
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--v1") == 0 || strcmp(argv[i], "--sc2") == 0) {
+            if (i + 1 >= argc || !chatd_on_off(argv[i + 1], argv[i][2] == 'v' ? &opts->v1 : &opts->sc2)) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--sc2-id") == 0) {
+            if (i + 1 >= argc || opts->sc2_id != NULL) {
+                return ESP_ERR_INVALID_ARG;
+            }
+            opts->sc2_id = argv[++i];
+            continue;
+        }
         if (strcmp(argv[i], "--history") == 0 || strcmp(argv[i], "--log") == 0) {
             if (i + 1 >= argc || *history_path != NULL) {
                 return ESP_ERR_INVALID_ARG;
@@ -1319,8 +1432,226 @@ static esp_err_t chatd_parse_args(int argc,
     if (*history_path != NULL && (*history_path)[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!CHATD_SC2 && opts->sc2) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (!opts->v1 && !opts->sc2) {
+        return ESP_ERR_INVALID_ARG; /* nothing left to serve */
+    }
     return ESP_OK;
 }
+
+/* ---------------- SC2 mini-relay ---------------- */
+
+#if CHATD_SC2
+#define CHATD_SC2_KEY_NAME "mr/relay"
+#define CHATD_SC2_KEY_TYPE 0x32u
+#define CHATD_SC2_KEY_VERSION 1u
+
+static int chatd_sc2_send(void *ctx, unsigned session, const char *line, size_t len)
+{
+    chatd_job_state_t *state = ctx;
+    if (session >= CHATD_MAX_CLIENTS || !state->clients[session].active) {
+        return -1;
+    }
+    const int fd = state->clients[session].fd;
+    for (int part = 0; part < 2; part++) {
+        const char *p = part == 0 ? line : "\n";
+        size_t left = part == 0 ? len : 1U;
+        while (left > 0) {
+            const ssize_t sent = send(fd, p, left, 0);
+            if (sent < 0 && errno == EINTR) {
+                continue;
+            }
+            if (sent <= 0) {
+                return -1; /* the next recv sees the closed peer */
+            }
+            p += sent;
+            left -= (size_t)sent;
+        }
+    }
+    state->clients[session].tx_count++;
+    return 0;
+}
+
+static int chatd_sc2_rng(void *ctx, uint8_t *out, size_t len)
+{
+    (void)ctx;
+    esp_fill_random(out, len);
+    return SC2_OK;
+}
+
+static uint64_t chatd_sc2_mono(void *ctx)
+{
+    (void)ctx;
+    return chatd_now_ms() / 1000U;
+}
+
+/* The mini-relay closed a session itself (replaced, idle, evicted); its
+ * final error frame is already sent. */
+static void chatd_sc2_kick(void *ctx, unsigned session)
+{
+    chatd_job_state_t *state = ctx;
+    if (session < CHATD_MAX_CLIENTS && state->clients[session].active) {
+        SOLAR_OS_LOGI(TAG, "SC2 session closed by the relay: %s", state->clients[session].peer);
+        chatd_close_client(state, session, false);
+    }
+}
+
+/* Idle and login timeouts of the mini-relay's sessions, once a second. */
+static void chatd_sc2_tick(chatd_job_state_t *state)
+{
+    static uint64_t last_s;
+    if (state->mr == NULL) {
+        return;
+    }
+    const uint64_t now = chatd_now_ms() / 1000U;
+    if (now != last_s) {
+        last_s = now;
+        (void)sc2_mr_tick(state->mr);
+    }
+}
+
+static uint64_t chatd_sc2_now(void *ctx)
+{
+    (void)ctx;
+    const time_t t = time(NULL);
+    return t > 0 ? (uint64_t)t : 0U;
+}
+
+static void *chatd_sc2_alloc(void *ctx, size_t len)
+{
+    (void)ctx;
+    /* PSRAM only: the stores are too big for internal RAM */
+    return solar_os_memory_calloc(1U, len, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "chatd.sc2");
+}
+
+static void chatd_sc2_release(void *ctx, void *ptr, size_t len)
+{
+    (void)ctx;
+    (void)len;
+    solar_os_memory_free(ptr);
+}
+
+/* The relay's long-term key lives in the SC2 store (stored like the device
+ * identity); clients pin it, so it survives restarts. Created on first use. */
+static esp_err_t chatd_sc2_seed(uint8_t seed[SC2_KEY_LEN])
+{
+    sc2e_t *e = solar_os_sc2_engine_lock();
+    if (e == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t rec[SC2_KEY_LEN + 64U];
+    size_t len = 0;
+    const uint8_t *payload = NULL;
+    size_t payload_len = 0;
+    int rc = e->pf.load(e->pf.ctx, CHATD_SC2_KEY_NAME, rec, sizeof(rec), &len);
+    if (rc == SC2_OK && sc2e_record_unwrap(rec, len, CHATD_SC2_KEY_TYPE, CHATD_SC2_KEY_VERSION, &payload,
+                                           &payload_len) == SC2_OK && payload_len == SC2_KEY_LEN) {
+        memcpy(seed, payload, SC2_KEY_LEN);
+    } else if (rc == SC2_ERR_NOT_FOUND) {
+        rc = sc2_random(&e->pf.rng, seed, SC2_KEY_LEN);
+        if (rc == SC2_OK) {
+            rc = sc2e_record_wrap(rec, sizeof(rec), &len, CHATD_SC2_KEY_TYPE, CHATD_SC2_KEY_VERSION, seed,
+                                  SC2_KEY_LEN);
+        }
+        if (rc == SC2_OK) {
+            rc = e->pf.save(e->pf.ctx, CHATD_SC2_KEY_NAME, rec, len);
+        }
+        if (rc == SC2_OK) {
+            SOLAR_OS_LOGI(TAG, "SC2 relay key created");
+        }
+    } else {
+        rc = SC2_ERR_FORMAT; /* damaged: never replace a key clients may have pinned */
+    }
+    sc2_memzero(rec, sizeof(rec));
+    solar_os_sc2_engine_unlock();
+    if (rc != SC2_OK) {
+        sc2_memzero(seed, SC2_KEY_LEN);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t chatd_sc2_start(chatd_job_state_t *state, const chatd_opts_t *opts)
+{
+    if (!opts->sc2) {
+        return ESP_OK;
+    }
+    uint8_t seed[SC2_KEY_LEN];
+    esp_err_t err = chatd_sc2_seed(seed);
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "SC2 relay off: no relay key (%s)", esp_err_to_name(err));
+        return err;
+    }
+    if (opts->sc2_id != NULL) {
+        strlcpy(state->sc2_id, opts->sc2_id, sizeof(state->sc2_id));
+    } else {
+        uint8_t pub[SC2_KEY_LEN];
+        char hex[SC2_DEVICE_ID_HEX_LEN + 1];
+        (void)sc2_ed25519_public(pub, seed);
+        (void)sc2_device_id_hex(hex, pub);
+        snprintf(state->sc2_id, sizeof(state->sc2_id), "chatd-%.8s", hex);
+    }
+    const sc2_mr_config_t cfg = {
+        .relay_id = state->sc2_id,
+        .seed = seed,
+        .rng = {chatd_sc2_rng, NULL},
+        .now_s = chatd_sc2_now,
+        .send = chatd_sc2_send,
+        .alloc = chatd_sc2_alloc,
+        .release = chatd_sc2_release,
+        .ctx = state,
+        .admit = state->token_set ? state->token : NULL, /* the chatd token admits new SC2 devices */
+        .legacy_v1 = state->legacy_v1,
+        .sessions = CHATD_MAX_CLIENTS,
+        .mono_s = chatd_sc2_mono, /* slot timers survive wall-clock steps (SNTP) */
+        .kick = chatd_sc2_kick,
+    };
+    const int rc = sc2_mr_init(&state->mr, &cfg);
+    sc2_memzero(seed, sizeof(seed));
+    if (rc != SC2_OK) {
+        state->mr = NULL;
+        SOLAR_OS_LOGW(TAG, "SC2 relay off: %s (%u bytes of PSRAM needed)", sc2_strerror(rc),
+                      (unsigned)sc2_mr_size());
+        return rc == SC2_ERR_BOUNDS ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_ARG;
+    }
+    uint8_t key[SC2_KEY_LEN];
+    char b64[48];
+    size_t n = 0;
+    sc2_mr_relay_key(state->mr, key);
+    (void)sc2_b64_encode(b64, sizeof(b64), &n, key, sizeof(key));
+    SOLAR_OS_LOGI(TAG, "SC2 relay %s key=%s (%u KiB PSRAM)%s", state->sc2_id, b64,
+                  (unsigned)(sc2_mr_size() / 1024U), state->legacy_v1 ? ", v1 too" : ", v1 off");
+    return ESP_OK;
+}
+
+static void chatd_sc2_stop(chatd_job_state_t *state)
+{
+    if (state->mr != NULL) {
+        sc2_mr_stats_t st;
+        sc2_mr_stats(state->mr, &st);
+        SOLAR_OS_LOGI(TAG,
+                      "SC2 relay: devices=%u mailbox=%u dms=%llu posts=%llu refused=%llu replaced=%llu idle=%llu "
+                      "evicted=%llu",
+                      st.devices, st.inbox, (unsigned long long)st.dm_total, (unsigned long long)st.posts_total,
+                      (unsigned long long)st.refused_total, (unsigned long long)st.replaced_total,
+                      (unsigned long long)st.idle_total, (unsigned long long)st.evicted_total);
+        sc2_mr_free(state->mr);
+        state->mr = NULL;
+    }
+}
+#else
+static void chatd_sc2_stop(chatd_job_state_t *state)
+{
+    (void)state;
+}
+
+static void chatd_sc2_tick(chatd_job_state_t *state)
+{
+    (void)state;
+}
+#endif
 
 static void chatd_mkdir_parent(const char *path)
 {
@@ -1445,7 +1776,8 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     uint16_t port = CHATD_DEFAULT_PORT;
     const char *token = NULL;
     const char *history_path = NULL;
-    esp_err_t err = chatd_parse_args(argc, argv, &port, &token, &history_path);
+    chatd_opts_t opts;
+    esp_err_t err = chatd_parse_args(argc, argv, &port, &token, &history_path, &opts);
     if (err != ESP_OK) {
         return err;
     }
@@ -1477,6 +1809,7 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     chatd_job.message_count = 0;
     chatd_job.dropped_count = 0;
     chatd_job.last_error = ESP_OK;
+    chatd_job.legacy_v1 = opts.v1;
     for (size_t i = 0; i < CHATD_MAX_CLIENTS; i++) {
         chatd_job.clients[i].active = false;
         chatd_job.clients[i].authed = false;
@@ -1493,6 +1826,15 @@ static esp_err_t chatd_job_start(solar_os_context_t *ctx, int argc, char **argv)
         return err;
     }
     chatd_open_history_dump(&chatd_job, history_path);
+#if CHATD_SC2
+    if (chatd_sc2_start(&chatd_job, &opts) != ESP_OK && !opts.v1) {
+        chatd_free_buffers(&chatd_job);
+        chatd_job.last_error = ESP_ERR_NO_MEM;
+        solar_os_memory_free(chatd_state);
+        chatd_state = NULL;
+        return ESP_ERR_NO_MEM; /* SC2 only, and SC2 could not start */
+    }
+#endif
 
     err = chatd_open_listener(&chatd_job);
     if (err != ESP_OK) {

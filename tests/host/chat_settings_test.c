@@ -91,7 +91,7 @@ int main(void)
     assert(solar_os_credentials_get_status(&status) == ESP_OK && status.storage_error != ESP_OK && legacy_present);
     assert(solar_os_credentials_put(id, SOLAR_OS_CREDENTIAL_TOKEN, "unsafe", "secret", 6, false, NULL) == status.storage_error);
     assert(solar_os_credentials_remove_provider(id) == status.storage_error);
-    const char *files[] = {".settings/credentials.bin", ".chat/profiles/004.bin", ".messages/messages.bin"};
+    const char *files[] = {".settings/credentials.bin", ".chat/profiles/004.bin", ".messages/history.bin", ".messages/location"};
     char path[160];
     for (size_t i = 0; i < sizeof(files)/sizeof(files[0]); i++) {
         assert(solar_os_storage_default_path(files[i], path, sizeof(path)) == ESP_OK); assert(unlink(path) == 0);

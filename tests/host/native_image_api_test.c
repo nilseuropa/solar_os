@@ -13,6 +13,11 @@ int main(void)
     const solar_os_native_memory_api_v1_t *memory = solar_os_native_media_get_service("memory", 1, sizeof(*memory));
     assert(memory && !memory->alloc(0));
     void *buffer = memory->alloc(1024); assert(buffer); memory->free(buffer);
+    assert(memory->struct_size >= offsetof(solar_os_native_memory_api_v1_t, buffer_destroy) + sizeof(memory->buffer_destroy));
+    solar_os_native_memory_buffer_t *movable = memory->buffer_create(1024);
+    assert(movable && memory->buffer_pin(movable));
+    assert(!memory->buffer_destroy(movable));
+    assert(memory->buffer_unpin(movable) && memory->buffer_destroy(movable));
     assert(!solar_os_native_media_get_service(NULL, 1, 0));
     assert(!solar_os_native_media_get_service("image", 2, 0));
     assert(!solar_os_native_media_get_service("image", 1, sizeof(*images)+1));

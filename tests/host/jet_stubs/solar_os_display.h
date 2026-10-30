@@ -11,3 +11,5 @@ esp_err_t solar_os_display_claim(const char *name,const char *owner,char *detail
 esp_err_t solar_os_display_release(const char *name,const char *owner);
 esp_err_t solar_os_display_set_terminal_blocked(const char *name,const char *owner,bool blocked);
 esp_err_t solar_os_display_open_gfx(const char *name,const char *owner,solar_os_gfx_t **gfx,char *detail,size_t size);
+
+esp_err_t solar_os_display_set_orientation_locked(const char *name,const char *owner,bool locked);

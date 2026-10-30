@@ -15,6 +15,7 @@ from solaros_board_manifest import (
     DriverBinding,
     DriverDef,
     ManifestError,
+    board_defines_for_bindings,
     load_board_manifest,
     load_driver_catalog,
     merge_board_overlay,
@@ -91,7 +92,7 @@ def available_base_profiles(manifest_dir: Path = MANIFEST_DIR) -> dict[str, list
     for path in sorted(manifest_dir.glob("*.toml")):
         with path.open("rb") as file:
             raw = tomllib.load(file)
-        if "extends" in raw:
+        if "extends" in raw and (manifest_dir / f"{raw['extends']}.toml").is_file():
             continue
         board = load_board_manifest(path, manifest_dir)
         mcu = board.get("target", {}).get("mcu")
@@ -153,7 +154,7 @@ def profile_from_expansion(
     capabilities: list[str] = []
     fragments: list[str] = []
     defines: dict[str, str] = {}
-    for driver in selected:
+    for device, driver in zip(imported_devices, selected):
         for capability in driver.capabilities:
             if capability not in base_capabilities and capability not in capabilities:
                 capabilities.append(capability)
@@ -167,7 +168,7 @@ def profile_from_expansion(
         if promoted:
             if driver.board_driver and driver.board_driver not in fragments:
                 fragments.append(driver.board_driver)
-            defines.update(driver.board_defines)
+            defines.update(board_defines_for_bindings(driver, device["bindings"]))
 
     base_pins = {pin["gpio"]: pin for pin in base.get("pins", [])}
     fixed_pins: dict[int, str] = {}
@@ -488,7 +489,30 @@ class Configurator:
     def configure_device(self, driver: DriverDef) -> dict[str, Any]:
         name = self.screen.prompt(driver.name, "Device name", driver.default_name)
         bindings: dict[str, Any] = {}
+        if driver.display_profiles:
+            profiles = sorted(driver.display_profiles, key=lambda profile: not profile.default)
+            selected = self.screen.choose(f"{driver.name}: display profile", [
+                (profile.name, f"{profile.label} ({profile.width}x{profile.height} native)")
+                for profile in profiles
+            ]) if len(profiles) > 1 else profiles[0].name
+            profile = next(profile for profile in profiles if profile.name == selected)
+            bindings.update(profile.bindings)
+            spec = next((spec for spec in driver.bindings if spec.key == "rotation"), None)
+            if spec is not None:
+                rotations = [rotation for rotation in range(4)
+                             if (not spec.allowed or rotation in spec.allowed) and
+                             (spec.minimum is None or rotation >= spec.minimum) and
+                             (spec.maximum is None or rotation <= spec.maximum)]
+                rotations.sort(key=lambda rotation: rotation != profile.rotation)
+                bindings["rotation"] = int(self.screen.choose(f"{driver.name}: rotation", [
+                    (str(rotation), f"{rotation * 90} degrees "
+                     f"({profile.height if rotation % 2 else profile.width}x"
+                     f"{profile.width if rotation % 2 else profile.height})")
+                    for rotation in rotations
+                ]))
         for spec in driver.bindings:
+            if spec.key in bindings:
+                continue
             if not spec.required and not self.screen.yes_no(driver.name, f"Configure optional binding '{spec.key}'?", False):
                 continue
             bindings[spec.key] = self._binding_value(driver, spec, bindings)
@@ -505,13 +529,13 @@ class Configurator:
         capabilities: list[str] = []
         fragments: list[str] = []
         defines: dict[str, str] = {}
-        for driver in selected:
+        for device, driver in zip(devices, selected):
             for capability in (*driver.capabilities, *driver.board_capabilities):
                 if capability not in capabilities:
                     capabilities.append(capability)
             if driver.board_driver and driver.board_driver not in fragments:
                 fragments.append(driver.board_driver)
-            defines.update(driver.board_defines)
+            defines.update(board_defines_for_bindings(driver, device["bindings"]))
 
         profile: dict[str, Any] = {
             "schema": 1,

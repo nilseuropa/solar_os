@@ -134,8 +134,8 @@ esp_err_t solar_os_ft6336_attach(const char *name,
         target.width == 0 || target.height == 0) {
         return ESP_ERR_NOT_FOUND;
     }
-    candidate.target_width = target.width;
-    candidate.target_height = target.height;
+    candidate.target_width = target.native_width ? target.native_width : target.width;
+    candidate.target_height = target.native_height ? target.native_height : target.height;
     ESP_RETURN_ON_ERROR(ft6336_init(candidate.i2c_bus,
                                     candidate.address,
                                     candidate.reset_pin,

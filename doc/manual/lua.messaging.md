@@ -21,6 +21,11 @@ agent_reference_sections = true
 
 ## Sending messages
 
+`solaros.messages.list(conversation_id[, offset[, limit]])` reads a disk history
+page in chronological order. The default page contains the newest 64 messages.
+Offset skips messages from the newest end; limit is 1 through 64. Increase
+offset by the returned page length to read older pages.
+
 `solaros.messages.send(conversation_id, body[, allow_untrusted])` queues a
 message and returns its stable hexadecimal ID. `list()` also represents message
 IDs as hexadecimal strings, and `cancel(id)` accepts that representation.

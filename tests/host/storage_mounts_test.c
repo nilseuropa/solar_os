@@ -13,11 +13,19 @@
 #include "solar_os_storage.h"
 #include "solar_os_disk_image.h"
 
+static bool sd_mounted = true, sd_needs_reinit, image_busy;
+bool solar_os_ramfs_path_has_mount_prefix(const char *path) { (void)path; return false; }
+esp_err_t solar_os_ramfs_path_mount_point(const char *path, char *mount, size_t len)
+{ (void)path; (void)mount; (void)len; return ESP_ERR_NOT_FOUND; }
+static unsigned sd_mounts, sd_unmounts;
+static esp_err_t sd_mount_error, sd_unmount_error;
 size_t solar_os_disk_image_mount_count(void) { return 0; }
+esp_err_t solar_os_disk_image_mount(const char *p, const char *m, unsigned partition)
+{ (void)p; (void)m; (void)partition; assert(false); return ESP_FAIL; }
 bool solar_os_disk_image_get_block(size_t i, solar_os_storage_block_t *b) { (void)i; (void)b; return false; }
 bool solar_os_disk_image_get_mount(size_t i, solar_os_storage_mount_info_t *m) { (void)i; (void)m; return false; }
 bool solar_os_disk_image_path_busy(const char *p) { (void)p; return false; }
-bool solar_os_disk_image_backing_busy(const char *p) { (void)p; return false; }
+bool solar_os_disk_image_backing_busy(const char *p) { (void)p; return image_busy; }
 void solar_os_disk_image_registry_lock(void) {}
 void solar_os_disk_image_registry_unlock(void) {}
 
@@ -97,7 +105,7 @@ bool solar_os_board_storage_get_block(size_t index, solar_os_board_storage_block
     strlcpy(block->name, "sd0p1", sizeof(block->name));
     strlcpy(block->mount_point, "/sdcard", sizeof(block->mount_point));
     block->type = SOLAR_OS_BOARD_STORAGE_BLOCK_PARTITION;
-    block->mounted = true;
+    block->mounted = sd_mounted;
     block->mountable = true;
     block->logical_volume = 0;
     return true;
@@ -105,8 +113,29 @@ bool solar_os_board_storage_get_block(size_t index, solar_os_board_storage_block
 
 bool solar_os_board_storage_is_mounted(void)
 {
-    return true;
+    return sd_mounted;
 }
+
+bool solar_os_board_storage_needs_reinit(void) { return sd_needs_reinit; }
+esp_err_t solar_os_board_storage_mount(void)
+{
+    sd_mounts++;
+    if (sd_mount_error == ESP_OK) { sd_needs_reinit = false; sd_mounted = true; }
+    return sd_mount_error;
+}
+esp_err_t solar_os_board_storage_mount_volume(const char *name, const char *path)
+{
+    assert(!strcmp(name, "sd0p1") && !strcmp(path, "/sdcard"));
+    return solar_os_board_storage_mount();
+}
+esp_err_t solar_os_board_storage_unmount(void)
+{
+    sd_unmounts++;
+    if (sd_unmount_error == ESP_OK) sd_mounted = false;
+    return sd_unmount_error;
+}
+esp_err_t flash_storage_mount(const char *path) { (void)path; assert(false); return ESP_FAIL; }
+esp_err_t flash_storage_unmount(void) { assert(false); return ESP_FAIL; }
 
 const char *solar_os_board_storage_mount_point(void)
 {
@@ -512,6 +541,35 @@ static void assert_discovery_notifications(void)
     assert(solar_os_storage_revision() != revision);
 }
 
+static void assert_sd_reinsertion_recovery(void)
+{
+    assert(solar_os_storage_mount() == ESP_OK && sd_mounts == 1 && sd_unmounts == 0);
+    sd_needs_reinit = true;
+    image_busy = true;
+    assert(solar_os_storage_mount() == ESP_ERR_INVALID_STATE);
+    assert(sd_mounted && sd_mounts == 1 && sd_unmounts == 0);
+    image_busy = false;
+    sd_unmount_error = ESP_FAIL;
+    assert(solar_os_storage_mount() == ESP_FAIL && sd_mounts == 1 && sd_unmounts == 1);
+    sd_unmount_error = ESP_OK;
+    sd_mount_error = ESP_ERR_TIMEOUT;
+    uint32_t revision = solar_os_storage_revision();
+    assert(solar_os_storage_mount() == ESP_ERR_TIMEOUT);
+    assert(!sd_mounted && sd_mounts == 2 && sd_unmounts == 2);
+    assert(solar_os_storage_revision() != revision);
+    sd_mount_error = ESP_OK;
+    sd_needs_reinit = false;
+    assert(solar_os_storage_mount() == ESP_OK && sd_mounted && sd_unmounts == 2);
+    sd_needs_reinit = true;
+    assert(solar_os_storage_mount_volume("sd0p1", "/sdcard") == ESP_OK);
+    assert(sd_mounted && sd_mounts == 4 && sd_unmounts == 3);
+    sd_mounted = false;
+    sd_needs_reinit = true;
+    sd_unmount_error = ESP_ERR_INVALID_STATE;
+    assert(solar_os_storage_mount() == ESP_OK && sd_mounted && sd_unmounts == 4);
+    sd_unmount_error = ESP_OK;
+}
+
 int main(void)
 {
     assert(solar_os_storage_block_count() == 3);
@@ -533,6 +591,7 @@ int main(void)
     assert_write_file();
     assert_storage_discovery();
     assert_discovery_notifications();
+    assert_sd_reinsertion_recovery();
 
     puts("storage mount tests: ok");
     return 0;

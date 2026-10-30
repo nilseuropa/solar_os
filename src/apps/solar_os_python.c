@@ -115,6 +115,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
 #include "solar_os_sftpsync.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+#include "solar_os_sc2.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
 #endif
@@ -7699,20 +7702,25 @@ static bool python_messages_list_visit(
     return true;
 }
 
-static mp_obj_t solaros_messages_list(mp_obj_t conversation_id_obj)
+static mp_obj_t solaros_messages_list(size_t n_args, const mp_obj_t *args)
 {
+    size_t offset = n_args >= 2 ? python_u32_from_obj(args[1]) : 0;
+    size_t limit = n_args >= 3 ? python_u32_from_obj(args[2]) : SOLAR_OS_MESSAGING_MESSAGE_CAPACITY;
+    if (!limit || limit > SOLAR_OS_MESSAGING_MESSAGE_CAPACITY)
+        mp_raise_ValueError(MP_ERROR_TEXT("limit must be 1..64"));
+    /* GC ownership also releases the page if dictionary allocation raises. */
+    solar_os_messaging_message_t *page = m_new(solar_os_messaging_message_t, limit);
+    size_t count = 0; bool more = false;
+    python_check_esp(solar_os_messaging_message_page(python_u32_from_obj(args[0]),
+        0, offset, page, limit, &count, &more));
     python_messages_list_context_t context = {
         .list = mp_obj_new_list(0, NULL),
     };
-    (void)solar_os_messaging_message_visit(
-        python_u32_from_obj(conversation_id_obj),
-        0,
-        python_messages_list_visit,
-        &context,
-        NULL);
+    for (size_t i = 0; i < count; i++) (void)python_messages_list_visit(&page[i], &context);
+    m_del(solar_os_messaging_message_t, page, limit);
     return context.list;
 }
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_messages_list_obj, solaros_messages_list);
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_messages_list_obj, 1, 3, solaros_messages_list);
 
 static mp_obj_t solaros_messages_send(size_t n_args,
                                       const mp_obj_t *args,
@@ -8792,24 +8800,27 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_end_obj, solaros_gfx_end);
 
 static mp_obj_t solaros_gfx_width(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
-    return mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_width(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
+    return mp_obj_new_int_from_uint(width);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_width_obj, solaros_gfx_width);
 
 static mp_obj_t solaros_gfx_height(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
-    return mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
+    return mp_obj_new_int_from_uint(height);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_height_obj, solaros_gfx_height);
 
 static mp_obj_t solaros_gfx_size(void)
 {
-    solar_os_gfx_t *gfx = python_current_gfx();
+    uint16_t width, height;
+    solar_os_gfx_dimensions(python_current_gfx(), &width, &height);
     mp_obj_t items[2] = {
-        mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_width(gfx) : 0),
-        mp_obj_new_int_from_uint(gfx != NULL ? solar_os_gfx_height(gfx) : 0),
+        mp_obj_new_int_from_uint(width),
+        mp_obj_new_int_from_uint(height),
     };
     return mp_obj_new_tuple(2, items);
 }
@@ -9186,6 +9197,9 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
 #include "solar_os_python_sftpsync.inc"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+#include "solar_os_python_sc2.inc"
 #endif
 
 #include "solar_os_python_media.inc"

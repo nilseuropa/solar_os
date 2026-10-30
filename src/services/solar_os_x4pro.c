@@ -148,6 +148,14 @@ static esp_err_t set_controller_mode(solar_os_board_display_t *display, const ch
         epd_ultrachip_set_controller_mode(&d->panel.uc, mode);
 }
 
+static esp_err_t relax(solar_os_board_display_t *display, solar_os_display_relax_phase_t phase)
+{
+    if (!display || !display->driver) return ESP_ERR_INVALID_STATE;
+    x4pro_device_t *d = display->driver;
+    return d->controller == EPD_XTEINK_SSD1677 ?
+        epd_ssd1677_relax(&d->panel.ssd, phase) : epd_ultrachip_relax(&d->panel.uc, phase);
+}
+
 static esp_err_t shutdown(solar_os_board_display_t *display)
 {
     if (display == NULL || display->driver == NULL) return ESP_ERR_INVALID_STATE;
@@ -161,6 +169,16 @@ static esp_err_t shutdown(solar_os_board_display_t *display)
     return err;
 }
 
+static esp_err_t present_power_state(solar_os_board_display_t *display)
+{
+    if (!display || !display->driver) return ESP_ERR_INVALID_STATE;
+    x4pro_device_t *d = display->driver;
+    if (d->controller == EPD_XTEINK_SSD1677)
+        return epd_ssd1677_present_power_state(&d->panel.ssd);
+    u8g2_SendBuffer(display->u8g2);
+    return d->panel.uc.last_error;
+}
+
 static const solar_os_board_display_ops_t ops = {
     .runtime_ready = runtime_ready, .resume = resume, .deinit = deinit,
     .set_power_save = set_power_save,
@@ -169,6 +187,8 @@ static const solar_os_board_display_ops_t ops = {
     .get_brightness = get_brightness, .set_brightness = set_brightness,
     .controller_mode = controller_mode, .controller_mode_values = controller_mode_values,
     .set_controller_mode = set_controller_mode,
+    .relax = relax,
+    .present_power_state = present_power_state,
 };
 
 esp_err_t solar_os_x4pro_attach(const char *name,

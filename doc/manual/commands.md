@@ -136,14 +136,15 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `contacts` | `contacts block <contact-id> [endpoint-id]` | Block one endpoint or every endpoint on a contact. |
 | `contacts` | `contacts remove <contact-id>` | Remove a contact and all its endpoints. |
 | `contacts` | `contacts link <target-contact-id> <source-contact-id>` | Move the source endpoints into the target and remove the source contact. |
-| `messages` | `messages status` | Show bounded-store, persistence, drop, and live provider state. |
+| `messages` | `messages` | Open the tabbed instance, connection, and message manager. |
+| `messages` | `messages status` | Show archive, persistence, drop, and live provider state. |
 | `messages` | `messages conversations` | List provider-neutral conversations and unread/security state. |
 | `messages` | `messages list <conversation-id>` | List retained messages and their stable hexadecimal IDs. |
 | `messages` | `messages send <conversation-id> <text> [--allow-untrusted]` | Queue an outbound message; discovered direct endpoints require the explicit flag. |
 | `messages` | `messages read <conversation-id>` | Mark a conversation and its linked Inbox entries read. |
 | `messages` | `messages delete <message-id>` | Delete one retained message and its linked Inbox projection by hexadecimal ID. |
 | `messages` | `messages clear <instance\|instance-id\|all>` | Clear retained history and owned Inbox projections, including for removed instances. Unrelated Inbox sources remain. |
-| `messages` | `messages remove <instance\|instance-id>` | Remove a configurable provider instance, connection credentials, pending sends, history and Inbox notifications. Built-in instances are protected. |
+| `messages` | `messages remove <instance\|instance-id>` | Remove a provider instance, connection credentials, pending sends, history and Inbox notifications. |
 | `messages` | `messages outbox` | List pending outbound requests in queue order. |
 | `messages` | `messages cancel <message-id>` | Cancel a queued outbound message by the hexadecimal ID printed by `list` or `send`. |
 | `outbox` | `outbox [list]` | List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox. |
@@ -154,6 +155,12 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `irc` | `irc remove <instance>` | Remove an IRC instance, its credentials, history and associated Inbox notifications. |
 | `irc` | `irc join\|query <instance> <channel\|nick>`; `irc leave <conversation-id>` | Open rooms and private conversations through shared Messaging. |
 | `irc` | `irc sasl <instance> <account> <password>`; `irc sasl <instance> off`; `irc pass <instance> <password\|off>`; `irc ca <instance> <PEM-path\|default>` | Set optional authentication and TLS trust. See `man messaging.irc`. |
+| `sc2` | `sc2 id`; `sc2 status` | Show this device's SC2 end-to-end identity (device ID, fingerprint, prekeys) and the service state. Creates the identity on first use. See `man python.sc2`. |
+| `sc2` | `sc2 safety <peer>` | Show the safety number shared with a stored peer, to compare out of band. `<peer>` is a 32-hex device ID, a unique prefix (6+ hex digits) of a known peer, or an alias. |
+| `sc2` | `sc2 verify <peer>`; `sc2 unverify <peer>` | Mark the safety number with a peer as compared (or take that back). Chat shows sc2 DMs as `(verified)` or `(unverified)`; the record is kept in the SC2 store (up to 64 peers). Verifying needs the peer's keys (message it first). |
+| `sc2` | `sc2 alias`; `sc2 alias <name> <peer>`; `sc2 alias <name> off` | List, save or delete peer nicknames (up to 16, in the SC2 store) for `sc2 safety` and `messages query <sc2-instance> <peer>`. |
+| `sc2` | `sc2 selftest`; `sc2 bench [n]` | Run the SC2 known-answer and two-device session tests in RAM, or time the primitives and a DM/room round trip. Neither touches stored keys. |
+| `sc2` | `sc2 room create ["name"]` / `sc2 room invite <room-id\|name>` / `sc2 room join <sc2i:...\|@file>` / `sc2 rooms` | Create a private SC2 room, print its invite again, join with an invite, or list names, IDs and state. Quote names containing spaces (up to 48 UTF-8 bytes). Admission requires a valid end-to-end invite proof. Then `messages send <conv> <text>`; `messages leave <conv>` leaves. SC2 commands, peers and rooms support Tab completion. See `man messaging`. |
 | `gateway` | `gateway configure <url> [token]` | Save gateway connection settings. The gateway uses the global SolarOS user identity. |
 | `messages` | `messages classes` / `messages instances` | List available provider classes or configured instances. |
 | `messages` | `messages add gateway <name> <url> [token]` | Save an independent Gateway instance. Enable it with `messages connect <name>` and start `gateway-sync`. |
@@ -162,6 +169,8 @@ The display-shell app exit chord is `CTRL+ALT+DEL`. Port shells use `Ctrl+]`.
 | `messages` | `messages add meshcore <name> radio <radio> <profile>` | Save a MeshCore instance on a local radio. |
 | `messages` | `messages add meshcore <name> ble <address> <type> [pin]` | Save a MeshCore companion binding. |
 | `messages` | `messages add link <name> <transport>` | Bind an independent Chat projection to a named Link transport. |
+| `messages` | `messages add sc2 <name> <domain> [admit] [key=<b64>]` | Add an SC2 relay from its signed descriptor at `https://<domain>/.well-known/solaros-relay` (CA and host name checked; never plain HTTP). The relay key (and the fallback relays and their keys) are pinned; every login must prove the key, a different key is refused. `key=` must match the descriptor when given. `messages configure <name> key <b64>\|off` changes the pin. See `man messaging`. |
+| `messages` | `messages add sc2 <name> chats://<host>:<port>[#pin=sha256/<b64>] [admit]` | Save a disabled SC2 end-to-end relay instance. Enable it with `messages connect <name>` and start its worker with `job start sc2-sync`; `messages disconnect <name>` disables it. `messages configure <name> admit <code>\|off` or `pin <pin>\|off` change it; `fallback <url> [<url> <url>]\|off` sets up to three fallback relays (failover and return to the primary; `sc2 relay` shows which is in use). With a pin, the pinned key alone authenticates the relay (self-signed certificates work); without one the CA bundle is used. See `man messaging`. |
 | `gateway` | `gateway connect [url] [token]` | Enable gateway synchronization, optionally updating settings. |
 | `gateway` | `gateway disconnect` | Disable gateway synchronization. |
 | `gateway` | `gateway rooms` | List known and joined gateway rooms. |
@@ -276,6 +285,8 @@ job for periodic polling.
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
 | `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
+| `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
+| `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
 | `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -292,7 +303,9 @@ job for periodic polling.
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap and managed PSRAM status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
-| `mem` | `mem reclaim` | Unload unused resident libraries and show recovered PSRAM and the largest free block before and after. Libraries in use and application sessions remain resident. |
+| `mem` | `mem reclaim` | Ask registered owners to release rebuildable idle data, compact eligible buffers, and show recovered bytes and the largest free block before and after. |
+| `mem` | `mem compact` | Compact unpinned movable buffers and show the largest free block before and after. Raw pointers, DMA and stacks stay fixed. |
+| `mem` | `mem owners` | Show managed-region bytes, allocation counts, movable bytes and largest object by owner tag. SDK-region totals remain in `mem policy`. |
 | `top` | `top` | Print a one-shot cumulative FreeRTOS task snapshot. Use `ltop` for live interval CPU, memory, and stack monitoring. |
 | `sleep` | `sleep` | Enter explicit light sleep. |
 | `deepsleep` | `deepsleep` | Turn off the ESP32 radios and enter deep sleep. KEY, an armed RTC or scheduled timer, or RESET starts a fresh boot. |
@@ -323,8 +336,9 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm --display <target> [orientation\|font\|textsize\|palette\|statusbar] [value]` | Show or change the volatile terminal profile of a named display target. |
-| `setterm` | `setterm orientation [0\|90\|180\|270]` | Show or set primary-display orientation. |
+| `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
+| `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
+| `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
@@ -455,7 +469,7 @@ Profiles:
 
 Suspend is different from explicit light sleep. It keeps the runtime, radios,
 background jobs, Inbox notifications, and audio active while the primary
-display is off. It temporarily uses the `lowpower` profile and prevents the
+display is suspended. It temporarily uses the `lowpower` profile and prevents the
 idle policy from entering explicit light sleep. Another press of KEY,
 a new keypress from a built-in or attached keyboard, or a BLE keyboard reconnect
 resumes the display and restores the selected profile. Releasing a held key or
@@ -466,17 +480,26 @@ the selected profile, effective profile, and suspend state.
 Without `short` or `long`, an action changes the short press for compatibility.
 
 `deepsleep` is a standalone command. It turns off the ESP32 radios and enters
-ESP32 deep sleep after configuring the same KEY, compatible RTC interrupt, and
+ESP32 deep sleep after configuring the same board wake input, compatible RTC interrupt, and
 next scheduled timer wake sources used by explicit light sleep. KEY, an armed
 RTC or scheduled timer, and RESET start a normal fresh boot; running jobs,
 sessions, and RAM state are not restored. BLE and Wi-Fi are off and cannot wake
 the device. This is not a hardware power-off: the board remains powered, and a
 separate board power control must still be used to remove its supply.
 
+On Pi0cket CL-32, the built-in keyboard resumes suspend and wakes light or
+deep sleep through the companion controller's shared interrupt. USB-power and
+charging changes can also wake the board. Release held keys before sleeping.
+Keyboard-equipped boards allow up to three seconds for held keys and the wake
+interrupt to settle; sleep is cancelled if the input remains active.
+
 `suspend` shows the SolarOS splash with **Suspended**; `sleep` and `deepsleep`
 show **Sleeping**. The splash replaces the current contents on every attached
 display before the transition, including e-paper displays that retain their
 image. Waking from suspend or light sleep restores the previous session.
+The CL-32 reflective LCD turns off during suspend after presenting the splash
+and restores the selected display power policy on resume. Unlike e-paper, it
+cannot retain the image after its supply is removed.
 
 `shutdown` works from display and port shells on every target. It stops new
 app and job launches, closes sessions, stops background jobs and radios,
@@ -487,7 +510,7 @@ Cleanup failures are reported and prevent power-down. Use RESET or cycle power
 to restart after a cleanup failure.
 
 Shutdown uses the board's declared hardware power-off provider when available:
-the CL32 controller, AXP2101 on Waveshare ESP32-S3-ePaper-3.97, and BQ25896
+the Pi0cket CL-32 controller, AXP2101 on Waveshare ESP32-S3-ePaper-3.97, and BQ25896
 battery disconnect on T-LoRa-Pager. Xteink X4 Pro drops its peripheral latch;
 T-Deck Plus and ThinkNode M9 turn off their shared display/peripheral rail.
 Other targets enter ESP32 deep sleep. USB power can keep a board
@@ -551,7 +574,8 @@ off.
 
 ```text
 setterm
-setterm --display <target> [orientation|font|textsize|palette|statusbar] [value]
+setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
+setterm scale [1..4]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [8|10|12|14|16|18|20]
@@ -564,7 +588,7 @@ setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
 setterm keyboard [us|de]
-setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|ble-pair]
+setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
 setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
@@ -577,10 +601,10 @@ percentage from 0 to 100 (0 turns them off), or `follow` to track the primary
 display's configured brightness. Independent brightness defaults to 50%; both
 the numeric setting and follow mode are saved across reboots. Follow mode
 requires display brightness control. The keyboard backlights on T-Deck Plus,
-T-LoRa-Pager, ThinkNode M9, and CL-32 use this control. Unsupported hardware
+T-LoRa-Pager, ThinkNode M9, and Pi0cket CL-32 use this control. Unsupported hardware
 reports `unsupported`. Suspend and explicit sleep temporarily turn auxiliary
 lighting off; resume restores the selected setting. Shutdown also turns it off.
-The CL-32 companion controller retains its keyboard-activity timeout and fade.
+The Pi0cket CL-32 companion controller retains its keyboard-activity timeout and fade.
 T-Deck Alt+B toggles the light for the current boot without typing a character
 or saving changes across reboots. Suspend and light sleep preserve this on/off
 choice. Toggling on from a configured level of zero uses 50%. The query shows
@@ -590,7 +614,7 @@ the configured brightness, including while the light is toggled off.
 `setterm backlight` for the screen must use `setterm brightness` instead.
 
 `setterm keyrate` configures the shared repeat policy for BLE, PS/2, CardKB,
-and the CL-32 keyboard, fixed board buttons, `gpio-keys`, and ADC D-pads.
+and the Pi0cket CL-32 keyboard, fixed board buttons, `gpio-keys`, and ADC D-pads.
 Analog joysticks publish axes and do not generate key events.
 The value is stored in NVS and is available on builds without BLE.
 
@@ -614,18 +638,20 @@ setterm powerkey short enter
 setterm powerkey long suspend
 setterm powerkey long sleep
 setterm powerkey long deepsleep
+setterm powerkey long shutdown
 setterm powerkey long ble-pair
 setterm powerkey long default
 ```
 
 The action choices are `default`, `off`, `enter`, `app-exit`, `sleep`, `suspend`,
-`deepsleep`, and `ble-pair`. `off` disables the awake action; it does not cut
-power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
+`deepsleep`, `shutdown`, and `ble-pair`. `off` disables the awake action; it
+does not cut power or disable KEY wake. `sleep` enters explicit light sleep. `suspend`
 turns off the display while jobs and services continue. `deepsleep` enters deep
-sleep and starts a fresh boot on wake. `ble-pair` forgets the remembered BLE
-keyboard and starts pairing when BLE is enabled for the current boot.
+sleep and starts a fresh boot on wake. `shutdown` performs cleanup and powers
+off where supported. `ble-pair` forgets the remembered BLE keyboard and starts
+pairing when BLE is enabled for the current boot.
 
-A hold is recognized after 1.2 seconds; light and deep sleep begin after KEY is
+A hold is recognized after 1.2 seconds; sleep and shutdown begin after KEY is
 released. Any KEY press resumes suspend or wakes sleep,
 regardless of its duration. The wake press is consumed until release, so it
 cannot also type Enter, start pairing, or put the device back to sleep.
@@ -634,6 +660,7 @@ cannot also type Enter, start pairing, or put the device back to sleep.
 suspend for a hold. Other boards retain their normal short-press mapping; holds
 default to suspend on targets with a board-owned wired keyboard and BLE pairing
 on targets without one. Connecting a BLE keyboard does not change these defaults.
+Sticky defaults to light sleep for a tap and shutdown for a hold.
 Valid saved choices take precedence over defaults, including older short-press
 settings. Changes persist and apply immediately. `setterm powerkey sleep` remains
 shorthand for `setterm powerkey short sleep`; `setterm key` is also accepted.
@@ -651,7 +678,7 @@ them from a port shell. `profile` controls terminal escape sequences;
 `charset` controls TUI glyph output. The default `utf8` mode uses Unicode box
 drawing. Select `ascii` for DOS and other legacy serial terminals; TUI borders,
 blocks, arrows, and punctuation are replaced with readable ASCII characters.
-Display layout settings (`orientation`, `font`, `textsize`, `palette`, and
+Terminal settings (`font`, `textsize`, `palette`, and
 `statusbar`) apply
 to the current display and its app sessions. Settings on the primary display
 are persistent; settings on secondary or virtual displays such as `web0` are
@@ -664,23 +691,42 @@ does not rewrite an existing framebuffer. On a headless board, a port shell can
 set or query the persistent palette before an expansion-display session exists;
 subsequently created terminal and graphic sessions inherit it.
 
-`setterm --display <target>` reads or changes the volatile terminal profile of
+`setterm --display <target>` reads or changes the profile of
 a named runtime display target, even when a TUI application rather than a shell
-owns that display. The target profile is initialized from the single global NVS
-parameter set when the display registers. Orientation is relative to the
+owns that display. The target profile uses global defaults and the scale saved
+for that display name. Orientation is relative to the
 target's native panel rotation, so `0` keeps every display in its normal
 mounting even when their drivers use different U8g2 rotations. Display-targeted
-absolute pointer coordinates follow this logical orientation. A targeted change
-applies to current and future sessions on that display until reboot or until the
-display target is unregistered; it does not create or update per-display NVS
-keys. Without a setting, the command prints the target's complete volatile
-profile. For example:
+absolute pointer coordinates follow this logical orientation. Orientation and
+scale are saved per display and restored after reboot. Other targeted changes
+apply to current and future sessions until reboot or display removal. Without a setting,
+the command prints the target's complete profile. For example:
 
 ```text
 setterm --display oled0 statusbar hide
 setterm --display oled0 textsize 10
 setterm --display oled0 palette inverted
 ```
+
+`display orientation display0 90` rotates the shell, running graphical apps
+and touch coordinates together. Shell output, history and unfinished input are
+preserved. Both `display orientation` and `display scale` are runtime-only,
+including changes made by gesture bindings. `setterm orientation`, `setterm scale`
+and the settings TUI use the same display operations and save their values in NVS.
+
+`display scale display0` shows the display's integer pixel scale. Values `1` through
+`4` apply to the entire display canvas, including text, graphics, icons and
+spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
+a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
+uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
+Touch coordinates follow the same scale and orientation.
+
+Use `setterm scale 2` or `setterm --display display0 scale 2` to save scale
+for that display name. `display scale display0 2` changes only the current runtime. Close graphical applications, dismiss
+display overlays, and remove layouts using that target before changing scale.
+Text and graphical applications
+opened afterward use the new logical dimensions. Use `display scale display0 1` to
+return to native resolution. External VT100 terminal geometry is unchanged.
 
 Text size `8` selects a fixed bitmap face with 6×8 pixel cells for both font
 families. It uses the same upright glyphs for regular, bold, and italic text.
@@ -1448,9 +1494,10 @@ or Escape stops it between refreshes. The command returns to the shell after
 restoring the saved image and previous refresh mode, including pulse tuning.
 Sleep and shutdown interrupt recovery before the power transition.
 
-Recovery is supported on the CrowPanel 5.79-inch/SolarWriter dual-SSD1683,
-Waveshare 4.2-inch V2, and Elecrow 4.2-inch green-sticker profiles. Other display
-profiles return unsupported. It claims the whole physical target; close apps
+Recovery is available on all built-in EPD drivers: every SSD1683 profile,
+SSD1685, SSD1677, UC8179, and UC8279, including the X4 display wrapper and
+runtime-attached panels. LCD, RLCD, and other display types return unsupported.
+It claims the whole physical target; close apps
 or remove layouts that own it first. A display-shell session can recover its
 own target without closing that session. Ordinary presentation and pulse scans
 are suspended during recovery. Completion reports black/white cycles, not a
@@ -1504,12 +1551,35 @@ initial cleanup and does not schedule periodic full refreshes. `refresh=fast`
 forces a fast full-frame waveform and `refresh=full` forces the full cleanup
 waveform on every changed frame.
 
-The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker, and
-Waveshare 4.2-inch V2/revision-2.2 profiles also accept the optional
+SSD1685 targets default to asynchronous `refresh=pulse` and also provide
+factory `refresh=auto|partial|full` modes. In auto mode,
+`cleanup-every=<1..128>` sets the number of partial updates before a full OTP
+cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
+`refresh=fast` is an alias for it.
+
+SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
+`refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
+Sticky (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
+profiles start in native auto mode. The Sticky panel profile uses the
+manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
+planes for full cleanup. Generic profiles retain their differential full-frame
+sequence. Pulse mode uses the controller's 105-byte LUT,
+nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
+are asynchronous, 100 ms between new images, five drive cycles on Sticky
+(three on other profiles), eight scan
+frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup
+with baseline 64. `waveform-fr=<1..8>` selects a nibble repeated across its
+five frame-rate bytes. It supports `pulse-period=<67..1000>`,
+`pulse-spi-khz=<100..20000>`, `pulse-power=<cycle,hold>`, and
+`invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
+restores native auto. Pulse memory is allocated in PSRAM on demand.
+
+The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker,
+Waveshare 4.2-inch V2/revision-2.2, SSD1677, and SSD1685 GDEY029T71H profiles provide the
 `refresh=pulse` monochrome mode. `display mode <target> drive-cycles=<1..32>`
 sets the per-pixel budget, `pulse-frames=<1..32>` sets each drive phase's scan
 duration, `waveform-fr=<1..12>` selects a raw frame-rate code (the dual SSD1683
-accepts only 1–5 or 9–12), and
+accepts only 1–5 or 9–12; SSD1677 accepts 1–8), and
 `cleanup-every=<1..128>` sets the cleanup baseline.
 `cleanup-policy=adaptive` tracks actual successful drives per pixel.
 It cleans up when the most-driven pixel reaches `cleanup-every * drive-cycles`
@@ -1521,12 +1591,13 @@ the image count. At a limit, the asynchronous worker schedules a native cleanup
 without waiting for another presentation or for all pending pixels to settle.
 Mode output includes the policy, peak/limit drive cycles, and changed-image age.
 These counters estimate accumulated activity and do not measure ghosting.
-These runtime settings apply only to pulse mode and are listed by
+These runtime settings apply to pulse mode, with SSD1685's `cleanup-every`
+also controlling its native auto-mode cleanup interval. They are listed by
 `display mode <target>`. `pulse-scan=sync` completes a presentation's pending
 cycles before returning. `pulse-scan=async` runs one cycle per scan in a
 persistent worker and accepts new targets while earlier pixels settle.
 `pulse-period=<10..1000>` requests the minimum new-image interval in milliseconds;
-the dual-SSD1683 and Elecrow green-sticker profiles instead accept 67–1000 ms.
+the dual-SSD1683, Elecrow green-sticker, SSD1677, and SSD1685 profiles instead accept 67–1000 ms.
 Settling drives run as BUSY permits without consuming new-image slots. A new
 target can replace the current target between drives when its image slot is due;
 unchanged pixels keep their remaining budgets. Identical submissions do not
@@ -1538,6 +1609,9 @@ count includes native baseline snapshots; submitted/coalesced counts also appear
 `pulse-power=<cycle,hold>` selects supply cycling or retention during settling,
 `pulse-ramp=<normal,fast>` selects booster duration, and
 `pulse-spi-khz=<100..20000>` overrides the SPI clock only for pulse operation.
+SSD1685 limits pulse SPI to 100–10000 kHz and also exposes `invert=<false,true>`
+for polarity testing; its custom waveform requires panel validation. See the
+[SSD1685 reference](expansion.reference.md#gdey029t71h-e-paper-ssd1685) for defaults.
 Elecrow 5.79-inch defaults are asynchronous, 67 ms new-image interval, retained supplies, fast
 booster ramp, 20000 kHz pulse SPI, 6 drive cycles, 8 scan frames, FR code 4,
 and adaptive cleanup with a baseline of 64. This profile uses the Fastwave

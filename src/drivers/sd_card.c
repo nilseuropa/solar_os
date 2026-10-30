@@ -10,6 +10,7 @@
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
 #if SOLAR_OS_BOARD_STORAGE_SDSPI || SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+#include "driver/gpio.h"
 #include "driver/sdspi_host.h"
 #endif
 #if SOLAR_OS_BOARD_STORAGE_SDSPI
@@ -243,6 +244,27 @@ static void set_mount_error_status(esp_err_t err)
     }
 }
 
+#if SD_CARD_HAS_SDSPI
+static void sd_card_deselect_spi(void)
+{
+    int cs_pin = -1;
+#if SOLAR_OS_PACKAGE_EXPANSION_SDSPI
+    if (transport == SD_CARD_TRANSPORT_SDSPI_RUNTIME && sdspi_runtime_configured) {
+        cs_pin = sdspi_runtime_cs;
+    }
+#endif
+#if SOLAR_OS_BOARD_STORAGE_SDSPI
+    if (transport == SD_CARD_TRANSPORT_SDSPI_BOARD) {
+        cs_pin = SOLAR_OS_BOARD_PIN_SD_CARD_CS;
+    }
+#endif
+    if (cs_pin < 0) return;
+    esp_err_t err = gpio_set_level((gpio_num_t)cs_pin, 1);
+    if (err == ESP_OK) err = gpio_set_direction((gpio_num_t)cs_pin, GPIO_MODE_OUTPUT);
+    if (err != ESP_OK) ESP_LOGW(TAG, "SD CS idle failed: %s", esp_err_to_name(err));
+}
+#endif
+
 static void sd_card_deinit_host(void)
 {
 #if SD_CARD_HAS_SDSPI
@@ -252,6 +274,8 @@ static void sd_card_deinit_host(void)
             host.deinit_p(host.slot);
             sdspi_device_ready = false;
         }
+        /* SDSPI teardown resets CS to an input; other bus devices still need it idle. */
+        sd_card_deselect_spi();
 #if SOLAR_OS_BOARD_STORAGE_SDSPI
         if (sdspi_bus_acquired) {
             solar_os_spi_bus_release();
@@ -798,6 +822,15 @@ static void scan_partitions(void)
 
     heap_caps_free(sector);
     update_block_mount_state();
+}
+
+bool sd_card_needs_reinit(void)
+{
+    if (!card_ready || card == NULL) return false;
+    uint8_t sector[SD_CARD_SECTOR_BYTES];
+    if (card->csd.sector_size > sizeof(sector)) return true;
+    /* CMD13 can succeed on an idle SPI card that still needs initialization. */
+    return sd_card_read_sector(0, sector) != ESP_OK;
 }
 
 static esp_err_t ensure_card_ready(void)

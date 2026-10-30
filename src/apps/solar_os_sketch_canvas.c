@@ -341,6 +341,14 @@ bool solar_os_sketch_canvas_render_xbm(
     uint8_t *bitmap,
     size_t bitmap_size)
 {
+    return canvas != NULL && solar_os_sketch_canvas_render_xbm_scaled(
+        canvas, bitmap, bitmap_size, canvas->width, canvas->height);
+}
+
+bool solar_os_sketch_canvas_render_xbm_scaled(
+    const solar_os_sketch_canvas_t *canvas, uint8_t *bitmap,
+    size_t bitmap_size, uint16_t width, uint16_t height)
+{
     static const uint8_t bayer4[4][4] = {
         {0U, 8U, 2U, 10U},
         {12U, 4U, 14U, 6U},
@@ -348,17 +356,19 @@ bool solar_os_sketch_canvas_render_xbm(
         {15U, 7U, 13U, 5U},
     };
     const size_t required = canvas != NULL ?
-        solar_os_sketch_canvas_xbm_bytes(canvas->width, canvas->height) : 0U;
+        solar_os_sketch_canvas_xbm_bytes(width, height) : 0U;
     if (canvas == NULL || canvas->pixels == NULL || bitmap == NULL ||
+        canvas->width == 0U || canvas->height == 0U ||
         required == 0U || bitmap_size < required) {
         return false;
     }
-    const size_t stride = ((size_t)canvas->width + 7U) / 8U;
+    const size_t stride = ((size_t)width + 7U) / 8U;
     memset(bitmap, 0, required);
-    for (int y_pos = 0; y_pos < (int)canvas->height; y_pos++) {
-        for (int x_pos = 0; x_pos < (int)canvas->width; x_pos++) {
+    for (int y_pos = 0; y_pos < (int)height; y_pos++) {
+        for (int x_pos = 0; x_pos < (int)width; x_pos++) {
             const uint8_t shade = solar_os_sketch_canvas_get(
-                canvas, x_pos, y_pos);
+                canvas, (uint32_t)x_pos * canvas->width / width,
+                (uint32_t)y_pos * canvas->height / height);
             const uint8_t threshold = shade == 0U ? 16U :
                 (shade == 1U ? 12U : (shade == 2U ? 5U : 0U));
             if (bayer4[y_pos & 3][x_pos & 3] >= threshold) {

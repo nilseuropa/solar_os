@@ -104,6 +104,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
 #include "solar_os_sftpsync.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+#include "solar_os_sc2.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
 #include "solar_os_hid.h"
 #endif
@@ -7789,23 +7792,26 @@ static int solua_gfx_end(lua_State *L)
 
 static int solua_gfx_width(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_width(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, width);
     return 1;
 }
 
 static int solua_gfx_height(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, height);
     return 1;
 }
 
 static int solua_gfx_size(lua_State *L)
 {
-    solar_os_gfx_t *gfx = solua_current_gfx();
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_width(gfx) : 0);
-    lua_pushinteger(L, gfx != NULL ? (lua_Integer)solar_os_gfx_height(gfx) : 0);
+    uint16_t width, height;
+    solar_os_gfx_dimensions(solua_current_gfx(), &width, &height);
+    lua_pushinteger(L, width);
+    lua_pushinteger(L, height);
     return 2;
 }
 
@@ -8421,15 +8427,22 @@ static int solua_messages_list(lua_State *L)
 {
     const uint32_t conversation_id =
         (uint32_t)luaL_checkinteger(L, 1);
+    lua_Integer offset = luaL_optinteger(L, 2, 0);
+    lua_Integer limit = luaL_optinteger(L, 3, SOLAR_OS_MESSAGING_MESSAGE_CAPACITY);
+    if (offset < 0 || (uint64_t)offset > SIZE_MAX || limit < 1 || limit > SOLAR_OS_MESSAGING_MESSAGE_CAPACITY)
+        return luaL_error(L, "offset must be nonnegative and limit must be 1..64");
+    /* Keep the native page owned by Lua if table allocation raises. */
+    solar_os_messaging_message_t *page = lua_newuserdatauv(L, (size_t)limit * sizeof(*page), 0);
+    size_t count = 0; bool more = false;
+    esp_err_t error = solar_os_messaging_message_page(conversation_id, 0, (size_t)offset,
+        page, (size_t)limit, &count, &more);
+    if (error != ESP_OK) return luaL_error(L, "message history: %s", esp_err_to_name(error));
     lua_newtable(L);
     solua_messages_list_context_t context = {
         .state = L,
     };
-    (void)solar_os_messaging_message_visit(conversation_id,
-                                           0,
-                                           solua_messages_list_visit,
-                                           &context,
-                                           NULL);
+    for (size_t i = 0; i < count; i++) (void)solua_messages_list_visit(&page[i], &context);
+    lua_remove(L, -2);
     return 1;
 }
 
@@ -8491,6 +8504,9 @@ static void solua_new_submodule(lua_State *L, int parent, const char *name)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SFTPSYNC
 #include "solar_os_lua_sftpsync.inc"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+#include "solar_os_lua_sc2.inc"
 #endif
 
 static int solua_require(lua_State *L)

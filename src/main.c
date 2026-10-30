@@ -113,6 +113,35 @@
 #else
 #define KEY_WAKE_MODE ESP_EXT1_WAKEUP_ANY_HIGH
 #endif
+#ifdef SOLAR_OS_BOARD_PIN_SLEEP_WAKE
+#define SLEEP_WAKE_AVAILABLE 1
+#else
+#define SLEEP_WAKE_AVAILABLE SOLAR_OS_BOARD_HAS_KEY
+#define SOLAR_OS_BOARD_PIN_SLEEP_WAKE SOLAR_OS_BOARD_PIN_KEY
+#endif
+#ifndef SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL
+#define SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL
+#endif
+#ifndef SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP
+#define SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP SOLAR_OS_BOARD_KEY_PULL_UP
+#endif
+#ifndef SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN
+#define SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN SOLAR_OS_BOARD_KEY_PULL_DOWN
+#endif
+#define SLEEP_WAKE_MASK (1ULL << SOLAR_OS_BOARD_PIN_SLEEP_WAKE)
+/* A keyboard command can still have Enter held, with a release event and
+ * shared peripheral IRQ acknowledgement pending in its polling worker. */
+#define SLEEP_WAKE_RELEASE_TIMEOUT_MS \
+    (SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD ? 3000U : KEY_RELEASE_STABLE_TIMEOUT_MS)
+#if SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL == 0
+#if CONFIG_IDF_TARGET_ESP32
+#define SLEEP_WAKE_MODE ESP_EXT1_WAKEUP_ALL_LOW
+#else
+#define SLEEP_WAKE_MODE ESP_EXT1_WAKEUP_ANY_LOW
+#endif
+#else
+#define SLEEP_WAKE_MODE ESP_EXT1_WAKEUP_ANY_HIGH
+#endif
 #define BLE_SLEEP_DISCONNECT_TIMEOUT_MS 1500
 #define RADIO_RESUME_PM_HOLDOFF_MS 15000
 #define STATUS_UPDATE_INTERVAL_MS 1000
@@ -194,7 +223,8 @@ static bool key_level_is_pressed(int level)
 
 static bool key_button_is_pressed(void)
 {
-    return key_level_is_pressed(gpio_get_level(SOLAR_OS_BOARD_PIN_KEY));
+    return board_has(SOLAR_OS_BOARD_CAP_KEY) &&
+        key_level_is_pressed(gpio_get_level(SOLAR_OS_BOARD_PIN_KEY));
 }
 
 static bool key_rtc_is_pressed(void)
@@ -517,8 +547,8 @@ static void resume_display_after_sleep(uint32_t now_ms)
 
 static void enter_suspend(const char *reason)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
-        SOLAR_OS_LOGW(TAG, "%s: suspend needs a KEY resume source", reason);
+    if (!board_has(SOLAR_OS_BOARD_CAP_KEY) && !SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD) {
+        SOLAR_OS_LOGW(TAG, "%s: suspend needs a key resume source", reason);
         return;
     }
 
@@ -655,38 +685,28 @@ static esp_err_t key_button_configure_gpio(void)
     return gpio_config(&key_config);
 }
 
-static esp_err_t key_prepare_rtc_wakeup(void)
+static esp_err_t prepare_rtc_wake_gpio(gpio_num_t gpio, bool pull_up, bool pull_down)
 {
-    esp_err_t err = rtc_gpio_init(SOLAR_OS_BOARD_PIN_KEY);
+    esp_err_t err = rtc_gpio_init(gpio);
     if (err != ESP_OK) {
         return err;
     }
-    err = rtc_gpio_set_direction(SOLAR_OS_BOARD_PIN_KEY, RTC_GPIO_MODE_INPUT_ONLY);
+    err = rtc_gpio_set_direction(gpio, RTC_GPIO_MODE_INPUT_ONLY);
     if (err != ESP_OK) {
         return err;
     }
-#if SOLAR_OS_BOARD_KEY_PULL_UP
-    err = rtc_gpio_pullup_en(SOLAR_OS_BOARD_PIN_KEY);
-#else
-    err = rtc_gpio_pullup_dis(SOLAR_OS_BOARD_PIN_KEY);
-#endif
+    err = pull_up ? rtc_gpio_pullup_en(gpio) : rtc_gpio_pullup_dis(gpio);
     if (err != ESP_OK) {
         return err;
     }
-#if SOLAR_OS_BOARD_KEY_PULL_DOWN
-    return rtc_gpio_pulldown_en(SOLAR_OS_BOARD_PIN_KEY);
-#else
-    return rtc_gpio_pulldown_dis(SOLAR_OS_BOARD_PIN_KEY);
-#endif
+    return pull_down ? rtc_gpio_pulldown_en(gpio) : rtc_gpio_pulldown_dis(gpio);
 }
 
-static void key_restore_gpio_after_rtc(void)
+static esp_err_t key_prepare_rtc_wakeup(void)
 {
-    (void)rtc_gpio_deinit(SOLAR_OS_BOARD_PIN_KEY);
-    const esp_err_t err = key_button_configure_gpio();
-    if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "KEY digital GPIO restore failed: %s", esp_err_to_name(err));
-    }
+    return prepare_rtc_wake_gpio(SOLAR_OS_BOARD_PIN_KEY,
+                                  SOLAR_OS_BOARD_KEY_PULL_UP,
+                                  SOLAR_OS_BOARD_KEY_PULL_DOWN);
 }
 
 static bool wait_key_released_stable(uint32_t stable_ms, uint32_t timeout_ms)
@@ -732,6 +752,57 @@ static bool wait_key_rtc_released_stable(uint32_t stable_ms, uint32_t timeout_ms
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    return false;
+}
+
+static esp_err_t sleep_wake_configure_gpio(void)
+{
+    if (SOLAR_OS_BOARD_PIN_SLEEP_WAKE == SOLAR_OS_BOARD_PIN_KEY) {
+        return key_button_configure_gpio();
+    }
+    const gpio_config_t config = {
+        .pin_bit_mask = SLEEP_WAKE_MASK,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+        .pull_down_en = SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return gpio_config(&config);
+}
+
+static void sleep_wake_restore_gpio(void)
+{
+    (void)rtc_gpio_deinit(SOLAR_OS_BOARD_PIN_SLEEP_WAKE);
+    const esp_err_t err = sleep_wake_configure_gpio();
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "sleep wake GPIO restore failed: %s", esp_err_to_name(err));
+    }
+}
+
+static bool wait_sleep_wake_released_stable(bool rtc, uint32_t stable_ms, uint32_t timeout_ms)
+{
+    const uint32_t start_ms = millis_u32();
+    uint32_t released_since_ms = 0;
+    while ((millis_u32() - start_ms) < timeout_ms) {
+        const int level = rtc ? rtc_gpio_get_level(SOLAR_OS_BOARD_PIN_SLEEP_WAKE) :
+                                gpio_get_level(SOLAR_OS_BOARD_PIN_SLEEP_WAKE);
+        bool released = level != SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL;
+        if (SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD) {
+            solar_os_input_key_event_t held;
+            released = released && solar_os_input_get_pressed(&held, 1) == 0;
+        }
+        const uint32_t now_ms = millis_u32();
+        if (!released) released_since_ms = 0;
+        else if (released_since_ms == 0) released_since_ms = now_ms;
+        else if ((now_ms - released_since_ms) >= stable_ms) return true;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    solar_os_input_key_event_t held;
+    SOLAR_OS_LOGW(TAG, "sleep wake input busy: gpio=%d level=%d rtc=%d held=%u",
+        (int)SOLAR_OS_BOARD_PIN_SLEEP_WAKE,
+        (int)(rtc ? rtc_gpio_get_level(SOLAR_OS_BOARD_PIN_SLEEP_WAKE) :
+                    gpio_get_level(SOLAR_OS_BOARD_PIN_SLEEP_WAKE)),
+        (int)rtc, (unsigned)solar_os_input_get_pressed(&held, 1));
     return false;
 }
 
@@ -862,16 +933,21 @@ static esp_err_t shutdown_step(solar_os_shutdown_stage_t stage, void *user)
 
 static void enter_sleep(const char *reason, bool deep_sleep)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY)) {
+    if (!SLEEP_WAKE_AVAILABLE) {
         SOLAR_OS_LOGW(TAG,
-                      "%s: %s needs a KEY wake source",
+                      "%s: %s needs a configured wake source",
                       reason,
                       deep_sleep ? "deep sleep" : "light sleep");
         return;
     }
 
     key_release_action = SOLAR_OS_POWER_KEY_ACTION_OFF;
-    if (!wait_key_released_stable(KEY_RELEASE_STABLE_MS, KEY_RELEASE_STABLE_TIMEOUT_MS)) {
+    esp_err_t err = sleep_wake_configure_gpio();
+    if (err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "%s: wake GPIO setup failed: %s", reason, esp_err_to_name(err));
+        return;
+    }
+    if (!wait_sleep_wake_released_stable(false, KEY_RELEASE_STABLE_MS, SLEEP_WAKE_RELEASE_TIMEOUT_MS)) {
         SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, key release was not stable", reason);
         key_pressed = key_button_is_pressed();
         key_long_press_fired = false;
@@ -889,7 +965,7 @@ static void enter_sleep(const char *reason, bool deep_sleep)
                   reason,
                   deep_sleep ? "deep sleep" : "light sleep");
 
-    esp_err_t err = solar_os_power_begin_explicit_sleep();
+    err = solar_os_power_begin_explicit_sleep();
     if (err != ESP_OK) {
         SOLAR_OS_LOGW(TAG,
                       "%s: explicit sleep power policy failed: %s",
@@ -899,17 +975,19 @@ static void enter_sleep(const char *reason, bool deep_sleep)
 
     (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-    err = key_prepare_rtc_wakeup();
+    err = prepare_rtc_wake_gpio(SOLAR_OS_BOARD_PIN_SLEEP_WAKE,
+                                SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP,
+                                SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN);
     if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "KEY RTC wake GPIO setup failed: %s", esp_err_to_name(err));
-        key_restore_gpio_after_rtc();
+        SOLAR_OS_LOGW(TAG, "sleep RTC wake GPIO setup failed: %s", esp_err_to_name(err));
+        sleep_wake_restore_gpio();
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
-    if (!wait_key_rtc_released_stable(KEY_RELEASE_STABLE_MS, KEY_RELEASE_STABLE_TIMEOUT_MS)) {
-        SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, RTC key release was not stable", reason);
-        key_restore_gpio_after_rtc();
+    if (!wait_sleep_wake_released_stable(true, KEY_RELEASE_STABLE_MS, SLEEP_WAKE_RELEASE_TIMEOUT_MS)) {
+        SOLAR_OS_LOGW(TAG, "%s: sleep cancelled, wake input was not stable", reason);
+        sleep_wake_restore_gpio();
         (void)solar_os_power_end_explicit_sleep();
         key_pressed = key_button_is_pressed();
         key_long_press_fired = false;
@@ -920,18 +998,18 @@ static void enter_sleep(const char *reason, bool deep_sleep)
 
     err = esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
     if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "KEY sleep RTC power setup failed: %s", esp_err_to_name(err));
-        key_restore_gpio_after_rtc();
+        SOLAR_OS_LOGW(TAG, "sleep RTC power setup failed: %s", esp_err_to_name(err));
+        sleep_wake_restore_gpio();
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
 
-    uint64_t wake_mask = KEY_WAKE_MASK;
+    uint64_t wake_mask = SLEEP_WAKE_MASK;
     int rtc_wake_gpio = SOLAR_OS_RTC_INTERRUPT_GPIO_NONE;
     solar_os_rtc_info_t rtc_info;
     if (solar_os_rtc_get_info(&rtc_info) == ESP_OK &&
         rtc_info.interrupt_gpio >= 0 && rtc_info.interrupt_gpio < 64 &&
-        rtc_info.interrupt_active_level == SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL
+        rtc_info.interrupt_active_level == SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL
 #if CONFIG_IDF_TARGET_ESP32
         /* Classic ESP32 only supports ALL_LOW, which cannot combine two
          * independent active-low wake inputs. */
@@ -958,14 +1036,15 @@ static void enter_sleep(const char *reason, bool deep_sleep)
         }
     }
 
-    err = esp_sleep_enable_ext1_wakeup_io(wake_mask, KEY_WAKE_MODE);
+    err = esp_sleep_enable_ext1_wakeup_io(wake_mask, SLEEP_WAKE_MODE);
     if (err != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "KEY sleep source setup failed: %s", esp_err_to_name(err));
+        SOLAR_OS_LOGW(TAG, "sleep wake source setup failed: %s", esp_err_to_name(err));
+        (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
         if (rtc_wake_gpio != SOLAR_OS_RTC_INTERRUPT_GPIO_NONE) {
             (void)rtc_gpio_deinit((gpio_num_t)rtc_wake_gpio);
         }
         (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
-        key_restore_gpio_after_rtc();
+        sleep_wake_restore_gpio();
         (void)solar_os_power_end_explicit_sleep();
         return;
     }
@@ -1002,7 +1081,7 @@ static void enter_sleep(const char *reason, bool deep_sleep)
                 (void)rtc_gpio_deinit((gpio_num_t)rtc_wake_gpio);
             }
             (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
-            key_restore_gpio_after_rtc();
+            sleep_wake_restore_gpio();
             (void)solar_os_power_end_explicit_sleep();
             return;
         }
@@ -1055,16 +1134,19 @@ static void enter_sleep(const char *reason, bool deep_sleep)
         esp_deep_sleep_start();
     }
 
-    err = esp_light_sleep_start();
+    /* Radio shutdown and splash presentation can outlast the earlier release
+     * check. Let the keyboard worker settle any new shared IRQ before entry. */
+    err = wait_sleep_wake_released_stable(true, KEY_RELEASE_STABLE_MS,
+        SLEEP_WAKE_RELEASE_TIMEOUT_MS) ? esp_light_sleep_start() : ESP_ERR_SLEEP_REJECT;
 
     const esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
     const uint64_t wake_ext1 = esp_sleep_get_ext1_wakeup_status();
-    (void)esp_sleep_disable_ext1_wakeup_io(wake_mask);
+    (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     (void)esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     if (rtc_wake_gpio != SOLAR_OS_RTC_INTERRUPT_GPIO_NONE) {
         (void)rtc_gpio_deinit((gpio_num_t)rtc_wake_gpio);
     }
-    key_restore_gpio_after_rtc();
+    sleep_wake_restore_gpio();
 
     const uint32_t now_ms = millis_u32();
     last_app_tick_ms = now_ms;
@@ -1205,6 +1287,27 @@ static void handle_key_input(uint8_t key)
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+static bool board_button_long_press(gpio_num_t pin, void *user)
+{
+    (void)user;
+#ifdef SOLAR_OS_BOARD_PIN_BLE_PAIR
+    if (pin == SOLAR_OS_BOARD_PIN_BLE_PAIR) {
+        handle_key_pairing();
+        return true;
+    }
+#endif
+#ifdef SOLAR_OS_BOARD_PIN_APP_EXIT
+    if (pin == SOLAR_OS_BOARD_PIN_APP_EXIT) {
+        handle_key_input(SOLAR_OS_KEY_APP_EXIT);
+        return true;
+    }
+#endif
+    return false;
+}
+#endif
+
 static void handle_key_action(solar_os_power_key_action_t action, const char *reason)
 {
     switch (action) {
@@ -1234,6 +1337,11 @@ static void handle_key_action(solar_os_power_key_action_t action, const char *re
     case SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR:
         handle_key_pairing();
         break;
+    case SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN: {
+        const esp_err_t err = solar_os_shutdown_request();
+        if (err != ESP_OK) SOLAR_OS_LOGW(TAG, "KEY shutdown request failed: %s", esp_err_to_name(err));
+        break;
+    }
     default:
         SOLAR_OS_LOGW(TAG, "KEY action invalid");
         break;
@@ -1351,7 +1459,8 @@ static void poll_key_button(void)
     solar_os_power_status_t status;
     solar_os_power_get_status(&status);
     if (status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SLEEP ||
-        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP) {
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_DEEPSLEEP ||
+        status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN) {
         /* RTC wake is level-triggered. Wait for release without blocking the
          * runtime or expiring the sleep path's stable-release timeout. */
         key_release_action = status.key_long_action;
@@ -1612,6 +1721,13 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     dispatch_input_chars(&text_key, 1);
 }
 
+static uint16_t input_display_orientation(const char *target)
+{
+    solar_os_terminal_profile_t profile;
+    return solar_os_display_get_terminal_profile(target, &profile) == ESP_OK
+        ? profile.orientation_degrees : 0;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -1625,11 +1741,11 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         solar_os_terminal_profile_t profile;
         if (solar_os_display_find_target(pointer->target, &target) &&
             solar_os_display_get_terminal_profile(pointer->target, &profile) == ESP_OK) {
-            (void)solar_os_input_pointer_apply_orientation(
+            (void)solar_os_input_pointer_apply_display_transform(
                 &oriented_pointer,
-                target.width,
-                target.height,
-                profile.orientation_degrees);
+                target.native_width ? target.native_width : target.width,
+                target.native_height ? target.native_height : target.height,
+                profile.orientation_degrees, profile.scale ? profile.scale : 1);
         }
     }
 
@@ -1960,7 +2076,7 @@ static void process_app_requests(void)
 
 static void maybe_enter_idle_sleep(void)
 {
-    if (!board_has(SOLAR_OS_BOARD_CAP_KEY) ||
+    if (!SLEEP_WAKE_AVAILABLE ||
         deferred_sleep_pending ||
         !solar_os_sessions_foreground_is_shell() ||
         key_pressed ||
@@ -2024,6 +2140,7 @@ static void start_headless_shell_if_needed(void)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(solar_os_board_boot_init());
     solar_os_memory_init();
     ESP_ERROR_CHECK(init_nvs());
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -2037,6 +2154,7 @@ void app_main(void)
     }
 #endif
     const esp_err_t input_err = solar_os_input_init();
+    solar_os_input_set_display_orientation_resolver(input_display_orientation);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }
@@ -2053,6 +2171,10 @@ void app_main(void)
     solar_os_input_actions_set_runner(solar_os_shell_run_background_command);
     print_boot_summary();
     key_button_init();
+#if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+    solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
+#endif
 
     const bool reserve_port_shell =
         !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);

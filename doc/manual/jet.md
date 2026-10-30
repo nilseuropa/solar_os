@@ -49,6 +49,8 @@ foreground display. From a port shell, provide a ready target name from
 `display list`, for example `solaros.jet.open("display0")`. `fps` is 0 through
 30; zero uses the target's preferred stream rate on monochrome targets and 30
 on color targets. Presentation may coalesce queued frames.
+Jet keeps its current orientation while active. Display and gesture rotation
+changes are rejected until the scene is suspended or closed.
 
 | Scene method | Arguments and result |
 | --- | --- |

@@ -235,7 +235,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("solar_os_task_create_pinned_external(telnetd_job_task", telnetd)
         self.assertIn("solar_os_task_delete_external(NULL);", telnetd)
         self.assertIn(".worker_stack_external = true,", telnetd)
-        self.assertIn("#define PORT_SHELL_TASK_STACK 16384", port_shell)
+        self.assertIn("#define PORT_SHELL_TASK_STACK 24576", port_shell)
 
     def test_python_stack_budget_and_task_failure_diagnostics(self):
         python = (ROOT / "src/apps/solar_os_python.c").read_text(
