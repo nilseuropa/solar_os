@@ -44,6 +44,16 @@ consumes one cycle; failed transfers or BUSY timeouts consume none. Unchanged
 masks reuse panel RAM, and the worker continues pending settling without a
 new application frame. New submissions replace queued targets.
 
+After initializing the visible RAM with a complete neutral mask, pulse updates
+use command `0x83` to address an aligned rectangle. The transferred rectangle
+includes both the active pixels and the preceding mask, clearing pixels that
+have finished settling to HOLD. Coordinates account for the V2 reversed gate
+rows. Controller reset invalidates the remembered window before the next full
+mask initialization. Native factory refreshes retain full-frame transfers.
+Pixel budgets follow native tile-byte order, keeping adjacent pixel/history
+entries together and allowing drive-mask generation without per-pixel coordinate
+division.
+
 Cleanup, relax recovery, final power-state images, and resumed optical
 baselines use factory full refresh. A subsequent pulse resets and reloads the
 short RAM waveform. Mode changes serialize with the panel and stop/join the

@@ -56,6 +56,8 @@ typedef struct {
     epd_scan_worker_t scan_worker;
     uint8_t *pulse_planes;
     size_t pulse_mask_pending;
+    uint16_t pulse_x_start, pulse_x_end, pulse_y_start, pulse_y_end;
+    bool pulse_window_valid;
     uint32_t pulse_updates, scan_submit_ready, pulse_spi_clock_hz;
     uint16_t scan_period_ms;
     int64_t pulse_last_frame_start;
@@ -69,7 +71,7 @@ typedef struct {
     uint8_t temperature;
     uint8_t waveform;
     int64_t temperature_read_us;
-    uint32_t last_frame_us, last_transfer_us, last_drive_us;
+    uint32_t last_frame_us, last_transfer_us, last_drive_us, last_transfer_bytes;
     bool temperature_valid, waveform_valid, waveform_partial;
     bool bus_initialized, controller_ready, shadow_valid, powered, analog_on;
     bool suspended, power_state_present;

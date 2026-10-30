@@ -31,7 +31,7 @@ TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += ssd1677_expansion_test
-TARGETS += epd_ssd2677_test ssd2677_expansion_test
+TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
 TARGETS += epd_sticky_identify_test sticky_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
@@ -1142,7 +1142,8 @@ app_exit_result_test: app_exit_result_test.c $(ROOT)/src/solar_os.c $(ROOT)/src/
 		$(ROOT)/src/solar_os.c $(ROOT)/src/shell/solar_os_shell_io.c \
 		-Wl,--gc-sections -o $@
 
-terminal_preferences_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
+terminal_preferences_sticky_test: override CFLAGS += -DSOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE=2
+terminal_preferences_test terminal_preferences_sticky_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
 
@@ -1380,6 +1381,7 @@ test: $(TARGETS)
 	./axp2101_test
 	./epd_ssd1677_test
 	./epd_ssd2677_test
+	./terminal_preferences_sticky_test
 	./ssd2677_expansion_test
 	./epd_sticky_identify_test
 	./sticky_display_test

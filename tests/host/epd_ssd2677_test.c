@@ -385,6 +385,85 @@ static void test_pulse_waveform_contract(void)
     assert(lut[184] == 0xba && lut[272] == 0xd5);
 }
 
+static void check_window_wire(const epd_ssd2677_t *d, const uint8_t *old,
+                               const ssd2677_window_t *w)
+{
+    const captured_t *wire = find(0x10);
+    const unsigned row_bytes = (w->x_end-w->x_start+1)/4;
+    assert(wire && wire->size == row_bytes*(w->y_end-w->y_start+1));
+    for (unsigned y=w->y_start;y<=w->y_end;y++) for (unsigned x=w->x_start;x<=w->x_end;x++) {
+        const unsigned index = (479-y)/8*800+x, bit=(479-y)%8;
+        const unsigned n = (d->buffer[index]>>bit)&1;
+        const unsigned p = old ? (old[index]>>bit)&1 : n;
+        const unsigned shift = 6-((x-w->x_start)%4)*2;
+        const unsigned position = (y-w->y_start)*row_bytes+(x-w->x_start)/4;
+        assert(((wire->data[position]>>shift)&3) == p*2+n);
+    }
+}
+
+static void test_window_encoding_and_mask_clear(void)
+{
+    epd_ssd2677_t d = make_display();
+    uint8_t old[48000];
+    for (size_t i=0;i<48000;i++) { d.buffer[i]=(uint8_t)(i*73+19); old[i]=(uint8_t)(i*31+7); }
+    const ssd2677_window_t windows[] = {{0,7,0,7},{792,799,472,479},{16,31,128,143},{0,799,240,247}};
+    for (unsigned i=0;i<4;i++) {
+        command_count=0;
+        assert(write_encoded_rectangle(&d,d.buffer,old,&windows[i]) == ESP_OK);
+        check_window_wire(&d,old,&windows[i]);
+    }
+    memset(d.buffer,0xff,48000);
+    command_count=0;
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=sync") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"drive-cycles=2") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_OK);
+    assert(refresh(&d) == ESP_OK);
+    bool baseline=false;
+    d.buffer[800+10] &= 0xfe; /* logical (10,8), physical y471 */
+    assert(pulse_prepare(&d,d.buffer,true,&baseline) == ESP_OK && !baseline);
+    command_count=0;
+    assert(pulse_cycle(&d) == ESP_OK && find(0x10)->size == 96000);
+    assert(find(0x83)->size == 9 && find(0x83)->data[8] == 1);
+    assert(epd_ssd2677_set_controller_mode(&d,"drive-cycles=3") == ESP_OK);
+    d.buffer[1600+26] &= 0xfe; /* newer target remains active after older pixel settles */
+    assert(pulse_prepare(&d,d.buffer,true,&baseline) == ESP_OK);
+    command_count=0;
+    assert(pulse_cycle(&d) == ESP_OK && find(0x10)->size == 96);
+    const uint8_t address[] = {0,8,0,31,1,200,1,215,1};
+    assert(!memcmp(find(0x83)->data,address,sizeof(address)));
+    command_count=0;
+    assert(pulse_cycle(&d) == ESP_OK && find(0x10)->size == 96);
+    /* The older pixel must be cleared to HOLD in the cropped wire mask. */
+    const captured_t *wire=find(0x10);
+    assert(((wire->data[15*6]>>2)&3) == 0); /* x10,y471 */
+    assert(((wire->data[7*6+4]>>2)&3) == 2); /* x26,y463 */
+    command_count=0; epd_ssd2677_deinit(&d);
+}
+
+static void test_pulse_tile_budget_order(void)
+{
+    epd_ssd2677_t d = make_display();
+    uint8_t old[48000];
+    for (size_t i=0;i<sizeof(old);i++) d.buffer[i]=(uint8_t)(i*73+19);
+    memcpy(old,d.buffer,sizeof(old));
+    assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=sync") == ESP_OK);
+    assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_OK);
+    assert(refresh(&d) == ESP_OK); /* seed a nonuniform optical baseline */
+    for (size_t i=0;i<sizeof(old);i++) d.buffer[i] ^= (uint8_t)(i*31+0xa5);
+    bool baseline;
+    assert(pulse_prepare(&d,d.buffer,true,&baseline) == ESP_OK && !baseline);
+    command_count=0;
+    assert(pulse_cycle(&d) == ESP_OK && find(0x10)->size == 96000);
+    const captured_t *wire=find(0x10);
+    for (unsigned y=0;y<480;y++) for (unsigned x=0;x<800;x++) {
+        const unsigned offset=(479-y)/8*800+x, bit=(479-y)%8;
+        const unsigned before=(old[offset]>>bit)&1, after=(d.buffer[offset]>>bit)&1;
+        const unsigned expected=before == after ? 0 : after ? 1 : 2;
+        assert(((wire->data[y*200+x/4]>>(6-(x%4)*2))&3) == expected);
+    }
+    command_count=0; epd_ssd2677_deinit(&d);
+}
+
 static void test_pulse_settling_async_and_recovery(void)
 {
     epd_ssd2677_t d = make_display();
@@ -395,7 +474,7 @@ static void test_pulse_settling_async_and_recovery(void)
     command_count = 0; d.buffer[10] ^= 1;
     assert(refresh(&d) == ESP_OK && !d.pixel_budget.pending);
     assert(find(0x20) && find(0x20)->size == SOLAR_OS_SSD2677_LUT_BYTES);
-    assert(d.pixel_budget.drive_history[10] == 3);
+    assert(d.pixel_budget.drive_history[10*8] == 3);
     const captured_t *wire = find(0x10);
     assert(((wire->data[479*200+10/4] >> (6-(10%4)*2)) & 3U) == 2U);
     assert(!d.analog_on && d.fastwave_loaded);
@@ -407,12 +486,12 @@ static void test_pulse_settling_async_and_recovery(void)
     assert(refresh(&d) == ESP_OK && !command_count);
     assert(refresh(&d) == ESP_OK && d.scan_worker.stats.coalesced);
     assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
-    assert(d.pixel_budget.drive_history[20] == 1);
+    assert(d.pixel_budget.drive_history[20*8] == 1);
     command_count = 0;
     assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
     assert(!find(0x10) && !find(0x20)); /* reuse unchanged drive mask and LUT */
     assert(worker_tick(&d.scan_worker) == ESP_OK && !d.pixel_budget.pending);
-    assert(d.pixel_budget.drive_history[20] == 3 && !d.analog_on);
+    assert(d.pixel_budget.drive_history[20*8] == 3 && !d.analog_on);
     assert(strstr(epd_ssd2677_controller_mode(&d),"waveform=fastwave"));
     assert(epd_ssd2677_set_controller_mode(&d,"waveform-fr=6") == ESP_ERR_INVALID_ARG);
     assert(d.pulse_tuning.waveform_fr == 5);
@@ -442,6 +521,8 @@ int main(void)
     test_waveform_cache_and_fast_cleanup();
     test_random_frame_encoding();
     test_pulse_waveform_contract();
+    test_window_encoding_and_mask_clear();
+    test_pulse_tile_budget_order();
     test_pulse_settling_async_and_recovery();
     private_bus = true;
     epd_ssd2677_t d = make_display(); epd_ssd2677_deinit(&d);

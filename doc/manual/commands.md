@@ -716,7 +716,9 @@ and the settings TUI use the same display operations and save their values in NV
 
 `display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
-spacing. The default is `1`. On an 800x480 panel, scale `2` gives applications
+spacing. The default is `1`, except Sticky's primary display defaults to `2`
+on both controller revisions. Saved per-display settings take precedence.
+On an 800x480 panel, scale `2` gives applications
 a 400x240 logical canvas, with each pixel enlarged to a 2x2 block. Scale `3`
 uses a 266x160 canvas; unused edge pixels do not add logical drawing space.
 Touch coordinates follow the same scale and orientation.
@@ -1544,7 +1546,7 @@ cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 
 SSD2677 Sticky V2 starts in asynchronous `refresh=pulse` / `waveform=fastwave`
 with its own 535-byte RAM waveform, shared pixel budgets, background settling,
-and adaptive native cleanup. Defaults are `drive-cycles=12`, `pulse-frames=2`,
+and adaptive native cleanup. Defaults are `drive-cycles=8`, `pulse-frames=4`,
 `waveform-fr=5`, `pulse-period=100`, `pulse-power=hold`, and
 `cleanup-every=64`. Pulse tuning follows SSD1677, except `waveform-fr` accepts
 1..5 (25, 50, 65, 75, 85 Hz). `pulse-frames` and `drive-cycles` accept 1..32.

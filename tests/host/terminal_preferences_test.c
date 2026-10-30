@@ -6,6 +6,10 @@
 #include "nvs.h"
 #include "solar_os_terminal_preferences.h"
 
+#ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE
+#define SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE 1
+#endif
+
 typedef struct {
     const char *key;
     bool present;
@@ -153,7 +157,7 @@ int main(void)
            ESP_ERR_INVALID_ARG);
     assert(solar_os_terminal_profile_save_text_size(
                SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT) == ESP_ERR_INVALID_ARG);
-    assert(solar_os_terminal_profile_load_scale("display0")==1);
+    assert(solar_os_terminal_profile_load_scale("display0")==SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE);
     assert(solar_os_terminal_profile_save_scale("display0",2)==ESP_OK);
     assert(solar_os_terminal_profile_load_scale("display0")==2);
     assert(solar_os_terminal_profile_load_scale("oled0")==1);
@@ -170,7 +174,10 @@ int main(void)
     assert(solar_os_terminal_profile_save_scale("",2)==ESP_ERR_INVALID_ARG);
     assert(solar_os_terminal_profile_save_scale("abcdefghijklmnop",2)==ESP_ERR_INVALID_ARG);
     display_scales[0]=99;
-    assert(solar_os_terminal_profile_load_scale("display0")==1);
+    assert(solar_os_terminal_profile_load_scale("display0")==SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE);
+    scale_write_error=ESP_OK;
+    assert(solar_os_terminal_profile_save_scale("display0",1)==ESP_OK);
+    assert(solar_os_terminal_profile_load_scale("display0")==1); /* saved user override */
     assert(solar_os_terminal_profile_load_display_orientation("display0",0)==0);
     assert(solar_os_terminal_profile_save_display_orientation("display0",270)==ESP_OK);
     assert(find_value("orientation")->value==270);

@@ -1412,8 +1412,8 @@ The direct MONO1 frame presenter supports scaled animation and games at a prefer
 SSD2677 uses its own Sticky 3D97 V2 monochrome profile at 20 MHz. Sticky's
 `panel=1` starts in asynchronous `refresh=pulse` / `waveform=fastwave`.
 The driver uploads an SSD2677-specific 535-byte RAM waveform and uses the same
-pixel-budget and scan worker as SSD1677. Defaults are `drive-cycles=12`,
-`pulse-frames=2`, `waveform-fr=5` (85 Hz), `pulse-period=100`,
+pixel-budget and scan worker as SSD1677. Defaults are `drive-cycles=8`,
+`pulse-frames=4`, `waveform-fr=5` (85 Hz), `pulse-period=100`,
 `pulse-power=hold`, and adaptive cleanup every 64 changed targets. Static
 pixels continue settling after the application stops painting; newer frames
 replace queued targets without waiting for every preceding frame to settle.
@@ -1422,6 +1422,12 @@ replace queued targets without waiting for every preceding frame to settle.
 inversion, synchronous scan, and SPI-rate controls follow SSD1677 semantics.
 The panel's own OTP supplies analog voltage settings. Full cleanup, recovery,
 and final power-state images use factory waveforms.
+Pulse mode uses aligned RAM windows around active pixels, including the preceding
+mask so settled pixels are cleared to HOLD. The first mask initializes the full
+visible RAM; subsequent transfers cover only that window.
+
+Both Sticky controller revisions default to `display0` scale 2 (a 400x240
+logical canvas on the 800x480 panel). A saved per-display scale takes precedence.
 
 Native `refresh=auto|fast|partial|full` modes remain available. The `panel=0`
 alias starts in auto mode. `refresh=partial` selects factory partial refresh;

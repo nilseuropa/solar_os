@@ -108,6 +108,7 @@ static esp_err_t controller_init(epd_ssd2677_t *d)
     d->controller_ready = d->shadow_valid = d->analog_on = false;
     d->temperature_valid = d->waveform_valid = false;
     d->fastwave_loaded = false;
+    d->pulse_window_valid = false;
     TRY(set_power(d, true));
     TRY(gpio_set_level(d->reset_pin, 0));
     delay_ms(20);
@@ -166,24 +167,38 @@ static esp_err_t latch_waveform(epd_ssd2677_t *d, bool partial)
     return ESP_OK;
 }
 
-static uint16_t interleave_byte(uint8_t value)
+static inline __attribute__((always_inline)) uint16_t expand_wire_byte(uint8_t value)
 {
-    uint16_t bits = value;
-    bits = (uint16_t)((bits | (bits << 4U)) & 0x0f0fU);
-    bits = (uint16_t)((bits | (bits << 2U)) & 0x3333U);
-    return (uint16_t)((bits | (bits << 1U)) & 0x5555U);
+    /* Native row bit 0 is source X0; the first wire pixel is the high pair. */
+    static const uint8_t nibble[] = {0,0x40,0x10,0x50,4,0x44,0x14,0x54,1,0x41,0x11,0x51,5,0x45,0x15,0x55};
+    return (uint16_t)((uint16_t)nibble[value & 15U] << 8U) | nibble[value >> 4U];
 }
 
-static esp_err_t write_encoded_image(epd_ssd2677_t *d, const uint8_t *image, const uint8_t *previous)
+typedef struct {
+    uint16_t x_start, x_end, y_start, y_end;
+} ssd2677_window_t;
+
+static esp_err_t select_window(epd_ssd2677_t *d, const ssd2677_window_t *w)
+{
+    /* PTLW (83h), SSD2677 rev 1.0 p24. Gate scanning still covers the
+     * panel; RAM data and driven sources are confined to this rectangle. */
+    const uint8_t address[] = {w->x_start>>8,w->x_start,w->x_end>>8,w->x_end,
+        w->y_start>>8,w->y_start,w->y_end>>8,w->y_end,1};
+    return command(d,0x83,address,sizeof(address));
+}
+
+static esp_err_t write_encoded_rectangle(epd_ssd2677_t *d, const uint8_t *image,
+                                         const uint8_t *previous, const ssd2677_window_t *w)
 {
     TRY(command(d, 0x10, NULL, 0));
     TRY(gpio_set_level(d->dc_pin, 1));
     if (d->line_buffer_size < SSD2677_TRANSFER_BYTES) return ESP_ERR_INVALID_SIZE;
-    for (unsigned y = 0; y < SSD2677_HEIGHT; y += 8U) {
+    const unsigned row_bytes = (w->x_end-w->x_start+1U)/4U;
+    for (unsigned y = w->y_start; y <= w->y_end; y += 8U) {
         /* Reverse the V2 gate rows without mirroring source X. Transpose each
          * 8x8 u8g2 block once and batch eight physical rows per SPI transfer. */
         const size_t tile = (SSD2677_HEIGHT - 1U - y) / 8U * SSD2677_WIDTH;
-        for (unsigned x = 0; x < SSD2677_WIDTH; x += 8U) {
+        for (unsigned x = w->x_start; x <= w->x_end; x += 8U) {
             uint32_t low, high, old_low, old_high;
             memcpy(&low, image + tile + x, 4);
             memcpy(&high, image + tile + x + 4U, 4);
@@ -196,18 +211,25 @@ static esp_err_t write_encoded_image(epd_ssd2677_t *d, const uint8_t *image, con
             }
             for (unsigned row = 0; row < 8U; row++) {
                 const unsigned bit = 7U - row, shift = (bit & 3U) * 8U;
-                const uint8_t current = reverse_byte((uint8_t)((bit < 4U ? low : high) >> shift));
-                const uint8_t old = reverse_byte((uint8_t)((bit < 4U ? old_low : old_high) >> shift));
-                const uint16_t packed = (uint16_t)((interleave_byte(old) << 1U) | interleave_byte(current));
-                const size_t offset = row * SSD2677_ROW_BYTES + x / 4U;
+                const uint8_t current = (uint8_t)((bit < 4U ? low : high) >> shift);
+                const uint8_t old = (uint8_t)((bit < 4U ? old_low : old_high) >> shift);
+                const uint16_t packed = (uint16_t)((expand_wire_byte(old) << 1U) | expand_wire_byte(current));
+                const size_t offset = row * row_bytes + (x-w->x_start) / 4U;
                 d->line_buffer[offset] = (uint8_t)(packed >> 8U);
                 d->line_buffer[offset + 1U] = (uint8_t)packed;
             }
         }
-        spi_transaction_t tx = {.length = SSD2677_TRANSFER_BYTES * 8U, .tx_buffer = d->line_buffer};
+        spi_transaction_t tx = {.length = row_bytes * 8U * 8U, .tx_buffer = d->line_buffer};
         TRY(transmit(d, &tx, write_clock(d)));
     }
+    d->last_transfer_bytes = row_bytes*(w->y_end-w->y_start+1U);
     return ESP_OK;
+}
+
+static esp_err_t write_encoded_image(epd_ssd2677_t *d, const uint8_t *image, const uint8_t *previous)
+{
+    const ssd2677_window_t full = {0,SSD2677_WIDTH-1U,0,SSD2677_HEIGHT-1U};
+    return write_encoded_rectangle(d,image,previous,&full);
 }
 
 static esp_err_t write_image(epd_ssd2677_t *d, const uint8_t *image, bool partial)
@@ -282,6 +304,7 @@ static void scan_disable(epd_ssd2677_t *d)
 
 static void free_budget(epd_ssd2677_t *d)
 {
+    d->pulse_window_valid = false;
     solar_os_memory_free(d->pixel_budget.active);
     solar_os_memory_free(d->pixel_budget.drive_history);
     solar_os_memory_free(d->pixel_budget.pixels);
@@ -331,8 +354,9 @@ static esp_err_t load_fastwave(epd_ssd2677_t *d)
 
 static bool pixel_white(const uint8_t *source, size_t p)
 {
-    const size_t x = p % SSD2677_WIDTH, y = p / SSD2677_WIDTH;
-    return (source[(y / 8U) * SSD2677_WIDTH + x] & (1U << (y % 8U))) != 0;
+    /* Budget order follows u8g2 tile bytes. Adjacent budget/history entries
+     * then share cache lines and the hot mask loop needs no pixel division. */
+    return (source[p >> 3U] & (1U << (p & 7U))) != 0;
 }
 
 static bool cleanup_due(const epd_ssd2677_t *d)
@@ -354,6 +378,7 @@ static esp_err_t pulse_prepare(epd_ssd2677_t *d, const uint8_t *source,
             epd_pixel_budget_seed(&d->pixel_budget, p, pixel_white(source, p));
         d->pulse_needs_cleanup = false;
         d->pulse_mask_dirty = true;
+        d->pulse_window_valid = false;
         d->pulse_updates = 0;
         d->pulse_last_frame_start = 0;
         *baseline = true;
@@ -368,10 +393,9 @@ static esp_err_t pulse_prepare(epd_ssd2677_t *d, const uint8_t *source,
         for (size_t i = 0; i < SSD2677_BUFFER_BYTES; ++i) {
             const uint8_t changed = source[i] ^ d->shadow[i];
             if (!changed) continue;
-            const size_t x = i % SSD2677_WIDTH, y = i / SSD2677_WIDTH * 8U;
             for (unsigned bit = 0; bit < 8U; bit++) {
                 if (changed & (1U << bit)) {
-                    const size_t p = (y + bit) * SSD2677_WIDTH + x;
+                    const size_t p = i * 8U + bit;
                     epd_pixel_budget_target(&d->pixel_budget, p,
                         (source[i] & (1U << bit)) != 0, d->pulse_tuning.drive_cycles);
                 }
@@ -389,17 +413,48 @@ static esp_err_t pulse_cycle(epd_ssd2677_t *d)
     TRY(load_fastwave(d));
     if (d->pulse_mask_dirty || d->pulse_mask_pending != d->pixel_budget.pending) {
         uint8_t *black = d->pulse_planes, *white = black + SSD2677_BUFFER_BYTES;
+        ssd2677_window_t active = {SSD2677_WIDTH-1U,0,SSD2677_HEIGHT-1U,0};
+        bool changed = false;
         memset(d->pulse_planes,0,SSD2677_BUFFER_BYTES*2U);
         for (size_t i = 0; i < d->pixel_budget.active_count; i++) {
             const size_t p = d->pixel_budget.active[i];
             const epd_pixel_drive_t drive = epd_pixel_budget_drive(&d->pixel_budget,p);
             if (drive == EPD_PIXEL_HOLD) continue;
-            const size_t x = p % SSD2677_WIDTH, y = p / SSD2677_WIDTH;
-            (drive == EPD_PIXEL_DRIVE_BLACK ? black : white)[(y/8U)*SSD2677_WIDTH+x] |= 1U << (y&7U);
+            (drive == EPD_PIXEL_DRIVE_BLACK ? black : white)[p >> 3U] |= 1U << (p & 7U);
+        }
+        /* Find aligned bounds once per byte, instead of dividing coordinates
+         * for every active pixel. Both masks are already in native tile order. */
+        for (unsigned tile = 0; tile < SSD2677_HEIGHT/8U; tile++) {
+            const unsigned physical_y = SSD2677_HEIGHT-(tile+1U)*8U;
+            const size_t offset = tile*SSD2677_WIDTH;
+            for (unsigned x = 0; x < SSD2677_WIDTH; x++) {
+                if (!(black[offset+x] | white[offset+x])) continue;
+                if (x < active.x_start) active.x_start = x;
+                if (x > active.x_end) active.x_end = x;
+                if (physical_y < active.y_start) active.y_start = physical_y;
+                if (physical_y+7U > active.y_end) active.y_end = physical_y+7U;
+                changed = true;
+            }
+        }
+        if (!changed) return ESP_ERR_INVALID_STATE;
+        active.x_start &= (uint16_t)~7U; active.x_end |= 7U;
+        active.y_start &= (uint16_t)~7U; active.y_end |= 7U;
+        ssd2677_window_t window = {0,SSD2677_WIDTH-1U,0,SSD2677_HEIGHT-1U};
+        if (d->pulse_window_valid) {
+            window = active;
+            /* Also clear the preceding mask where pixels finished settling. */
+            if (d->pulse_x_start < window.x_start) window.x_start = d->pulse_x_start;
+            if (d->pulse_x_end > window.x_end) window.x_end = d->pulse_x_end;
+            if (d->pulse_y_start < window.y_start) window.y_start = d->pulse_y_start;
+            if (d->pulse_y_end > window.y_end) window.y_end = d->pulse_y_end;
         }
         const int64_t began = esp_timer_get_time();
-        TRY(write_encoded_image(d,white,black));
+        TRY(select_window(d,&window));
+        TRY(write_encoded_rectangle(d,white,black,&window));
         d->last_transfer_us = (uint32_t)(esp_timer_get_time()-began);
+        d->pulse_x_start = active.x_start; d->pulse_x_end = active.x_end;
+        d->pulse_y_start = active.y_start; d->pulse_y_end = active.y_end;
+        d->pulse_window_valid = true;
         d->pulse_mask_dirty = false;
         d->pulse_mask_pending = d->pixel_budget.pending;
     }
@@ -566,7 +621,7 @@ esp_err_t epd_ssd2677_init(epd_ssd2677_t *d, const epd_ssd2677_config_t *c)
     d->lock = xSemaphoreCreateMutexStatic(&d->lock_storage);
     d->mode_lock = xSemaphoreCreateMutexStatic(&d->mode_lock_storage);
     if (!d->lock || !d->mode_lock) return ESP_ERR_NO_MEM;
-    d->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=12,.pulse_frames=2,
+    d->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=8,.pulse_frames=4,
         .waveform_fr=5,.cleanup_every=64,.cleanup_adaptive=true};
     d->scan_async = d->pulse_power_hold = true;
     d->scan_period_ms = 100;
@@ -811,7 +866,7 @@ const char *epd_ssd2677_controller_mode(const epd_ssd2677_t *display)
         "pulse-scan=%s pulse-period=%u pulse-power=%s pulse-spi-khz=%u invert=%s "
         "pending=%u scan-count=%u frame-count=%u scan-submitted=%u scan-coalesced=%u "
         "scan-last-us=%lld scan-interval-us=%lld temperature=%u partial-count=%u "
-        "spi-khz=%u native-last-us=%u tx-us=%u drive-us=%u",
+        "spi-khz=%u native-last-us=%u tx-us=%u tx-bytes=%u drive-us=%u",
         d->refresh_mode == EPD_SSD2677_REFRESH_FULL ? "full" :
         d->refresh_mode == EPD_SSD2677_REFRESH_PARTIAL ? "partial" :
         d->refresh_mode == EPD_SSD2677_REFRESH_FAST ? "fast" :
@@ -826,7 +881,8 @@ const char *epd_ssd2677_controller_mode(const epd_ssd2677_t *display)
         (unsigned)stats.submitted,(unsigned)stats.coalesced,
         (long long)stats.last_scan_us,(long long)stats.last_interval_us,
         d->temperature, d->partial_refresh_count, (unsigned)(d->spi_clock_hz / 1000),
-        (unsigned)d->last_frame_us, (unsigned)d->last_transfer_us, (unsigned)d->last_drive_us);
+        (unsigned)d->last_frame_us, (unsigned)d->last_transfer_us,
+        (unsigned)d->last_transfer_bytes, (unsigned)d->last_drive_us);
     xSemaphoreGive(d->lock);
     return d->mode_description;
 }
