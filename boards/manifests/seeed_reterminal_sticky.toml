@@ -13,7 +13,7 @@ platformio_board = "seeed_reterminal_sticky"
 [build]
 drivers = [
   "uart_esp_idf",
-  "display_ssd1677",
+  "display_sticky",
   "battery_expansion",
   "audio_expansion",
   "storage_expansion",
@@ -42,7 +42,7 @@ SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"board-power"'
 SOLAR_OS_BOARD_POWER_LATCH_PINS = '{GPIO_NUM_45, GPIO_NUM_46}'
 # Assert the latch and peripheral rails before display or storage access.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}, {.pin = GPIO_NUM_38, .level = 0}}'
-SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677/SSD2677"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480"
 SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "800"
@@ -137,7 +137,7 @@ cs = [15, 8]
 max_transfer_size = 4096
 
 [[devices]]
-driver = "ssd1677"
+driver = "sticky-display"
 name = "display0"
 bindings = { spi = "spi0", cs = 15, dc = 16, reset = 17, busy = 18, power = 47, clock = 20000, rotation = 0, panel = 1 }
 

@@ -1542,9 +1542,17 @@ factory `refresh=auto|partial|full` modes. In auto mode,
 cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 `refresh=fast` is an alias for it.
 
+SSD2677 Sticky V2 exposes `refresh=auto|fast|partial|full` and `waveform=otp`.
+`refresh=fast` aliases native partial refresh, which sends a full-frame
+old/new differential image. Auto mode performs a full cleanup after 19 changed
+partial updates. Native full refresh also restores the baseline after errors,
+sleep, or display recovery. SSD2677 does not implement Fastwave/pulse; those
+requests return unsupported. Sticky identifies its controller at startup;
+`display list` reports the selected SSD1677 or SSD2677 driver.
+
 SSD1677 also provides `refresh=pulse` / `waveform=fastwave`, with native
 `refresh=auto|partial|full` and `refresh=fast` as an alias for partial.
-Sticky (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
+Sticky SSD1677 (`panel=1`) starts in asynchronous pulse mode at 20 MHz; other SSD1677
 profiles start in native auto mode. The Sticky panel profile uses the
 manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
 planes for full cleanup. Generic profiles retain their differential full-frame
