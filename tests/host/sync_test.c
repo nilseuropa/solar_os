@@ -2,11 +2,14 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "solar_os_sync.h"
+#include "solar_os_sync_dynamic.h"
 atomic_uint registry_mutex_initializations;
+atomic_uint registry_dynamic_live;
 static SemaphoreHandle_t handle;
+static SemaphoreHandle_t dynamic_handle;
 static StaticSemaphore_t storage;
 static pthread_barrier_t start;
-static unsigned count;
+static unsigned count, dynamic_count;
 static void *worker(void *unused)
 {
     (void)unused;
@@ -17,6 +20,11 @@ static void *worker(void *unused)
         assert(xSemaphoreTake(mutex, portMAX_DELAY));
         ++count;
         xSemaphoreGive(mutex);
+        mutex = solar_os_mutex_get_dynamic(&dynamic_handle);
+        assert(mutex != NULL);
+        assert(xSemaphoreTake(mutex, portMAX_DELAY));
+        ++dynamic_count;
+        xSemaphoreGive(mutex);
     }
     return NULL;
 }
@@ -26,7 +34,10 @@ int main(void)
     assert(!pthread_barrier_init(&start, NULL, 16));
     for (unsigned i = 0; i < 16; ++i) assert(!pthread_create(&threads[i], NULL, worker, NULL));
     for (unsigned i = 0; i < 16; ++i) assert(!pthread_join(threads[i], NULL));
-    assert(count == 1600 && atomic_load(&registry_mutex_initializations) == 1);
+    assert(count == 1600 && dynamic_count == 1600 && atomic_load(&registry_mutex_initializations) == 1);
+    assert(atomic_load(&registry_dynamic_live) == 1);
+    vSemaphoreDelete(dynamic_handle);
+    assert(atomic_load(&registry_dynamic_live) == 0);
     pthread_barrier_destroy(&start);
     pthread_mutex_destroy(&storage);
 }
