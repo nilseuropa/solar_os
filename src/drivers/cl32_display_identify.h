@@ -10,4 +10,4 @@ typedef enum {
 
 /* Identify only CL-32's known panel variants; never cache a panel choice. */
 esp_err_t cl32_display_identify(const char *spi_bus, int cs, int dc, int reset,
-                               int mosi, cl32_display_controller_t *controller);
+                               int mosi, int busy, cl32_display_controller_t *controller);

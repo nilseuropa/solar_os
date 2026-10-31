@@ -48,6 +48,8 @@ Build `pio run -e cl_32` for either CL-32 screen. The board-owned
 attaches the matching concrete driver as `display0`. Both controllers remain
 available as manual expansion drivers; `cl32-display` is hidden from that path.
 The former `cl32_epd` target is replaced by `cl_32`.
+RLCD modules without register readback are identified through their reset/TE
+response on GPIO14; the SSD1685 software-reset BUSY pulse distinguishes e-paper.
 
 T-Deck Plus registers its factory L76K or MIA-M10Q receiver as `gnss0` through
 the `nmea` driver, listening at 9600 baud and trying 38400 if needed. Use

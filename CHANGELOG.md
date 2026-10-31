@@ -12,7 +12,8 @@
   redirect handling. Improved PCM conversion, audio-buffer wakeups, input
   wakeups and app/job scheduling. Fixed concurrent service initialization,
   parameter-provider shutdown and display attachment races, and bounded memory
-  compaction work during low-memory recovery.
+  compaction work during low-memory recovery. Fixed CL-32 RLCD detection on
+  modules without register readback.
 - **4.17.3** — 2026-10-31 — Added SC2 setup and provider worker startup
   in Messages, with saving and deletion progress popups. SC2 relay fields now
   accept `host:port` addresses. Leaving a chat room hides it while retaining
