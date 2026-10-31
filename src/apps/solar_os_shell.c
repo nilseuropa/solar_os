@@ -1,4 +1,5 @@
 #include "solar_os_shell.h"
+#include "solar_os_shell_vocabulary.h"
 
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_completion.h"
@@ -801,33 +802,7 @@ static bool shell_builtin_command_exists(const char *name)
     return false;
 }
 
-static const char * const setterm_subcommands[] = {
-    "--display",
-    "orientation",
-    "scale",
-    "font",
-    "textsize",
-    "palette",
-    "statusbar",
-    "brightness",
-    "backlight",
-    "profile",
-    "charset",
-    "keyboard",
-    "keymap",
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-    "ble",
-#endif
-    "powerkey",
-    "key",
-    "keyrate",
-    "typerate",
-    "repeat",
-    "timezone",
-    "startup",
-    "otaurl",
-    "ota",
-};
+#define setterm_subcommands solar_os_shell_setterm_words
 
 static const char * const setterm_display_settings[] = {
     "orientation", "scale", "font", "textsize", "palette", "statusbar",
@@ -857,19 +832,7 @@ static const char * const setterm_keyrate_values[] = {"off"};
 static const char * const setterm_timezone_values[] = {"UTC", "Europe/Berlin"};
 static const char * const setterm_startup_values[] = {"auto", "flash", "sd"};
 
-static const char * const display_subcommands[] = {
-    "list",
-    "layouts",
-    "test",
-    "mode",
-    "orientation",
-    "scale",
-    "relax",
-    "join",
-    "unjoin",
-    "split",
-    "unsplit",
-};
+#define display_subcommands solar_os_shell_display_words
 static const char * const display_layout_axes[] = {"--horizontal", "--vertical"};
 static const char * const input_subcommands[] = {
     "keymap",
@@ -995,11 +958,7 @@ static const char * const mqtt_qos_values[] = {"0", "1", "2"};
 static const char * const mqtt_retain_values[] = {"0", "1", "on", "off", "retain"};
 #endif
 
-static const char * const job_subcommands[] = {
-    "status",
-    "start",
-    "stop",
-};
+#define job_subcommands solar_os_shell_job_words
 
 static const char * const session_subcommands[] = {
     "list",
@@ -1365,37 +1324,15 @@ static const char * const uart_mode_values[] = {"raw", "line"};
 static const char * const uart_baud_values[] = {"9600", "115200", "230400", "921600"};
 static const char * const uart_read_ms_values[] = {"0", "100", "500", "1000"};
 
-static const char * const port_subcommands[] = {
-    "list",
-    "status",
-};
+#define port_subcommands solar_os_shell_port_words
 
-static const char * const xfer_subcommands[] = {
-    "send",
-    "recv",
-    "protocols",
-};
+#define xfer_subcommands solar_os_shell_xfer_words
 
-static const char * const xfer_options[] = {
-    "--raw",
-    "--protocol",
-    "--delay-ms",
-    "-d",
-    "--append",
-    "--replace",
-    "--idle-ms",
-};
+#define xfer_options solar_os_shell_xfer_options_words
 
 static const char * const xfer_protocol_values[] = {"raw", "zmodem", "kermit"};
 
-static const char * const log_subcommands[] = {
-    "status",
-    "show",
-    "follow",
-    "clear",
-    "level",
-    "sink",
-};
+#define log_subcommands solar_os_shell_log_words
 
 static const char * const log_level_values[] = {"error", "warn", "info", "debug"};
 static const char * const log_sink_values[] = {"cdc"};
@@ -1666,35 +1603,17 @@ static const char * const say_speed_values[] = {
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
-static const char * const sshkey_subcommands[] = {
-    "status",
-    "gen",
-    "pub",
-    "rm",
-};
+#define sshkey_subcommands solar_os_shell_sshkey_words
 
 static const char * const sshkey_gen_values[] = {"-f", "2048", "3072", "4096"};
 static const char * const sshkey_bits_values[] = {"2048", "3072", "4096"};
 #endif
 
-static const char * const ota_subcommands[] = {
-    "status",
-    "check",
-    "upgrade",
-    "url",
-    "flavor",
-    "boot",
-};
-
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+#define ota_subcommands solar_os_shell_ota_words
 static const char * const ota_boot_values[] = {"0", "1"};
-static const char * const stream_subcommands[] = {"list", "status",
-#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-    "ble",
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-    "tcp",
-#endif
-};
+#define stream_subcommands solar_os_shell_stream_words
 #if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
 static const char * const stream_tcp_subcommands[] = {"listen", "connect", "remove"};
 #endif
@@ -2883,8 +2802,10 @@ static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
 static const char * const path_sshkey_gen_force[] = {"sshkey", "gen", "-f"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
 static const char * const path_ota[] = {"ota"};
 static const char * const path_ota_boot[] = {"ota", "boot"};
+#endif
 
 #define SHELL_COMPLETION_STATIC(path_array, value_array) \
     { \
@@ -4010,8 +3931,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),
     SHELL_COMPLETION_STATIC(path_sshkey_gen_force, sshkey_bits_values),
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
     SHELL_COMPLETION_STATIC(path_ota, ota_subcommands),
     SHELL_COMPLETION_STATIC(path_ota_boot, ota_boot_values),
+#endif
 };
 
 #define SHELL_COMPLETION_INDEX_BUCKETS 128U
