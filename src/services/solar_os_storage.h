@@ -166,6 +166,19 @@ esp_err_t solar_os_storage_sibling_path(const char *path,
 esp_err_t solar_os_storage_replace_file(const char *staged_path,
                                         const char *active_path,
                                         const char *backup_path);
+#define SOLAR_OS_STORAGE_REPLACE_MAX 8U
+typedef struct {
+    const char *staged_path;
+    const char *active_path;
+    const char *backup_path;
+} solar_os_storage_replacement_t;
+/* Publish a bounded group of regular files, rolling all members back on an
+ * I/O error. Callers exclusively own these resolved, distinct paths and sync
+ * staged contents first. This is error rollback, not a power-loss journal or
+ * atomic visibility to concurrent readers. A sole backup is recovered before
+ * replacement; backups survive failed rollback for later recovery. */
+esp_err_t solar_os_storage_replace_files(
+    const solar_os_storage_replacement_t *items, size_t count);
 esp_err_t solar_os_storage_read_file(const char *path,
                                      void *buffer,
                                      size_t buffer_len,
