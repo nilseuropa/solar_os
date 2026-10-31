@@ -87,3 +87,9 @@ tick. Port-shell apps similarly shorten their input wait while active. These
 intervals are best-effort scheduling targets, not hard real-time guarantees:
 callbacks still run serially and must return promptly. `tick_deadline_ms`
 records execution-budget misses but does not preempt a callback.
+
+The runtime chooses its wait from the next due session and job ticks, after
+callback and drawing work. Different periods retain independent dispatch
+phases. An overdue tick yields for the minimum scheduler interval rather than
+adding a full period. Background service polling still bounds idle waits to
+25 ms, or 10 ms on boards that require frequent input sampling.

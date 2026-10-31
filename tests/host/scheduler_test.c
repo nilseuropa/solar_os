@@ -13,6 +13,16 @@ int64_t esp_timer_get_time(void)
 
 static void test_runtime_wait(void)
 {
+    solar_os_tick_stats_t first = {0}, second = {.dispatch_count = 1, .last_dispatch_ms = 100};
+    assert(solar_os_tick_wait_ms(&first, 25, 25, 100) == 0);
+    /* Account for callback/drawing work and for different tick phases. */
+    assert(solar_os_tick_wait_ms(&second, 25, 25, 120) == 5);
+    first.dispatch_count = 1; first.last_dispatch_ms = 110;
+    assert(solar_os_tick_wait_ms(&first, 16, 25, 120) == 6);
+    assert(solar_os_tick_wait_ms(&second, 25, 25, 126) == 0);
+    assert(solar_os_tick_wait_ms(&second, 0, 25, 121) == 4);
+    second.last_dispatch_ms = UINT32_MAX - 5U;
+    assert(solar_os_tick_wait_ms(&second, 10, 25, 2) == 2);
     assert(solar_os_runtime_wait_ms(100U, false) == 25U);
     assert(solar_os_runtime_wait_ms(100U, true) == 10U);
     assert(solar_os_runtime_wait_ms(5U, false) == 5U);

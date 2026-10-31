@@ -20,7 +20,7 @@ class ScriptInputBindingsTest(unittest.TestCase):
         self.assertLess(dispatch.index("solar_os_input_capture_key_event"),
                         dispatch.index("session_switch_alt_held"))
         pump = main.split("static void dispatch_input_sources(void)", 1)[1].split(
-            "static uint32_t requested_tick_interval_ms", 1)[0]
+            "static uint32_t next_tick_wait_ms", 1)[0]
         self.assertIn("solar_os_input_take_captured_activity()", pump)
         self.assertIn("solar_os_power_note_activity(millis_u32())", pump)
 

@@ -1057,6 +1057,22 @@ uint32_t solar_os_jobs_requested_tick_interval_ms(void)
     return interval_ms;
 }
 
+uint32_t solar_os_jobs_next_tick_wait_ms(uint32_t now_ms)
+{
+    uint32_t wait_ms = SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    portENTER_CRITICAL(&jobs_lock);
+    for (size_t i = 0; i < job_runtime_count; i++) {
+        const solar_os_job_runtime_t *runtime = &job_runtimes[i];
+        const solar_os_job_t *job = runtime->entry != NULL ? runtime->entry->job : NULL;
+        if (runtime->state != SOLAR_OS_JOB_RUNNING || runtime->lifecycle_busy || !job_has_event(job)) continue;
+        uint32_t remaining = solar_os_tick_wait_ms(&runtime->tick_stats,
+            job->tick_interval_ms, SOLAR_OS_TICK_INTERVAL_DEFAULT_MS, now_ms);
+        if (remaining < wait_ms) wait_ms = remaining;
+    }
+    portEXIT_CRITICAL(&jobs_lock);
+    return wait_ms;
+}
+
 esp_err_t solar_os_jobs_owner_name(const char *name, char *owner, size_t owner_len)
 {
     if (name == NULL || name[0] == '\0' || owner == NULL || owner_len == 0) {

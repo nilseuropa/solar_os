@@ -190,7 +190,6 @@ static uint32_t suspend_input_key_press_generation;
 static uint32_t suspend_ble_wake_generation;
 #endif
 static uint32_t key_pressed_ms;
-static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 static uint32_t last_terminal_draw_ms;
 static uint32_t last_session_overlay_draw_ms;
@@ -659,7 +658,6 @@ static void exit_suspend(const char *reason)
     solar_os_display_clear_power_state();
     const uint32_t now_ms = millis_u32();
     solar_os_power_note_activity(now_ms);
-    last_app_tick_ms = now_ms;
     last_status_update_ms = 0;
     update_status();
     dispatch_app_resume(now_ms);
@@ -1149,7 +1147,6 @@ static void enter_sleep(const char *reason, bool deep_sleep)
     sleep_wake_restore_gpio();
 
     const uint32_t now_ms = millis_u32();
-    last_app_tick_ms = now_ms;
     last_status_update_ms = 0;
     key_irq_pending = false;
     key_pressed = false;
@@ -1879,11 +1876,12 @@ static void dispatch_input_sources(void)
     }
 }
 
-static uint32_t requested_tick_interval_ms(void)
+static uint32_t next_tick_wait_ms(void)
 {
-    uint32_t interval_ms = solar_os_sessions_requested_tick_interval_ms();
+    const uint32_t now_ms = millis_u32();
+    uint32_t interval_ms = solar_os_sessions_next_tick_wait_ms(now_ms);
     const uint32_t jobs_interval_ms =
-        solar_os_jobs_requested_tick_interval_ms();
+        solar_os_jobs_next_tick_wait_ms(now_ms);
     if (jobs_interval_ms < interval_ms) {
         interval_ms = jobs_interval_ms;
     }
@@ -1942,15 +1940,9 @@ static void note_runtime_cadence(uint32_t now_ms, uint32_t planned_wait_ms)
 static void dispatch_app_tick(void)
 {
     const uint32_t now_ms = millis_u32();
-    const uint32_t interval_ms = requested_tick_interval_ms();
-    if ((now_ms - last_app_tick_ms) < interval_ms) {
-        return;
-    }
-
-    last_app_tick_ms = now_ms;
     solar_os_sessions_dispatch_tick(now_ms);
 
-    solar_os_jobs_tick(&os_ctx, now_ms);
+    solar_os_jobs_tick(&os_ctx, millis_u32());
     process_app_requests();
 }
 
@@ -2346,7 +2338,7 @@ void app_main(void)
         maybe_enter_idle_sleep();
 
         const uint32_t loop_interval_ms = solar_os_runtime_wait_ms(
-            requested_tick_interval_ms(), requires_fast_poll);
+            next_tick_wait_ms(), requires_fast_poll);
         note_runtime_cadence(millis_u32(), loop_interval_ms);
         vTaskDelay(pdMS_TO_TICKS(loop_interval_ms));
     }
