@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.17.4** — 2026-10-31 — Added PID and hysteresis feedback controllers
+  with timestamped measurements, exclusive output control, shell commands and
+  Python/Lua APIs. Added the optional robot library for calibrated servo-position
+  and motor/encoder-velocity joints on supported ESP32-S3 devices with executable
+  PSRAM. Reduced peak memory use for Docs and Playground installation by
+  streaming verified downloads to storage. Shared download verification now
+  covers native modules and Zoo, with improved installation rollback and HTTP
+  redirect handling. Improved PCM conversion, audio-buffer wakeups, input
+  wakeups and app/job scheduling. Fixed concurrent service initialization,
+  parameter-provider shutdown and display attachment races, and bounded memory
+  compaction work during low-memory recovery.
 - **4.17.3** — 2026-10-31 — Added SC2 setup and provider worker startup
   in Messages, with saving and deletion progress popups. SC2 relay fields now
   accept `host:port` addresses. Leaving a chat room hides it while retaining
