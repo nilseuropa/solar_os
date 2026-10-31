@@ -7,12 +7,14 @@ typedef pthread_mutex_t StaticSemaphore_t;
 typedef StaticSemaphore_t *SemaphoreHandle_t;
 extern atomic_uint registry_mutex_initializations;
 extern atomic_uint registry_dynamic_live;
+extern pthread_barrier_t *registry_dynamic_create_barrier;
 static inline SemaphoreHandle_t xSemaphoreCreateMutex(void)
 {
     SemaphoreHandle_t s = malloc(sizeof(*s));
     if (s) {
         assert(pthread_mutex_init(s, NULL) == 0);
         atomic_fetch_add(&registry_dynamic_live, 1);
+        if (registry_dynamic_create_barrier) pthread_barrier_wait(registry_dynamic_create_barrier);
     }
     return s;
 }
