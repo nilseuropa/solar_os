@@ -1,0 +1,321 @@
+schema = 1
+
+[board]
+id = "seeed_reterminal_e1003"
+name = "Seeed Studio reTerminal E1003"
+vendor = "Seeed Studio"
+module = "ESP32-S3R8 (32 MB flash / 8 MB PSRAM)"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "seeed_reterminal_e1003"
+
+[build]
+drivers = [
+  "uart_esp_idf", "display_it8951", "battery_expansion", "audio_expansion",
+  "storage_expansion", "pointer_gt911", "i2c_esp_idf", "spi_esp_idf",
+  "rtc_pcf8563", "sensors_sht40", "gpio_esp_idf", "adc_esp_idf", "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi",
+  "rtc", "battery", "wifi", "ble", "gpio", "adc", "key", "buttons", "pointer", "status_led",
+  "temperature", "humidity", "audio", "audio_input", "pwm", "expansion_i2s",
+  "expansion_spi", "expansion_uart", "expansion_i2c", "expansion_gpio",
+  "expansion_adc", "expansion_pwm",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[header]
+includes = ["solar_os_buttons.h", "solar_os_keys.h"]
+
+[defines]
+# Deselect both SPI slaves before either driver initializes the shared bus.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_14, .level = 1}, {.pin = GPIO_NUM_39, .level = 1}, {.pin = GPIO_NUM_40, .level = 0}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_16, .level = 1}, {.pin = GPIO_NUM_38, .level = 0}}'
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"IT8951/ED103TC2"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "1872"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "1404"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "1872"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "1404"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
+SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "0"
+SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE = "3"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "10000000"
+SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_7"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_LCD_RST = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_LCD_BUSY = "GPIO_NUM_13"
+SOLAR_OS_BOARD_PIN_LCD_POWER = "GPIO_NUM_11"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_19"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_20"
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"EPD-SD-SPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_7"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_8"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_SD_CARD_CS = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_SD_POWER = "GPIO_NUM_39"
+SOLAR_OS_BOARD_SD_POWER_ACTIVE_LEVEL = "1"
+SOLAR_OS_BOARD_PIN_TOUCH_SDA = "GPIO_NUM_19"
+SOLAR_OS_BOARD_PIN_TOUCH_SCL = "GPIO_NUM_20"
+SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_2"
+SOLAR_OS_BOARD_PIN_TOUCH_RST = "GPIO_NUM_48"
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_3"
+SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY = "SOLAR_OS_KEY_ENTER"
+SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_APP_EXIT = "GPIO_NUM_5"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_4, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_5, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}}'
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "3000U"
+SOLAR_OS_BOARD_PIN_STATUS_LED = "GPIO_NUM_16"
+SOLAR_OS_BOARD_STATUS_LED_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
+SOLAR_OS_BOARD_PIN_MIC_CLK = "GPIO_NUM_42"
+SOLAR_OS_BOARD_PIN_MIC_DATA = "GPIO_NUM_41"
+SOLAR_OS_BOARD_PIN_MIC_EN = "GPIO_NUM_38"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+
+[runtime]
+uart_ports = ["UART_NUM_1", "UART_NUM_2"]
+i2s_ports = ["I2S_NUM_0"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 19
+scl = 20
+speed_hz = "400000"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 7
+mosi = 9
+miso = 8
+cs = [10, 14]
+max_transfer_size = 4096
+
+[[devices]]
+driver = "it8951"
+name = "display0"
+bindings = { spi = "spi0", cs = 10, reset = 12, busy = 13, power = 11, ite_power = 21, clock = 10000, rotation = 0 }
+
+[[devices]]
+driver = "gt911"
+name = "touch0"
+bindings = { i2c = "i2c0", addr = 0x5d, alt_addr = 0x14, irq = 2, reset = 48, rotation = 0 }
+
+[[devices]]
+driver = "pcf8563"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x51 }
+
+[[devices]]
+driver = "sht40"
+name = "environment0"
+bindings = { i2c = "i2c0", addr = 0x44 }
+
+[[devices]]
+driver = "sy6974"
+name = "charger0"
+bindings = { i2c = "i2c0", addr = 0x6b, input_current = 1000, input_voltage = 4100, charge_current = 480, charge_voltage = 4208, adc = 1, divider = 2000, power = 40 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 14 }
+
+[[devices]]
+driver = "audio-pwm"
+name = "audio0"
+bindings = { pwm = 45 }
+
+[[devices]]
+driver = "audio-pdm"
+name = "mic0"
+bindings = { i2s = 0, clk = 42, din = 41, power = 38, slot = 0 }
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT / download button"
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "battery ADC"
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "GT911 interrupt"
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "confirm / wake button"
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "UP / hold for BLE pairing"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "DOWN / hold for app exit"
+[[pins]]
+gpio = 6
+policy = "free"
+role = "J2 GPIO / ADC"
+expansion = true
+adc = true
+pwm = true
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "display / SD SPI SCLK"
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "display / SD SPI MISO"
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "display / SD SPI MOSI"
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "display CS"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "display power enable"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "IT8951 reset"
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "IT8951 HRDY"
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "SD CS"
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "SD card detect"
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "green LED (active low)"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "I2C SDA / J2"
+expansion = true
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "I2C SCL / J2"
+expansion = true
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "IT8951 power enable"
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "microphone power enable"
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "SD power enable"
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "battery measurement enable"
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "PDM microphone data"
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "PDM microphone clock"
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "USB bridge UART TX"
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "USB bridge UART RX"
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "PWM buzzer"
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "J2 power enable"
+[[pins]]
+gpio = 47
+policy = "free"
+role = "J2 GPIO (no ADC)"
+expansion = true
+pwm = true
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "GT911 reset"
+
+[[connectors]]
+connector = "J2"
+position = 3
+row = 2
+column = 0
+kind = "gpio"
+label = "GPIO47"
+gpio = 47
+[[connectors]]
+connector = "J2"
+position = 4
+row = 3
+column = 0
+kind = "gpio"
+label = "GPIO6/ADC"
+gpio = 6
+[[connectors]]
+connector = "J2"
+position = 5
+row = 4
+column = 0
+kind = "gpio"
+label = "SCL"
+gpio = 20
+[[connectors]]
+connector = "J2"
+position = 6
+row = 5
+column = 0
+kind = "gpio"
+label = "SDA"
+gpio = 19

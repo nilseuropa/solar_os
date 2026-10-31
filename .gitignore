@@ -42,6 +42,9 @@ tests/host/power_key_input_test
 tests/host/power_key_custom_test
 
 /tests/host/epd_uc8179_test
+/tests/host/epd_it8951_test
+/tests/host/sy6974_test
+/tests/host/sy6974_service_test
 /tests/host/uc8179_expansion_test
 /tests/host/epd_ssd1685_test
 /tests/host/ssd1685_expansion_test
@@ -97,6 +100,10 @@ tests/host/meshcore_instances_test
 tests/host/encoder_service_test
 tests/host/pcnt_encoder_test
 tests/host/ssd1306_named_bus_test
+tests/host/epd_ssd2677_test
+tests/host/ssd2677_expansion_test
+tests/host/epd_sticky_identify_test
+tests/host/sticky_display_test
 # SC2 host tests (tests/host/Makefile, appended block)
 /tests/host/sc2_*_test
 /tests/host/sc2_vendor_*.o

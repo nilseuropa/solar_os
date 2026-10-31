@@ -1,0 +1,2 @@
+set(SOLAR_OS_BOARD_DISPLAY_DRIVER "sticky")
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES expansion_sticky_display)

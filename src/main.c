@@ -2092,7 +2092,7 @@ static void maybe_enter_idle_sleep(void)
 
 static void start_headless_shell_if_needed(void)
 {
-    if (terminal != NULL) {
+    if (terminal != NULL || solar_os_port_shell_session_count() != 0U) {
         return;
     }
 
@@ -2177,7 +2177,11 @@ void app_main(void)
 #endif
 
     const bool reserve_port_shell =
+#ifdef SOLAR_OS_BOARD_DEFAULT_PORT_SHELL
+        true;
+#else
         !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);
+#endif
     const esp_err_t port_shell_err =
         solar_os_port_shell_init(reserve_port_shell);
     if (port_shell_err != ESP_OK) {
