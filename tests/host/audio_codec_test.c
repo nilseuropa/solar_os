@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "solar_os_audio_codec.h"
 #include "solar_os_audio_pcm.h"
@@ -74,8 +75,60 @@ static void test_pcm_mono_to_stereo_conversion(void)
     assert(output[3] == 3000);
 }
 
+static void test_pcm_equal_rate_continuation(void)
+{
+    int16_t input[62];
+    for (size_t i = 0; i < 62; i++) input[i] = (int16_t)(i * 6553U + 32768U);
+    for (unsigned in_channels = 1; in_channels <= 2; in_channels++) {
+        for (unsigned out_channels = 1; out_channels <= 2; out_channels++) {
+            solar_os_stream_audio_format_t source = {
+                .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE, .sample_rate = 44100,
+                .bits_per_sample = 16, .channels = in_channels,
+            };
+            solar_os_stream_audio_format_t target = source;
+            target.channels = out_channels;
+            for (size_t capacity = out_channels; capacity < 12; capacity++) {
+                solar_os_audio_s16_converter_t converter = {0};
+                size_t position = 0;
+                bool done = false;
+                while (!done) {
+                    int16_t output[12];
+                    for (size_t i = 0; i < 12; i++) output[i] = 12345;
+                    size_t count = 0;
+                    assert(solar_os_audio_s16_convert(&converter, input, 31, &source,
+                        &target, output, capacity, &count, &done) == ESP_OK);
+                    assert(count && count <= capacity && count % out_channels == 0);
+                    for (size_t i = 0; i < count / out_channels; i++, position++) {
+                        int16_t left = input[position * in_channels];
+                        int16_t right = in_channels == 2 ? input[position * 2 + 1] : left;
+                        assert(output[i * out_channels] == (out_channels == 1 ?
+                            (int16_t)(((int32_t)left + right) / 2) : left));
+                        if (out_channels == 2) assert(output[i * 2 + 1] == right);
+                    }
+                    assert(output[count] == 12345);
+                    assert(converter.phase_q16 == (done ? 0U : (uint64_t)position << 16));
+                }
+                assert(position == 31);
+            }
+        }
+    }
+    /* Fractional carry must still interpolate at equal rates. */
+    solar_os_stream_audio_format_t format = {
+        .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE, .sample_rate = 16000,
+        .bits_per_sample = 16, .channels = 1,
+    };
+    solar_os_audio_s16_converter_t converter = {.sample_rate = 16000, .channels = 1, .phase_q16 = 32768};
+    const int16_t fractional[] = {0, 1000};
+    int16_t output[2]; size_t count; bool done;
+    assert(solar_os_audio_s16_convert(&converter, fractional, 2, &format, &format,
+        output, 2, &count, &done) == ESP_OK);
+    assert(done && count == 2 && output[0] == 500 && output[1] == 1000);
+    assert(converter.phase_q16 == 32768);
+}
+
 int main(void)
 {
+    test_pcm_equal_rate_continuation();
     test_pcm_conversion();
     test_pcm_mono_to_stereo_conversion();
     const uint8_t mp3_header[] = {0xffU, 0xfbU, 0x90U, 0x64U};
