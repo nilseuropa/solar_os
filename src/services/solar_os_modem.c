@@ -1,4 +1,5 @@
 #include "solar_os_modem.h"
+#include "solar_os_sync.h"
 
 #include <ctype.h>
 #include <inttypes.h>
@@ -54,9 +55,7 @@ static const char *TAG = "modem";
 
 static esp_err_t ensure_mutex(void)
 {
-    if (modem_mutex == NULL) {
-        modem_mutex = xSemaphoreCreateMutexStatic(&modem_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&modem_mutex, &modem_mutex_storage);
     return modem_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

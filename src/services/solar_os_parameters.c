@@ -1,4 +1,5 @@
 #include "solar_os_parameters.h"
+#include "solar_os_sync.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -26,9 +27,7 @@ static uint32_t parameter_next_token;
 
 static esp_err_t parameter_ensure_mutex(void)
 {
-    if (parameter_mutex == NULL) {
-        parameter_mutex = xSemaphoreCreateMutexStatic(&parameter_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&parameter_mutex, &parameter_mutex_storage);
     return parameter_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

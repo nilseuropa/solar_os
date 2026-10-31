@@ -1,4 +1,5 @@
 #include "solar_os_controls.h"
+#include "solar_os_sync.h"
 
 #include <math.h>
 #include <string.h>
@@ -30,9 +31,7 @@ static uint32_t next_binding_id;
 
 static esp_err_t controls_ensure_mutex(void)
 {
-    if (controls_mutex == NULL) {
-        controls_mutex = xSemaphoreCreateMutexStatic(&controls_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&controls_mutex, &controls_mutex_storage);
     return controls_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

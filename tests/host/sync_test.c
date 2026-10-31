@@ -1,0 +1,32 @@
+#include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include "solar_os_sync.h"
+atomic_uint registry_mutex_initializations;
+static SemaphoreHandle_t handle;
+static StaticSemaphore_t storage;
+static pthread_barrier_t start;
+static unsigned count;
+static void *worker(void *unused)
+{
+    (void)unused;
+    pthread_barrier_wait(&start);
+    for (unsigned i = 0; i < 100; ++i) {
+        SemaphoreHandle_t mutex = solar_os_mutex_get(&handle, &storage);
+        assert(mutex == &storage);
+        assert(xSemaphoreTake(mutex, portMAX_DELAY));
+        ++count;
+        xSemaphoreGive(mutex);
+    }
+    return NULL;
+}
+int main(void)
+{
+    pthread_t threads[16];
+    assert(!pthread_barrier_init(&start, NULL, 16));
+    for (unsigned i = 0; i < 16; ++i) assert(!pthread_create(&threads[i], NULL, worker, NULL));
+    for (unsigned i = 0; i < 16; ++i) assert(!pthread_join(threads[i], NULL));
+    assert(count == 1600 && atomic_load(&registry_mutex_initializations) == 1);
+    pthread_barrier_destroy(&start);
+    pthread_mutex_destroy(&storage);
+}

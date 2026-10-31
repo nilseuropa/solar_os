@@ -1,4 +1,5 @@
 #include "solar_os_nfc.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -23,9 +24,7 @@ static uint32_t nfc_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (nfc_mutex == NULL) {
-        nfc_mutex = xSemaphoreCreateMutexStatic(&nfc_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&nfc_mutex, &nfc_mutex_storage);
     return nfc_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

@@ -1,4 +1,5 @@
 #include "solar_os_sensors.h"
+#include "solar_os_sync.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -39,9 +40,7 @@ static bool humidity_stream_registered;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (sensors_mutex == NULL) {
-        sensors_mutex = xSemaphoreCreateMutexStatic(&sensors_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&sensors_mutex, &sensors_mutex_storage);
     return sensors_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

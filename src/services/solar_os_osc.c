@@ -1,4 +1,5 @@
 #include "solar_os_osc.h"
+#include "solar_os_sync.h"
 
 #include <math.h>
 #include <string.h>
@@ -24,9 +25,7 @@ static uint32_t osc_next_id;
 
 static esp_err_t osc_ensure_mutex(void)
 {
-    if (osc_mutex == NULL) {
-        osc_mutex = xSemaphoreCreateMutexStatic(&osc_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&osc_mutex, &osc_mutex_storage);
     return osc_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
