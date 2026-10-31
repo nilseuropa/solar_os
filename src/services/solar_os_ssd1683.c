@@ -1,5 +1,6 @@
 #include "solar_os_ssd1683.h"
 #include "solar_os_sync.h"
+#include "solar_os_display_bindings.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -85,13 +86,7 @@ static void release_device_slot(size_t slot)
 
 static const u8g2_cb_t *rotation_callback(int rotation)
 {
-    switch (rotation) {
-    case 0: return U8G2_R0;
-    case 1: return U8G2_R1;
-    case 2: return U8G2_R2;
-    case 3: return U8G2_R3;
-    default: return NULL;
-    }
+    return solar_os_display_rotation_callback(rotation);
 }
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
@@ -119,40 +114,18 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         const solar_os_expansion_binding_t *binding = &bindings[i];
         switch (binding->kind) {
         case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
-            if (have_spi) {
-                return ESP_ERR_INVALID_ARG;
-            }
-            strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
-            have_spi = true;
+        case SOLAR_OS_EXPANSION_BINDING_SPI_CS: {
+            const esp_err_t err = solar_os_display_parse_spi_binding(binding,
+                config->spi_bus, sizeof(config->spi_bus), &have_spi, &have_cs, &config->cs_pin);
+            if (err != ESP_OK) return err;
             break;
-        case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-            if (have_cs) {
-                return ESP_ERR_INVALID_ARG;
-            }
-            config->cs_pin = binding->value;
-            have_cs = true;
-            if (binding->target[0] != '\0') {
-                if (have_spi && strcmp(config->spi_bus, binding->target) != 0) {
-                    return ESP_ERR_INVALID_ARG;
-                }
-                strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
-                have_spi = true;
-            }
+        }
+        case SOLAR_OS_EXPANSION_BINDING_GPIO: {
+            const esp_err_t err = solar_os_display_parse_gpio_binding(binding,
+                &config->dc_pin, &config->reset_pin, &config->busy_pin, &config->power_pin);
+            if (err != ESP_OK) return err;
             break;
-        case SOLAR_OS_EXPANSION_BINDING_GPIO:
-            if (role_is(binding, "dc") && config->dc_pin < 0) {
-                config->dc_pin = binding->value;
-            } else if ((role_is(binding, "reset") || role_is(binding, "rst")) &&
-                       config->reset_pin < 0) {
-                config->reset_pin = binding->value;
-            } else if (role_is(binding, "busy") && config->busy_pin < 0) {
-                config->busy_pin = binding->value;
-            } else if (role_is(binding, "power") && config->power_pin < 0) {
-                config->power_pin = binding->value;
-            } else {
-                return ESP_ERR_INVALID_ARG;
-            }
-            break;
+        }
         case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
             if (role_is(binding, "clock")) {
                 config->spi_clock_khz = binding->value;
@@ -180,12 +153,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         config->busy_pin < 0 || config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
         config->panel_variant > EPD_SSD1683_PANEL_ELECROW_579_DUAL ||
-        config->cs_pin == config->dc_pin || config->cs_pin == config->reset_pin ||
-        config->cs_pin == config->busy_pin || config->dc_pin == config->reset_pin ||
-        config->dc_pin == config->busy_pin || config->reset_pin == config->busy_pin ||
-        (config->power_pin >= 0 &&
-         (config->power_pin == config->cs_pin || config->power_pin == config->dc_pin ||
-          config->power_pin == config->reset_pin || config->power_pin == config->busy_pin)) ||
+        !solar_os_display_pins_valid(config->cs_pin, config->dc_pin,
+            config->reset_pin, config->busy_pin, config->power_pin) ||
         !solar_os_expansion_find_spi_bus(config->spi_bus, NULL, NULL) ||
         !solar_os_expansion_spi_cs_allowed(config->spi_bus, config->cs_pin)) {
         return ESP_ERR_INVALID_ARG;
