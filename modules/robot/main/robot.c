@@ -1,0 +1,450 @@
+#include "solar_os_robot_abi.h"
+#include "solar_os_native_time_abi.h"
+#include "solar_os_native_thread_abi.h"
+#include "solar_os_controller_math.h"
+#include <math.h>
+#include <stdatomic.h>
+#include <string.h>
+
+#define OK SOLAR_OS_NATIVE_OK
+#define ARG SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT
+#define STATE SOLAR_OS_NATIVE_ERROR_INVALID_STATE
+#define MISSING SOLAR_OS_NATIVE_ERROR_NOT_FOUND
+#define TIMEOUT SOLAR_OS_NATIVE_ERROR_TIMEOUT
+#define UNSUPPORTED SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED
+#define PI 3.14159265358979323846
+
+typedef struct {
+    uint32_t id, motor_claim, encoder_claim;
+    solar_os_robot_joint_info_v3_t info;
+    solar_os_controller_math_state_t pid;
+    bool servo_open, busy, ppr_configured, ratio_configured;
+    atomic_bool stop;
+    void *worker;
+    uint64_t last_step_us;
+    int32_t previous_count;
+    int64_t accumulated;
+    char servo_name[16];
+} joint_t;
+
+static const solar_os_native_memory_api_v1_t *memory;
+static const solar_os_native_time_api_v1_t *clock_api;
+static const solar_os_native_thread_api_v1_t *threads;
+static const solar_os_native_motion_api_v1_t *motion;
+static void *mutex;
+static joint_t *joints[SOLAR_OS_ROBOT_JOINT_MAX];
+static uint32_t next_id;
+
+static bool equal(const char *a, const char *b)
+{ if (!a || !b) return false; while (*a && *a == *b) { a++; b++; } return *a == *b; }
+static bool text(const char *s, size_t max)
+{ if (!s || !*s) return false; for (size_t i = 0; i < max; i++) if (!s[i]) return true; return false; }
+static void copy(char *out, const char *in, size_t size)
+{ size_t i = 0; for (; i + 1 < size && in[i]; i++) out[i] = in[i]; out[i] = 0; }
+static uint64_t now(void) { return (uint64_t)clock_api->now_us(); }
+static void lock(void) { threads->mutex_lock(mutex); }
+static void unlock(void) { threads->mutex_unlock(mutex); }
+static joint_t *find(uint32_t id)
+{ for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i] && joints[i]->id == id) return joints[i]; return NULL; }
+static bool claims(const joint_t *a) { return a->motor_claim || a->encoder_claim || a->servo_open; }
+static solar_os_controller_math_config_t pid_config(const joint_t *a)
+{
+    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    return (solar_os_controller_math_config_t){.kind = SOLAR_OS_CONTROLLER_PID,
+        .kp = c->kp, .ki = c->ki, .kd = c->kd, .derivative_tau = c->derivative_tau,
+        .output_min = -c->max_drive, .output_max = c->max_drive, .hysteresis = 1,
+        .max_dt = c->max_gap_ms / 1000.0f};
+}
+static bool valid(const joint_t *a)
+{
+    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    solar_os_controller_math_config_t p = pid_config(a);
+    return solar_os_controller_math_valid(&p) && isfinite(c->ppr) &&
+        (c->ppr > 0 || (!a->ppr_configured && c->ppr == 0)) && isfinite(c->gear_ratio) &&
+        (c->gear_ratio > 0 || (!a->ratio_configured && c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY && c->gear_ratio == 0)) &&
+        (c->motor_polarity == 1 || c->motor_polarity == -1) &&
+        (c->encoder_polarity == 1 || c->encoder_polarity == -1) && c->encoder_on_output <= 1 &&
+        isfinite(c->position_min) && isfinite(c->position_max) && c->position_min < c->position_max &&
+        isfinite(c->position_zero) && isfinite(c->velocity_limit) && c->velocity_limit > 0 &&
+        isfinite(c->acceleration_limit) && c->acceleration_limit > 0 && c->max_drive > 0 && c->max_drive <= 1 &&
+        isfinite(c->velocity_tau) && c->velocity_tau >= 0 &&
+        isfinite(c->friction_bias_forward) && c->friction_bias_forward >= 0 && c->friction_bias_forward <= c->max_drive &&
+        isfinite(c->friction_bias_reverse) && c->friction_bias_reverse >= 0 && c->friction_bias_reverse <= c->max_drive &&
+        isfinite(c->velocity_deadband) && c->velocity_deadband >= 0 && c->velocity_deadband < c->velocity_limit &&
+        c->period_ms >= 10 && c->period_ms <= 1000 && c->command_timeout_ms >= c->period_ms &&
+        c->command_timeout_ms <= 60000 && c->feedback_timeout_ms >= c->period_ms && c->feedback_timeout_ms <= 60000 &&
+        c->max_gap_ms >= c->period_ms && c->max_gap_ms <= 60000 && c->brake <= 1;
+}
+
+/* Called with the provider mutex held. Cleanup is output-first: a failed stop
+ * pins both devices and preserves the feedback reference for retry. */
+static int cleanup(joint_t *a)
+{
+    int err = OK;
+    if (a->motor_claim) {
+        err = motion->motor_release(a->motor_claim, a->info.config.brake);
+        if (err == OK) { a->motor_claim = 0; a->info.output = a->info.feedforward = 0; }
+    }
+    if (err == OK && a->servo_open) {
+        err = motion->servo_close(a->servo_name, a->servo_name);
+        if (err == OK) a->servo_open = false;
+    }
+    if (err == OK && a->encoder_claim) {
+        err = motion->encoder_release(a->encoder_claim);
+        if (err == OK) a->encoder_claim = 0;
+    }
+    a->info.claimed = claims(a);
+    return err;
+}
+static void fault(joint_t *a, int error)
+{
+    a->info.state = SOLAR_OS_ROBOT_FAULT; a->info.faults++; a->info.last_error = error;
+    a->info.velocity_valid = a->info.position_valid = 0;
+    atomic_store(&a->stop, true);
+    int stop_error = a->motor_claim ? motion->motor_stop(a->motor_claim, a->info.config.brake) :
+        a->servo_open ? motion->servo_disable(a->servo_name, a->servo_name) : OK;
+    if (stop_error != OK) a->info.last_error = stop_error;
+    else if (a->motor_claim) a->info.output = a->info.feedforward = 0;
+}
+
+static double counts_per_joint_rev(const joint_t *a)
+{
+    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    return (double)c->ppr * a->info.decoding * (c->encoder_on_output ? 1 : c->gear_ratio);
+}
+
+/* Loss of command freshness is an ordinary stop, not a hardware fault.
+ * Keep feedback, the worker and device claims alive for a fresh command. */
+static void expire_command(joint_t *a)
+{
+    int err = a->motor_claim ? motion->motor_stop(a->motor_claim, a->info.config.brake) :
+        a->servo_open ? motion->servo_disable(a->servo_name, a->servo_name) : OK;
+    if (err != OK) { fault(a, err); return; }
+    a->info.command_valid = 0; a->info.command_expires_us = 0;
+    a->info.target = a->info.setpoint = a->info.output = a->info.feedforward = 0;
+    a->info.p = a->info.i = a->info.d = 0; a->info.saturated = 0;
+    solar_os_controller_math_config_t p = pid_config(a);
+    solar_os_controller_math_reset(&p, &a->pid, 0);
+    a->info.state = SOLAR_OS_ROBOT_WAITING; a->info.last_error = TIMEOUT;
+    a->last_step_us = now();
+}
+
+static void cycle(joint_t *a)
+{
+    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    uint64_t time = now();
+    if (time < a->last_step_us || time - a->last_step_us > (uint64_t)c->max_gap_ms * 1000) {
+        fault(a, TIMEOUT); return;
+    }
+    if (time - a->last_step_us < (uint64_t)c->period_ms * 1000) return;
+    if (a->info.command_valid && time >= a->info.command_expires_us) { expire_command(a); return; }
+    if (!a->info.command_valid && c->kind == SOLAR_OS_ROBOT_SERVO_POSITION) {
+        a->last_step_us = time; a->info.steps++; return;
+    }
+    float dt = (float)(time - a->last_step_us) / 1000000;
+    int err;
+    if (c->kind == SOLAR_OS_ROBOT_SERVO_POSITION) {
+        float shaft = c->motor_polarity * (a->info.target - c->position_zero) * c->gear_ratio;
+        if (!isfinite(shaft) || shaft < c->servo.angle_min || shaft > c->servo.angle_max) { fault(a, ARG); return; }
+        err = motion->servo_set(a->servo_name, a->servo_name, shaft);
+        if (err != OK) { fault(a, err); return; }
+        a->info.commanded_position = a->info.target; a->info.output = shaft;
+    } else {
+        solar_os_native_encoder_sample_v1_t sample;
+        err = motion->encoder_sample(a->encoder_claim, &sample);
+        time = now();
+        if (err != OK) { fault(a, err); return; }
+        if (sample.timestamp_us > time || time - sample.timestamp_us > (uint64_t)c->feedback_timeout_ms * 1000 ||
+            sample.timestamp_us <= a->info.sample_us || sample.decoding != a->info.decoding ||
+            time - a->last_step_us > (uint64_t)c->max_gap_ms * 1000) {
+            fault(a, TIMEOUT); return;
+        }
+        if (a->info.command_valid && time >= a->info.command_expires_us) { expire_command(a); return; }
+        uint32_t raw_delta = (uint32_t)sample.count - (uint32_t)a->previous_count;
+        int64_t delta = raw_delta <= INT32_MAX ? (int64_t)raw_delta : (int64_t)raw_delta - 4294967296LL;
+        if ((delta > 0 && a->accumulated > INT64_MAX - delta) ||
+            (delta < 0 && a->accumulated < INT64_MIN - delta)) { fault(a, ARG); return; }
+        a->accumulated += delta;
+        double counts_per_rev = counts_per_joint_rev(a);
+        double scale = 2 * PI / counts_per_rev;
+        float velocity = (float)(c->encoder_polarity * delta * scale * 1000000 / (sample.timestamp_us - a->info.sample_us));
+        float position = (float)(c->position_zero + (double)c->encoder_polarity * (double)a->accumulated * scale);
+        if (!isfinite(velocity) || !isfinite(position)) { fault(a, ARG); return; }
+        a->previous_count = sample.count;
+        float sample_dt = (float)(sample.timestamp_us - a->info.sample_us) / 1000000;
+        a->info.raw_count = sample.count; a->info.sample_us = sample.timestamp_us;
+        a->info.velocity += (velocity - a->info.velocity) * (sample_dt / (c->velocity_tau + sample_dt));
+        a->info.velocity_valid = 1;
+        a->info.position = position; /* Relative to enable; absolute reference is unavailable. */
+        dt = (float)(time - a->last_step_us) / 1000000;
+        float change = c->acceleration_limit * dt;
+        float difference = a->info.target - a->info.setpoint;
+        a->info.setpoint += difference > change ? change : difference < -change ? -change : difference;
+        solar_os_controller_math_config_t p = pid_config(a);
+        float ff = a->info.setpoint > 0 ? c->friction_bias_forward :
+            a->info.setpoint < 0 ? -c->friction_bias_reverse : 0;
+        /* Shift the PID window so anti-windup sees the final actuator cap,
+         * including feedforward. The feedback correction may cancel friction
+         * compensation; it is not a minimum-output clamp. */
+        p.output_min -= ff; p.output_max -= ff;
+        if (a->info.command_valid && !solar_os_controller_math_step(&p, &a->pid, a->info.setpoint, a->info.velocity, dt)) { fault(a, ARG); return; }
+        solar_os_native_motor_state_v1_t state;
+        err = motion->motor_state(c->motor, &state);
+        if (err != OK || state.blocking_faults) { fault(a, err != OK ? err : STATE); return; }
+        /* Check expiry after potentially slow device callbacks as well. */
+        if (now() - a->last_step_us > (uint64_t)c->max_gap_ms * 1000) {
+            fault(a, TIMEOUT); return;
+        }
+        if (a->info.command_valid && now() >= a->info.command_expires_us) { expire_command(a); return; }
+        float joint_drive = fminf(c->max_drive, fmaxf(-c->max_drive, a->pid.output + ff));
+        float drive = joint_drive * c->motor_polarity;
+        /* Until the first fresh command, monitor feedback and faults while
+         * preserving the configured stop behavior, without closing the loop. */
+        err = a->info.command_valid ? motion->motor_drive(a->motor_claim, drive) :
+            motion->motor_stop(a->motor_claim, c->brake);
+        if (err != OK) { fault(a, err); return; }
+        a->info.output = drive; a->info.feedforward = ff;
+        a->info.p = a->pid.p; a->info.i = a->pid.i; a->info.d = a->pid.d;
+        a->info.saturated = a->pid.saturated;
+    }
+    a->last_step_us = time; a->info.steps++;
+    if (a->info.command_valid) a->info.last_error = OK;
+}
+
+static void worker(void *user)
+{
+    joint_t *a = user;
+    while (!atomic_load(&a->stop)) {
+        clock_api->sleep_ms(5);
+        lock();
+        if (!atomic_load(&a->stop) && (a->info.state == SOLAR_OS_ROBOT_ACTIVE ||
+            a->info.state == SOLAR_OS_ROBOT_WAITING)) cycle(a);
+        unlock();
+    }
+}
+
+static int create(const char *name, uint32_t kind, uint32_t *out)
+{
+    if (out == NULL || !text(name, SOLAR_OS_ROBOT_JOINT_NAME_MAX) ||
+        (kind != SOLAR_OS_ROBOT_SERVO_POSITION && kind != SOLAR_OS_ROBOT_MOTOR_VELOCITY)) return ARG;
+    *out = 0;
+    /* Initialization occurs on the module loader's serialized entry path. */
+    if (!mutex || !motion) return UNSUPPORTED;
+    lock();
+    unsigned free_slot = SOLAR_OS_ROBOT_JOINT_MAX;
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) {
+        if (joints[i] && equal(joints[i]->info.config.name, name)) { unlock(); return STATE; }
+        if (!joints[i] && free_slot == SOLAR_OS_ROBOT_JOINT_MAX) free_slot = i;
+    }
+    if (free_slot == SOLAR_OS_ROBOT_JOINT_MAX || next_id == UINT32_MAX) { unlock(); return SOLAR_OS_NATIVE_ERROR_NO_MEMORY; }
+    joint_t *a = memory->alloc(sizeof(*a));
+    if (!a) { unlock(); return SOLAR_OS_NATIVE_ERROR_NO_MEMORY; }
+    memset(a, 0, sizeof(*a)); atomic_init(&a->stop, true);
+    a->id = ++next_id; copy(a->info.config.name, name, sizeof(a->info.config.name));
+    a->servo_name[0] = 'r'; a->servo_name[1] = 'a';
+    const char hex[] = "0123456789abcdef";
+    for (unsigned i = 0; i < 8; i++) a->servo_name[2 + i] = hex[(a->id >> ((7 - i) * 4)) & 15];
+    solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    c->kind = kind; c->gear_ratio = kind == SOLAR_OS_ROBOT_SERVO_POSITION ? 1 : 0;
+    c->motor_polarity = c->encoder_polarity = 1;
+    c->position_min = -(float)PI; c->position_max = (float)PI;
+    c->velocity_limit = 10; c->acceleration_limit = 10; c->max_drive = 0.2f; c->velocity_tau = 0.1f;
+    c->kp = 0.02f; c->ki = 0.01f; c->derivative_tau = 0.05f;
+    c->period_ms = 20; c->command_timeout_ms = 300; c->feedback_timeout_ms = 100; c->max_gap_ms = 200;
+    joints[free_slot] = a; *out = a->id; unlock(); return OK;
+}
+
+static int configure(uint32_t id, const char *key, float value)
+{
+    if (!key || !isfinite(value)) return ARG;
+    lock(); joint_t *a = find(id);
+    if (!a) { unlock(); return MISSING; }
+    if (a->busy || a->worker || claims(a)) { unlock(); return STATE; }
+    solar_os_robot_joint_config_v3_t saved = a->info.config, *c = &a->info.config;
+    int ret = OK;
+    if (equal(key, "ppr") && value > 0) c->ppr = value;
+    else if (equal(key, "gear_ratio") && value > 0) c->gear_ratio = value;
+    else if (equal(key, "motor_polarity") && (value == 1 || value == -1)) c->motor_polarity = (int)value;
+    else if (equal(key, "encoder_polarity") && (value == 1 || value == -1)) c->encoder_polarity = (int)value;
+    else if (equal(key, "position_min")) c->position_min = value;
+    else if (equal(key, "position_max")) c->position_max = value;
+    else if (equal(key, "position_zero")) c->position_zero = value;
+    else if (equal(key, "velocity_limit")) c->velocity_limit = value;
+    else if (equal(key, "acceleration_limit")) c->acceleration_limit = value;
+    else if (equal(key, "max_drive")) c->max_drive = value;
+    else if (equal(key, "velocity_tau")) c->velocity_tau = value;
+    else if (equal(key, "friction_bias_forward")) c->friction_bias_forward = value;
+    else if (equal(key, "friction_bias_reverse")) c->friction_bias_reverse = value;
+    else if (equal(key, "velocity_deadband")) c->velocity_deadband = value;
+    else if (equal(key, "kp")) c->kp = value;
+    else if (equal(key, "ki")) c->ki = value;
+    else if (equal(key, "kd")) c->kd = value;
+    else if (equal(key, "tau")) c->derivative_tau = value;
+    else if (value >= 0 && value <= 60000 && (float)(uint32_t)value == value) {
+        if (equal(key, "encoder_on_output") && value <= 1) c->encoder_on_output = (uint32_t)value;
+        else if (equal(key, "brake") && value <= 1) c->brake = (uint32_t)value;
+        else if (equal(key, "period_ms")) c->period_ms = (uint32_t)value;
+        else if (equal(key, "command_timeout_ms")) c->command_timeout_ms = (uint32_t)value;
+        else if (equal(key, "feedback_timeout_ms")) c->feedback_timeout_ms = (uint32_t)value;
+        else if (equal(key, "max_gap_ms")) c->max_gap_ms = (uint32_t)value;
+        else ret = ARG;
+    } else ret = ARG;
+    if (!valid(a)) ret = ARG;
+    if (ret != OK) *c = saved;
+    else {
+        if (equal(key, "ppr")) a->ppr_configured = true;
+        if (equal(key, "gear_ratio")) a->ratio_configured = true;
+    }
+    if (ret == OK) a->info.command_valid = 0;
+    unlock(); return ret;
+}
+static int bind_motor(uint32_t id, const char *motor, const char *encoder)
+{
+    if (!text(motor, 20) || !text(encoder, 20)) return ARG;
+    lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
+    if (a && (a->busy || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_MOTOR_VELOCITY)) ret = STATE;
+    if (ret == OK) {
+        copy(a->info.config.motor, motor, 20); copy(a->info.config.encoder, encoder, 20);
+        a->info.decoding = 0; a->info.sample_us = 0;
+        a->info.velocity_valid = a->info.position_valid = 0;
+    }
+    unlock(); return ret;
+}
+static int bind_servo(uint32_t id, const solar_os_native_servo_config_v1_t *c)
+{
+    if (!c || !text(c->provider, sizeof(c->provider)) || !isfinite(c->angle_min) || !isfinite(c->angle_max) ||
+        c->angle_min >= c->angle_max || !c->frequency_hz || c->frequency_hz > 1000 ||
+        !c->pulse_min_us || c->pulse_min_us >= c->pulse_max_us || (uint64_t)c->pulse_max_us * c->frequency_hz >= 1000000) return ARG;
+    lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
+    if (a && (a->busy || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_SERVO_POSITION)) ret = STATE;
+    if (ret == OK) a->info.config.servo = *c;
+    unlock(); return ret;
+}
+static int command(uint32_t id, float target)
+{
+    if (!isfinite(target)) return ARG;
+    lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
+    if (a) {
+        const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+        if (a->busy || a->info.state == SOLAR_OS_ROBOT_FAULT) ret = STATE;
+        else if (c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY ? fabsf(target) > c->velocity_limit :
+                 target < c->position_min || target > c->position_max) ret = ARG;
+        else if (c->kind == SOLAR_OS_ROBOT_SERVO_POSITION &&
+            (c->motor_polarity * (target - c->position_zero) * c->gear_ratio < c->servo.angle_min ||
+             c->motor_polarity * (target - c->position_zero) * c->gear_ratio > c->servo.angle_max)) ret = ARG;
+        if (ret == OK) {
+            if (c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY && fabsf(target) <= c->velocity_deadband) target = 0;
+            a->info.target = target; a->info.command_valid = 1;
+            a->info.command_expires_us = now() + (uint64_t)c->command_timeout_ms * 1000;
+            if (a->worker && a->info.state == SOLAR_OS_ROBOT_WAITING) a->info.state = SOLAR_OS_ROBOT_ACTIVE;
+            a->info.last_error = OK;
+        }
+    }
+    unlock(); return ret;
+}
+static int enable(uint32_t id)
+{
+    lock(); joint_t *a = find(id);
+    if (!a) { unlock(); return MISSING; }
+    if (a->busy || a->worker || claims(a) || a->info.state != SOLAR_OS_ROBOT_READY) { unlock(); return STATE; }
+    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
+    int err = valid(a) ? OK : ARG;
+    a->info.velocity_valid = a->info.position_valid = a->info.referenced = 0;
+    if (err == OK && c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY) {
+        if (!a->ppr_configured || !a->ratio_configured) err = STATE;
+        else if ((motion->capabilities & (SOLAR_OS_NATIVE_MOTION_MOTOR | SOLAR_OS_NATIVE_MOTION_ENCODER)) !=
+            (SOLAR_OS_NATIVE_MOTION_MOTOR | SOLAR_OS_NATIVE_MOTION_ENCODER)) err = UNSUPPORTED;
+        else {
+            solar_os_native_motor_state_v1_t state;
+            err = motion->motor_state(c->motor, &state);
+            if (err == OK && (!state.can_drive || state.blocking_faults || (c->brake && !state.can_brake))) err = STATE;
+            if (err == OK) err = motion->motor_claim(c->motor, &a->motor_claim);
+            if (err == OK) err = motion->motor_stop(a->motor_claim, c->brake);
+            if (err == OK) err = motion->encoder_claim(c->encoder, &a->encoder_claim);
+            solar_os_native_encoder_sample_v1_t sample;
+            if (err == OK) err = motion->encoder_sample(a->encoder_claim, &sample);
+            if (err == OK && (sample.timestamp_us > now() || now() - sample.timestamp_us >
+                (uint64_t)c->feedback_timeout_ms * 1000 || (sample.decoding != 1 && sample.decoding != 2 && sample.decoding != 4))) err = STATE;
+            if (err == OK) {
+                a->info.decoding = sample.decoding; a->info.raw_count = sample.count;
+                a->previous_count = sample.count; a->info.sample_us = sample.timestamp_us;
+                a->accumulated = 0; a->info.position = c->position_zero; a->info.setpoint = 0; a->info.velocity = 0;
+                solar_os_controller_math_config_t p = pid_config(a);
+                solar_os_controller_math_reset(&p, &a->pid, 0);
+                if (!a->info.command_valid || now() >= a->info.command_expires_us) {
+                    a->info.target = 0; a->info.command_valid = 0; a->info.command_expires_us = 0;
+                }
+            }
+        }
+    } else if (err == OK) {
+        if (!(motion->capabilities & SOLAR_OS_NATIVE_MOTION_SERVO)) err = UNSUPPORTED;
+        else if (!a->info.command_valid || now() >= a->info.command_expires_us) err = STATE;
+        else { err = motion->servo_open(a->servo_name, a->servo_name, &c->servo); if (err == OK) a->servo_open = true; }
+    }
+    if (err == OK) {
+        a->info.state = a->info.command_valid ? SOLAR_OS_ROBOT_ACTIVE : SOLAR_OS_ROBOT_WAITING;
+        a->info.last_error = OK; a->last_step_us = now(); atomic_store(&a->stop, false);
+        if (threads->worker_start(&a->worker, worker, a, 4096, 0) != 0) err = SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    }
+    if (err != OK) {
+        atomic_store(&a->stop, true); int cleanup_error = cleanup(a);
+        a->info.state = claims(a) ? SOLAR_OS_ROBOT_FAULT : SOLAR_OS_ROBOT_READY;
+        a->info.last_error = cleanup_error != OK ? cleanup_error : err;
+    }
+    a->info.claimed = claims(a); unlock(); return err;
+}
+static int disable(uint32_t id)
+{
+    lock(); joint_t *a = find(id);
+    if (!a) { unlock(); return MISSING; }
+    if (a->busy) { unlock(); return STATE; }
+    a->busy = true; atomic_store(&a->stop, true);
+    void *w = a->worker; unlock();
+    int joined = w ? threads->worker_join(w) : 0;
+    lock();
+    int err = joined ? STATE : cleanup(a);
+    if (!joined) a->worker = NULL;
+    a->busy = false; a->info.command_valid = 0; a->info.velocity_valid = 0;
+    a->info.last_error = err;
+    a->info.state = err == OK ? SOLAR_OS_ROBOT_READY : SOLAR_OS_ROBOT_FAULT;
+    unlock(); return err;
+}
+static int status(uint32_t id, solar_os_robot_joint_info_v3_t *out)
+{
+    if (!out) return ARG;
+    lock(); joint_t *a = find(id);
+    if (a) { *out = a->info; out->encoder_counts_per_rev = (float)counts_per_joint_rev(a); }
+    unlock(); return a ? OK : MISSING;
+}
+static int close_joint(uint32_t id)
+{
+    int err = disable(id); if (err != OK) return err;
+    lock(); joint_t *a = find(id);
+    if (!a) { unlock(); return MISSING; }
+    if (a->worker || a->busy || claims(a)) { unlock(); return STATE; }
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i] == a) joints[i] = NULL;
+    memory->free(a); unlock(); return OK;
+}
+static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .struct_size = sizeof(api),
+    .create = create, .configure = configure, .bind_motor = bind_motor, .bind_servo = bind_servo,
+    .command = command, .enable = enable, .disable = disable, .status = status, .close = close_joint};
+
+const solar_os_robot_api_v3_t *solar_os_robot_engine_init(
+    const solar_os_native_memory_api_v1_t *m, const solar_os_native_time_api_v1_t *t,
+    const solar_os_native_thread_api_v1_t *th, const solar_os_native_motion_api_v1_t *hw)
+{
+    if (!m || !m->alloc || !m->free || !t || !t->now_us || !t->sleep_ms || !th ||
+        !th->mutex_create || !th->mutex_lock || !th->mutex_unlock || !th->mutex_destroy ||
+        !th->worker_start || !th->worker_join || !hw) return NULL;
+    memory = m; clock_api = t; threads = th; motion = hw;
+    if (threads->mutex_create(&mutex, 0) != 0) return NULL;
+    return &api;
+}
+int solar_os_robot_engine_shutdown(void)
+{
+    lock();
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i]) { unlock(); return STATE; }
+    unlock();
+    if (threads->mutex_destroy(mutex) != 0) return STATE;
+    mutex = NULL; return OK;
+}

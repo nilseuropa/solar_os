@@ -20,6 +20,7 @@ typedef struct {
     solar_os_parameter_get_fn get;
     solar_os_parameter_set_fn set;
     void *user;
+    char writer[SOLAR_OS_PARAMETER_WRITER_MAX];
 } parameter_slot_t;
 
 static EXT_RAM_BSS_ATTR parameter_slot_t
@@ -232,6 +233,27 @@ esp_err_t solar_os_parameters_unregister(
     return ESP_OK;
 }
 
+esp_err_t solar_os_parameters_update_range(
+    const solar_os_parameter_registration_t *registration, const char *name,
+    float minimum, float maximum)
+{
+    if (registration == NULL || registration->token == 0 || name == NULL ||
+        !isfinite(minimum) || !isfinite(maximum) || maximum <= minimum ||
+        parameter_ensure_mutex() != ESP_OK) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(parameter_mutex, portMAX_DELAY);
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    for (size_t i = 0; i < SOLAR_OS_PARAMETER_MAX; i++) {
+        parameter_slot_t *slot = &parameter_slots[i];
+        if (!slot->active || slot->retiring || slot->token != registration->token || strcmp(slot->info.name, name) != 0) continue;
+        if (slot->references != 0 || slot->writer[0] != '\0') err = ESP_ERR_INVALID_STATE;
+        else if (slot->info.curve == SOLAR_OS_PARAMETER_CURVE_LOGARITHMIC && minimum <= 0) err = ESP_ERR_INVALID_ARG;
+        else { slot->info.minimum = minimum; slot->info.maximum = maximum; err = ESP_OK; }
+        break;
+    }
+    xSemaphoreGive(parameter_mutex);
+    return err;
+}
+
 size_t solar_os_parameter_count(void)
 {
     if (parameter_ensure_mutex() != ESP_OK) {
@@ -288,7 +310,8 @@ typedef struct {
     parameter_slot_t slot;
 } parameter_ref_t;
 
-static esp_err_t parameter_acquire(const char *path, parameter_ref_t *ref)
+static esp_err_t parameter_acquire(const char *path, bool write,
+                                   const char *writer, parameter_ref_t *ref)
 {
     if (path == NULL || path[0] == '\0' ||
         parameter_ensure_mutex() != ESP_OK) {
@@ -299,6 +322,11 @@ static esp_err_t parameter_acquire(const char *path, parameter_ref_t *ref)
     if (index < 0) {
         xSemaphoreGive(parameter_mutex);
         return ESP_ERR_NOT_FOUND;
+    }
+    if (write && ((writer == NULL && parameter_slots[index].writer[0] != '\0') ||
+        (writer != NULL && strcmp(writer, parameter_slots[index].writer) != 0))) {
+        xSemaphoreGive(parameter_mutex);
+        return writer != NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
     }
     if (parameter_slots[index].references == UINT_MAX) {
         xSemaphoreGive(parameter_mutex);
@@ -350,7 +378,7 @@ esp_err_t solar_os_parameter_get(const char *path, float *value)
 {
     if (value == NULL) return ESP_ERR_INVALID_ARG;
     parameter_ref_t ref;
-    esp_err_t err = parameter_acquire(path, &ref);
+    esp_err_t err = parameter_acquire(path, false, NULL, &ref);
     if (err == ESP_OK) {
         err = parameter_invoke(&ref, false, value);
         parameter_release(&ref);
@@ -361,7 +389,43 @@ esp_err_t solar_os_parameter_get(const char *path, float *value)
 esp_err_t solar_os_parameter_set(const char *path, float value)
 {
     parameter_ref_t ref;
-    esp_err_t err = parameter_acquire(path, &ref);
+    esp_err_t err = parameter_acquire(path, true, NULL, &ref);
+    if (err == ESP_OK) {
+        err = parameter_invoke(&ref, true, &value);
+        parameter_release(&ref);
+    }
+    return err;
+}
+
+static esp_err_t parameter_claim_change(const char *path, const char *writer, bool release)
+{
+    if (path == NULL || writer == NULL || writer[0] == '\0' ||
+        strnlen(writer, SOLAR_OS_PARAMETER_WRITER_MAX) >= SOLAR_OS_PARAMETER_WRITER_MAX ||
+        parameter_ensure_mutex() != ESP_OK) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(parameter_mutex, portMAX_DELAY);
+    const int index = parameter_find_locked(path);
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    if (index >= 0) {
+        parameter_slot_t *slot = &parameter_slots[index];
+        if (release && strcmp(slot->writer, writer) != 0) err = ESP_ERR_NOT_FOUND;
+        else if (slot->references != 0 || (!release && slot->writer[0] != '\0')) err = ESP_ERR_INVALID_STATE;
+        else {
+            strlcpy(slot->writer, release ? "" : writer, sizeof(slot->writer));
+            err = ESP_OK;
+        }
+    }
+    xSemaphoreGive(parameter_mutex);
+    return err;
+}
+esp_err_t solar_os_parameter_claim(const char *path, const char *writer)
+{ return parameter_claim_change(path, writer, false); }
+esp_err_t solar_os_parameter_release(const char *path, const char *writer)
+{ return parameter_claim_change(path, writer, true); }
+esp_err_t solar_os_parameter_set_owned(const char *path, const char *writer, float value)
+{
+    if (writer == NULL || writer[0] == '\0') return ESP_ERR_INVALID_ARG;
+    parameter_ref_t ref;
+    esp_err_t err = parameter_acquire(path, true, writer, &ref);
     if (err == ESP_OK) {
         err = parameter_invoke(&ref, true, &value);
         parameter_release(&ref);
@@ -408,7 +472,7 @@ esp_err_t solar_os_parameter_get_normalized(const char *path, uint16_t *value)
         return ESP_ERR_INVALID_ARG;
     }
     parameter_ref_t ref;
-    esp_err_t err = parameter_acquire(path, &ref);
+    esp_err_t err = parameter_acquire(path, false, NULL, &ref);
     float raw = 0.0f;
     if (err == ESP_OK) {
         err = parameter_invoke(&ref, false, &raw);
@@ -426,7 +490,7 @@ esp_err_t solar_os_parameter_get_normalized(const char *path, uint16_t *value)
 esp_err_t solar_os_parameter_set_normalized(const char *path, uint16_t value)
 {
     parameter_ref_t ref;
-    esp_err_t err = parameter_acquire(path, &ref);
+    esp_err_t err = parameter_acquire(path, true, NULL, &ref);
     if (err == ESP_OK) {
         float raw = parameter_from_normalized(&ref.slot.info, value);
         err = parameter_invoke(&ref, true, &raw);

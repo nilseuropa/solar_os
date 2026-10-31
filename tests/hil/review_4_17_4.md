@@ -2,7 +2,10 @@
 
 Branch: `dev/4.17.4`. Base: `30b7c22f`. Firmware source: `db580cd0`.
 The version remains `4.17.3`; this work does not publish a release or push commits.
-Later commits add tests and this validation record without changing firmware.
+This is the pre-robot review snapshot. The test/documentation commits through
+`0f7c03a9` retain that firmware source. Subsequent robot integration is covered
+by [the merge validation record](robot_merge_4_17_4.md); hardware results here
+apply to the listed image hashes.
 
 ## Implemented changes
 

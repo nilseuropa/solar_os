@@ -39,6 +39,25 @@ TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
 TARGETS += drv8830_test
 TARGETS += motor_service_test
+TARGETS += controller_math_test controllers_test
+TARGETS += parameters_concurrency_test
+TARGETS += robot_joint_test
+TARGETS += robot_integration_test
+
+robot_integration_test: robot_integration_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_native_motion.c $(ROOT)/src/services/solar_os_robot.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Irobot_stubs -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_integration_test.c $(filter-out robot_integration_test.c $(ROOT)/modules/robot/main/robot.c,$^) -pthread -lm -o $@
+
+robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/src/services/solar_os_controller_math.c
+	$(CC) $(CFLAGS) -I$(ROOT)/include -I$(ROOT)/src/services robot_joint_test.c $(ROOT)/src/services/solar_os_controller_math.c -pthread -lm -o $@
+
+parameters_concurrency_test: parameters_concurrency_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src/services $(filter %.c,$^) -pthread -lm -o $@
+
+controller_math_test: controller_math_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_controller_math.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+
+controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_math.h $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
@@ -1346,7 +1365,12 @@ test: $(TARGETS)
 	./midi_codec_test
 	./midi_service_test
 	./parameters_test
+	./parameters_concurrency_test
 	./controls_test
+	./controller_math_test
+	./controllers_test
+	./robot_joint_test
+	./robot_integration_test
 	./osc_test
 	./dsp_test
 	./stream_test

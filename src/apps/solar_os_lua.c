@@ -56,6 +56,12 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+#include "solar_os_controllers.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+#include "solar_os_robot.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
 #include "solar_os_dsp.h"
 #endif
@@ -2161,6 +2167,9 @@ static int solua_adc_read(lua_State *L)
     return 1;
 }
 #endif
+
+#include "solar_os_lua_robot.inc"
+#include "solar_os_lua_controllers.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 static void solua_push_control_info(lua_State *L,
@@ -8121,6 +8130,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
     solua_dlp_destroy();
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
     solua_http_session_destroy();
@@ -8236,6 +8246,7 @@ done:
         solua_dlp_destroy();
         solua_emotion_destroy();
         solua_jet_destroy();
+        solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
         solua_http_session_destroy();
@@ -8573,6 +8584,7 @@ static void solua_stop(solar_os_context_t *ctx)
     }
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_robot_destroy();
     solua_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
     (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);

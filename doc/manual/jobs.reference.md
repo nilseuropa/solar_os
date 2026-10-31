@@ -446,6 +446,28 @@ Notes:
 - CSV rows include a timestamp column and one value column per stream.
 - Available streams depend on board capabilities.
 
+## controllers
+
+Feedback-controller worker for named PID and hysteresis instances.
+
+The job takes no arguments and owns one 4 KiB worker stack. Configure
+instances with `controller` before enabling their outputs:
+
+```text
+job start controllers
+controller start level
+controller status level
+controller stop level
+job stop controllers
+```
+
+Each instance has its own period, timestamped input, output limits, and safe
+output. Faults latch until explicit stop/start. Stopping this job stops all
+enabled instances and attempts to release their outputs. Failed cleanup
+retains claims for `controller stop <name>` to retry. See
+[Feedback controllers](controllers.md) for input freshness, output adapters,
+configuration, and Python/Lua APIs.
+
 ## controls
 
 Continuous-control mapper. It samples every configured scalar-stream control

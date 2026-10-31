@@ -75,6 +75,12 @@ the callback. Unregister retires its paths immediately and returns
 its state and retry; only `ESP_OK` permits state destruction. A callback must not
 synchronously wait for its own registration to retire.
 
+Writer claims are checked under the same lock that pins callback access.
+Ordinary setters, including normalized setters, cannot bypass a claim. Range
+updates require a live, unclaimed registration with no callback references.
+Retirement invalidates access and claims immediately while retaining the
+provider's state until every pinned callback finishes.
+
 Callbacks may call other SolarOS services because no global registry lock is
 held around them. A callback must not synchronously start or stop its own job;
 asynchronous completion uses `solar_os_jobs_mark_stopped()` instead. Callbacks

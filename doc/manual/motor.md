@@ -22,6 +22,11 @@ the provider does not implement them.
 
 ## Quick reference
 
+An active native consumer can claim a motor output exclusively. While claimed,
+ordinary drive, coast, brake and clear commands and device detach are rejected.
+Status remains available. The owning consumer must stop and release the output;
+failed cleanup retains the claim for retry. See [Robot axes](robot.md).
+
 ```text
 expansion attach drv8830 motor0 i2c=i2c0 addr=0x60 max_mv=3000
 motor list

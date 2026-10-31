@@ -1,6 +1,7 @@
 #include "solar_os_encoder.h"
 
 #include <string.h>
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
@@ -12,11 +13,13 @@ typedef struct encoder {
     void *ctx;
     size_t refs;
     bool removing;
+    uint32_t claim;
     StaticSemaphore_t *operation_storage;
     SemaphoreHandle_t operation_mutex;
 } encoder_t;
 
 static encoder_t *encoders;
+static uint32_t next_claim;
 static StaticSemaphore_t registry_storage;
 static SemaphoreHandle_t registry_mutex;
 static portMUX_TYPE init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -103,7 +106,7 @@ esp_err_t solar_os_encoder_unregister(const char *name)
     lock();
     encoder_t *e = find(name);
     if (e == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
-    if (e->refs != 0U || e->removing) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    if (e->refs != 0U || e->removing || e->claim != 0) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     e->removing = true;
     xSemaphoreGive(registry_mutex);
     const esp_err_t ret = e->ops.shutdown != NULL ? e->ops.shutdown(e->ctx) : ESP_OK;
@@ -170,7 +173,52 @@ esp_err_t solar_os_encoder_reset(const char *name)
     encoder_t *e;
     esp_err_t ret = acquire(name, &e);
     if (ret != ESP_OK) return ret;
-    ret = e->ops.reset != NULL ? e->ops.reset(e->ctx) : ESP_ERR_NOT_SUPPORTED;
+    ret = e->claim ? ESP_ERR_INVALID_STATE : e->ops.reset != NULL ? e->ops.reset(e->ctx) : ESP_ERR_NOT_SUPPORTED;
     release(e);
     return ret;
+}
+
+esp_err_t solar_os_encoder_claim(const char *name, uint32_t *claim)
+{
+    if (claim == NULL) return ESP_ERR_INVALID_ARG;
+    *claim = 0;
+    encoder_t *e; esp_err_t ret = acquire(name, &e);
+    if (ret != ESP_OK) return ret;
+    lock();
+    if (e->claim || e->refs != 1 || next_claim == UINT32_MAX) ret = ESP_ERR_INVALID_STATE;
+    else { e->claim = ++next_claim; *claim = e->claim; }
+    xSemaphoreGive(registry_mutex);
+    release(e); return ret;
+}
+
+static esp_err_t acquire_owned(uint32_t claim, encoder_t **result)
+{
+    if (!claim) return ESP_ERR_INVALID_ARG;
+    lock(); encoder_t *e;
+    for (e = encoders; e != NULL && e->claim != claim; e = e->next) {}
+    if (e != NULL) e->refs++;
+    xSemaphoreGive(registry_mutex);
+    if (e == NULL) return ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(e->operation_mutex, portMAX_DELAY);
+    if (e->claim != claim) { release(e); return ESP_ERR_NOT_FOUND; }
+    *result = e; return ESP_OK;
+}
+
+esp_err_t solar_os_encoder_sample_owned(uint32_t claim, solar_os_encoder_sample_t *sample)
+{
+    if (sample == NULL) return ESP_ERR_INVALID_ARG;
+    encoder_t *e; esp_err_t ret = acquire_owned(claim, &e);
+    if (ret != ESP_OK) return ret;
+    solar_os_encoder_sample_t value = {.decoding = e->info.mode};
+    ret = e->ops.read(e->ctx, &value.count);
+    if (ret == ESP_OK) { value.timestamp_us = (uint64_t)esp_timer_get_time(); *sample = value; }
+    release(e); return ret;
+}
+
+esp_err_t solar_os_encoder_release(uint32_t claim)
+{
+    encoder_t *e; esp_err_t ret = acquire_owned(claim, &e);
+    if (ret != ESP_OK) return ret;
+    lock(); e->claim = 0; xSemaphoreGive(registry_mutex);
+    release(e); return ESP_OK;
 }

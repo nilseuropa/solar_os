@@ -78,6 +78,21 @@ SOLAR_OS_SCRIPT_API_FUNCTION(storage, mount_volume, mount_volume);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, unmount_volume, unmount_volume);
 SOLAR_OS_SCRIPT_API_MODULE_END(storage);
 
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(robot);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joints, joints);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_create, joint_create);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_configure, joint_configure);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_bind_motor, joint_bind_motor);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_bind_servo, joint_bind_servo);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_command, joint_command);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_enable, joint_enable);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_disable, joint_disable);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_status, joint_status);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_close, joint_close);
+SOLAR_OS_SCRIPT_API_MODULE_END(robot);
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(emotion);
 SOLAR_OS_SCRIPT_API_FUNCTION(emotion, open, open);
@@ -290,6 +305,24 @@ SOLAR_OS_SCRIPT_API_MODULE_BEGIN(adc);
 SOLAR_OS_SCRIPT_API_FUNCTION(adc, pins, pins);
 SOLAR_OS_SCRIPT_API_FUNCTION(adc, read, read);
 SOLAR_OS_SCRIPT_API_MODULE_END(adc);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(controllers);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, list, list);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, configure, configure);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, bind, bind);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, feed, feed);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, step, step);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, manual, manual);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, auto, auto);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, reset, reset);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, start, start);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, stop, stop);
+SOLAR_OS_SCRIPT_API_FUNCTION(controllers, delete, delete);
+SOLAR_OS_SCRIPT_API_MODULE_END(controllers);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS

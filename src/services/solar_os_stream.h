@@ -164,6 +164,12 @@ typedef esp_err_t (*solar_os_stream_read_scalar_fn)(
     void *user,
     const solar_os_stream_read_options_t *options,
     float *value);
+typedef struct {
+    float value;
+    uint64_t uptime_ms; /* Acquisition time, not time of reading a cached value. */
+} solar_os_stream_scalar_sample_t;
+typedef esp_err_t (*solar_os_stream_read_scalar_sample_fn)(void *user,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 typedef esp_err_t (*solar_os_stream_csv_header_fn)(void *user,
                                                    char *header,
                                                    size_t header_len);
@@ -180,6 +186,8 @@ typedef struct {
     solar_os_stream_read_fn read;
     solar_os_stream_write_fn write;
     solar_os_stream_read_scalar_fn read_scalar;
+    /* Optional acquisition timestamp for feedback consumers. */
+    solar_os_stream_read_scalar_sample_fn read_scalar_sample;
     /* Optional compatibility adapters. New consumers use typed reads. */
     solar_os_stream_csv_header_fn csv_header;
     solar_os_stream_read_csv_fn read_csv;
@@ -193,6 +201,9 @@ typedef struct {
 } solar_os_stream_driver_t;
 
 esp_err_t solar_os_stream_init(void);
+/* No fallback: an untimestamped provider returns ESP_ERR_NOT_SUPPORTED. */
+esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver);
 esp_err_t solar_os_stream_unregister(const char *id);
 /* Remove related endpoints atomically; a busy or missing endpoint removes none. */

@@ -20,6 +20,7 @@ dlp = true
 jet = true
 input_keymap = true
 control_bindings = true
+controllers = true
 signal_processing = true
 vector_math = true
 gpio = true
