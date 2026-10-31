@@ -1020,42 +1020,6 @@ static esp_err_t playground_cache_paths(
     return err;
 }
 
-static esp_err_t playground_backup_file(const char *path,
-                                        const char *backup,
-                                        bool *backed_up)
-{
-    if (backed_up == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    *backed_up = false;
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        return errno == ENOENT ? ESP_OK : ESP_FAIL;
-    }
-    if (remove(backup) != 0 && errno != ENOENT) {
-        return ESP_FAIL;
-    }
-    if (rename(path, backup) != 0) {
-        return ESP_FAIL;
-    }
-    *backed_up = true;
-    return ESP_OK;
-}
-
-static void playground_restore_file(const char *path,
-                                    const char *backup,
-                                    bool backed_up,
-                                    bool committed)
-{
-    if (committed) {
-        (void)remove(path);
-    }
-    if (backed_up) {
-        (void)remove(path);
-        (void)rename(backup, path);
-    }
-}
-
 static esp_err_t playground_save_catalog(const char *source_value,
                                          const char *body,
                                          size_t body_len,
@@ -1070,44 +1034,14 @@ static esp_err_t playground_save_catalog(const char *source_value,
         err = playground_write_file(
             paths.source_temp, source_value, strlen(source_value));
     }
-    bool catalog_backed_up = false;
-    bool source_backed_up = false;
-    bool catalog_committed = false;
-    bool source_committed = false;
     if (err == ESP_OK) {
-        err = playground_backup_file(paths.catalog,
-                                     paths.catalog_backup,
-                                     &catalog_backed_up);
+        const solar_os_storage_replacement_t items[] = {
+            {paths.catalog_temp, paths.catalog, paths.catalog_backup},
+            {paths.source_temp, paths.source, paths.source_backup},
+        };
+        err = solar_os_storage_replace_files(items, 2U);
     }
-    if (err == ESP_OK) {
-        err = playground_backup_file(paths.source,
-                                     paths.source_backup,
-                                     &source_backed_up);
-    }
-    if (err == ESP_OK && rename(paths.catalog_temp, paths.catalog) != 0) {
-        err = ESP_FAIL;
-    } else if (err == ESP_OK) {
-        catalog_committed = true;
-    }
-    if (err == ESP_OK && rename(paths.source_temp, paths.source) != 0) {
-        err = ESP_FAIL;
-    } else if (err == ESP_OK) {
-        source_committed = true;
-    }
-    if (err == ESP_OK) {
-        (void)remove(paths.catalog_backup);
-        (void)remove(paths.source_backup);
-    } else {
-        playground_restore_file(
-            paths.catalog,
-            paths.catalog_backup,
-            catalog_backed_up,
-            catalog_committed);
-        playground_restore_file(
-            paths.source,
-            paths.source_backup,
-            source_backed_up,
-            source_committed);
+    if (err != ESP_OK) {
         if (paths.catalog_temp[0] != '\0') {
             (void)remove(paths.catalog_temp);
         }
@@ -1469,7 +1403,7 @@ static esp_err_t playground_write_alias_registry(
 {
     char directory[SOLAR_OS_STORAGE_PATH_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
-    char temp[SOLAR_OS_STORAGE_PATH_MAX];
+    char temp[SOLAR_OS_STORAGE_PATH_MAX] = {0};
     char backup[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t err = solar_os_storage_join_path(
         mount, PLAYGROUND_ALIAS_DIR, directory, sizeof(directory));
@@ -1491,20 +1425,10 @@ static esp_err_t playground_write_alias_registry(
     if (err == ESP_OK) {
         err = playground_write_file(temp, content, content_len);
     }
-    bool backed_up = false;
-    bool committed = false;
     if (err == ESP_OK) {
-        err = playground_backup_file(path, backup, &backed_up);
+        err = solar_os_storage_replace_file(temp, path, backup);
     }
-    if (err == ESP_OK && rename(temp, path) != 0) {
-        err = ESP_FAIL;
-    } else if (err == ESP_OK) {
-        committed = true;
-    }
-    if (err == ESP_OK) {
-        (void)remove(backup);
-    } else {
-        playground_restore_file(path, backup, backed_up, committed);
+    if (err != ESP_OK && temp[0] != '\0') {
         (void)remove(temp);
     }
     return err;
@@ -2197,7 +2121,7 @@ static bool playground_package_cancelled(void *user)
 static void playground_package_progress(size_t received, size_t total, void *user)
 {
     const playground_package_progress_t *state = user;
-    const solar_os_playground_progress_t progress = {
+    solar_os_playground_progress_t progress = {
         .stage = SOLAR_OS_PLAYGROUND_PROGRESS_PACKAGE,
         .bytes_read = received,
         .bytes_total = total,
