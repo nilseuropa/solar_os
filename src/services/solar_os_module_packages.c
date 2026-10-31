@@ -13,6 +13,7 @@
 #include "solar_os_config.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_crypto.h"
+#include "solar_os_download.h"
 #include "solar_os_http_client.h"
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
@@ -50,16 +51,6 @@ typedef struct {
 
 static EXT_RAM_BSS_ATTR module_catalog_id_cache_t module_catalog_id_cache;
 static portMUX_TYPE module_catalog_cache_lock = portMUX_INITIALIZER_UNLOCKED;
-
-typedef struct {
-    FILE *file;
-    solar_os_crypto_sha256_t sha256;
-    const solar_os_module_install_options_t *options;
-    uint32_t expected_size;
-    uint32_t bytes;
-    int response_status;
-    bool response_size_mismatch;
-} module_download_t;
 
 static void module_set_detail(char *detail, size_t detail_len, const char *text)
 {
@@ -814,49 +805,16 @@ esp_err_t solar_os_module_packages_init(void)
 
 static bool module_download_cancelled(void *user)
 {
-    module_download_t *download = (module_download_t *)user;
-    return download != NULL && download->options != NULL &&
-        download->options->should_cancel != NULL &&
-        download->options->should_cancel(download->options->user);
+    const solar_os_module_install_options_t *options = user;
+    return options != NULL && options->should_cancel != NULL &&
+        options->should_cancel(options->user);
 }
 
-static esp_err_t module_download_event(const solar_os_http_event_t *event, void *user)
+static void module_download_progress(size_t received, size_t total, void *user)
 {
-    module_download_t *download = (module_download_t *)user;
-    if (event == NULL || download == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (event->type == SOLAR_OS_HTTP_EVENT_RESPONSE) {
-        download->response_status = event->status_code;
-        download->response_size_mismatch =
-            event->content_length >= 0 &&
-            (uint64_t)event->content_length != download->expected_size;
-        if (event->status_code != 200 || download->response_size_mismatch) {
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        return ESP_OK;
-    }
-    if (event->type != SOLAR_OS_HTTP_EVENT_DATA || event->data_len == 0U) {
-        return ESP_OK;
-    }
-    if (download->bytes > download->expected_size ||
-        event->data_len > download->expected_size - download->bytes ||
-        fwrite(event->data, 1U, event->data_len, download->file) != event->data_len) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    esp_err_t err = solar_os_crypto_sha256_update(&download->sha256,
-                                                  event->data,
-                                                  event->data_len);
-    if (err != ESP_OK) {
-        return err;
-    }
-    download->bytes += (uint32_t)event->data_len;
-    if (download->options != NULL && download->options->progress != NULL) {
-        download->options->progress(download->bytes,
-                                    download->expected_size,
-                                    download->options->user);
-    }
-    return ESP_OK;
+    const solar_os_module_install_options_t *options = user;
+    if (options != NULL && options->progress != NULL)
+        options->progress(received, total, options->user);
 }
 
 static esp_err_t module_validate_download(const char *path,
@@ -995,20 +953,6 @@ esp_err_t solar_os_module_package_install(const char *id,
     }
     (void)solar_os_storage_remove(staged_path);
 
-    FILE *file = fopen(staged_path, "wb");
-    if (file == NULL) {
-        module_set_detail(detail, detail_len, "could not create the staged module file");
-        err = ESP_FAIL;
-        goto done;
-    }
-    module_download_t download = {
-        .file = file,
-        .options = options,
-        .expected_size = package->artifact_size,
-    };
-    solar_os_crypto_sha256_init(&download.sha256);
-    err = solar_os_crypto_sha256_start(&download.sha256);
-
     const solar_os_http_request_options_t request = {
         .url = package->artifact_url,
         .method = SOLAR_OS_HTTP_METHOD_GET,
@@ -1018,60 +962,29 @@ esp_err_t solar_os_module_package_install(const char *id,
         .read_poll_ms = 250U,
         .deadline_ms = MODULE_HTTP_DEADLINE_MS,
         .should_cancel = module_download_cancelled,
-        .cancel_user_data = &download,
+        .cancel_user_data = (void *)options,
         .receive_buffer_size = 4096U,
         .transmit_buffer_size = 1024U,
-        .event_handler = module_download_event,
-        .user_data = &download,
     };
-    solar_os_http_request_t *http = NULL;
-    solar_os_http_response_t response;
-    if (err == ESP_OK) {
-        err = solar_os_http_request_create(&request, &http);
-    }
-    if (err == ESP_OK) {
-        err = solar_os_http_request_perform(http, &response);
-    }
-    if (http != NULL) {
-        const esp_err_t destroy_err = solar_os_http_request_destroy(http);
-        if (err == ESP_OK && destroy_err != ESP_OK) {
-            err = destroy_err;
-        }
-    }
-    uint8_t digest[SOLAR_OS_CRYPTO_SHA256_LEN];
-    if (err == ESP_OK && (response.status_code != 200 ||
-                          download.bytes != package->artifact_size)) {
-        err = ESP_ERR_INVALID_SIZE;
-    }
-    if (err == ESP_OK) {
-        err = solar_os_crypto_sha256_finish(&download.sha256, digest);
-    }
-    if (err == ESP_OK &&
-        !solar_os_crypto_sha256_matches_hex(digest, package->artifact_sha256)) {
-        err = ESP_ERR_INVALID_CRC;
-    }
-    if (err == ESP_OK) {
-        err = solar_os_storage_sync_file(file);
-    }
-    if (fclose(file) != 0 && err == ESP_OK) {
-        err = ESP_FAIL;
-    }
-    solar_os_crypto_sha256_free(&download.sha256);
+    solar_os_download_result_t download;
+    err = solar_os_download_file(&request, staged_path, package->artifact_size,
+                                 package->artifact_size, package->artifact_sha256,
+                                 module_download_progress, (void *)options, &download);
     if (err != ESP_OK) {
         (void)solar_os_storage_remove(staged_path);
         if (err == ESP_ERR_INVALID_CRC) {
             module_set_detail(detail,
                               detail_len,
                               "downloaded module hash does not match the signed catalog");
-        } else if (download.response_status != 0 &&
-                   download.response_status != 200) {
+        } else if (download.response.status_code > 0 &&
+                   download.response.status_code != 200) {
             if (detail != NULL && detail_len > 0U) {
                 snprintf(detail,
                          detail_len,
                          "module artifact server returned HTTP %d",
-                         download.response_status);
+                         download.response.status_code);
             }
-        } else if (download.response_size_mismatch) {
+        } else if (err == ESP_ERR_INVALID_SIZE) {
             module_set_detail(detail,
                               detail_len,
                               "module artifact size differs from the signed catalog");

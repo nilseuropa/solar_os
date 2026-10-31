@@ -981,6 +981,7 @@ capabilities = ["wifi"]
 [packages.service_native_modules]
 label = "bootstrap.native-modules"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
