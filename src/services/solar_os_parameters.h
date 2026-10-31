@@ -60,6 +60,9 @@ esp_err_t solar_os_parameters_register(
     const solar_os_parameter_definition_t *definitions,
     size_t count,
     solar_os_parameter_registration_t *registration);
+/* Retires the registration immediately. ESP_ERR_INVALID_STATE means callbacks
+ * remain in flight: retain their state and retry until ESP_OK. Retiring names
+ * cannot be reused. A callback must not synchronously wait for its own removal. */
 esp_err_t solar_os_parameters_unregister(
     solar_os_parameter_registration_t *registration);
 

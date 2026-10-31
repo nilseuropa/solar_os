@@ -1,4 +1,6 @@
 #include "solar_os_funcgen.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <inttypes.h>
 #include <math.h>
@@ -496,7 +498,8 @@ static void funcgen_parameters_register(void)
 static void funcgen_parameters_unregister(void)
 {
     if (funcgen.parameter_registration.token != 0U) {
-        (void)solar_os_parameters_unregister(&funcgen.parameter_registration);
+        while (solar_os_parameters_unregister(&funcgen.parameter_registration) ==
+               ESP_ERR_INVALID_STATE) vTaskDelay(1);
     }
 }
 

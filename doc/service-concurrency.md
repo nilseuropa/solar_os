@@ -69,6 +69,12 @@ raw instance pointer cannot race slot teardown or mutex deletion.
 
 ## Callback requirements
 
+Parameter access pins one registration generation through range conversion and
+the callback. Unregister retires its paths immediately and returns
+`ESP_ERR_INVALID_STATE` while callbacks remain in flight. The owner must retain
+its state and retry; only `ESP_OK` permits state destruction. A callback must not
+synchronously wait for its own registration to retire.
+
 Callbacks may call other SolarOS services because no global registry lock is
 held around them. A callback must not synchronously start or stop its own job;
 asynchronous completion uses `solar_os_jobs_mark_stopped()` instead. Callbacks
