@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Exercise HTTP redirect policy and app/parameter retirement on an owned device.
 
-Requires the configured Telnet shell, Python, Synth and Funcgen. Runs two local
+Requires the configured Telnet shell and Python; parameter cycles also require
+Synth and Funcgen. Runs two local
 HTTP origins. --serial adds a temporary port shell for concurrent parameter
 access; only sessions created by this harness are closed. No device files or
 persistent settings are changed.
@@ -16,6 +17,7 @@ import threading
 import time
 
 from model_bundle_stream import Console
+from bounded_repl import PythonRepl
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -84,10 +86,12 @@ def main():
     parser.add_argument("--cycles", type=int, default=8)
     parser.add_argument("--serial", help="USB/UART device for the parameter concurrency test")
     parser.add_argument("--port", default="cdc0", help="SolarOS port mapped to --serial")
+    parser.add_argument("--http-only", action="store_true", help="Skip parameter apps on constrained builds")
     args = parser.parse_args()
     if not 1 <= args.cycles <= 100:
         parser.error("cycles must be 1..100")
     args.output.mkdir(parents=True, exist_ok=False)
+    do_parameters = bool(args.serial and not args.http_only)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
         route.connect((socket.gethostbyname(args.host), 23))
         address = route.getsockname()[0]
@@ -121,15 +125,7 @@ def main():
         note(output)
         raise TimeoutError(f"missing {marker}: {output}")
 
-    def python(text):
-        # The interactive editor has a 192-byte line bound. Pace input too:
-        # every typed byte can redraw the line over a bounded port queue.
-        assert len(text.encode()) < 190
-        data = (text + "\r\n").encode()
-        for offset in range(0, len(data), 16):
-            console.socket.sendall(data[offset:offset + 16])
-            time.sleep(.02)
-        return wait(">>> ")
+    python = PythonRepl(lambda: console, note).command
 
     def create(app):
         output = observer.command(f"session create {app} display0", 15)
@@ -189,7 +185,7 @@ def main():
         console.socket.sendall(b"exit()\r\n")
         in_python = False
         note(console.read(2))
-        if args.serial:
+        if do_parameters:
             observer = console
             output = observer.command("job start shell " + args.port)
             note(output)
@@ -203,7 +199,7 @@ def main():
             console.sendall(b"python\r\n")
             in_python = True
             wait(">>> ")
-        for app in (("synth", "funcgen") if args.serial else ()):
+        for app in (("synth", "funcgen") if do_parameters else ()):
             sid = create(app)
             program = ("import solaros\nseen=0\nmissing=0\nfor i in range(10000):\n"
                        f" try:\n  solaros.parameters.get('{app}." + ("volume" if app == "synth" else "frequency") +
@@ -231,7 +227,7 @@ def main():
         for command in ("session list", "mem policy", "log show"):
             note(command + "\n" + console.command(command))
         (args.output / "result.json").write_text(json.dumps({"host": args.host, "http": "pass",
-            "parameter_cycles_per_app": args.cycles if args.serial else 0}, indent=2) + "\n")
+            "parameter_cycles_per_app": args.cycles if do_parameters else 0}, indent=2) + "\n")
         print("CORRECTNESS_STAGE_OK", args.host)
     finally:
         if console and in_python:

@@ -4,6 +4,48 @@ These tests use live hardware. Each harness describes the resources and device
 state it changes. Run with permission to use those resources. RTSP tests occupy
 the publisher/viewer and receiver slots.
 
+## Review regression stages
+
+`review_correctness.py` runs two local HTTP origins and checks relative and
+cross-origin redirects, credential removal, HTTP 304, and POST redirects. A USB
+port adds concurrent Synth/Funcgen close/recreate cycles while Python reads
+their parameters. Telnet accepts one client, so concurrency uses Telnet plus a
+temporary port shell. Opening the serial bridge can reset the device; the
+harness opens it before creating sessions and closes only its own sessions.
+Use `--http-only` for a build without Synth/Funcgen.
+
+```sh
+python3 tests/hil/review_correctness.py --host DEVICE --serial SERIAL_PATH \
+  --port cdc0 --output /tmp/review-correctness
+```
+
+`review_download.py` requires Playground, Python and SD. It serves a 1.5 MiB
+package locally, installs it, then rejects a corrupt reinstall while checking
+that the installed entry remains intact. It temporarily selects its source
+and SD storage, renames existing catalog/alias files to unique backups, and
+restores files and settings in `finally`. Its evidence directory records backup
+paths before changing them and writes `restored.json` after restoration.
+Do not run it alongside another Playground user.
+
+```sh
+python3 tests/hil/review_download.py --host DEVICE --output /tmp/review-download
+```
+
+`review_runtime.py` requires Python, SD and aplay; `--lua` adds Lua binding
+coverage. It creates uniquely named silent WAVs through the storage API, checks
+their headers and sizes, plays mono/stereo at 16/48 kHz, cancels a longer file,
+checks bounded memory recovery diagnostics, and completes a transfer option
+without executing it. It removes its fixtures in `finally`. It does not change
+audio volume or persistent settings. Audio must be available for the test.
+
+```sh
+python3 tests/hil/review_runtime.py --host DEVICE --lua --output /tmp/review-runtime
+```
+
+The Python stages share `bounded_repl.py`, which respects the visible REPL line
+width and paces port input. These tests validate software behavior and device
+execution; they do not judge optical refresh quality or audible output quality.
+
 ## Foreground runtime benchmark
 
 ```sh
