@@ -33,6 +33,7 @@ TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_tes
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
 TARGETS += epd_sticky_identify_test sticky_display_test
+TARGETS += cl32_display_identify_test cl32_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
@@ -333,6 +334,14 @@ epd_sticky_identify_test: epd_sticky_identify_test.c $(ROOT)/src/drivers/epd_sti
 	$(CC) $(CFLAGS) -Iepd_stubs -I. -I$(ROOT)/src/services $< -o $@
 
 sticky_display_test: sticky_display_test.c $(ROOT)/src/services/solar_os_sticky_display.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
+
+cl32_display_identify_test: cl32_display_identify_test.c $(ROOT)/src/drivers/cl32_display_identify.c $(ROOT)/src/drivers/cl32_display_identify.h
+	$(CC) $(CFLAGS) -Iepd_stubs -I. -I$(ROOT)/src/services $< -o $@
+
+cl32_display_test: cl32_display_test.c $(ROOT)/src/services/solar_os_cl32_display.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
@@ -1387,6 +1396,8 @@ test: $(TARGETS)
 	./ssd2677_expansion_test
 	./epd_sticky_identify_test
 	./sticky_display_test
+	./cl32_display_identify_test
+	./cl32_display_test
 	./frontlight_pwm_test
 	./pwm_servo_test
 	./pwm_provider_test

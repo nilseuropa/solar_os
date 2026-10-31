@@ -21,7 +21,7 @@ class SleepWakeTest(unittest.TestCase):
             "wait_sleep_wake_released_stable", "enter_suspend",
             "maybe_exit_suspend_for_input", "enter_sleep",
         ))
-        for board_id in ("cl_32", "cl32_epd", "solar_term"):
+        for board_id in ("cl_32", "solar_term"):
             with self.subTest(board=board_id), tempfile.TemporaryDirectory() as tmp:
                 board = load_board_manifest(ROOT / f"boards/manifests/{board_id}.toml")
                 names = ("SOLAR_OS_BOARD_PIN_SLEEP_WAKE", "SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL",
@@ -31,7 +31,7 @@ class SleepWakeTest(unittest.TestCase):
                 defines = {name: "0" for name in names if "SLEEP_WAKE" not in name}
                 defines.update({name: value for name, value in board["defines"].items() if name in names})
                 defines["SOLAR_OS_BOARD_HAS_KEY"] = str(int("key" in board["build"]["capabilities"]))
-                defines["SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD"] = str(int(board_id in ("cl_32", "cl32_epd")))
+                defines["SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD"] = str(int(board_id == "cl_32"))
                 preamble = "\n".join(f"#define {name} {value}" for name, value in defines.items())
                 Path(tmp, "sleep.inc").write_text(preamble + "\n" + macros + "\n" + functions)
                 binary = Path(tmp, "sleep")

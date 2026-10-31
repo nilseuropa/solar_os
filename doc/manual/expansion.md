@@ -58,7 +58,7 @@ On ESP32-S3 boards with graphics, the `full` flavor includes the concrete
 respective groups. Drivers omitted by the flavor or pruned for the target's
 capabilities do not appear in the list.
 
-The `sticky-display` and `x4pro` adapters are selected by their board manifests
+The `cl32-display`, `sticky-display`, and `x4pro` adapters are selected by their board manifests
 and detect the built-in display controller at startup. They are excluded from
 the manual driver list and cannot be attached manually.
 

@@ -487,10 +487,10 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("drivers/rtc_ds3231.c", sources)
         self.assertIn("services/solar_os_ds3231_driver.c", sources)
 
-    def test_cl32_epd_keeps_shared_pulse_sources_in_writerdeck(self):
+    def test_cl32_keeps_both_display_backends_in_writerdeck(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
         manifest_dir = REPOSITORY / "boards/manifests"
-        board = load_board_manifest(manifest_dir / "cl32_epd.toml", manifest_dir)
+        board = load_board_manifest(manifest_dir / "cl_32.toml", manifest_dir)
         drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
         _, _, groups, packages = self.resolve("writerdeck")
         selected = generate_flavor_config.enable_required_packages(
@@ -498,9 +498,15 @@ class FlavorPackagesTest(unittest.TestCase):
         groups, selected = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, selected, set(board["build"]["capabilities"]))
         sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
-        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker"):
+        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker",
+                       "rlcd_st7305", "cl32_display_identify"):
             self.assertIn(f"drivers/{source}.c", sources)
         self.assertNotIn("drivers/epd_ssd1683.c", sources)
+        self.assertIn("services/solar_os_cl32_display.c", sources)
+        symbols = generate_flavor_config.collect_expansion_drivers(self.catalog, selected)
+        for symbol in ("solar_os_cl32_display_expansion_driver", "solar_os_st7305_expansion_driver",
+                       "solar_os_ssd1685_expansion_driver"):
+            self.assertIn(symbol, symbols)
 
     def test_unknown_board_required_package_is_rejected(self):
         _, _, _, packages = self.resolve("writerdeck")

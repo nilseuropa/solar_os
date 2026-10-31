@@ -85,7 +85,7 @@ voltage and current requirements before connecting it.
 | Elecrow CrowPanel ESP32-S3 5.79-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal dual-SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
 | SolarWriter | `i2c0`: SDA GPIO8, SCL GPIO9; inherited CrowPanel SPI/UART buses | I2C on `i2c1`, UART on `uart1`/`uart2`, or 1-Wire, using GPIO18/19/20/38; SPI3 while microSD is unmounted | Fixed `audio0` owns I2S1 and GPIO14–17. `battery0` (`0x0b`) and DS3231 `rtc0` (`0x68`) share `i2c0`. RTC INT/SQW is unbound. GPIO21 is reserved for jack detect. |
 | Waveshare ESP32-S3-ePaper-3.97 | `i2c0`: SDA GPIO41, SCL GPIO42; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | External I2C devices can share `i2c0`; external UART devices can use `uart0` when the console releases it. | `spi0` is the fixed internal SSD1677 bus. All other GPIOs belong to fixed peripherals, native USB, controls, or power-management signals. |
-| Pi0cket CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | Both `cl_32` and `cl32_epd`: EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
+| Pi0cket CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | `cl_32`: EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
 | T-LoRa-Pager | `i2c0`: SDA GPIO3, SCL GPIO2; `spi0`: SCK GPIO35, MISO GPIO33, MOSI GPIO34, CS GPIO38/GPIO21/GPIO36/GPIO39/GPIO9; `uart0`: TX GPIO43, RX GPIO44; `gnss-uart`: TX GPIO12, RX GPIO4 | External devices can share `i2c0` or `spi0`; GPIO9 is the free SPI CS slot. `uart0` is releasable. | The extension header exposes the shared buses and console UART. Display, storage, radio, and NFC share `spi0`; GNSS owns its internal UART. There is no complete exposed pin set for another routed bus. |
 | T-Deck Plus | `uart0`: TX GPIO43, RX GPIO44, GNSS detection at 9600/38400 baud; internal `i2c0` and `spi0` | Grove UART after `expansion detach gnss0`; restore with `expansion attach gnss0` | Grove is the only expansion connector and shares its UART signals with always-on GNSS. Use `gnss disable gnss0` to silence supported receivers before detaching; reattachment restores output. Software release does not electrically disconnect GNSS TX, so an external transmitter needs suitable isolation. The I/O map shows Grove; display, storage, radio, keyboard, touch, and audio use internal wiring. |
 | ThinkNode M9 | `i2c0`: SDA GPIO20, SCL GPIO21; `i2c1`: SDA GPIO7, SCL GPIO6; `spi0`: SCK GPIO40, MISO GPIO38, MOSI GPIO47, CS GPIO16/GPIO48/GPIO39; `uart0`: TX GPIO43, RX GPIO44; `uart1`: TX GPIO3, RX GPIO2 at 115200 baud | None through an external connector | Display, storage, keyboard, RTC, battery, buzzer, and GNSS use fixed internal resources. `i2c0` is the keyboard bus and `i2c1` the peripheral bus; `uart0` is the CH340K USB console; `uart1` belongs to the GNSS receiver. The board has no general-purpose expansion connector. |
@@ -253,7 +253,7 @@ Fixed-pin board buses reject detach.
 ## Drivers and Bindings
 
 Run `expansion drivers` on the device to see the exact set available for manual
-attachment. The board-only `sticky-display` and `x4pro` adapters detect the
+attachment. The board-only `cl32-display`, `sticky-display`, and `x4pro` adapters detect the
 built-in display controller at startup and are excluded from this list.
 
 | Driver | Device | Required bindings | Result after attach |
@@ -719,9 +719,9 @@ If they cannot be allocated, attachment fails. A later failed mode change
 leaves the previous refresh mode selected.
 
 CL-32's e-paper variant uses this panel with SCK GPIO9, MOSI GPIO10, CS GPIO6,
-DC GPIO13, reset GPIO12, and BUSY GPIO14. Build `cl32_epd` to attach it as the
-primary display at boot. The `cl_32` target selects the ST7305 RLCD on the
-same SPI/control pins.
+DC GPIO13, reset GPIO12, and BUSY GPIO14. Build `cl_32` for either display.
+Its board-owned `cl32-display` adapter detects SSD1685 or ST7305 at startup
+and attaches the matching primary driver on these shared SPI/control pins.
 
 ### Waveshare 4.2-inch V2 e-paper on ESP32-S3-DevKitC-1
 
