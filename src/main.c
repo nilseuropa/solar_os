@@ -14,6 +14,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "nvs_flash.h"
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -1874,6 +1875,17 @@ static void dispatch_input_sources(void)
     }
 }
 
+static StaticSemaphore_t runtime_wake_storage;
+static SemaphoreHandle_t runtime_wake;
+static TaskHandle_t runtime_task;
+
+static void runtime_notify_input(void)
+{
+    /* Hardware polled by this task is drained in the same iteration. */
+    if (runtime_wake != NULL && xTaskGetCurrentTaskHandle() != runtime_task)
+        xSemaphoreGive(runtime_wake);
+}
+
 static uint32_t next_tick_wait_ms(void)
 {
     const uint32_t now_ms = millis_u32();
@@ -2287,6 +2299,9 @@ void app_main(void)
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
     log_runtime_memory();
     const bool requires_fast_poll = runtime_requires_fast_poll();
+    runtime_task = xTaskGetCurrentTaskHandle();
+    runtime_wake = xSemaphoreCreateBinaryStatic(&runtime_wake_storage);
+    solar_os_input_set_wake_callback(runtime_notify_input);
     SOLAR_OS_LOGI(TAG,
                   "runtime cadence policy: max wait=%u ms (%s input)",
                   (unsigned)(requires_fast_poll ?
@@ -2340,6 +2355,8 @@ void app_main(void)
         const uint32_t loop_interval_ms = solar_os_runtime_wait_ms(
             next_tick_wait_ms(), requires_fast_poll);
         note_runtime_cadence(millis_u32(), loop_interval_ms);
-        vTaskDelay(pdMS_TO_TICKS(loop_interval_ms));
+        TickType_t wait_ticks = pdMS_TO_TICKS(loop_interval_ms);
+        if (wait_ticks == 0U) wait_ticks = 1U;
+        xSemaphoreTake(runtime_wake, wait_ticks);
     }
 }

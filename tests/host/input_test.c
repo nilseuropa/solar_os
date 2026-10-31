@@ -10,6 +10,13 @@
 #include "solar_os_memory.h"
 
 static int64_t now_us;
+static unsigned wake_count;
+static void wake_consumer(void)
+{
+    /* Reenter a locking query: notification must run after unlocking. */
+    (void)solar_os_input_key_press_generation();
+    wake_count++;
+}
 static size_t pointer_queue_allocations;
 static size_t pointer_queue_frees;
 static size_t axis_queue_allocations;
@@ -1008,6 +1015,18 @@ int main(void)
     assert(solar_os_input_get_pressed(pressed, 2) == 0);
     solar_os_input_source_close(pressure);
 
+    solar_os_input_set_wake_callback(wake_consumer);
+    wake_count = 0;
+    solar_os_input_source_t wake_source;
+    assert(solar_os_input_keyboard_source_open("wake", true, &wake_source) == ESP_OK);
+    assert(solar_os_input_write_key_tap(wake_source, 1, 0x4f, SOLAR_OS_KEY_RIGHT, 0) == ESP_OK);
+    assert(wake_count == 1);
+    assert(solar_os_input_set_key(wake_source, 2, 0x50, SOLAR_OS_KEY_LEFT, 0) == ESP_OK);
+    assert(wake_count == 2);
+    assert(solar_os_input_set_key(wake_source, 2, 0x50, SOLAR_OS_KEY_LEFT, 0) == ESP_OK);
+    assert(wake_count == 2); /* Unchanged hardware samples do not wake the loop. */
+    solar_os_input_source_close(wake_source);
+    solar_os_input_set_wake_callback(NULL);
     puts("input_test: ok");
     return 0;
 }

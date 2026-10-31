@@ -93,3 +93,9 @@ callback and drawing work. Different periods retain independent dispatch
 phases. An overdue tick yields for the minimum scheduler interval rather than
 adding a full period. Background service polling still bounds idle waits to
 25 ms, or 10 ms on boards that require frequent input sampling.
+
+Queued input wakes the main task through a binary signal. Input publishers
+notify after releasing the input lock; repeated unchanged hardware samples do
+not signal. Hardware polling and touch timing run once per iteration, while
+queued events are drained before and after app/job dispatch. The signal is
+retained if input arrives just before the task starts waiting.
