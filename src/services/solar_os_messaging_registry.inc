@@ -519,14 +519,25 @@ static esp_err_t messaging_operation(solar_os_messaging_provider_id_t id, const 
 
 esp_err_t solar_os_messaging_join(solar_os_messaging_provider_id_t id, const char *target,
     solar_os_conversation_id_t *conversation)
-{ return messaging_operation(id, target, 0, conversation); }
+{
+    solar_os_conversation_id_t opened = 0;
+    esp_err_t error = messaging_operation(id, target, 0, &opened);
+    solar_os_messaging_conversation_t room;
+    if (error == ESP_OK && solar_os_messaging_conversation_get(opened, &room) == ESP_OK)
+        error = messaging_room_set_left(id, room.provider_key, false);
+    if (error == ESP_OK && conversation) *conversation = opened;
+    return error;
+}
 
 esp_err_t solar_os_messaging_leave(solar_os_conversation_id_t id)
 {
     solar_os_messaging_conversation_t conversation;
     esp_err_t error = solar_os_messaging_conversation_get(id, &conversation);
     if (error != ESP_OK) return error;
-    return messaging_operation(conversation.provider, conversation.provider_key, 1, NULL);
+    if (conversation.kind == SOLAR_OS_CONVERSATION_DIRECT) return ESP_ERR_NOT_SUPPORTED;
+    error = messaging_operation(conversation.provider, conversation.provider_key, 1, NULL);
+    if (error == ESP_OK) error = messaging_room_set_left(conversation.provider, conversation.provider_key, true);
+    return error;
 }
 
 esp_err_t solar_os_messaging_open_direct(solar_os_messaging_provider_id_t id, const char *target,

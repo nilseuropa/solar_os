@@ -384,15 +384,17 @@ irc_protocol_test: irc_protocol_test.c $(ROOT)/src/services/solar_os_irc_protoco
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services $^ -o $@
 
 messages_app_test: $(ROOT)/src/apps/solar_os_messages.c $(ROOT)/src/services/solar_os_tui_widgets.c
+messages_app_test: $(ROOT)/src/shell/solar_os_shell_parse.c
 messages_app_test: override CFLAGS += -I$(ROOT)/src/apps -I$(ROOT)/src/shell
 messages_app_test: private MESSAGES_WIDGETS = $(ROOT)/src/services/solar_os_tui_widgets.c
+messages_app_test: private MESSAGES_WORKER_PARSE = $(ROOT)/src/shell/solar_os_shell_parse.c
 
 messaging_service_test gateway_config_test link_messaging_test chat_settings_test meshcore_instances_test messages_app_test: %: %.c $(ROOT)/src/services/solar_os_contacts.c \
         $(ROOT)/src/services/solar_os_meshcore_instances.c $(ROOT)/src/services/solar_os_meshcore_instances.h \
         $(ROOT)/src/services/solar_os_saved_config.h $(ROOT)/src/services/solar_os_credentials.c \
         $(ROOT)/src/services/solar_os_link_messaging.c $(ROOT)/src/services/solar_os_link_messaging.h \
         $(ROOT)/src/services/solar_os_chat.c messaging_service_test.c \
-        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_history.inc $(ROOT)/src/services/solar_os_messaging_registry.inc $(ROOT)/src/services/solar_os_messaging_types.c \
+        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_history.inc $(ROOT)/src/services/solar_os_messaging_registry.inc $(ROOT)/src/services/solar_os_messaging_rooms.inc $(ROOT)/src/services/solar_os_messaging_types.c \
         $(ROOT)/src/services/solar_os_contacts.h $(ROOT)/src/services/solar_os_messaging.h \
         $(ROOT)/src/services/solar_os_messaging_types.h messaging_stubs/freertos/semphr.h \
         $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h
@@ -400,7 +402,7 @@ messaging_service_test gateway_config_test link_messaging_test chat_settings_tes
 		-ffunction-sections -fdata-sections \
 		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/board -I$(ROOT)/src/drivers \
-		$< $(MESSAGES_WIDGETS) $(ROOT)/src/services/solar_os_messaging_types.c \
+		$< $(MESSAGES_WIDGETS) $(MESSAGES_WORKER_PARSE) $(ROOT)/src/services/solar_os_messaging_types.c \
 		$(ROOT)/src/services/solar_os_storage.c -Wl,--gc-sections \
 		-Wl,--wrap=solar_os_storage_is_mounted,--wrap=solar_os_storage_sd_is_mounted \
 		-Wl,--wrap=solar_os_storage_flash_is_mounted,--wrap=solar_os_storage_flash_mount_point \
@@ -1534,6 +1536,7 @@ TARGETS += sc2_client_lowram_test
 
 # SC2 Messaging provider class on the real Messaging registry (SC2 key store stubbed).
 sc2_provider_test: sc2_provider_test.c messaging_service_test.c $(SC2E_DIR)/solar_os_sc2_provider.c \
+        $(ROOT)/src/services/solar_os_messaging_rooms.inc \
         $(SC2E_DIR)/solar_os_sc2_provider.h $(ROOT)/src/services/solar_os_contacts.c \
         $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_registry.inc \
         $(ROOT)/src/services/solar_os_messaging_types.c $(ROOT)/src/services/solar_os_messaging.h \

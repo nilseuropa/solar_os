@@ -127,6 +127,7 @@ typedef struct {
     char title[SOLAR_OS_MESSAGING_TITLE_MAX];
     char provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
     bool history_only;
+    bool left; /* Explicitly left: hidden in Chat, history retained until rejoin. */
     solar_os_messaging_join_state_t join_state;
     char join_error[SOLAR_OS_MESSAGING_ERROR_MAX];
 } solar_os_messaging_conversation_t;
@@ -286,6 +287,8 @@ esp_err_t solar_os_messaging_settings_write(const char *class_name,
 esp_err_t solar_os_messaging_join(solar_os_messaging_provider_id_t instance,
     const char *target, solar_os_conversation_id_t *conversation);
 esp_err_t solar_os_messaging_leave(solar_os_conversation_id_t conversation);
+/* Canonical room key; explicit departures persist independently of connectivity. */
+bool solar_os_messaging_room_left(solar_os_messaging_provider_id_t instance, const char *target);
 esp_err_t solar_os_messaging_open_direct(solar_os_messaging_provider_id_t instance,
     const char *target, solar_os_conversation_id_t *conversation);
 esp_err_t solar_os_messaging_connect(solar_os_messaging_provider_id_t instance, bool enabled);

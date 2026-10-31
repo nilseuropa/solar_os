@@ -45,10 +45,24 @@ is shared between tabs. `Esc` returns to the previous view; `q` closes the TUI.
   `Enter` to edit it in place with a visible insertion cursor; `s` saves the form.
   The other fields remain visible. Unchanged secret fields keep their saved
   values. Submitting an empty secret field clears it. Removal deletes local
-  history, queued sends, settings, and credentials for that instance.
+  history, queued sends, settings, and credentials for that instance. A
+  **Deleting...** popup stays visible while removal runs.
+  Choose **SC2** to enter a relay address such as `chat.solar-os.eu:1337`
+  (TLS), a full `chats://` or `chat://` URL, or a bare domain for signed HTTPS
+  discovery. Domain discovery fills in the endpoint, TLS pin, relay signing key,
+  and fallback relays. An admission code remains optional and must be supplied
+  by the operator when required. The other optional fields are the TLS pin and
+  relay signing key (base64). New SC2 instances start disabled. Changing the
+  relay URL resets its TLS and signing-key pins unless you also edit those fields.
 - **Connections:** `c` enables the selected instance and `x` disables it.
+  `s` starts its background worker; the same action is in the `a` menu and
+  connection details. Workers that are already running or waiting for memory
+  are left active. A shared worker serves the enabled instances of its provider.
   `Enter` shows connection state, worker state, and errors. Enabling an instance
-  does not start its worker; use `job start` with the appropriate worker settings.
+  and starting its worker are separate actions. Link transports prompt for the
+  worker name and settings, as used after `job start`, for example
+  `radio-link mylink radio0 PROFILE chat=on` or
+  `espnow-link mylink chat=on`. Use the transport name saved in the Link instance.
 - **Messages:** `v` cycles through conversations, unread messages, and the
   pending outbox. `Enter` opens conversation history or a message's full text.
   `Page Up` loads older records and `Page Down` loads newer records. `c` opens
@@ -601,6 +615,12 @@ by named instance, including IRC, Gateway, MeshCore, and Link. Enter selects a c
 history on the Chat tab, which also contains the message/command input. The app
 opens and remains useful offline; network or radio transport jobs connect
 independently.
+
+`/leave` removes the current channel or room from Chat's Channels tab and returns
+to that tab. Its local history is retained. Use `/join instance channel` to show
+the room and its previous messages again. Explicit departures survive restart;
+disconnecting a provider keeps its channels visible. Messages still provides
+access to retained history while a room is left.
 
 MeshCore channel labels distinguish `[radio]` and `[companion]`. Entries marked
 `(history)` retain readable messages but cannot accept sends. After submitting
