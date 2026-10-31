@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.17.3** — 2026-10-31 — Added SC2 setup and provider worker startup
+  in Messages, with saving and deletion progress popups. SC2 relay fields now
+  accept `host:port` addresses. Leaving a chat room hides it while retaining
+  history for rejoining. Contacts now explains unavailable chat endpoints.
+  Unified CL-32 RLCD and e-paper builds under `cl_32` with automatic display
+  detection. CL-32, Sticky, and X4 Pro display selectors are board-only and
+  hidden from manual expansion attachment. The full flavor now includes the
+  concrete SSD1677 and SSD2677 expansion drivers.
 - **4.17.2** — 2026-10-30 — Added SSD2677 support for Sticky V2 with
   automatic display-controller detection, Fastwave pulse refresh, native-app
   raster output and sleep/resume. Improved V2 refresh response and reduced
