@@ -13,6 +13,7 @@
 
 #include "solar_os_config.h"
 #include "solar_os_crypto.h"
+#include "solar_os_download.h"
 #include "solar_os_http_client.h"
 #include "solar_os_json.h"
 #include "solar_os_log.h"
@@ -1321,6 +1322,15 @@ static void docs_extract_progress_cb(
     docs_report_progress(state->callback, state->user, &state->progress);
 }
 
+static void docs_archive_progress(size_t received, size_t total, void *user)
+{
+    docs_extract_progress_t *state = user;
+    state->progress.bytes_read = received;
+    state->progress.bytes_total = total;
+    state->progress.total_known = total != 0U;
+    docs_report_progress(state->callback, state->user, &state->progress);
+}
+
 esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
                                void *progress_user)
 {
@@ -1339,10 +1349,8 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
     char url[DOCS_URL_MAX];
     char *catalog = NULL;
     char *signature = NULL;
-    char *archive = NULL;
     size_t catalog_len = 0U;
     size_t signature_len = 0U;
-    size_t archive_len = 0U;
     solar_os_json_doc_t *document = NULL;
     docs_manual_index_t *manual_index = NULL;
     size_t runtime_page_count = 0U;
@@ -1432,35 +1440,33 @@ esp_err_t solar_os_docs_update(solar_os_docs_progress_fn progress_fn,
         err = docs_url(base_url, info.archive_path, url, sizeof(url));
     }
     if (err == ESP_OK) {
-        memset(&progress, 0, sizeof(progress));
-        progress.stage = SOLAR_OS_DOCS_PROGRESS_ARCHIVE;
-        progress.bytes_total = info.archive_size;
-        progress.total_known = true;
-        err = docs_download(url,
-                            info.archive_size,
-                            &archive,
-                            &archive_len,
-                            progress_fn,
-                            progress_user,
-                            &progress);
-    }
-    if (err == ESP_OK) {
-        err = docs_verify_data(archive,
-                               archive_len,
-                               info.archive_size,
-                               info.archive_sha);
-    }
-    if (err == ESP_OK) {
         err = docs_join(stage,
                         info.archive_path,
                         archive_path,
                         sizeof(archive_path));
     }
     if (err == ESP_OK) {
-        err = docs_write_file(archive_path, archive, archive_len);
+        docs_extract_progress_t download = {
+            .callback = progress_fn,
+            .user = progress_user,
+            .progress = {.stage = SOLAR_OS_DOCS_PROGRESS_ARCHIVE},
+        };
+        const solar_os_http_request_options_t options = {
+            .url = url,
+            .method = SOLAR_OS_HTTP_METHOD_GET,
+            .user_agent = "SolarOS-docs/" SOLAR_OS_VERSION,
+            .follow_redirects = true,
+            .timeout_ms = DOCS_HTTP_TIMEOUT_MS,
+            .deadline_ms = DOCS_HTTP_DEADLINE_MS,
+            .receive_buffer_size = 2048U,
+            .transmit_buffer_size = 1024U,
+        };
+        docs_archive_progress(0U, info.archive_size, &download);
+        solar_os_download_result_t result;
+        err = solar_os_download_file(&options, archive_path, DOCS_ARCHIVE_MAX,
+                                     info.archive_size, info.archive_sha,
+                                     docs_archive_progress, &download, &result);
     }
-    solar_os_memory_free(archive);
-    archive = NULL;
 
     docs_extract_progress_t extract = {
         .callback = progress_fn,

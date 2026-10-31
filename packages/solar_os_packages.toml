@@ -1001,6 +1001,7 @@ capabilities = ["psram"]
 [packages.service_docs]
 label = "maintenance.docs"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
