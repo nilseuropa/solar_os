@@ -1056,17 +1056,7 @@ static esp_err_t docs_activate(const docs_catalog_t *info)
         err = docs_write_file(temporary, pointer, (size_t)len);
     }
     if (err == ESP_OK) {
-        (void)remove(backup);
-        if (rename(active, backup) != 0 && errno != ENOENT) {
-            err = ESP_FAIL;
-        }
-    }
-    if (err == ESP_OK && rename(temporary, active) != 0) {
-        (void)rename(backup, active);
-        err = ESP_FAIL;
-    }
-    if (err == ESP_OK) {
-        (void)remove(backup);
+        err = solar_os_storage_replace_file(temporary, active, backup);
     }
     return err;
 }
