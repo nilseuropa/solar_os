@@ -70,19 +70,28 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertEqual(groups["tcp_streams"], flavor == "full")
             self.assertEqual(packages["service_tcp_stream"], flavor == "full")
 
-    def test_classic_uses_compact_baseline_with_dpad_support(self):
-        _, _, compact_groups, compact_packages = self.resolve("writerdeck")
+    def test_classic_preserves_compact_core_and_hardware_controls(self):
+        _, _, _, compact_packages = self.resolve("writerdeck")
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
-        self.assertEqual({key for key in compact_groups if compact_groups[key] != groups[key]},
-                         {"adc_dpad", "synth", "sc2"})
-        self.assertEqual({key for key in compact_packages if compact_packages[key] != packages[key]},
-                         {"service_adc_dpad", "app_synth", "service_synth", "service_midi",
-                          "service_sc2", "service_sc2_provider", "job_sc2_sync"})
-        self.assertTrue(packages["service_adc_dpad"])
-        self.assertFalse(packages["app_lua"])
-        self.assertTrue(packages["app_python"])
-        self.assertTrue(packages["app_playground"])
+        for package in ("app_python", "app_playground", "app_reader", "app_writer",
+                        "app_ssh", "service_audio", "service_messaging"):
+            with self.subTest(shared=package):
+                self.assertTrue(packages[package])
+                self.assertTrue(compact_packages[package])
+        for package in ("service_adc_dpad", "service_onewire", "service_controls",
+                        "app_io", "job_controls"):
+            with self.subTest(classic_only=package):
+                self.assertTrue(packages[package])
+                self.assertFalse(compact_packages[package])
+        for package in ("service_sc2", "service_sc2_provider", "job_sc2_sync"):
+            with self.subTest(writerdeck_only=package):
+                self.assertFalse(packages[package])
+                self.assertTrue(compact_packages[package])
+        for package in ("app_lua", "app_synth", "service_synth", "service_midi"):
+            with self.subTest(omitted=package):
+                self.assertFalse(packages[package])
+                self.assertFalse(compact_packages[package])
         requires = generate_flavor_config.collect_requires(self.catalog, groups, packages)
         self.assertNotIn("lua", requires)
         self.assertIn("micropython_embed", requires)
@@ -981,7 +990,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "speech",
             "player",
             "recorder",
-            "synth",
             "audio_pwm",
             "pcm5102",
             "web_browser",
@@ -1000,6 +1008,8 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(groups[group], group)
         self.assertFalse(groups["rtsp"])
+        self.assertFalse(groups["synth"])
+        self.assertFalse(groups["control_bindings"])
         self.assertFalse(packages["app_rtsp"])
         self.assertFalse(packages["job_rtspd"])
         for package in (
@@ -1021,8 +1031,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_view",
             "app_player",
             "app_recorder",
-            "app_synth",
-            "service_synth",
             "service_speech",
             "job_speechd",
             "expansion_audio_pwm",
@@ -1043,7 +1051,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_sheet",
         ):
             self.assertTrue(packages[package], package)
-        self.assertTrue(packages["job_controls"])
         for group in (
             "device_flasher",
             "logic_analyzer",
@@ -1074,6 +1081,10 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_meshcore_ble",
             "app_lua",
             "app_logic",
+            "app_synth",
+            "service_synth",
+            "service_midi",
+            "job_controls",
         ):
             self.assertFalse(packages[package], package)
 
@@ -1310,13 +1321,14 @@ class FlavorPackagesTest(unittest.TestCase):
                       "elecrow_crowpanel_esp32_s3_4_2_epaper"):
             self.assertEqual(config[f"env:{board}"]["custom_solaros_default_flavor"], "writerdeck")
 
-    def test_existing_flavors_preserve_hardware_job_selection(self):
+    def test_flavors_select_hardware_jobs_by_profile(self):
         for flavor in ("writerdeck", "full"):
             with self.subTest(flavor=flavor):
                 _, _, groups, packages = self.resolve(flavor)
                 self.assertTrue(groups["bridge"])
                 self.assertTrue(packages["job_bridge"])
-                self.assertTrue(packages["job_controls"])
+                self.assertEqual(groups["control_bindings"], flavor == "full")
+                self.assertEqual(packages["job_controls"], flavor == "full")
                 self.assertTrue(packages["job_daq"])
                 self.assertEqual(packages["job_sump"], flavor == "full")
 
