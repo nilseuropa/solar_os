@@ -1235,9 +1235,10 @@ label = "network.http-client"
 depends = ["service_wifi"]
 sources = [
   "services/solar_os_http_client.c",
+  "services/solar_os_http_policy.c",
   "services/solar_os_http_stream.c",
 ]
-requires = ["esp_http_client", "esp_timer"]
+requires = ["esp_http_client", "esp_timer", "http_parser"]
 capabilities = ["wifi"]
 
 [packages.service_playground]

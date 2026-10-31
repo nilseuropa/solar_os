@@ -51,6 +51,10 @@ typedef struct {
     const void *body;
     size_t body_len;
     const char *user_agent;
+    /* HTTP URLs are limited to 2047 bytes. Following 301/302/303/307/308
+     * resolves relative targets, rejects HTTPS downgrade and URL credentials,
+     * and drops authentication/cookies on origin changes. POST becomes GET on
+     * 301/302; 303 becomes GET except HEAD; 307/308 preserve method and body. */
     bool follow_redirects;
     /* Zero uses the service default when redirects are enabled. */
     uint8_t max_redirects;
