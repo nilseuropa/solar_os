@@ -44,24 +44,19 @@ class FlavorConfigTest(unittest.TestCase):
             board.board_id: board for board in flavor_config.load_board_contexts()
         }
 
-    def test_cl32_variants_use_their_own_build_environments(self):
+    def test_cl32_uses_one_automatic_display_build_environment(self):
         self.assertNotIn("cl32_base", self.boards)
-        for board_id, package, other in (
-            ("cl_32", "driver_display_st7305", "expansion_ssd1685"),
-            ("cl32_epd", "expansion_ssd1685", "driver_display_st7305"),
-        ):
-            with self.subTest(board=board_id):
-                board = self.boards[board_id]
-                self.assertEqual(board.environment, board_id)
-                self.assertIn(package, board.required_packages)
-                self.assertNotIn(other, board.required_packages)
+        self.assertNotIn("cl32_epd", self.boards)
+        board = self.boards["cl_32"]
+        self.assertEqual(board.environment, "cl_32")
+        self.assertIn("expansion_cl32_display", board.required_packages)
 
     def test_cl32_custom_overlay_keeps_public_build_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             overlay = Path(directory) / "custom.toml"
-            overlay.write_text('schema = 1\nextends = "cl32_epd"\n[board]\nid = "custom"\n')
+            overlay.write_text('schema = 1\nextends = "cl_32"\n[board]\nid = "custom"\n')
             self.assertEqual(flavor_config._base_manifest_id(
-                overlay, REPOSITORY / "boards" / "manifests"), "cl32_epd")
+                overlay, REPOSITORY / "boards" / "manifests"), "cl_32")
 
     def test_visible_choices_are_granular_groups(self):
         groups = flavor_config.visible_groups(self.catalog)

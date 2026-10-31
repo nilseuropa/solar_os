@@ -8,6 +8,7 @@
 #include "solar_os_jobs.h"
 #include "solar_os_keys.h"
 #include "solar_os_messaging.h"
+#include "solar_os_shell_parse.h"
 #include "solar_os_terminal.h"
 #include "solar_os_tui_widgets.h"
 
@@ -20,7 +21,7 @@ typedef enum {
     MESSAGES_BROWSE, MESSAGES_FILTER, MESSAGES_CLASSES, MESSAGES_FORM,
     MESSAGES_EDIT_FIELD, MESSAGES_DETAIL, MESSAGES_CONNECTION_DETAIL,
     MESSAGES_CONFIRM_REMOVE, MESSAGES_CONFIRM_DELETE, MESSAGES_CONFIRM_CANCEL,
-    MESSAGES_HELP, MESSAGES_ACTIONS,
+    MESSAGES_HELP, MESSAGES_ACTIONS, MESSAGES_WORKER_COMMAND,
 } messages_mode_t;
 
 typedef struct {
@@ -61,6 +62,7 @@ static const char *const messages_help[] = {
     "Instances: n add; e edit; d remove", "Forms: Enter edit; s save; Esc discard",
     "Secret fields: unchanged keeps saved value", "Submit an empty secret to clear it",
     "Connections: c connect; x disconnect", "Enter shows worker status and errors",
+    "Connections: s starts the instance worker", "Link: enter worker name and settings",
     "Messages: v conversations/unread/outbox", "Enter conversation: browse history",
     "Enter message: read full text", "c: open existing Chat and return here",
     "d: delete one selected message", "x: cancel selected pending send",
@@ -286,14 +288,14 @@ static void messages_browser_line(size_t index, char *line, size_t capacity)
 }
 
 static const char *const messages_instance_actions[] = {"n Add instance", "e Edit settings", "d Remove instance"};
-static const char *const messages_connection_actions[] = {"c Connect / enable", "x Disconnect / disable", "i Connection details"};
+static const char *const messages_connection_actions[] = {"c Connect / enable", "s Start worker", "x Disconnect / disable", "i Connection details"};
 static const char *const messages_browser_actions[] = {"o Open selected item", "c Open Chat", "v Change message view",
     "d Delete selected message", "x Cancel pending send", "r Mark conversation read"};
 
 static const char *const *messages_actions(size_t *count)
 {
     if (messages_app.tab == MESSAGES_INSTANCES) { *count = 3; return messages_instance_actions; }
-    if (messages_app.tab == MESSAGES_CONNECTIONS) { *count = 3; return messages_connection_actions; }
+    if (messages_app.tab == MESSAGES_CONNECTIONS) { *count = 4; return messages_connection_actions; }
     *count = 6; return messages_browser_actions;
 }
 
@@ -418,7 +420,7 @@ static void messages_connection_line(size_t index, char *line, size_t capacity)
     case 6: snprintf(line, capacity, "Worker error: %s", worker ? esp_err_to_name(messages_app.job.last_error) : "unavailable"); break;
     case 7: snprintf(line, capacity, "Detail: %s", status.detail); break;
     case 8: strlcpy(line, "Connect enables this instance.", capacity); break;
-    case 9: strlcpy(line, "Start its worker with job start.", capacity); break;
+    case 9: strlcpy(line, "s starts its background worker.", capacity); break;
     default: break;
     }
 }
@@ -440,6 +442,15 @@ static void messages_render(void)
     snprintf(line, sizeof(line), "%s%s%s", context, messages_app.tab == MESSAGES_BROWSER ? " / " : "",
         messages_app.tab == MESSAGES_BROWSER ? messages_view_name() : "");
     solar_os_tui_write_cell(&messages_app.tui, 2, 0, cols, line, SOLAR_OS_TUI_ATTR_BOLD);
+    if (messages_app.mode == MESSAGES_WORKER_COMMAND) {
+        solar_os_tui_write_cell(&messages_app.tui, 3, 0, cols, "Worker name and settings:", SOLAR_OS_TUI_ATTR_NORMAL);
+        solar_os_tui_write_cell(&messages_app.tui, rows - 2, 0, cols, messages_app.feedback, SOLAR_OS_TUI_ATTR_NORMAL);
+        solar_os_tui_write_cell(&messages_app.tui, rows - 1, 0, cols, "Enter start  Esc cancel", SOLAR_OS_TUI_ATTR_INVERSE);
+        solar_os_tui_draw_input(&messages_app.tui, 4, 0, cols, "> ", messages_app.edit,
+            &messages_app.input, SOLAR_OS_TUI_ATTR_NORMAL);
+        solar_os_tui_refresh(&messages_app.tui);
+        return;
+    }
     if (messages_app.mode == MESSAGES_FORM || messages_app.mode == MESSAGES_EDIT_FIELD) {
         bool editing = messages_app.mode == MESSAGES_EDIT_FIELD;
         bool secret = editing && !messages_app.form_name_edit && messages_app.settings.fields[messages_app.edit_field].secret;
@@ -499,7 +510,10 @@ static void messages_render(void)
         solar_os_tui_write_cell(&messages_app.tui, row + 3, 0, cols, line,
             selected ? SOLAR_OS_TUI_ATTR_INVERSE : SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    if (messages_app.mode == MESSAGES_DETAIL) help = "d Delete  c Chat  Esc back";
+    if (messages_app.tab == MESSAGES_CONNECTIONS &&
+        (messages_app.mode == MESSAGES_BROWSE || messages_app.mode == MESSAGES_CONNECTION_DETAIL))
+        help = "s Start  c Enable  x Disable";
+    else if (messages_app.mode == MESSAGES_DETAIL) help = "d Delete  c Chat  Esc back";
     else if (confirm) help = "y Confirm  n/Esc cancel";
     else if (messages_app.mode != MESSAGES_BROWSE) help = "Up/Down  Enter select  Esc back";
     solar_os_tui_write_cell(&messages_app.tui, rows - 2, 0, cols, messages_app.feedback, SOLAR_OS_TUI_ATTR_NORMAL);
@@ -540,6 +554,8 @@ static void messages_open_form(bool create)
 static void messages_save_form(void)
 {
     solar_os_messaging_provider_id_t id = messages_app.form_instance;
+    (void)solar_os_tui_text_popup(&messages_app.tui, NULL, "Saving...", messages_app.form_name, NULL);
+    solar_os_tui_refresh(&messages_app.tui);
     esp_err_t error = solar_os_messaging_settings_write(messages_app.form_class, id, messages_app.form_index,
         messages_app.form_name, &messages_app.settings, &id);
     messages_result("Save", error);
@@ -580,6 +596,54 @@ static void messages_chat(solar_os_context_t *ctx)
     if (error != ESP_OK) messages_result("Chat", error);
 }
 
+static void messages_start_job(solar_os_context_t *ctx, const char *name, int argc, char **argv)
+{
+    if (!solar_os_jobs_get_by_name(name, &messages_app.job)) {
+        strlcpy(messages_app.feedback, "Worker is not in this build", sizeof(messages_app.feedback));
+        return;
+    }
+    if (messages_app.job.state == SOLAR_OS_JOB_RUNNING || messages_app.job.state == SOLAR_OS_JOB_WAITING) {
+        snprintf(messages_app.feedback, sizeof(messages_app.feedback), "%s: %s", name,
+            messages_app.job.state == SOLAR_OS_JOB_RUNNING ? "already running" : "waiting for memory");
+        return;
+    }
+    messages_result("Start worker", solar_os_jobs_start(ctx, name, argc, argv));
+    if (solar_os_jobs_get_by_name(name, &messages_app.job) && messages_app.job.state == SOLAR_OS_JOB_WAITING)
+        strlcpy(messages_app.feedback, "Worker waiting for memory", sizeof(messages_app.feedback));
+}
+
+static void messages_start_worker(solar_os_context_t *ctx)
+{
+    messages_select_provider();
+    solar_os_messaging_provider_status_t status;
+    esp_err_t error = solar_os_messaging_provider_get_status(messages_app.selected, &status);
+    if (error == ESP_OK)
+        error = solar_os_messaging_settings_read(status.class_name, status.id, 0, &messages_app.settings);
+    if (error != ESP_OK) { messages_result("Worker settings", error); return; }
+    if (!messages_app.settings.worker[0]) {
+        strlcpy(messages_app.feedback, "No worker configured for this instance", sizeof(messages_app.feedback));
+        return;
+    }
+    if (messages_app.settings.worker_is_resource) {
+        if (messages_worker(&messages_app.settings) &&
+            (messages_app.job.state == SOLAR_OS_JOB_RUNNING || messages_app.job.state == SOLAR_OS_JOB_WAITING)) {
+            strlcpy(messages_app.feedback, "Transport worker already active", sizeof(messages_app.feedback));
+            return;
+        }
+        /* Link transports need a job choice and hardware settings. Keep that
+         * explicit instead of guessing which radio/profile owns a Link name. */
+        messages_app.edit[0] = 0;
+        messages_app.input = (solar_os_tui_input_state_t){0};
+        snprintf(messages_app.feedback, sizeof(messages_app.feedback), "Start transport for %s", messages_app.settings.worker);
+        messages_mode(MESSAGES_WORKER_COMMAND);
+        return;
+    }
+    char name[sizeof(messages_app.settings.worker)];
+    strlcpy(name, messages_app.settings.worker, sizeof(name));
+    char *argv[] = {name};
+    messages_start_job(ctx, name, 1, argv);
+}
+
 static void messages_action(solar_os_context_t *ctx, uint8_t ch)
 {
     if (ch == 'o' || ch == '\r' || ch == '\n') { messages_open(ctx); return; }
@@ -594,7 +658,8 @@ static void messages_action(solar_os_context_t *ctx, uint8_t ch)
         if (ch == 'c' || ch == 'x') {
             messages_select_provider();
             messages_result(ch == 'c' ? "Enable" : "Disable", solar_os_messaging_connect(messages_app.selected, ch == 'c'));
-        } else if (ch == 'i') messages_open(ctx);
+        } else if (ch == 's') messages_start_worker(ctx);
+        else if (ch == 'i') messages_open(ctx);
     } else {
         if (ch == 'c') messages_chat(ctx);
         else if (ch == 'v') {
@@ -618,6 +683,28 @@ static void messages_action(solar_os_context_t *ctx, uint8_t ch)
 static void messages_menu_event(solar_os_context_t *ctx, uint8_t ch)
 {
     bool enter = ch == '\r' || ch == '\n';
+    if (messages_app.mode == MESSAGES_WORKER_COMMAND) {
+        solar_os_tui_input_action_t action = solar_os_tui_input_key(messages_app.edit, sizeof(messages_app.edit),
+            &messages_app.input, enter ? SOLAR_OS_KEY_ENTER : ch, solar_os_tui_cols(&messages_app.tui) - 2);
+        if (action == SOLAR_OS_TUI_INPUT_SUBMIT) {
+            char command[sizeof(messages_app.edit)];
+            char *argv[SOLAR_OS_APP_ARG_MAX];
+            strlcpy(command, messages_app.edit, sizeof(command));
+            solar_os_shell_parse_result_t parsed = solar_os_shell_tokenize(command, argv, SOLAR_OS_APP_ARG_MAX);
+            if (parsed.error != SOLAR_OS_SHELL_PARSE_OK || !parsed.argc) {
+                strlcpy(messages_app.feedback, "Enter a worker name and valid settings", sizeof(messages_app.feedback));
+                return;
+            }
+            messages_start_job(ctx, argv[0], parsed.argc, argv);
+            memset(command, 0, sizeof(command));
+            memset(messages_app.edit, 0, sizeof(messages_app.edit));
+            messages_mode(MESSAGES_BROWSE);
+        } else if (action == SOLAR_OS_TUI_INPUT_CANCEL) {
+            memset(messages_app.edit, 0, sizeof(messages_app.edit));
+            messages_mode(MESSAGES_BROWSE);
+        }
+        return;
+    }
     if (messages_app.mode == MESSAGES_EDIT_FIELD) {
         size_t capacity = messages_app.form_name_edit ? sizeof(messages_app.form_name) :
             messages_app.settings.fields[messages_app.edit_field].capacity;
@@ -644,6 +731,12 @@ static void messages_menu_event(solar_os_context_t *ctx, uint8_t ch)
     }
     if (confirm && (ch == 'y' || ch == 'Y')) {
         esp_err_t error;
+        if (messages_app.mode == MESSAGES_CONFIRM_REMOVE || messages_app.mode == MESSAGES_CONFIRM_DELETE) {
+            (void)solar_os_tui_text_popup(&messages_app.tui, NULL, "Deleting...",
+                messages_app.mode == MESSAGES_CONFIRM_REMOVE ?
+                    solar_os_messaging_provider_name(messages_app.pending_instance) : "Removing local message", NULL);
+            solar_os_tui_refresh(&messages_app.tui);
+        }
         if (messages_app.mode == MESSAGES_CONFIRM_REMOVE) error = solar_os_messaging_instance_remove(messages_app.pending_instance);
         else if (messages_app.mode == MESSAGES_CONFIRM_DELETE) error = solar_os_messaging_message_delete(messages_app.pending_message);
         else error = solar_os_messaging_cancel(messages_app.pending_message);
@@ -661,7 +754,7 @@ static void messages_menu_event(solar_os_context_t *ctx, uint8_t ch)
             return;
         }
     } else if (messages_app.mode == MESSAGES_CONNECTION_DETAIL) {
-        if (ch == 'c' || ch == 'x') { messages_action(ctx, ch); return; }
+        if (ch == 'c' || ch == 'x' || ch == 's') { messages_action(ctx, ch); return; }
     } else if (messages_app.mode == MESSAGES_FORM && ch == 's') { messages_save_form(); return; }
     else if (enter) {
         size_t index = messages_app.menu.cursor;
@@ -732,7 +825,8 @@ static bool messages_event(solar_os_context_t *ctx, const solar_os_event_t *even
 {
     if (!event || messages_app.suspended) return false;
     if (event->type == SOLAR_OS_EVENT_TICK) {
-        if ((int32_t)(event->data.tick_ms - messages_app.refresh_at) >= 0 && messages_app.mode == MESSAGES_BROWSE) {
+        if ((int32_t)(event->data.tick_ms - messages_app.refresh_at) >= 0 &&
+            (messages_app.mode == MESSAGES_BROWSE || messages_app.mode == MESSAGES_CONNECTION_DETAIL)) {
             messages_app.refresh_at = event->data.tick_ms + 1000;
             solar_os_messaging_status_t status;
             if (solar_os_messaging_get_status(&status) == ESP_OK && status.generation != messages_app.generation)

@@ -607,6 +607,38 @@ static void contacts_app_result(const char *operation, esp_err_t error)
     contacts_app_mode(CONTACTS_NOTICE);
 }
 
+#if SOLAR_OS_PACKAGE_APP_CHAT
+static void contacts_app_chat_open_error(esp_err_t error)
+{
+    if (error != ESP_ERR_INVALID_STATE) { contacts_app_result("Chat", error); return; }
+    const size_t count = solar_os_contacts_endpoint_snapshot(contacts_app.selected.id,
+        contacts_app.endpoints, SOLAR_OS_ENDPOINT_CAPACITY);
+    bool direct = false, unblocked = false;
+    const char *unavailable = NULL;
+    for (size_t i = 0; i < count; i++) {
+        const solar_os_endpoint_t *endpoint = &contacts_app.endpoints[i];
+        if (!(endpoint->capabilities & SOLAR_OS_ENDPOINT_CAP_DIRECT)) continue;
+        direct = true;
+        if (endpoint->trust == SOLAR_OS_CONTACT_TRUST_BLOCKED) continue;
+        unblocked = true;
+        solar_os_messaging_provider_status_t provider;
+        if (solar_os_messaging_provider_get_status(endpoint->provider, &provider) == ESP_OK && !provider.removed) {
+            /* The registry may have changed after the open attempt. Do not
+             * diagnose a missing provider when a usable endpoint now exists. */
+            contacts_app_result("Chat", error);
+            return;
+        }
+        if (!unavailable) unavailable = solar_os_messaging_provider_name(endpoint->provider);
+    }
+    contacts_app_back();
+    if (!direct) strlcpy(contacts_app.notice, "Chat: contact has no direct-message endpoint", sizeof(contacts_app.notice));
+    else if (!unblocked) strlcpy(contacts_app.notice, "Chat: direct-message endpoints are blocked", sizeof(contacts_app.notice));
+    else snprintf(contacts_app.notice, sizeof(contacts_app.notice),
+        "Chat: saved instance '%s' unavailable; check Messages", unavailable ? unavailable : "unknown");
+    contacts_app_mode(CONTACTS_NOTICE);
+}
+#endif
+
 static void contacts_app_action(solar_os_context_t *ctx, uint8_t ch)
 {
     (void)ctx;
@@ -620,6 +652,7 @@ static void contacts_app_action(solar_os_context_t *ctx, uint8_t ch)
         solar_os_conversation_id_t conversation = SOLAR_OS_CONVERSATION_ID_NONE;
         esp_err_t error = solar_os_messaging_direct_open(contacts_app.selected.id,
                                                          &conversation);
+        if (error != ESP_OK) { contacts_app_chat_open_error(error); return; }
         if (error == ESP_OK) {
             char app[] = "chat", selector[16];
             snprintf(selector, sizeof(selector), "%" PRIu32, conversation);

@@ -591,7 +591,8 @@ static void add_rooms(void)
         /* #general by default: through Messaging so it shows in the chat UI
          * and is saved; the config change brings it back here. */
         s.auto_joined = true;
-        (void)solar_os_messaging_join(s.id, SC2_SYNC_DEFAULT_ROOM, NULL);
+        if (!solar_os_messaging_room_left(s.id, SC2_SYNC_DEFAULT_ROOM))
+            (void)solar_os_messaging_join(s.id, SC2_SYNC_DEFAULT_ROOM, NULL);
     }
 }
 

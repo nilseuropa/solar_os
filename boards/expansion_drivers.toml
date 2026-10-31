@@ -1487,6 +1487,50 @@ kind = "gpio"
 hint = "gpio"
 required = true
 
+[drivers.cl32-display]
+summary = "CL-32 automatic ST7305/SSD1685 display"
+package = "expansion_cl32_display"
+targets = ["esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_cl32"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ST7305/SSD1685"' }
+early = true
+default_name = "display0"
+
+[[drivers.cl32-display.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.cl32-display.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.cl32-display.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.cl32-display.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.cl32-display.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
 [drivers.st7305]
 summary = "ST7305 reflective LCD"
 package = "driver_display_st7305"

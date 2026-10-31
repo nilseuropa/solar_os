@@ -3350,6 +3350,20 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.expansion_cl32_display]
+label = "board.cl32-display"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_cl32_display_expansion_driver"]
+depends = ["driver_display_st7305", "expansion_ssd1685"]
+sources = ["drivers/cl32_display_identify.c", "services/solar_os_cl32_display.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[groups.cl32_display]
+label = "CL-32 automatic display"
+hidden = true
+members = ["expansion_cl32_display"]
+
 [groups.uc8179]
 label = "UC8179 e-paper expansion"
 description = "800x480 UltraChip UC8179 panels"
