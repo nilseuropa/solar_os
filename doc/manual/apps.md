@@ -1189,6 +1189,9 @@ When Chat is included, select a contact and press `c` to open their direct
 conversation. Closing Chat returns to Contacts. Chat uses the contact's
 preferred direct endpoint, favoring trusted endpoints; sending to a discovered
 endpoint still requires confirmation.
+If its saved provider instance is unavailable, Contacts names that instance in
+the error. Check it in Messages before opening a chat. A running worker does
+not by itself mean its radio or companion binding is ready.
 
 Press `a` in the list or details to manage the selected contact:
 
