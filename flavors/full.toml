@@ -3,7 +3,6 @@ name = "full"
 description = "Standard SolarOS build with scripting, applications, hardware services and downloadable inference."
 
 [groups]
-x4pro = true
 hardware_shell = true
 filesystem = true
 wifi = true
@@ -114,6 +113,8 @@ spi_dlp = true
 stream_dlp = true
 dlp_client = true
 ssd1683 = true
+ssd1677 = true
+ssd2677 = true
 ssd1685 = true
 uc8179 = true
 uc8279 = true

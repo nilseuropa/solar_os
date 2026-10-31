@@ -802,7 +802,12 @@ bool solar_os_expansion_available(void)
 
 size_t solar_os_expansion_driver_count(void)
 {
-    size_t count = sizeof(expansion_drivers) / sizeof(expansion_drivers[0]);
+    size_t count = 0;
+    for (size_t i = 0; i < sizeof(expansion_drivers) / sizeof(expansion_drivers[0]); i++) {
+        if (!expansion_drivers[i]->board_only) {
+            count++;
+        }
+    }
     if (!drivers_lock_take()) {
         return count;
     }
@@ -821,11 +826,16 @@ bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *dr
         return false;
     }
     const size_t static_count = sizeof(expansion_drivers) / sizeof(expansion_drivers[0]);
-    if (index < static_count) {
-        *driver = *expansion_drivers[index];
-        return true;
+    for (size_t i = 0; i < static_count; i++) {
+        if (expansion_drivers[i]->board_only) {
+            continue;
+        }
+        if (index == 0U) {
+            *driver = *expansion_drivers[i];
+            return true;
+        }
+        index--;
     }
-    index -= static_count;
     if (!drivers_lock_take()) {
         return false;
     }
@@ -849,7 +859,7 @@ esp_err_t solar_os_expansion_register_driver(
     const solar_os_expansion_driver_t *driver)
 {
     if (driver == NULL || driver->name == NULL || driver->name[0] == '\0' ||
-        driver->summary == NULL || driver->early ||
+        driver->summary == NULL || driver->early || driver->board_only ||
         driver->binding_spec_count != 0U || driver->allow_unlisted_bindings) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -1001,6 +1011,9 @@ static esp_err_t validate_bindings(
         return ESP_ERR_NOT_FOUND;
     }
     const solar_os_expansion_driver_t *driver_def = &driver_copy;
+    if (driver_def->board_only && !allow_board_pins) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (driver_def->allow_unlisted_bindings && binding_count == 0) {
         set_binding_validation(validation, SOLAR_OS_EXPANSION_BINDINGS_MISSING, "resource");
         return ESP_ERR_INVALID_ARG;

@@ -717,6 +717,30 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(s3["driver_display_cvbs_pal"])
         self.assertFalse(s3["driver_display_vga32"])
 
+    def test_full_registers_concrete_sticky_drivers_on_supported_targets(self):
+        _, _, groups, packages = self.resolve("full")
+        symbols = {
+            "solar_os_ssd1677_expansion_driver",
+            "solar_os_ssd2677_expansion_driver",
+        }
+        s3 = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32s3")
+        self.assertFalse(s3["expansion_sticky_display"])
+        self.assertFalse(s3["expansion_x4pro"])
+        self.assertTrue(symbols.issubset(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, s3))))
+        header = generate_flavor_config.generate_header(
+            "full", "test", groups, s3, self.catalog,
+            REPOSITORY / "flavors" / "full.toml", REPOSITORY / "packages" / "solar_os_packages.toml")
+        for symbol in symbols:
+            self.assertIn(f"X({symbol})", header)
+        classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
+        self.assertTrue(symbols.isdisjoint(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, classic))))
+        _, headless = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, s3, {"psram", "expansion_spi", "expansion_gpio", "expansion_i2c"})
+        self.assertTrue(symbols.isdisjoint(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, headless))))
+
     def test_target_pruning_requires_a_target(self):
         _, _, _, packages = self.resolve("full")
         with self.assertRaisesRegex(ValueError, "MCU target is required"):

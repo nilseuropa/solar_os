@@ -109,6 +109,8 @@ typedef struct {
     esp_err_t (*validate_bindings)(const solar_os_expansion_binding_t *bindings,
                                    size_t binding_count,
                                    solar_os_expansion_binding_validation_t *validation);
+    /* Board manifest adapters: excluded from manual enumeration and attachment. */
+    bool board_only;
 } solar_os_expansion_driver_t;
 
 typedef enum {
@@ -141,6 +143,7 @@ esp_err_t solar_os_expansion_init_early(void);
 void solar_os_expansion_poll(uint32_t now_ms);
 bool solar_os_expansion_available(void);
 
+/* Enumerate drivers available for manual attachment, excluding board adapters. */
 size_t solar_os_expansion_driver_count(void);
 bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *driver);
 esp_err_t solar_os_expansion_register_driver(
