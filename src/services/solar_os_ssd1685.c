@@ -1,4 +1,5 @@
 #include "solar_os_ssd1685.h"
+#include "solar_os_sync.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -33,6 +34,8 @@ typedef struct {
     epd_ssd1685_t driver;
     solar_os_board_display_t display;
 } solar_os_ssd1685_device_t;
+
+static solar_os_lifecycle_t lifecycle;
 
 static const char *TAG = "ssd1685";
 static solar_os_ssd1685_device_t *devices[SOLAR_OS_SSD1685_MAX];
@@ -334,7 +337,7 @@ static esp_err_t register_auxiliary(solar_os_ssd1685_device_t *device)
     return solar_os_display_register_target(&target);
 }
 
-esp_err_t solar_os_ssd1685_attach(const char *name,
+static esp_err_t attach_locked(const char *name,
                                   const solar_os_expansion_binding_t *bindings,
                                   size_t binding_count)
 {
@@ -408,7 +411,7 @@ esp_err_t solar_os_ssd1685_attach(const char *name,
     return ESP_OK;
 }
 
-esp_err_t solar_os_ssd1685_detach(const char *name)
+static esp_err_t detach_locked(const char *name)
 {
     const int slot = find_device_slot(name);
     if (slot < 0) {
@@ -423,4 +426,21 @@ esp_err_t solar_os_ssd1685_detach(const char *name)
     }
     release_device_slot((size_t)slot);
     return ESP_OK;
+}
+
+esp_err_t solar_os_ssd1685_attach(const char *name,
+    const solar_os_expansion_binding_t *bindings, size_t binding_count)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = attach_locked(name, bindings, binding_count);
+    solar_os_lifecycle_leave(&lifecycle);
+    return err;
+}
+
+esp_err_t solar_os_ssd1685_detach(const char *name)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = detach_locked(name);
+    solar_os_lifecycle_leave(&lifecycle);
+    return err;
 }
