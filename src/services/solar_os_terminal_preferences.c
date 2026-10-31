@@ -24,6 +24,10 @@
 #define SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION 0
 #endif
 
+#ifndef SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE
+#define SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE 1
+#endif
+
 static bool orientation_is_valid(uint16_t degrees)
 {
     return degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270;
@@ -102,10 +106,11 @@ static esp_err_t save_u16(const char *key, uint16_t value)
 uint8_t solar_os_terminal_profile_load_scale(const char *display)
 {
     if (display == NULL || display[0] == '\0' || strlen(display) > 15U) return 1;
+    const uint8_t fallback = !strcmp(display,"display0") ? SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE : 1;
     nvs_handle_t nvs;
-    uint8_t scale = 1;
+    uint8_t scale = fallback;
     if (nvs_open("display_scale", NVS_READONLY, &nvs) == ESP_OK) {
-        if (nvs_get_u8(nvs, display, &scale) != ESP_OK || scale < 1U || scale > 4U) scale = 1;
+        if (nvs_get_u8(nvs, display, &scale) != ESP_OK || scale < 1U || scale > 4U) scale = fallback;
         nvs_close(nvs);
     }
     return scale;

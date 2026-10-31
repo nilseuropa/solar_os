@@ -963,6 +963,183 @@ role = "panel"
 min = 0
 max = 1
 
+[drivers.ssd2677]
+summary = "SSD2677 800x480 e-paper"
+package = "expansion_ssd2677"
+targets = ["esp32s3"]
+capabilities = ["gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_ssd2677"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD2677"' }
+early = true
+default_name = "display0"
+
+[[drivers.ssd2677.display_profiles]]
+name = "800x480"
+label = "SSD2677 800x480"
+width = 800
+height = 480
+rotation = 0
+default = true
+
+[[drivers.ssd2677.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.ssd2677.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.ssd2677.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.ssd2677.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.ssd2677.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.ssd2677.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
+[[drivers.ssd2677.bindings]]
+key = "power_i2c"
+kind = "i2c_bus"
+hint = "bus"
+role = "power"
+
+[[drivers.ssd2677.bindings]]
+key = "power_addr"
+kind = "parameter"
+hint = "0x34"
+role = "power_addr"
+allowed = [0x34]
+
+[[drivers.ssd2677.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..20000 kHz"
+role = "clock"
+min = 100
+max = 20000
+
+[[drivers.ssd2677.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+
+[[drivers.ssd2677.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "0|1=Sticky 3D97 V2"
+role = "panel"
+min = 0
+max = 1
+
+[drivers.sticky-display]
+summary = "Sticky SSD1677/SSD2677 800x480 e-paper"
+package = "expansion_sticky_display"
+targets = ["esp32s3"]
+capabilities = ["gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_sticky"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677/SSD2677"' }
+early = true
+default_name = "display0"
+
+[[drivers.sticky-display.display_profiles]]
+name = "800x480"
+label = "Sticky SSD1677/SSD2677 800x480"
+width = 800
+height = 480
+rotation = 0
+default = true
+
+[[drivers.sticky-display.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.sticky-display.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.sticky-display.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.sticky-display.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.sticky-display.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.sticky-display.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
+[[drivers.sticky-display.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..20000 kHz"
+role = "clock"
+min = 100
+max = 20000
+
+[[drivers.sticky-display.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+
+[[drivers.sticky-display.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "1=Sticky"
+role = "panel"
+min = 1
+max = 1
+
 [drivers.sdspi]
 summary = "SPI microSD"
 package = "expansion_sdspi"
