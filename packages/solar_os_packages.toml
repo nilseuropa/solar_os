@@ -1251,6 +1251,7 @@ capabilities = ["wifi"]
 [packages.service_playground]
 label = "service.playground"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
