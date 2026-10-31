@@ -1,12 +1,11 @@
 import unittest
 from pathlib import Path
+from script_sources import script_source
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-PYTHON_SOURCE = (REPOSITORY / "src/apps/solar_os_python.c").read_text(
-    encoding="utf-8"
-)
-LUA_SOURCE = (REPOSITORY / "src/apps/solar_os_lua.c").read_text(encoding="utf-8")
+PYTHON_SOURCE = script_source(REPOSITORY / "src/apps/solar_os_python.c")
+LUA_SOURCE = script_source(REPOSITORY / "src/apps/solar_os_lua.c")
 NET_HEADER = (REPOSITORY / "src/services/solar_os_net_session.h").read_text(
     encoding="utf-8"
 )
@@ -99,6 +98,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
             "    python_media_destroy();\n"
             "    python_dlp_destroy();\n"
             "    python_emotion_destroy();\n"
+            "    python_jet_destroy();\n"
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    python_http_stream_destroy();\n"
             "    python_http_session_destroy();\n#endif\n"
@@ -116,6 +116,7 @@ class ScriptNetBindingsTest(unittest.TestCase):
             "    solua_media_destroy();\n"
             "    solua_dlp_destroy();\n"
             "    solua_emotion_destroy();\n"
+            "    solua_jet_destroy();\n"
             "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
             "    solua_http_stream_destroy();\n"
             "    solua_http_session_destroy();\n#endif\n"

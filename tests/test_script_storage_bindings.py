@@ -1,13 +1,14 @@
 import unittest
 from pathlib import Path
+from script_sources import script_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DESCRIPTOR = (ROOT / "src/apps/solar_os_script_api.inc").read_text(encoding="utf-8")
 HEADER = (ROOT / "src/services/solar_os_storage.h").read_text(encoding="utf-8")
 SOURCE = (ROOT / "src/services/solar_os_storage.c").read_text(encoding="utf-8")
-PYTHON = (ROOT / "src/apps/solar_os_python.c").read_text(encoding="utf-8")
-LUA = (ROOT / "src/apps/solar_os_lua.c").read_text(encoding="utf-8")
+PYTHON = script_source(ROOT / "src/apps/solar_os_python.c")
+LUA = script_source(ROOT / "src/apps/solar_os_lua.c")
 
 
 class ScriptStorageBindingsTest(unittest.TestCase):
