@@ -2955,7 +2955,7 @@ capabilities = ["psram", "wifi"]
 
 [packages.service_zoo]
 label = "service.zoo"
-depends = ["service_inference", "service_http_client", "service_zip", "service_json", "service_crypto"]
+depends = ["service_inference", "service_download", "service_http_client", "service_zip", "service_json", "service_crypto"]
 sources = ["services/solar_os_zoo.c"]
 requires = ["nvs_flash"]
 capabilities = ["psram", "wifi"]

@@ -17,6 +17,7 @@
 #include "solar_os_http_client.h"
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
+#include "solar_os_work.h"
 #include "freertos/task.h"
 
 static const char *mount_root, *server, *mode;
@@ -33,6 +34,8 @@ void solar_os_memory_free(void *p) { if (p) { assert(allocations); --allocations
 size_t strlcpy(char *out, const char *s, size_t n)
 { size_t len = strlen(s); if (n) { size_t copy = len < n-1 ? len : n-1; memcpy(out,s,copy); out[copy] = 0; } return len; }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
+void solar_os_work_begin(solar_os_work_budget_t *budget) { budget->last_yield_us = 0; }
+void solar_os_work_checkpoint(solar_os_work_budget_t *budget) { (void)budget; }
 static void *json_alloc(size_t n) { return solar_os_memory_alloc(n,0,""); }
 struct solar_os_json_doc { cJSON *root; };
 esp_err_t solar_os_json_init(void) { cJSON_Hooks h = {json_alloc, solar_os_memory_free}; cJSON_InitHooks(&h); return 0; }
@@ -92,7 +95,7 @@ void nvs_close(nvs_handle_t h) { (void)h; }
 void solar_os_crypto_sha256_init(solar_os_crypto_sha256_t *s) { memset(s,0,sizeof(*s)); }
 void solar_os_crypto_sha256_free(solar_os_crypto_sha256_t *s) { EVP_MD_CTX_free(s->ctx.pointer); }
 esp_err_t solar_os_crypto_sha256_start(solar_os_crypto_sha256_t *s)
-{ s->ctx.pointer=EVP_MD_CTX_new();return EVP_DigestInit_ex(s->ctx.pointer,EVP_sha256(),NULL)?0:ESP_FAIL; }
+{ if (!s->ctx.pointer) s->ctx.pointer=EVP_MD_CTX_new();return EVP_DigestInit_ex(s->ctx.pointer,EVP_sha256(),NULL)?0:ESP_FAIL; }
 esp_err_t solar_os_crypto_sha256_update(solar_os_crypto_sha256_t *s,const void *p,size_t n)
 {return EVP_DigestUpdate(s->ctx.pointer,p,n)?0:ESP_FAIL;}
 esp_err_t solar_os_crypto_sha256_finish(solar_os_crypto_sha256_t *s,uint8_t out[32])

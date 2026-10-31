@@ -430,7 +430,7 @@ tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_imag
 # Override CJSON_DIR when the SDK is installed elsewhere.
 CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
 IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
-zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c
+zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
