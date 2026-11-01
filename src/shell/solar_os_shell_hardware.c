@@ -58,7 +58,7 @@ static const char * const ble_subcommands[] = {
 };
 static const char * const ble_gatt_subcommands[] = {"status", "connect", "pair", "disconnect", "services", "chars", "read", "write", "write-nr"};
 static const char * const audio_subcommands[] = {
-    "status", "devices", "device", "default", "tone", "tone-async", "queue", "cancel", "level", "mic", "loopback", "off",
+    "status", "devices", "device", "default", "tone", "tone-async", "queue", "cancel", "level", "mute", "mic", "loopback", "off",
 };
 static const char * const uart_subcommands[] = {"status", "baud", "mode", "write", "read"};
 static const char * const led_subcommands[] = {"status", "on", "off", "toggle"};
@@ -1809,6 +1809,7 @@ static void audio_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  audio queue");
     solar_os_shell_io_writeln(term, "  audio cancel <request-id>");
     solar_os_shell_io_writeln(term, "  audio level [volume]");
+    solar_os_shell_io_writeln(term, "  audio mute");
     solar_os_shell_io_writeln(term, "  audio mic [ms]");
     solar_os_shell_io_writeln(term, "  audio loopback [ms] [volume]");
     solar_os_shell_io_writeln(term, "  audio off");
@@ -2177,6 +2178,20 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         audio_cmd_cancel(term, argc, argv);
     } else if (strcmp(argv[1], "level") == 0) {
         audio_cmd_level(term, argc, argv);
+    } else if (strcmp(argv[1], "mute") == 0) {
+        if (argc > 2) {
+            solar_os_shell_diag_unexpected(term, "audio mute", argv[2], "audio mute");
+            return;
+        }
+        const esp_err_t err = solar_os_audio_set_volume(0);
+        if (err != ESP_OK) {
+            if (shell_print_not_supported(term, "audio", "audio hardware", err)) {
+                return;
+            }
+            solar_os_shell_io_printf(term, "audio mute failed: %s\n", solar_os_shell_error_text(err));
+            return;
+        }
+        solar_os_shell_io_writeln(term, "audio: muted");
     } else if (strcmp(argv[1], "mic") == 0) {
         audio_cmd_mic(term, argc, argv);
     } else if (strcmp(argv[1], "loopback") == 0) {
@@ -2206,7 +2221,7 @@ void solar_os_shell_cmd_audio(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_writeln(term, "audio: off");
     } else {
         solar_os_shell_diag_subcommand(term, "audio", argc, argv,
-                                       "audio [status|devices|device|default|tone|tone-async|queue|cancel|level|mic|loopback|off] ...",
+                                       "audio [status|devices|device|default|tone|tone-async|queue|cancel|level|mute|mic|loopback|off] ...",
                                        audio_subcommands,
                                        sizeof(audio_subcommands) / sizeof(audio_subcommands[0]));
     }

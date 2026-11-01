@@ -1269,6 +1269,7 @@ available for the compiled board.
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |
 | `audio` | `audio cancel <request-id>` | Cancel a queued or playing asynchronous tone request. |
 | `audio` | `audio level [volume]` | Show or set global speaker level. |
+| `audio` | `audio mute` | Set global speaker level to zero while playback continues. Restore sound with `audio level <1-100>`. |
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |

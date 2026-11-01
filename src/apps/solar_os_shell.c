@@ -1616,6 +1616,7 @@ static const char * const audio_subcommands[] = {
     "queue",
     "cancel",
     "level",
+    "mute",
     "mic",
     "loopback",
     "off",
