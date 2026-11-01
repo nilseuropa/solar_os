@@ -166,6 +166,7 @@ typedef enum {
     SOLAR_OS_INPUT_GESTURE_TILT,
     SOLAR_OS_INPUT_GESTURE_WAKE,
     SOLAR_OS_INPUT_GESTURE_FREE_FALL,
+    SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE,
     SOLAR_OS_INPUT_GESTURE_COUNT,
 } solar_os_input_gesture_t;
 
@@ -311,6 +312,12 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
 typedef uint16_t (*solar_os_input_display_orientation_resolver_t)(const char *target);
 void solar_os_input_set_display_orientation_resolver(
     solar_os_input_display_orientation_resolver_t resolver);
+/* Native pixel bounds for edge-swipe recognition, queried outside the input
+ * lock at contact start. Calibrated source bounds take precedence when set. */
+typedef bool (*solar_os_input_display_size_resolver_t)(const char *target,
+    uint16_t *width, uint16_t *height);
+void solar_os_input_set_display_size_resolver(
+    solar_os_input_display_size_resolver_t resolver);
 /* The runtime input pump advances timed recognition for all input sources.
  * Producers only submit ordinary input samples. */
 void solar_os_input_poll(void);

@@ -33,7 +33,8 @@
     (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) | \
      SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) | \
      SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) | \
-     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE))
+     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE) | \
+     SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE))
 #define INPUT_TOUCH_SLOP 12
 #define INPUT_TOUCH_DOUBLE_SLOP 24
 #define INPUT_TOUCH_TAP_MS 250U
@@ -41,11 +42,14 @@
 #define INPUT_TOUCH_HOLD_MS 600U
 #define INPUT_TOUCH_SWIPE_MS 1000U
 #define INPUT_TOUCH_SWIPE_DISTANCE 40
+#define INPUT_TOUCH_EDGE_MIN 8U
+#define INPUT_TOUCH_EDGE_MAX 24U
 
 typedef struct {
     bool pressed, moved, held, pending_tap, second_tap;
     uint8_t pointer_id;
     uint16_t orientation_degrees;
+    uint16_t width, height;
     int16_t start_x, start_y, tap_x, tap_y;
     uint32_t pressed_ms, tap_ms;
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
@@ -140,6 +144,7 @@ static input_repeat_state_t input_repeat;
 static solar_os_input_pointer_filter_t input_pointer_filter;
 static void *input_pointer_filter_context;
 static solar_os_input_display_orientation_resolver_t input_display_orientation_resolver;
+static solar_os_input_display_size_resolver_t input_display_size_resolver;
 static input_gesture_observer_slot_t
     input_gesture_observers[INPUT_GESTURE_OBSERVER_MAX];
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -290,6 +295,7 @@ static const char *const input_gesture_names[] = {
     [SOLAR_OS_INPUT_GESTURE_TILT] = "tilt",
     [SOLAR_OS_INPUT_GESTURE_WAKE] = "wake",
     [SOLAR_OS_INPUT_GESTURE_FREE_FALL] = "free-fall",
+    [SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE] = "edge-swipe",
 };
 
 static const char *const input_gesture_direction_names[] = {
@@ -770,6 +776,7 @@ esp_err_t solar_os_input_init(void)
     input_pointer_filter = NULL;
     input_pointer_filter_context = NULL;
     input_display_orientation_resolver = NULL;
+    input_display_size_resolver = NULL;
     memset(input_gesture_observers, 0, sizeof(input_gesture_observers));
     portEXIT_CRITICAL(&input_lock);
     return repeat_err != ESP_OK ? repeat_err : layout_err;
@@ -1686,7 +1693,9 @@ static void input_touch_emit_locked(solar_os_input_source_t source,
     const solar_os_input_gesture_event_t event = {
         .source = source, .gesture = gesture, .direction = direction, .value = value,
         .flags = gesture == SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP
-            ? SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE : 0U,
+            ? SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE :
+            gesture == SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE
+                ? SOLAR_OS_INPUT_GESTURE_FLAG_EDGE : 0U,
     };
     if (delivery->count < 2U && input_publish_gesture_locked(source, &event)) {
         delivery->events[delivery->count++] = event;
@@ -1721,6 +1730,24 @@ static bool input_touch_available_locked(solar_os_input_source_t source)
 
 static int32_t input_touch_abs(int32_t value) { return value < 0 ? -value : value; }
 
+static bool input_touch_is_edge_swipe(const input_touch_state_t *touch,
+    int32_t dx, int32_t dy)
+{
+    if (touch->width == 0U || touch->height == 0U ||
+        touch->start_x < 0 || touch->start_y < 0 ||
+        touch->start_x >= touch->width || touch->start_y >= touch->height)
+        return false;
+    /* Five percent of the shorter native side, rounded up and bounded. */
+    unsigned band = ((touch->width < touch->height ? touch->width : touch->height) + 19U) / 20U;
+    if (band < INPUT_TOUCH_EDGE_MIN) band = INPUT_TOUCH_EDGE_MIN;
+    if (band > INPUT_TOUCH_EDGE_MAX) band = INPUT_TOUCH_EDGE_MAX;
+    if (input_touch_abs(dx) > input_touch_abs(dy))
+        return dx > 0 ? (unsigned)touch->start_x < band :
+            (unsigned)(touch->width - 1U - touch->start_x) < band;
+    return dy > 0 ? (unsigned)touch->start_y < band :
+        (unsigned)(touch->height - 1U - touch->start_y) < band;
+}
+
 static void input_touch_tick_locked(solar_os_input_source_t source, uint32_t now,
     input_touch_delivery_t *delivery)
 {
@@ -1749,7 +1776,8 @@ static void input_touch_tick_locked(solar_os_input_source_t source, uint32_t now
 
 static void input_touch_pointer_locked(solar_os_input_source_t source,
     const solar_os_input_pointer_event_t *event, uint32_t now,
-    uint16_t orientation_degrees, input_touch_delivery_t *delivery)
+    uint16_t orientation_degrees, uint16_t width, uint16_t height,
+    input_touch_delivery_t *delivery)
 {
     if (!input_touch_available_locked(source) ||
         event->mode != SOLAR_OS_INPUT_POINTER_ABSOLUTE) return;
@@ -1774,6 +1802,13 @@ static void input_touch_pointer_locked(solar_os_input_source_t source,
         touch->moved = touch->held = false;
         touch->pointer_id = event->pointer_id;
         touch->orientation_degrees = orientation_degrees;
+        touch->width = width;
+        touch->height = height;
+        const input_source_diagnostics_state_t *diagnostics = &input_diagnostics[source - 1U];
+        if (diagnostics->calibration_enabled) {
+            touch->width = diagnostics->calibration.width;
+            touch->height = diagnostics->calibration.height;
+        }
         touch->start_x = event->x; touch->start_y = event->y;
         touch->pressed_ms = now;
         memcpy(touch->target, event->target, sizeof(touch->target));
@@ -1819,7 +1854,9 @@ static void input_touch_pointer_locked(solar_os_input_source_t source,
             ? (screen_dx > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST : SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST)
             : (screen_dy > 0 ? SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH : SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
         const int32_t distance = ax > ay ? ax : ay;
-        input_touch_emit_locked(source, SOLAR_OS_INPUT_GESTURE_SWIPE, direction,
+        const solar_os_input_gesture_t gesture = input_touch_is_edge_swipe(touch, dx, dy)
+            ? SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE : SOLAR_OS_INPUT_GESTURE_SWIPE;
+        input_touch_emit_locked(source, gesture, direction,
             distance > INT16_MAX ? INT16_MAX : (int16_t)distance, delivery);
     }
 }
@@ -1855,6 +1892,14 @@ void solar_os_input_set_display_orientation_resolver(
     portEXIT_CRITICAL(&input_lock);
 }
 
+void solar_os_input_set_display_size_resolver(
+    solar_os_input_display_size_resolver_t resolver)
+{
+    portENTER_CRITICAL(&input_lock);
+    input_display_size_resolver = resolver;
+    portEXIT_CRITICAL(&input_lock);
+}
+
 esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
     const solar_os_input_pointer_sample_t *sample)
 {
@@ -1867,12 +1912,16 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
     }
 
     uint16_t orientation_degrees = 0;
+    uint16_t width = 0, height = 0;
     if (event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
         event->action == SOLAR_OS_INPUT_POINTER_PRESS && event->target[0] != '\0') {
         portENTER_CRITICAL(&input_lock);
         solar_os_input_display_orientation_resolver_t resolver = input_display_orientation_resolver;
+        solar_os_input_display_size_resolver_t size_resolver = input_display_size_resolver;
         portEXIT_CRITICAL(&input_lock);
         if (resolver != NULL) orientation_degrees = resolver(event->target);
+        if (size_resolver != NULL && !size_resolver(event->target, &width, &height))
+            width = height = 0;
     }
     esp_err_t result = ESP_OK;
     input_touch_delivery_t delivery = {0};
@@ -1924,7 +1973,7 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
                    sizeof(input_sources[source - 1U].touch));
         } else {
             input_touch_pointer_locked(source, &queued, sample->time_ms,
-                orientation_degrees, &delivery);
+                orientation_degrees, width, height, &delivery);
             input_increment_counter(&diagnostics->pointer_events);
             diagnostics->has_pointer = true;
             diagnostics->last_pointer.event = queued;

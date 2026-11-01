@@ -80,9 +80,10 @@ physical keys, modifiers, layers, and tap/hold, together with key count and
 optional matrix metadata. Other drivers currently report `supported=false`.
 See [source keymaps](input.keymap.md) for fields and mapping formats.
 
-Touchscreens report `tap`, `double-tap`, `hold`, and `swipe` gestures in addition
-to pointer events. Use `GESTURE_TAP`, `GESTURE_DOUBLE_TAP`, `GESTURE_HOLD`, and
-`GESTURE_SWIPE` to match their numeric gesture values. See `man media.input` for
+Touchscreens report `tap`, `double-tap`, `hold`, `swipe`, and `edge-swipe` gestures
+in addition to pointer events. Use `GESTURE_TAP`, `GESTURE_DOUBLE_TAP`,
+`GESTURE_HOLD`, `GESTURE_SWIPE`, and `GESTURE_EDGE_SWIPE` to match their numeric
+gesture values. See `man media.input` for
 timing, direction, and recognition limits.
 
 Foreground scripts can receive generic pointer, axis, and gesture events routed to

@@ -86,8 +86,8 @@ deltas; analog joysticks report normalized X/Y axes; gesture sensors report
 recognized motions and taps. `input test` shows counters and the latest event
 while the shell is active.
 
-The input service recognizes single-finger `tap`, `double-tap`, `hold`, and
-`swipe` gestures from any registered absolute touch source. Producers submit
+The input service recognizes single-finger `tap`, `double-tap`, `hold`,
+`swipe`, and `edge-swipe` gestures from any registered absolute touch source. Producers submit
 ordinary pointer samples; the common input pump handles gesture timing.
 `gesture status` lists touch sources and their supported gestures. Recognition
 preserves ordinary pointer events and pauses while an exclusive pointer filter
@@ -103,9 +103,24 @@ dominant axis at least 1.5 times the other axis. Its direction is `west`,
 `east`, `north`, or `south` relative to the target display's orientation when
 the contact starts. Without a target display, calibrated source directions apply.
 IMU directions remain board-relative. Other touch gestures use direction `none`.
+
+An `edge-swipe` starts at a screen edge and moves inward using the same distance,
+duration, and dominant-axis thresholds as a swipe. The edge band is 5 percent
+of the shorter native display side, rounded up and limited to 8 through 24
+pixels. Its direction describes motion: `north` is an upward swipe from the
+bottom edge, `south` is downward from the top, `east` is rightward from the
+left, and `west` is leftward from the right, relative to display orientation.
+Display bounds and orientation are fixed when contact starts. Pointer calibration
+bounds take precedence over display bounds. Without either set of bounds,
+recognition produces ordinary swipes only. An edge swipe produces one
+`edge-swipe` event instead of an additional ordinary `swipe`, so those bindings
+can be configured independently. Raw pointer events remain available; a gesture
+binding does not reserve or consume the touch stroke.
+
 Touch gesture `value` is 1 for tap, 2 for double-tap, 600 milliseconds for hold,
-or the dominant-axis distance in pixels for swipe, capped at 32767. `raw` is
-zero; double-tap sets the double flag. Pinch and rotation are not supported.
+or the dominant-axis distance in pixels for either swipe kind, capped at 32767.
+`raw` is zero; double-tap sets the double flag and edge-swipe sets the edge flag.
+Pinch and rotation are not supported.
 
 Native foreground applications opt in to structured pointer input with
 `SOLAR_OS_APP_FLAG_POINTER_EVENTS` and to axis input with
@@ -174,6 +189,12 @@ gesture bind source=* gesture=swipe direction=east -- input emit ALT+RIGHT
 gesture bind source=* gesture=swipe direction=north -- input emit PAGE_UP
 gesture bind source=* gesture=swipe direction=south -- input emit PAGE_DOWN
 job start gestures
+```
+
+An upward swipe from the bottom edge can have its own action, for example:
+
+```text
+gesture bind source=* gesture=edge-swipe direction=north -- input emit PAGE_UP
 ```
 
 `input emit` creates a virtual local keyboard on first use and injects a key

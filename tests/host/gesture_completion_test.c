@@ -51,7 +51,8 @@ static const solar_os_input_source_info_t sources[] = {
             SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) |
             SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) |
             SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) |
-            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE),
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE) |
+            SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE),
         .ready = true,
         .name = "touch0",
     },
@@ -69,6 +70,7 @@ const char *solar_os_input_gesture_name(solar_os_input_gesture_t gesture)
         [SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP] = "double-tap",
         [SOLAR_OS_INPUT_GESTURE_AIRWHEEL] = "airwheel",
         [SOLAR_OS_INPUT_GESTURE_SWIPE] = "swipe",
+        [SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE] = "edge-swipe",
         [SOLAR_OS_INPUT_GESTURE_TILT] = "tilt",
         [SOLAR_OS_INPUT_GESTURE_WAKE] = "wake",
         [SOLAR_OS_INPUT_GESTURE_FREE_FALL] = "free-fall",
@@ -156,7 +158,7 @@ int main(void)
     assert(!contains(&list, "gesture=wave"));
 
     list = complete("gesture=", "*");
-    assert(list.count == 8U);
+    assert(list.count == 9U);
     assert(contains(&list, "gesture=flick"));
     assert(contains(&list, "gesture=tap"));
     assert(contains(&list, "gesture=tilt"));
@@ -165,12 +167,13 @@ int main(void)
     assert(contains(&list, "gesture=swipe"));
 
     list = complete("gesture=", "touch0");
-    assert(list.count == 4U);
+    assert(list.count == 5U);
     assert(contains(&list, "gesture=tap"));
     assert(contains(&list, "gesture=double-tap"));
     assert(contains(&list, "gesture=hold"));
     assert(contains(&list, "gesture=swipe"));
     assert(!contains(&list, "gesture=flick"));
+    assert(contains(&list, "gesture=edge-swipe"));
 
     list = complete("gesture=", "imu0");
     assert(list.count == 5U);

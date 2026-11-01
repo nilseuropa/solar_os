@@ -1726,6 +1726,15 @@ static uint16_t input_display_orientation(const char *target)
         ? profile.orientation_degrees : 0;
 }
 
+static bool input_display_size(const char *name, uint16_t *width, uint16_t *height)
+{
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target)) return false;
+    *width = target.native_width ? target.native_width : target.width;
+    *height = target.native_height ? target.native_height : target.height;
+    return *width != 0U && *height != 0U;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -2157,6 +2166,7 @@ void app_main(void)
 #endif
     const esp_err_t input_err = solar_os_input_init();
     solar_os_input_set_display_orientation_resolver(input_display_orientation);
+    solar_os_input_set_display_size_resolver(input_display_size);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }
