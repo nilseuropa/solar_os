@@ -3,6 +3,7 @@ name = "classic"
 description = "Compact SolarOS for classic ESP32 with Python, Playground, writing, media and communications."
 
 [groups]
+screen_keyboard = true
 hardware_shell = true
 filesystem = true
 wifi = true

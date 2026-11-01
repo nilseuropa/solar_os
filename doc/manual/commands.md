@@ -300,6 +300,7 @@ job for periodic polling.
 | `gesture` | `gesture bind source=<name\|*> gesture=<name> [direction=<name\|*>] [cooldown=<ms>] -- <command> [args...]` | Configure a volatile gesture-to-command rule for the `gestures` job. |
 | `gesture` | `gesture bindings` | Show listener state and list volatile gesture bindings, trigger counts, queue drops, cooldowns, and commands. |
 | `gesture` | `gesture unbind <id\|all>` | Remove one volatile gesture binding or all of them. |
+| `screen-keyboard` | `screen-keyboard [status]`; `screen-keyboard show\|hide\|toggle`; `screen-keyboard mode full\|symbols` | Inspect or control the running `screen-keyboard` job. Touch or arrow keys select keys; Enter activates the selection. |
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap and managed PSRAM status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |

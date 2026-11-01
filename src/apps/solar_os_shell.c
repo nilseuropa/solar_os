@@ -573,6 +573,9 @@ static const shell_command_t shell_builtin_commands[] = {
     {"board", "show board capabilities", solar_os_shell_cmd_board},
     {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
     {"input", "show input sources", solar_os_shell_cmd_input},
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    {"screen-keyboard", "control the screen keyboard job", solar_os_shell_cmd_screen_keyboard},
+#endif
     {"gesture", "show gesture sources and bindings", solar_os_shell_cmd_gesture},
 #if SOLAR_OS_PACKAGE_SERVICE_ENGINES
     {"engine", "show engine utilization", solar_os_shell_cmd_engine},
@@ -2126,6 +2129,20 @@ static const char * const path_job_start_pointer_arrows_option[] = {
     "job", "start", "pointer-arrows", SHELL_COMPLETION_ANY
 };
 #endif
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+static const char * const screen_keyboard_options[] = {
+    "mode=full", "mode=symbols", "layout=grid", "display=", "trigger=ctrl+space", "trigger=none",
+    "source=", "key-id=", "touch-source=", "gesture=edge-swipe", "gesture=none",
+    "direction=north", "direction=south", "direction=east", "direction=west",
+    "auto-hide=on", "auto-hide=off", "visible=on", "visible=off",
+};
+static const char * const screen_keyboard_subcommands[] = {"status", "show", "hide", "toggle", "mode"};
+static const char * const screen_keyboard_modes[] = {"full", "symbols"};
+static const char * const path_screen_keyboard[] = {"screen-keyboard"};
+static const char * const path_screen_keyboard_mode[] = {"screen-keyboard", "mode"};
+static const char * const path_job_start_screen_keyboard[] = {"job", "start", "screen-keyboard"};
+static const char * const path_job_start_screen_keyboard_option[] = {"job", "start", "screen-keyboard", SHELL_COMPLETION_ANY};
+#endif
 #if SOLAR_OS_PACKAGE_JOB_GPIO_KEYS
 static const char * const gpio_keys_options[] = {"--config"};
 static const char * const path_job_start_gpio_keys[] = {"job", "start", "gpio-keys"};
@@ -3513,6 +3530,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_JOB_POINTER_ARROWS
     SHELL_COMPLETION_STATIC(path_job_start_pointer_arrows, pointer_arrows_options),
     SHELL_COMPLETION_STATIC(path_job_start_pointer_arrows_option, pointer_arrows_options),
+#endif
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    SHELL_COMPLETION_STATIC(path_screen_keyboard, screen_keyboard_subcommands),
+    SHELL_COMPLETION_STATIC(path_screen_keyboard_mode, screen_keyboard_modes),
+    SHELL_COMPLETION_STATIC(path_job_start_screen_keyboard, screen_keyboard_options),
+    SHELL_COMPLETION_STATIC(path_job_start_screen_keyboard_option, screen_keyboard_options),
 #endif
 #if SOLAR_OS_PACKAGE_JOB_GPIO_KEYS
     SHELL_COMPLETION_STATIC(path_job_start_gpio_keys, gpio_keys_options),

@@ -1347,6 +1347,64 @@ source named `graffiti` and therefore go to the current input focus. `job
 status graffiti` reports recognized, rejected, and dropped stroke counts plus
 the current case state.
 
+## screen-keyboard
+
+The screen keyboard supplies touch and keyboard input above the shell, TUIs,
+and graphical applications on a selected display. Start the background job to
+arm its activation actions:
+
+```text
+job start screen-keyboard mode=full
+job start screen-keyboard mode=symbols display=display0
+job status screen-keyboard
+screen-keyboard show
+screen-keyboard hide
+screen-keyboard toggle
+screen-keyboard mode full
+screen-keyboard mode symbols
+job stop screen-keyboard
+```
+
+Start the job once, choosing one mode. By default, Ctrl+Space or an inward
+upward swipe from the bottom edge toggles visibility. Tap a key to enter it,
+or use the physical arrows to move the selection and Enter to activate it.
+Escape hides the keyboard. A downward swipe that starts inside its panel also
+hides it. Touch strokes reserved for activation or keyboard selection do not
+reach the application underneath; touches outside these regions remain normal
+application input.
+
+Full mode provides letters, numbers, one-shot Shift/Ctrl/Alt, Caps Lock, a
+symbol table, and a navigation page with Tab, Escape, arrows, Home/End,
+Page Up/Down, Delete, and Backspace. Physical Tab cycles the full-mode pages.
+Symbols mode opens the punctuation palette directly, with `=` selected first.
+Closing the keyboard clears its modifiers and Caps Lock. Physical typing can
+continue while it is visible; unmodified arrows, Enter, Tab, and Escape control
+the keyboard. Desktop modifier shortcuts retain their normal behavior.
+
+Start arguments:
+
+| Argument | Meaning |
+| --- | --- |
+| `mode=full\|symbols` | Initial mode; default `full`. |
+| `layout=grid` | Layout provider. |
+| `display=<target>` | Display and input destination; default the focused display. |
+| `trigger=<key-or-chord>` | Visibility toggle; default `ctrl+space`. Use `none` to disable it. |
+| `source=<keyboard>` | Restrict the key trigger to one registered input source. |
+| `key-id=<id>` | Use a source-local physical key ID instead of a translated key. Requires `source=`; without `trigger=`, no modifiers are required. |
+| `gesture=edge-swipe\|none` | Edge activation; default `edge-swipe`. |
+| `direction=north\|south\|east\|west` | Inward edge-swipe motion; default `north` from the bottom edge. |
+| `touch-source=<source>` | Restrict touch interaction to one registered touch source. |
+| `auto-hide=on\|off` | Hide after emitting a key; default `off`. |
+| `visible=on\|off` | Show immediately on start; default `off`. |
+
+For a keyboard without a convenient activation chord, select a key ID from
+`input test <source>` and bind it with `source=` and `key-id=`. No long-press
+activation is used. A display must be ready and at least 80 by 64 logical
+pixels. The keyboard hides on session/focus changes, display geometry changes,
+and sleep. Status reports visibility, layout, mode, emitted-key count, and the
+last error. Configuration is volatile; use the selected startup script to
+start the job automatically after boot.
+
 ## pointer-arrows
 
 Consume one named pointer source and hold arrow keys while it moves:

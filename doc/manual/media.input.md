@@ -259,6 +259,12 @@ input test joystick0
 The attachment normalizes both streams as axes. Applications decide what those
 axes mean; SolarOS does not turn them into arrows or other keys.
 
+The `screen-keyboard` background job provides a full virtual keyboard or a
+symbol palette above display applications. Start it with
+`job start screen-keyboard mode=full` or `mode=symbols`, then toggle it with
+Ctrl+Space or an upward swipe from the bottom edge. See
+[screen-keyboard](jobs.reference.md#screen-keyboard) for controls and bindings.
+
 ## Audio
 
 Use global volume unless a diagnostic or playback command explicitly needs an

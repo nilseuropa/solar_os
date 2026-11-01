@@ -1,4 +1,5 @@
 #include "solar_os_input.h"
+#include "solar_os_input_route.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -245,6 +246,8 @@ static bool input_capture_push_locked(const solar_os_input_key_event_t *event)
     input_capture_activity = true;
     return true;
 }
+
+#include "solar_os_input_route.inc"
 
 static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
@@ -549,7 +552,7 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
     if (event != NULL && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
         input_key_press_generation++;
     }
-    if (event != NULL && input_capture_push_locked(event)) {
+    if (event != NULL && (input_route_key_locked(event) || input_capture_push_locked(event))) {
         return true;
     }
     if (event == NULL || input_queue_count >= INPUT_QUEUE_MAX) {
@@ -1400,6 +1403,17 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     const bool gesture_source =
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) != 0;
+    input_route.pointer_active[source - 1U] = false;
+    input_route.touch_owned[source - 1U] = false;
+    input_route.pointer_blocked[source - 1U] = false;
+    input_route.contact_count[source - 1U] = 0;
+    memset(input_route.contacts[source - 1U], 0, sizeof(input_route.contacts[0]));
+    for (size_t i=0;i<INPUT_ROUTE_HELD_MAX;i++)
+        if (input_route.held[i].source==source) input_route.held[i].source=0;
+    if (input_route.owner) {
+        input_route.head = input_route.count = 0;
+        input_route.reset = true;
+    }
     memset(&input_sources[source - 1U], 0, sizeof(input_sources[source - 1U]));
     memset(&input_diagnostics[source - 1U], 0, sizeof(input_diagnostics[source - 1U]));
     if (pointer_source) {
@@ -1697,6 +1711,17 @@ static void input_touch_emit_locked(solar_os_input_source_t source,
             gesture == SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE
                 ? SOLAR_OS_INPUT_GESTURE_FLAG_EDGE : 0U,
     };
+    if (input_route.touch_owned[source - 1U]) {
+        input_source_diagnostics_state_t *diagnostics = &input_diagnostics[source - 1U];
+        input_increment_counter(&diagnostics->gesture_events);
+        diagnostics->has_gesture = true;
+        diagnostics->last_gesture = event;
+        const solar_os_input_route_event_t routed = {.type=SOLAR_OS_INPUT_ROUTE_GESTURE, .data.gesture=event};
+        if (!input_route.pointer_blocked[source - 1U] &&
+            input_route.pointer_generation[source - 1U]==input_route.generation)
+            input_route_push_locked(&routed);
+        return;
+    }
     if (delivery->count < 2U && input_publish_gesture_locked(source, &event)) {
         delivery->events[delivery->count++] = event;
         memcpy(delivery->observers, input_gesture_observers, sizeof(delivery->observers));
@@ -1720,8 +1745,8 @@ static bool input_touch_available_locked(solar_os_input_source_t source)
     if (input_sources[index].source_class != SOLAR_OS_INPUT_SOURCE_TOUCH ||
         (input_sources[index].capabilities & SOLAR_OS_INPUT_CAP_GESTURE_EVENTS) == 0U)
         return false;
-    if (!input_sources[index].ready || input_pointer_filter != NULL ||
-        pointer_captures[index].owner != NULL || pointer_captures[index].wait_neutral) {
+    if (!input_sources[index].ready || (!input_route.touch_owned[index] &&
+        (input_pointer_filter != NULL || pointer_captures[index].owner != NULL || pointer_captures[index].wait_neutral))) {
         memset(&input_sources[index].touch, 0, sizeof(input_sources[index].touch));
         return false;
     }
@@ -1952,7 +1977,11 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
         input_apply_calibration_locked(diagnostics, &queued);
         queued.source = source;
         bool accepted = true;
-        if (capture->owner != NULL) {
+        solar_os_input_pointer_sample_t routed_sample = *sample;
+        routed_sample.event = queued;
+        if (input_route_pointer_locked(&routed_sample)) {
+            /* OS-owned strokes never reach application pointer capture. */
+        } else if (capture->owner != NULL) {
             input_capture_activity = true;
             if (capture->count == INPUT_POINTER_QUEUE_MAX) {
                 capture->head = capture->count = 0;

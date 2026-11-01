@@ -32,6 +32,9 @@
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+#include "solar_os_screen_keyboard_job.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -474,6 +477,9 @@ static void session_overlay_requested(const char *title,
                                       void *user)
 {
     (void)user;
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
 
     solar_os_display_target_t target;
     u8g2_t *overlay_u8g2 = NULL;
@@ -547,6 +553,9 @@ static void resume_display_after_sleep(uint32_t now_ms)
 
 static void enter_suspend(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     if (!board_has(SOLAR_OS_BOARD_CAP_KEY) && !SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD) {
         SOLAR_OS_LOGW(TAG, "%s: suspend needs a key resume source", reason);
         return;
@@ -1219,6 +1228,9 @@ static void enter_sleep(const char *reason, bool deep_sleep)
 
 static void enter_light_sleep(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     enter_sleep(reason, false);
 }
 
