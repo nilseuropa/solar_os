@@ -87,6 +87,9 @@ typedef struct {
     solar_os_network_router_status_fn_t get_status;
 } solar_os_network_router_provider_t;
 
+/* Initialize the shared TCP/IP stack and event loop without enabling radios. */
+esp_err_t solar_os_network_init(void);
+
 esp_err_t solar_os_network_path_register(const char *name,
                                          esp_netif_t *netif,
                                          int route_priority);

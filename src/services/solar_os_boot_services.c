@@ -2,6 +2,9 @@
 
 #include "esp_err.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+#include "solar_os_network.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_CREDENTIALS
 #include "solar_os_credentials.h"
 #endif
@@ -79,6 +82,12 @@ static const char *TAG = "boot_services";
 
 void solar_os_boot_services_init(uint32_t now_ms)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+    /* Startup jobs may use sockets even when the Wi-Fi boot policy skips the
+     * radio driver. Their lwIP mailbox must exist before any service starts. */
+    ESP_ERROR_CHECK(solar_os_network_init());
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_JSON
     const esp_err_t json_err = solar_os_json_init();
     if (json_err != ESP_OK) {
