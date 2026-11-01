@@ -2131,13 +2131,13 @@ static const char * const path_job_start_pointer_arrows_option[] = {
 #endif
 #if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
 static const char * const screen_keyboard_options[] = {
-    "mode=full", "mode=symbols", "layout=grid", "display=", "trigger=ctrl+space", "trigger=none",
+    "mode=full", "mode=symbols", "mode=deck", "layout=grid", "display=", "trigger=ctrl+space", "trigger=none",
     "source=", "key-id=", "touch-source=", "gesture=edge-swipe", "gesture=none",
     "direction=north", "direction=south", "direction=east", "direction=west",
     "auto-hide=on", "auto-hide=off", "visible=on", "visible=off",
 };
 static const char * const screen_keyboard_subcommands[] = {"status", "show", "hide", "toggle", "mode"};
-static const char * const screen_keyboard_modes[] = {"full", "symbols"};
+static const char * const screen_keyboard_modes[] = {"full", "symbols", "deck"};
 static const char * const path_screen_keyboard[] = {"screen-keyboard"};
 static const char * const path_screen_keyboard_mode[] = {"screen-keyboard", "mode"};
 static const char * const path_job_start_screen_keyboard[] = {"job", "start", "screen-keyboard"};

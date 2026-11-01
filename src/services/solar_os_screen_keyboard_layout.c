@@ -39,6 +39,11 @@ static const grid_key_t symbol_keys[] = {
     EMIT(' ',' ',0x2c),EMIT(8,8,0x2a),EMIT('\r','\r',0x28),
     BUTTON("ABC",PAGE,0),BUTTON("Hide",SOLAR_OS_SCREEN_KEYBOARD_HIDE,0),
 };
+/* Printable punctuation absent from T-Deck's normal and Sym key maps. */
+static const grid_key_t deck_keys[] = {
+    EMIT('=','=',0x2e),SYMBOL('<',0x36),SYMBOL('>',0x37),EMIT('[','[',0x2f),EMIT(']',']',0x30),SYMBOL('{',0x2f),SYMBOL('}',0x30),
+    SYMBOL('%',0x22),SYMBOL('&',0x24),EMIT('\\','\\',0x31),SYMBOL('|',0x31),SYMBOL('^',0x23),SYMBOL('~',0x35),EMIT('`','`',0x35),
+};
 static const grid_key_t navigation_keys[] = {
     {"Esc",{SOLAR_OS_SCREEN_KEYBOARD_EMIT,27,27,0x29,0}},
     {"Home",{SOLAR_OS_SCREEN_KEYBOARD_EMIT,SOLAR_OS_KEY_HOME,SOLAR_OS_KEY_HOME,0x4a,0}},
@@ -58,19 +63,19 @@ static const grid_key_t navigation_keys[] = {
     BUTTON("ABC",PAGE,0),BUTTON("Sym",PAGE,1),BUTTON("Hide",SOLAR_OS_SCREEN_KEYBOARD_HIDE,0),
 };
 typedef struct {
-    bool symbols_only, symbols, nav, moved;
+    bool symbols_only, symbols, nav, moved, deck;
     int focus, pressed, press_x, press_y;
     solar_os_screen_keyboard_rect_t panel;
 } grid_t;
 
 static unsigned row_count(const grid_t *g, unsigned row)
-{ return g->nav ? (row==0 ? 5U : row==1 ? 8U : 7U) : g->symbols ? 8U : row < 3 ? 10U : row == 3 ? 9U : 7U; }
-static unsigned rows(const grid_t *g) { return g->nav ? 3U : 5U; }
+{ return g->deck ? 7U : g->nav ? (row==0 ? 5U : row==1 ? 8U : 7U) : g->symbols ? 8U : row < 3 ? 10U : row == 3 ? 9U : 7U; }
+static unsigned rows(const grid_t *g) { return g->deck ? 2U : g->nav ? 3U : 5U; }
 static unsigned first(const grid_t *g, unsigned row)
 { unsigned n=0; for (unsigned r=0;r<row;r++) n+=row_count(g,r); return n; }
 static unsigned count(const grid_t *g) { return first(g,rows(g)); }
 static const grid_key_t *key_at(const grid_t *g, unsigned n)
-{ return (g->nav ? navigation_keys : g->symbols ? symbol_keys : full_keys)+n; }
+{ return (g->deck ? deck_keys : g->nav ? navigation_keys : g->symbols ? symbol_keys : full_keys)+n; }
 static solar_os_screen_keyboard_rect_t rect(const grid_t *g, unsigned n)
 {
     unsigned row=0;
@@ -94,12 +99,18 @@ static int hit(const grid_t *g,int x,int y)
     return -1;
 }
 static void cancel(void *state) { ((grid_t *)state)->pressed=-1; }
-static void init(void *state,bool symbols)
-{ grid_t *g=state; memset(g,0,sizeof(*g)); g->symbols_only=g->symbols=symbols; cancel(g); }
+static void init(void *state,solar_os_screen_keyboard_mode_t mode)
+{
+    grid_t *g=state; memset(g,0,sizeof(*g));
+    g->symbols_only=mode!=SOLAR_OS_SCREEN_KEYBOARD_MODE_FULL;
+    g->symbols=mode==SOLAR_OS_SCREEN_KEYBOARD_MODE_SYMBOLS;
+    g->deck=mode==SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK;cancel(g);
+}
 static solar_os_screen_keyboard_rect_t resize(void *state,int width,int height)
 {
     grid_t *g=state;
     int h=height<128 ? height : ((height*3/5+7)/8)*8;
+    if (g->deck) h=((h*2/5+7)/8)*8;
     if (h>height) h=height;
     g->panel=(solar_os_screen_keyboard_rect_t){0,height-h,width,h};
     return g->panel;
@@ -211,4 +222,17 @@ const solar_os_screen_keyboard_layout_t *solar_os_screen_keyboard_layout_find(co
     for (size_t i=0;i<sizeof(layouts)/sizeof(layouts[0]);i++)
         if (!strcmp(name,layouts[i]->name)) return layouts[i];
     return NULL;
+}
+
+const char *solar_os_screen_keyboard_mode_name(solar_os_screen_keyboard_mode_t mode)
+{
+    static const char *const names[]={"full","symbols","deck"};
+    return (unsigned)mode<sizeof(names)/sizeof(names[0]) ? names[mode] : "unknown";
+}
+bool solar_os_screen_keyboard_mode_parse(const char *name,solar_os_screen_keyboard_mode_t *mode)
+{
+    if (!name || !mode) return false;
+    for (unsigned i=SOLAR_OS_SCREEN_KEYBOARD_MODE_FULL;i<=SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK;i++)
+        if (!strcmp(name,solar_os_screen_keyboard_mode_name(i))) {*mode=i;return true;}
+    return false;
 }

@@ -7,10 +7,20 @@
 #include "solar_os_screen_keyboard_layout.h"
 
 static solar_os_screen_keyboard_rect_t glyphs[SOLAR_OS_SCREEN_KEYBOARD_GLYPH_DOWN+1];
+static bool collect_deck;
+static unsigned deck_count;
+static char deck_labels[14];
+static solar_os_screen_keyboard_rect_t deck_rects[14];
 static void box(void *context,solar_os_screen_keyboard_rect_t r,bool filled)
 {(void)context;(void)r;(void)filled;}
 static void text(void *context,solar_os_screen_keyboard_rect_t r,const char *label,bool inverse)
-{(void)context;(void)r;(void)label;(void)inverse;}
+{
+    (void)context;(void)inverse;
+    if (collect_deck) {
+        assert(deck_count<14 && label[0] && !label[1]);
+        deck_labels[deck_count]=label[0];deck_rects[deck_count++]=r;
+    }
+}
 static void glyph(void *context,solar_os_screen_keyboard_rect_t r,solar_os_screen_keyboard_glyph_t key,bool inverse)
 {(void)context;(void)inverse;glyphs[key]=r;}
 static solar_os_screen_keyboard_action_t tap_glyph(const solar_os_screen_keyboard_layout_t *layout,
@@ -79,6 +89,29 @@ int main(void)
     for (unsigned i=0;i<100;i++) {
         (void)layout->key(state,SOLAR_OS_KEY_DOWN);(void)layout->key(state,SOLAR_OS_KEY_RIGHT);
         (void)layout->key(state,SOLAR_OS_KEY_UP);(void)layout->key(state,SOLAR_OS_KEY_LEFT);
+    }
+    solar_os_screen_keyboard_mode_t mode;
+    assert(solar_os_screen_keyboard_mode_parse("deck",&mode) && mode==SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK);
+    assert(!strcmp(solar_os_screen_keyboard_mode_name(mode),"deck"));
+    assert(!solar_os_screen_keyboard_mode_parse("invalid",&mode));
+    layout->init(state,SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK);
+    panel=layout->resize(state,320,240);
+    assert(panel.height<=64 && panel.y+panel.height==240);
+    collect_deck=true;layout->draw(state,&painter,0,false);collect_deck=false;
+    assert(deck_count==14 && deck_rects[0].y<deck_rects[7].y);
+    for (unsigned i=0;i<14;i++) {
+        assert(deck_rects[i].y==deck_rects[i<7?0:7].y);
+        assert(layout->key(state,'\r').key==(uint8_t)deck_labels[i]);
+        (void)layout->key(state,SOLAR_OS_KEY_RIGHT);
+    }
+    assert(layout->key(state,'\r').key=='=');
+    (void)layout->key(state,'\t');assert(layout->key(state,'\r').key=='=');
+    (void)layout->key(state,SOLAR_OS_KEY_DOWN);assert(layout->key(state,'\r').key=='%');
+    for (unsigned i=0;i<14;i++) {
+        solar_os_screen_keyboard_rect_t r=deck_rects[i];
+        (void)layout->pointer(state,SOLAR_OS_INPUT_POINTER_PRESS,r.x+r.width/2,r.y+r.height/2);
+        solar_os_screen_keyboard_action_t action=layout->pointer(state,SOLAR_OS_INPUT_POINTER_RELEASE,r.x+r.width/2,r.y+r.height/2);
+        assert(action.type==SOLAR_OS_SCREEN_KEYBOARD_EMIT && action.key==(uint8_t)deck_labels[i] && action.usage);
     }
     free(state);puts("screen keyboard layout tests: ok");
 }

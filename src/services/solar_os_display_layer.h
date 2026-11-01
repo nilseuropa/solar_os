@@ -4,11 +4,14 @@
 #include "u8g2.h"
 
 /* An opaque monochrome layer over a clean logical canvas. Color rasters retain
- * their colors in a separate backing plane; allocation is only while open. */
+ * their colors in a separate backing plane; allocation is only while open.
+ * Mono canvas bits and layer ink use the supplied terminal theme colors. */
 typedef struct solar_os_display_layer solar_os_display_layer_t;
 
 solar_os_display_layer_t *solar_os_display_layer_create(u8g2_t *canvas,
-    bool black_is_one, bool color);
+    bool black_is_one, bool color, uint16_t foreground, uint16_t background);
+void solar_os_display_layer_set_colors(solar_os_display_layer_t *layer,
+    uint16_t foreground, uint16_t background);
 void solar_os_display_layer_destroy(solar_os_display_layer_t *layer);
 uint8_t *solar_os_display_layer_base(solar_os_display_layer_t *layer);
 void solar_os_display_layer_uncover(solar_os_display_layer_t *layer);

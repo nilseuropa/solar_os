@@ -8,7 +8,8 @@ struct solar_os_display_layer {
     uint8_t *original, *base, *composed, *bits, *raster, *rgb;
     size_t mono_size, stride;
     uint16_t width, height, x, y, w, h;
-    bool black_is_one, color;
+    uint16_t colors[2]; /* Background and foreground roles of the mono canvas. */
+    bool black_is_one, color, base_is_canvas;
 };
 
 static void native_pixel(const solar_os_display_layer_t *l, unsigned x, unsigned y,
@@ -42,8 +43,24 @@ static void canvas_set(const solar_os_display_layer_t *l, uint8_t *buffer,
 static uint16_t rgb_read(const uint8_t *p) { return (uint16_t)((p[0] << 8U) | p[1]); }
 static void rgb_write(uint8_t *p, uint16_t c) { p[0] = c >> 8U; p[1] = c; }
 
+static void canvas_to_rgb(solar_os_display_layer_t *l)
+{
+    for (unsigned y = 0; y < l->height; y++)
+        for (unsigned x = 0; x < l->width; x++)
+            rgb_write(l->rgb + ((size_t)y * l->width + x) * 2U,
+                l->colors[canvas_black(l, x, y)]);
+}
+
+void solar_os_display_layer_set_colors(solar_os_display_layer_t *l,
+    uint16_t foreground, uint16_t background)
+{
+    if (l->colors[0] == background && l->colors[1] == foreground) return;
+    l->colors[0] = background; l->colors[1] = foreground;
+    if (l->color && l->base_is_canvas) canvas_to_rgb(l);
+}
+
 solar_os_display_layer_t *solar_os_display_layer_create(u8g2_t *canvas,
-    bool black_is_one, bool color)
+    bool black_is_one, bool color, uint16_t foreground, uint16_t background)
 {
     if (!canvas || !u8g2_GetBufferPtr(canvas) || !canvas->u8x8.display_info ||
         canvas->ll_hvline != u8g2_ll_hvline_vertical_top_lsb ||
@@ -53,6 +70,7 @@ solar_os_display_layer_t *solar_os_display_layer_create(u8g2_t *canvas,
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "display.layer");
     if (!l) return NULL;
     l->canvas = canvas; l->black_is_one = black_is_one; l->color = color;
+    l->colors[0] = background; l->colors[1] = foreground; l->base_is_canvas = true;
     l->width = u8g2_GetDisplayWidth(canvas); l->height = u8g2_GetDisplayHeight(canvas);
     l->stride = (size_t)u8g2_GetBufferTileWidth(canvas) * 8U;
     l->mono_size = l->stride * u8g2_GetBufferTileHeight(canvas);
@@ -68,12 +86,7 @@ solar_os_display_layer_t *solar_os_display_layer_create(u8g2_t *canvas,
     l->original = u8g2_GetBufferPtr(canvas);
     memcpy(l->base, l->original, l->mono_size);
     canvas->tile_buf_ptr = l->base;
-    if (color) {
-        for (unsigned y = 0; y < l->height; y++)
-            for (unsigned x = 0; x < l->width; x++)
-                rgb_write(l->rgb + ((size_t)y * l->width + x) * 2U,
-                    canvas_black(l, x, y) ? 0 : 0xffff);
-    }
+    if (color) canvas_to_rgb(l);
     return l;
 }
 
@@ -108,11 +121,9 @@ uint8_t *solar_os_display_layer_canvas(solar_os_display_layer_t *l, bool base_ch
     for (unsigned y = l->y; y < l->y + l->h; y++)
         for (unsigned x = l->x; x < l->x + l->w; x++)
             canvas_set(l, l->composed, x, y, layer_black(l, x, y));
-    if (l->color && base_changed) {
-        for (unsigned y = 0; y < l->height; y++)
-            for (unsigned x = 0; x < l->width; x++)
-                rgb_write(l->rgb + ((size_t)y * l->width + x) * 2U,
-                    canvas_black(l, x, y) ? 0 : 0xffff);
+    if (base_changed) {
+        l->base_is_canvas = true;
+        if (l->color) canvas_to_rgb(l);
     }
     return l->composed;
 }
@@ -148,7 +159,7 @@ void solar_os_display_layer_raster(solar_os_display_layer_t *l, solar_os_display
             const bool inside = x >= l->x && x < l->x + l->w && y >= l->y && y < l->y + l->h;
             if (l->color) {
                 if (inside) rgb_write(l->raster + (size_t)y * stride + x * 2U,
-                    layer_black(l, x, y) ? 0 : 0xffff);
+                    l->colors[layer_black(l, x, y)]);
             } else if (inside ? layer_black(l, x, y) : canvas_black(l, x, y))
                 l->raster[(size_t)y * stride + x / 8U] |= (uint8_t)(1U << (x & 7U));
         }
@@ -162,6 +173,7 @@ void solar_os_display_layer_raster(solar_os_display_layer_t *l, solar_os_display
 void solar_os_display_layer_frame(solar_os_display_layer_t *l,
     const solar_os_display_raster_t *f, solar_os_display_raster_t *out)
 {
+    l->base_is_canvas = false;
     if (f->clear_background) {
         uint16_t color = f->background_rgb565;
         if (f->format != SOLAR_OS_DISPLAY_FORMAT_RGB565) {
@@ -187,6 +199,7 @@ void solar_os_display_layer_frame(solar_os_display_layer_t *l,
 void solar_os_display_layer_surface(solar_os_display_layer_t *l,
     const solar_os_display_surface_t *s, solar_os_display_raster_t *out)
 {
+    l->base_is_canvas = false;
     for (unsigned y = 0; y < l->height; y++) {
         for (unsigned x = 0; x < l->width; x++) {
             base_set(l, x, y, s->palette_rgb565[s->data[(size_t)y*s->stride + x]]);

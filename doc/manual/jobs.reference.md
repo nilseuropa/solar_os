@@ -1356,12 +1356,14 @@ arm its activation actions:
 ```text
 job start screen-keyboard mode=full
 job start screen-keyboard mode=symbols display=display0
+job start screen-keyboard mode=deck
 job status screen-keyboard
 screen-keyboard show
 screen-keyboard hide
 screen-keyboard toggle
 screen-keyboard mode full
 screen-keyboard mode symbols
+screen-keyboard mode deck
 job stop screen-keyboard
 ```
 
@@ -1377,6 +1379,10 @@ Full mode provides letters, numbers, one-shot Shift/Ctrl/Alt, Caps Lock, a
 symbol table, and a navigation page with Tab, Escape, arrows, Home/End,
 Page Up/Down, Delete, and Backspace. Physical Tab cycles the full-mode pages.
 Symbols mode opens the punctuation palette directly, with `=` selected first.
+Deck mode provides two rows containing only punctuation absent from T-Deck's
+normal and Sym layers: `= < > [ ] { } % &` plus backslash, vertical bar,
+caret, tilde, and backtick. It has no control-key row; use the configured key
+or gesture, or Escape, to hide it.
 Closing the keyboard clears its modifiers and Caps Lock. Physical typing can
 continue while it is visible; unmodified arrows, Enter, Tab, and Escape control
 the keyboard. Desktop modifier shortcuts retain their normal behavior.
@@ -1385,7 +1391,7 @@ Start arguments:
 
 | Argument | Meaning |
 | --- | --- |
-| `mode=full\|symbols` | Initial mode; default `full`. |
+| `mode=full\|symbols\|deck` | Initial mode; default `full`. |
 | `layout=grid` | Layout provider. |
 | `display=<target>` | Display and input destination; default the focused display. |
 | `trigger=<key-or-chord>` | Visibility toggle; default `ctrl+space`. Use `none` to disable it. |

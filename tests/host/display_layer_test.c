@@ -24,7 +24,7 @@ int main(void)
         u8g2_t canvas={.width=r%2?24:32,.height=r%2?32:24,.tile_buf_height=3,
             .tile_buf_ptr=original,.cb=rotations[r],.ll_hvline=u8g2_ll_hvline_vertical_top_lsb,
             .u8x8={.display_info=&info}};
-        solar_os_display_layer_t *l=solar_os_display_layer_create(&canvas,false,true);
+        solar_os_display_layer_t *l=solar_os_display_layer_create(&canvas,false,true,0,0xffff);
         assert(l && canvas.tile_buf_ptr!=original);
         uint8_t ink[4]={0x3f,0x01,0x20,0x3f};
         solar_os_display_layer_update(l,ink,5,8,6,4);
@@ -57,6 +57,9 @@ int main(void)
         /* Move the layer: the old rectangle reveals the current app image. */
         solar_os_display_layer_update(l,ink,12,16,6,4);
         solar_os_display_layer_raster(l,&out);assert(pixel(&out,5,8)==0x07e0);
+        solar_os_display_layer_set_colors(l,0xfc80,0x2000);
+        solar_os_display_layer_raster(l,&out);
+        assert(pixel(&out,0,0)==0x07e0 && pixel(&out,12,16)==0xfc80);
         solar_os_display_layer_destroy(l);assert(canvas.tile_buf_ptr==original);
     }
     for (unsigned polarity=0;polarity<2;polarity++) {
@@ -64,7 +67,7 @@ int main(void)
         uint8_t original[96];memset(original,polarity?0:255,sizeof(original));
         u8g2_t canvas={.width=32,.height=24,.tile_buf_height=3,.tile_buf_ptr=original,.cb=U8G2_R0,
             .ll_hvline=u8g2_ll_hvline_vertical_top_lsb,.u8x8={.display_info=&info}};
-        solar_os_display_layer_t *l=solar_os_display_layer_create(&canvas,polarity,false);
+        solar_os_display_layer_t *l=solar_os_display_layer_create(&canvas,polarity,false,0,0xffff);
         uint8_t ink=1;
         solar_os_display_layer_update(l,&ink,8,8,1,1);
         uint8_t data=1;
@@ -79,6 +82,27 @@ int main(void)
         assert(out.data[3*4]==4 && out.data[8*4+1]==0);
         solar_os_display_layer_destroy(l);
         assert(((original[2]>>3)&1)==polarity);
+    }
+    for (unsigned polarity=0;polarity<2;polarity++) {
+        const u8x8_display_info_t info={.pixel_width=32,.pixel_height=24,.tile_width=4,.tile_height=3};
+        uint8_t original[96];memset(original,polarity?0:255,sizeof(original));
+        if (polarity) original[2]|=8; else original[2]&=(uint8_t)~8;
+        u8g2_t canvas={.width=32,.height=24,.tile_buf_height=3,.tile_buf_ptr=original,.cb=U8G2_R0,
+            .ll_hvline=u8g2_ll_hvline_vertical_top_lsb,.u8x8={.display_info=&info}};
+        solar_os_display_layer_t *l=solar_os_display_layer_create(&canvas,polarity,true,0xfc80,0x2000);
+        assert(l);
+        uint8_t ink=1;solar_os_display_layer_update(l,&ink,8,8,1,1);
+        solar_os_display_raster_t out;solar_os_display_layer_raster(l,&out);
+        assert(pixel(&out,0,0)==0x2000 && pixel(&out,2,3)==0xfc80 && pixel(&out,8,8)==0xfc80);
+        /* A terminal repaint while visible and the final uncover must keep
+         * the terminal's theme, independent of buffer polarity. */
+        (void)solar_os_display_layer_canvas(l,true);
+        solar_os_display_layer_uncover(l);solar_os_display_layer_raster(l,&out);
+        assert(pixel(&out,0,0)==0x2000 && pixel(&out,2,3)==0xfc80 && pixel(&out,8,8)==0x2000);
+        solar_os_display_layer_set_colors(l,0x001f,0x07e0);
+        solar_os_display_layer_raster(l,&out);
+        assert(pixel(&out,0,0)==0x07e0 && pixel(&out,2,3)==0x001f);
+        solar_os_display_layer_destroy(l);
     }
     puts("display layer composition tests: ok");
 }

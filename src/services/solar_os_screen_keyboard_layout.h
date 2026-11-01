@@ -6,6 +6,11 @@
 
 typedef struct { int x, y, width, height; } solar_os_screen_keyboard_rect_t;
 typedef enum {
+    SOLAR_OS_SCREEN_KEYBOARD_MODE_FULL,
+    SOLAR_OS_SCREEN_KEYBOARD_MODE_SYMBOLS,
+    SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK,
+} solar_os_screen_keyboard_mode_t;
+typedef enum {
     SOLAR_OS_SCREEN_KEYBOARD_NONE, SOLAR_OS_SCREEN_KEYBOARD_EMIT,
     SOLAR_OS_SCREEN_KEYBOARD_MODIFIER, SOLAR_OS_SCREEN_KEYBOARD_CAPS,
     SOLAR_OS_SCREEN_KEYBOARD_HIDE,
@@ -46,7 +51,7 @@ typedef struct {
 typedef struct {
     const char *name;
     size_t state_size;
-    void (*init)(void *, bool symbols);
+    void (*init)(void *, solar_os_screen_keyboard_mode_t mode);
     solar_os_screen_keyboard_rect_t (*resize)(void *, int width, int height);
     void (*draw)(void *, const solar_os_screen_keyboard_painter_t *, uint8_t modifiers, bool caps);
     solar_os_screen_keyboard_action_t (*pointer)(void *, unsigned action, int x, int y);
@@ -55,3 +60,5 @@ typedef struct {
 } solar_os_screen_keyboard_layout_t;
 
 const solar_os_screen_keyboard_layout_t *solar_os_screen_keyboard_layout_find(const char *name);
+bool solar_os_screen_keyboard_mode_parse(const char *name, solar_os_screen_keyboard_mode_t *mode);
+const char *solar_os_screen_keyboard_mode_name(solar_os_screen_keyboard_mode_t mode);

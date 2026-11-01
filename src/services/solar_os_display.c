@@ -108,6 +108,17 @@ static void display_release_slot_ref(size_t slot_index, uint32_t generation)
 }
 
 /* All layer changes and presentations hold present_mutex. */
+static uint16_t display_layer_rgb565(uint32_t color)
+{
+    return (uint16_t)(((color >> 8U) & 0xf800U) | ((color >> 5U) & 0x07e0U) |
+        ((color >> 3U) & 0x001fU));
+}
+static void display_layer_update_colors(display_target_slot_t *slot)
+{
+    solar_os_display_layer_set_colors(slot->layer,
+        display_layer_rgb565(display_foreground_rgb888),
+        display_layer_rgb565(display_background_rgb888));
+}
 static void display_restore_layer_locked(display_target_slot_t *slot);
 static void display_clear_layer_locked(display_target_slot_t *slot)
 {
@@ -158,6 +169,7 @@ static void display_publish_layer_locked(display_target_slot_t *slot)
 
 static void display_draw_layer_locked(display_target_slot_t *slot)
 {
+    display_layer_update_colors(slot);
     u8g2_t *canvas = slot->target.u8g2;
     uint8_t *original = canvas->tile_buf_ptr;
     uint8_t *logical = slot->scale.logical_buffer;
@@ -174,6 +186,7 @@ static void display_draw_layer_locked(display_target_slot_t *slot)
 
 static void display_restore_layer_locked(display_target_slot_t *slot)
 {
+    display_layer_update_colors(slot);
     solar_os_display_layer_uncover(slot->layer);
     solar_os_display_raster_t clean, physical;
     solar_os_display_layer_raster(slot->layer, &clean);
@@ -210,7 +223,10 @@ esp_err_t solar_os_display_set_layer(const char *name, const char *owner,
     else if (!slot->layer) {
         slot->layer_color = (slot->target.frame_formats & SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT) != 0;
         slot->layer_original_logical = slot->scale.logical_buffer;
-        solar_os_display_layer_t *layer = solar_os_display_layer_create(canvas, slot->target.black_is_one, slot->layer_color);
+        uint32_t foreground, background;
+        (void)solar_os_display_get_colors(&foreground, &background);
+        solar_os_display_layer_t *layer = solar_os_display_layer_create(canvas, slot->target.black_is_one,
+            slot->layer_color, display_layer_rgb565(foreground), display_layer_rgb565(background));
         if (!layer) err = ESP_ERR_NO_MEM;
         else {
             if (slot->scale.factor > 1U) slot->scale.logical_buffer = solar_os_display_layer_base(layer);
@@ -2044,6 +2060,7 @@ esp_err_t solar_os_display_present_surface(
             surface->data_size < (size_t)surface->stride * surface->height) {
             ret = ESP_ERR_INVALID_ARG;
         } else {
+            display_layer_update_colors(scaled_slot);
             solar_os_display_layer_surface(scaled_slot->layer, surface, &composed);
             ret = solar_os_display_scale_raster(&scaled_slot->scale, &composed, &physical);
             display_native_begin(scaled_slot);
@@ -2171,6 +2188,7 @@ esp_err_t solar_os_display_present_frame(
     display_target_slot_t *scaled_slot = &display_targets[slot_index];
     solar_os_display_raster_t composed;
     if (scaled_slot->layer) {
+        display_layer_update_colors(scaled_slot);
         solar_os_display_layer_frame(scaled_slot->layer, frame, &composed);
         frame = &composed;
     }
@@ -2485,6 +2503,7 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
     display_target_slot_t *layer_slot = present_mutex != NULL ? &display_targets[slot_index] : NULL;
     uint8_t *layer_logical = layer_slot ? layer_slot->scale.logical_buffer : NULL;
     if (layer_slot && layer_slot->layer) {
+        display_layer_update_colors(layer_slot);
         u8g2->tile_buf_ptr = solar_os_display_layer_canvas(layer_slot->layer, true);
         if (layer_slot->scale.factor > 1U) layer_slot->scale.logical_buffer = u8g2->tile_buf_ptr;
     }

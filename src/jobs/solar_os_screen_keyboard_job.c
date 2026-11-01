@@ -16,7 +16,7 @@
 #include "solar_os_shell_io.h"
 
 #define SCREEN_KEYBOARD_NAME "screen-keyboard"
-enum { REQUEST_NONE, REQUEST_SHOW, REQUEST_HIDE, REQUEST_TOGGLE, REQUEST_FULL, REQUEST_SYMBOLS };
+enum { REQUEST_NONE, REQUEST_SHOW, REQUEST_HIDE, REQUEST_TOGGLE, REQUEST_FULL, REQUEST_SYMBOLS, REQUEST_DECK };
 typedef struct {
     const solar_os_screen_keyboard_layout_t *layout;
     void *layout_state;
@@ -27,7 +27,8 @@ typedef struct {
     u8g2_t canvas;
     uint8_t *pixels, *bits;
     uint8_t modifiers;
-    bool caps, symbols, auto_hide, visible, dirty, contact, cancel_contact, routed;
+    solar_os_screen_keyboard_mode_t mode;
+    bool caps, auto_hide, visible, dirty, contact, cancel_contact, routed;
     solar_os_input_source_t pointer_source;
     uint8_t pointer_id;
     uint8_t session_id;
@@ -341,11 +342,12 @@ static void pump(screen_keyboard_t *s)
     if (request==REQUEST_SHOW) s->last_error=show(s);
     else if (request==REQUEST_HIDE) solar_os_screen_keyboard_hide();
     else if (request==REQUEST_TOGGLE) toggle(s);
-    else if (request==REQUEST_FULL || request==REQUEST_SYMBOLS) {
+    else if (request==REQUEST_FULL || request==REQUEST_SYMBOLS || request==REQUEST_DECK) {
         bool visible=s->visible;
         solar_os_screen_keyboard_hide();
-        s->symbols=request==REQUEST_SYMBOLS;
-        s->layout->init(s->layout_state,s->symbols);
+        s->mode=request==REQUEST_FULL ? SOLAR_OS_SCREEN_KEYBOARD_MODE_FULL :
+            request==REQUEST_SYMBOLS ? SOLAR_OS_SCREEN_KEYBOARD_MODE_SYMBOLS : SOLAR_OS_SCREEN_KEYBOARD_MODE_DECK;
+        s->layout->init(s->layout_state,s->mode);
         if (visible) s->last_error=show(s);
     }
     for (unsigned n=0;n<64;n++) {
@@ -438,8 +440,7 @@ static esp_err_t start(solar_os_context_t *ctx,int argc,char **argv)
         if (!value || !value[1]) {err=ESP_ERR_INVALID_ARG;break;}
         value++;
         if (!strncmp(arg,"mode=",5)) {
-            if (strcmp(value,"full") && strcmp(value,"symbols")) err=ESP_ERR_INVALID_ARG;
-            s->symbols=!strcmp(value,"symbols");
+            if (!solar_os_screen_keyboard_mode_parse(value,&s->mode)) err=ESP_ERR_INVALID_ARG;
         } else if (!strncmp(arg,"layout=",7)) layout=value;
         else if (!strncmp(arg,"display=",8)) {
             if (strlen(value)>=sizeof(s->route.target)) err=ESP_ERR_INVALID_ARG;
@@ -499,7 +500,7 @@ static esp_err_t start(solar_os_context_t *ctx,int argc,char **argv)
         s->route.orientation=profile.orientation_degrees;s->route.scale=profile.scale?profile.scale:1;
         s->layout_state=solar_os_memory_calloc(1,s->layout->state_size,SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,"screen-keyboard.layout");
         if (!s->layout_state) err=ESP_ERR_NO_MEM;
-        else s->layout->init(s->layout_state,s->symbols);
+        else s->layout->init(s->layout_state,s->mode);
     }
     if (err==ESP_OK) err=solar_os_input_keyboard_source_open(SCREEN_KEYBOARD_NAME,true,&s->route.excluded_source);
     if (err==ESP_OK) err=solar_os_input_route_claim(s,&s->route);
@@ -520,19 +521,20 @@ static void detail(solar_os_context_t *ctx)
     solar_os_shell_io_t *io=solar_os_context_shell_io(ctx);
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
     const char *layout=NULL;
-    bool symbols=false,visible=false;
+    bool visible=false;
+    solar_os_screen_keyboard_mode_t mode=SOLAR_OS_SCREEN_KEYBOARD_MODE_FULL;
     uint32_t emitted=0;
     esp_err_t error=ESP_OK;
     portENTER_CRITICAL(&keyboard_lock);
     screen_keyboard_t *s=keyboard;
     if (s) {
         strlcpy(target,s->route.target,sizeof(target));layout=s->layout->name;
-        symbols=s->symbols;visible=s->visible;emitted=s->emitted;error=s->last_error;
+        mode=s->mode;visible=s->visible;emitted=s->emitted;error=s->last_error;
     }
     portEXIT_CRITICAL(&keyboard_lock);
     if (io && !layout) solar_os_shell_io_writeln(io,"screen-keyboard: stopped");
     if (io && layout) solar_os_shell_io_printf(io,"  display=%s layout=%s mode=%s visible=%s emitted=%lu last_error=%s\n",
-        target,layout,symbols?"symbols":"full",visible?"on":"off",
+        target,layout,solar_os_screen_keyboard_mode_name(mode),visible?"on":"off",
         (unsigned long)emitted,esp_err_to_name(error));
 }
 void solar_os_shell_cmd_screen_keyboard(solar_os_context_t *ctx,int argc,char **argv)
@@ -547,8 +549,9 @@ void solar_os_shell_cmd_screen_keyboard(solar_os_context_t *ctx,int argc,char **
     } else if (argc==3 && !strcmp(argv[1],"mode")) {
         if (!strcmp(argv[2],"full")) request=REQUEST_FULL;
         else if (!strcmp(argv[2],"symbols")) request=REQUEST_SYMBOLS;
+        else if (!strcmp(argv[2],"deck")) request=REQUEST_DECK;
     }
-    if (!request) {solar_os_shell_io_writeln(io,"usage: screen-keyboard status|show|hide|toggle|mode full|symbols");return;}
+    if (!request) {solar_os_shell_io_writeln(io,"usage: screen-keyboard status|show|hide|toggle|mode full|symbols|deck");return;}
     portENTER_CRITICAL(&keyboard_lock);
     bool running=keyboard!=NULL;
     if (running) keyboard->request=request;
