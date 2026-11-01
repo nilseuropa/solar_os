@@ -287,7 +287,7 @@ job for periodic polling.
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
 | `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
 | `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
-| `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
+| `display` | `display relax [<target> [seconds]]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. Without arguments, use the first supported display for 1 second. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
 | `display` | `display split <target> --horizontal\|--vertical <first> <second>`; `display unsplit <target>` | Split one physical target into two equal logical viewports, or remove the split. |
@@ -1487,7 +1487,9 @@ then releases it. `display mode <target>` lists driver-specific display
 settings for supported display drivers; `display mode <target> <mode>` applies
 one setting.
 
-`display relax display0` runs black/white recovery for 60 seconds. Supply a
+`display relax` runs black/white recovery on the first registered display that
+supports it for 1 second. It reports an error if no display supports recovery.
+`display relax display0` runs recovery for 60 seconds. Supply a
 duration from 1 to 86400 seconds, for example `display relax display0 3600` for
 one hour. It alternates solid black and white using synchronous native full
 refreshes, with up to one second of hold after each refresh. It completes a
