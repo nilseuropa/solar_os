@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
@@ -121,15 +120,6 @@ static uint32_t writer_path_hash(const char *path)
     return writer_hash_bytes(2166136261U, key, strlen(key));
 }
 
-static bool writer_path_with_suffix(const char *path,
-                                    const char *suffix,
-                                    char *out,
-                                    size_t out_len)
-{
-    const int written = snprintf(out, out_len, "%s%s", path, suffix);
-    return written >= 0 && (size_t)written < out_len;
-}
-
 static void writer_set_message(const char *message)
 {
     strlcpy(writer.message, message != NULL ? message : "", sizeof(writer.message));
@@ -230,23 +220,6 @@ static esp_err_t writer_read_file(const char *path, char **out, size_t *out_len)
     return ESP_OK;
 }
 
-static esp_err_t writer_write_synced_file(const char *path, const char *data, size_t len)
-{
-    FILE *file = fopen(path, "wb");
-    if (file == NULL) {
-        return ESP_FAIL;
-    }
-    esp_err_t ret = ESP_OK;
-    if ((len > 0 && fwrite(data, 1, len, file) != len) ||
-        fflush(file) != 0 || fsync(fileno(file)) != 0) {
-        ret = ESP_FAIL;
-    }
-    if (fclose(file) != 0 && ret == ESP_OK) {
-        ret = ESP_FAIL;
-    }
-    return ret;
-}
-
 static size_t writer_scroll_anchor(void)
 {
     if (writer.suspended && writer.saved_scroll_anchor != SIZE_MAX)
@@ -274,15 +247,10 @@ static void writer_save_metadata(void)
     if (written <= 0 || (size_t)written >= sizeof(text)) {
         return;
     }
-    char temp[SOLAR_OS_STORAGE_PATH_MAX];
-    if (!writer_path_with_suffix(writer.metadata_path, ".tmp", temp, sizeof(temp))) {
-        return;
-    }
-    if (writer_write_synced_file(temp, text, (size_t)written) == ESP_OK) {
-        (void)rename(temp, writer.metadata_path);
-    } else {
-        (void)remove(temp);
-    }
+    (void)solar_os_writer_safe_replace(writer.metadata_path,
+                                       text,
+                                       (size_t)written,
+                                       SOLAR_OS_WRITER_FILE_FAULT_NONE);
 }
 
 static void writer_load_metadata(void)
@@ -320,18 +288,10 @@ static esp_err_t writer_write_recovery(void)
     size_t len = 0;
     esp_err_t ret = solar_os_writer_buffer_flatten(&writer.buffer, &flat, &len);
     if (ret == ESP_OK) {
-        char temp[SOLAR_OS_STORAGE_PATH_MAX];
-        if (!writer_path_with_suffix(writer.recovery_path, ".tmp", temp, sizeof(temp))) {
-            ret = ESP_ERR_INVALID_SIZE;
-        } else {
-            ret = writer_write_synced_file(temp, flat, len);
-            if (ret == ESP_OK && rename(temp, writer.recovery_path) != 0) {
-                ret = ESP_FAIL;
-            }
-            if (ret != ESP_OK) {
-                (void)remove(temp);
-            }
-        }
+        ret = solar_os_writer_safe_replace(writer.recovery_path,
+                                           flat,
+                                           len,
+                                           SOLAR_OS_WRITER_FILE_FAULT_NONE);
     }
     solar_os_memory_free(flat);
     if (ret == ESP_OK) {
