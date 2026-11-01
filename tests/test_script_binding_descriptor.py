@@ -48,7 +48,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             DESCRIPTOR,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 65)
+        self.assertEqual(len(modules), 66)
         self.assertEqual(len(modules), len(set(modules)))
         self.assertNotRegex(PYTHON_SOURCE, r'python_new_submodule\(module,\s*"')
         self.assertNotRegex(LUA_SOURCE, r'solua_new_submodule\(L,\s*solaros,\s*"')
@@ -212,7 +212,7 @@ class ScriptBindingDescriptorTest(unittest.TestCase):
             + submodule_constant_count
             + subnested_count
             + hid_keycode_count * hid_keycode_include_count,
-            941,
+            942,
         )
 
     def test_tui_and_gfx_export_modified_horizontal_navigation_keys(self):

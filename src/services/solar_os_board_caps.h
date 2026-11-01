@@ -164,6 +164,16 @@ typedef uint64_t solar_os_board_capability_t;
 #define SOLAR_OS_BOARD_HAS_CAMERA 0
 #endif
 
+typedef struct {
+    const char *id;
+    const char *name;
+    const char *module;
+    solar_os_board_capabilities_t capabilities;
+    uint32_t psram_bytes;
+} solar_os_board_info_t;
+
+/* Build-time board metadata, independent of optional firmware packages. */
+solar_os_board_info_t solar_os_board_info(void);
 solar_os_board_capabilities_t solar_os_board_capabilities(void);
 bool solar_os_board_has(solar_os_board_capability_t capability);
 const char *solar_os_board_capability_name(solar_os_board_capability_t capability);

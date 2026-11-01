@@ -32,6 +32,7 @@
 #include "py/runtime.h"
 #include "py/smallint.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
@@ -1230,6 +1231,27 @@ static mp_obj_t solaros_version(void)
     return mp_obj_new_str_from_cstr(SOLAR_OS_VERSION);
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_version_obj, solaros_version);
+
+static mp_obj_t solaros_board_info(void)
+{
+    const solar_os_board_info_t info = solar_os_board_info();
+    mp_obj_t dict = mp_obj_new_dict(5);
+    python_dict_store_cstr(dict, "id", info.id);
+    python_dict_store_cstr(dict, "name", info.name);
+    python_dict_store_cstr(dict, "module", info.module);
+    python_dict_store_uint(dict, "psram_bytes", info.psram_bytes);
+
+    mp_obj_t capabilities = mp_obj_new_list(0, NULL);
+    for (solar_os_board_capability_t bit = 1; bit != 0; bit <<= 1) {
+        if ((info.capabilities & bit) != 0) {
+            mp_obj_list_append(capabilities,
+                               mp_obj_new_str_from_cstr(solar_os_board_capability_name(bit)));
+        }
+    }
+    mp_obj_dict_store(dict, python_key("capabilities"), capabilities);
+    return dict;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_board_info_obj, solaros_board_info);
 
 static mp_obj_t solaros_should_exit(void)
 {

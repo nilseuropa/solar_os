@@ -1,15 +1,41 @@
 +++
 id = "python.system"
-title = "Python apps, jobs, and identity API"
+title = "Python board, apps, jobs, and identity API"
 section = "api"
-summary = "Apps, jobs, and identity: identity, jobs, sessions, apps"
-keywords = "python solaros api system identity jobs sessions apps"
+summary = "Board information, apps, jobs, and identity: board, identity, jobs, sessions, apps"
+keywords = "python solaros api system board capabilities identity jobs sessions apps"
 packages_any = ["app_python"]
 agent_reference_sections = true
 +++
-# Python apps, jobs, and identity API
+# Python board, apps, jobs, and identity API
 
-[API overview](python.md) · [Lua apps, jobs, and identity](lua.system.md)
+[API overview](python.md) · [Lua board, apps, jobs, and identity](lua.system.md)
+
+## `solaros.board`
+
+`info()` returns a new dictionary with the configured board information:
+
+| Field | Value |
+| --- | --- |
+| `id` | Stable board ID, such as `solar_term`. |
+| `name` | Human-readable board name. |
+| `module` | Module name, or an empty string when unspecified. |
+| `capabilities` | List of capability names, such as `wifi`, `gpio`, and `psram`. |
+| `psram_bytes` | Declared PSRAM capacity in bytes; `0` on boards without PSRAM. |
+
+These are build-time board properties, not a hardware probe or a list of
+installed firmware packages. Optional service bindings still depend on the
+firmware flavor. PSRAM capacity is not the current free heap. The board API is
+available whenever Python is included, including headless script runners.
+
+```python
+import solaros
+
+board = solaros.board.info()
+print(board["id"], board["name"])
+if "wifi" in board["capabilities"] and hasattr(solaros, "wifi"):
+    print(solaros.wifi.status())
+```
 
 ## `solaros.identity`
 

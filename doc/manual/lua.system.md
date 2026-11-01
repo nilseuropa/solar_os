@@ -1,15 +1,40 @@
 +++
 id = "lua.system"
-title = "Lua apps, jobs, and identity API"
+title = "Lua board, apps, jobs, and identity API"
 section = "api"
-summary = "Apps, jobs, and identity: identity, jobs, sessions, apps"
-keywords = "lua solaros api system identity jobs sessions apps"
+summary = "Board information, apps, jobs, and identity: board, identity, jobs, sessions, apps"
+keywords = "lua solaros api system board capabilities identity jobs sessions apps"
 packages_any = ["app_lua"]
 agent_reference_sections = true
 +++
-# Lua apps, jobs, and identity API
+# Lua board, apps, jobs, and identity API
 
-[API overview](lua.md) · [Python apps, jobs, and identity](python.system.md)
+[API overview](lua.md) · [Python board, apps, jobs, and identity](python.system.md)
+
+## `solaros.board`
+
+`solaros.board.info()` returns a new table with the configured board information:
+
+| Field | Value |
+| --- | --- |
+| `id` | Stable board ID, such as `solar_term`. |
+| `name` | Human-readable board name. |
+| `module` | Module name, or an empty string when unspecified. |
+| `capabilities` | Array of capability names, such as `wifi`, `gpio`, and `psram`. |
+| `psram_bytes` | Declared PSRAM capacity in bytes; `0` on boards without PSRAM. |
+
+These are build-time board properties, not a hardware probe or a list of
+installed firmware packages. Optional service bindings still depend on the
+firmware flavor. PSRAM capacity is not the current free heap. The board API is
+available whenever Lua is included, including headless script runners.
+
+```lua
+local board = solaros.board.info()
+print(board.id, board.name)
+for _, capability in ipairs(board.capabilities) do
+    print(capability)
+end
+```
 
 ## `solaros.identity`
 

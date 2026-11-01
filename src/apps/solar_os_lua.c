@@ -21,6 +21,7 @@
 #include "lua.h"
 #include "lualib.h"
 #include "solar_os_app_registry.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
@@ -1253,6 +1254,27 @@ static int solua_solaros_write(lua_State *L)
 static int solua_solaros_version(lua_State *L)
 {
     lua_pushstring(L, SOLAR_OS_VERSION);
+    return 1;
+}
+
+static int solua_board_info(lua_State *L)
+{
+    const solar_os_board_info_t info = solar_os_board_info();
+    lua_createtable(L, 0, 5);
+    solua_set_str(L, -1, "id", info.id);
+    solua_set_str(L, -1, "name", info.name);
+    solua_set_str(L, -1, "module", info.module);
+    solua_set_int(L, -1, "psram_bytes", info.psram_bytes);
+
+    lua_newtable(L);
+    lua_Integer index = 1;
+    for (solar_os_board_capability_t bit = 1; bit != 0; bit <<= 1) {
+        if ((info.capabilities & bit) != 0) {
+            lua_pushstring(L, solar_os_board_capability_name(bit));
+            lua_rawseti(L, -2, index++);
+        }
+    }
+    lua_setfield(L, -2, "capabilities");
     return 1;
 }
 

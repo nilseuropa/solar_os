@@ -783,6 +783,8 @@ graffiti_test: graffiti_test.c $(ROOT)/src/services/solar_os_graffiti.c $(ROOT)/
 
 board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(ROOT)/src/services/solar_os_board_caps.h solar_os_board.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		-DSOLAR_OS_BOARD_ID='"host"' -DSOLAR_OS_BOARD_NAME='"Host test board"' \
+		-DSOLAR_OS_BOARD_PSRAM_BYTES=8388608U \
 		-DSOLAR_OS_BOARD_HAS_PSRAM=1 -DSOLAR_OS_BOARD_HAS_DISPLAY=1 \
 		-DSOLAR_OS_BOARD_HAS_GFX=1 -DSOLAR_OS_BOARD_HAS_CDC=1 \
 		-DSOLAR_OS_BOARD_HAS_UART=1 -DSOLAR_OS_BOARD_HAS_I2C=1 \

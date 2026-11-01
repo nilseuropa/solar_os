@@ -50,6 +50,10 @@
 #error "SOLAR_OS_SCRIPT_API_MODULE_END must be defined"
 #endif
 
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(board);
+SOLAR_OS_SCRIPT_API_FUNCTION(board, info, info);
+SOLAR_OS_SCRIPT_API_MODULE_END(board);
+
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(storage);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, status, status);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, is_mounted, is_mounted);
