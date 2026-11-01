@@ -18,6 +18,7 @@ static size_t used_external, used_internal;
 static void *idle_library;
 static unsigned reclaim_calls;
 static unsigned registered_calls;
+int64_t esp_timer_get_time(void) { static int64_t now; return now += 100; }
 static size_t registered_reclaim(const solar_os_memory_pressure_request_t *request, void *user)
 {
     solar_os_memory_reclaimer_t *self = user;
@@ -311,6 +312,28 @@ int main(int argc, char **argv)
     (void)solar_os_memory_reclaim();
     assert(registered_calls == 1 && !entry.references);
     assert(solar_os_memory_unregister_reclaimer(&entry));
+
+    /* Even the maximum registry population must not trigger one full arena
+     * scan per callback. Every pinned descriptor is released afterwards. */
+    solar_os_memory_reclaimer_t many[64] = {0};
+    for (size_t i = 0; i < 64; i++) {
+        many[i].owner = "test.cache"; many[i].reclaim = registered_reclaim;
+        many[i].user = &many[i]; many[i].priority = (uint8_t)(63U - i);
+        assert(solar_os_memory_register_reclaimer(&many[i]));
+    }
+    solar_os_memory_pressure_stats_t pressure_before, pressure_after;
+    solar_os_memory_get_pressure_stats(&pressure_before);
+    unsigned callbacks_before = registered_calls;
+    (void)solar_os_memory_reclaim();
+    solar_os_memory_get_pressure_stats(&pressure_after);
+    assert(registered_calls == callbacks_before + 64U);
+    assert(pressure_after.compactions - pressure_before.compactions == 2U);
+    assert(pressure_after.last_compactions == 2U && pressure_after.last_duration_us == 100U);
+    assert(pressure_after.max_duration_us >= pressure_after.last_duration_us);
+    for (size_t i = 0; i < 64; i++) {
+        assert(!many[i].references);
+        assert(solar_os_memory_unregister_reclaimer(&many[i]));
+    }
 
     fail_raw = false;
     void *prefix = solar_os_memory_alloc(100000, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "test.hole");

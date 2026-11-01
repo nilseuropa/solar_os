@@ -1317,6 +1317,21 @@ available for the compiled board.
 | `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `controller` | `controller list` or `controller status <name>` | Inspect feedback controller configuration, state, output, and errors. |
+| `controller` | `controller create <name> pid\|hysteresis` or `controller delete <name>` | Create or remove a named feedback controller. |
+| `controller` | `controller configure <name> <key> <value>` | Set gains, setpoint, output limits, direction, timing, or safe output; see [Feedback controllers](controllers.md). |
+| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>` | Select timestamped measurement input and an owned parameter or PWM pulse output. |
+| `controller` | `controller feed <name> <measurement>` | Publish a manual-source measurement acquired now. |
+| `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
+| `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
+| `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
+| `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
+| `robot` | `robot joint create <joint> velocity\|servo` | Create an inactive joint without claiming hardware. |
+| `robot` | `robot joint configure <joint> <key> <value>` | Configure PPR, gearbox ratio, polarities, limits, timing or control gains. |
+| `robot` | `robot joint motor <joint> <motor> <encoder>` | Bind named devices to a velocity joint. |
+| `robot` | `robot joint servo <joint> <provider> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz]` | Bind a calibrated input-shaft servo output. |
+| `robot` | `robot joint command <joint> <target>` | Refresh an joint target in radians/second or radians. |
+| `robot` | `robot joint enable\|disable\|close <joint>` | Activate, stop and release, or destroy an joint; see [Robot joints](robot.md). |
 | `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |

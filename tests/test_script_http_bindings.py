@@ -1,10 +1,11 @@
 import unittest
 from pathlib import Path
+from script_sources import script_source
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-PYTHON_SOURCE = (REPOSITORY / "src/apps/solar_os_python.c").read_text(encoding="utf-8")
-LUA_SOURCE = (REPOSITORY / "src/apps/solar_os_lua.c").read_text(encoding="utf-8")
+PYTHON_SOURCE = script_source(REPOSITORY / "src/apps/solar_os_python.c")
+LUA_SOURCE = script_source(REPOSITORY / "src/apps/solar_os_lua.c")
 API_DESCRIPTOR = (REPOSITORY / "src/apps/solar_os_script_api.inc").read_text(
     encoding="utf-8"
 )

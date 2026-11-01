@@ -229,6 +229,10 @@ typedef struct {
 } solar_os_input_source_diagnostics_t;
 
 esp_err_t solar_os_input_init(void);
+/* Install during runtime initialization. The callback must remain valid for
+ * the runtime lifetime, be nonblocking, and may only signal the event consumer.
+ * It runs in the publishing task after the input lock is released. */
+void solar_os_input_set_wake_callback(void (*callback)(void));
 esp_err_t solar_os_input_source_open_typed(const char *name,
                                            solar_os_input_source_class_t source_class,
                                            uint32_t capabilities,

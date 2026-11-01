@@ -1,4 +1,5 @@
 #include "solar_os_imu.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -27,9 +28,7 @@ static uint32_t imu_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (imu_mutex == NULL) {
-        imu_mutex = xSemaphoreCreateMutexStatic(&imu_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&imu_mutex, &imu_mutex_storage);
     return imu_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

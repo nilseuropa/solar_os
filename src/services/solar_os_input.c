@@ -143,6 +143,28 @@ static solar_os_input_display_orientation_resolver_t input_display_orientation_r
 static input_gesture_observer_slot_t
     input_gesture_observers[INPUT_GESTURE_OBSERVER_MAX];
 static portMUX_TYPE input_lock = portMUX_INITIALIZER_UNLOCKED;
+static void (*input_wake_callback)(void);
+static uint32_t input_wake_generation, input_wake_notified_generation;
+
+static void input_notify_wake(void)
+{
+    void (*callback)(void) = NULL;
+    portENTER_CRITICAL(&input_lock);
+    if (input_wake_callback != NULL && input_wake_generation != input_wake_notified_generation) {
+        callback = input_wake_callback;
+        input_wake_notified_generation = input_wake_generation;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    if (callback != NULL) callback();
+}
+
+void solar_os_input_set_wake_callback(void (*callback)(void))
+{
+    portENTER_CRITICAL(&input_lock);
+    input_wake_callback = callback;
+    portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
+}
 
 typedef struct {
     const void *owner;
@@ -214,6 +236,7 @@ static bool input_capture_push_locked(const solar_os_input_key_event_t *event)
         INPUT_CAPTURE_QUEUE_MAX;
     input_capture_queue[tail] = *event;
     input_capture_count++;
+    input_wake_generation++;
     input_capture_activity = true;
     return true;
 }
@@ -532,6 +555,7 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
     const size_t index = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
     input_queue[index] = *event;
     input_queue_count++;
+    input_wake_generation++;
     return true;
 }
 
@@ -569,6 +593,7 @@ static bool input_pointer_queue_push_locked(const solar_os_input_pointer_event_t
         (input_pointer_queue_head + input_pointer_queue_count) % INPUT_POINTER_QUEUE_MAX;
     input_pointer_queue[index] = *event;
     input_pointer_queue_count++;
+    input_wake_generation++;
     return true;
 }
 
@@ -593,6 +618,7 @@ static bool input_axis_queue_push_locked(const solar_os_input_axis_event_t *even
         (input_axis_queue_head + input_axis_queue_count) % INPUT_AXIS_QUEUE_MAX;
     input_axis_queue[index] = *event;
     input_axis_queue_count++;
+    input_wake_generation++;
     return true;
 }
 
@@ -608,6 +634,7 @@ static bool input_gesture_queue_push_locked(
         INPUT_GESTURE_QUEUE_MAX;
     input_gesture_queue[index] = *event;
     input_gesture_queue_count++;
+    input_wake_generation++;
     return true;
 }
 
@@ -1419,6 +1446,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     solar_os_memory_free(pointer_queue_to_free);
     solar_os_memory_free(capture_queue_to_free);
     solar_os_memory_free(axis_queue_to_free);
@@ -1497,6 +1525,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return result;
 }
 
@@ -1551,6 +1580,7 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return result;
 }
 
@@ -1592,6 +1622,7 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
         input_record_key_locked(&release);
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return result;
 }
 
@@ -1624,6 +1655,7 @@ esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char ch)
         input_record_key_locked(&release);
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return result;
 }
 
@@ -1903,6 +1935,7 @@ esp_err_t solar_os_input_write_pointer_sample(solar_os_input_source_t source,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     input_touch_deliver(&delivery);
     return result;
 }
@@ -2098,6 +2131,7 @@ esp_err_t solar_os_input_write_axis(solar_os_input_source_t source,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return result;
 }
 
@@ -2141,6 +2175,7 @@ esp_err_t solar_os_input_write_gesture(
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     if (result == ESP_OK) {
         for (size_t i = 0; i < observer_count; i++) {
             observers[i].observer(&queued, observers[i].context);
@@ -2429,6 +2464,7 @@ bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event)
     portENTER_CRITICAL(&input_lock);
     const bool captured = input_capture_push_locked(event);
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
     return captured;
 }
 

@@ -1,4 +1,5 @@
 #include "solar_os_camera.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -30,9 +31,7 @@ static uint32_t camera_next_owner_generation;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (camera_mutex == NULL) {
-        camera_mutex = xSemaphoreCreateMutexStatic(&camera_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&camera_mutex, &camera_mutex_storage);
     return camera_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

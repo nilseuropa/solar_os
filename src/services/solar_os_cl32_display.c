@@ -33,7 +33,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         !solar_os_expansion_find_spi_bus(bus, &spi_bus, NULL) ||
         !solar_os_expansion_spi_cs_allowed(bus, cs)) return ESP_ERR_INVALID_ARG;
     cl32_display_controller_t selected;
-    esp_err_t err = cl32_display_identify(bus, cs, dc, reset, spi_bus.mosi_pin, &selected);
+    esp_err_t err = cl32_display_identify(bus, cs, dc, reset, spi_bus.mosi_pin, busy, &selected);
     if (err != ESP_OK) return err;
     if (selected != CL32_DISPLAY_ST7305 && selected != CL32_DISPLAY_SSD1685)
         return ESP_ERR_NOT_SUPPORTED;

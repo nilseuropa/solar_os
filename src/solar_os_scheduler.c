@@ -45,6 +45,15 @@ bool solar_os_tick_due(solar_os_tick_stats_t *stats,
     return true;
 }
 
+uint32_t solar_os_tick_wait_ms(const solar_os_tick_stats_t *stats,
+    uint32_t configured_interval_ms, uint32_t default_interval_ms, uint32_t now_ms)
+{
+    if (stats == NULL || stats->dispatch_count == 0U) return 0U;
+    const uint32_t interval = solar_os_tick_interval_ms(configured_interval_ms, default_interval_ms);
+    const uint32_t elapsed = now_ms - stats->last_dispatch_ms;
+    return elapsed < interval ? interval - elapsed : 0U;
+}
+
 int64_t solar_os_tick_begin(void)
 {
     return esp_timer_get_time();

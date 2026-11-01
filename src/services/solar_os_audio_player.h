@@ -45,6 +45,10 @@ typedef struct {
  * Buffered mode owns the audio stream from a dedicated sink task. Direct mode
  * keeps stream ownership in the caller's existing worker and adds no task or
  * jitter buffer.
+ * Buffered ring data/space waits are signalled by the opposite endpoint; EOF
+ * and stop wake blocked endpoints. Legacy pause/cancellation callbacks and
+ * caller-owned cancellation flags retain bounded polling because they have
+ * no notification hook. A ring smaller than a sink block primes at capacity.
  */
 esp_err_t solar_os_audio_player_create(
     const solar_os_audio_player_options_t *options,

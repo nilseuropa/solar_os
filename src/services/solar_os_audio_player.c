@@ -32,6 +32,8 @@ struct solar_os_audio_player {
     size_t buffer_used;
     SemaphoreHandle_t buffer_mutex;
     bool buffer_mutex_external;
+    SemaphoreHandle_t data_ready;
+    SemaphoreHandle_t space_ready;
     int16_t *sink;
     int16_t *transition;
     int16_t last_frame[2];
@@ -102,6 +104,7 @@ static size_t audio_player_buffer_write(solar_os_audio_player_t *player,
     player->buffer_write = (player->buffer_write + count) % player->buffer_capacity;
     player->buffer_used += count;
     xSemaphoreGive(player->buffer_mutex);
+    if (count != 0U) xSemaphoreGive(player->data_ready);
     return count;
 }
 
@@ -118,6 +121,7 @@ static size_t audio_player_buffer_read(solar_os_audio_player_t *player,
     player->buffer_read = (player->buffer_read + count) % player->buffer_capacity;
     player->buffer_used -= count;
     xSemaphoreGive(player->buffer_mutex);
+    if (count != 0U) xSemaphoreGive(player->space_ready);
     return count;
 }
 
@@ -145,6 +149,7 @@ static size_t audio_player_target(const solar_os_audio_player_t *player)
     if (target < AUDIO_PLAYER_BLOCK_BYTES) {
         target = AUDIO_PLAYER_BLOCK_BYTES;
     }
+    if (target > player->buffer_capacity) target = player->buffer_capacity;
     return target;
 }
 
@@ -327,7 +332,7 @@ static void audio_player_task(void *arg)
                     break;
                 }
                 if (filled + available < target && !player->producer_done) {
-                    vTaskDelay(pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS));
+                    xSemaphoreTake(player->data_ready, portMAX_DELAY);
                     continue;
                 }
                 primed = true;
@@ -381,7 +386,7 @@ static void audio_player_task(void *arg)
                     player->underruns++;
                     primed = false;
                     audio_player_set_playing(player, false);
-                    vTaskDelay(pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS));
+                    xSemaphoreTake(player->data_ready, portMAX_DELAY);
                 }
                 continue;
             }
@@ -417,6 +422,9 @@ static void audio_player_task(void *arg)
                       (unsigned)player->underruns);
     }
     audio_player_close(player, true);
+    /* Wake a producer blocked on a full ring before publishing completion.
+     * done is the last access to player; destroy may then release its storage. */
+    xSemaphoreGive(player->space_ready);
     player->done = true;
     solar_os_task_delete_internal(NULL);
 }
@@ -450,7 +458,10 @@ static bool audio_player_create_buffer(solar_os_audio_player_t *player)
         player->buffer_mutex = xSemaphoreCreateMutex();
         player->buffer_mutex_external = false;
     }
-    return player->buffer != NULL && player->buffer_mutex != NULL;
+    player->data_ready = xSemaphoreCreateBinary();
+    player->space_ready = xSemaphoreCreateBinary();
+    return player->buffer != NULL && player->buffer_mutex != NULL &&
+        player->data_ready != NULL && player->space_ready != NULL;
 }
 
 esp_err_t solar_os_audio_player_create(
@@ -598,7 +609,11 @@ esp_err_t solar_os_audio_player_write(solar_os_audio_player_t *player,
                                                        len - sent);
         sent += count;
         if (count == 0U) {
-            vTaskDelay(pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS));
+            /* Legacy cancellation flags/callbacks have no notification hook.
+             * Bound that case while ordinary ring traffic waits for space. */
+            const TickType_t wait = cancelled != NULL || player->options.should_cancel != NULL ?
+                pdMS_TO_TICKS(AUDIO_PLAYER_POLL_MS) : portMAX_DELAY;
+            xSemaphoreTake(player->space_ready, wait);
         }
     }
     if (sent != len) {
@@ -613,6 +628,7 @@ esp_err_t solar_os_audio_player_end_input(solar_os_audio_player_t *player)
         return ESP_ERR_INVALID_ARG;
     }
     player->producer_done = true;
+    if (player->data_ready != NULL) xSemaphoreGive(player->data_ready);
     return player->error;
 }
 
@@ -622,7 +638,7 @@ esp_err_t solar_os_audio_player_finish(solar_os_audio_player_t *player,
     if (player == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    player->producer_done = true;
+    (void)solar_os_audio_player_end_input(player);
     if (!player->options.buffered) {
         if (audio_player_cancelled(player, cancelled)) {
             return ESP_ERR_TIMEOUT;
@@ -651,6 +667,8 @@ void solar_os_audio_player_destroy(solar_os_audio_player_t *player)
         return;
     }
     player->stop_requested = true;
+    if (player->data_ready != NULL) xSemaphoreGive(player->data_ready);
+    if (player->space_ready != NULL) xSemaphoreGive(player->space_ready);
     if (player->task != NULL &&
         !solar_os_task_wait_done(player->task,
                                  &player->done,
@@ -672,6 +690,8 @@ void solar_os_audio_player_destroy(solar_os_audio_player_t *player)
         }
     }
     solar_os_memory_free(player->buffer);
+    if (player->data_ready != NULL) vSemaphoreDelete(player->data_ready);
+    if (player->space_ready != NULL) vSemaphoreDelete(player->space_ready);
     solar_os_memory_free(player->sink);
     solar_os_memory_free(player->transition);
     solar_os_memory_free(player);

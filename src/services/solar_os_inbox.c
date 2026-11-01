@@ -1,4 +1,5 @@
 #include "solar_os_inbox.h"
+#include "solar_os_sync_dynamic.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -158,12 +159,7 @@ static bool inbox_priority_valid(solar_os_inbox_priority_t priority)
 
 static esp_err_t inbox_ensure_mutex(void)
 {
-    if (inbox_mutex != NULL) {
-        return ESP_OK;
-    }
-
-    inbox_mutex = xSemaphoreCreateMutex();
-    return inbox_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    return solar_os_mutex_get_dynamic(&inbox_mutex) != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static void inbox_lock(void)

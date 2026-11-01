@@ -33,6 +33,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [commands command](commands.md) — List built-in shell commands.
 - [contacts command](commands.md) — Open the searchable provider-neutral contact browser.
 - [control command](commands.md) — Inspect normalized controls, native app parameters, or target bindings.
+- [controller command](commands.md) — Inspect feedback controller configuration, state, output, and errors.
 - [cp command](commands.md) — Copy a file or matched set.
 - [daq command](commands.md) — Print DAQ usage.
 - [date command](commands.md) — Show or set the local date.
@@ -102,6 +103,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ramfs command](commands.md) — List PSRAM-backed volatile filesystem mounts.
 - [reboot command](commands.md) — Restart the board.
 - [rm command](commands.md) — Remove files. -f allows directories; -rf removes directories recursively.
+- [robot command](commands.md) — Inspect joints in the optional external robot library.
 - [rtc command](commands.md) — Show the RTC provider, capabilities, interrupt wiring, and alarm/timer owners. Reports unavailable when no RTC is present.
 - [rtsp-auth command](commands.md) — List stored RTSP client accounts (host, port, username; never the password).
 - [say command](commands.md) — Queue text for offline speech, or stream a plain UTF-8 text file aloud with live progress. Pitch and speed default to 100. File mode submits bounded chunks through one continuous PicoTTS/audio session, completes paths with Tab, and remains responsive; press Esc or Ctrl+C to stop. Start speechd with a PicoTTS voice directory first.
@@ -204,6 +206,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [bridge job](jobs.reference.md#bridge) — Bidirectional byte bridge between two byte-stream ports, or between one byte-stream port and an active SolarOS Link instance.
 - [cam-webd job](jobs.reference.md#cam-webd) — HTTP access to the fitted camera as one-shot JPEG images or a single-client MJPEG stream.
 - [chatd job](jobs.reference.md#chatd) — Local SolarOS chat gateway server. It is useful for testing the chat app or for small trusted local networks.
+- [controllers job](jobs.reference.md#controllers) — Feedback-controller worker for named PID and hysteresis instances.
 - [controls job](jobs.reference.md#controls) — Continuous-control mapper. It samples every configured scalar-stream control at 50 Hz, applies smoothing, deadband, calibration, and inversion, then updates changed native parameter and MIDI CC bindings.
 - [daq job](jobs.reference.md#daq) — Data acquisition job. It captures scalar and event streams to timestamped CSV, or one byte or PCM audio source directly to a raw file.
 - [displayd job](jobs.reference.md#displayd) — Authenticated HTTP display and remote control. It has two modes:
@@ -247,8 +250,10 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Encoder counts](encoder.md) — Attach named quadrature encoders with explicit x1, x2, or x4 counting
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples
+- [Feedback controllers](controllers.md) — Run PID and hysteresis controllers with timestamped measurements and owned outputs
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
 - [Motor control](motor.md) — Control named motors with normalized drive commands
+- [Robot joints](robot.md) — Use the optional external robot library for calibrated servo and motor/encoder joints
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, temperature, and humidity

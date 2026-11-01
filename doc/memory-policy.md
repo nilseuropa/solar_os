@@ -96,6 +96,12 @@ MicroPython collects within its fixed VM heap. VM heaps stay pinned to the host.
 
 ## Diagnostics and coverage
 
+Pressure recovery compacts before invoking reclaimers and, if still needed,
+once after they finish. A broker pass performs at most two compaction scans.
+Owners retain their priority and pinning rules; each owner remains responsible
+for bounding its callback duration. `mem policy` reports the last and maximum
+recovery duration and the last and total compaction counts.
+
 `mem compact` moves eligible payloads without eviction. `mem reclaim` reports
 recovered bytes and free/largest PSRAM before and after. `mem owners` reports
 managed-region bytes, counts, movable bytes and largest object by copied owner

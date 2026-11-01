@@ -39,6 +39,25 @@ TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
 TARGETS += drv8830_test
 TARGETS += motor_service_test
+TARGETS += controller_math_test controllers_test
+TARGETS += parameters_concurrency_test
+TARGETS += robot_joint_test
+TARGETS += robot_integration_test
+
+robot_integration_test: robot_integration_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_native_motion.c $(ROOT)/src/services/solar_os_robot.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Irobot_stubs -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_integration_test.c $(filter-out robot_integration_test.c $(ROOT)/modules/robot/main/robot.c,$^) -pthread -lm -o $@
+
+robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/src/services/solar_os_controller_math.c
+	$(CC) $(CFLAGS) -I$(ROOT)/include -I$(ROOT)/src/services robot_joint_test.c $(ROOT)/src/services/solar_os_controller_math.c -pthread -lm -o $@
+
+parameters_concurrency_test: parameters_concurrency_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src/services $(filter %.c,$^) -pthread -lm -o $@
+
+controller_math_test: controller_math_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_controller_math.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+
+controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_math.h $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
@@ -430,7 +449,7 @@ tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_imag
 # Override CJSON_DIR when the SDK is installed elsewhere.
 CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
 IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
-zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c
+zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
@@ -725,7 +744,7 @@ storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
-		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose -o $@
+		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose,--wrap=rename -o $@
 
 json_scan_test: json_scan_test.c $(ROOT)/src/services/solar_os_json_scan.c $(ROOT)/src/services/solar_os_json_scan.h esp_err.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
@@ -1346,7 +1365,12 @@ test: $(TARGETS)
 	./midi_codec_test
 	./midi_service_test
 	./parameters_test
+	./parameters_concurrency_test
 	./controls_test
+	./controller_math_test
+	./controllers_test
+	./robot_joint_test
+	./robot_integration_test
 	./osc_test
 	./dsp_test
 	./stream_test

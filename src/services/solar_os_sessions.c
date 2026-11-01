@@ -3282,6 +3282,28 @@ uint32_t solar_os_sessions_requested_tick_interval_ms(void)
     return interval_ms;
 }
 
+uint32_t solar_os_sessions_next_tick_wait_ms(uint32_t now_ms)
+{
+    uint32_t wait_ms = SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        const solar_os_session_entry_t *session = &session_state.sessions[i];
+        if (!session->used || session->suspended || session->app == NULL || session->app->event == NULL) continue;
+        uint32_t remaining = solar_os_tick_wait_ms(&session->tick_stats,
+            solar_os_app_tick_interval_ms(session->app, SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
+            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS, now_ms);
+        if (remaining < wait_ms) wait_ms = remaining;
+    }
+    const solar_os_app_t *app = session_state.foreground_app;
+    if (session_state.foreground_session == NULL && app != NULL && app->event != NULL) {
+        if (session_state.legacy_tick_app != app) return 0U;
+        uint32_t remaining = solar_os_tick_wait_ms(&session_state.legacy_tick_stats,
+            solar_os_app_tick_interval_ms(app, SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
+            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS, now_ms);
+        if (remaining < wait_ms) wait_ms = remaining;
+    }
+    return wait_ms;
+}
+
 void solar_os_sessions_dispatch_resume(uint32_t now_ms)
 {
     const solar_os_event_t event = {

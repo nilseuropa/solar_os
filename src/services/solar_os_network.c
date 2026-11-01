@@ -1,4 +1,5 @@
 #include "solar_os_network.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -51,9 +52,7 @@ static struct netif * volatile network_preferred_lwip;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (network_mutex == NULL) {
-        network_mutex = xSemaphoreCreateMutexStatic(&network_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&network_mutex, &network_mutex_storage);
     return network_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

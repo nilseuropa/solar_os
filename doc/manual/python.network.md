@@ -109,6 +109,12 @@ line breaks. The defaults are a 10000 ms end-to-end timeout, a 65536-byte
 response-body limit, and redirect following. `max_bytes` accepts 0 through
 262144; zero collects metadata without retaining a body.
 
+HTTP URLs are limited to 2047 bytes. Redirect following supports relative URLs
+and statuses 301, 302, 303, 307, and 308. HTTPS downgrade and credentials in
+redirect URLs are rejected. Origin changes discard authorization and cookie
+headers. POST changes to GET after 301/302; 303 changes to GET except for HEAD;
+307/308 preserve the method and body.
+
 The result is a dictionary containing `status_code`, binary `body`, `headers`,
 `content_length`, `bytes_received`, `duration_ms`, `truncated`, and
 `headers_truncated`. Header names retain the server's spelling and duplicate

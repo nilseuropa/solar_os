@@ -15,9 +15,9 @@ bool solar_os_expansion_find_spi_bus(const char *name, solar_os_expansion_spi_bu
 bool solar_os_expansion_spi_cs_allowed(const char *bus, int pin)
 { return !strcmp(bus, "spi0") && pin == 6; }
 esp_err_t cl32_display_identify(const char *bus, int cs, int dc, int reset, int mosi,
-                               cl32_display_controller_t *result)
+                               int busy, cl32_display_controller_t *result)
 {
-    assert(!strcmp(bus, "spi0") && cs == 6 && dc == 13 && reset == 12 && mosi == 10);
+    assert(!strcmp(bus, "spi0") && cs == 6 && dc == 13 && reset == 12 && mosi == 10 && busy == 14);
     identifies++; *result = actual; return identify_error;
 }
 static esp_err_t child_attach(const char *name, const solar_os_expansion_binding_t *bindings,

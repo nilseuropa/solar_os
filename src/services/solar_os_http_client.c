@@ -1,6 +1,8 @@
 #include "solar_os_http_client.h"
+#include "solar_os_http_policy.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
@@ -32,6 +34,8 @@ SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(SOLAR_OS_HTTP_SESSION_TASK_STACK);
 
 struct solar_os_http_request {
     solar_os_http_request_options_t options;
+    char *redirect_location;
+    char *effective_url;
     StaticSemaphore_t lock_storage;
     SemaphoreHandle_t lock;
     esp_http_client_handle_t client;
@@ -278,6 +282,20 @@ static esp_err_t solar_os_http_event_bridge(esp_http_client_event_t *esp_event)
     }
 
     request->response_started = true;
+    if (request->options.follow_redirects && esp_event->header_key && esp_event->header_value &&
+        !strcasecmp(esp_event->header_key, "Location")) {
+        const size_t length = strnlen(esp_event->header_value, SOLAR_OS_HTTP_URL_MAX);
+        if (length >= SOLAR_OS_HTTP_URL_MAX) {
+            request->event_error = ESP_ERR_INVALID_SIZE;
+            return ESP_FAIL;
+        }
+        char *location = solar_os_memory_alloc(length + 1U,
+            SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "http.location");
+        if (!location) { request->event_error = ESP_ERR_NO_MEM; return ESP_FAIL; }
+        memcpy(location, esp_event->header_value, length + 1U);
+        solar_os_memory_free(request->redirect_location);
+        request->redirect_location = location;
+    }
     if (request->options.event_handler == NULL) {
         return ESP_OK;
     }
@@ -393,6 +411,52 @@ static esp_err_t solar_os_http_deliver_response(solar_os_http_request_t *request
     return err;
 }
 
+static esp_err_t solar_os_http_follow_redirect(solar_os_http_request_t *request,
+                                               esp_http_client_handle_t client, int status)
+{
+    char *target = solar_os_memory_alloc(SOLAR_OS_HTTP_URL_MAX,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "http.redirect");
+    if (!target) return ESP_ERR_NO_MEM;
+    const char *base = request->effective_url ? request->effective_url : request->options.url;
+    solar_os_http_origin_t before, after;
+    esp_err_t err = ESP_ERR_INVALID_RESPONSE;
+    if (!solar_os_http_redirect_url(base, request->redirect_location, target, SOLAR_OS_HTTP_URL_MAX) ||
+        !solar_os_http_origin_parse(base, &before) || !solar_os_http_origin_parse(target, &after)) goto done;
+    if (!solar_os_http_same_origin(&before, &after)) {
+        static const char *const sensitive[] = {"Authorization", "Proxy-Authorization", "Cookie"};
+        for (size_t i = 0; i < sizeof(sensitive) / sizeof(sensitive[0]); ++i) {
+            err = esp_http_client_delete_header(client, sensitive[i]);
+            if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) goto done;
+        }
+        if ((err = esp_http_client_set_username(client, NULL)) != ESP_OK ||
+            (err = esp_http_client_set_password(client, NULL)) != ESP_OK ||
+            (err = esp_http_client_set_authtype(client, HTTP_AUTH_TYPE_NONE)) != ESP_OK) goto done;
+    }
+    if ((err = esp_http_client_set_url(client, target)) != ESP_OK) goto done;
+    char host[sizeof(after.host) + 10U];
+    const int written = snprintf(host, sizeof(host), strchr(after.host, ':') ? "[%s]:%u" : "%s:%u",
+                                 after.host, (unsigned)after.port);
+    if (written < 0 || (size_t)written >= sizeof(host)) { err = ESP_ERR_INVALID_SIZE; goto done; }
+    if ((err = esp_http_client_set_header(client, "Host", host)) != ESP_OK) goto done;
+    if ((status == 303 && request->options.method != SOLAR_OS_HTTP_METHOD_HEAD) ||
+        ((status == 301 || status == 302) && request->options.method == SOLAR_OS_HTTP_METHOD_POST)) {
+        request->options.method = SOLAR_OS_HTTP_METHOD_GET;
+        request->options.body = NULL;
+        request->options.body_len = 0;
+        if ((err = esp_http_client_set_method(client, HTTP_METHOD_GET)) != ESP_OK) goto done;
+        (void)esp_http_client_delete_header(client, "Content-Length");
+        (void)esp_http_client_delete_header(client, "Content-Type");
+        (void)esp_http_client_delete_header(client, "Transfer-Encoding");
+    }
+    solar_os_memory_free(request->effective_url);
+    request->effective_url = target;
+    target = NULL;
+    err = ESP_OK;
+done:
+    solar_os_memory_free(target);
+    return err;
+}
+
 static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
                                               esp_http_client_handle_t client,
                                               int *status_code,
@@ -404,6 +468,8 @@ static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
     uint8_t redirects = 0;
 
     while (true) {
+        solar_os_memory_free(request->redirect_location);
+        request->redirect_location = NULL;
         esp_err_t err = solar_os_http_abort_error(request);
         if (err != ESP_OK) {
             return err;
@@ -439,11 +505,11 @@ static esp_err_t solar_os_http_perform_stream(solar_os_http_request_t *request,
         }
 
         if (request->options.follow_redirects &&
-            *status_code >= 300 && *status_code < 400) {
+            solar_os_http_redirect_status(*status_code)) {
             if (redirects >= redirect_limit) {
                 return ESP_ERR_HTTP_MAX_REDIRECT;
             }
-            err = esp_http_client_set_redirection(client);
+            err = solar_os_http_follow_redirect(request, client, *status_code);
             if (err != ESP_OK) {
                 return err;
             }
@@ -522,6 +588,7 @@ esp_err_t solar_os_http_request_create(const solar_os_http_request_options_t *op
 {
     if (options == NULL || out_request == NULL || options->url == NULL ||
         options->url[0] == '\0' || !solar_os_http_method_valid(options->method) ||
+        strnlen(options->url, SOLAR_OS_HTTP_URL_MAX) >= SOLAR_OS_HTTP_URL_MAX ||
         (options->header_count > 0 && options->headers == NULL) ||
         (options->body_len > 0 && options->body == NULL) ||
         options->body_len > INT_MAX || options->timeout_ms > INT_MAX ||
@@ -712,6 +779,8 @@ esp_err_t solar_os_http_request_destroy(solar_os_http_request_t *request)
     xSemaphoreGive(request->lock);
 
     vSemaphoreDelete(request->lock);
+    solar_os_memory_free(request->redirect_location);
+    solar_os_memory_free(request->effective_url);
     solar_os_memory_free(request);
     return ESP_OK;
 }
@@ -759,7 +828,7 @@ static esp_err_t solar_os_http_buffered_store_header(
         return ESP_OK;
     }
     if (collector->follow_redirects &&
-        event->status_code >= 300 && event->status_code < 400) {
+        solar_os_http_redirect_status(event->status_code)) {
         return ESP_OK;
     }
 
@@ -933,16 +1002,9 @@ static bool solar_os_http_origin_length(const char *origin, size_t *out_length)
 static bool solar_os_http_url_matches_origin(const char *url,
                                               const char *origin)
 {
-    if (url == NULL || origin == NULL) {
-        return false;
-    }
-    const size_t origin_len = strlen(origin);
-    if (strncasecmp(url, origin, origin_len) != 0) {
-        return false;
-    }
-    const char boundary = url[origin_len];
-    return boundary == '\0' || boundary == '/' || boundary == '?' ||
-        boundary == '#';
+    solar_os_http_origin_t left, right;
+    return solar_os_http_origin_parse(url, &left) &&
+        solar_os_http_origin_parse(origin, &right) && solar_os_http_same_origin(&left, &right);
 }
 
 static solar_os_http_session_connection_t *solar_os_http_session_find(

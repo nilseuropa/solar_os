@@ -1,4 +1,5 @@
 #include "solar_os_haptic.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -32,9 +33,7 @@ static EXT_RAM_BSS_ATTR uint32_t haptic_next_generation;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (haptic_mutex == NULL) {
-        haptic_mutex = xSemaphoreCreateMutexStatic(&haptic_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&haptic_mutex, &haptic_mutex_storage);
     return haptic_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

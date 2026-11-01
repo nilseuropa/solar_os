@@ -82,4 +82,11 @@ esp_err_t solar_os_motor_drive(const char *name, float value);
 esp_err_t solar_os_motor_coast(const char *name);
 esp_err_t solar_os_motor_brake(const char *name);
 esp_err_t solar_os_motor_clear(const char *name);
+/* Exclusive output ownership. Claims pin the endpoint against detach and
+ * exclude ordinary drive/coast/brake/clear calls. Tokens are not reusable.
+ * Release applies coast or brake before dropping the claim; failure retains it. */
+esp_err_t solar_os_motor_claim(const char *name, uint32_t *claim);
+esp_err_t solar_os_motor_drive_owned(uint32_t claim, float value);
+esp_err_t solar_os_motor_stop_owned(uint32_t claim, bool brake);
+esp_err_t solar_os_motor_release(uint32_t claim, bool brake);
 const char *solar_os_motor_mode_name(solar_os_motor_mode_t mode);

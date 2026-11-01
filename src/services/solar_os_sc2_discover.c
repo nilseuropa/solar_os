@@ -16,6 +16,17 @@
 
 static const char *TAG = "sc2-discover";
 
+#define SC2_DISCOVERY_URL_SIZE \
+    (sizeof("https://") + SC2_DESC_HOST_MAX + sizeof("/.well-known/solaros-relay") - 1U)
+
+#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+static esp_err_t discovery_url(const char *domain, char *url, size_t capacity)
+{
+    const int length = snprintf(url, capacity, "https://%s/.well-known/solaros-relay", domain);
+    return length >= 0 && (size_t)length < capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+#endif
+
 bool solar_os_sc2_discover_domain_valid(const char *domain)
 {
     size_t n = domain != NULL ? strlen(domain) : 0;
@@ -52,8 +63,10 @@ esp_err_t solar_os_sc2_discover(const char *domain, const uint8_t *expect_key, s
 #if !CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
     return fail(err, err_cap, ESP_ERR_NOT_SUPPORTED, "%sthis build has no CA bundle; discovery needs one", NULL);
 #else
-    char url[24 + SC2_DESC_HOST_MAX + 1];
-    snprintf(url, sizeof(url), "https://%s/.well-known/solaros-relay", domain);
+    char url[SC2_DISCOVERY_URL_SIZE];
+    if (discovery_url(domain, url, sizeof(url)) != ESP_OK) {
+        return fail(err, err_cap, ESP_ERR_INVALID_SIZE, "%sdiscovery URL is too long", NULL);
+    }
     char *body = solar_os_memory_alloc(SOLAR_OS_SC2_DISCOVER_BODY_MAX, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                        "sc2.discover");
     if (body == NULL) {

@@ -1,39 +1,20 @@
 #include "solar_os_shell_commands.h"
+#include "solar_os_shell_vocabulary.h"
 #include "solar_os_shell_common.h"
 
-static const char * const display_commands[] = {
-    "list", "layouts", "test", "mode", "orientation", "scale", "relax", "join", "unjoin", "split", "unsplit",
-};
+#define display_commands solar_os_shell_display_words
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
-static const char * const ota_commands[] = {"status", "check", "upgrade", "url", "flavor", "boot"};
+#define ota_commands solar_os_shell_ota_words
 #endif
-static const char * const job_commands[] = {"status", "start", "stop"};
-static const char * const setterm_commands[] = {
-    "--display", "orientation", "scale", "font", "textsize", "palette", "foreground", "background", "statusbar",
-    "brightness", "backlight",
-    "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate", "typerate",
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-    "ble",
-#endif
-    "repeat", "timezone", "startup", "otaurl", "ota",
-};
-static const char * const stream_commands[] = {"list", "status",
-#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-    "ble",
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-    "tcp",
-#endif
-};
-static const char * const log_commands[] = {"status", "show", "follow", "clear", "level", "sink"};
-static const char * const port_commands[] = {"list", "status"};
-static const char * const xfer_commands[] = {"protocols", "send", "recv"};
-static const char * const xfer_options[] = {
-    "--raw", "--zmodem", "--kermit", "--protocol", "-d", "--delay-ms",
-    "--idle-ms", "--append", "--replace",
-};
+#define job_commands solar_os_shell_job_words
+#define setterm_commands solar_os_shell_setterm_words
+#define stream_commands solar_os_shell_stream_words
+#define log_commands solar_os_shell_log_words
+#define port_commands solar_os_shell_port_words
+#define xfer_commands solar_os_shell_xfer_words
+#define xfer_options solar_os_shell_xfer_options_words
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
-static const char * const sshkey_commands[] = {"status", "gen", "pub", "rm"};
+#define sshkey_commands solar_os_shell_sshkey_words
 #endif
 #include "solar_os_shell_io.h"
 #include "solar_os_shell_tui_apps.h"
