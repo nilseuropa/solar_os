@@ -4,6 +4,9 @@
 #include <string.h>
 
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+#include "solar_os_screen_keyboard_job.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_CONTROLLERS
 #include "solar_os_controllers_job.h"
 #endif
@@ -108,6 +111,9 @@
 #endif
 
 static const solar_os_job_registry_entry_t registered_jobs[] = {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    {"screen-keyboard", "touch and arrow-controlled screen keyboard", &solar_os_screen_keyboard_job},
+#endif
 #if SOLAR_OS_PACKAGE_JOB_CONTROLLERS
     {"controllers", "run feedback controllers", &solar_os_controllers_job},
 #endif

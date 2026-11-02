@@ -32,6 +32,9 @@
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+#include "solar_os_screen_keyboard_job.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -474,6 +477,9 @@ static void session_overlay_requested(const char *title,
                                       void *user)
 {
     (void)user;
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
 
     solar_os_display_target_t target;
     u8g2_t *overlay_u8g2 = NULL;
@@ -547,6 +553,9 @@ static void resume_display_after_sleep(uint32_t now_ms)
 
 static void enter_suspend(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     if (!board_has(SOLAR_OS_BOARD_CAP_KEY) && !SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD) {
         SOLAR_OS_LOGW(TAG, "%s: suspend needs a key resume source", reason);
         return;
@@ -1219,6 +1228,9 @@ static void enter_sleep(const char *reason, bool deep_sleep)
 
 static void enter_light_sleep(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     enter_sleep(reason, false);
 }
 
@@ -1726,6 +1738,15 @@ static uint16_t input_display_orientation(const char *target)
         ? profile.orientation_degrees : 0;
 }
 
+static bool input_display_size(const char *name, uint16_t *width, uint16_t *height)
+{
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target)) return false;
+    *width = target.native_width ? target.native_width : target.width;
+    *height = target.native_height ? target.native_height : target.height;
+    return *width != 0U && *height != 0U;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -2157,6 +2178,7 @@ void app_main(void)
 #endif
     const esp_err_t input_err = solar_os_input_init();
     solar_os_input_set_display_orientation_resolver(input_display_orientation);
+    solar_os_input_set_display_size_resolver(input_display_size);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }

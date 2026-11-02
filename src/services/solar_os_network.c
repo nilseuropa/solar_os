@@ -50,6 +50,17 @@ static network_priority_store_t priority_store;
 static bool priority_store_loaded;
 static struct netif * volatile network_preferred_lwip;
 
+esp_err_t solar_os_network_init(void)
+{
+    esp_err_t ret = esp_netif_init();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = esp_event_loop_create_default();
+    return ret == ESP_ERR_INVALID_STATE ? ESP_OK : ret;
+}
+
 static esp_err_t ensure_mutex(void)
 {
     (void)solar_os_mutex_get(&network_mutex, &network_mutex_storage);

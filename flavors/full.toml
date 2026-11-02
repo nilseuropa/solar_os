@@ -3,6 +3,7 @@ name = "full"
 description = "Standard SolarOS build with scripting, applications, hardware services and downloadable inference."
 
 [groups]
+screen_keyboard = true
 hardware_shell = true
 filesystem = true
 wifi = true

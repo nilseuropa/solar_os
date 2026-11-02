@@ -54,10 +54,11 @@ See [source keymaps](input.keymap.md) for fields and mapping formats.
 
 ## Generic pointer, axis, and gesture input
 
-Touchscreens report `tap`, `double-tap`, `hold`, and `swipe` gestures in addition
-to pointer events. Match them with `solaros.input.GESTURE_TAP`,
+Touchscreens report `tap`, `double-tap`, `hold`, `swipe`, and `edge-swipe` gestures
+in addition to pointer events. Match them with `solaros.input.GESTURE_TAP`,
 `solaros.input.GESTURE_DOUBLE_TAP`, `solaros.input.GESTURE_HOLD`, and
-`solaros.input.GESTURE_SWIPE`. See `man media.input` for timing, direction, and
+`solaros.input.GESTURE_SWIPE`, and `solaros.input.GESTURE_EDGE_SWIPE`.
+See `man media.input` for timing, direction, and
 recognition limits.
 
 `solaros.input.sources()` lists registered input sources with their numeric

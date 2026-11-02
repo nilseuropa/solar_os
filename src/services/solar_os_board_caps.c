@@ -90,6 +90,21 @@ solar_os_board_capabilities_t solar_os_board_capabilities(void)
         (SOLAR_OS_BOARD_HAS_PSRAM ? SOLAR_OS_BOARD_CAP_PSRAM : 0U);
 }
 
+solar_os_board_info_t solar_os_board_info(void)
+{
+    return (solar_os_board_info_t) {
+        .id = SOLAR_OS_BOARD_ID,
+        .name = SOLAR_OS_BOARD_NAME,
+#ifdef SOLAR_OS_BOARD_MODULE_NAME
+        .module = SOLAR_OS_BOARD_MODULE_NAME,
+#else
+        .module = "",
+#endif
+        .capabilities = solar_os_board_capabilities(),
+        .psram_bytes = SOLAR_OS_BOARD_HAS_PSRAM ? SOLAR_OS_BOARD_PSRAM_BYTES : 0U,
+    };
+}
+
 bool solar_os_board_has(solar_os_board_capability_t capability)
 {
     return (solar_os_board_capabilities() & (solar_os_board_capabilities_t)capability) != 0;

@@ -6,6 +6,13 @@
 
 int main(void)
 {
+    const solar_os_board_info_t info = solar_os_board_info();
+    assert(strcmp(info.id, "host") == 0);
+    assert(strcmp(info.name, "Host test board") == 0);
+    assert(strcmp(info.module, "") == 0);
+    assert(info.psram_bytes == 8388608U);
+    assert(info.capabilities == solar_os_board_capabilities());
+
     static const char expected[] =
         "psram display gfx cdc uart sd i2c spi rtc battery audio audio_input "
         "wifi ble gpio adc pwm expansion_gpio expansion_i2c expansion_spi "

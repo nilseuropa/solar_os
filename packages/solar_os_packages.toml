@@ -307,6 +307,11 @@ label = "Graffiti handwriting input"
 category = "Hardware tools"
 members = ["job_graffiti"]
 
+[groups.screen_keyboard]
+label = "Screen keyboard"
+category = "Hardware tools"
+members = ["job_screen_keyboard"]
+
 [groups.ps2_keyboard]
 label = "PS/2 keyboard"
 category = "Hardware tools"
@@ -920,6 +925,7 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_layer.c",
   "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
@@ -3255,6 +3261,11 @@ sources = ["jobs/solar_os_gesture_listener_job.c"]
 [packages.job_pointer_arrows]
 label = "job.pointer-arrows"
 sources = ["jobs/solar_os_pointer_arrows_job.c"]
+
+[packages.job_screen_keyboard]
+label = "job.screen-keyboard"
+sources = ["jobs/solar_os_screen_keyboard_job.c", "services/solar_os_screen_keyboard_layout.c"]
+capabilities = ["display"]
 
 [packages.service_unistroke]
 label = "service.unistroke"

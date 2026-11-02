@@ -21,6 +21,18 @@ TARGETS += paged_array_test
 
 paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
+
+TARGETS += input_route_test screen_keyboard_layout_test display_layer_test screen_keyboard_job_test
+
+screen_keyboard_job_test: screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c $(ROOT)/src/jobs/solar_os_screen_keyboard_job.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections -I$(ROOT)/components/u8g2/src/clib -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services -I$(ROOT)/src/shell screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c -Wl,--gc-sections -o $@
+
+screen_keyboard_layout_test: screen_keyboard_layout_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services $^ -o $@
+
+display_layer_test: display_layer_test.c $(ROOT)/src/services/solar_os_display_layer.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/components/u8g2/src/clib $^ -o $@
+
 TARGETS += gesture_command_test
 
 can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
@@ -758,7 +770,7 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test touch_gesture_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+input_test touch_gesture_test input_route_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		$< $(ROOT)/src/services/solar_os_input.c \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
@@ -783,6 +795,8 @@ graffiti_test: graffiti_test.c $(ROOT)/src/services/solar_os_graffiti.c $(ROOT)/
 
 board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(ROOT)/src/services/solar_os_board_caps.h solar_os_board.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		-DSOLAR_OS_BOARD_ID='"host"' -DSOLAR_OS_BOARD_NAME='"Host test board"' \
+		-DSOLAR_OS_BOARD_PSRAM_BYTES=8388608U \
 		-DSOLAR_OS_BOARD_HAS_PSRAM=1 -DSOLAR_OS_BOARD_HAS_DISPLAY=1 \
 		-DSOLAR_OS_BOARD_HAS_GFX=1 -DSOLAR_OS_BOARD_HAS_CDC=1 \
 		-DSOLAR_OS_BOARD_HAS_UART=1 -DSOLAR_OS_BOARD_HAS_I2C=1 \
@@ -1264,6 +1278,10 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
 
 test: $(TARGETS)
+	./input_route_test
+	./screen_keyboard_layout_test
+	./screen_keyboard_job_test
+	./display_layer_test
 	./can_twai_test
 	./i2c_buses_test
 	./inmp441_test

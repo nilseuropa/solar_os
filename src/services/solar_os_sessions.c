@@ -111,6 +111,7 @@ typedef enum {
     SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
     SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
     SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
+    SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER,
 } solar_os_session_operation_type_t;
 
 typedef struct {
@@ -124,6 +125,8 @@ typedef struct {
     uint8_t command_session_id;
     const char *command;
     solar_os_terminal_profile_t display_profile;
+    esp_err_t (*operation)(void *);
+    void *operation_context;
     solar_os_shell_io_t *caller_io;
     SemaphoreHandle_t complete;
     esp_err_t result;
@@ -2468,6 +2471,28 @@ static esp_err_t session_set_display_terminal_profile_internal(
     return err;
 }
 
+esp_err_t solar_os_sessions_run_on_owner(esp_err_t (*operation)(void *), void *context)
+{
+    if (!operation) return ESP_ERR_INVALID_ARG;
+    if (!session_scheduler_task || xTaskGetCurrentTaskHandle() == session_scheduler_task)
+        return operation(context);
+    if (!session_operation_queue) return ESP_ERR_INVALID_STATE;
+    /* Teardown must remain possible without an extra heap allocation. The
+     * request and completion latch stay alive until the owner finishes. */
+    StaticSemaphore_t completion;
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER,
+        .operation = operation,
+        .operation_context = context,
+        .complete = xSemaphoreCreateBinaryStatic(&completion),
+    };
+    solar_os_session_operation_request_t *queued_request = &request;
+    (void)xQueueSend(session_operation_queue, &queued_request, portMAX_DELAY);
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    vSemaphoreDelete(request.complete);
+    return request.result;
+}
+
 esp_err_t solar_os_sessions_set_display_terminal_profile(
     const char *target_name, const solar_os_terminal_profile_t *profile)
 {
@@ -3186,6 +3211,9 @@ static void session_process_operation_requests(void)
         case SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE:
             request->result = session_set_display_terminal_profile_internal(
                 request->target_name, &request->display_profile);
+            break;
+        case SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER:
+            request->result = request->operation(request->operation_context);
             break;
         default:
             request->result = ESP_ERR_INVALID_ARG;

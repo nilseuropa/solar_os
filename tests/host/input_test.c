@@ -6,6 +6,7 @@
 
 #include "nvs.h"
 #include "solar_os_input.h"
+#include "solar_os_input_route.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 
@@ -78,6 +79,8 @@ void *solar_os_memory_calloc(size_t count,
         axis_queue_allocations++;
     } else if (!strcmp(tag, "input.pointer.capture")) {
         assert(size == sizeof(solar_os_input_pointer_sample_t));
+    } else if (!strcmp(tag, "input.os-route")) {
+        assert(size == sizeof(solar_os_input_route_event_t));
     } else {
         assert(strcmp(tag, "input-gesture") == 0);
         assert(size == sizeof(solar_os_input_gesture_event_t));

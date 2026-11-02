@@ -48,7 +48,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Emotion engine](emotion.md) | `solaros.emotion` facial animation and reaction sounds |
 | [Jet 3D renderer](jet.md) | `solaros.jet` scenes, meshes, lighting and presentation |
 | [Input and clipboard](lua.input.md) | `solaros.input`, `solaros.hid`, `solaros.clipboard` |
-| [Apps, jobs, and identity](lua.system.md) | `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
+| [Board, apps, jobs, and identity](lua.system.md) | `solaros.board`, `solaros.identity`, `solaros.jobs`, `solaros.sessions`, `solaros.apps` |
 | [Contacts and messages](lua.messaging.md) | `solaros.contacts`, `solaros.messages` |
 | [SC2 end-to-end chat security](lua.sc2.md) | `solaros.sc2` |
 | [Text user interfaces](lua.tui.md) | `solaros.tui` |

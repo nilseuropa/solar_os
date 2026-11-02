@@ -46,6 +46,7 @@ typedef struct {
     SemaphoreHandle_t present_mutex;
     solar_os_display_target_t target;
     void *board_display;
+    void *layer;
 } display_target_slot_t;
 static display_target_slot_t display_targets[1];
 static int display_targets_lock;
@@ -153,6 +154,8 @@ int main(void) {
     }
     reset(); display_targets[0].target.relax = NULL;
     assert(run(1, &result) == ESP_ERR_NOT_SUPPORTED && begins == 0);
+    reset(); display_targets[0].layer = (void *)1;
+    assert(run(1, &result) == ESP_ERR_INVALID_STATE && begins == 0);
     reset(); assert(run(0, &result) == ESP_ERR_INVALID_ARG && begins == 0);
     assert(run(86401, &result) == ESP_ERR_INVALID_ARG && begins == 0);
     reset(); claims = 1; strcpy(claimed_by, "another-session");

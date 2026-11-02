@@ -176,6 +176,57 @@ int main(void) {
 '''
         self.run_native(source)
 
+    def test_ui_teardown_runs_on_owner_without_heap_admission(self):
+        source = r'''
+#include <assert.h>
+#include <stddef.h>
+#include "esp_err.h"
+#define portMAX_DELAY 99
+#define SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER 4
+typedef struct { int active; } StaticSemaphore_t;
+typedef struct { int type; esp_err_t (*operation)(void *); void *operation_context;
+    void *complete; esp_err_t result; } solar_os_session_operation_request_t;
+static int ui,bg,queue,calls,deleted;
+static void *current=&bg,*session_scheduler_task=&ui,*session_operation_queue=&queue;
+static solar_os_session_operation_request_t *pending;
+static void *xTaskGetCurrentTaskHandle(void) { return current; }
+static void *xSemaphoreCreateBinaryStatic(StaticSemaphore_t *storage) {
+    storage->active=1; return storage;
+}
+static int xQueueSend(void *handle,void *item,unsigned timeout) {
+    assert(handle==&queue && timeout==portMAX_DELAY);
+    pending=*(solar_os_session_operation_request_t **)item; return 1;
+}
+static int xSemaphoreTake(void *handle,unsigned timeout) {
+    assert(pending && handle==pending->complete && timeout==portMAX_DELAY);
+    assert(pending->type==SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER);
+    current=&ui; pending->result=pending->operation(pending->operation_context);
+    current=&bg; return 1;
+}
+static void vSemaphoreDelete(void *handle) {
+    assert(((StaticSemaphore_t *)handle)->active); deleted++;
+}
+static esp_err_t teardown(void *context) {
+    assert(current==&ui); ++*(int *)context; return ESP_FAIL;
+}
+'''
+        source += production_functions((ROOT / 'src/services/solar_os_sessions.c').read_text(),
+                                       ('solar_os_sessions_run_on_owner',))
+        source += r'''
+int main(void) {
+    assert(solar_os_sessions_run_on_owner(teardown,&calls)==ESP_FAIL);
+    assert(calls==1 && deleted==1);
+    current=&ui;
+    assert(solar_os_sessions_run_on_owner(teardown,&calls)==ESP_FAIL);
+    assert(calls==2 && deleted==1);
+    assert(solar_os_sessions_run_on_owner(NULL,NULL)==ESP_ERR_INVALID_ARG);
+    current=&bg; session_operation_queue=NULL;
+    assert(solar_os_sessions_run_on_owner(teardown,&calls)==ESP_ERR_INVALID_STATE);
+    assert(calls==2 && deleted==1); return 0;
+}
+'''
+        self.run_native(source)
+
     def test_indexed_surface_rotation_reuses_pixels_and_invalidates_dirty_hashes(self):
         source = r'''
 #include <assert.h>

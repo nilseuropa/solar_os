@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.17.5** — 2026-11-02 — Added a screen keyboard overlay with full,
+  symbols, and compact T-Deck punctuation modes, touch and arrow-key navigation,
+  and configurable key or edge-swipe activation. Keyboard overlays preserve
+  terminal colors. Added edge-swipe touch gestures and Python/Lua board
+  information APIs. Added `audio mute` to silence output while playback
+  continues. Bare `display relax` now runs one second of recovery on the first
+  supported display. Fixed startup crashes when Wi-Fi is disabled and
+  background services use networking.
 - **4.17.4** — 2026-10-31 — Added PID and hysteresis feedback controllers
   with timestamped measurements, exclusive output control, shell commands and
   Python/Lua APIs. Added the optional robot library for calibrated servo-position

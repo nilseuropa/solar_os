@@ -16,6 +16,7 @@
 #include "solar_os_log.h"
 #include "solar_os_terminal_preferences.h"
 #include "solar_os_display_scale.h"
+#include "solar_os_display_layer.h"
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
 #include "solar_os_board_display.h"
@@ -66,6 +67,10 @@ typedef struct {
     bool palette_inverted;
     solar_os_terminal_profile_t terminal_profile;
     solar_os_display_scale_t scale;
+    solar_os_display_layer_t *layer;
+    uint8_t *layer_original_logical;
+    bool layer_color;
+    char layer_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
 #endif
@@ -78,6 +83,8 @@ static uint32_t display_background_rgb888 = DISPLAY_DEFAULT_BACKGROUND_RGB888;
 static bool display_colors_loaded;
 
 static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *target);
+static int display_find_slot_locked(const char *name);
+static int display_find_slot_by_u8g2_locked(const u8g2_t *u8g2);
 static void display_publish_frame(u8g2_t *u8g2);
 static void display_publish_surface(u8g2_t *u8g2,
                                     const solar_os_display_surface_t *surface);
@@ -98,6 +105,172 @@ static void display_release_slot_ref(size_t slot_index, uint32_t generation)
         slot->refs--;
     }
     portEXIT_CRITICAL(&display_targets_lock);
+}
+
+/* All layer changes and presentations hold present_mutex. */
+static uint16_t display_layer_rgb565(uint32_t color)
+{
+    return (uint16_t)(((color >> 8U) & 0xf800U) | ((color >> 5U) & 0x07e0U) |
+        ((color >> 3U) & 0x001fU));
+}
+static void display_layer_update_colors(display_target_slot_t *slot)
+{
+    solar_os_display_layer_set_colors(slot->layer,
+        display_layer_rgb565(display_foreground_rgb888),
+        display_layer_rgb565(display_background_rgb888));
+}
+static void display_restore_layer_locked(display_target_slot_t *slot);
+static void display_clear_layer_locked(display_target_slot_t *slot)
+{
+    if (!slot->layer) return;
+    display_restore_layer_locked(slot);
+    slot->scale.logical_buffer = slot->layer_original_logical;
+    solar_os_display_layer_destroy(slot->layer);
+    portENTER_CRITICAL(&display_targets_lock);
+    slot->layer = NULL;
+    slot->layer_owner[0] = '\0';
+    slot->refs--; /* Persistent lease prevents detaching a visible layer. */
+    portEXIT_CRITICAL(&display_targets_lock);
+}
+
+static void display_native_begin(display_target_slot_t *slot)
+{
+    solar_os_display_scale_begin_native(&slot->scale);
+    if (slot->layer && slot->scale.factor == 1U)
+        slot->target.u8g2->tile_buf_ptr = slot->scale.physical_buffer;
+}
+
+static void display_native_end(display_target_slot_t *slot)
+{
+    solar_os_display_scale_end_native(&slot->scale);
+    if (slot->layer) slot->target.u8g2->tile_buf_ptr = solar_os_display_layer_base(slot->layer);
+}
+
+static void display_publish_layer_locked(display_target_slot_t *slot)
+{
+    u8g2_t *canvas = slot->target.u8g2;
+    if (slot->layer_color) {
+        solar_os_display_raster_t composed, physical;
+        solar_os_display_layer_raster(slot->layer, &composed);
+        if (solar_os_display_scale_raster(&slot->scale, &composed, &physical) == ESP_OK) {
+            display_native_begin(slot);
+            display_publish_rgb_frame(canvas, &physical);
+            display_native_end(slot);
+        }
+    } else {
+        uint8_t *original = canvas->tile_buf_ptr;
+        if (slot->scale.factor > 1U) display_native_begin(slot);
+        else canvas->tile_buf_ptr = solar_os_display_layer_canvas(slot->layer, false);
+        display_publish_frame(canvas);
+        if (slot->scale.factor > 1U) display_native_end(slot);
+        canvas->tile_buf_ptr = original;
+    }
+}
+
+static void display_draw_layer_locked(display_target_slot_t *slot)
+{
+    display_layer_update_colors(slot);
+    u8g2_t *canvas = slot->target.u8g2;
+    uint8_t *original = canvas->tile_buf_ptr;
+    uint8_t *logical = slot->scale.logical_buffer;
+    canvas->tile_buf_ptr = solar_os_display_layer_canvas(slot->layer, false);
+    if (slot->scale.factor > 1U) slot->scale.logical_buffer = canvas->tile_buf_ptr;
+    uint8_t x, y, width, height;
+    solar_os_display_layer_area(slot->layer, &x, &y, &width, &height);
+    u8g2_UpdateDisplayArea(canvas, x, y, width, height);
+    u8x8_RefreshDisplay(u8g2_GetU8x8(canvas));
+    slot->scale.logical_buffer = logical;
+    canvas->tile_buf_ptr = original;
+    display_publish_layer_locked(slot);
+}
+
+static void display_restore_layer_locked(display_target_slot_t *slot)
+{
+    display_layer_update_colors(slot);
+    solar_os_display_layer_uncover(slot->layer);
+    solar_os_display_raster_t clean, physical;
+    solar_os_display_layer_raster(slot->layer, &clean);
+    esp_err_t err = clean.format == SOLAR_OS_DISPLAY_FORMAT_MONO1 ?
+        solar_os_display_scale_bitmap(&slot->scale, &clean, &physical) :
+        solar_os_display_scale_raster(&slot->scale, &clean, &physical);
+    if (err == ESP_OK && slot->target.present_frame) {
+        display_native_begin(slot);
+        (void)slot->target.present_frame(slot->target.frame_context, &physical);
+        display_native_end(slot);
+    } else u8g2_SendBuffer(slot->target.u8g2);
+    display_publish_layer_locked(slot);
+}
+
+esp_err_t solar_os_display_set_layer(const char *name, const char *owner,
+    const uint8_t *bits, size_t size, uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    if (!name || !owner || !owner[0] || strlen(owner) >= SOLAR_OS_DISPLAY_TARGET_OWNER_MAX ||
+        !bits || !width || !height || size < (size_t)((width+7U)/8U)*height) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&display_targets_lock);
+    int index = display_find_slot_locked(name);
+    display_target_slot_t *slot = index >= 0 ? &display_targets[index] : NULL;
+    if (slot) slot->refs++;
+    uint32_t generation = slot ? slot->generation : 0;
+    portEXIT_CRITICAL(&display_targets_lock);
+    if (!slot) return ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(slot->present_mutex, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    u8g2_t *canvas = slot->target.u8g2;
+    if (!canvas || x + (uint32_t)width > u8g2_GetDisplayWidth(canvas) ||
+        y + (uint32_t)height > u8g2_GetDisplayHeight(canvas)) err = ESP_ERR_INVALID_ARG;
+    else if (slot->power_state_active || slot->relax_active || slot->overlay_active ||
+        (slot->layer && strcmp(owner, slot->layer_owner))) err = ESP_ERR_INVALID_STATE;
+    else if (!slot->layer) {
+        slot->layer_color = (slot->target.frame_formats & SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT) != 0;
+        slot->layer_original_logical = slot->scale.logical_buffer;
+        uint32_t foreground, background;
+        (void)solar_os_display_get_colors(&foreground, &background);
+        solar_os_display_layer_t *layer = solar_os_display_layer_create(canvas, slot->target.black_is_one,
+            slot->layer_color, display_layer_rgb565(foreground), display_layer_rgb565(background));
+        if (!layer) err = ESP_ERR_NO_MEM;
+        else {
+            if (slot->scale.factor > 1U) slot->scale.logical_buffer = solar_os_display_layer_base(layer);
+            portENTER_CRITICAL(&display_targets_lock);
+            slot->layer = layer;
+            strlcpy(slot->layer_owner, owner, sizeof(slot->layer_owner));
+            slot->refs++;
+            portEXIT_CRITICAL(&display_targets_lock);
+        }
+    }
+    if (err == ESP_OK) {
+        solar_os_display_layer_update(slot->layer, bits, x, y, width, height);
+        display_draw_layer_locked(slot);
+    }
+    xSemaphoreGive(slot->present_mutex);
+    display_release_slot_ref(index, generation);
+    return err;
+}
+
+esp_err_t solar_os_display_clear_layer(const char *name, const char *owner)
+{
+    portENTER_CRITICAL(&display_targets_lock);
+    int index = display_find_slot_locked(name);
+    display_target_slot_t *slot = index >= 0 ? &display_targets[index] : NULL;
+    if (slot) slot->refs++;
+    uint32_t generation = slot ? slot->generation : 0;
+    portEXIT_CRITICAL(&display_targets_lock);
+    if (!slot) return ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(slot->present_mutex, portMAX_DELAY);
+    esp_err_t err = slot->layer && (!owner || strcmp(owner, slot->layer_owner)) ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if (err == ESP_OK) display_clear_layer_locked(slot);
+    xSemaphoreGive(slot->present_mutex);
+    display_release_slot_ref(index, generation);
+    return err;
+}
+
+bool solar_os_display_has_layer(const char *name, const char *owner)
+{
+    portENTER_CRITICAL(&display_targets_lock);
+    int index = display_find_slot_locked(name);
+    bool found = index >= 0 && display_targets[index].layer && owner &&
+        strcmp(display_targets[index].layer_owner, owner) == 0;
+    portEXIT_CRITICAL(&display_targets_lock);
+    return found;
 }
 
 static bool display_overlay_active(size_t slot_index, uint32_t generation)
@@ -841,6 +1014,9 @@ esp_err_t solar_os_display_set_terminal_profile(
         return ESP_ERR_INVALID_STATE;
     }
     esp_err_t err = ESP_OK;
+    if (slot->layer && (factor != slot->scale.factor ||
+        profile->orientation_degrees != slot->terminal_profile.orientation_degrees))
+        display_clear_layer_locked(slot);
     if (factor != slot->scale.factor) {
         portENTER_CRITICAL(&display_targets_lock);
         const bool busy = slot->terminal_blocked || slot->overlay_active ||
@@ -1083,7 +1259,7 @@ esp_err_t solar_os_display_relax(const char *name, const char *owner, unsigned s
     portENTER_CRITICAL(&display_targets_lock);
     const int found = display_find_slot_locked(name);
     display_target_slot_t *slot = found >= 0 ? &display_targets[found] : NULL;
-    if (slot == NULL || slot->power_state_active || slot->overlay_active || slot->relax_active) {
+    if (slot == NULL || slot->power_state_active || slot->overlay_active || slot->relax_active || slot->layer) {
         err = ESP_ERR_INVALID_STATE;
     } else if (slot->target.relax == NULL || slot->target.relax_context == NULL) {
         err = ESP_ERR_NOT_SUPPORTED;
@@ -1283,6 +1459,7 @@ esp_err_t solar_os_display_show_power_state(const char *status)
             return ESP_ERR_INVALID_STATE;
         }
         solar_os_gfx_t state_gfx;
+        display_clear_layer_locked(slot);
         solar_os_gfx_init(&state_gfx, target.u8g2);
         solar_os_gfx_set_black_is_one(&state_gfx, target.black_is_one);
         solar_os_splash_render(&state_gfx, status);
@@ -1733,6 +1910,17 @@ esp_err_t solar_os_display_present_mono_xbm(u8g2_t *u8g2,
                                             uint16_t stride,
                                             bool palette_inverted)
 {
+    portENTER_CRITICAL(&display_targets_lock);
+    int layer_index = display_find_slot_by_u8g2_locked(u8g2);
+    bool layered = layer_index >= 0 && display_targets[layer_index].layer != NULL;
+    portEXIT_CRITICAL(&display_targets_lock);
+    if (layered) {
+        const solar_os_display_raster_t raster = {.data=bitmap, .data_size=bitmap_size,
+            .source_width=width, .source_height=height, .source_stride=stride,
+            .x=x, .y=y, .width=width, .height=height,
+            .format=SOLAR_OS_DISPLAY_FORMAT_MONO1, .palette_inverted=palette_inverted};
+        return solar_os_display_present_frame(u8g2, &raster);
+    }
     if (u8g2 == NULL || bitmap == NULL || width == 0 || height == 0 || stride == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -1827,10 +2015,10 @@ esp_err_t solar_os_display_present_surface(
     }
     slot_index = (size_t)found_index;
     display_target_slot_t *slot = &display_targets[slot_index];
-    if ((slot->target.surface_formats &
+    if (!slot->layer && ((slot->target.surface_formats &
          SOLAR_OS_DISPLAY_FORMAT_BIT(surface->format)) == 0U ||
         slot->target.present_surface == NULL ||
-        slot->target.surface_context == NULL) {
+        slot->target.surface_context == NULL)) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -1863,7 +2051,28 @@ esp_err_t solar_os_display_present_surface(
     }
     solar_os_display_surface_t physical_surface;
     display_target_slot_t *scaled_slot = &display_targets[slot_index];
-    esp_err_t ret = solar_os_display_scale_surface(&scaled_slot->scale, surface, &physical_surface);
+    esp_err_t ret;
+    if (scaled_slot->layer) {
+        solar_os_display_raster_t composed, physical;
+        if (!scaled_slot->target.present_frame || !surface->palette_rgb565 ||
+            surface->palette_size < 256U || surface->width != u8g2_GetDisplayWidth(u8g2) ||
+            surface->height != u8g2_GetDisplayHeight(u8g2) || surface->stride < surface->width ||
+            surface->data_size < (size_t)surface->stride * surface->height) {
+            ret = ESP_ERR_INVALID_ARG;
+        } else {
+            display_layer_update_colors(scaled_slot);
+            solar_os_display_layer_surface(scaled_slot->layer, surface, &composed);
+            ret = solar_os_display_scale_raster(&scaled_slot->scale, &composed, &physical);
+            display_native_begin(scaled_slot);
+            if (ret == ESP_OK) ret = scaled_slot->target.present_frame(scaled_slot->target.frame_context, &physical);
+            if (ret == ESP_OK) display_publish_rgb_frame(u8g2, &physical);
+            display_native_end(scaled_slot);
+        }
+        xSemaphoreGive(present_mutex);
+        display_release_slot_ref(slot_index, generation);
+        return ret;
+    }
+    ret = solar_os_display_scale_surface(&scaled_slot->scale, surface, &physical_surface);
     if (ret == ESP_OK) {
         solar_os_display_scale_begin_native(&scaled_slot->scale);
         ret = presenter(surface_context, &physical_surface);
@@ -1940,7 +2149,8 @@ esp_err_t solar_os_display_present_frame(
     slot_index = (size_t)found_index;
     display_target_slot_t *slot = &display_targets[slot_index];
     if ((slot->target.frame_formats &
-         SOLAR_OS_DISPLAY_FORMAT_BIT(frame->format)) == 0U ||
+         SOLAR_OS_DISPLAY_FORMAT_BIT(slot->layer ? (slot->layer_color ?
+            SOLAR_OS_DISPLAY_FORMAT_RGB565 : SOLAR_OS_DISPLAY_FORMAT_MONO1) : frame->format)) == 0U ||
         slot->target.present_frame == NULL || slot->target.frame_context == NULL ||
         (uint32_t)frame->x + frame->width > u8g2_GetDisplayWidth(u8g2) ||
         (uint32_t)frame->y + frame->height > u8g2_GetDisplayHeight(u8g2)) {
@@ -1976,13 +2186,22 @@ esp_err_t solar_os_display_present_frame(
     }
     solar_os_display_raster_t physical_frame;
     display_target_slot_t *scaled_slot = &display_targets[slot_index];
+    solar_os_display_raster_t composed;
+    if (scaled_slot->layer) {
+        display_layer_update_colors(scaled_slot);
+        solar_os_display_layer_frame(scaled_slot->layer, frame, &composed);
+        frame = &composed;
+    }
     esp_err_t ret = frame->format == SOLAR_OS_DISPLAY_FORMAT_MONO1 ?
         solar_os_display_scale_bitmap(&scaled_slot->scale, frame, &physical_frame) :
         solar_os_display_scale_raster(&scaled_slot->scale, frame, &physical_frame);
-    solar_os_display_scale_begin_native(&scaled_slot->scale);
+    display_native_begin(scaled_slot);
     if (ret == ESP_OK) ret = presenter(frame_context, &physical_frame);
-    if (ret == ESP_OK) display_publish_rgb_frame(u8g2, &physical_frame);
-    solar_os_display_scale_end_native(&scaled_slot->scale);
+    if (ret == ESP_OK) {
+        if (physical_frame.format == SOLAR_OS_DISPLAY_FORMAT_MONO1) display_publish_frame(u8g2);
+        else display_publish_rgb_frame(u8g2, &physical_frame);
+    }
+    display_native_end(scaled_slot);
     if (ret == ESP_OK) {
         display_activate_pending_overlay_locked(&display_targets[slot_index]);
     }
@@ -2281,10 +2500,21 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
         display_release_slot_ref(slot_index, generation);
         return;
     }
+    display_target_slot_t *layer_slot = present_mutex != NULL ? &display_targets[slot_index] : NULL;
+    uint8_t *layer_logical = layer_slot ? layer_slot->scale.logical_buffer : NULL;
+    if (layer_slot && layer_slot->layer) {
+        display_layer_update_colors(layer_slot);
+        u8g2->tile_buf_ptr = solar_os_display_layer_canvas(layer_slot->layer, true);
+        if (layer_slot->scale.factor > 1U) layer_slot->scale.logical_buffer = u8g2->tile_buf_ptr;
+    }
     u8g2_SendBuffer(u8g2);
-    if (present_mutex != NULL) solar_os_display_scale_begin_native(&display_targets[slot_index].scale);
+    if (present_mutex != NULL) solar_os_display_scale_begin_native(&layer_slot->scale);
     display_publish_frame(u8g2);
-    if (present_mutex != NULL) solar_os_display_scale_end_native(&display_targets[slot_index].scale);
+    if (present_mutex != NULL) solar_os_display_scale_end_native(&layer_slot->scale);
+    if (layer_slot && layer_slot->layer) {
+        layer_slot->scale.logical_buffer = layer_logical;
+        u8g2->tile_buf_ptr = solar_os_display_layer_base(layer_slot->layer);
+    }
     if (present_mutex != NULL) {
         display_activate_pending_overlay_locked(&display_targets[slot_index]);
         xSemaphoreGive(present_mutex);
@@ -2508,6 +2738,7 @@ esp_err_t solar_os_display_start_frame_export(const char *name)
     portEXIT_CRITICAL(&display_targets_lock);
 
     solar_os_display_scale_end_native(&slot->scale);
+    if (slot->layer) display_publish_layer_locked(slot);
     xSemaphoreGive(present_mutex);
     display_release_slot_ref(slot_index, generation);
     solar_os_memory_free(buffer);

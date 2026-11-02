@@ -275,7 +275,7 @@ static void display_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  display layouts");
     solar_os_shell_io_writeln(term, "  display test <target>");
     solar_os_shell_io_writeln(term, "  display mode <target> [mode]");
-    solar_os_shell_io_writeln(term, "  display relax <target> [seconds]");
+    solar_os_shell_io_writeln(term, "  display relax [<target> [seconds]]");
     solar_os_shell_io_writeln(term,
                               "  display join <name> --horizontal|--vertical <target> <target> [target ...]");
     solar_os_shell_io_writeln(term, "  display unjoin <name>");
@@ -727,35 +727,54 @@ static bool display_relax_cancel_key(void *user)
 static void display_cmd_relax(solar_os_context_t *ctx, solar_os_shell_io_t *term,
                               int argc, char **argv)
 {
-    size_t seconds = 60;
-    if ((argc != 3 && argc != 4) ||
+    size_t seconds = argc == 2 ? 1 : 60;
+    if (argc < 2 || argc > 4 ||
         (argc == 4 && !solar_os_shell_parse_size_arg(argv[3], 1, 86400, &seconds))) {
-        solar_os_shell_io_writeln(term, "usage: display relax <target> [seconds: 1..86400, default 60]");
+        solar_os_shell_io_writeln(term,
+            "usage: display relax [<target> [seconds: 1..86400, default 60]]; "
+            "no target: first supported display, 1 second");
         return;
     }
+    const char *name = argc >= 3 ? argv[2] : NULL;
+    char default_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    solar_os_display_target_t target;
+    if (name == NULL) {
+        const size_t count = solar_os_display_target_count();
+        for (size_t i = 0; i < count; ++i) {
+            if (solar_os_display_get_target(i, &target) &&
+                target.relax != NULL && target.relax_context != NULL) {
+                strlcpy(default_target, target.name, sizeof(default_target));
+                name = default_target;
+                break;
+            }
+        }
+        if (name == NULL) {
+            solar_os_shell_io_writeln(term, "display relax: no supported display targets");
+            return;
+        }
+    }
     solar_os_shell_io_printf(term, "display relax: %s, %u seconds; %s or Ctrl+C stops\n",
-                             argv[2], (unsigned)seconds, solar_os_shell_io_app_exit_key(term));
+                             name, (unsigned)seconds, solar_os_shell_io_app_exit_key(term));
     (void)solar_os_shell_io_flush(term);
     char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX] = {0};
     char owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX] = "shell:display-relax";
     char local_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
-    solar_os_display_target_t target;
     /* A display-shell session can temporarily reuse its own claim. Port
      * shells must acquire a free target rather than borrowing another owner.
      */
     if (solar_os_shell_io_kind(term) == SOLAR_OS_SHELL_IO_KIND_TERMINAL &&
         ctx->gfx != NULL && solar_os_gfx_display_target_name(ctx->gfx, local_target, sizeof(local_target)) &&
-        strcmp(local_target, argv[2]) == 0 && solar_os_display_find_target(argv[2], &target) &&
+        strcmp(local_target, name) == 0 && solar_os_display_find_target(name, &target) &&
         target.owner[0] != '\0') strlcpy(owner, target.owner, sizeof(owner));
     solar_os_display_relax_result_t result;
-    const esp_err_t err = solar_os_display_relax(argv[2], owner, (unsigned)seconds,
+    const esp_err_t err = solar_os_display_relax(name, owner, (unsigned)seconds,
         display_relax_cancel_key, ctx, &result, busy_owner, sizeof(busy_owner));
     if (err != ESP_OK) {
         if (busy_owner[0] != '\0')
-            solar_os_shell_io_printf(term, "display relax: %s owned by %s\n", argv[2], busy_owner);
+            solar_os_shell_io_printf(term, "display relax: %s owned by %s\n", name, busy_owner);
         else
             solar_os_shell_io_printf(term, "display relax: %s failed: %s\n",
-                                     argv[2], solar_os_shell_error_text(err));
+                                     name, solar_os_shell_error_text(err));
         return;
     }
     solar_os_shell_io_printf(term, "display relax: %s after %u black/white cycles; image and mode restored\n",

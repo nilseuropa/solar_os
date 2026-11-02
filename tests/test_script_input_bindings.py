@@ -116,6 +116,7 @@ class ScriptInputBindingsTest(unittest.TestCase):
             "AXIS_RZ",
             "GESTURE_FLICK",
             "GESTURE_AIRWHEEL",
+            "GESTURE_EDGE_SWIPE",
             "DIRECTION_CLOCKWISE",
             "GESTURE_FLAG_EDGE",
         )

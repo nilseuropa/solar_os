@@ -88,6 +88,14 @@ int main(void)
                                           0U,
                                           1000U));
 
+    /* Edge and ordinary swipes can be bound independently. */
+    binding.gesture = SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE;
+    binding.any_direction = false;
+    binding.direction = SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH;
+    event.gesture = SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE;
+    assert(solar_os_input_action_matches(&binding, "touch0", &event, false, 0, 1000));
+    event.gesture = SOLAR_OS_INPUT_GESTURE_SWIPE;
+    assert(!solar_os_input_action_matches(&binding, "touch0", &event, false, 0, 1000));
     puts("input action match tests: ok");
     return 0;
 }

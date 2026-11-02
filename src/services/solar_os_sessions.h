@@ -71,6 +71,9 @@ void solar_os_sessions_dispatch_tick(uint32_t now_ms);
 void solar_os_sessions_dispatch_resume(uint32_t now_ms);
 void solar_os_sessions_process_requests(void);
 void solar_os_sessions_drain_operations(void);
+/* Synchronous UI work on the session task. The callback must not wait for
+ * its caller. Teardown is allowed while shutdown requests are draining. */
+esp_err_t solar_os_sessions_run_on_owner(esp_err_t (*operation)(void *), void *context);
 /* Runtime owner only; keeps contexts alive if an app has not stopped. */
 esp_err_t solar_os_sessions_prepare_shutdown(void);
 void solar_os_sessions_prompt_if_shell_active(void);
