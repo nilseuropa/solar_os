@@ -1578,8 +1578,15 @@ static bool switch_to_display_app(const solar_os_app_t *app,
     }
     if (return_to_parent && parent != NULL) {
         session->close_on_exit = true;
+    }
+    /* Ordinary launches return to their display's shell too. A replacement
+     * handoff inherits that shell without turning the old app into a parent. */
+    solar_os_session_entry_t *return_session =
+        return_to_parent || (parent != NULL && parent->app == solar_os_shell_app()) ?
+            parent : session_return_shell(parent);
+    if (return_session != NULL) {
         session->has_return_session = true;
-        session->return_session_id = parent->id;
+        session->return_session_id = return_session->id;
     }
     return switch_to_session(session, false);
 }
