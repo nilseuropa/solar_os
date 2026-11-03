@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -12,6 +13,29 @@ static unsigned writes;
 static bool timer_race;
 static solar_os_rtc_provider_t provider;
 static esp_err_t provider_error;
+static unsigned warning_logs, error_logs;
+static char last_log[192];
+
+void rtc_pcf8563_test_log(bool error, const char *tag, const char *format, ...)
+{
+    assert(strcmp(tag, "pcf8563") == 0);
+    if (error) ++error_logs;
+    else ++warning_logs;
+    va_list args;
+    va_start(args, format);
+    vsnprintf(last_log, sizeof(last_log), format, args);
+    va_end(args);
+}
+
+const char *esp_err_to_name(esp_err_t err)
+{
+    switch (err) {
+    case ESP_ERR_TIMEOUT: return "ESP_ERR_TIMEOUT";
+    case ESP_ERR_INVALID_RESPONSE: return "ESP_ERR_INVALID_RESPONSE";
+    case ESP_ERR_NOT_SUPPORTED: return "ESP_ERR_NOT_SUPPORTED";
+    default: return "unknown error";
+    }
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -180,6 +204,72 @@ int main(void)
     assert(solar_os_pcf8563_detach("rtc0") == ESP_OK);
     assert(solar_os_pcf8563_attach("rtc0", bindings, 2) == ESP_OK);
     assert(provider.interrupt_gpio == -1);
+    assert(solar_os_pcf8563_detach("rtc0") == ESP_OK);
+
+    /* A fresh RTC can ACK while its calendar contains undefined bytes. Reads
+     * must preserve that state, reject the time, and report only one warning. */
+    memset(registers, 0, sizeof(registers));
+    registers[0] = 0x08; /* Power-on TESTC bit. */
+    registers[2] = 0x80; /* VL set; zero day/month is not a valid date. */
+    warning_logs = error_logs = 0;
+    assert(solar_os_pcf8563_attach("rtc0", bindings, 2) == ESP_OK);
+    uint8_t saved[sizeof(registers)];
+    memcpy(saved, registers, sizeof(saved));
+    before = writes;
+    const solar_os_datetime_t sentinel = {.year=2099, .month=12, .day=31};
+    memcpy(&datetime, &sentinel, sizeof(datetime));
+    for (unsigned i = 0; i < 100; ++i) {
+        assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_INVALID_RESPONSE);
+        assert(memcmp(&datetime, &sentinel, sizeof(datetime)) == 0);
+    }
+    assert(warning_logs == 1 && error_logs == 0);
+    assert(strstr(last_log, "date YYYY-MM-DD") && strstr(last_log, "or ntp"));
+    assert(writes == before && memcmp(registers, saved, sizeof(saved)) == 0);
+
+    /* A changed failure still reports transport trouble, without repetition. */
+    fail_read = 0;
+    for (unsigned i = 0; i < 100; ++i)
+        assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_TIMEOUT);
+    assert(warning_logs == 1 && error_logs == 1);
+    assert(strstr(last_log, "ESP_ERR_TIMEOUT"));
+    fail_read = -1;
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_INVALID_RESPONSE);
+    assert(warning_logs == 2 && error_logs == 1);
+
+    /* The normal date/NTP setter recovers without a readable old calendar. */
+    datetime = (solar_os_datetime_t){.year=2026, .month=11, .day=2,
+        .hour=12, .minute=34, .second=56, .clock_integrity=true};
+    fail_write = 2;
+    assert(provider.set_utc_datetime(provider.user, &datetime) == ESP_ERR_TIMEOUT);
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_INVALID_RESPONSE);
+    assert(warning_logs == 2 && error_logs == 1);
+    fail_write = -1;
+    assert(provider.set_utc_datetime(provider.user, &datetime) == ESP_OK);
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_OK);
+    assert(datetime.year == 2026 && datetime.month == 11 && datetime.day == 2 &&
+           datetime.hour == 12 && datetime.minute == 34 && datetime.second == 56 &&
+           datetime.clock_integrity);
+    assert(registers[0] == 0 && (registers[2] & 0x80) == 0);
+
+    registers[3] = 0x1a; /* New corruption after recovery starts a new episode. */
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_INVALID_RESPONSE);
+    assert(warning_logs == 3 && error_logs == 1);
+    registers[3] = 0x34;
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_OK);
+
+    /* Reattaching preserves valid battery-backed time without any writes. */
+    assert(solar_os_pcf8563_detach("rtc0") == ESP_OK);
+    memcpy(saved, registers, sizeof(saved));
+    before = writes;
+    assert(solar_os_pcf8563_attach("rtc0", bindings, 2) == ESP_OK);
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_OK && datetime.clock_integrity);
+    assert(writes == before && memcmp(registers, saved, sizeof(saved)) == 0);
+    registers[7] |= 0x80; /* Unsupported century convention is also recoverable. */
+    for (unsigned i = 0; i < 100; ++i)
+        assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_ERR_NOT_SUPPORTED);
+    assert(warning_logs == 4 && error_logs == 1);
+    assert(provider.set_utc_datetime(provider.user, &datetime) == ESP_OK);
+    assert(provider.get_utc_datetime(provider.user, &datetime) == ESP_OK && datetime.clock_integrity);
     assert(solar_os_pcf8563_detach("rtc0") == ESP_OK);
     puts("PCF8563 / BM8563 driver/provider tests passed");
     return 0;

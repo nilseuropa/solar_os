@@ -13,6 +13,7 @@ typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     rtc_pcf8563_t rtc;
     int irq_pin;
+    esp_err_t last_read_error;
 } solar_os_pcf8563_device_t;
 
 static solar_os_pcf8563_device_t rtc_device;
@@ -26,9 +27,20 @@ static esp_err_t rtc_get(void *user, solar_os_datetime_t *datetime)
     rtc_pcf8563_datetime_t value;
     const esp_err_t read_err = rtc_pcf8563_get_datetime_device(&device->rtc, &value);
     if (read_err != ESP_OK) {
-        ESP_LOGE("pcf8563", "rtc_get: read failed: %s", esp_err_to_name(read_err));
+        /* Status-bar polling must not flood the console while the calendar is
+         * unset. Keep returning the error so callers cannot use invalid time. */
+        if (read_err != device->last_read_error) {
+            if (read_err == ESP_ERR_INVALID_RESPONSE || read_err == ESP_ERR_NOT_SUPPORTED) {
+                ESP_LOGW("pcf8563", "RTC calendar invalid or unset; use date YYYY-MM-DD "
+                         "then time HH:MM:SS, or ntp");
+            } else {
+                ESP_LOGE("pcf8563", "rtc_get: read failed: %s", esp_err_to_name(read_err));
+            }
+        }
+        device->last_read_error = read_err;
         return read_err;
     }
+    device->last_read_error = ESP_OK;
     *datetime = (solar_os_datetime_t) {
         .year = value.year,
         .month = value.month,

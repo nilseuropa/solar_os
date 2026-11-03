@@ -208,8 +208,8 @@ rtc_ds3231_test: rtc_ds3231_test.c $(ROOT)/src/drivers/rtc_ds3231.c \
 
 rtc_pcf8563_test: rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c \
         $(ROOT)/src/drivers/rtc_pcf8563.h $(ROOT)/src/services/solar_os_pcf8563.c \
-        $(ROOT)/src/services/solar_os_pcf8563.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. \
+        $(ROOT)/src/services/solar_os_pcf8563.h pcf8563_stubs/esp_log.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipcf8563_stubs -Iexpansion_stubs -I. \
 		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c $(ROOT)/src/services/solar_os_pcf8563.c -o $@
 
